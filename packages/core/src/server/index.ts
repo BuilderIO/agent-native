@@ -199,6 +199,7 @@ export {
   type JevContextCredentials,
   type ResolvedOwnerApiKey,
 } from "../agent/production-agent.js";
+export { approvalKeyWithArguments } from "../agent/approval-key.js";
 export {
   isJevEnabled,
   requestJevThroughBuilder,
@@ -250,6 +251,10 @@ export {
   runBetterAuthMigrations,
 } from "./better-auth-migrations.js";
 export { runFrameworkReleaseMigrations } from "./release-migrations.js";
+export {
+  runAppReleaseMigrations,
+  type AppReleaseMigrationResult,
+} from "./app-release-migrations.js";
 export {
   initServerSentry,
   isServerSentryEnabled,

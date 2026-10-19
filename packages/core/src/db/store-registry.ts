@@ -25,8 +25,13 @@ import {
   isProductionServerlessFunctionRuntime,
   withMigrationExecutionRuntime,
 } from "./migration-runtime.js";
+import { runMigrations, type MigrationEntry } from "./migrations.js";
 import { retainRequestDbPoolScope } from "./request-pool-context.js";
-import { dbClientGeneration, retryOnDdlRace } from "./runtime-facts.js";
+import {
+  dbClientGeneration,
+  retryOnDdlRace,
+  runRecordingStoreMigration,
+} from "./runtime-facts.js";
 
 export const STORE_MIGRATIONS_TABLE = "_an_store_migrations";
 
@@ -57,10 +62,39 @@ export interface StoreMigration {
   readonly kind?: "schema" | "data";
   readonly sql?: string | readonly string[];
   readonly run?: (exec: DbExec) => Promise<void>;
+  /**
+   * The versioned `runMigrations` entry this migration replaces. A database
+   * whose old bookkeeping table already records that entry gets a ledger row
+   * (`source = 'legacy'`) instead of running it again.
+   */
+  readonly legacy?: LegacyMigrationRef;
+}
+
+export interface LegacyMigrationRef {
+  /** The `runMigrations` table, e.g. `_chat_thread_schema_migrations`. */
+  readonly table: string;
+  readonly version: number;
+  /** Set for named entries, which were gated by name, not version. */
+  readonly name?: string;
+  /**
+   * Where the list ran on main. A release-only list (the default) keeps
+   * running only in the release step. A list that also ran at plugin boot
+   * runs everywhere: local runtimes import its history once, and hosted apps
+   * without release migrations keep running it through `runMigrations` and
+   * its old table, exactly as before.
+   */
+  readonly ranAtBoot?: boolean;
+  /** The original entry, for that hosted `runMigrations` path. */
+  readonly entry?: MigrationEntry;
 }
 
 export interface StoreDefinition {
   readonly id: string;
+  /**
+   * Stores whose migrations must run first at release, for a migration that
+   * reads or alters another store's tables. Registry order is otherwise by id.
+   */
+  readonly after?: readonly string[];
   /**
    * Never provision from a request, even for hosted apps that do not migrate
    * at release: the release step (or a versioned list) is the only creator.
@@ -96,7 +130,7 @@ export class SchemaNotMigratedError extends Error {
   }
 }
 
-type Readiness = "apply" | "trust" | "replay" | "hosted-replay" | "skip";
+type Readiness = "apply" | "trust" | "hosted-replay" | "skip";
 
 function isHostedRuntime(): boolean {
   return (
@@ -121,16 +155,23 @@ export function schemaIsReleaseOwned(): boolean {
  * the caller's transaction, so a ledger row written there could claim a
  * migration that production never kept.
  */
+function isReleaseStep(): boolean {
+  return isMigrationAuthorizedRuntime() && !isHostedFunctionInvocationRuntime();
+}
+
 function readiness(): Readiness {
-  if (isMigrationAuthorizedRuntime() && !isHostedFunctionInvocationRuntime()) {
-    return "apply";
-  }
+  if (isReleaseStep()) return "apply";
   // No ledger read here: a cold start does zero schema queries, and a missed
   // release is caught by the release step's own verification, not turned into
   // a sitewide error by every request.
   if (schemaIsReleaseOwned()) return "trust";
   if (schemaEnsureSkipRequested()) return "skip";
-  return isHostedRuntime() ? "hosted-replay" : "replay";
+  // Hosted requests never write the ledger: PR previews share production's
+  // database and a request's writes can roll back with its caller.
+  if (isHostedRuntime()) return "hosted-replay";
+  // Local dev, tests and self-hosted servers own their database, so they
+  // record migrations like the release step: each runs once per database.
+  return "apply";
 }
 
 function statementsOf(migration: StoreMigration): readonly string[] {
@@ -173,20 +214,70 @@ async function runMigration(
   if (migration.run) await retryOnDdlRace(() => migration.run!(exec));
 }
 
-async function applyWithLedger(store: StoreDefinition): Promise<void> {
-  const exec = getDbExec();
-  if (!ledgerPresent) {
-    await retryOnDdlRace(() => exec.execute(LEDGER_DDL));
-    ledgerPresent = true;
+async function applyWithLedger(
+  store: StoreDefinition,
+  exec: DbExec,
+): Promise<void> {
+  try {
+    await applyPending(store, exec);
+  } catch (err) {
+    // The ledger can vanish behind a long-lived executor (a database dropped
+    // and recreated under the same client). Rebuild this executor's view once
+    // rather than failing every store until the process restarts.
+    if (!isMissingLedger(err)) throw err;
+    ledgerStates.delete(exec);
+    await applyPending(store, exec);
   }
-  const recorded = (await readLedgerSnapshot()).get(store.id);
+}
+
+function isMissingLedger(err: unknown): boolean {
+  for (let e = err as any, depth = 0; e && depth < 4; e = e.cause, depth++) {
+    if (
+      (e.code === "42P01" ||
+        /relation .* does not exist/i.test(String(e.message ?? ""))) &&
+      String(e.message ?? "").includes(STORE_MIGRATIONS_TABLE)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function applyPending(
+  store: StoreDefinition,
+  exec: DbExec,
+): Promise<void> {
+  const state = ledgerStateFor(exec);
+  if (!state.present) {
+    const preparing = (state.preparing ??= prepareLedger(exec).finally(() => {
+      if (state.preparing === preparing) state.preparing = undefined;
+    }));
+    await preparing;
+    state.present = true;
+    state.snapshot = undefined;
+  }
+  const recorded = (await readLedgerSnapshot(exec)).get(store.id);
   if (recorded && store.migrations.every((m) => recorded.has(m.name))) return;
 
   const applied = new Set(recorded);
+  const legacy = new LegacyBookkeeping(exec);
+  const isRelease = isReleaseStep();
+  let ran = 0;
   for (const migration of store.migrations) {
     if (applied.has(migration.name)) continue;
+    // An entry carried over from a `runMigrations` list ran only in the release
+    // step on main; local runtimes get those tables from the store's own
+    // migrations, and running the list there would need its release-only order.
+    if (migration.legacy && !migration.legacy.ranAtBoot && !isRelease) {
+      continue;
+    }
+    if (migration.legacy && (await legacy.recorded(migration.legacy))) {
+      await recordMigration(exec, store, migration, "legacy");
+      applied.add(migration.name);
+      continue;
+    }
     try {
-      await runMigration(migration, exec);
+      await runRecordingStoreMigration(() => runMigration(migration, exec));
     } catch (err) {
       throw new Error(
         `Store "${store.id}" migration "${migration.name}" failed: ${
@@ -195,49 +286,372 @@ async function applyWithLedger(store: StoreDefinition): Promise<void> {
         { cause: err },
       );
     }
-    await exec.execute({
-      sql: `INSERT INTO ${STORE_MIGRATIONS_TABLE} (store_id, name, applied_at, checksum, kind, source) VALUES (?, ?, ?, ?, ?, 'step') ON CONFLICT (store_id, name) DO NOTHING`,
-      args: [
-        store.id,
-        migration.name,
-        Date.now(),
-        migrationChecksum(migration),
-        migration.kind ?? "schema",
-      ],
-    });
+    await recordMigration(exec, store, migration, "step");
+    // Hosted apps without release migrations still replay boot lists against
+    // their old table; without this row they would run this entry again.
+    if (migration.legacy?.ranAtBoot) {
+      await recordLegacyMigrationEntries(exec, migration.legacy.table, [
+        { version: migration.legacy.version, name: migration.legacy.name },
+      ]);
+    }
     applied.add(migration.name);
+    ran++;
   }
-  ledgerSnapshot = undefined;
+  state.snapshot = undefined;
+  if (ran > 0) {
+    console.log(`[db] Applied ${ran} migration(s) to store "${store.id}"`);
+  }
+}
+
+/**
+ * A deployed server with no hosted database refuses every database open, and
+ * its sign-in page explains the fix; rejecting here would keep the auth and org
+ * plugins from mounting that page, as `runMigrations` never did. Every later
+ * query raises the same refusal, so nothing downstream reads as migrated.
+ */
+// By name rather than `instanceof`: this module must not import the class from
+// `client.js`, which nearly every spec mocks, and the runner wraps the error.
+function databaseRefusal(err: unknown): Error | undefined {
+  for (let cause = err; cause; cause = (cause as Error).cause) {
+    if ((cause as Error).name === "HostedRuntimeLocalDatabaseError") {
+      return cause as Error;
+    }
+  }
+  return undefined;
+}
+
+async function tolerateRefusedDatabase(
+  storeId: string,
+  apply: () => Promise<void>,
+): Promise<void> {
+  try {
+    await apply();
+  } catch (err) {
+    const refusal = databaseRefusal(err);
+    if (!refusal || isReleaseStep()) throw err;
+    console.error(`[db] Skipping store "${storeId}". ${refusal.message}`);
+  }
+}
+
+/**
+ * Records entries in a `runMigrations` list's own bookkeeping as that runner
+ * would after applying them: each by name when named, and the highest version
+ * only when it advances `MAX(version)`, the one value that gates unnamed ones.
+ */
+async function recordLegacyMigrationEntries(
+  exec: DbExec,
+  table: string,
+  entries: ReadonlyArray<{ version: number; name?: string }>,
+): Promise<void> {
+  if (entries.length === 0) return;
+  await retryOnDdlRace(() =>
+    exec.execute(
+      `CREATE TABLE IF NOT EXISTS ${table} (version BIGINT PRIMARY KEY)`,
+    ),
+  );
+  await retryOnDdlRace(() =>
+    exec.execute(
+      `CREATE TABLE IF NOT EXISTS ${table}_named (name TEXT PRIMARY KEY, version BIGINT, applied_at TIMESTAMP NOT NULL DEFAULT now())`,
+    ),
+  );
+  const named = entries.filter((entry) => entry.name);
+  if (named.length > 0) {
+    await exec.execute({
+      sql: `INSERT INTO ${table}_named (name, version) VALUES ${named
+        .map(() => "(?, ?)")
+        .join(", ")} ON CONFLICT DO NOTHING`,
+      args: named.flatMap((entry) => [entry.name, entry.version]),
+    });
+  }
+  const version = Math.max(...entries.map((entry) => entry.version));
+  const { rows } = await exec.execute(`SELECT MAX(version) AS v FROM ${table}`);
+  if (version > Number(rows[0]?.v ?? 0)) {
+    await exec.execute({
+      sql: `INSERT INTO ${table} (version) VALUES (?) ON CONFLICT DO NOTHING`,
+      args: [version],
+    });
+  }
+}
+
+async function recordMigration(
+  exec: DbExec,
+  store: StoreDefinition,
+  migration: StoreMigration,
+  source: "step" | "legacy",
+): Promise<void> {
+  await exec.execute({
+    sql: `INSERT INTO ${STORE_MIGRATIONS_TABLE} (store_id, name, applied_at, checksum, kind, source) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (store_id, name) DO NOTHING`,
+    args: [
+      store.id,
+      migration.name,
+      Date.now(),
+      migrationChecksum(migration),
+      migration.kind ?? "schema",
+      source,
+    ],
+  });
+}
+
+/**
+ * Reads a `runMigrations` table's bookkeeping with its own gating: an unnamed
+ * entry counts as applied when its version is at or below `MAX(version)`, a
+ * named one only when its name is in `${table}_named`. A missing table means
+ * nothing was applied. Existence is checked with `to_regclass` so a missing
+ * table never aborts a caller's open transaction.
+ */
+class LegacyBookkeeping {
+  private readonly cache = new Map<
+    string,
+    Promise<{ maxVersion: number; names: Set<string> }>
+  >();
+
+  constructor(private readonly exec: DbExec) {}
+
+  async recorded(ref: LegacyMigrationRef): Promise<boolean> {
+    const state = await this.read(ref.table);
+    return ref.name
+      ? state.names.has(ref.name)
+      : ref.version <= state.maxVersion;
+  }
+
+  private read(table: string) {
+    let pending = this.cache.get(table);
+    if (!pending) this.cache.set(table, (pending = this.load(table)));
+    return pending;
+  }
+
+  private async load(table: string) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(table)) {
+      throw new Error(`Invalid legacy migration table "${table}"`);
+    }
+    const exists = async (name: string) => {
+      const { rows } = await this.exec.execute({
+        sql: "SELECT to_regclass(?) IS NOT NULL AS present",
+        args: [name],
+      });
+      const present = rows[0]?.present;
+      return present === true || present === "t";
+    };
+    let maxVersion = 0;
+    const names = new Set<string>();
+    if (await exists(table)) {
+      const { rows } = await this.exec.execute(
+        `SELECT MAX(version) AS v FROM ${table}`,
+      );
+      maxVersion = Number(rows[0]?.v ?? 0);
+    }
+    if (await exists(`${table}_named`)) {
+      const { rows } = await this.exec.execute(
+        // guard:allow-unbounded-read — one row per applied entry of one migration list
+        `SELECT name FROM ${table}_named`,
+      );
+      for (const row of rows) names.add(String(row.name));
+    }
+    return { maxVersion, names };
+  }
 }
 
 async function replay(store: StoreDefinition): Promise<void> {
   const exec = getDbExec();
+  const bootLists = new Map<string, MigrationEntry[]>();
   for (const migration of store.migrations) {
+    if (migration.legacy?.ranAtBoot && migration.legacy.entry) {
+      const list = bootLists.get(migration.legacy.table) ?? [];
+      list.push(migration.legacy.entry);
+      bootLists.set(migration.legacy.table, list);
+      continue;
+    }
+    // A request never runs a backfill or seed, nor an entry carried over from
+    // a release-only `runMigrations` list: neither ever ran in these apps'
+    // requests, and versioned entries are not all safe to repeat.
+    if (migration.kind === "data" || migration.legacy) continue;
     await runMigration(migration, exec);
+  }
+  // Lists that ran at boot on main keep their own bookkeeping here, so these
+  // apps neither re-run nor skip an entry when they upgrade.
+  for (const [table, entries] of bootLists) {
+    await runMigrations(entries, { table })(undefined);
   }
 }
 
-let ledgerSnapshot: Promise<Map<string, Set<string>>> | undefined;
-let ledgerPresent = false;
+/**
+ * Registry order with each store's `after` dependencies first. Fails on an
+ * unknown id or a cycle rather than guessing an order.
+ */
+export function orderStoresForRelease<T extends StoreDefinition>(
+  stores: readonly T[],
+): T[] {
+  const byId = new Map(stores.map((store) => [store.id, store]));
+  const ordered: T[] = [];
+  const state = new Map<string, "visiting" | "done">();
+  const visit = (store: T, path: string[]) => {
+    const seen = state.get(store.id);
+    if (seen === "done") return;
+    if (seen === "visiting") {
+      throw new Error(`Store order cycle: ${[...path, store.id].join(" -> ")}`);
+    }
+    state.set(store.id, "visiting");
+    for (const dependency of store.after ?? []) {
+      const before = byId.get(dependency);
+      if (!before) {
+        throw new Error(
+          `Store "${store.id}" must run after unknown store "${dependency}"`,
+        );
+      }
+      visit(before, [...path, store.id]);
+    }
+    state.set(store.id, "done");
+    ordered.push(store);
+  };
+  for (const store of stores) visit(store, []);
+  return ordered;
+}
+
+interface LedgerState {
+  snapshot?: Promise<Map<string, Set<string>>>;
+  present: boolean;
+  preparing?: Promise<void>;
+}
+
+/**
+ * The framework schema as of the last `pnpm gen:schema-snapshot`: every
+ * statement a fresh release produced, the framework tables it created, and
+ * the schema migrations it recorded. Data migrations are not covered; they
+ * run after the snapshot like any migration added since.
+ */
+export interface SchemaSnapshot {
+  readonly statements: readonly string[];
+  readonly tables: readonly string[];
+  readonly migrations: ReadonlyArray<
+    readonly [storeId: string, name: string, checksum: string | null]
+  >;
+  /** Covered entries of lists that ran at boot, as their old tables record them. */
+  readonly bootLists: ReadonlyArray<
+    readonly [table: string, version: number, name: string | null]
+  >;
+}
+
+let snapshotOverride: SchemaSnapshot | null | undefined;
+
+/** Tests and the snapshot generator run the step-by-step path with `null`. */
+export function __setSchemaSnapshotForTests(
+  snapshot: SchemaSnapshot | null | undefined,
+): void {
+  snapshotOverride = snapshot;
+}
+
+async function loadSchemaSnapshot(): Promise<SchemaSnapshot | null> {
+  if (snapshotOverride !== undefined) return snapshotOverride;
+  // Loaded only when a database is actually fresh, never on a cold start.
+  return (await import("./schema-snapshot.generated.js")).SCHEMA_SNAPSHOT;
+}
+
+/**
+ * Creates the ledger. On a database with no ledger and none of the framework
+ * tables (a first release, or a first `pnpm dev`), installs the schema
+ * snapshot instead of replaying every migration since the first release, and
+ * records the migrations it covers with `source = 'snapshot'`.
+ */
+async function prepareLedger(exec: DbExec): Promise<void> {
+  const snapshot = await loadSchemaSnapshot();
+  if (snapshot && exec.transaction && (await isFreshDatabase(exec, snapshot))) {
+    await exec.transaction(async (tx) => {
+      for (const statement of snapshot.statements) {
+        await tx.execute(statement);
+      }
+      await tx.execute(LEDGER_DDL);
+      const now = Date.now();
+      for (let i = 0; i < snapshot.migrations.length; i += 100) {
+        const chunk = snapshot.migrations.slice(i, i + 100);
+        await tx.execute({
+          sql: `INSERT INTO ${STORE_MIGRATIONS_TABLE} (store_id, name, applied_at, checksum, kind, source) VALUES ${chunk
+            .map(() => "(?, ?, ?, ?, 'schema', 'snapshot')")
+            .join(", ")} ON CONFLICT (store_id, name) DO NOTHING`,
+          args: chunk.flatMap(([storeId, name, checksum]) => [
+            storeId,
+            name,
+            now,
+            checksum,
+          ]),
+        });
+      }
+      // Hosted apps without release migrations replay boot lists against their
+      // old tables, so they must record what the snapshot installed.
+      const bootLists = new Map<
+        string,
+        Array<{ version: number; name?: string }>
+      >();
+      for (const [table, version, name] of snapshot.bootLists) {
+        const entries = bootLists.get(table) ?? [];
+        entries.push({ version, name: name ?? undefined });
+        bootLists.set(table, entries);
+      }
+      for (const [table, entries] of bootLists) {
+        await recordLegacyMigrationEntries(tx, table, entries);
+      }
+    });
+    console.log(
+      `[db] Installed schema snapshot (${snapshot.migrations.length} migration(s))`,
+    );
+    return;
+  }
+  await retryOnDdlRace(() => exec.execute(LEDGER_DDL));
+}
+
+/**
+ * Fresh means no ledger and none of the snapshot's tables. Other apps' tables
+ * may share the database; a database any older core touched has framework
+ * tables, so it upgrades step by step and its baselines converge it.
+ */
+async function isFreshDatabase(
+  exec: DbExec,
+  snapshot: SchemaSnapshot,
+): Promise<boolean> {
+  const { rows } = await exec.execute({
+    sql: `SELECT to_regclass('${STORE_MIGRATIONS_TABLE}') IS NOT NULL AS ledger,
+      (SELECT count(*) FROM pg_tables WHERE schemaname = 'public' AND tablename IN (${snapshot.tables
+        .map(() => "?")
+        .join(", ")}))::int AS framework_tables`,
+    args: [...snapshot.tables],
+  });
+  const ledger = rows[0]?.ledger;
+  return (
+    (ledger === false || ledger === "f") &&
+    Number(rows[0]?.framework_tables) === 0
+  );
+}
+
+/**
+ * Ledger state is per database executor, not per process. A transaction
+ * (`withDbExec(tx, ...)`) gets its own, so nothing it records can outlive a
+ * rollback; tests that hand each case a fresh database get a fresh ledger
+ * view; and `closeDbExec()` replaces the shared executor, which starts over.
+ */
+let ledgerStates = new WeakMap<DbExec, LedgerState>();
 const allPending = new Set<Map<Readiness, Promise<void>>>();
 let stateGeneration: number | undefined;
 
+function ledgerStateFor(exec: DbExec): LedgerState {
+  let state = ledgerStates.get(exec);
+  if (!state) ledgerStates.set(exec, (state = { present: false }));
+  return state;
+}
+
 /**
- * Ledger state and every store's memo describe one database. Closing the
- * database clients (tests, dev reloads, a process that migrates several
- * databases) may point the next query at another, so start over.
+ * Process-wide memos (hosted replay, trust, skip) describe one database.
+ * Closing the database clients (tests, dev reloads) may point the next query
+ * at another, so start over.
  */
 function syncWithDatabaseGeneration(): void {
   const generation = dbClientGeneration();
   if (stateGeneration === generation) return;
   stateGeneration = generation;
-  ledgerSnapshot = undefined;
-  ledgerPresent = false;
+  ledgerStates = new WeakMap();
   for (const pending of allPending) pending.clear();
 }
 
-async function loadLedger(): Promise<Map<string, Set<string>>> {
-  const { rows } = await getDbExec().execute(
+async function loadLedger(exec: DbExec): Promise<Map<string, Set<string>>> {
+  const { rows } = await exec.execute(
     // guard:allow-unbounded-read — one row per declared migration; this is the single shared read
     `SELECT store_id, name FROM ${STORE_MIGRATIONS_TABLE}`,
   );
@@ -251,10 +665,11 @@ async function loadLedger(): Promise<Map<string, Set<string>>> {
   return ledger;
 }
 
-function readLedgerSnapshot(): Promise<Map<string, Set<string>>> {
-  const snapshot = (ledgerSnapshot ??= loadLedger());
+function readLedgerSnapshot(exec: DbExec): Promise<Map<string, Set<string>>> {
+  const state = ledgerStateFor(exec);
+  const snapshot = (state.snapshot ??= loadLedger(exec));
   snapshot.catch(() => {
-    if (ledgerSnapshot === snapshot) ledgerSnapshot = undefined;
+    if (state.snapshot === snapshot) state.snapshot = undefined;
   });
   return snapshot;
 }
@@ -267,8 +682,9 @@ function readLedgerSnapshot(): Promise<Map<string, Set<string>>> {
 export async function findUnappliedStoreMigrations(
   stores: readonly StoreDefinition[],
 ): Promise<Array<{ storeId: string; missing: string[] }>> {
-  ledgerSnapshot = undefined;
-  const ledger = await readLedgerSnapshot();
+  const exec = getDbExec();
+  ledgerStateFor(exec).snapshot = undefined;
+  const ledger = await readLedgerSnapshot(exec);
   return stores
     .map((store) => ({
       storeId: store.id,
@@ -405,25 +821,42 @@ export function defineStore(definition: StoreDefinition): Store {
 
   const pending = new Map<Readiness, Promise<void>>();
   allPending.add(pending);
+  // The release step also runs list-origin migrations that local runtimes
+  // skip, so its readiness is memoized separately.
+  let applied = new WeakMap<DbExec, Promise<void>>();
+  let appliedAtRelease = new WeakMap<DbExec, Promise<void>>();
   const store: Store = {
     id,
+    after: definition.after,
     releaseOnly: definition.releaseOnly,
     migrations,
     ready() {
       syncWithDatabaseGeneration();
       const mode = readiness();
+      if (mode === "apply") {
+        return tolerateRefusedDatabase(id, () => {
+          const exec = getDbExec();
+          const memo = isReleaseStep() ? appliedAtRelease : applied;
+          const existing = memo.get(exec);
+          if (existing) return existing;
+          const tracked = retainRequestDbPoolScope(
+            applyWithLedger(store, exec).catch((err) => {
+              if (memo.get(exec) === tracked) memo.delete(exec);
+              throw err;
+            }),
+          );
+          memo.set(exec, tracked);
+          return tracked;
+        });
+      }
       const existing = pending.get(mode);
       if (existing) return existing;
       const run =
-        mode === "apply"
-          ? applyWithLedger(store)
-          : mode === "hosted-replay"
-            ? definition.releaseOnly
-              ? Promise.resolve()
-              : withMigrationExecutionRuntime(() => replay(store))
-            : mode === "replay"
-              ? replay(store)
-              : Promise.resolve();
+        mode === "hosted-replay"
+          ? definition.releaseOnly
+            ? Promise.resolve()
+            : withMigrationExecutionRuntime(() => replay(store))
+          : Promise.resolve();
       // The memo outlives the request that started it; on Workers that
       // request's pool must stay open until the work settles.
       const tracked = retainRequestDbPoolScope(
@@ -437,12 +870,13 @@ export function defineStore(definition: StoreDefinition): Store {
     },
     reset() {
       pending.clear();
+      applied = new WeakMap();
+      appliedAtRelease = new WeakMap();
     },
   };
   return store;
 }
 
 export function __resetStoreLedgerSnapshotForTests(): void {
-  ledgerSnapshot = undefined;
-  ledgerPresent = false;
+  ledgerStates = new WeakMap();
 }

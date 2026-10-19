@@ -13,10 +13,16 @@ import { z } from "zod";
 import { CHATGPT_DIRECTORY_PROFILE as contentDirectoryProfile } from "../../../../templates/content/server/lib/chatgpt-directory-tools.js";
 import { CHATGPT_DIRECTORY_PROFILE as designDirectoryProfile } from "../../../../templates/design/server/lib/chatgpt-directory-tools.js";
 import { CHATGPT_DIRECTORY_PROFILE as slidesDirectoryProfile } from "../../../../templates/slides/server/lib/chatgpt-directory-tools.js";
-import { defineAction } from "../action.js";
+import {
+  AgentActionStopError,
+  AgentConnectionRequiredError,
+  defineAction,
+} from "../action.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { listResourceSuggestions } from "../review/suggestions/actions.js";
 import { loadActionsFromStaticRegistry } from "../server/action-discovery.js";
+import { registerErrorCaptureProvider } from "../server/capture-error.js";
+import { filesystemActionEntry } from "../server/filesystem-action-entry.js";
 import {
   isMcpDirectoryWidgetReadCapabilityScope,
   isMcpDirectoryWidgetWriteCapabilityScope,
@@ -47,6 +53,14 @@ const actionChangeMocks = vi.hoisted(() => ({
 
 vi.mock("../server/action-change-marker-write.js", () => ({
   writeActionChangeMarker: actionChangeMocks.writeMarker,
+}));
+
+const auditMocks = vi.hoisted(() => ({
+  record: vi.fn(async (_input: unknown) => {}),
+}));
+
+vi.mock("../audit/record.js", () => ({
+  recordActionAudit: auditMocks.record,
 }));
 
 const approvalStoreMocks = vi.hoisted(() => {
@@ -166,9 +180,11 @@ vi.mock("./builtin-tools.js", () => ({
 }));
 const resolveOrgIdForEmailMock = vi.hoisted(() => vi.fn(async () => null));
 const resolveA2AOrganizationMetadataByIdMock = vi.hoisted(() => vi.fn());
+const lookupOrgByDomainMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../org/context.js", () => ({
   resolveOrgByDomain: vi.fn(async () => null),
+  lookupOrgByDomain: (...args: any[]) => lookupOrgByDomainMock(...args),
   resolveA2AOrganizationMetadataById: (
     ...args: Parameters<typeof resolveA2AOrganizationMetadataByIdMock>
   ) => resolveA2AOrganizationMetadataByIdMock(...args),
@@ -307,6 +323,7 @@ vi.mock("./credential-membership.js", async (importOriginal) => {
 });
 
 const { handleMcpRequest } = await import("./server.js");
+const { handleMcpFetchRequest } = await import("./framework-fetch-handler.js");
 
 interface MakeEventOpts {
   method?: string;
@@ -801,7 +818,13 @@ async function directoryWidgetTemplateConfig(
   const loadedActions = loadActionsFromStaticRegistry(modules);
   const actions = {
     ...loadedActions,
-    [toolName]: { ...loadedActions[toolName], run: async () => result },
+    // The stub enforces no input schema, so it declares none to prepare a
+    // call against.
+    [toolName]: {
+      ...loadedActions[toolName],
+      schema: undefined,
+      run: async () => result,
+    },
   };
   const directoryProfile = { ...profile, authorizeWidgetWrite };
   return {
@@ -862,6 +885,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       async (orgId: string) =>
         orgId === "org_123" ? { orgId, orgDomain: null } : null,
     );
+    lookupOrgByDomainMock.mockReset();
+    lookupOrgByDomainMock.mockResolvedValue({ status: "not-found" });
   });
   afterEach(() => {
     delete process.env.ACCESS_TOKEN;
@@ -4923,6 +4948,19 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       } as any);
       expect(approved.isError).not.toBe(true);
       expect(run).toHaveBeenCalledTimes(1);
+      expect(run).toHaveBeenCalledWith(
+        { draftId: "draft-1", allowLockedLayers: true },
+        expect.objectContaining({
+          caller: "mcp",
+          userEmail: "oauth@example.com",
+          mcpClientAccepted: true,
+          mcpClient: {
+            name: "agent-native-server-spec",
+            version: "1.0.0",
+            oauthClientId: "client-123",
+          },
+        }),
+      );
       expect(actionChangeMocks.writeMarker).toHaveBeenCalledOnce();
 
       const replay = await client.callTool({
@@ -4939,6 +4977,63 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       expect(replay.isError).toBe(true);
       expect(run).toHaveBeenCalledTimes(1);
       expect(actionChangeMocks.writeMarker).toHaveBeenCalledOnce();
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("asks approval for the arguments that run, defaults applied, and runs them once", async () => {
+    const received: unknown[] = [];
+    const seen: unknown[] = [];
+    const approvalConfig = {
+      ...config,
+      actions: {
+        "publish-draft": defineAction({
+          description: "Publish a draft",
+          schema: z.object({
+            draftId: z.string(),
+            allowLockedLayers: z.boolean().default(true),
+          }),
+          needsApproval: (args) => {
+            seen.push(args);
+            return args.allowLockedLayers === true;
+          },
+          run: async (args) => {
+            received.push(args);
+            return { ok: true };
+          },
+        }),
+      },
+    };
+    const { client } = await createModernClient(approvalConfig as any, {
+      manualInputRequired: true,
+      supportsElicitation: true,
+      requestHeaders: await mcpAppsAuthHeaders(),
+    });
+    try {
+      const first = (await client.callTool(
+        { name: "publish-draft", arguments: { draftId: "draft-1" } } as any,
+        { allowInputRequired: true } as any,
+      )) as any;
+      expect(first).toMatchObject({ resultType: "input_required" });
+      expect(seen).toEqual([{ draftId: "draft-1", allowLockedLayers: true }]);
+      expect(received).toEqual([]);
+
+      const approved = await client.callTool({
+        name: "publish-draft",
+        arguments: { draftId: "draft-1" },
+        requestState: first.requestState,
+        inputResponses: {
+          actionApproval: {
+            action: "accept",
+            content: { decision: "approve" },
+          },
+        },
+      } as any);
+      expect(approved.isError).not.toBe(true);
+      expect(received).toEqual([
+        { draftId: "draft-1", allowLockedLayers: true },
+      ]);
     } finally {
       await client.close();
     }
@@ -5185,6 +5280,18 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       });
       expect(ordinary.isError).not.toBe(true);
       expect(ordinaryRun).toHaveBeenCalledTimes(1);
+      expect(ordinaryRun).toHaveBeenCalledWith(
+        {},
+        expect.objectContaining({
+          mcpClient: expect.objectContaining({ oauthClientId: "client-123" }),
+        }),
+      );
+      expect(ordinaryRun).toHaveBeenCalledWith(
+        {},
+        expect.not.objectContaining({
+          mcpClientAccepted: expect.anything(),
+        }),
+      );
 
       await expect(
         client.callTool({ name: "throwing", arguments: {} }),
@@ -5231,7 +5338,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
   });
 
   it.each([false, true])(
-    "discovers composed object inputs through the SDK (full catalog: %s)",
+    "advertises composed object inputs as flat object roots through the SDK (full catalog: %s)",
     async (fullCatalog) => {
       const actions = {
         "union-input": defineAction({
@@ -5264,44 +5371,557 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       );
       try {
         const result = await client.listTools();
-        for (const [name, action] of Object.entries(actions)) {
-          const tool = result.tools.find((tool) => tool.name === name);
-          expect(tool?.inputSchema).toEqual({
-            ...action.tool.parameters,
-            type: "object",
-          });
+        const inputSchema = (name: string) =>
+          result.tools.find((tool) => tool.name === name)?.inputSchema;
+        // Zod input objects are open, so a key one branch declares can hold
+        // any value in the other branch; the declared type stays as a hint.
+        const anyValue = { $ref: "#/$defs/JsonValue" };
+        expect(inputSchema("union-input")).toMatchObject({
+          type: "object",
+          properties: {
+            phase: {
+              anyOf: [{ enum: ["validate"] }, { enum: ["verify"] }],
+            },
+            plan: { anyOf: [{ type: "object" }, anyValue] },
+            digest: { anyOf: [{ type: "string" }, anyValue] },
+          },
+          required: ["phase"],
+          $defs: { JsonValue: { anyOf: expect.any(Array) } },
+        });
+        expect(inputSchema("union-input")?.description).toContain(
+          'phase="validate": requires plan',
+        );
+        expect(inputSchema("intersection-input")).toMatchObject({
+          type: "object",
+          properties: { id: { type: "string" } },
+          required: ["id", "value"],
+        });
+        for (const tool of result.tools) {
+          expect(tool.inputSchema.type).toBe("object");
+          for (const keyword of ["anyOf", "oneOf", "allOf"]) {
+            expect(tool.inputSchema).not.toHaveProperty(keyword);
+          }
         }
-        expect(
-          result.tools.every((tool) => tool.inputSchema.type === "object"),
-        ).toBe(true);
       } finally {
         await client.close();
       }
     },
   );
 
-  it("reports the tool whose input contract cannot be advertised as an object", async () => {
-    const actions = {
-      "unsupported-input": {
-        tool: {
-          description: "Unsupported input",
-          parameters: { type: "string" },
+  describe("an action whose input schema cannot be advertised", () => {
+    const listNotes = {
+      tool: {
+        description: "List notes",
+        parameters: {
+          type: "object",
+          properties: { q: { type: "string" } },
         },
-        run: async () => ({ ok: true }),
       },
+      run: async () => ({ ok: true }),
     };
-    const { client } = await createModernClient({
-      ...config,
-      actions,
-      productionActions: actions,
-    });
-    try {
-      await expect(client.listTools()).rejects.toThrow(
-        /unsupported-input.*object-only/,
+    const pickNote = {
+      tool: {
+        description: "Pick a note",
+        parameters: {
+          type: "object",
+          properties: { kind: { enum: [] } },
+        },
+      },
+      run: async () => ({ ok: true }),
+    };
+
+    it("is left out of tools/list, and logged and captured once", async () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      const provider = vi.fn(() => "evt_unusable_mcp_tool");
+      const unregister = registerErrorCaptureProvider(
+        "mcp-unusable-tool-schema-test",
+        provider,
       );
-    } finally {
-      await client.close();
+      const actions = { "list-notes": listNotes, "pick-note": pickNote };
+      const { client } = await createModernClient({
+        ...config,
+        actions,
+        productionActions: actions,
+      });
+      const message =
+        'Action "pick-note" is left out of the MCP tool list: its input schema declares an empty enum, so it accepts no value at /properties/kind.';
+      try {
+        const first = (await client.listTools()).tools.map(({ name }) => name);
+        const second = (await client.listTools()).tools.map(({ name }) => name);
+
+        expect(first).toContain("list-notes");
+        expect(first).not.toContain("pick-note");
+        expect(second).toEqual(first);
+        expect(
+          consoleError.mock.calls.filter(([line]) =>
+            String(line).includes('"pick-note"'),
+          ),
+        ).toEqual([[`[mcp] ${message}`]]);
+        expect(provider).toHaveBeenCalledOnce();
+        expect(provider).toHaveBeenCalledWith(
+          expect.objectContaining({ message }),
+          expect.objectContaining({
+            tags: expect.objectContaining({
+              source: "mcp",
+              failureClass: "unusable-tool-schema",
+            }),
+            extra: expect.objectContaining({
+              action: "pick-note",
+              path: "/properties/kind",
+              reason: "declares an empty enum, so it accepts no value",
+            }),
+          }),
+        );
+      } finally {
+        await client.close();
+        unregister();
+        consoleError.mockRestore();
+      }
+    });
+
+    it.each([
+      {
+        name: "is not an object",
+        entry: () => ({
+          tool: {
+            description: "Unsupported input",
+            parameters: { type: "string" },
+          },
+        }),
+        reason: "is not an object schema at /",
+      },
+      {
+        name: "reads a value through a getter",
+        entry: () => ({
+          tool: {
+            description: "Unsupported input",
+            parameters: {
+              type: "object",
+              properties: {
+                x: {
+                  get enum() {
+                    return ["x"];
+                  },
+                },
+              },
+            },
+          },
+        }),
+        reason: "is read through a getter at /properties/x/enum",
+      },
+      {
+        name: "cannot be read",
+        entry: () => ({
+          tool: {
+            description: "Unsupported input",
+            parameters: {
+              type: "object",
+              properties: {
+                x: new Proxy(
+                  {},
+                  {
+                    ownKeys: () => {
+                      throw new Error("schema read failed");
+                    },
+                  },
+                ),
+              },
+            },
+          },
+        }),
+        reason: "could not be read: schema read failed at /properties/x",
+      },
+      ...[
+        {
+          name: "declares a const its enum does not list",
+          input: {
+            type: "object",
+            properties: { x: { const: "x", enum: [1] } },
+          },
+          reason:
+            "declares a const its enum does not list, so it accepts no value at /properties/x",
+        },
+        {
+          name: "references a missing definition from a not",
+          input: {
+            type: "object",
+            properties: {
+              x: { type: "string", not: { $ref: "#/$defs/Missing" } },
+            },
+          },
+          reason:
+            'references "#/$defs/Missing", which does not resolve at /properties/x/not',
+        },
+      ].map(({ name, input, reason }) => ({
+        name: `was defined with a schema that ${name}`,
+        // Stripping drops the non-string enum and the not, so only
+        // defineAction sees the source schema that accepts nothing.
+        entry: () =>
+          defineAction({
+            description: "Unsupported input",
+            schema: {
+              "~standard": {
+                version: 1,
+                vendor: "test",
+                validate: (value: unknown) => ({ value }),
+                jsonSchema: { input: () => structuredClone(input) },
+              },
+            } as never,
+            run: async () => ({ ok: true }),
+          }),
+        reason,
+      })),
+    ])(
+      "is left out, reported and unknown to tools/call when its schema $name",
+      async ({ entry, reason }) => {
+        const consoleError = vi
+          .spyOn(console, "error")
+          .mockImplementation(() => {});
+        const run = vi.fn(async () => ({ ok: true }));
+        const actions = loadActionsFromStaticRegistry({
+          "list-notes": listNotes,
+          "unsupported-input": { ...entry(), run },
+        });
+        const { client } = await createModernClient({
+          ...config,
+          actions,
+          productionActions: actions,
+        });
+        try {
+          const names = (await client.listTools()).tools.map(
+            ({ name }) => name,
+          );
+          const called = await client.callTool({
+            name: "unsupported-input",
+            arguments: { x: "x" },
+          });
+
+          expect(names).toContain("list-notes");
+          expect(names).not.toContain("unsupported-input");
+          expect(called).toMatchObject({
+            isError: true,
+            content: [
+              { type: "text", text: "Unknown tool: unsupported-input" },
+            ],
+          });
+          expect(run).not.toHaveBeenCalled();
+          expect(consoleError.mock.calls).toContainEqual([
+            `[mcp] Action "unsupported-input" is left out of the MCP tool list: its input schema ${reason}.`,
+          ]);
+        } finally {
+          await client.close();
+          consoleError.mockRestore();
+        }
+      },
+    );
+
+    async function clientWithToneNote() {
+      const run = vi.fn(async () => ({ ok: true }));
+      const actions = {
+        "list-notes": listNotes,
+        "tone-note": {
+          tool: {
+            description: "Set a note's tone",
+            parameters: {
+              type: "object",
+              properties: { tone: { anyOf: [] } },
+            },
+          },
+          run,
+        },
+      };
+      const { client } = await createModernClient({
+        ...config,
+        keyToolNames: ["list-notes", "tone-note"],
+        actions,
+        productionActions: actions,
+      });
+      return { client, run };
     }
+
+    it("is not named by the instructions", async () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      const { client } = await clientWithToneNote();
+      try {
+        expect(client.getInstructions()).toContain(
+          "Key tools for this app: list-notes. Call tool-search",
+        );
+        expect(client.getInstructions()).not.toContain("tone-note");
+      } finally {
+        await client.close();
+        consoleError.mockRestore();
+      }
+    });
+
+    it("is answered as an unknown tool by tools/call", async () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      const { client, run } = await clientWithToneNote();
+      try {
+        const called = await client.callTool({
+          name: "tone-note",
+          arguments: { tone: "warm" },
+        });
+
+        expect(called).toMatchObject({
+          isError: true,
+          content: [{ type: "text", text: "Unknown tool: tone-note" }],
+        });
+        expect(run).not.toHaveBeenCalled();
+      } finally {
+        await client.close();
+        consoleError.mockRestore();
+      }
+    });
+
+    describe("whose schema object changes in place", () => {
+      // Each HTTP request builds its own server, so each list and call below
+      // is decided by a server built after the change before it.
+      async function clientWithEcho(kind: string[]) {
+        const parameters = {
+          type: "object",
+          properties: { kind: { enum: kind } },
+        };
+        const run = vi.fn(async () => ({ ok: true }));
+        const actions = {
+          "list-notes": listNotes,
+          echo: { tool: { description: "Echo", parameters }, run },
+        };
+        const { client } = await createModernClient({
+          ...config,
+          actions,
+          productionActions: actions,
+        });
+        const listed = async () =>
+          (await client.listTools()).tools.find(({ name }) => name === "echo");
+        const call = () =>
+          client.callTool({ name: "echo", arguments: { kind: "fixed" } });
+        return { client, parameters, run, listed, call };
+      }
+
+      let consoleError: ReturnType<typeof vi.spyOn>;
+      beforeEach(() => {
+        consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+      });
+      afterEach(() => consoleError.mockRestore());
+
+      it("is advertised and called once a refused schema is repaired", async () => {
+        const { client, parameters, run, listed, call } = await clientWithEcho(
+          [],
+        );
+        try {
+          expect(await listed()).toBeUndefined();
+          parameters.properties.kind.enum.push("fixed");
+
+          expect((await listed())?.inputSchema.properties).toEqual({
+            kind: { type: "string", enum: ["fixed"] },
+          });
+          expect((await call()).isError).not.toBe(true);
+          expect(run).toHaveBeenCalledOnce();
+        } finally {
+          await client.close();
+        }
+      });
+
+      it("is left out of the list and the call once an accepted schema breaks", async () => {
+        const { client, parameters, run, listed, call } = await clientWithEcho([
+          "fixed",
+        ]);
+        try {
+          expect(await listed()).toBeDefined();
+          parameters.properties.kind.enum.length = 0;
+
+          expect(await listed()).toBeUndefined();
+          expect(await call()).toMatchObject({
+            isError: true,
+            content: [{ type: "text", text: "Unknown tool: echo" }],
+          });
+          expect(run).not.toHaveBeenCalled();
+        } finally {
+          await client.close();
+        }
+      });
+
+      it.each([
+        { kind: ["fixed"], advertised: true },
+        { kind: [], advertised: false },
+      ])(
+        "keeps its verdict while it is unchanged: advertised $advertised",
+        async ({ kind, advertised }) => {
+          const { client, run, listed, call } = await clientWithEcho(kind);
+          try {
+            for (let request = 0; request < 2; request++) {
+              expect(Boolean(await listed())).toBe(advertised);
+            }
+            await call();
+            expect(run).toHaveBeenCalledTimes(advertised ? 1 : 0);
+          } finally {
+            await client.close();
+          }
+        },
+      );
+
+      it("is judged when its request first reads it, and keeps that verdict for the request", async () => {
+        const parameters = {
+          type: "object",
+          properties: { kind: { enum: ["fixed"] } },
+        };
+        const run = vi.fn(async () => ({ ok: true }));
+        const actions = {
+          echo: { tool: { description: "Echo", parameters }, run },
+        };
+        // One server answers every message below, as it does one request.
+        const server = await createMCPServerForRequest(
+          { ...config, actions, productionActions: actions } as any,
+          undefined,
+          { transport: "http", fullCatalog: true, fullSurface: true },
+        );
+        parameters.properties.kind.enum.length = 0;
+        const [clientTransport, serverTransport] =
+          InMemoryTransport.createLinkedPair();
+        const client = new Client({ name: "test-client", version: "1.0.0" });
+        await Promise.all([
+          client.connect(clientTransport),
+          server.connect(serverTransport),
+        ]);
+        try {
+          const listed = async () =>
+            (await client.listTools()).tools.find(
+              ({ name }) => name === "echo",
+            );
+          expect(await listed()).toBeUndefined();
+          parameters.properties.kind.enum.push("fixed");
+
+          expect(await listed()).toBeUndefined();
+          expect(
+            await client.callTool({
+              name: "echo",
+              arguments: { kind: "fixed" },
+            }),
+          ).toMatchObject({
+            isError: true,
+            content: [{ type: "text", text: "Unknown tool: echo" }],
+          });
+          expect(run).not.toHaveBeenCalled();
+        } finally {
+          await client.close();
+        }
+      });
+
+      it.each([
+        {
+          name: "an enum whose own keys method lists no index",
+          kind: () => {
+            const values: string[] = ["fixed"];
+            Object.defineProperty(values, "keys", {
+              value: function* () {},
+            });
+            return {
+              kind: { enum: values },
+              change: () => {
+                values[0] = "other";
+              },
+            };
+          },
+          before: { type: "string", enum: ["fixed"] },
+          after: { type: "string", enum: ["other"] },
+        },
+        {
+          name: "a class instance given a plain prototype",
+          kind: () => {
+            class Kind {
+              type = "string";
+            }
+            const kind = new Kind();
+            return {
+              kind,
+              change: () => {
+                Object.setPrototypeOf(kind, Object.prototype);
+              },
+            };
+          },
+          before: undefined,
+          after: { type: "string" },
+        },
+      ])(
+        "is converted again by the next request after $name changes",
+        async ({ kind: build, before, after }) => {
+          const { kind, change } = build();
+          const actions = {
+            echo: {
+              tool: {
+                description: "Echo",
+                parameters: { type: "object", properties: { kind } },
+              },
+              run: async () => ({ ok: true }),
+            },
+          };
+          const { client } = await createModernClient({
+            ...config,
+            actions,
+            productionActions: actions,
+          });
+          const listed = async () =>
+            (await client.listTools()).tools.find(({ name }) => name === "echo")
+              ?.inputSchema.properties?.kind;
+          try {
+            expect(await listed()).toEqual(before);
+            change();
+            expect(await listed()).toEqual(after);
+          } finally {
+            await client.close();
+          }
+        },
+      );
+    });
+
+    it("still fails the listing for an error that is not about the schema", async () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      const actions = {
+        "list-notes": listNotes,
+        "pick-note": pickNote,
+        "read-note": {
+          tool: {
+            description: "Read a note",
+            get parameters(): never {
+              throw new Error("parameters exploded");
+            },
+          },
+          run: async () => ({ ok: true }),
+        },
+      };
+      const listTools = async () => {
+        const server = await createMCPServerForRequest(
+          { ...config, actions, productionActions: actions } as any,
+          undefined,
+          { transport: "http", fullCatalog: true, fullSurface: true },
+        );
+        const [clientTransport, serverTransport] =
+          InMemoryTransport.createLinkedPair();
+        const client = new Client({ name: "test-client", version: "1.0.0" });
+        await Promise.all([
+          client.connect(clientTransport),
+          server.connect(serverTransport),
+        ]);
+        try {
+          return await client.listTools();
+        } finally {
+          await client.close();
+        }
+      };
+      try {
+        await expect(listTools()).rejects.toThrow(/parameters exploded/);
+      } finally {
+        consoleError.mockRestore();
+      }
+    });
   });
 
   it("handles `tools/list` and returns the registered action with MCP App metadata", async () => {
@@ -7625,6 +8245,84 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(actionChangeMocks.writeMarker).not.toHaveBeenCalled();
   });
 
+  it("keeps read-only actions that can write away from a read-scoped token", async () => {
+    const tool = (description: string) => ({
+      description,
+      parameters: { type: "object" as const, properties: {} },
+    });
+    const readScopeConfig = {
+      ...config,
+      actions: {
+        "get-thing": {
+          tool: tool("Read a thing"),
+          readOnly: true,
+          run: async () => ({ value: "current" }),
+        },
+        // Built the way a dev server registers a discovered file.
+        "fetch-thing": filesystemActionEntry({
+          tool: tool("Fetch or send a thing"),
+          readOnly: true,
+          planMode: {
+            effect: (args: { method?: string }) =>
+              args.method === "POST" ? "write" : "read",
+          },
+          run: async () => ({ sent: true }),
+        }),
+        "script-thing": {
+          tool: tool("Run a script that may write"),
+          readOnly: true,
+          mcpAnnotations: {
+            readOnlyHint: false,
+            destructiveHint: true,
+            openWorldHint: true,
+          },
+          run: async () => ({ ran: true }),
+        },
+      },
+    };
+    const readHeaders = await mcpAppsFullCatalogHeaders({ scope: "mcp:read" });
+
+    const listed = await callWeb(
+      { jsonrpc: "2.0", id: 309, method: "tools/list", params: {} },
+      { headers: readHeaders, config: readScopeConfig },
+    );
+    const names = listed.result.tools.map((listedTool: any) => listedTool.name);
+    expect(names).toContain("get-thing");
+    expect(names).not.toContain("fetch-thing");
+    expect(names).not.toContain("script-thing");
+
+    for (const [id, name] of [
+      [310, "fetch-thing"],
+      [311, "script-thing"],
+    ] as const) {
+      const out = await callWeb(
+        {
+          jsonrpc: "2.0",
+          id,
+          method: "tools/call",
+          params: { name, arguments: { method: "GET" } },
+        },
+        { headers: readHeaders, config: readScopeConfig },
+      );
+      expect(out.result.isError, name).toBe(true);
+      expect(out.result.content[0].text, name).toContain("OAuth scope");
+    }
+
+    const writeListed = await callWeb(
+      { jsonrpc: "2.0", id: 312, method: "tools/list", params: {} },
+      {
+        headers: await mcpAppsFullCatalogHeaders({
+          scope: "mcp:read mcp:write",
+        }),
+        config: readScopeConfig,
+      },
+    );
+    const fetchThing = writeListed.result.tools.find(
+      (listedTool: any) => listedTool.name === "fetch-thing",
+    );
+    expect(fetchThing.annotations.readOnlyHint).toBe(false);
+  });
+
   it("keeps a successful MCP mutation successful when refresh publication fails", async () => {
     const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
     actionChangeMocks.writeMarker.mockImplementationOnce(() => {
@@ -8980,6 +9678,74 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     }
   });
 
+  it("answers 503 without an auth challenge when the token's org domain cannot be resolved", async () => {
+    process.env.BETTER_AUTH_SECRET = "oauth-secret-at-least-32-characters-long";
+    const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
+    const token = await signMcpOAuthAccessToken({
+      ownerEmail: "oauth@example.com",
+      orgDomain: "example.com",
+      clientId: "client-123",
+      scope: "mcp:read",
+      resource: "https://mail.agent-native.com/mcp",
+      issuer: "https://mail.agent-native.com",
+    });
+    lookupOrgByDomainMock.mockRejectedValueOnce(
+      new Error("database connection failed"),
+    );
+
+    const event = makeWebEvent({
+      method: "POST",
+      body: { jsonrpc: "2.0", id: 12, method: "tools/list", params: {} },
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const result = await handleMcpRequest(event, config as any);
+
+    expect(lookupOrgByDomainMock).toHaveBeenCalledWith("example.com");
+    expect(event._status).toBe(503);
+    expect(event._responseHeaders?.["retry-after"]).toBe("5");
+    expect(event._responseHeaders?.["www-authenticate"]).toBeUndefined();
+    expect(result).toMatchObject({ error: "Service Unavailable" });
+  });
+
+  it.each([
+    ["unknown", { status: "not-found" }],
+    ["ambiguous", { status: "ambiguous" }],
+  ] as const)(
+    "refuses an %s signed org domain as unauthorized instead of returning 500",
+    async (_label, resolution) => {
+      process.env.BETTER_AUTH_SECRET =
+        "oauth-secret-at-least-32-characters-long";
+      const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
+      const token = await signMcpOAuthAccessToken({
+        ownerEmail: "oauth@example.com",
+        orgDomain: "example.com",
+        clientId: "client-123",
+        scope: "mcp:read",
+        resource: "https://mail.agent-native.com/mcp",
+        issuer: "https://mail.agent-native.com",
+      });
+      lookupOrgByDomainMock.mockResolvedValueOnce(resolution);
+
+      const event = makeWebEvent({
+        method: "POST",
+        body: { jsonrpc: "2.0", id: 13, method: "tools/list", params: {} },
+        headers: { authorization: `Bearer ${token}` },
+      });
+      const result = await handleMcpRequest(event, config as any);
+
+      expect(lookupOrgByDomainMock).toHaveBeenCalledWith("example.com");
+      expect(event._status).toBe(401);
+      expect(event._responseHeaders?.["www-authenticate"]).toContain(
+        'error="invalid_token"',
+      );
+      expect(event._responseHeaders?.["retry-after"]).toBeUndefined();
+      expect(result).toMatchObject({
+        error: "Unauthorized",
+        reason: "invalid",
+      });
+    },
+  );
+
   it("preserves the legacy MCP resource in its OAuth challenge", async () => {
     process.env.ACCESS_TOKEN = "secret-token";
     const event = makeWebEvent({
@@ -9155,6 +9921,711 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     }
   });
 
+  describe("output contracts", () => {
+    const readTitle = defineAction({
+      description: "Read a title.",
+      schema: z.object({}),
+      outputSchema: z.object({ title: z.string() }),
+      outputErrorStrategy: "strict",
+      readOnly: true,
+      run: async () => ({ title: 7 }) as any,
+    });
+    const saveRow = defineAction({
+      description: "Save a row.",
+      schema: z.object({}),
+      run: async () => ({ ok: true }),
+    });
+    const outputContractConfig = {
+      ...config,
+      actions: {
+        "check-and-save": defineAction({
+          description: "Check a row, saving it on the way.",
+          schema: z.object({}),
+          outputSchema: z.object({ ok: z.literal(true) }),
+          outputErrorStrategy: "strict",
+          readOnly: true,
+          run: async (_args, ctx) => {
+            await saveRow.run({}, ctx);
+            return { ok: false } as any;
+          },
+        }),
+        "assign-and-connect": defineAction({
+          description: "Assign an owner; checking the result needs Slack.",
+          schema: z.object({}),
+          outputSchema: z.object({ owner: z.string() }).transform((value) => {
+            throw new AgentConnectionRequiredError(
+              `Connect Slack to message ${value.owner}`,
+              {
+                provider: "slack",
+                reason: "grant",
+                appId: "mail",
+                source: { id: "slack-workspace", label: "Slack" },
+              },
+            );
+          }),
+          run: async () => ({ owner: "kai@example.com" }),
+        }),
+        "warn-read": defineAction({
+          description: "Read with an unaudited output schema.",
+          schema: z.object({}),
+          outputSchema: z.object({ id: z.string() }),
+          readOnly: true,
+          run: async () => ({ id: "w1" }),
+        }),
+        "list-rows": defineAction({
+          description: "List rows.",
+          schema: z.object({}),
+          outputSchema: z.array(z.object({ id: z.string() })),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          readOnly: true,
+          run: async () => [{ id: "r1" }, { id: "r2" }],
+        }),
+        "rename-row": defineAction({
+          description: "Rename a row.",
+          schema: z.object({ id: z.string() }),
+          outputSchema: z.object({ id: z.string(), title: z.string() }),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          link: ({ result }: any) => ({
+            label: "Open row",
+            view: "row",
+            url: `/_agent-native/open?view=row&id=${result.id}`,
+          }),
+          run: async ({ id }) => ({ id, title: "Renamed" }),
+        }),
+        "count-rows": defineAction({
+          description: "Count rows.",
+          schema: z.object({}),
+          outputSchema: z.object({ count: z.number() }),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          readOnly: true,
+          run: async () => ({ count: "erin@example.com" }) as any,
+        }),
+        "publish-draft": defineAction({
+          description: "Publish a draft unless asked to preview.",
+          schema: z.object({ apply: z.boolean().default(true) }),
+          outputSchema: z.object({ published: z.literal(true) }),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          planMode: { effect: (args) => (args.apply ? "write" : "read") },
+          run: async (args) => {
+            args.apply = false;
+            return { published: "gina@example.com" } as any;
+          },
+        }),
+        "flip-and-misreport": {
+          ...defineAction({
+            description: "Apply, rewrite the arguments, and misreport.",
+            schema: z.object({ apply: z.boolean().default(true) }),
+            outputSchema: z.object({ ok: z.boolean() }),
+            outputErrorStrategy: "strict",
+            planMode: { effect: (args) => (args.apply ? "write" : "read") },
+            run: async (args) => {
+              args.apply = false;
+              return { ok: true };
+            },
+          }),
+          mcpOutputContract: {
+            semantic: { type: "object" },
+            response: {
+              type: "object",
+              properties: { ok: { type: "string" } },
+              required: ["ok"],
+            },
+          },
+        },
+        "rename-title": defineAction({
+          description: "Rename a title.",
+          schema: z.object({ title: z.string() }),
+          run: async () => ({ ok: true }),
+        }),
+        "rename-and-read": defineAction({
+          description: "Rename a row, then read its title back.",
+          schema: z.object({}),
+          run: async (_args, ctx) => readTitle.run({}, ctx),
+        }),
+        "assign-and-stop": defineAction({
+          description: "Assign an owner; checking the result stops the call.",
+          schema: z.object({}),
+          outputSchema: z.object({ owner: z.string() }).transform((value) => {
+            throw new AgentActionStopError(`${value.owner} is suspended`, {
+              details: { owner: value.owner },
+            });
+          }),
+          run: async () => ({ owner: "jo@example.com" }),
+        }),
+        "stamp-row": defineAction({
+          description: "Stamp a row with a value that serializes once.",
+          schema: z.object({}),
+          outputSchema: z.object({ at: z.unknown() }),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          run: async () => {
+            let serialized = 0;
+            return {
+              at: {
+                toJSON: () => {
+                  if (serialized++ > 0) {
+                    throw new Error("helen@example.com second toJSON");
+                  }
+                  return "2026-10-06";
+                },
+              },
+            };
+          },
+        }),
+        "stamp-broken": defineAction({
+          description: "Stamp a row with a value that cannot serialize.",
+          schema: z.object({}),
+          outputSchema: z.object({ at: z.unknown() }),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          run: async () => ({
+            at: {
+              toJSON: () => {
+                throw new Error("ivy@example.com cannot serialize");
+              },
+            },
+          }),
+        }),
+        "start-embed": defineAction({
+          description: "Start an embedded session.",
+          schema: z.object({}),
+          outputSchema: z.object({ id: z.string(), startUrl: z.string() }),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          readOnly: true,
+          run: async () => ({
+            id: "e1",
+            startUrl:
+              "https://app.example.test/_agent-native/embed/start?ticket=t9",
+          }),
+        }),
+        "open-session": defineAction({
+          description: "Open an embedded session.",
+          schema: z.object({}),
+          outputSchema: z.object({
+            id: z.string(),
+            embedTicket: z.string(),
+            panes: z.array(
+              z.object({ label: z.string(), embedTicket: z.string() }),
+            ),
+          }),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          readOnly: true,
+          run: async () => ({
+            id: "s1",
+            embedTicket: "ticket-1",
+            panes: [{ label: "Main", embedTicket: "ticket-2" }],
+          }),
+        }),
+        "clear-filters": defineAction({
+          description: "Clear filters.",
+          schema: z.object({}),
+          outputSchema: z.object({}),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          readOnly: true,
+          run: async () => ({}),
+        }),
+        "capture-screen": defineAction({
+          description: "Capture the screen.",
+          schema: z.object({}),
+          outputSchema: z.object({ _agentImages: z.array(z.unknown()) }),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          readOnly: true,
+          run: async () => ({ _agentImages: [] }),
+        }),
+        "list-links": defineAction({
+          description: "List links.",
+          schema: z.object({}),
+          outputSchema: z.object({ links: z.array(z.url()) }),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          readOnly: true,
+          run: async () => ({
+            links: [
+              "https://app.example.test/_agent-native/embed/start?ticket=t3",
+              "https://example.com/docs",
+            ],
+          }),
+        }),
+        "assign-owner": {
+          tool: {
+            description: "Assign an owner.",
+            parameters: { type: "object" as const, properties: {} },
+          },
+          run: async () => ({ owner: "frank@example.com" }),
+          mcpOutputContract: {
+            semantic: { type: "object" },
+            response: {
+              type: "object",
+              properties: { owner: { type: "number" } },
+              required: ["owner"],
+            },
+          },
+        },
+      },
+    };
+
+    beforeEach(() => {
+      actionChangeMocks.writeMarker.mockClear();
+    });
+
+    it("advertises outputSchema only for actions that opted in", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const { tools } = await client.listTools();
+        const byName = new Map(tools.map((tool) => [tool.name, tool]));
+        expect(byName.get("warn-read")?.outputSchema).toBeUndefined();
+        expect(byName.get("list-rows")?.outputSchema).toMatchObject({
+          type: "object",
+          properties: { items: { type: "array" } },
+          required: ["items"],
+        });
+        expect(byName.get("rename-row")?.outputSchema).toMatchObject({
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            openLink: { type: "object" },
+            url: { type: "string" },
+          },
+        });
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("returns structuredContent that the client validates against the advertised contract", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        await client.listTools();
+        const list = await client.callTool({
+          name: "list-rows",
+          arguments: {},
+        });
+        expect(list.isError).toBeFalsy();
+        expect(list.structuredContent).toEqual({
+          items: [{ id: "r1" }, { id: "r2" }],
+        });
+
+        const rename = await client.callTool({
+          name: "rename-row",
+          arguments: { id: "row-7" },
+        });
+        expect(rename.isError).toBeFalsy();
+        expect(rename.structuredContent).toMatchObject({
+          id: "row-7",
+          title: "Renamed",
+          openLink: { label: "Open row" },
+        });
+        expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("reports a read's broken output as changing nothing, without its values", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const result = await client.callTool({
+          name: "count-rows",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        expect(result.structuredContent).toBeUndefined();
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).toContain("count: invalid_type");
+        expect(text).toContain("changed nothing");
+        expect(text).toContain("(errorCode: output_contract_violation)");
+        expect(text).not.toContain("erin@example.com");
+        expect(actionChangeMocks.writeMarker).not.toHaveBeenCalled();
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("reports a write's broken MCP response as committed and still refreshes other sessions", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const result = await client.callTool({
+          name: "assign-owner",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).toContain("owner: type");
+        expect(text).toContain("do not retry");
+        expect(text).toContain("(errorCode: output_contract_violation)");
+        expect(text).not.toContain("frank@example.com");
+        expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("classifies the effect from the arguments the call ran with, defaults applied", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const result = await client.callTool({
+          name: "publish-draft",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).toContain("do not retry");
+        expect(text).not.toContain("gina@example.com");
+        expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("accepts results whose embed credentials and URLs the transport redacts", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        await client.listTools();
+        const session = await client.callTool({
+          name: "open-session",
+          arguments: {},
+        });
+        expect(session.isError).toBeFalsy();
+        expect(session.structuredContent).toEqual({
+          id: "s1",
+          panes: [{ label: "Main" }],
+        });
+
+        const links = await client.callTool({
+          name: "list-links",
+          arguments: {},
+        });
+        expect(links.isError).toBeFalsy();
+        expect(links.structuredContent).toEqual({
+          links: ["[hidden embed URL]", "https://example.com/docs"],
+        });
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("keeps the classification taken before run when run rewrites its arguments", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        await client.listTools();
+        const result = await client.callTool({
+          name: "flip-and-misreport",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).toContain("ok: type");
+        expect(text).toContain("do not retry");
+        expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("refreshes after a write whose nested read broke its output contract", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const result = await client.callTool({
+          name: "rename-and-read",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).toContain("title: invalid_type");
+        expect(text).toContain("do not retry");
+        expect(text).not.toContain('"rename-and-read" returned');
+        expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("refreshes after a read whose nested write ran before its result broke its contract", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const result = await client.callTool({
+          name: "check-and-save",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).toContain("do not retry");
+        expect(text).not.toContain("changed nothing");
+        expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("keeps a connection request's routing, not its message, when raised while checking a result", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const result = await client.callTool({
+          name: "assign-and-connect",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).toContain('provider "slack"');
+        expect(text).toContain('reason "grant"');
+        expect(text).toContain('app "mail"');
+        expect(text).toContain('source "slack-workspace"');
+        expect(text).toContain("do not retry");
+        expect(JSON.stringify(result)).not.toContain("kai@example.com");
+        expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("sanitizes a stop raised while checking a write's result and still refreshes", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const result = await client.callTool({
+          name: "assign-and-stop",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).toContain("do not retry");
+        expect(text).not.toContain("jo@example.com");
+        expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("audits and tracks a call whose arguments fail validation", async () => {
+      const events: Array<{ name: string; properties: any }> = [];
+      const { registerTrackingProvider, unregisterTrackingProvider } =
+        await import("../tracking/registry.js");
+      registerTrackingProvider({
+        name: "output-contract-spec",
+        track: (event) => {
+          events.push(event as any);
+        },
+      });
+      auditMocks.record.mockClear();
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const result = await client.callTool({
+          name: "rename-title",
+          arguments: { title: 5 },
+        });
+        expect(result.isError).toBe(true);
+        expect(auditMocks.record).toHaveBeenCalledTimes(1);
+        expect(auditMocks.record.mock.calls[0]![0]).toMatchObject({
+          status: "error",
+          args: { title: 5 },
+          ctx: { actionName: "rename-title", caller: "mcp" },
+          error: expect.objectContaining({
+            message: expect.stringMatching(/^Invalid action parameters/),
+          }),
+        });
+        expect(
+          events
+            .filter((event) => event.properties?.action_name === "rename-title")
+            .map((event) => event.properties.status),
+        ).toEqual(["started", "failed"]);
+      } finally {
+        unregisterTrackingProvider("output-contract-spec");
+        await client.close();
+      }
+    });
+
+    it("serializes a contracted result once for both the check and the text", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        await client.listTools();
+        const result = await client.callTool({
+          name: "stamp-row",
+          arguments: {},
+        });
+        expect(result.isError).toBeFalsy();
+        expect(result.structuredContent).toEqual({ at: "2026-10-06" });
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).not.toContain("helen@example.com");
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("types a contracted result that cannot serialize, keeping its effect", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const result = await client.callTool({
+          name: "stamp-broken",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).toContain("(root): not_serializable");
+        expect(text).toContain("do not retry");
+        expect(text).toContain("(errorCode: output_contract_violation)");
+        expect(text).not.toContain("ivy@example.com");
+        expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("masks a required embed URL field in place instead of deleting it", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const { tools } = await client.listTools();
+        expect(
+          tools.find((tool) => tool.name === "start-embed")?.outputSchema
+            ?.required,
+        ).toEqual(["id", "startUrl"]);
+        const result = await client.callTool({
+          name: "start-embed",
+          arguments: {},
+        });
+        expect(result.isError).toBeFalsy();
+        expect(result.structuredContent).toEqual({
+          id: "e1",
+          startUrl: "[hidden embed URL]",
+        });
+        expect(JSON.stringify(result.content)).not.toContain("ticket=t9");
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("keeps an empty result as {} instead of the status placeholder", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        await client.listTools();
+        for (const name of ["clear-filters", "capture-screen"]) {
+          const result = await client.callTool({ name, arguments: {} });
+          expect(result.isError).toBeFalsy();
+          expect(result.structuredContent).toEqual({});
+        }
+      } finally {
+        await client.close();
+      }
+    });
+  });
+
+  it("returns a read-only tools/call result whole and tells a text-only host when a mutating result was cut", async () => {
+    const payload = { rows: "x".repeat(5000) };
+    const fullLength = JSON.stringify(payload).length;
+    const incomplete = `[Truncated: showing the first 2000 of ${fullLength} characters. This result is incomplete.`;
+    const truncationConfig = {
+      ...config,
+      actions: {
+        "paged-rows": defineAction({
+          description: "List rows.",
+          schema: z.object({
+            cursor: z.string().optional(),
+            limit: z.number().optional(),
+          }),
+          readOnly: true,
+          run: async () => payload,
+        }),
+        "replace-rows": defineAction({
+          description: "Replace rows.",
+          schema: z.object({
+            fields: z.array(z.string()).optional(),
+            cursor: z.string().optional(),
+          }),
+          run: async () => payload,
+        }),
+      },
+    };
+    const callText = async (name: string, id: number) => {
+      const out = await callWeb(
+        {
+          jsonrpc: "2.0",
+          id,
+          method: "tools/call",
+          params: { name, arguments: {} },
+        },
+        {
+          headers: await mcpAppsFullCatalogHeaders(),
+          config: truncationConfig,
+        },
+      );
+      return out.result.content[0].text as string;
+    };
+
+    const paged = await callText("paged-rows", 301);
+    expect(paged).toBe(JSON.stringify(payload));
+    const mutating = await callText("replace-rows", 303);
+    expect(mutating).toContain(`${incomplete}]`);
+    expect(mutating).not.toContain("structuredContent");
+    expect(mutating).not.toContain("get the rest");
+  });
+
+  it("names paging inputs when an MCP App tool's text is cut, but not for a GET action that opts out of read-only", async () => {
+    const rows = "x".repeat(5000);
+    const incomplete = `[Truncated: showing the first 2000 of ${rows.length} characters. This result is incomplete.`;
+    const appResource = (name: string) => ({
+      resource: {
+        uri: `ui://mail/${name}`,
+        title: name,
+        description: "Rows inline.",
+        html: "<!doctype html><html><body>Rows</body></html>",
+      },
+    });
+    const pagedSchema = z.object({ cursor: z.string().optional() });
+    const appConfig = {
+      ...config,
+      actions: {
+        "app-rows": defineAction({
+          description: "List rows.",
+          schema: pagedSchema,
+          readOnly: true,
+          mcpApp: appResource("app-rows"),
+          run: async () => rows,
+        }),
+        "app-get-rows": defineAction({
+          description: "Fetch rows.",
+          schema: pagedSchema,
+          http: { method: "GET" },
+          readOnly: false,
+          mcpApp: appResource("app-get-rows"),
+          run: async () => rows,
+        }),
+      },
+    };
+    const callApp = async (name: string, id: number) => {
+      const out = await callWeb(
+        {
+          jsonrpc: "2.0",
+          id,
+          method: "tools/call",
+          params: { name, arguments: {} },
+        },
+        {
+          headers: {
+            ...(await mcpAppsFullCatalogHeaders()),
+            "x-agent-native-mcp-inline-apps": "1",
+          },
+          config: appConfig,
+        },
+      );
+      return out.result;
+    };
+
+    const readOnly = await callApp("app-rows", 311);
+    expect(readOnly.structuredContent).toBeDefined();
+    expect(readOnly.content[0].text).toContain(
+      `${incomplete} This tool pages with cursor.]`,
+    );
+    const getOnly = await callApp("app-get-rows", 312);
+    expect(getOnly.structuredContent).toBeDefined();
+    expect(getOnly.content[0].text).toContain(`${incomplete}]`);
+  });
+
   it("falls through (undefined) for sub-routes so management routes handle them", async () => {
     const event = makeWebEvent({ method: "POST", path: "/connect" });
     const res = await handleMcpRequest(event, config as any);
@@ -9194,6 +10665,46 @@ describe("handleMcpRequest — Node request objects use the v2 web handler", () 
     expect(event._handled).toBeUndefined();
     expect((res as Response).status).toBe(200);
     expect(event.node.res.headersSent).toBe(false);
+  });
+
+  it("returns the same protocol envelope through H3 and the Fetch adapter", async () => {
+    const rpc = {
+      jsonrpc: "2.0",
+      id: 77,
+      method: "tools/list",
+      params: {},
+    };
+    const event = makeWebEvent({ method: "POST", body: rpc });
+    const h3Response = (await handleMcpRequest(
+      event,
+      config as any,
+    )) as Response;
+    const fetchRequest = new Request("https://mail.agent-native.com/mcp", {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(rpc),
+    });
+    const fetchResponse = await handleMcpFetchRequest(
+      fetchRequest,
+      config as any,
+      {
+        requestMeta: {
+          origin: "https://mail.agent-native.com",
+          transport: "http",
+          fullSurface: true,
+        },
+        parsedBody: rpc,
+      },
+    );
+
+    expect(fetchResponse.status).toBe(h3Response.status);
+    expect(fetchResponse.headers.get("content-type")).toBe(
+      h3Response.headers.get("content-type"),
+    );
+    expect(await fetchResponse.text()).toBe(await h3Response.text());
   });
 });
 

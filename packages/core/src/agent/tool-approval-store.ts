@@ -7,8 +7,14 @@ import {
   ensureTableExists,
 } from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
+import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
 import { hashAgentToolApprovalKey } from "./approval-key.js";
 import {
+  AGENT_TOOL_APPROVAL_MIGRATIONS,
+  AGENT_TOOL_APPROVAL_MIGRATIONS_TABLE,
+} from "./tool-approval-migrations.js";
+import {
+  AGENT_TOOL_APPROVAL_ARGUMENTS_HASH_COLUMN_SQL,
   AGENT_TOOL_APPROVAL_INDEX_SQL,
   AGENT_TOOL_APPROVAL_LOGICAL_INDEX_SQL,
   AGENT_TOOL_APPROVAL_POLICY_INDEX_SQL,
@@ -58,6 +64,20 @@ export const agentToolApprovalsStore = defineStore({
         );
       },
     },
+    ...fromMigrationEntries(
+      AGENT_TOOL_APPROVAL_MIGRATIONS_TABLE,
+      AGENT_TOOL_APPROVAL_MIGRATIONS.filter((entry) => entry.version <= 3),
+    ),
+    {
+      name: "arguments-hash",
+      run: async () => {
+        await ensureColumnExists(
+          "agent_tool_approvals",
+          "arguments_hash",
+          AGENT_TOOL_APPROVAL_ARGUMENTS_HASH_COLUMN_SQL,
+        );
+      },
+    },
   ],
 });
 
@@ -91,6 +111,10 @@ export const agentToolApprovalPoliciesStore = defineStore({
         );
       },
     },
+    ...fromMigrationEntries(
+      AGENT_TOOL_APPROVAL_MIGRATIONS_TABLE,
+      AGENT_TOOL_APPROVAL_MIGRATIONS.filter((entry) => entry.version === 4),
+    ),
   ],
 });
 
@@ -108,6 +132,8 @@ export interface AgentToolApprovalBinding {
   toolRevision?: string | null;
   callId: string;
   approvalKey: string;
+  /** Fingerprint of the arguments the call runs with; consuming requires the same. */
+  argumentsHash?: string | null;
   approvalId?: string;
   expiresAt?: number;
 }
@@ -309,8 +335,8 @@ export async function createAgentToolApproval(
     sql: `INSERT INTO agent_tool_approvals
       (id, owner_email, org_id, thread_id, turn_id, tool_name, tool_revision,
        call_id, approval_key_hash, status, expires_at, consumed_at, created_at,
-       updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL, ?, ?)`,
+       updated_at, arguments_hash)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL, ?, ?, ?)`,
     args: [
       id,
       binding.ownerEmail,
@@ -324,6 +350,7 @@ export async function createAgentToolApproval(
       expiresAt,
       now,
       now,
+      binding.argumentsHash ?? null,
     ],
   });
 
@@ -369,6 +396,7 @@ export async function consumeAgentToolApproval(
           AND tool_name = ?
           AND ((tool_revision IS NULL AND CAST(? AS TEXT) IS NULL) OR tool_revision = ?)
           AND approval_key_hash = ?
+          AND ((arguments_hash IS NULL AND CAST(? AS TEXT) IS NULL) OR arguments_hash = ?)
           ${exactApprovalFilter}
           AND status = 'pending'
           AND expires_at > ?
@@ -389,6 +417,8 @@ export async function consumeAgentToolApproval(
       binding.toolRevision ?? null,
       binding.toolRevision ?? null,
       hashAgentToolApprovalKey(binding.approvalKey),
+      binding.argumentsHash ?? null,
+      binding.argumentsHash ?? null,
       ...approvalIdArgs,
       now,
     ],

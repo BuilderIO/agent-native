@@ -10,6 +10,7 @@ import type { DbExec } from "../db/client.js";
 import { getDbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
+import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { automationRecoveryMessagesForLocale } from "../localization/automation-recovery-messages.js";
 import {
@@ -36,6 +37,10 @@ import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./engine/credential-errors.js";
+import {
+  AGENT_RUN_MIGRATIONS,
+  AGENT_RUN_MIGRATIONS_TABLE,
+} from "./run-migrations.js";
 import {
   isConsistentToolCallInputFingerprint,
   isUnavailableToolCallInput,
@@ -110,6 +115,16 @@ export const RUN_TERMINAL_LOOKUP_FAILED_ERROR_EVENT = {
   recoverable: true,
   details:
     "Reading the run's last persisted terminal event failed. The run may have completed; its outcome is unknown to this connection rather than known to be absent.",
+} as const;
+
+export const TERMINAL_EVENT_UNREADABLE_ERROR_EVENT = {
+  type: "error",
+  error:
+    "The agent run finished, but its final event could not be read, so the result could not be confirmed. Retry if the result is missing.",
+  errorCode: "terminal_event_unreadable",
+  recoverable: true,
+  details:
+    "Every persisted terminal event for this run failed to parse. Without this, the run stayed 'running' while the terminal-event exclusion kept the stale reaper away from it.",
 } as const;
 
 export const RUN_RECORD_MISSING_GRACE_MS = 15_000;
@@ -372,6 +387,7 @@ export const agentRunsStore = defineStore({
         await widenIntColumnsToBigInt("agent_tool_ledger", ["completed_at"]);
       },
     },
+    ...fromMigrationEntries(AGENT_RUN_MIGRATIONS_TABLE, AGENT_RUN_MIGRATIONS),
   ],
 });
 
@@ -385,7 +401,9 @@ const LEDGER_CHAT_UI_RESULT_MAX_BYTES = 64 * 1024;
 /**
  * Persist a zombie tool-call completion to the ledger. Called by the detached
  * promise continuation after `Promise.race` abandons it. Best-effort — never
- * throws so a ledger write failure doesn't break any caller.
+ * throws so a ledger write failure doesn't break any caller. `argumentsHash`
+ * is the exact identity of the arguments the call ran with; only a call
+ * prepared to the same identity may recover the result.
  */
 export async function writeLedgerEntry(
   threadId: string,
@@ -394,6 +412,7 @@ export async function writeLedgerEntry(
   artifacts: ArtifactReceipt[] = [],
   resultIsString?: boolean,
   chatUIResultJson?: string,
+  argumentsHash?: string,
 ): Promise<void> {
   try {
     await ensureRunTables();
@@ -426,14 +445,15 @@ export async function writeLedgerEntry(
           `\n...[ledger truncated at ${LEDGER_RESULT_MAX_CHARS} chars]`
         : safeResultSummary;
     await client.execute({
-      sql: `INSERT INTO agent_tool_ledger (thread_id, tool_key, result_summary, artifacts_json, result_is_string, chat_ui_result_json, completed_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+      sql: `INSERT INTO agent_tool_ledger (thread_id, tool_key, result_summary, artifacts_json, result_is_string, chat_ui_result_json, completed_at, arguments_hash)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (thread_id, tool_key) DO UPDATE SET
               result_summary = excluded.result_summary,
               artifacts_json = excluded.artifacts_json,
               result_is_string = excluded.result_is_string,
               chat_ui_result_json = excluded.chat_ui_result_json,
-              completed_at = excluded.completed_at`,
+              completed_at = excluded.completed_at,
+              arguments_hash = excluded.arguments_hash`,
       args: [
         threadId,
         toolKey,
@@ -442,6 +462,7 @@ export async function writeLedgerEntry(
         resultIsString ?? null,
         boundedChatUIResultJson,
         Date.now(),
+        argumentsHash ?? null,
       ],
     });
   } catch {
@@ -457,12 +478,14 @@ export async function readLedgerEntry(
   artifacts: ArtifactReceipt[];
   resultIsString?: boolean;
   chatUIResult?: unknown;
+  /** Absent for a result recorded before calls bound their arguments. */
+  argumentsHash?: string;
 } | null> {
   try {
     await ensureRunTables();
     const client = getDbExec();
     const { rows } = await client.execute({
-      sql: `SELECT result_summary, artifacts_json, result_is_string, chat_ui_result_json FROM agent_tool_ledger WHERE thread_id = ? AND tool_key = ?`,
+      sql: `SELECT result_summary, artifacts_json, result_is_string, chat_ui_result_json, arguments_hash FROM agent_tool_ledger WHERE thread_id = ? AND tool_key = ?`,
       args: [threadId, toolKey],
     });
     if (rows.length === 0) return null;
@@ -471,6 +494,7 @@ export async function readLedgerEntry(
       artifacts_json?: string | null;
       result_is_string?: boolean | null;
       chat_ui_result_json?: string | null;
+      arguments_hash?: string | null;
     };
     let chatUIResult: unknown;
     let hasChatUIResult = false;
@@ -495,6 +519,7 @@ export async function readLedgerEntry(
         ? { resultIsString: row.result_is_string }
         : {}),
       ...(hasChatUIResult ? { chatUIResult } : {}),
+      ...(row.arguments_hash ? { argumentsHash: row.arguments_hash } : {}),
     };
   } catch {
     return null;
@@ -1502,13 +1527,17 @@ async function getRunEventForReconciliation(runId: string): Promise<{
   let latestTerminal: {
     event: AgentChatEvent;
     eventAt: number | null;
+    sequence: bigint;
   } | null = null;
+  let newestUnreadableSequence: bigint | null = null;
   for (const row of rows as Array<{
+    seq: number | string;
     event_at?: number | string | null;
     event_data?: string;
   }>) {
     const raw = row.event_data;
     if (!raw) continue;
+    const sequence = BigInt(row.seq);
     try {
       const event = JSON.parse(raw) as AgentChatEvent;
       if (!terminalStatusForEvent(event) || !terminalReasonForEvent(event)) {
@@ -1519,14 +1548,47 @@ async function getRunEventForReconciliation(runId: string): Promise<{
         event,
         eventAt:
           Number.isFinite(rawEventAt) && rawEventAt > 0 ? rawEventAt : null,
+        sequence,
       };
-      if (!latestTerminal) latestTerminal = parsed;
-      if (isRealFailureTerminalEvent(event)) return parsed;
-    } catch {
-      continue;
+      if (!latestTerminal || sequence > latestTerminal.sequence) {
+        latestTerminal = parsed;
+      }
+      if (isRealFailureTerminalEvent(event)) {
+        if (
+          newestUnreadableSequence !== null &&
+          newestUnreadableSequence > sequence
+        ) {
+          return {
+            event: { ...TERMINAL_EVENT_UNREADABLE_ERROR_EVENT },
+            eventAt: null,
+          };
+        }
+        return parsed;
+      }
+    } catch (err) {
+      if (
+        newestUnreadableSequence === null ||
+        sequence > newestUnreadableSequence
+      ) {
+        newestUnreadableSequence = sequence;
+      }
+      console.error(
+        `[run-store] unreadable terminal event runId=${runId} seq=${String(row.seq)}: ${raw.slice(0, 120)}`,
+        err instanceof Error ? err.message : err,
+      );
     }
   }
-  return latestTerminal;
+  if (
+    newestUnreadableSequence !== null &&
+    (!latestTerminal || newestUnreadableSequence > latestTerminal.sequence)
+  ) {
+    return {
+      event: { ...TERMINAL_EVENT_UNREADABLE_ERROR_EVENT },
+      eventAt: null,
+    };
+  }
+  if (!latestTerminal) return null;
+  return { event: latestTerminal.event, eventAt: latestTerminal.eventAt };
 }
 
 function errorCodeForTerminalEvent(event: AgentChatEvent): string | null {
@@ -2809,6 +2871,53 @@ export async function getRunByThread(
   };
 }
 
+/** The connection request that a restored client may still need to resolve. */
+export async function getRunPendingConnectionRequestId(
+  runId: string,
+): Promise<string | null> {
+  await ensureRunTables();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT event_data FROM agent_run_events request_event
+          JOIN agent_runs requested_run ON requested_run.id = request_event.run_id
+          WHERE request_event.run_id = ?
+            AND request_event.event_data LIKE ?
+            AND NOT EXISTS (
+              SELECT 1 FROM agent_runs successor
+              WHERE successor.thread_id = requested_run.thread_id
+                AND COALESCE(successor.turn_id, successor.id) =
+                    COALESCE(requested_run.turn_id, requested_run.id)
+                AND successor.id <> requested_run.id
+                AND successor.dispatch_mode IS DISTINCT FROM 'turn-abort'
+                AND (
+                  COALESCE(successor.continuation_order, 0) >
+                    COALESCE(requested_run.continuation_order, 0)
+                  OR (
+                    COALESCE(successor.continuation_order, 0) =
+                      COALESCE(requested_run.continuation_order, 0)
+                    AND successor.started_at > requested_run.started_at
+                  )
+                )
+            )
+          ORDER BY request_event.seq DESC
+          LIMIT 1`,
+    args: [runId, '{"type":"connection_required"%'],
+  });
+  if (rows.length === 0) return null;
+  const row = rows[0] as { event_data?: unknown };
+  if (typeof row.event_data !== "string") {
+    throw new TypeError(
+      `Agent run ${runId} has an unreadable connection request event.`,
+    );
+  }
+  const event: unknown = JSON.parse(row.event_data);
+  if (!isReadableJournalEvent(event) || event.type !== "connection_required") {
+    throw new TypeError(
+      `Agent run ${runId} has an unreadable connection request event.`,
+    );
+  }
+  return event.requestId;
+}
+
 export interface AgentRunSummary {
   id: string;
   threadId: string;
@@ -3004,6 +3113,9 @@ function isReadableJournalEvent(value: unknown): value is AgentChatEvent {
               (field) =>
                 value[field] === undefined || typeof value[field] === "boolean",
             ) &&
+            (value.argumentsHash === undefined ||
+              (typeof value.argumentsHash === "string" &&
+                /^[a-f0-9]{64}$/.test(value.argumentsHash))) &&
             (value.approvalPause === undefined ||
               typeof value.approvalPause === "boolean") &&
             (value.outcomeUnknown === undefined ||

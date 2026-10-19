@@ -96,7 +96,7 @@ ${sharedRule8(examples, options)}
 ${SHARED_RULE_9}
 10. **Native widgets** — For table/chart/graph/report requests, prefer actions labeled \`Native chat widget\`; use \`render-data-widget\` for already-summarized data (≤50 rows) instead of markdown tables. Above that, give the total plus the top rows — never retype a full result set as widget arguments.
 11. **Downloadable files** — Deliver files in chat, never just a path.
-12. **Your tool list is not the whole surface** — Most app actions and connected MCP tools load on demand, so search the live registry with \`tool-search\` before concluding a capability doesn't exist.
+12. **Your tool list is not the whole surface** — Most app actions and connected MCP tools load on demand; find exact names via the Tool index or search the registry with \`tool-search\` before concluding a capability doesn't exist.
 ${sharedRule13(options)}
 ${SHARED_RULE_14}
 ${SHARED_RULE_15}

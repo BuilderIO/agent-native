@@ -1,6 +1,7 @@
 import { mockEvent } from "h3";
 import { describe, expect, it, vi } from "vitest";
 
+import { actionArgumentsHash } from "../action-arguments-identity.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { AUTO_CONTINUE_PROMPT } from "./auto-continue.js";
 import type {
@@ -22,6 +23,17 @@ const DELEGATION = {
   agent: "analytics",
   message: "Count last week's signups",
 };
+
+// These specs pin resume assembly; Context X-Ray merges adjacent same-role
+// messages and has its own specs, and whether its table exists depends on what
+// else the worker's shared database already ran.
+vi.mock("./engine/context-directives-transform.js", () => ({
+  applyContextXrayTransformForIteration: async ({
+    messages,
+  }: {
+    messages: unknown[];
+  }) => messages,
+}));
 
 vi.mock("./run-manager.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./run-manager.js")>()),
@@ -105,6 +117,7 @@ const FINISHED_DELEGATION = [
     input: DELEGATION,
     result: "412 signups",
     completedSideEffect: true,
+    argumentsHash: actionArgumentsHash(DELEGATION),
   },
 ];
 

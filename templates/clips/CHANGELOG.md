@@ -3,15 +3,27 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-16
+
+### Fixed
+
+- The menu bar shows only the Clips icon while idle.
+
 ## 2026-10-15
+
+### Added
+
+- Step through a paused clip frame by frame with the comma and period keys, and comments keep the exact frame they were left on.
 
 ### Improved
 
-- Clips stays labeled in the menu bar while idle
 - The recording countdown starts when it appears and plays smoothly while Clips prepares a recording.
 
 ### Fixed
 
+- Camera permission denials now show the right recovery guidance
+- The Dictionary scrolls through long lists and stays closed during dictation, Archive and Trash show counts, and selection checkboxes stay visible over dark previews.
+- The Share and copy-link buttons now match in color.
 - Rewind can be enabled from Include last without leaving the recorder.
 - Screen Memory checks privacy exclusions during capture recovery
 - Screen Memory retries capture promptly after audio mode changes fail
@@ -19,6 +31,14 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 - Earlier screen time keeps recording when audio capture starts or stops, and previews follow your selection.
 
 ## 2026-10-14
+
+### Added
+
+- Add a transcript file to a clip from the transcript panel: WebVTT, SRT, or a timestamped transcript copied from YouTube. Clips keeps its timings, labels it as imported, and automatic transcription never replaces it.
+- Agents connected over MCP can upload a local video file to Clips, choose who can open it, and get its share link back.
+- Extension recordings of Agent-Native apps include what the app did, from 30 seconds before recording started, in the Debug panel and for agents.
+- Record and store your first three clips before connecting your own storage
+- Record three clips before connecting your own storage
 
 ### Improved
 
@@ -28,6 +48,9 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Captions and the transcript highlight change on cue instead of up to a quarter second late.
+- Clips recognizes existing sign-ins when checking access to free hosted recordings
+- Hosted clips now save reliably to S3-compatible storage, including streamed recordings.
 - Clips keeps the camera preview open while Control Center is active.
 - Clips recording errors without a recovery action now dismiss automatically
 - Dictation cleanup can be undone and the original transcript remains available.

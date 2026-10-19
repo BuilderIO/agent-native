@@ -13,6 +13,11 @@ import { readLiveSourceFile } from "../server/source-workspace.js";
 const RENDERABLE_URL_RE = /^(?:https?:\/\/|\/(?!\/))/i;
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   description:
     "Fill a missing image left by a no-token Figma paste or .fig import with an image the user supplies. Missing images are elements stamped with data-figma-image-ref=\"<hash>\" over a url('about:blank') background placeholder; filling one keeps the layer's size, position, and Figma scale mode, and fills every element that shares the hash. Upload a local or pasted file with upload-image first and pass its url. Pass hash to pick the image; omit it only when the screen has exactly one missing image (otherwise the error lists the hashes). Use hydrate-figma-paste-images instead to fetch the original Figma images with a connected token.",
   schema: z.object({

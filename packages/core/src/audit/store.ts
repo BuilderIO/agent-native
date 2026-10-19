@@ -8,6 +8,7 @@ import { defineStore } from "../db/store-registry.js";
 import { AGENT_AUDIT_CALLERS } from "./config.js";
 import type {
   AuditActorKind,
+  AuditApproval,
   AuditEvent,
   AuditQueryFilters,
   AuditVisibility,
@@ -106,6 +107,16 @@ export const auditStore = defineStore({
         );
       },
     },
+    {
+      // Not in the base CREATE either, for the same reason as `app`.
+      name: "mcp-client-attribution",
+      sql: [
+        "ALTER TABLE agent_audit_log ADD COLUMN IF NOT EXISTS reported_client_name TEXT",
+        "ALTER TABLE agent_audit_log ADD COLUMN IF NOT EXISTS reported_client_version TEXT",
+        "ALTER TABLE agent_audit_log ADD COLUMN IF NOT EXISTS oauth_client_id TEXT",
+        "ALTER TABLE agent_audit_log ADD COLUMN IF NOT EXISTS approval TEXT",
+      ],
+    },
   ],
 });
 
@@ -122,8 +133,9 @@ export async function insertAuditEvent(event: AuditEvent): Promise<void> {
        thread_id, turn_id, target_type, target_id, status, summary, input,
        error_code, owner_email, visibility, run_id, task_id, parent_task_id,
        source_kind, source_platform, source_id, source_url, network_protocol,
-       network_id, network_peer, app)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       network_id, network_peer, app, reported_client_name,
+       reported_client_version, oauth_client_id, approval)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       event.id,
       event.createdAt,
@@ -153,6 +165,10 @@ export async function insertAuditEvent(event: AuditEvent): Promise<void> {
       event.networkId ?? null,
       event.networkPeer ?? null,
       event.app ?? null,
+      event.reportedClientName ?? null,
+      event.reportedClientVersion ?? null,
+      event.oauthClientId ?? null,
+      event.approval ?? null,
     ],
   });
 }
@@ -224,6 +240,10 @@ function mapRow(row: any): AuditEvent {
     networkId: row.network_id ?? null,
     networkPeer: row.network_peer ?? null,
     app: row.app ?? null,
+    reportedClientName: row.reported_client_name ?? null,
+    reportedClientVersion: row.reported_client_version ?? null,
+    oauthClientId: row.oauth_client_id ?? null,
+    approval: (row.approval ?? null) as AuditApproval | null,
   };
 }
 
@@ -293,7 +313,8 @@ const LIST_COLUMNS =
   "thread_id, turn_id, target_type, target_id, status, summary, " +
   "error_code, owner_email, visibility, app, run_id, task_id, " +
   "parent_task_id, source_kind, source_platform, source_id, source_url, " +
-  "network_protocol, network_id, network_peer";
+  "network_protocol, network_id, network_peer, reported_client_name, " +
+  "reported_client_version, oauth_client_id, approval";
 
 function clampLimit(limit: number | undefined): number {
   return Math.min(Math.max(1, Math.floor(limit ?? DEFAULT_LIMIT)), MAX_LIMIT);

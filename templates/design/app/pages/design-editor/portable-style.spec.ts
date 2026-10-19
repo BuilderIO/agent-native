@@ -81,6 +81,35 @@ describe("applyPortableStyleSnapshotToHtml", () => {
     expect(dropped.style.top).toBe("8px");
   });
 
+  it("leaves the dropped root's flex sizing to its new parent but carries a descendant's", () => {
+    const html = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"></head><body>
+<section style="display:flex"><div data-agent-native-node-id="dropped" style="flex: 0 0 auto;width:180px"><span></span></div></section>
+</body></html>`;
+    const flexSizing = {
+      flex: "0 0 56px",
+      flexBasis: "56px",
+      flexGrow: "0",
+      flexShrink: "0",
+    };
+    const result = applyPortableStyleSnapshotToHtml(html, "dropped", {
+      version: 1,
+      rootSourceId: "dropped",
+      nodes: [
+        { sourceId: "dropped", path: [], styles: flexSizing },
+        { sourceId: "label", path: [0], styles: flexSizing },
+      ],
+    });
+    const doc = new DOMParser().parseFromString(result, "text/html");
+    const dropped = doc.querySelector(
+      '[data-agent-native-node-id="dropped"]',
+    ) as HTMLElement;
+    expect(dropped.style.flexBasis).toBe("auto");
+    expect((dropped.firstElementChild as HTMLElement).style.flexBasis).toBe(
+      "56px",
+    );
+  });
+
   it("is a no-op when the snapshot has nothing left after filtering", () => {
     const result = applyPortableStyleSnapshotToHtml(
       DEST_BARE_SCREEN,
@@ -375,6 +404,112 @@ describe("portable-style source capture and rendered Chromium behavior", () => {
         .locator('[data-agent-native-node-id="dropped"]')
         .evaluate((el: Element) => (el as HTMLElement).style.position),
     ).toBe("absolute");
+  });
+
+  it("keeps a layer's own declarations over the snapshot's computed values, except ones that read a var()", async () => {
+    const destHtml = `<!doctype html><html><body><div data-agent-native-node-id="dropped" style="position:absolute;left:12px;top:8px;display:flex;align-items:center;padding:0 24px;background:#fef3c7;border-color:var(--edge)"></div></body></html>`;
+    const applied = await apply(destHtml, "dropped", {
+      version: 1,
+      rootSourceId: "dropped",
+      nodes: [
+        {
+          sourceId: "dropped",
+          path: [],
+          styles: {
+            background:
+              "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+            backgroundColor: "rgba(0, 0, 0, 0)",
+            alignItems: "normal",
+            placeItems: "normal normal",
+            justifyItems: "start",
+            padding: "0px",
+            borderColor: "rgb(1, 2, 3)",
+            color: "rgb(17, 24, 39)",
+          },
+        },
+      ],
+    });
+    await page.setContent(applied);
+    const style = await page
+      .locator('[data-agent-native-node-id="dropped"]')
+      .evaluate((el: HTMLElement) => ({
+        background: getComputedStyle(el).backgroundColor,
+        alignItems: el.style.alignItems,
+        justifyItems: el.style.justifyItems,
+        padding: el.style.padding,
+        borderColor: el.style.borderColor,
+        color: el.style.color,
+      }));
+    expect(style).toEqual({
+      background: "rgb(254, 243, 199)",
+      alignItems: "center",
+      justifyItems: "start",
+      padding: "0px 24px",
+      borderColor: "rgb(1, 2, 3)",
+      color: "rgb(17, 24, 39)",
+    });
+  });
+
+  it("carries a partly authored font's inherited family and size, but no other partly authored shorthand", async () => {
+    const destHtml = `<!doctype html><html><body><div data-agent-native-node-id="dropped" style="position:absolute;display:flex;align-items:center;font-weight:700"></div></body></html>`;
+    const applied = await apply(destHtml, "dropped", {
+      version: 1,
+      rootSourceId: "dropped",
+      nodes: [
+        {
+          sourceId: "dropped",
+          path: [],
+          styles: {
+            placeItems: "center normal",
+            font: "700 16px system-ui, sans-serif",
+          },
+        },
+      ],
+    });
+    await page.setContent(applied);
+    const style = await page
+      .locator('[data-agent-native-node-id="dropped"]')
+      .evaluate((el: HTMLElement) => ({
+        alignItems: el.style.alignItems,
+        justifyItems: el.style.justifyItems,
+        font: el.style.font,
+      }));
+    expect(style).toEqual({
+      alignItems: "center",
+      justifyItems: "",
+      font: "700 16px system-ui, sans-serif",
+    });
+  });
+
+  it("carries the other sides of a partly authored margin through their longhand entries", async () => {
+    const destHtml = `<!doctype html><html><body><div data-agent-native-node-id="dropped" style="position:absolute;margin-top:4px"></div></body></html>`;
+    const applied = await apply(destHtml, "dropped", {
+      version: 1,
+      rootSourceId: "dropped",
+      nodes: [
+        {
+          sourceId: "dropped",
+          path: [],
+          styles: {
+            margin: "8px 10px 6px 12px",
+            marginTop: "8px",
+            marginRight: "10px",
+            marginBottom: "6px",
+            marginLeft: "12px",
+          },
+        },
+      ],
+    });
+    await page.setContent(applied);
+    const margin = await page
+      .locator('[data-agent-native-node-id="dropped"]')
+      .evaluate((el: HTMLElement) => [
+        el.style.marginTop,
+        el.style.marginRight,
+        el.style.marginBottom,
+        el.style.marginLeft,
+      ]);
+    expect(margin).toEqual(["4px", "10px", "6px", "12px"]);
   });
 
   it("keeps auto, percent, and calc responsive to a breakpoint-driven containing block; rem is canonical px", async () => {

@@ -18,6 +18,8 @@ let latestEventRows: Array<{
   event_at?: number | null;
   event_data: string;
 }> = [];
+let connectionRequestRows: Array<{ event_data: string }> = [];
+let hasLaterSameTurnRun = false;
 let staleSelectRows: Array<{ id: string }> = [];
 let claimSlotRows: Array<{ id: string }> = [];
 let completedTurnRows: Array<{
@@ -67,6 +69,15 @@ const mockDb: any = {
 
     if (/pg_try_advisory_xact_lock/i.test(rawSql)) {
       return { rows: [{ acquired: true }], rowsAffected: 0 };
+    }
+    if (
+      /SELECT event_data FROM agent_run_events/i.test(rawSql) &&
+      args.includes('{"type":"connection_required"%')
+    ) {
+      return {
+        rows: hasLaterSameTurnRun ? [] : connectionRequestRows,
+        rowsAffected: 0,
+      };
     }
     if (
       /SELECT seq,\s*event_data(?:,\s*event_at)?\s+FROM agent_run_events/i.test(
@@ -182,7 +193,7 @@ const mockDb: any = {
     }
     // Tool-call result ledger lookup.
     if (
-      /SELECT result_summary, artifacts_json, result_is_string, chat_ui_result_json FROM agent_tool_ledger/i.test(
+      /SELECT result_summary, artifacts_json, result_is_string, chat_ui_result_json, arguments_hash FROM agent_tool_ledger/i.test(
         rawSql,
       )
     ) {
@@ -276,6 +287,7 @@ const {
   reconcileTerminalRunFromEvents,
   setRunTerminalReason,
   getRunEventsSince,
+  getRunPendingConnectionRequestId,
   CHECKPOINT_TERMINAL_EVENT_SEQ,
   getCurrentTurnEventsForThread,
   __resetNoRunningRunsProbeForTests,
@@ -338,6 +350,8 @@ describe("run store", () => {
     evaluateServicePrincipalMock.mockResolvedValue({ status: "not-service" });
     execCalls.length = 0;
     latestEventRows = [];
+    connectionRequestRows = [];
+    hasLaterSameTurnRun = false;
     staleSelectRows = [];
     claimSlotRows = [];
     completedTurnRows = [];
@@ -595,6 +609,66 @@ describe("run store", () => {
       result: "saved [inline image/png data omitted]",
       images: [{ label: "shot", omitted: "inline-bytes" }],
     });
+  });
+
+  it("keeps a paused request pending after the run's terminal done event", async () => {
+    latestEventRows = [
+      {
+        seq: 2,
+        event_data: JSON.stringify({ type: "done" }),
+      },
+    ];
+    connectionRequestRows = [
+      {
+        event_data: JSON.stringify({
+          type: "connection_required",
+          requestId: "request-gong",
+          provider: "gong",
+          reason: "connect",
+        }),
+      },
+    ];
+
+    await expect(
+      getRunPendingConnectionRequestId("run-connection"),
+    ).resolves.toBe("request-gong");
+    expect(execCalls.at(-1)).toMatchObject({
+      args: ["run-connection", '{"type":"connection_required"%'],
+    });
+    expect(execCalls.at(-1)?.sql).toMatch(
+      /ORDER BY request_event\.seq DESC\s+LIMIT 1/i,
+    );
+    expect(execCalls.at(-1)?.sql).toContain(
+      "successor.dispatch_mode IS DISTINCT FROM 'turn-abort'",
+    );
+  });
+
+  it("does not restore a connection request after a same-turn continuation", async () => {
+    hasLaterSameTurnRun = true;
+    connectionRequestRows = [
+      {
+        event_data: JSON.stringify({
+          type: "connection_required",
+          requestId: "request-gong",
+          provider: "gong",
+          reason: "connect",
+        }),
+      },
+    ];
+
+    await expect(
+      getRunPendingConnectionRequestId("run-connection"),
+    ).resolves.toBeNull();
+    expect(execCalls.at(-1)?.sql).toMatch(/continuation_order/i);
+    expect(execCalls.at(-1)?.sql).toContain(
+      "successor.dispatch_mode IS DISTINCT FROM 'turn-abort'",
+    );
+  });
+
+  it("reports no pending connection request when the run has no request event", async () => {
+    await expect(
+      getRunPendingConnectionRequestId("run-without-connection"),
+    ).resolves.toBeNull();
   });
 
   it("stores approval keys as opaque hashes and strips their inline inputs", async () => {
@@ -1454,7 +1528,47 @@ describe("run store", () => {
     expect(insert?.args[3]).toBe("[]");
     expect(insert?.args[4]).toBeNull();
     expect(insert?.args[5]).toBeNull();
+    expect(insert?.args[7]).toBeNull();
     expect(insert?.sql).toContain("ON CONFLICT");
+  });
+
+  it("records and returns the arguments a ledger result ran with", async () => {
+    await writeLedgerEntry(
+      "thread-hash",
+      "my-tool#abc",
+      "the result",
+      [],
+      true,
+      undefined,
+      "abc",
+    );
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_tool_ledger/i.test(call.sql),
+    );
+    expect(insert?.sql).toContain("arguments_hash = excluded.arguments_hash");
+    expect(insert?.args[7]).toBe("abc");
+
+    ledgerRows = [
+      {
+        result_summary: "the result",
+        artifacts_json: "[]",
+        arguments_hash: "abc",
+      },
+    ];
+    await expect(
+      readLedgerEntry("thread-hash", "my-tool#abc"),
+    ).resolves.toMatchObject({ result: "the result", argumentsHash: "abc" });
+    // A result recorded before calls bound their arguments has none.
+    ledgerRows = [
+      {
+        result_summary: "the result",
+        artifacts_json: "[]",
+        arguments_hash: null,
+      },
+    ];
+    const legacy = await readLedgerEntry("thread-hash", "my-tool#abc");
+    expect(legacy).not.toBeNull();
+    expect(legacy).not.toHaveProperty("argumentsHash");
   });
 
   it("writeLedgerEntry preserves artifact receipts outside the capped result", async () => {
@@ -1540,7 +1654,7 @@ describe("run store", () => {
       chatUIResult: { id: "draft-1" },
     });
     const select = execCalls.find((call) =>
-      /SELECT result_summary, artifacts_json, result_is_string, chat_ui_result_json FROM agent_tool_ledger/i.test(
+      /SELECT result_summary, artifacts_json, result_is_string, chat_ui_result_json, arguments_hash FROM agent_tool_ledger/i.test(
         call.sql,
       ),
     );

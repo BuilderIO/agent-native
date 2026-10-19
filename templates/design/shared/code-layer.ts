@@ -1,4 +1,4 @@
-import type { Declaration, Root } from "postcss";
+import type { Declaration, Root, Rule } from "postcss";
 import CssSyntaxError from "postcss/lib/css-syntax-error";
 import parseCss from "postcss/lib/parse";
 
@@ -2403,7 +2403,19 @@ function layoutFor(
             ? "stretch"
             : classes.has("items-baseline")
               ? "baseline"
-              : undefined);
+              : classes.has("place-items-start")
+                ? "start"
+                : classes.has("place-items-center")
+                  ? "center"
+                  : classes.has("place-items-end")
+                    ? "end"
+                    : classes.has("place-items-stretch")
+                      ? "stretch"
+                      : classes.has("place-items-baseline")
+                        ? "baseline"
+                        : classes.has("place-items-normal")
+                          ? "normal"
+                          : undefined);
   const justifyContent =
     style["justify-content"] ??
     (classes.has("justify-start")
@@ -4126,10 +4138,37 @@ export function buildCodeLayerTree(
 }
 
 function normalizeSelectorForMatch(selector: string): string {
-  return selector
-    .trim()
-    .replace(/\s*>\s*/g, " > ")
-    .replace(/\s+/g, " ");
+  let normalized = "";
+  let quote: string | null = null;
+  let escaped = false;
+  let bracketDepth = 0;
+  let parenDepth = 0;
+  for (const character of selector.trim()) {
+    if (quote) {
+      normalized += character;
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      normalized += character;
+      continue;
+    }
+    if (character === "[") bracketDepth += 1;
+    if (character === "]") bracketDepth -= 1;
+    if (character === "(") parenDepth += 1;
+    if (character === ")") parenDepth -= 1;
+    if (character === ">" && bracketDepth === 0 && parenDepth === 0) {
+      normalized = `${normalized.trimEnd()} > `;
+    } else if (/\s/.test(character) && bracketDepth === 0 && parenDepth === 0) {
+      if (normalized && !normalized.endsWith(" ")) normalized += " ";
+    } else {
+      normalized += character;
+    }
+  }
+  return normalized.trim();
 }
 
 function selectorPartTag(selectorPart: string): string | null {
@@ -4216,12 +4255,186 @@ function unescapeCssAttributeValue(value: string): string {
   return value.replace(/\\"/g, '"').replace(/\\\\/g, "\\");
 }
 
+function splitCssListAtTopLevel(value: string): string[] | null {
+  const result: string[] = [];
+  let start = 0;
+  let quote: string | null = null;
+  let bracketDepth = 0;
+  let parenDepth = 0;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (!character) continue;
+    if (character === "\\") {
+      index += 1;
+      continue;
+    }
+    if (quote) {
+      if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      continue;
+    }
+    if (character === "[") bracketDepth += 1;
+    else if (character === "]") bracketDepth -= 1;
+    else if (bracketDepth === 0 && character === "(") parenDepth += 1;
+    else if (bracketDepth === 0 && character === ")") parenDepth -= 1;
+    if (bracketDepth < 0 || parenDepth < 0) return null;
+    if (character === "," && bracketDepth === 0 && parenDepth === 0) {
+      result.push(value.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  if (quote || bracketDepth !== 0 || parenDepth !== 0) return null;
+  result.push(value.slice(start).trim());
+  return result;
+}
+
+function extractNotPseudoSelectors(
+  selector: string,
+): { selector: string; negatedSelectors: string[] } | null {
+  let remaining = "";
+  const negatedSelectors: string[] = [];
+  let quote: string | null = null;
+  let bracketDepth = 0;
+
+  for (let index = 0; index < selector.length; index += 1) {
+    const character = selector[index];
+    if (!character) continue;
+    if (character === "\\") {
+      remaining += character;
+      const escaped = selector[index + 1];
+      if (escaped) {
+        remaining += escaped;
+        index += 1;
+      }
+      continue;
+    }
+    if (quote) {
+      remaining += character;
+      if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      remaining += character;
+      continue;
+    }
+    if (character === "[") bracketDepth += 1;
+    else if (character === "]") bracketDepth -= 1;
+    if (bracketDepth < 0) return null;
+
+    if (
+      bracketDepth === 0 &&
+      selector.slice(index, index + 5).toLowerCase() === ":not("
+    ) {
+      let depth = 1;
+      let innerQuote: string | null = null;
+      let innerBracketDepth = 0;
+      let end = index + 5;
+      for (; end < selector.length; end += 1) {
+        const innerCharacter = selector[end];
+        if (!innerCharacter) continue;
+        if (innerCharacter === "\\") {
+          end += 1;
+          continue;
+        }
+        if (innerQuote) {
+          if (innerCharacter === innerQuote) innerQuote = null;
+          continue;
+        }
+        if (innerCharacter === '"' || innerCharacter === "'") {
+          innerQuote = innerCharacter;
+          continue;
+        }
+        if (innerCharacter === "[") innerBracketDepth += 1;
+        else if (innerCharacter === "]") innerBracketDepth -= 1;
+        else if (innerBracketDepth === 0 && innerCharacter === "(") {
+          depth += 1;
+        } else if (innerBracketDepth === 0 && innerCharacter === ")") {
+          depth -= 1;
+          if (depth === 0) break;
+        }
+      }
+      if (depth !== 0 || innerQuote || innerBracketDepth !== 0) return null;
+      const argumentsList = splitCssListAtTopLevel(
+        selector.slice(index + 5, end),
+      );
+      if (!argumentsList || argumentsList.some((value) => !value)) return null;
+      negatedSelectors.push(...argumentsList);
+      index = end;
+      continue;
+    }
+    remaining += character;
+  }
+  if (quote || bracketDepth !== 0) return null;
+  return { selector: remaining, negatedSelectors };
+}
+
+function isSupportedStaticSelector(selector: string): boolean {
+  const extracted = extractNotPseudoSelectors(selector);
+  if (!extracted) return false;
+  if (
+    extracted.negatedSelectors.some(
+      (nested) => !isSupportedStaticSelector(nested),
+    )
+  ) {
+    return false;
+  }
+  let base = extracted.selector.trim();
+  const nthOfType = base.match(/:nth-of-type\(\d+\)$/);
+  if (nthOfType?.index !== undefined) {
+    base = base.slice(0, nthOfType.index);
+  }
+  if (!base) return true;
+
+  if (base.startsWith("*")) {
+    base = base.slice(1);
+  } else {
+    const tag = base.match(/^[A-Za-z][A-Za-z0-9-]*/);
+    if (tag?.[0]) base = base.slice(tag[0].length);
+  }
+
+  while (base) {
+    const identifier = base.match(/^[.#][A-Za-z_][A-Za-z0-9_-]*/);
+    if (identifier?.[0]) {
+      base = base.slice(identifier[0].length);
+      continue;
+    }
+
+    const attribute = base.match(
+      /^\[([A-Za-z_][A-Za-z0-9_:.-]*)=(?:"(?:\\"|[^"])*"|'(?:\\'|[^'])*')\]/,
+    );
+    if (attribute?.[0]) {
+      base = base.slice(attribute[0].length);
+      continue;
+    }
+
+    return false;
+  }
+  return true;
+}
+
 function simpleSelectorMatchesElement(
   element: ParsedElement,
   selector: string,
 ): boolean {
   let remaining = selector.trim();
   if (!remaining) return false;
+
+  const extractedNotSelectors = extractNotPseudoSelectors(remaining);
+  if (!extractedNotSelectors) return true;
+  remaining = extractedNotSelectors.selector.trim() || "*";
+  for (const negatedSelector of extractedNotSelectors.negatedSelectors) {
+    if (
+      isSupportedStaticSelector(negatedSelector) &&
+      simpleSelectorMatchesElement(element, negatedSelector)
+    ) {
+      return false;
+    }
+  }
 
   const nthMatch = remaining.match(/:nth-of-type\((\d+)\)$/);
   if (nthMatch?.[1]) {
@@ -4234,16 +4447,9 @@ function simpleSelectorMatchesElement(
     return false;
   }
 
-  const idMatch = remaining.match(/#([A-Za-z_][A-Za-z0-9_-]*)/);
-  if (idMatch?.[1] && attributeValue(element, "id") !== idMatch[1]) {
-    return false;
-  }
-
-  const attributes = Array.from(
-    remaining.matchAll(
-      /\[([A-Za-z_][A-Za-z0-9_:.-]*)=(?:"((?:\\"|[^"])*)"|'((?:\\'|[^'])*)')\]/g,
-    ),
-  );
+  const attributeSelectorPattern =
+    /\[([A-Za-z_][A-Za-z0-9_:.-]*)=(?:"((?:\\"|[^"])*)"|'((?:\\'|[^'])*)')\]/g;
+  const attributes = Array.from(remaining.matchAll(attributeSelectorPattern));
   for (const match of attributes) {
     const name = match[1];
     if (!name) return false;
@@ -4251,9 +4457,18 @@ function simpleSelectorMatchesElement(
     if (attributeValue(element, name) !== expected) return false;
   }
 
+  const outsideAttributeValues = remaining.replace(
+    attributeSelectorPattern,
+    " ",
+  );
+  const idMatch = outsideAttributeValues.match(/#([A-Za-z_][A-Za-z0-9_-]*)/);
+  if (idMatch?.[1] && attributeValue(element, "id") !== idMatch[1]) {
+    return false;
+  }
+
   const classes = classList(element);
   const requiredClasses = Array.from(
-    remaining.matchAll(/\.([A-Za-z_][A-Za-z0-9_-]*)/g),
+    outsideAttributeValues.matchAll(/\.([A-Za-z_][A-Za-z0-9_-]*)/g),
     (match) => match[1],
   ).filter((value): value is string => Boolean(value));
   if (requiredClasses.some((className) => !classes.includes(className))) {
@@ -4265,7 +4480,8 @@ function simpleSelectorMatchesElement(
     idMatch ||
     attributes.length > 0 ||
     requiredClasses.length > 0 ||
-    nthMatch,
+    nthMatch ||
+    remaining === "*",
   );
 }
 
@@ -6445,6 +6661,16 @@ function applyStyleEdit(
     property,
   );
   let content = replaceOrInsertAttribute(html, element, "style", nextStyle);
+  if (isCrossAxisAlignmentProperty(property)) {
+    content = clearGeneratedFlexAlignmentMarker(content, element);
+  }
+  if (property === "fill" || property === "stroke") {
+    content = removeAttributeFromHtml(
+      content,
+      parseHtmlElements(content)[element.index]!,
+      property,
+    );
+  }
   if (property === "stroke" && value.trim().toLowerCase() !== "transparent") {
     content = clearVectorStrokeGradientState(content, element, previousStroke);
   }
@@ -6859,6 +7085,9 @@ function applyStyleRemoveEdit(
   let content = nextStyle.trim()
     ? replaceOrInsertAttribute(html, styleElement, "style", nextStyle)
     : removeAttributeFromHtml(html, styleElement, "style");
+  if (isCrossAxisAlignmentProperty(property)) {
+    content = clearGeneratedFlexAlignmentMarker(content, styleElement);
+  }
   if (route.kind === "vector-paint") {
     if (property === "stroke") {
       content = clearVectorStrokeGradientState(
@@ -7791,6 +8020,7 @@ function applyMoveNodeEdit(
   element: ParsedElement,
   anchor: ParsedElement,
   intent: MoveNodeEditIntent,
+  sourceParent: ParsedElement | undefined,
   destinationParent?: ParsedElement,
   moveLayout?: {
     destinationIsFlow?: boolean;
@@ -7824,7 +8054,12 @@ function applyMoveNodeEdit(
     sourceParentIndex !== destinationParent.index;
   const rawFragment = html.slice(element.start, element.end);
   const fragment = entersNewParent
-    ? prepareMovedFragmentForParent(rawFragment, destinationParent, moveLayout)
+    ? prepareMovedFragmentForParent(
+        rawFragment,
+        sourceParent,
+        destinationParent,
+        moveLayout,
+      )
     : rawFragment;
   const withoutTarget = `${html.slice(0, element.start)}${html.slice(
     element.end,
@@ -7844,8 +8079,14 @@ function applyMoveNodeEdit(
     return "unsupported";
   }
 
+  const content = `${withoutTarget.slice(0, insertAt)}${fragment}${withoutTarget.slice(insertAt)}`;
   return {
-    content: `${withoutTarget.slice(0, insertAt)}${fragment}${withoutTarget.slice(insertAt)}`,
+    content: entersNewParent
+      ? pinFixedFlexSiblingsOnOverflow(
+          content,
+          (candidate) => candidate.start === insertAt,
+        )
+      : content,
     capability: {
       kind: "structure",
       operations: ["moveNode"],
@@ -7883,6 +8124,7 @@ function isOutOfFlowElement(element: ParsedElement): boolean {
 
 function prepareMovedFragmentForParent(
   fragment: string,
+  sourceParent: ParsedElement | undefined,
   destinationParent: ParsedElement | undefined,
   moveLayout?: {
     destinationIsFlow?: boolean;
@@ -7898,13 +8140,264 @@ function prepareMovedFragmentForParent(
     moveLayout?.destinationIsFlow ?? isFlowLayoutContainer(destinationParent);
   if (destinationIsFlow) {
     if (moveLayout?.sourceWasIgnoredInFlow) return fragment;
-    return stripAbsolutePositioningFromChild(
+    const inFlow = stripAbsolutePositioningFromChild(
       fragment,
       fragmentRoot,
       moveLayout?.forceRootIntoFlow ?? false,
     );
+    return keepFlexItemSizeInNewParent(
+      inFlow,
+      flexAxisOf(sourceParent),
+      flexAxisOf(destinationParent),
+    );
   }
   return stripFlexItemStylingFromChild(fragment, fragmentRoot);
+}
+
+type FlexAxis = "row" | "column";
+
+function flexAxisOf(element: ParsedElement | undefined): FlexAxis | null {
+  if (!element) return null;
+  const style = parseStyle(attributeValue(element, "style"));
+  const classes = new Set(classList(element));
+  const display =
+    style.display ??
+    (classes.has("flex") || classes.has("inline-flex") ? "flex" : undefined);
+  if (display !== "flex" && display !== "inline-flex") return null;
+  const direction =
+    style["flex-direction"] ??
+    (classes.has("flex-col") || classes.has("flex-col-reverse")
+      ? "column"
+      : "row");
+  return direction.startsWith("column") ? "column" : "row";
+}
+
+interface FlexItemSizing {
+  grow: number;
+  shrink: number;
+  basis: string;
+}
+
+function parseFlexShorthand(value: string): FlexItemSizing | null {
+  const tokens = value.trim().toLowerCase().split(/\s+/);
+  if (tokens.length === 1 && tokens[0] === "none") {
+    return { grow: 0, shrink: 0, basis: "auto" };
+  }
+  if (tokens.length === 1 && tokens[0] === "auto") {
+    return { grow: 1, shrink: 1, basis: "auto" };
+  }
+  if (tokens.length === 1 && tokens[0] === "initial") {
+    return { grow: 0, shrink: 1, basis: "auto" };
+  }
+  const numbers: number[] = [];
+  let basis: string | undefined;
+  for (const token of tokens) {
+    if (basis !== undefined) return null;
+    if (numbers.length < 2 && /^\d*\.?\d+$/.test(token)) {
+      numbers.push(Number(token));
+    } else if (/^(?:auto|content|\d*\.?\d+[a-z%]*)$/.test(token)) {
+      basis = token;
+    } else {
+      return null;
+    }
+  }
+  if (numbers.length === 0) return { grow: 1, shrink: 1, basis: basis! };
+  return {
+    grow: numbers[0]!,
+    shrink: numbers[1] ?? 1,
+    basis: basis ?? "0%",
+  };
+}
+
+// Matches the inspector's Fixed mode: a px main-axis size never shrinks, and a
+// px basis carried from another main axis would size the wrong dimension.
+function keepFlexItemSizeInNewParent(
+  fragment: string,
+  sourceAxis: FlexAxis | null,
+  destinationAxis: FlexAxis | null,
+): string {
+  if (!destinationAxis) return fragment;
+  const root = parseHtmlElements(fragment).find(
+    (element) => element.parentIndex === undefined,
+  );
+  if (!root) return fragment;
+  const declarations = parseStyleDeclarations(attributeValue(root, "style"));
+  const sizing: FlexItemSizing = { grow: 0, shrink: 1, basis: "auto" };
+  let usesShorthand = false;
+  for (const declaration of declarations.declarations) {
+    const property = cssPropertyKey(declaration.prop);
+    if (property === "flex") {
+      const parsed = parseFlexShorthand(declaration.value);
+      if (!parsed) return fragment;
+      Object.assign(sizing, parsed);
+      usesShorthand = true;
+    } else if (property === "flex-grow" || property === "flex-shrink") {
+      const value = Number(declaration.value);
+      if (!Number.isFinite(value)) return fragment;
+      sizing[property === "flex-grow" ? "grow" : "shrink"] = value;
+    } else if (property === "flex-basis") {
+      sizing.basis = declaration.value.trim().toLowerCase();
+    }
+  }
+  if (sizing.grow > 0) return fragment;
+
+  const style = parseStyle(attributeValue(root, "style"));
+  const sizeProperty = (axis: FlexAxis) =>
+    axis === "row" ? "width" : "height";
+  const basisPx = parsePixelLength(sizing.basis);
+  let changed = false;
+  if (basisPx !== null && sourceAxis !== destinationAxis) {
+    const sourceSize = sourceAxis ? sizeProperty(sourceAxis) : null;
+    if (sourceSize && (!style[sourceSize] || style[sourceSize] === "auto")) {
+      setStyleDeclaration(declarations, sourceSize, sizing.basis);
+    }
+    sizing.basis = "auto";
+    changed = true;
+  }
+  const fixedMainSize =
+    parsePixelLength(style[sizeProperty(destinationAxis)]) !== null ||
+    parsePixelLength(sizing.basis) !== null;
+  if (fixedMainSize && sizing.shrink !== 0) {
+    sizing.shrink = 0;
+    changed = true;
+  }
+  if (!changed) return fragment;
+
+  if (usesShorthand) {
+    removeStyleDeclarations(declarations, [
+      "flex-grow",
+      "flex-shrink",
+      "flex-basis",
+    ]);
+    setStyleDeclaration(
+      declarations,
+      "flex",
+      `${sizing.grow} ${sizing.shrink} ${sizing.basis}`,
+    );
+  } else {
+    if (sizing.basis === "auto" && style["flex-basis"]) {
+      setStyleDeclaration(declarations, "flex-basis", "auto");
+    }
+    if (sizing.shrink === 0)
+      setStyleDeclaration(declarations, "flex-shrink", "0");
+  }
+  return replaceOrInsertAttribute(
+    fragment,
+    root,
+    "style",
+    serializeStyleDeclarations(declarations),
+  );
+}
+
+const NON_LAYOUT_TAGS = new Set([
+  "script",
+  "style",
+  "template",
+  "link",
+  "meta",
+]);
+
+function authoredFlexMainSize(
+  element: ParsedElement,
+  axis: FlexAxis,
+): number | null {
+  const style = parseStyle(attributeValue(element, "style"));
+  const basis =
+    style["flex-basis"] ??
+    (style.flex ? parseFlexShorthand(style.flex)?.basis : undefined);
+  return (
+    parsePixelLength(basis) ??
+    parsePixelLength(style[axis === "row" ? "width" : "height"])
+  );
+}
+
+function flexMainAxisInset(style: Record<string, string>, axis: FlexAxis) {
+  const [top = "0", right = top, bottom = top, left = right] = (
+    style.padding ?? ""
+  )
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  const start =
+    axis === "row"
+      ? (style["padding-left"] ?? left)
+      : (style["padding-top"] ?? top);
+  const end =
+    axis === "row"
+      ? (style["padding-right"] ?? right)
+      : (style["padding-bottom"] ?? bottom);
+  return (parsePixelLength(start) ?? 0) + (parsePixelLength(end) ?? 0);
+}
+
+function flexMainAxisGap(style: Record<string, string>, axis: FlexAxis) {
+  const [rowGap, columnGap = rowGap] = (style.gap ?? "").trim().split(/\s+/);
+  const gap =
+    axis === "row"
+      ? (style["column-gap"] ?? columnGap)
+      : (style["row-gap"] ?? rowGap);
+  return parsePixelLength(gap) ?? 0;
+}
+
+// A fixed size never shrinks, so once a flex parent's authored main size can
+// no longer hold its in-flow children, every px-sized sibling is pinned too.
+function pinFixedFlexSiblingsOnOverflow(
+  html: string,
+  isChanged: (element: ParsedElement) => boolean,
+): string {
+  const elements = parseHtmlElements(html);
+  const changed = elements.find(isChanged);
+  if (!changed || changed.parentIndex === undefined) return html;
+  if (isOutOfFlowElement(changed)) return html;
+  const parent = elements[changed.parentIndex]!;
+  const axis = flexAxisOf(parent);
+  if (!axis) return html;
+  const parentStyle = parseStyle(attributeValue(parent, "style"));
+  const mainSize = parsePixelLength(
+    parentStyle[axis === "row" ? "width" : "height"],
+  );
+  if (mainSize === null) return html;
+  const available =
+    parentStyle["box-sizing"] === "border-box"
+      ? mainSize - flexMainAxisInset(parentStyle, axis)
+      : mainSize;
+  const items = parent.childIndexes
+    .map((index) => elements[index]!)
+    .filter(
+      (item) =>
+        !NON_LAYOUT_TAGS.has(item.tag) &&
+        !isOutOfFlowElement(item) &&
+        parseStyle(attributeValue(item, "style")).display !== "none",
+    );
+  const needed =
+    items.reduce(
+      (sum, item) => sum + (authoredFlexMainSize(item, axis) ?? 0),
+      0,
+    ) +
+    flexMainAxisGap(parentStyle, axis) * Math.max(0, items.length - 1);
+  if (needed <= available) return html;
+
+  let next = html;
+  for (const item of [...items].sort((a, b) => b.start - a.start)) {
+    if (item.index === changed.index) continue;
+    const fragment = keepFlexItemSizeInNewParent(
+      next.slice(item.start, item.end),
+      axis,
+      axis,
+    );
+    next = `${next.slice(0, item.start)}${fragment}${next.slice(item.end)}`;
+  }
+  return next;
+}
+
+export function pinFixedFlexSiblingsOfNode(
+  html: string,
+  nodeId: string,
+): string {
+  return pinFixedFlexSiblingsOnOverflow(
+    html,
+    (element) =>
+      attributeValue(element, "data-agent-native-node-id") === nodeId,
+  );
 }
 
 function freshNodeId(usedIds: Set<string>, basis: string): string {
@@ -8616,7 +9109,8 @@ function applyWrapNodes(
     return frag;
   });
 
-  const autoLayoutStyle = "display: flex; flex-direction: column; gap: 8px";
+  const autoLayoutStyle =
+    "display: flex; flex-direction: column; align-items: flex-start; gap: 8px";
   const autoLayoutOrigin = autoLayout
     ? (targetGeometry ?? computeAbsoluteUnionOrigin(targetElements))
     : null;
@@ -9069,9 +9563,9 @@ function applyBooleanSubtract(
 
 function parsePixelLength(value: string | undefined): number | null {
   if (!value) return null;
-  const match = /^(-?[\d.]+)px$/.exec(value.trim());
+  const match = /^(-?[\d.]+)px$|^([-+]?0*\.?0+)$/.exec(value.trim());
   if (!match) return null;
-  const parsed = Number(match[1]);
+  const parsed = Number(match[1] ?? match[2]);
   return Number.isFinite(parsed) ? parsed : null;
 }
 
@@ -9662,6 +10156,9 @@ function holdsOpen(value: string, extent: number): boolean {
   return Number.parseFloat(trimmed) >= extent;
 }
 
+const GENERATED_FLEX_ALIGNMENT_ATTRIBUTE =
+  "data-agent-native-generated-flex-align-items";
+
 function applyAutoLayout(
   html: string,
   build: ProjectionBuild,
@@ -9783,8 +10280,8 @@ function applyAutoLayout(
   };
   const containerStyles = intent.containerStyles;
   const writtenProperties: VisualStyleProperty[] = [];
+  const declared: Array<[VisualStyleProperty, string]> = [];
   if (containerStyles) {
-    const declared: Array<[VisualStyleProperty, string]> = [];
     for (const [rawProperty, rawValue] of Object.entries(containerStyles)) {
       const property = normalizeStyleProperty(rawProperty);
       if (!property || !isSafeStyleValue(property, rawValue)) {
@@ -9793,6 +10290,34 @@ function applyAutoLayout(
       declared.push([property, rawValue.trim()]);
     }
     if (declared.length === 0) return "needsAgent";
+  }
+
+  const declaresAlignItems = declared.some(
+    ([property]) => cssPropertyKey(property) === "align-items",
+  );
+  const generatedFlexAlignment = attributeValue(
+    element,
+    GENERATED_FLEX_ALIGNMENT_ATTRIBUTE,
+  );
+  const currentAlignItems = effectiveStyleDeclarations(declarations).find(
+    (declaration) => cssPropertyKey(declaration.prop) === "align-items",
+  );
+  const generatedFlexAlignmentWasPresent =
+    generatedFlexAlignment !== null &&
+    currentAlignItems !== undefined &&
+    !currentAlignItems.important &&
+    currentAlignItems.value
+      .replace(/\s*!important\s*$/i, "")
+      .trim()
+      .toLowerCase() === generatedFlexAlignment.trim().toLowerCase();
+  let nextGeneratedFlexAlignment: string | null = null;
+  let removedGeneratedFlexAlignment = false;
+  if (generatedFlexAlignmentWasPresent && !declaresAlignItems) {
+    removeStyleDeclarations(declarations, ["align-items"]);
+    removedGeneratedFlexAlignment = true;
+  }
+
+  if (containerStyles) {
     for (const [property, value] of declared) {
       setOrReplace(property, value);
       writtenProperties.push(property);
@@ -9803,12 +10328,44 @@ function applyAutoLayout(
     setOrReplace("gap", gap);
     writtenProperties.push("display", "flex-direction", "gap");
   }
-  let result = replaceOrInsertAttribute(
-    html,
-    element,
-    "style",
-    serializeStyleDeclarations(declarations),
-  );
+  if (
+    removedGeneratedFlexAlignment &&
+    nextGeneratedFlexAlignment === null &&
+    !writtenProperties.includes("align-items")
+  ) {
+    writtenProperties.push("align-items");
+  }
+  const effectiveDeclarations = effectiveStyleDeclarations(declarations);
+  const hasAuthoredCrossAxisAlignment =
+    effectiveDeclarations.some((declaration) =>
+      isCrossAxisAlignmentProperty(declaration.prop),
+    ) ||
+    (!generatedFlexAlignmentWasPresent &&
+      node.layout.alignItems !== undefined) ||
+    hasCrossAxisAlignmentUtilityClass(element) ||
+    stylesheetMaySetAlignItems(html, element, build.elements);
+  const displayValue = effectiveDeclarations
+    .find((declaration) => cssPropertyKey(declaration.prop) === "display")
+    ?.value.replace(/\s*!important\s*$/i, "")
+    .trim()
+    .toLowerCase();
+  const isFlexContainer = displayValue
+    ? displayValue === "flex" || displayValue === "inline-flex"
+    : node.layout.isFlexContainer;
+  if (isFlexContainer && !hasAuthoredCrossAxisAlignment) {
+    setOrReplace("align-items", "flex-start");
+    nextGeneratedFlexAlignment = "flex-start";
+    writtenProperties.push("align-items");
+  }
+  let result = patchElementAttributes(html, [
+    {
+      element,
+      attributes: {
+        style: serializeStyleDeclarations(declarations),
+        [GENERATED_FLEX_ALIGNMENT_ATTRIBUTE]: nextGeneratedFlexAlignment,
+      },
+    },
+  ]);
 
   const updatedElements = parseHtmlElements(result);
   const stableAttrPairs: Array<[string, string]> = [];
@@ -9839,6 +10396,18 @@ function applyAutoLayout(
       const child = updatedElements[childIndex];
       if (!child) continue;
       result = stripAbsolutePositioningFromChild(result, child);
+    }
+  }
+  if (!isFlowLayoutContainer(element)) {
+    const columnElements = parseHtmlElements(result);
+    const columnTarget = findElementInParsed(columnElements);
+    if (columnTarget && flexAxisOf(columnTarget) === "column") {
+      for (const childIndex of [...columnTarget.childIndexes].reverse()) {
+        result = keepBlockChildFillingWidth(
+          result,
+          columnElements[childIndex]!,
+        );
+      }
     }
   }
 
@@ -9898,6 +10467,379 @@ function applyAutoLayout(
       confidence: 0.88,
     },
   };
+}
+
+function isCrossAxisAlignmentProperty(property: string): boolean {
+  const key = cssPropertyKey(property);
+  return key === "align-items" || key === "place-items";
+}
+
+function clearGeneratedFlexAlignmentMarker(
+  html: string,
+  element: ParsedElement,
+): string {
+  const updatedElement = parseHtmlElements(html)[element.index];
+  return updatedElement
+    ? removeAttributeFromHtml(
+        html,
+        updatedElement,
+        GENERATED_FLEX_ALIGNMENT_ATTRIBUTE,
+      )
+    : html;
+}
+
+function hasCrossAxisAlignmentUtilityClass(element: ParsedElement): boolean {
+  return classList(element).some((className) => {
+    if (/(?:^|:)!?\[(?:align-items|place-items):/i.test(className)) {
+      return true;
+    }
+    const variants = className.split(":");
+    const utility = variants[variants.length - 1]?.replace(/^!/, "");
+    return utility?.startsWith("items-") || utility?.startsWith("place-items-");
+  });
+}
+
+function stylesheetMaySetAlignItems(
+  html: string,
+  target: ParsedElement,
+  elements: readonly ParsedElement[],
+): boolean {
+  const tagRe =
+    /<!--[\s\S]*?-->|<![A-Za-z][^>]*>|<\/?\s*([A-Za-z][A-Za-z0-9:-]*)\b/g;
+  let match: RegExpExecArray | null;
+  while ((match = tagRe.exec(html))) {
+    let raw = match[0];
+    if (raw.startsWith("<!")) continue;
+    const tagEnd = findHtmlTagEnd(html, match.index);
+    raw = html.slice(match.index, tagEnd === -1 ? html.length : tagEnd);
+    tagRe.lastIndex = match.index + raw.length;
+    const tag = match[1]?.toLowerCase();
+    if (!tag || raw.startsWith("</")) continue;
+
+    const inTemplate =
+      (tag === "style" || tag === "link") &&
+      isOffsetInsideTemplateInterior(html, match.index);
+    if (tag === "link") {
+      if (inTemplate) continue;
+      const attributes = parseAttributes(raw, match.index);
+      const rel = attributes.find((attribute) => attribute.lowerName === "rel");
+      const href = attributes.find(
+        (attribute) => attribute.lowerName === "href",
+      );
+      const media = attributes.find(
+        (attribute) => attribute.lowerName === "media",
+      );
+      const relValue =
+        rel && typeof rel.value === "string"
+          ? decodeBasicHtmlEntities(rel.value).toLowerCase()
+          : "";
+      const mediaValue = media
+        ? typeof media.value === "string"
+          ? decodeBasicHtmlEntities(media.value)
+          : ""
+        : null;
+      const hrefValue =
+        typeof href?.value === "string"
+          ? decodeBasicHtmlEntities(href.value).trim()
+          : "";
+      if (
+        relValue.split(/\s+/).includes("stylesheet") &&
+        hrefValue !== "" &&
+        stylesheetHrefCanLoad(hrefValue) &&
+        !isGoogleFontsStylesheet(hrefValue) &&
+        !attributes.some((attribute) => attribute.lowerName === "disabled") &&
+        (mediaValue === null || mediaQueryListMayMatchScreen(mediaValue))
+      ) {
+        return true;
+      }
+      continue;
+    }
+
+    if (tag === "style") {
+      const close = findClosingTag(html, "style", match.index + raw.length);
+      const mediaAttribute = parseAttributes(raw, match.index).find(
+        (attribute) => attribute.lowerName === "media",
+      );
+      const mediaValue = mediaAttribute
+        ? typeof mediaAttribute.value === "string"
+          ? decodeBasicHtmlEntities(mediaAttribute.value)
+          : ""
+        : null;
+      if (
+        !inTemplate &&
+        (mediaValue === null || mediaQueryListMayMatchScreen(mediaValue))
+      ) {
+        const css = html.slice(
+          match.index + raw.length,
+          close?.closeStart ?? html.length,
+        );
+        try {
+          const stylesheet = parseCss(css, { map: false });
+          let importedStylesheet = false;
+          stylesheet.walkAtRules("import", () => {
+            importedStylesheet = true;
+          });
+          if (importedStylesheet) return true;
+          let matchingAlignmentRule = false;
+          stylesheet.walkRules((rule) => {
+            if (
+              stylesheetRuleMayApplyOnScreen(rule) &&
+              rule.nodes?.some(
+                (declaration) =>
+                  declaration.type === "decl" &&
+                  isCrossAxisAlignmentProperty(declaration.prop),
+              ) &&
+              rule.selectors.some((selector) =>
+                stylesheetSelectorMayMatchElement(selector, target, elements),
+              )
+            ) {
+              matchingAlignmentRule = true;
+            }
+          });
+          if (matchingAlignmentRule) return true;
+        } catch (error) {
+          if (!(error instanceof CssSyntaxError)) throw error;
+          if (/@import\b|\b(?:align-items|place-items)\s*:/i.test(css)) {
+            return true;
+          }
+        }
+      }
+      tagRe.lastIndex = close?.closeEnd ?? html.length;
+      continue;
+    }
+
+    if (["script", "textarea", "title", "noscript"].includes(tag)) {
+      const close = findClosingTag(html, tag, match.index + raw.length);
+      tagRe.lastIndex = close?.closeEnd ?? html.length;
+    }
+  }
+  return false;
+}
+
+function stylesheetHrefCanLoad(href: string): boolean {
+  try {
+    return new URL(href, "https://design.invalid").protocol !== "javascript:";
+  } catch {
+    // coercion-ok: Invalid hrefs cannot identify a loadable stylesheet.
+    return false;
+  }
+}
+
+function isGoogleFontsStylesheet(href: string): boolean {
+  try {
+    const url = new URL(href, "https://design.invalid");
+    return (
+      url.hostname.toLowerCase() === "fonts.googleapis.com" &&
+      (url.pathname === "/css" || url.pathname === "/css2")
+    );
+  } catch {
+    // coercion-ok: Invalid hrefs are non-matches in this predicate.
+    return false;
+  }
+}
+
+function stylesheetRuleMayApplyOnScreen(rule: Rule): boolean {
+  let parent = rule.parent;
+  while (parent) {
+    if (
+      parent.type === "atrule" &&
+      parent.name.toLowerCase() === "media" &&
+      !mediaQueryListMayMatchScreen(parent.params)
+    ) {
+      return false;
+    }
+    const ancestor = parent.parent;
+    parent = ancestor && ancestor.type !== "document" ? ancestor : undefined;
+  }
+  return true;
+}
+
+function mediaQueryListMayMatchScreen(params: string): boolean {
+  const queries = splitCssListAtTopLevel(params);
+  if (!queries) return true;
+  return queries.some((query) => {
+    let remaining = query.trim();
+    if (!remaining) return true;
+
+    const negated = /^not\b/i.test(remaining);
+    if (negated) remaining = remaining.replace(/^not\b\s*/i, "");
+    else remaining = remaining.replace(/^only\b\s*/i, "");
+
+    const mediaType = remaining
+      .match(/^([A-Za-z][A-Za-z0-9-]*)\b/)?.[1]
+      ?.toLowerCase();
+    if (!mediaType) return true;
+    if (mediaType === "print" || mediaType === "speech") return negated;
+    if (mediaType === "screen" || mediaType === "all") return !negated;
+    return true;
+  });
+}
+
+function stylesheetSelectorMayMatchElement(
+  selector: string,
+  target: ParsedElement,
+  elements: readonly ParsedElement[],
+): boolean {
+  const normalized = normalizeSelectorForMatch(selector);
+  if (!normalized) return false;
+
+  const parts: Array<{
+    selector: string;
+    relation: "child" | "descendant" | null;
+  }> = [];
+  let current = "";
+  let relation: "child" | "descendant" | null = null;
+  let quote: string | null = null;
+  let bracketDepth = 0;
+  let parenDepth = 0;
+
+  const pushPart = (): boolean => {
+    const value = current.trim();
+    if (!value) return false;
+    parts.push({ selector: value, relation });
+    current = "";
+    relation = null;
+    return true;
+  };
+
+  for (const character of normalized) {
+    if (quote) {
+      current += character;
+      if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      current += character;
+      continue;
+    }
+    if (character === "[") bracketDepth += 1;
+    if (character === "]") bracketDepth -= 1;
+    if (character === "(") parenDepth += 1;
+    if (character === ")") parenDepth -= 1;
+    if (bracketDepth < 0 || parenDepth < 0) return true;
+
+    if (bracketDepth === 0 && parenDepth === 0) {
+      if (character === ">") {
+        if (current.trim() && !pushPart()) return true;
+        if (relation === "child") return true;
+        relation = "child";
+        continue;
+      }
+      if (character === "+" || character === "~") return true;
+      if (/\s/.test(character)) {
+        if (current.trim()) {
+          pushPart();
+          relation ??= "descendant";
+        }
+        continue;
+      }
+    }
+    current += character;
+  }
+  if (quote || bracketDepth !== 0 || parenDepth !== 0) return true;
+  if (current.trim()) pushPart();
+  if (relation !== null || parts.length === 0) return true;
+  if (parts.some((part) => !isSupportedStaticSelector(part.selector))) {
+    return true;
+  }
+
+  const matchesAt = (element: ParsedElement, index: number): boolean => {
+    const part = parts[index];
+    if (
+      !part ||
+      (part.selector !== "*" &&
+        !simpleSelectorMatchesElement(element, part.selector))
+    ) {
+      return false;
+    }
+    if (index === 0) return true;
+
+    const previousIndex = index - 1;
+    if (part.relation === "child") {
+      const parent =
+        element.parentIndex === undefined
+          ? undefined
+          : elements[element.parentIndex];
+      return parent ? matchesAt(parent, previousIndex) : false;
+    }
+
+    let parentIndex = element.parentIndex;
+    while (parentIndex !== undefined) {
+      const parent = elements[parentIndex];
+      if (!parent) break;
+      if (matchesAt(parent, previousIndex)) return true;
+      parentIndex = parent.parentIndex;
+    }
+    return false;
+  };
+
+  const lastPart = parts[parts.length - 1];
+  if (!lastPart) return false;
+  if (
+    lastPart.selector !== "*" &&
+    !simpleSelectorMatchesElement(target, lastPart.selector)
+  ) {
+    return false;
+  }
+  return matchesAt(target, parts.length - 1);
+}
+
+const BLOCK_LEVEL_TAGS = new Set([
+  "address",
+  "article",
+  "aside",
+  "blockquote",
+  "div",
+  "dl",
+  "fieldset",
+  "figure",
+  "footer",
+  "form",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "header",
+  "main",
+  "nav",
+  "ol",
+  "p",
+  "pre",
+  "section",
+  "table",
+  "ul",
+]);
+
+// In block flow an auto-width child with an auto inline margin still fills the
+// line; in a flex column the auto margin shrinks it to fit-content instead.
+function keepBlockChildFillingWidth(
+  html: string,
+  child: ParsedElement,
+): string {
+  const style = parseStyle(attributeValue(child, "style"));
+  const display =
+    style.display ?? (BLOCK_LEVEL_TAGS.has(child.tag) ? "block" : "inline");
+  if (!["block", "flex", "grid", "flow-root"].includes(display)) return html;
+  if (style.width && style.width !== "auto") return html;
+  if (isOutOfFlowElement(child)) return html;
+  const [top = "0", right = top, , left = right] = (style.margin ?? "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  const marginLeft = style["margin-left"] ?? left;
+  const marginRight = style["margin-right"] ?? right;
+  if (marginLeft !== "auto" && marginRight !== "auto") return html;
+  const declarations = parseStyleDeclarations(attributeValue(child, "style"));
+  setStyleDeclaration(declarations, "width", "100%");
+  return replaceOrInsertAttribute(
+    html,
+    child,
+    "style",
+    serializeStyleDeclarations(declarations),
+  );
 }
 
 function findAfterNode(
@@ -10403,6 +11345,9 @@ function applyVisualEditUnsafe(
       element,
       anchorElement,
       intent,
+      element.parentIndex === undefined
+        ? undefined
+        : initial.elements[element.parentIndex],
       destinationParent,
       options.moveNode,
     );
@@ -10587,15 +11532,28 @@ export function applyOrdinaryVisualStyleBatch(
     status: "applied",
     content: patchElementAttributes(
       html,
-      [...updatesByElement.values()].map((update) => ({
-        element: update.element,
-        attributes: { style: update.style },
-      })),
+      [...updatesByElement.values()].map((update) => {
+        const editsAlignment = [...update.values.keys()].some(
+          isCrossAxisAlignmentProperty,
+        );
+        return {
+          element: update.element,
+          attributes: {
+            style: update.style,
+            ...(editsAlignment
+              ? { [GENERATED_FLEX_ALIGNMENT_ATTRIBUTE]: null }
+              : {}),
+          },
+        };
+      }),
     ),
   };
 }
 
-const EDITOR_ONLY_ATTRIBUTES: readonly string[] = ["data-agent-native-node-id"];
+const EDITOR_ONLY_ATTRIBUTES: readonly string[] = [
+  "data-agent-native-node-id",
+  GENERATED_FLEX_ALIGNMENT_ATTRIBUTE,
+];
 
 export function stripEditorOnlyAttributes(html: string): string {
   if (!html || typeof html !== "string") return html ?? "";
@@ -10870,10 +11828,14 @@ export function moveNodeBetweenDocuments(
           : destElements[anchor.parentIndex];
     fragment = prepareMovedFragmentForParent(
       fragment,
+      sourceParent,
       destinationParent,
       fragmentMoveLayout,
     );
-    nextDestHtml = `${destHtml.slice(0, insertAt)}${fragment}${destHtml.slice(insertAt)}`;
+    nextDestHtml = pinFixedFlexSiblingsOnOverflow(
+      `${destHtml.slice(0, insertAt)}${fragment}${destHtml.slice(insertAt)}`,
+      (candidate) => candidate.start === insertAt,
+    );
   } else {
     const bodyEl = destElements.find((el) => el.tag === "body");
     let insertAt = bodyEl
@@ -10886,10 +11848,14 @@ export function moveNodeBetweenDocuments(
     }
     fragment = prepareMovedFragmentForParent(
       fragment,
+      sourceParent,
       bodyEl,
       fragmentMoveLayout,
     );
-    nextDestHtml = `${destHtml.slice(0, insertAt)}${fragment}${destHtml.slice(insertAt)}`;
+    nextDestHtml = pinFixedFlexSiblingsOnOverflow(
+      `${destHtml.slice(0, insertAt)}${fragment}${destHtml.slice(insertAt)}`,
+      (candidate) => candidate.start === insertAt,
+    );
   }
 
   return {

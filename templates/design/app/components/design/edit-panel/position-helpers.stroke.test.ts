@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  insideStrokeBoxSizing,
   outlineOffsetForPosition,
   readStrokeOutlinePosition,
   resolveRestoredStrokeStyle,
@@ -122,5 +123,20 @@ describe("whether a stroke row should exist at all", () => {
   it("still counts one hidden through the eye icon, which zeroes alpha only", () => {
     expect(strokeIsVisible("1px", "solid")).toBe(true);
     expect(strokeHiddenByColor("rgba(0, 0, 0, 0)")).toBe(true);
+  });
+});
+
+describe("insideStrokeBoxSizing", () => {
+  it("makes an unpadded content-box layer border-box so its stroke draws inside", () => {
+    expect(insideStrokeBoxSizing({ boxSizing: "content-box" })).toEqual({
+      boxSizing: "border-box",
+    });
+  });
+
+  it("leaves border-box and padded content-box layers alone", () => {
+    expect(insideStrokeBoxSizing({ boxSizing: "border-box" })).toEqual({});
+    expect(
+      insideStrokeBoxSizing({ boxSizing: "content-box", paddingLeft: "16px" }),
+    ).toEqual({});
   });
 });

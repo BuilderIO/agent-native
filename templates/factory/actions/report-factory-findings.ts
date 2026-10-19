@@ -316,6 +316,11 @@ function parseSlackTimestamp(value: unknown): number {
 }
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
   description:
     "Post one grouped Slack report for eligible GitHub issue or Sentry findings from the current Factory automation run to #qa-agent-native. This action never creates, comments on, or reacts to GitHub issues. Use it once for the complete eligible batch; record non-eligible items with dispatch-factory-item.",
   schema: z.object({

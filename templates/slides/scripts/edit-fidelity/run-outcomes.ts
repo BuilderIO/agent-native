@@ -1,5 +1,7 @@
 export class CouldNotRun extends Error {}
 
+export class AuthoringFuzzStallError extends Error {}
+
 export class ActionTransportError extends Error {}
 
 export class ActionRequestTimeoutError extends Error {}
@@ -57,6 +59,7 @@ export async function runSetupActionAsCouldNotRun<T>(
 
 export function getHarnessUnavailableError(error: unknown): CouldNotRun | null {
   if (error instanceof CouldNotRun) return error;
+  if (error instanceof AuthoringFuzzStallError) return null;
   if (error instanceof ActionTransportError) {
     return new CouldNotRun(
       `authoring action transport failed: ${String(error)}`,

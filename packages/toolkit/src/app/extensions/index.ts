@@ -42,6 +42,13 @@ export {
   type AgentNativeExtensionStorageScopeList,
 } from "./AgentNativeExtensionFrame.js";
 export {
+  createExternalExtensionLinkNonce,
+  extensionFrameNameWithLinkNonce,
+  isExtensionApiPath,
+  useExternalExtensionLinks,
+  type ExternalExtensionLinkOptions,
+} from "./extension-links.js";
+export {
   AGENT_NATIVE_EXTENSION_MESSAGE_TYPES,
   buildAgentNativeExtensionHtml,
   createHttpAgentNativeExtensionStorage,

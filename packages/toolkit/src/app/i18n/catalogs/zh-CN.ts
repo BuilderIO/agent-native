@@ -165,6 +165,16 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "隐私政策",
   "onboarding.builderConsentAnd": "和",
   "onboarding.builderExistingAccount": "我有 Builder.io 账户",
+  "onboarding.creditsTitle": "每月免费试用 60 个 Agent Credits",
+  "onboarding.creditsTitleClips":
+    "免费试用视频存储，并每月获得 60 个 Agent Credits",
+  "onboarding.creditsActivate": "激活免费额度",
+  "onboarding.creditsFinePrint":
+    "这将创建一个免费的 Builder.io 账户。继续表示您同意我们的",
+  "onboarding.creditsConnectExisting": "连接现有 Builder.io 账户",
+  "onboarding.creditsMoreInfo": "更多信息",
+  "onboarding.creditsSkipBody":
+    "如果您跳过，您需要连接自己的密钥才能使用 AI 和存储。",
   "onboarding.builderConnect": "连接 Builder.io",
   "onboarding.builderActivating": "正在激活 Builder.io 免费额度",
   "onboarding.builderConnecting": "正在设置 Builder.io 免费额度",
@@ -197,6 +207,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "嵌入向量",
   "onboarding.capability.embeddings.why":
     "嵌入向量可以改进语义搜索。没有嵌入向量时，关键词搜索仍然有效。",
+  "onboarding.capability.webSearch.label": "网页搜索",
+  "onboarding.capability.webSearch.keySummary": "由 Builder 管理的网页搜索",
+  "onboarding.capability.webSearch.why":
+    "搜索网页上的最新公开信息。Builder 管理的搜索使用随附的 Builder AI 积分，因此无需单独的搜索 API 密钥。",
   "onboarding.capability.systemOne.why":
     "Jev 是一个可选的决策模型，可在代理首次请求模型前帮助选择相关工具和技能。",
   "onboarding.capability.assetsImageGeneration.label": "图像生成",
@@ -2405,6 +2419,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.search.appDefaultModel": "应用默认模型",
   "settingsShell.search.backgroundAgents": "后台智能体",
   "settingsShell.search.browserAutomation": "浏览器自动化",
+  "settingsShell.search.webSearch": "网页搜索",
   "settingsShell.search.connectedAgents": "已连接的智能体",
   "settingsShell.search.database": "数据库",
   "settingsShell.search.defaultModel": "默认模型",
@@ -2528,6 +2543,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyDesignSystem": "让生成的幻灯片和设计符合品牌规范。",
   "settingsInfra.whyBackground": "在生产环境中修改代码。",
   "settingsInfra.whyBrowser": "让智能体在生产环境中使用浏览器。",
+  "settingsInfra.whyWebSearch": "查找最新的公开信息和官方文档。",
   "settingsInfra.provider": "提供商",
   "settingsInfra.keyOrg": "使用组织的 {{provider}} 密钥。",
   "settingsInfra.manageKey": "管理密钥",

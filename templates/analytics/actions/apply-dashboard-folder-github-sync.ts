@@ -7,6 +7,11 @@ import {
 } from "../server/lib/dashboard-github-sync/folder-sync";
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: true,
+  },
   description:
     "Pull changes from a linked GitHub folder into its dashboards. Only the panels, order, and " +
     "settings that changed in GitHub are written, so edits made in the app to other panels are kept. " +

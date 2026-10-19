@@ -920,6 +920,10 @@ export default {
       animations: "Animaciones",
       pathEditAmbiguous:
         "Esta capa tiene varias animaciones de posición, por lo que su trayectoria no se puede editar de forma inequívoca.",
+      pathEditPositionConflict:
+        "Esta capa ya tiene otra animación de posición, así que su trayectoria no se puede curvar.",
+      positionStyleConflict:
+        "Esta capa ya tiene una animación de posición que no se puede combinar con otra.",
       animationStyles: {
         title: "Animaciones",
         createTitle: "Crear nuevo estilo de animación",
@@ -1036,6 +1040,51 @@ export default {
         tooMany: "Un estilo puede incluir hasta 24 animaciones.",
         limit: "Este diseño alcanzó el límite de 64 estilos de animación.",
       },
+      builtInRecipes: {
+        tempo: { fast: "Rápido", medium: "Medio", slow: "Lento" },
+        enter: {
+          recipe01: "Entrada Builder 01",
+          recipe02: "Entrada Builder 02",
+          recipe03: "Entrada Builder 03",
+          recipe04: "Entrada Builder 04",
+          recipe05: "Entrada Builder 05",
+          recipe06: "Entrada Builder 06",
+          recipe07: "Entrada Builder 07",
+          recipe08: "Entrada Builder 08",
+          recipe09: "Entrada Builder 09",
+          recipe10: "Entrada Builder 10",
+          recipe11: "Entrada Builder 11",
+          recipe12: "Entrada Builder 12",
+        },
+        cycle: {
+          recipe01: "Bucle Builder 01",
+          recipe02: "Bucle Builder 02",
+          recipe03: "Bucle Builder 03",
+          recipe04: "Bucle Builder 04",
+          recipe05: "Bucle Builder 05",
+          recipe06: "Bucle Builder 06",
+          recipe07: "Bucle Builder 07",
+          recipe08: "Bucle Builder 08",
+          recipe09: "Bucle Builder 09",
+          recipe10: "Bucle Builder 10",
+          recipe11: "Bucle Builder 11",
+          recipe12: "Bucle Builder 12",
+        },
+        exit: {
+          recipe01: "Salida Builder 01",
+          recipe02: "Salida Builder 02",
+          recipe03: "Salida Builder 03",
+          recipe04: "Salida Builder 04",
+          recipe05: "Salida Builder 05",
+          recipe06: "Salida Builder 06",
+          recipe07: "Salida Builder 07",
+          recipe08: "Salida Builder 08",
+          recipe09: "Salida Builder 09",
+          recipe10: "Salida Builder 10",
+          recipe11: "Salida Builder 11",
+          recipe12: "Salida Builder 12",
+        },
+      },
       tabLabel: "Movimiento",
       transform: "Transformación",
       layout: "Diseño",
@@ -1069,6 +1118,8 @@ export default {
         "Motion no puede leer esta animación sin cambiar su comportamiento.",
       sourceWriteUnavailable:
         "Por ahora, el código de movimiento solo se puede escribir en diseños HTML integrados.",
+      unresolvedStylesheets:
+        "Resuelve las hojas de estilo externas antes de editar o añadir Motion.",
       sourceConflict:
         "El código de Motion cambió mientras esta línea de tiempo tenía cambios sin guardar. Recarga el código para descartar esos cambios y usar la fuente actual.",
       reloadFromSource: "Volver a cargar el código",
@@ -1150,17 +1201,20 @@ export default {
       },
       nativeTextStagger: {
         create: "Texto escalonado",
-        animationDirection: "Dirección de animación",
+        animationDirection: "Dirección",
         enter: "Entrada",
         exit: "Salida",
-        grouping: "Agrupar por",
+        grouping: "Cada",
         order: "Orden",
         overlap: "Superposición",
+        ignoreSpaces: "Ignorar espacios",
         positionDirection: "Dirección de posición",
         rotationDirection: "Dirección de rotación",
         orderOptions: {
           leftToRight: "De izquierda a derecha",
           rightToLeft: "De derecha a izquierda",
+          centerOut: "Desde el centro",
+          random: "Aleatorio",
           topToBottom: "De arriba abajo",
           bottomToTop: "De abajo arriba",
         },
@@ -1180,6 +1234,12 @@ export default {
       addKeyframe: "Añadir fotograma clave",
       trackExists:
         'Ya existe una pista de "{{property}}" para {{label}}. Edita sus fotogramas clave en la línea de tiempo.',
+      recipeDoesNotFit:
+        "No hay espacio suficiente para añadir esta animación en el punto actual de la línea de tiempo.",
+      textSyncUnsupported:
+        "No se pueden sincronizar estos ajustes de movimiento de texto.",
+      textPropertyAlreadyAnimated:
+        "Una animación de texto en el código ya controla esta propiedad.",
       layerAnimationSpan: "Rango de animación de {{label}}",
       keyframeAt: "Fotograma clave en {{ms}}ms",
       deleteKeyframe: "Eliminar fotograma clave",
@@ -1713,6 +1773,8 @@ export default {
     tweaksPlaceholder: "Opciones de acento, densidad, radio, modo oscuro...",
     designExport: "Exportación de Design",
     designPreview: "Vista previa de Design",
+    preview: "Vista previa",
+    publish: "Publicar",
     presentMode: "Modo presente",
     useThisDirection: "Usa esta dirección",
     variantHandoffHelp:
@@ -1796,6 +1858,8 @@ export default {
         "Elige una ruta para añadirla como nuevo marco, o escribe una ruta.",
       searchPlaceholder: "Buscar rutas…",
       noRoutes: "No hay rutas que coincidan",
+      noDiscoveredRoutes:
+        "No se han encontrado rutas en esta app. Escribe una ruta para añadir una pantalla.",
       useCustomPath: 'Añadir "{{path}}"',
       viewportDesktop: "Escritorio",
       viewportMobile: "Móvil",

@@ -6,6 +6,8 @@ import type {
   MotionAnimationStyleMetadata,
   MotionAnimationStyleTrackDefinition,
 } from "@shared/motion-animation-styles";
+import type { MotionBuiltInRecipe } from "@shared/motion-built-in-recipes";
+import { motionTimelineHasIncompatiblePositionTracks } from "@shared/motion-code";
 import type { MotionEasingVariable } from "@shared/motion-easing";
 import type {
   MotionNativeStyleInstance,
@@ -14,6 +16,8 @@ import type {
 import {
   createMotionNativeStyleInstance,
   motionNativeStyleEndTimeMs,
+  motionNativeStyleWithTextAnimationSettings,
+  motionTextDocumentWithNativeStyleSettings,
 } from "@shared/motion-native-style-runtime";
 import type { MotionTextAnimation } from "@shared/motion-text-code";
 import {
@@ -114,6 +118,7 @@ import {
   type MotionAnimationStyle,
 } from "./motion-animation-style";
 import {
+  applyMotionBuiltInRecipeToTargets,
   applyMotionAnimationStyleToTargets,
   motionAnimationStyleDefinitionFromTracks,
   resolveSelectedMotionTargets,
@@ -140,7 +145,7 @@ import {
 } from "./view/responsive-interact-toolbar";
 import { renderRightRail } from "./view/right-rail";
 import { renderRightSidebarActions } from "./view/right-sidebar-actions";
-import { ShareExportMenu } from "./view/share-export-menu";
+import { ShareCopyLinkButton } from "./view/share-copy-link-button";
 import { ShareSendToTab } from "./view/share-send-to-tab";
 import { renderSignedOutPersistenceActions } from "./view/signed-out-persistence-actions";
 import { renderZoomMenu } from "./view/zoom-menu";
@@ -390,9 +395,13 @@ export function renderDesignEditorView({
     markMotionTracksDirty,
     handleMotionAnimationStyleSaved,
     handleMotionTextAnimationsChange,
+    handleMotionTextDocumentChange,
+    handleMotionNativeStyleChange,
     handleMotionDurationChange,
     inspectCodeData,
     handleCreateComponent,
+    handleGoToMainComponentMenuAction,
+    selectedInstanceActionNodeId,
     handleComponentPropApplied,
     handleShaderSourceApplied,
     handleShaderSourceEdit,
@@ -1110,13 +1119,9 @@ export function renderDesignEditorView({
             shareSegmentClassName,
           )}
         />
-        <ShareExportMenu
+        <ShareCopyLinkButton
           editorCore={editorCore}
-          editorGenerationAndAccess={editorGenerationAndAccess}
-          editorFilesAndSaving={editorFilesAndSaving}
-          editorActiveScreenAndGeometry={editorActiveScreenAndGeometry}
-          editorExportAndHandoff={editorExportAndHandoff}
-          editorLayerActions={editorLayerActions}
+          shareUrl={editorShareUrl}
           className={cn(
             dense
               ? "h-[var(--design-control-height)]"
@@ -1548,7 +1553,6 @@ export function renderDesignEditorView({
               defaultEase: motionDefaultEase,
               currentTimeMs: motionPlayhead * motionDurationMs,
               timelineDurationMs: motionDurationMs,
-              existingTracks: motionTracks,
             });
             if (created.tracks.length === 0) {
               toast.info(
@@ -1563,14 +1567,15 @@ export function renderDesignEditorView({
             if (created.timelineDurationMs !== motionDurationMs) {
               handleMotionDurationChange(created.timelineDurationMs);
             }
-            handleMotionTracksChange(
-              motionTracks.length === 0
+            handleMotionTracksChange((currentTracks) => {
+              const nextTracks = [...currentTracks, ...created.tracks];
+              return currentTracks.length === 0
                 ? withTimelinePlaybackMode(
-                    created.tracks,
+                    nextTracks,
                     MOTION_DEFAULT_PLAYBACK_MODE,
                   )
-                : [...motionTracks, ...created.tracks],
-            );
+                : nextTracks;
+            });
             setMotionDockOpenAnimated(true);
           }
         : undefined,
@@ -1592,16 +1597,59 @@ export function renderDesignEditorView({
             const targetNodeIds = hasCompleteSelectedMotionTargets
               ? uniqueSelectedMotionTargets.map(({ nodeId }) => nodeId)
               : [motionTargetForInspector.nodeId];
-            const instances = createMotionNativeStyleInstancesForTargets({
-              styleKey,
-              targetNodeIds,
-              timelineOffset: (motionPlayhead * motionDurationMs) / 1000,
-            });
+            const createdInstances = createMotionNativeStyleInstancesForTargets(
+              {
+                styleKey,
+                targetNodeIds,
+                timelineOffset: (motionPlayhead * motionDurationMs) / 1000,
+              },
+            );
+            let nextTextDocument = motionTextDocument;
+            let instances: MotionNativeStyleInstance[];
+            try {
+              instances = createdInstances.map((instance) => {
+                if (instance.styleKey !== "TextStagger") return instance;
+                const targetAnimations =
+                  nextTextDocument?.animations.filter(
+                    (animation) =>
+                      animation.targetNodeId === instance.targetNodeId,
+                  ) ?? [];
+                const firstAnimation = targetAnimations[0];
+                if (!firstAnimation) return instance;
+                const seeded = motionNativeStyleWithTextAnimationSettings(
+                  instance,
+                  firstAnimation,
+                );
+                nextTextDocument = motionTextDocumentWithNativeStyleSettings(
+                  nextTextDocument,
+                  seeded,
+                );
+                return seeded;
+              });
+            } catch {
+              toast.error(t("designEditor.motion.textSyncUnsupported"));
+              return;
+            }
+            if (
+              motionTimelineHasIncompatiblePositionTracks({
+                tracks: motionTracks,
+                nativeStyles: [...motionNativeStyles, ...instances],
+              })
+            ) {
+              toast.error(t("designEditor.motion.positionStyleConflict"));
+              return;
+            }
             const nextDurationMs = Math.max(
               motionDurationMs,
               ...instances.map(motionNativeStyleEndTimeMs),
             );
             setMotionNativeStyles((current) => [...current, ...instances]);
+            if (
+              JSON.stringify(nextTextDocument) !==
+              JSON.stringify(motionTextDocument)
+            ) {
+              handleMotionTextDocumentChange(nextTextDocument);
+            }
             if (nextDurationMs !== motionDurationMs) {
               handleMotionDurationChange(nextDurationMs);
             } else {
@@ -1612,34 +1660,7 @@ export function renderDesignEditorView({
         : undefined,
     onMotionNativeStyleChange:
       canEditActiveVisualScreen && canWriteMotion
-        ? (
-            instance: MotionNativeStyleInstance,
-            identity: MotionNativeStyleIdentity,
-          ) => {
-            setMotionNativeStyles((current) => {
-              const index = identity.sourceInstanceId
-                ? current.findIndex(
-                    (candidate) =>
-                      candidate.sourceInstanceId ===
-                        identity.sourceInstanceId &&
-                      candidate.styleKey === identity.styleKey &&
-                      candidate.targetNodeId === identity.targetNodeId,
-                  )
-                : identity.index;
-              const previous = current[index];
-              if (
-                !previous ||
-                previous.styleKey !== identity.styleKey ||
-                previous.targetNodeId !== identity.targetNodeId
-              ) {
-                return current;
-              }
-              const next = [...current];
-              next[index] = instance;
-              return next;
-            });
-            markMotionTracksDirty();
-          }
+        ? handleMotionNativeStyleChange
         : undefined,
     onRemoveMotionNativeStyle:
       canEditActiveVisualScreen && canWriteMotion
@@ -1728,7 +1749,6 @@ export function renderDesignEditorView({
                   },
                 ];
             const result = applyMotionAnimationStyleToTargets({
-              existingTracks: motionTracks,
               style,
               targets,
               currentTimeMs: motionPlayhead * motionDurationMs,
@@ -1754,15 +1774,68 @@ export function renderDesignEditorView({
             if (result.timelineDurationMs !== motionDurationMs) {
               handleMotionDurationChange(result.timelineDurationMs);
             }
-            const nextTracks = [...motionTracks, ...result.tracks];
-            handleMotionTracksChange(
-              motionTracks.length === 0
+            handleMotionTracksChange((currentTracks) => {
+              const nextTracks = [...currentTracks, ...result.tracks];
+              return currentTracks.length === 0
                 ? withTimelinePlaybackMode(
                     nextTracks,
                     MOTION_DEFAULT_PLAYBACK_MODE,
                   )
-                : nextTracks,
-            );
+                : nextTracks;
+            });
+            setMotionDockOpenAnimated(true);
+          }
+        : undefined,
+    onApplyMotionRecipe:
+      editorLiveEditsAndPresence.motionLabEnabled &&
+      canEditActiveVisualScreen &&
+      canWriteMotion &&
+      motionTargetForInspector
+        ? (recipe: MotionBuiltInRecipe) => {
+            const targets = hasCompleteSelectedMotionTargets
+              ? uniqueSelectedMotionTargets.map(({ nodeId, label }) => ({
+                  nodeId,
+                  label,
+                }))
+              : [
+                  {
+                    nodeId: motionTargetForInspector.nodeId,
+                    label: motionTargetForInspector.label,
+                  },
+                ];
+            const result = applyMotionBuiltInRecipeToTargets({
+              recipe,
+              targets,
+              currentTimeMs: motionPlayhead * motionDurationMs,
+              timelineDurationMs: motionDurationMs,
+            });
+            if (result.tracks.length === 0) {
+              if (result.skippedTrackCount > 0) {
+                toast.info(t("designEditor.motion.recipeDoesNotFit"));
+              } else {
+                toast.info(
+                  t("designEditor.motion.trackExists", {
+                    property: Array.from(
+                      new Set(recipe.tracks.map((track) => track.property)),
+                    ).join(", "),
+                    label: motionTargetForInspector.label,
+                  }),
+                );
+              }
+              return;
+            }
+            if (result.timelineDurationMs !== motionDurationMs) {
+              handleMotionDurationChange(result.timelineDurationMs);
+            }
+            handleMotionTracksChange((currentTracks) => {
+              const nextTracks = [...currentTracks, ...result.tracks];
+              return currentTracks.length === 0
+                ? withTimelinePlaybackMode(
+                    nextTracks,
+                    MOTION_DEFAULT_PLAYBACK_MODE,
+                  )
+                : nextTracks;
+            });
             setMotionDockOpenAnimated(true);
           }
         : undefined,
@@ -1796,6 +1869,9 @@ export function renderDesignEditorView({
               kind: "resetOverrides",
             })
         : undefined,
+    onGoToMainComponent: selectedInstanceActionNodeId
+      ? handleGoToMainComponentMenuAction
+      : undefined,
     onRestoreComponent:
       canEditDesign && id && activeFile?.id
         ? (nodeId: string) =>
@@ -1933,7 +2009,8 @@ export function renderDesignEditorView({
         {!hostOwnsChrome &&
           designBottomToolbarMode === "editor" &&
           design &&
-          !questionFlowActive && (
+          !questionFlowActive &&
+          !(isMobileViewport && leftSidebarVisible && activeLeftPanel) && (
             <DesignBottomToolbar
               mode={mode}
               drawMode={drawMode}

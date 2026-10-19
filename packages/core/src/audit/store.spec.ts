@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
+import { __resetStoreLedgerSnapshotForTests } from "../db/store-registry.js";
 import type { AuditActorKind, AuditEvent } from "./types.js";
 
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
@@ -64,6 +65,7 @@ function makeEvent(over: Partial<AuditEvent> = {}): AuditEvent {
 
 beforeEach(async () => {
   pglite = await createTestPglite();
+  __resetStoreLedgerSnapshotForTests();
   __resetAuditInitForTests();
   await ensureAuditTables();
   seq = 0;
@@ -374,6 +376,44 @@ describe("app, date range, and paging", () => {
     expect(mail.map((r) => [r.id, r.app])).toEqual([["m", "mail"]]);
     const all = await queryAuditEvents({ userEmail: "alice@x.com" });
     expect(all.find((r) => r.id === "legacy")?.app).toBeNull();
+  });
+
+  it("stores the reported client, OAuth client and approval, and reads older rows as null", async () => {
+    await insertAuditEvent({
+      ...makeEvent({ id: "approved", caller: "mcp" }),
+      reportedClientName: "Claude Code",
+      reportedClientVersion: "2.1.0",
+      oauthClientId: "client-123",
+      approval: "mcp-client-accepted",
+    });
+    await insertAuditEvent(makeEvent({ id: "legacy", caller: "mcp" }));
+    const scope = { userEmail: "alice@x.com" };
+
+    const attribution = (event: AuditEvent | null | undefined) => ({
+      reportedClientName: event?.reportedClientName,
+      reportedClientVersion: event?.reportedClientVersion,
+      oauthClientId: event?.oauthClientId,
+      approval: event?.approval,
+    });
+    const listed = await queryAuditEvents(scope);
+    const expected = {
+      reportedClientName: "Claude Code",
+      reportedClientVersion: "2.1.0",
+      oauthClientId: "client-123",
+      approval: "mcp-client-accepted",
+    };
+    expect(attribution(listed.find((e) => e.id === "approved"))).toEqual(
+      expected,
+    );
+    expect(attribution(await getAuditEventById("approved", scope))).toEqual(
+      expected,
+    );
+    expect(attribution(await getAuditEventById("legacy", scope))).toEqual({
+      reportedClientName: null,
+      reportedClientVersion: null,
+      oauthClientId: null,
+      approval: null,
+    });
   });
 
   it("lists the apps the scope can read, without other tenants' apps", async () => {

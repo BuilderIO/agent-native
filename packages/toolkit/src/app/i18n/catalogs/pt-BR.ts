@@ -175,6 +175,18 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "Política de Privacidade",
   "onboarding.builderConsentAnd": "e",
   "onboarding.builderExistingAccount": "Tenho uma conta Builder.io",
+  "onboarding.creditsTitle":
+    "Experimente com 60 créditos Agent gratuitos por mês",
+  "onboarding.creditsTitleClips":
+    "Experimente com armazenamento de vídeo grátis e 60 créditos Agent por mês",
+  "onboarding.creditsActivate": "Ativar créditos gratuitos",
+  "onboarding.creditsFinePrint":
+    "Isto criará uma conta Builder.io gratuita. Ao continuar, você concorda com nossos",
+  "onboarding.creditsConnectExisting":
+    "Conectar uma conta Builder.io existente",
+  "onboarding.creditsMoreInfo": "Mais informações",
+  "onboarding.creditsSkipBody":
+    "Se você pular, precisará conectar suas próprias chaves para usar IA e armazenamento.",
   "onboarding.builderConnect": "Conectar Builder.io",
   "onboarding.builderActivating":
     "Ativando os créditos gratuitos do Builder.io",
@@ -216,6 +228,11 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "Vetores semânticos",
   "onboarding.capability.embeddings.why":
     "Vetores semânticos melhoram a busca semântica. A busca por palavras-chave continua funcionando sem eles.",
+  "onboarding.capability.webSearch.label": "Pesquisa na Web",
+  "onboarding.capability.webSearch.keySummary":
+    "Pesquisa na Web gerenciada pelo Builder",
+  "onboarding.capability.webSearch.why":
+    "Pesquise em fontes públicas atuais na Web. A pesquisa gerenciada pelo Builder usa os créditos de IA incluídos, sem exigir uma chave de pesquisa separada.",
   "onboarding.capability.systemOne.why":
     "Jev é um modelo de decisão opcional que ajuda a escolher ferramentas e habilidades relevantes antes da primeira solicitação de modelo do agente.",
   "onboarding.capability.assetsImageGeneration.label": "Geração de imagens",
@@ -2784,6 +2801,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.search.appDefaultModel": "Modelo padrão do app",
   "settingsShell.search.backgroundAgents": "Agentes em segundo plano",
   "settingsShell.search.browserAutomation": "Automação de navegador",
+  "settingsShell.search.webSearch": "Pesquisa na Web",
   "settingsShell.search.connectedAgents": "Agentes conectados",
   "settingsShell.search.database": "Banco de dados",
   "settingsShell.search.defaultModel": "Modelo padrão",
@@ -2924,6 +2942,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Faz alterações no código a partir da produção.",
   "settingsInfra.whyBrowser":
     "Permite que o agente use um navegador em produção.",
+  "settingsInfra.whyWebSearch":
+    "Encontra informações públicas atuais e documentação oficial.",
   "settingsInfra.provider": "Provedor",
   "settingsInfra.keyOrg": "Usa a chave do {{provider}} da organização.",
   "settingsInfra.manageKey": "Gerenciar chave",
