@@ -165,7 +165,7 @@ function ViewTab({
 }: {
   value: string;
   disabled: boolean;
-  hint: string;
+  hint?: string;
   label: string;
 }) {
   const trigger = (
@@ -177,7 +177,7 @@ function ViewTab({
       {label}
     </TabsTrigger>
   );
-  if (!disabled) return trigger;
+  if (!disabled || !hint) return trigger;
   return (
     <Tooltip>
       <TooltipTrigger asChild>
