@@ -1,11 +1,11 @@
 import { eq } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
-import type { ClaimedEditorSave } from "../shared/editor-save-state.js";
 import {
   documentContentHash,
   parseDocumentRevisionToken,
-} from "./_document-edit-mutation.js";
+} from "../server/lib/document-revision.js";
+import type { ClaimedEditorSave } from "../shared/editor-save-state.js";
 
 export type DocumentSaveRow = {
   bodyRevision: number;

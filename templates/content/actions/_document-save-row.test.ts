@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   documentContentHash,
   documentRevisionToken,
-} from "./_document-edit-mutation.js";
+} from "../server/lib/document-revision.js";
 import {
   editorSaveIsInSql,
   type DocumentSaveRow,

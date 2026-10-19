@@ -4,12 +4,17 @@ import {
   ACTION_HEADERS,
   createPage,
   delay,
-  gotoEditor,
   SaveGate,
+  TabSet,
   typeAtParagraphEnd,
 } from "./helpers";
 
 const FIRST_PARAGRAPH = "Flush wake paragraph.";
+
+async function openEditor(page: Page, id: string) {
+  const tabs = await TabSet.create(page.context());
+  await tabs.open("editor", id, page);
+}
 
 // A serverless host refuses the event stream, so sync rides the poll path.
 // Refusing the editor's flush mailbox read as well leaves the save state the
@@ -87,7 +92,7 @@ test.describe("agent reads of a page open in an editor", () => {
   }) => {
     const published = watchPublishedSaveState(page);
     const id = await createPage(page, "Flush wake saved", FIRST_PARAGRAPH);
-    await gotoEditor(page, id);
+    await openEditor(page, id);
     await waitForPublished(published, false);
 
     const pulled = await pullDocument(page, id);
@@ -105,7 +110,7 @@ test.describe("agent reads of a page open in an editor", () => {
   }) => {
     const published = watchPublishedSaveState(page);
     const id = await createPage(page, "Flush wake saving", FIRST_PARAGRAPH);
-    await gotoEditor(page, id);
+    await openEditor(page, id);
     await waitForPublished(published, false);
     const gate = await SaveGate.install(page);
     gate.holdArrivals();
@@ -132,7 +137,7 @@ test.describe("agent reads of a page open in an editor", () => {
   }) => {
     const published = watchPublishedSaveState(page);
     const id = await createPage(page, "Flush wake stuck", FIRST_PARAGRAPH);
-    await gotoEditor(page, id);
+    await openEditor(page, id);
     await waitForPublished(published, false);
     const gate = await SaveGate.install(page);
     gate.holdArrivals();
