@@ -232,8 +232,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.why":
     "Los vectores semánticos mejoran la búsqueda semántica. La búsqueda por palabras clave sigue funcionando sin ellos.",
   "onboarding.capability.webSearch.label": "Búsqueda web",
-  "onboarding.capability.webSearch.keySummary":
-    "Búsqueda web gestionada por Builder",
+  "onboarding.capability.webSearch.keySummary": "Búsqueda web",
   "onboarding.capability.webSearch.why":
     "Busca en fuentes públicas actuales de la web. La búsqueda gestionada por Builder usa los créditos de IA incluidos, así que no hace falta una clave de búsqueda aparte.",
   "onboarding.capability.systemOne.why":

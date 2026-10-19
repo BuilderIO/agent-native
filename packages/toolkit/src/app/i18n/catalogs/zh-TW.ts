@@ -210,7 +210,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.why":
     "嵌入向量可改善語意搜尋。沒有嵌入向量時，關鍵字搜尋仍可運作。",
   "onboarding.capability.webSearch.label": "網頁搜尋",
-  "onboarding.capability.webSearch.keySummary": "由 Builder 管理的網頁搜尋",
+  "onboarding.capability.webSearch.keySummary": "網頁搜尋",
   "onboarding.capability.webSearch.why":
     "搜尋網頁上的最新公開資訊。Builder 管理的搜尋使用隨附的 Builder AI 點數，因此不需要另外設定搜尋 API 金鑰。",
   "onboarding.capability.systemOne.why":

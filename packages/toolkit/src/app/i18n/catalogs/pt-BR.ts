@@ -229,8 +229,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.why":
     "Vetores semânticos melhoram a busca semântica. A busca por palavras-chave continua funcionando sem eles.",
   "onboarding.capability.webSearch.label": "Pesquisa na Web",
-  "onboarding.capability.webSearch.keySummary":
-    "Pesquisa na Web gerenciada pelo Builder",
+  "onboarding.capability.webSearch.keySummary": "Pesquisa na Web",
   "onboarding.capability.webSearch.why":
     "Pesquise em fontes públicas atuais na Web. A pesquisa gerenciada pelo Builder usa os créditos de IA incluídos, sem exigir uma chave de pesquisa separada.",
   "onboarding.capability.systemOne.why":

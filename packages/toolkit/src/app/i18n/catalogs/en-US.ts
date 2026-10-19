@@ -219,7 +219,7 @@ const messages = {
   "onboarding.capability.embeddings.why":
     "Embeddings improve semantic search. Keyword search still works without them.",
   "onboarding.capability.webSearch.label": "Web search",
-  "onboarding.capability.webSearch.keySummary": "Builder-managed web search",
+  "onboarding.capability.webSearch.keySummary": "Web search",
   "onboarding.capability.webSearch.why":
     "Search current public web sources. Builder-managed search uses included Builder AI credits, so no separate search API key is needed.",
   "onboarding.capability.systemOne.why":

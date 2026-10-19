@@ -232,8 +232,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.why":
     "Les représentations vectorielles améliorent la recherche sémantique. La recherche par mots-clés fonctionne toujours sans elles.",
   "onboarding.capability.webSearch.label": "Recherche sur le Web",
-  "onboarding.capability.webSearch.keySummary":
-    "Recherche Web gérée par Builder",
+  "onboarding.capability.webSearch.keySummary": "Recherche sur le Web",
   "onboarding.capability.webSearch.why":
     "Recherche dans les sources publiques actuelles du Web. La recherche gérée par Builder utilise les crédits IA inclus ; aucune clé de recherche distincte n'est nécessaire.",
   "onboarding.capability.systemOne.why":
