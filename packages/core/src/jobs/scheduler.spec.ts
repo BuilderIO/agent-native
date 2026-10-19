@@ -25,7 +25,7 @@ const getThreadMock = vi.hoisted(() =>
     messageCount: 0,
   })),
 );
-const updateThreadDataMock = vi.hoisted(() => vi.fn(async () => {}));
+const updateThreadDataMock = vi.hoisted(() => vi.fn(async () => true));
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
 const recordUsageMock = vi.hoisted(() => vi.fn());
 const dbExecuteMock = vi.hoisted(() => vi.fn());
@@ -252,6 +252,7 @@ Summarize the inbox.`,
           threadId,
           status: "running",
           abort,
+          finalized: Promise.resolve(),
           events: [
             {
               seq: 0,
@@ -264,7 +265,7 @@ Summarize the inbox.`,
             },
           ],
         };
-        void Promise.resolve().then(async () => {
+        activeRun.finalized = Promise.resolve().then(async () => {
           try {
             await runFn(vi.fn(), abort.signal);
             activeRun.status = "completed";
@@ -1399,8 +1400,14 @@ Post the digest.`,
         onComplete?: (run: any) => void | Promise<void>,
       ) => {
         const abort = new AbortController();
-        const activeRun = { runId, threadId, status: "running", abort };
-        void Promise.resolve().then(async () => {
+        const activeRun = {
+          runId,
+          threadId,
+          status: "running",
+          abort,
+          finalized: Promise.resolve(),
+        };
+        activeRun.finalized = Promise.resolve().then(async () => {
           await runFn(vi.fn(), abort.signal);
           activeRun.status = "completed";
           await onComplete?.({
@@ -1495,8 +1502,14 @@ Post the digest.`,
         onComplete?: (run: any) => void | Promise<void>,
       ) => {
         const abort = new AbortController();
-        const activeRun = { runId, threadId, status: "running", abort };
-        void Promise.resolve().then(async () => {
+        const activeRun = {
+          runId,
+          threadId,
+          status: "running",
+          abort,
+          finalized: Promise.resolve(),
+        };
+        activeRun.finalized = Promise.resolve().then(async () => {
           await runFn(vi.fn(), abort.signal);
           activeRun.status = "completed";
           await onComplete?.({
@@ -1559,8 +1572,14 @@ Post the digest.`,
         onComplete?: (run: any) => void | Promise<void>,
       ) => {
         const abort = new AbortController();
-        const activeRun = { runId, threadId, status: "running", abort };
-        void Promise.resolve().then(async () => {
+        const activeRun = {
+          runId,
+          threadId,
+          status: "running",
+          abort,
+          finalized: Promise.resolve(),
+        };
+        activeRun.finalized = Promise.resolve().then(async () => {
           await runFn(vi.fn(), abort.signal);
           activeRun.status = "completed";
           await onComplete?.({
