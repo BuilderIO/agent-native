@@ -325,7 +325,7 @@ O que você lança decide quanto da mensagem sobrevive. `fail()` lança um `Acti
 - **message**: o texto que quem chamou lê. Escreva para uma pessoa, não para um log.
 - **options.errorCode**: um código estável e legível por máquina. Padrão: `"action_failed"`.
 - **options.statusCode**: o status HTTP da rota de action. Padrão: `400`.
-- **options.details**: contexto estruturado e seguro para quem chamou. Nunca coloque segredos ou saída bruta de driver aqui.
+- **options.details**: contexto estruturado e seguro para quem chamou, como o id de que uma nova tentativa precisa. O navegador e os agentes recebem esse contexto. Nunca coloque segredos ou saída bruta de driver aqui.
 
 A chamada mais simples precisa apenas de uma mensagem:
 
@@ -403,7 +403,7 @@ Uma queda de rede, uma página de erro HTML de um proxy e uma simples linha de s
 
 Então o status não é cosmético. Uma recusa enviada como `404` custa uma ida e volta. A mesma recusa enviada como `500`, ou lançada pura, custa quatro idas e voltas e quatro relatórios de erro duplicados.
 
-Chamadores do agente não veem o status. O agente executa `run()` em processo, então recebe a mensagem diretamente, seja qual for o tipo, como `Error running <action>: <message>`. Um `errorCode` diferente do padrão `action_failed` é anexado como `(errorCode: not_found)`, para o modelo poder ramificar sem analisar a prosa. Agentes externos por MCP recebem o mesmo texto. Segredos na mensagem são removidos antes, e os disjuntores de erro repetido do agente limitam quantas vezes ele tenta de novo.
+Chamadores do agente não veem o status. O agente executa `run()` em processo, então recebe a mensagem diretamente, seja qual for o tipo, como `Error running <action>: <message>`. Um `errorCode` diferente do padrão `action_failed` é anexado como `(errorCode: not_found)`, para o modelo poder ramificar sem analisar a prosa. Os `details` vêm em uma linha própria como JSON compacto, por exemplo `Error details: {"importId":"imp_1"}`, para que um id de que o modelo precisa na próxima chamada não tenha de ser escrito na mensagem. Agentes externos por MCP recebem o mesmo texto e os mesmos detalhes em `structuredContent.error`. Uma ferramenta que anuncia um schema de saída (`mcpOutputSchema: true`) retorna só o texto, porque um cliente pode validar também um resultado de erro contra esse schema. Os detalhes são limitados a 2.000 caracteres: acima disso, as entradas pequenas de nível superior são mantidas e as demais são listadas como omitidas. Segredos na mensagem e nos detalhes são removidos antes, e os disjuntores de erro repetido do agente limitam quantas vezes ele tenta de novo.
 
 ## Mantenha a superfície de actions pequena {#small-surface}
 
