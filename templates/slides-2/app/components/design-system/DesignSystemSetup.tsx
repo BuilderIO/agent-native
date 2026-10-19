@@ -164,6 +164,7 @@ function normalizeWebsiteUrlInput(input: string): string | null {
       ? normalized.slice(0, -1)
       : normalized;
   } catch {
+    // coercion-ok: malformed website input is the form's existing invalid-value result.
     return null;
   }
 }
@@ -1629,7 +1630,7 @@ function SourceAccordionRow({
 }: {
   icon: React.ComponentType<{ className?: string }>;
   title: string;
-  description: string;
+  description?: string;
   expanded: boolean;
   onClick: () => void;
   panelId: string;
@@ -1637,6 +1638,8 @@ function SourceAccordionRow({
   locked?: boolean;
   lockedMessage?: string;
 }) {
+  const secondaryText = locked ? lockedMessage : description;
+
   return (
     <button
       type="button"
@@ -1657,9 +1660,11 @@ function SourceAccordionRow({
         <span className="block text-sm font-medium text-foreground/90">
           {title}
         </span>
-        <span className="mt-0.5 block truncate text-xs text-foreground/80">
-          {locked ? lockedMessage : description}
-        </span>
+        {secondaryText ? (
+          <span className="mt-0.5 block truncate text-xs text-foreground/80">
+            {secondaryText}
+          </span>
+        ) : null}
       </span>
       {locked ? (
         <IconLock className="size-4 shrink-0 text-muted-foreground" />
@@ -1854,7 +1859,7 @@ function TagList({
           key={i}
           className="flex items-center gap-2 text-sm text-foreground/80 bg-accent rounded-md px-3 py-1.5"
         >
-          <IconCheck className="w-3.5 h-3.5 text-green-500/70 shrink-0" />
+          <IconCheck className="w-3.5 h-3.5 text-primary shrink-0" />
           <span className="truncate flex-1">{item}</span>
           <button
             onClick={() => onRemove(i)}
@@ -1903,8 +1908,8 @@ function BuilderIndexPreview({
   return (
     <div className="space-y-4 rounded-lg border border-border bg-accent/40 p-4">
       <div className="flex items-start gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#609FF8]/10">
-          <IconBrandFigma className="h-5 w-5 text-[#609FF8]" />
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[hsl(var(--slides-accent)/0.1)]">
+          <IconBrandFigma className="h-5 w-5 text-[hsl(var(--slides-accent))]" />
         </div>
         <div className="min-w-0 flex-1 space-y-1.5">
           <h4 className="text-sm font-medium text-foreground">
@@ -1991,7 +1996,7 @@ function FileList({
           key={f.id}
           className="flex items-center gap-2 text-sm text-foreground/80 bg-accent rounded-md px-3 py-1.5"
         >
-          <IconCheck className="w-3.5 h-3.5 text-green-500/70 shrink-0" />
+          <IconCheck className="w-3.5 h-3.5 text-primary shrink-0" />
           <span className="truncate flex-1">{f.name}</span>
           <span className="text-[10px] text-muted-foreground shrink-0">
             {formatSize(f.size)}

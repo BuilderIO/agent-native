@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   parseBuilderDesignSystemProxyReference,
   startBuilderDesignSystemIndex,
@@ -24,19 +24,29 @@ export default defineAction({
   run: async ({ id }) => {
     await assertAccess("design-system", id, "editor");
     const access = await resolveAccess("design-system", id);
-    if (!access) throw new Error("Design system not found");
+    if (!access) {
+      fail("Design system not found", {
+        errorCode: "design_system_not_found",
+        statusCode: 404,
+      });
+    }
 
     const reference = parseBuilderDesignSystemProxyReference(
       access.resource.data,
     );
     if (!reference?.githubSources?.length) {
-      throw new Error(
-        "This design system has no persisted GitHub source scope to sync.",
-      );
+      fail("This design system has no persisted GitHub source scope to sync.", {
+        errorCode: "design_system_source_scope_missing",
+        statusCode: 409,
+      });
     }
     if (reference.sourceKind === "mixed") {
-      throw new Error(
+      fail(
         "This design system combines GitHub with non-replayable sources. Re-import all sources before syncing it.",
+        {
+          errorCode: "design_system_mixed_sources_not_syncable",
+          statusCode: 409,
+        },
       );
     }
 
@@ -46,7 +56,12 @@ export default defineAction({
       githubRepos: reference.githubSources,
     });
     const ownerEmail = getRequestUserEmail();
-    if (!ownerEmail) throw new Error("no authenticated user");
+    if (!ownerEmail) {
+      fail("no authenticated user", {
+        errorCode: "not_authenticated",
+        statusCode: 401,
+      });
+    }
 
     const proxy = await upsertBuilderProxyDesignSystem({
       result,

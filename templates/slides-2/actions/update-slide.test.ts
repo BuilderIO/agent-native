@@ -82,6 +82,7 @@ vi.mock("drizzle-orm", () => ({
 vi.mock("@agent-native/core/server", () => ({
   buildDeepLink: ({ params }: { params: { deckId: string } }) =>
     `/deck/${params.deckId}`,
+  resolveAppRuntimeUrl: () => undefined,
   withConfiguredAppBasePath: (baseUrl: string) => baseUrl,
 }));
 

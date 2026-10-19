@@ -82,7 +82,10 @@ async function exportGoogleSlidesAsPptx(fileId: string, accessToken: string) {
 
   const bytes = await response.arrayBuffer();
   if (bytes.byteLength === 0) {
-    throw new Error("Google Drive returned an empty presentation export.");
+    fail("Google Drive returned an empty presentation export.", {
+      errorCode: "google_slides_export_empty",
+      statusCode: 502,
+    });
   }
 
   return Buffer.from(bytes);
@@ -184,8 +187,9 @@ async function fetchGoogleSlidesImageFallbacks(
     { httpsOnly: true, maxRedirects: 2 },
   );
   if (!response.ok) {
-    throw new Error(
+    fail(
       `Google Slides returned HTTP ${response.status} while reading native image elements. Reconnect Google Drive and try the import again.`,
+      { errorCode: "google_slides_images_request_failed", statusCode: 502 },
     );
   }
   const googlePresentation =
@@ -284,16 +288,18 @@ async function fetchGoogleSlidesImageFallbacks(
         { httpsOnly: true, maxRedirects: 2 },
       );
       if (!imageResponse.ok) {
-        throw new Error(
+        fail(
           `Google Slides returned HTTP ${imageResponse.status} while downloading image ${candidate.imageIndex + 1} on slide ${candidate.slideIndex + 1}.`,
+          { errorCode: "google_slides_image_download_failed", statusCode: 502 },
         );
       }
       const mimeType =
         imageResponse.headers.get("content-type")?.split(";", 1)[0] ||
         "image/png";
       if (!mimeType.startsWith("image/")) {
-        throw new Error(
+        fail(
           `Google Slides returned a non-image asset for image ${candidate.imageIndex + 1} on slide ${candidate.slideIndex + 1}.`,
+          { errorCode: "google_slides_image_invalid", statusCode: 502 },
         );
       }
       return {
@@ -360,7 +366,11 @@ export default defineAction({
   },
   run: async ({ fileId, presentationUrl, title, purpose }, ctx) => {
     const owner = getRequestUserEmail();
-    if (!owner) throw new Error("no authenticated user");
+    if (!owner)
+      fail("no authenticated user", {
+        errorCode: "not_authenticated",
+        statusCode: 401,
+      });
 
     const connection = await getAvailableGoogleDocsAccessToken(
       owner,

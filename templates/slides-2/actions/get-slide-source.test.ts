@@ -20,6 +20,10 @@ vi.mock("@agent-native/core/sharing", () => ({
 
 vi.mock("drizzle-orm", () => ({
   eq: (left: unknown, right: unknown) => ({ left, right }),
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
+    strings,
+    values,
+  }),
 }));
 
 vi.mock("../server/db/index.js", () => ({
@@ -61,7 +65,7 @@ beforeEach(() => {
   selectChain.from.mockReturnValue(selectChain);
   selectChain.where.mockReturnValue(selectChain);
   mocks.select.mockReturnValue(selectChain);
-  mocks.assertAccess.mockResolvedValue(undefined);
+  mocks.assertAccess.mockResolvedValue({ role: "owner" });
   mocks.limit.mockResolvedValue([
     {
       id: "deck-1",
@@ -103,6 +107,95 @@ describe("get-slide-source", () => {
       },
     });
   });
+
+  it.each(["viewer", "commenter"] as const)(
+    "redacts presenter notes for %s access",
+    async (role) => {
+      mocks.assertAccess.mockResolvedValue({ role });
+
+      const result = (await action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+      })) as any;
+
+      expect(result.slide).not.toHaveProperty("notes");
+    },
+  );
+
+  it("removes exported speaker notes and hashes the visible source for a viewer", async () => {
+    const privateNotesSource =
+      'export const notes = ["Private speaker notes"]; export default function Slide() { return <main />; }';
+    const data = JSON.parse(storedData());
+    data.slides[1].sourceTsx = privateNotesSource;
+    data.slides[1].sourceHash = hashSlideSource(privateNotesSource);
+    mocks.assertAccess.mockResolvedValue({ role: "viewer" });
+    mocks.limit.mockResolvedValue([
+      {
+        id: "deck-1",
+        title: "Quarterly Review",
+        data: JSON.stringify(data),
+      },
+    ]);
+
+    const result = (await action.run({
+      deckId: "deck-1",
+      slideId: "slide-1",
+    })) as any;
+
+    expect(result.slide.sourceTsx).not.toContain("Private speaker notes");
+    expect(result.slide.sourceTsx).not.toContain("export const notes");
+    expect(result.slide.sourceHash).toBe(
+      hashSlideSource(result.slide.sourceTsx),
+    );
+    expect(result.slide).not.toHaveProperty("notes");
+  });
+
+  it("hashes redacted source for a legacy slide without source metadata", async () => {
+    const privateNotesSource =
+      'export const notes = ["Private speaker notes"]; export default function Slide() { return <main />; }';
+    const data = JSON.parse(storedData());
+    data.slides[1].sourceTsx = privateNotesSource;
+    delete data.slides[1].sourceHash;
+    delete data.slides[1].revision;
+    mocks.assertAccess.mockResolvedValue({ role: "viewer" });
+    mocks.limit.mockResolvedValue([
+      {
+        id: "deck-1",
+        title: "Quarterly Review",
+        data: JSON.stringify(data),
+      },
+    ]);
+
+    const result = (await action.run({
+      deckId: "deck-1",
+      slideId: "slide-1",
+    })) as any;
+
+    expect(result.slide.sourceTsx).not.toContain("Private speaker notes");
+    expect(result.slide.sourceTsx).not.toContain("export const notes");
+    expect(result.slide.revision).toBe(1);
+    expect(result.slide.sourceHash).toBe(
+      hashSlideSource(result.slide.sourceTsx),
+    );
+    expect(result.slide.sourceHash).not.toBe(
+      hashSlideSource(privateNotesSource),
+    );
+    expect(result.slide).not.toHaveProperty("notes");
+  });
+
+  it.each(["owner", "editor", "admin"] as const)(
+    "keeps presenter notes for %s access",
+    async (role) => {
+      mocks.assertAccess.mockResolvedValue({ role });
+
+      const result = (await action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+      })) as any;
+
+      expect(result.slide.notes).toBe("Presenter notes");
+    },
+  );
 
   it("returns a typed not-found result when the slide is absent from the deck", async () => {
     mocks.limit.mockResolvedValue([

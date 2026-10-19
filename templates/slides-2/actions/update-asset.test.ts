@@ -35,6 +35,10 @@ const mocks = vi.hoisted(() => ({
   assets: [] as Asset[],
   decks: [] as Deck[],
   deleteFile: vi.fn(),
+  scheduleCleanup: vi.fn(),
+  finishCleanup: vi.fn(),
+  retryCleanup: vi.fn(),
+  removeReplacementBeforeTransaction: false,
   events: [] as string[],
   schema: {
     uploadedAssets: {
@@ -48,6 +52,16 @@ const mocks = vi.hoisted(() => ({
       ownerEmail: "ownerEmail",
       orgId: "orgId",
       deckId: "deckId",
+    },
+    uploadedAssetCleanupOutbox: {
+      id: "cleanup.id",
+      ownerEmail: "cleanup.ownerEmail",
+      orgId: "cleanup.orgId",
+      intent: "cleanup.intent",
+      state: "cleanup.state",
+      provider: "cleanup.provider",
+      providerObjectId: "cleanup.providerObjectId",
+      url: "cleanup.url",
     },
     decks: {
       id: "id",
@@ -133,22 +147,43 @@ function makeDb() {
       }),
     }),
   });
-  const remove = () => ({
-    where: (clause: Clause) => ({
-      returning: async (selection: Record<string, string>) => {
-        mocks.events.push("asset-row-delete");
-        const removed = mocks.assets.filter((asset) => matches(clause, asset));
-        mocks.assets = mocks.assets.filter((asset) => !matches(clause, asset));
-        return removed.map((asset) => project(asset, selection));
-      },
-    }),
+  const remove = (table: unknown) => ({
+    where: (clause: Clause) => {
+      if (table === mocks.schema.uploadedAssetCleanupOutbox) {
+        mocks.events.push("cleanup-marker-delete");
+        return Promise.resolve();
+      }
+      return {
+        returning: async (selection: Record<string, string>) => {
+          mocks.events.push("asset-row-delete");
+          const removed = mocks.assets.filter((asset) =>
+            matches(clause, asset),
+          );
+          mocks.assets = mocks.assets.filter(
+            (asset) => !matches(clause, asset),
+          );
+          return removed.map((asset) => project(asset, selection));
+        },
+      };
+    },
   });
   return {
     select,
     update,
     delete: remove,
-    transaction: async (run: (tx: ReturnType<typeof makeDb>) => unknown) =>
-      run(makeDb()),
+    transaction: async (run: (tx: ReturnType<typeof makeDb>) => unknown) => {
+      if (mocks.removeReplacementBeforeTransaction) {
+        mocks.events.push("concurrent-replacement-delete");
+        mocks.assets = mocks.assets.filter((asset) => asset.id !== "asset-2");
+      }
+      const rollbackState = structuredClone(mocks.assets);
+      try {
+        return await run(makeDb());
+      } catch (error) {
+        mocks.assets = rollbackState;
+        throw error;
+      }
+    },
   };
 }
 
@@ -201,6 +236,21 @@ vi.mock("../server/db/index.js", () => ({
   schema: mocks.schema,
 }));
 
+vi.mock("../server/lib/uploaded-asset-cleanup-outbox.js", () => ({
+  scheduleUploadedAssetDeletion: (...args: unknown[]) => {
+    mocks.events.push("cleanup-scheduled");
+    return mocks.scheduleCleanup(...args);
+  },
+  finishOwnedUploadedAssetCleanup: (...args: unknown[]) => {
+    mocks.events.push("cleanup-finished");
+    return mocks.finishCleanup(...args);
+  },
+  retryOwnedUploadedAssetCleanup: (...args: unknown[]) => {
+    mocks.events.push("cleanup-retried");
+    return mocks.retryCleanup(...args);
+  },
+}));
+
 import action from "./update-asset.js";
 
 function imageAsset(overrides: Partial<Asset> = {}): Asset {
@@ -236,6 +286,10 @@ describe("update-asset", () => {
     mocks.decks = [];
     mocks.events.length = 0;
     mocks.deleteFile.mockResolvedValue(true);
+    mocks.scheduleCleanup.mockReset().mockResolvedValue("cleanup-token");
+    mocks.finishCleanup.mockReset().mockResolvedValue(true);
+    mocks.retryCleanup.mockReset().mockResolvedValue(true);
+    mocks.removeReplacementBeforeTransaction = false;
   });
 
   it("renames only the caller's global image", async () => {
@@ -269,12 +323,49 @@ describe("update-asset", () => {
       "deck-reference-read",
       "asset-update",
       "asset-row-delete",
+      "cleanup-marker-delete",
+      "cleanup-scheduled",
       "blob-delete",
+      "cleanup-finished",
     ]);
     expect(mocks.deleteFile).toHaveBeenCalledWith("s3", {
       url: "https://storage.example.test/old.png",
       id: "old-object",
     });
+    expect(mocks.scheduleCleanup).toHaveBeenCalledWith(expect.anything(), {
+      assetId: "asset-1",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+      provider: "s3",
+      providerObjectId: "old-object",
+      url: "https://storage.example.test/old.png",
+    });
+  });
+
+  it("does not retarget to a replacement row deleted after the initial read", async () => {
+    mocks.removeReplacementBeforeTransaction = true;
+
+    await expect(
+      action.run({ id: "asset-1", replacementId: "asset-2" } as never),
+    ).rejects.toMatchObject({
+      errorCode: "asset_replace_failed",
+      statusCode: 500,
+    });
+
+    expect(mocks.assets).toHaveLength(1);
+    expect(mocks.assets[0]).toMatchObject({
+      id: "asset-1",
+      url: "https://storage.example.test/old.png",
+      providerObjectId: "old-object",
+    });
+    expect(mocks.deleteFile).not.toHaveBeenCalled();
+    expect(mocks.events).toEqual([
+      "asset-read",
+      "deck-reference-read",
+      "concurrent-replacement-delete",
+      "asset-update",
+      "asset-row-delete",
+    ]);
   });
 
   it("blocks replacement when an inaccessible private deck in the same org uses the donor", async () => {
@@ -322,7 +413,10 @@ describe("update-asset", () => {
       "deck-reference-read",
       "asset-update",
       "asset-row-delete",
+      "cleanup-marker-delete",
+      "cleanup-scheduled",
       "blob-delete",
+      "cleanup-finished",
     ]);
   });
 
@@ -344,6 +438,26 @@ describe("update-asset", () => {
     await expect(
       action.run({ id: "asset-1", replacementId: "asset-2" } as never),
     ).resolves.toMatchObject({ success: true, cleanupWarning: true });
+
+    expect(mocks.scheduleCleanup).toHaveBeenCalledWith(expect.anything(), {
+      assetId: "asset-1",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+      provider: "s3",
+      providerObjectId: "old-object",
+      url: "https://storage.example.test/old.png",
+    });
+    expect(mocks.retryCleanup).toHaveBeenCalledWith(
+      {
+        assetId: "asset-1",
+        ownerEmail: "owner@example.com",
+        orgId: "org-1",
+      },
+      "cleanup-token",
+      1,
+    );
+    expect(mocks.finishCleanup).not.toHaveBeenCalled();
+    expect(mocks.events).toContain("cleanup-retried");
   });
 
   it("keeps a shared stored file when replacing a duplicate asset record", async () => {
@@ -359,6 +473,8 @@ describe("update-asset", () => {
       "deck-reference-read",
       "asset-update",
       "asset-row-delete",
+      "cleanup-marker-delete",
+      "cleanup-marker-delete",
     ]);
   });
 

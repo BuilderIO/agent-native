@@ -1,5 +1,8 @@
-import { defineAction, fail } from "@agent-native/core/action";
-import { deleteUploadedFile } from "@agent-native/core/file-upload";
+import {
+  defineAction,
+  fail,
+  isActionContractError,
+} from "@agent-native/core/action";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -8,6 +11,7 @@ import { and, eq, isNull, like, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { scheduleUploadedAssetDeletion } from "../server/lib/uploaded-asset-cleanup-outbox.js";
 
 function imageAssetWorkspaceScope(orgId: string | null | undefined) {
   if (!orgId) return isNull(schema.uploadedAssets.orgId);
@@ -63,91 +67,58 @@ export default defineAction({
       });
     }
 
-    let rows: Array<{
-      id: string;
-      url: string;
-      provider: string | null;
-      providerObjectId: string | null;
-    }>;
+    let result: "missing" | "storage_unavailable" | "deleted";
     try {
-      rows = await db
-        .select({
-          id: schema.uploadedAssets.id,
-          url: schema.uploadedAssets.url,
-          provider: schema.uploadedAssets.provider,
-          providerObjectId: schema.uploadedAssets.providerObjectId,
-        })
-        .from(schema.uploadedAssets)
-        .where(globalImageAssetScope(id, ownerEmail, orgId))
-        .limit(1);
-    } catch {
+      result = await db.transaction(async (tx) => {
+        const [asset] = await tx
+          .select({
+            id: schema.uploadedAssets.id,
+            url: schema.uploadedAssets.url,
+            provider: schema.uploadedAssets.provider,
+            providerObjectId: schema.uploadedAssets.providerObjectId,
+            orgId: schema.uploadedAssets.orgId,
+          })
+          .from(schema.uploadedAssets)
+          .where(globalImageAssetScope(id, ownerEmail, orgId))
+          .for("update");
+
+        if (!asset) return "missing";
+        if (!asset.provider) return "storage_unavailable";
+
+        await scheduleUploadedAssetDeletion(tx, {
+          assetId: asset.id,
+          ownerEmail,
+          orgId: asset.orgId,
+          provider: asset.provider,
+          providerObjectId: asset.providerObjectId,
+          url: asset.url,
+        });
+
+        const [deleted] = await tx
+          .delete(schema.uploadedAssets)
+          .where(globalImageAssetScope(id, ownerEmail, orgId))
+          .returning({ id: schema.uploadedAssets.id });
+        if (!deleted) {
+          fail("The uploaded image changed while it was being deleted.", {
+            errorCode: "asset_delete_conflict",
+            statusCode: 409,
+          });
+        }
+        return "deleted";
+      });
+    } catch (error) {
+      if (isActionContractError(error)) throw error;
       fail("Could not delete uploaded image.", {
         errorCode: "asset_delete_failed",
         statusCode: 500,
       });
     }
 
-    const [asset] = rows;
-    if (!asset) return { success: true };
-    if (!asset.provider) {
+    if (result === "storage_unavailable") {
       fail("Could not remove the stored image.", {
         errorCode: "asset_delete_storage_unavailable",
         statusCode: 503,
       });
-    }
-
-    let objectDeleted = false;
-    try {
-      objectDeleted = await deleteUploadedFile(asset.provider, {
-        url: asset.url,
-        id: asset.providerObjectId ?? undefined,
-      });
-    } catch {
-      fail("Could not remove the stored image.", {
-        errorCode: "asset_delete_storage_failed",
-        statusCode: 503,
-      });
-    }
-    if (!objectDeleted) {
-      fail("Could not remove the stored image.", {
-        errorCode: "asset_delete_storage_failed",
-        statusCode: 503,
-      });
-    }
-
-    let deletedRows: Array<{ id: string }>;
-    try {
-      deletedRows = await db
-        .delete(schema.uploadedAssets)
-        .where(globalImageAssetScope(id, ownerEmail, orgId))
-        .returning({ id: schema.uploadedAssets.id });
-    } catch {
-      fail("Could not delete uploaded image.", {
-        errorCode: "asset_delete_failed",
-        statusCode: 500,
-      });
-    }
-
-    if (deletedRows.length === 0) {
-      try {
-        const [remaining] = await db
-          .select({ id: schema.uploadedAssets.id })
-          .from(schema.uploadedAssets)
-          .where(globalImageAssetScope(id, ownerEmail, orgId))
-          .limit(1);
-        if (remaining) {
-          fail("Could not verify uploaded image removal.", {
-            errorCode: "asset_delete_failed",
-            statusCode: 500,
-          });
-        }
-      } catch (error) {
-        if ((error as { errorCode?: unknown })?.errorCode) throw error;
-        fail("Could not verify uploaded image removal.", {
-          errorCode: "asset_delete_failed",
-          statusCode: 500,
-        });
-      }
     }
 
     return { success: true };

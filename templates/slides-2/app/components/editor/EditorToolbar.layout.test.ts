@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+// source-read-ok: pins the toolbar's contextual layout and host integration boundaries.
 const editorToolbarSource = readFileSync(
   path.join(path.dirname(fileURLToPath(import.meta.url)), "EditorToolbar.tsx"),
   "utf8",

@@ -22,28 +22,36 @@ function expectsDesignSystemProp(source: string, componentName: string) {
 describe("slide design-system propagation", () => {
   it("keeps preview and presentation renderers on the active deck tokens", () => {
     expectsDesignSystemProp(
+      // source-read-ok: the route and preview component graph must pass deck design tokens to each renderer.
       readAppFile("components/editor/EditorSidebar.tsx"),
       "SlideRenderer",
     );
     expectsDesignSystemProp(
+      // source-read-ok: the route and preview component graph must pass deck design tokens to each renderer.
       readAppFile("components/editor/GeneratingSlidePreview.tsx"),
       "SlideRenderer",
     );
     expectsDesignSystemProp(
+      // source-read-ok: the route and preview component graph must pass deck design tokens to each renderer.
       readAppFile("components/presentation/PresentationView.tsx"),
       "SlideRenderer",
     );
     expectsDesignSystemProp(
+      // source-read-ok: the route and preview component graph must pass deck design tokens to each renderer.
       readAppFile("components/presentation/PresenterView.tsx"),
       "SlideRenderer",
     );
+    // source-read-ok: the route and preview component graph must pass deck design tokens to each renderer.
     expectsDesignSystemProp(readAppFile("routes/slide.tsx"), "SlideRenderer");
 
+    // source-read-ok: the route and preview component graph must pass deck design tokens to each renderer.
     const deckEditorSource = readAppFile("pages/DeckEditor.tsx");
     expectsDesignSystemProp(deckEditorSource, "EditorSidebar");
     expectsDesignSystemProp(deckEditorSource, "GeneratingSlidePreview");
+    // source-read-ok: the route and preview component graph must pass deck design tokens to each renderer.
     expectsDesignSystemProp(readAppFile("pages/Presentation.tsx"), "View");
 
+    // source-read-ok: the route and preview component graph must pass deck design tokens to each renderer.
     const sharedPresentationSource = readAppFile(
       "pages/SharedPresentation.tsx",
     );

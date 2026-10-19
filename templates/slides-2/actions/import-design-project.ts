@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { resolveAccess, assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
@@ -19,7 +19,10 @@ export default defineAction({
 
     const access = await resolveAccess("design-system", designSystemId);
     if (!access) {
-      throw new Error("Design system not found");
+      fail("Design system not found", {
+        errorCode: "design_system_not_found",
+        statusCode: 404,
+      });
     }
 
     const row = access.resource;

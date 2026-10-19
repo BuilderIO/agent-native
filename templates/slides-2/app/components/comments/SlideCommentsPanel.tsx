@@ -385,7 +385,7 @@ function PendingCommentInput({
   return (
     <div className="border border-border rounded-lg overflow-hidden bg-accent">
       {quotedText && (
-        <div className="px-3 pt-2.5 pb-1.5 border-l-2 border-[#609FF8] mx-3 mt-2.5 mb-1 bg-[#609FF8]/5 rounded-r text-[11px] text-muted-foreground italic truncate">
+        <div className="px-3 pt-2.5 pb-1.5 border-l-2 border-primary mx-3 mt-2.5 mb-1 bg-primary/5 rounded-r text-[11px] text-muted-foreground italic truncate">
           "{quotedText}"
         </div>
       )}
@@ -421,7 +421,7 @@ function PendingCommentInput({
           type="button"
           onClick={submit}
           disabled={!text.trim() || createComment.isPending}
-          className="text-[11px] bg-[#609FF8] text-black font-medium px-2.5 py-1 rounded disabled:opacity-40 hover:bg-[#7AB2FA]"
+          className="text-[11px] bg-primary text-primary-foreground font-medium px-2.5 py-1 rounded disabled:opacity-40 hover:bg-primary/90"
         >
           {createComment.isPending
             ? t("comments.saving")
@@ -511,7 +511,7 @@ export function ReplyInput({
           type="button"
           onClick={submit}
           disabled={!text.trim() || createComment.isPending}
-          className="text-[11px] bg-[#609FF8] text-black font-medium px-2.5 py-1 rounded disabled:opacity-40 hover:bg-[#7AB2FA]"
+          className="text-[11px] bg-primary text-primary-foreground font-medium px-2.5 py-1 rounded disabled:opacity-40 hover:bg-primary/90"
         >
           {t("comments.reply")}
         </button>
@@ -606,7 +606,7 @@ function ThreadCard({
     >
       {/* Quoted text */}
       {thread.quotedText && (
-        <div className="border-l-2 border-[#609FF8]/50 pl-2 mb-2 text-[11px] text-muted-foreground italic truncate">
+        <div className="border-l-2 border-primary/50 pl-2 mb-2 text-[11px] text-muted-foreground italic truncate">
           "{thread.quotedText}"
         </div>
       )}
@@ -1032,7 +1032,7 @@ export function SlideCommentsPanel({
             <button
               type="button"
               onClick={() => setAddingComment(true)}
-              className="w-full text-center py-10 rounded-lg border border-dashed border-border/70 hover:border-[#609FF8]/50 hover:bg-accent transition-colors"
+              className="w-full text-center py-10 rounded-lg border border-dashed border-border/70 hover:border-primary/50 hover:bg-accent transition-colors"
             >
               <IconMessageCircle
                 size={28}

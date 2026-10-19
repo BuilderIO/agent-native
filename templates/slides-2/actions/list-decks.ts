@@ -21,7 +21,13 @@ function parseJsonProjection(value: unknown, label: string): unknown {
   try {
     return JSON.parse(value);
   } catch (error) {
-    throw new Error(`Invalid ${label} JSON projection`, { cause: error });
+    fail(`Invalid ${label} JSON projection`, {
+      errorCode: "invalid_deck_projection",
+      statusCode: 500,
+      details: {
+        cause: error instanceof Error ? error.message : String(error),
+      },
+    });
   }
 }
 
@@ -111,7 +117,10 @@ function decodeDeckCursor(value: string): { updatedAt: string; id: string } {
       typeof parsed.id !== "string" ||
       !parsed.id
     ) {
-      throw new Error("invalid cursor shape");
+      fail("Invalid deck list cursor.", {
+        errorCode: "invalid_deck_list_cursor",
+        statusCode: 400,
+      });
     }
     return parsed;
   } catch {

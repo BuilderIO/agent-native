@@ -55,9 +55,10 @@ export default defineAction({
       raw.metadata?.resourceId !== args.resourceId ||
       raw.metadata?.contentHash !== contentHash
     )
-      throw new Error(
-        "Governed deck clone payload failed integrity verification.",
-      );
+      fail("Governed deck clone payload failed integrity verification.", {
+        errorCode: "creative_context_clone_integrity_failed",
+        statusCode: 422,
+      });
     const parsed: unknown = JSON.parse(data);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       fail("Deck not found.", {
@@ -77,7 +78,11 @@ export default defineAction({
       });
     }
     const email = getRequestUserEmail();
-    if (!email) throw new Error("no authenticated user");
+    if (!email)
+      fail("no authenticated user", {
+        errorCode: "not_authenticated",
+        statusCode: 401,
+      });
     const id = `deck-${nanoid()}`;
     const now = new Date().toISOString();
     const title = args.title?.trim() || `Copy of ${deck.title ?? "deck"}`;
@@ -106,7 +111,11 @@ export default defineAction({
       .select({ id: schema.decks.id, title: schema.decks.title })
       .from(schema.decks)
       .where(eq(schema.decks.id, id));
-    if (!saved) throw new Error("Deck clone did not persist.");
+    if (!saved)
+      fail("Deck clone did not persist.", {
+        errorCode: "deck_clone_persistence_unverified",
+        statusCode: 500,
+      });
     trackDeckCreated(
       saved.id,
       {

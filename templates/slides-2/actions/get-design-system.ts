@@ -76,6 +76,7 @@ async function persistBuilderDocCount(
   try {
     parsed = JSON.parse(row.data);
   } catch {
+    // coercion-ok: docCount refresh must not overwrite a malformed stored design-system snapshot.
     return;
   }
   if (parsed.docCount === docCount) return;
@@ -98,12 +99,17 @@ async function persistBuilderDocCount(
     );
 }
 
-function parseJson(value: string | null | undefined): unknown {
-  if (!value) return null;
+type StoredJsonResult =
+  | { status: "absent" }
+  | { status: "parsed"; value: unknown }
+  | { status: "invalid" };
+
+function parseJson(value: string | null | undefined): StoredJsonResult {
+  if (!value) return { status: "absent" };
   try {
-    return JSON.parse(value);
+    return { status: "parsed", value: JSON.parse(value) };
   } catch {
-    return null;
+    return { status: "invalid" };
   }
 }
 
@@ -185,8 +191,17 @@ function buildDesignSystemAgentContext({
   }
 
   const parsedAssets = parseJson(assets);
-  if (Array.isArray(parsedAssets) && parsedAssets.length > 0) {
-    lines.push("", "Design system assets:", formatJson(parsedAssets));
+  if (
+    parsedAssets.status === "parsed" &&
+    Array.isArray(parsedAssets.value) &&
+    parsedAssets.value.length > 0
+  ) {
+    lines.push("", "Design system assets:", formatJson(parsedAssets.value));
+  } else if (
+    parsedAssets.status === "invalid" ||
+    (parsedAssets.status === "parsed" && !Array.isArray(parsedAssets.value))
+  ) {
+    lines.push("", "Warning: stored design-system assets could not be parsed.");
   }
 
   if (builder) {
@@ -229,8 +244,14 @@ function buildDesignSystemAgentContext({
     }
   } else {
     const parsedData = parseJson(data);
-    if (parsedData) {
-      lines.push("", "Local design-system tokens:", formatJson(parsedData));
+    if (parsedData.status === "parsed") {
+      lines.push(
+        "",
+        "Local design-system tokens:",
+        formatJson(parsedData.value),
+      );
+    } else if (parsedData.status === "invalid") {
+      lines.push("", "Warning: stored design-system data is invalid JSON.");
     }
   }
 
@@ -284,13 +305,18 @@ function buildCompactDesignSystemAgentContext({
       `Builder-linked design system (builderDesignSystemId=${builderDesignSystemId}): token values and docs are returned only by get-design-system { id } without compact.`,
     );
   } else {
-    lines.push(
-      "",
-      ...formatTokenValues(
-        flattenLocalTokenValues(parseJson(data)),
-        MAX_SUMMARY_TOKEN_VALUES,
-      ),
-    );
+    const parsedData = parseJson(data);
+    if (parsedData.status === "parsed") {
+      lines.push(
+        "",
+        ...formatTokenValues(
+          flattenLocalTokenValues(parsedData.value),
+          MAX_SUMMARY_TOKEN_VALUES,
+        ),
+      );
+    } else if (parsedData.status === "invalid") {
+      lines.push("", "Warning: stored design-system data is invalid JSON.");
+    }
   }
 
   return truncate(lines.filter(Boolean).join("\n"), MAX_SUMMARY_CONTEXT_CHARS);

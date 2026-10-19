@@ -492,6 +492,7 @@ function caretRangeAtPoint(x: number, y: number): Range | null {
   try {
     range.setStart(position.offsetNode, position.offset);
   } catch {
+    // coercion-ok: browser caret positions can become stale between hit testing and range creation.
     return null;
   }
   range.collapse(true);
@@ -501,7 +502,7 @@ function caretRangeAtPoint(x: number, y: number): Range | null {
 function inlineTextColor(value: string | undefined): string {
   if (value && /^#[\da-f]{6}$/i.test(value)) return value;
   const rgb = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i.exec(value ?? "");
-  if (!rgb) return "#000000";
+  if (!rgb) return "#000000"; // guard:allow-raw-color — valid fallback for source-backed slide text.
   return `#${rgb
     .slice(1, 4)
     .map((channel) =>

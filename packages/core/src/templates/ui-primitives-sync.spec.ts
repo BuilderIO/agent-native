@@ -11,6 +11,11 @@ const ALLOW_LIST: Array<[string, string, string]> = [
     "Slides menus disable animation and transition for instant opening",
   ],
   [
+    "context-menu.tsx",
+    "slides-2",
+    "Slides 2 context menus disable animation and transition for instant opening",
+  ],
+  [
     "toolkit-provider.tsx",
     "chat",
     "AgentKit bootstrap uses the narrow Toolkit provider entrypoint",
@@ -55,6 +60,7 @@ const ALLOW_LIST: Array<[string, string, string]> = [
   ],
   ["tabs.tsx", "design", "line-variant tabs for the Design home library"],
   ["tabs.tsx", "slides", "line-variant tabs for the Slides home library"],
+  ["tabs.tsx", "slides-2", "line-variant tabs for the Slides 2 home library"],
 
   [
     "tabs.tsx",
@@ -65,6 +71,11 @@ const ALLOW_LIST: Array<[string, string, string]> = [
     "tabs.tsx",
     "slides",
     "line-variant tabs with underline active state for Slides home filters",
+  ],
+  [
+    "tabs.tsx",
+    "slides-2",
+    "line-variant tabs with underline active state for Slides 2 home filters",
   ],
 
   ["textarea.tsx", "assets", "autoGrow behavior for asset forms"],
@@ -82,6 +93,11 @@ const LOCAL_IMPLEMENTATION_ALLOW_LIST: Array<
     "slides",
     "context-menu.tsx",
     "disables animation and transition so custom menus open instantly",
+  ],
+  [
+    "slides-2",
+    "context-menu.tsx",
+    "delegates to Toolkit and disables animation and transition so context menus open instantly",
   ],
   ["assets", "textarea.tsx", "adds auto-grow behavior for asset forms"],
   [
@@ -122,6 +138,11 @@ const LOCAL_IMPLEMENTATION_ALLOW_LIST: Array<
     "tabs.tsx",
     "uses the shadcn line variant with an underline active state for Slides home filters and library tabs",
   ],
+  [
+    "slides-2",
+    "tabs.tsx",
+    "uses the shadcn line variant with an underline active state for Slides 2 home filters and library tabs",
+  ],
   ["design", "tabs.tsx", "uses line-variant tabs in the Design home library"],
   ["slides", "tabs.tsx", "uses line-variant tabs in the Slides home library"],
 ];
@@ -154,6 +175,7 @@ const EXPECTED_ACTIVE_TEMPLATES = [
   "mail",
   "plan",
   "slides",
+  "slides-2",
   "tasks",
 ] as const;
 

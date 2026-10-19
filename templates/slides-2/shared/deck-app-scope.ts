@@ -4,6 +4,7 @@ export function isSlides2DeckData(data: unknown): boolean {
     try {
       value = JSON.parse(value);
     } catch {
+      // coercion-ok: malformed data cannot be proven to belong to Slides 2, so this fails closed.
       return false;
     }
   }

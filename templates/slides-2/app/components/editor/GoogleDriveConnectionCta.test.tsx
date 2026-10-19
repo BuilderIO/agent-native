@@ -24,17 +24,18 @@ vi.mock("@agent-native/core/client/integrations", () => ({
   startWorkspaceProviderOAuth: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (key: string) =>
-    ({
-      "home.googleSlidesReferenceConnect":
-        "Connect Google Drive to import a Slides deck.",
-      "raw.googleOAuthNotConfigured": "Google Drive OAuth is not configured.",
-      "home.googleSlidesReferencePicking": "Working...",
-      "editorExport.connectGoogle": "Connect Google",
-      "comments.close": "Close",
-    })[key] ?? key,
-}));
+vi.mock("@agent-native/core/client/i18n", () => {
+  const messages: Record<string, string> = {
+    "home.googleSlidesReferenceConnect":
+      "Connect Google Drive to import a Slides deck.",
+    "raw.googleOAuthNotConfigured": "Google Drive OAuth is not configured.",
+    "home.googleSlidesReferencePicking": "Working...",
+    "editorExport.connectGoogle": "Connect Google",
+    "comments.close": "Close",
+  };
+  const translate = (key: string) => messages[key] ?? key;
+  return { useT: () => translate };
+});
 
 vi.mock("@/lib/google-docs-client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/google-docs-client")>()),

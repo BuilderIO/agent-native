@@ -157,7 +157,7 @@ export default function HistoryPanel({
               </button>
             ) : (
               <>
-                <IconHistory size={16} className="text-[#609FF8]" />
+                <IconHistory size={16} className="text-primary" />
                 <span>{t("history.savedVersions")}</span>
               </>
             )}
@@ -229,7 +229,10 @@ export default function HistoryPanel({
                             | AspectRatio
                             | undefined
                         }
-                        className="border border-border bg-black"
+                        className={
+                          /* guard:allow-raw-color — preserve the fixed slide preview stage behind transparent content. */
+                          "border border-border bg-black"
+                        }
                       />
                       <p className="mt-1.5 truncate text-[11px] text-muted-foreground">
                         {t("history.slideNumber", { number: index + 1 })}
@@ -304,7 +307,7 @@ export default function HistoryPanel({
                       className="w-full rounded-md px-3 py-2.5 text-left transition-colors hover:bg-accent"
                     >
                       <div className="flex min-w-0 items-start gap-3">
-                        <div className="mt-1 h-2 w-2 flex-shrink-0 rounded-full bg-[#609FF8]" />
+                        <div className="mt-1 h-2 w-2 flex-shrink-0 rounded-full bg-primary" />
                         <div className="min-w-0 flex-1">
                           <div className="flex min-w-0 items-center gap-2">
                             <p className="truncate text-sm font-medium">

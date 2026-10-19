@@ -2,15 +2,12 @@
 vi.mock("@/hooks/use-design-system-workflows", () => ({
   useDesignSystemWorkflows: () => true,
 }));
-const isReferenceStorageReadyMock = vi.hoisted(() => vi.fn());
 const callActionMock = vi.hoisted(() => vi.fn());
-vi.mock("@/lib/prompt-file-uploads", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/prompt-file-uploads")>()),
-  isReferenceStorageReady: isReferenceStorageReadyMock,
-}));
+const useActionQueryMock = vi.hoisted(() => vi.fn());
 vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   callAction: callActionMock,
+  useActionQuery: useActionQueryMock,
 }));
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
@@ -82,6 +79,10 @@ vi.mock("@agent-native/core/client/i18n", () => ({
         "home.continueToGenerate": "Continue to generate",
         "home.noMatchingDecks": "No matching decks found.",
         "home.addDesignSystem": "Add design system",
+        "home.googleSlidesReferenceUrl": "Google Slides link",
+        "home.context.websiteUrlLabel": "Website link",
+        "home.context.figmaUrlLabel": "Figma link",
+        "raw.website": "Website",
       }[key] ?? key
     );
   },
@@ -121,23 +122,42 @@ import {
   type ImportedReference,
 } from "./NewDeckReferenceStep";
 
-function render(ui: ReactNode, configured: boolean | null = true) {
+function render(
+  ui: ReactNode,
+  configured: boolean | null = true,
+  storageError?: unknown,
+) {
   const queryClient = new QueryClient();
+  const refetch = vi.fn();
+  useActionQueryMock.mockReturnValue({
+    data:
+      configured === null ? undefined : { referenceStorageReady: configured },
+    error: storageError,
+    isError: configured === null,
+    isSuccess: configured !== null,
+    refetch,
+  });
   if (configured !== null) {
     queryClient.setQueryData(SLIDE_FILE_STORAGE_STATUS_KEY, {
       referenceStorageReady: configured,
     });
   }
-  return renderWithoutQueryClient(ui, {
-    wrapper: ({ children }: { children: ReactNode }) => (
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-    ),
-  });
+  return {
+    ...renderWithoutQueryClient(ui, {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={queryClient}>
+          {children}
+        </QueryClientProvider>
+      ),
+    }),
+    refetch,
+  };
 }
 
 async function renderStep(
   overrides: Partial<React.ComponentProps<typeof NewDeckReferenceStep>> = {},
   storageConfigured: boolean | null = true,
+  storageError?: unknown,
 ) {
   const onSelect = vi.fn();
   const onImport =
@@ -173,7 +193,11 @@ async function renderStep(
     searchDecksLabel: "Search decks",
     ...overrides,
   };
-  const view = render(<NewDeckReferenceStep {...props} />, storageConfigured);
+  const view = render(
+    <NewDeckReferenceStep {...props} />,
+    storageConfigured,
+    storageError,
+  );
   await act(async () => {
     await Promise.resolve();
   });
@@ -184,6 +208,7 @@ async function renderStep(
     onImportSource,
     onOpenChange,
     onDesignSystemsChanged,
+    storageRefetch: view.refetch,
     rerender: (
       nextOverrides: Partial<
         React.ComponentProps<typeof NewDeckReferenceStep>
@@ -195,8 +220,8 @@ async function renderStep(
 describe("<NewDeckReferenceStep>", () => {
   afterEach(() => {
     cleanup();
-    isReferenceStorageReadyMock.mockReset();
     callActionMock.mockReset();
+    useActionQueryMock.mockReset();
   });
 
   it("confirms a PPTX import and keeps it selected until generation continues", async () => {
@@ -247,10 +272,7 @@ describe("<NewDeckReferenceStep>", () => {
   });
 
   it("only shows storage setup after a file import is requested", async () => {
-    isReferenceStorageReadyMock.mockRejectedValue(
-      new TypeError("Failed to fetch"),
-    );
-    await renderStep({}, null);
+    const { storageRefetch } = await renderStep({}, null);
 
     expect(screen.queryByTestId("file-storage-setup-card")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "PDF" }));
@@ -260,7 +282,7 @@ describe("<NewDeckReferenceStep>", () => {
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     });
-    expect(isReferenceStorageReadyMock).toHaveBeenCalledTimes(2);
+    expect(storageRefetch).toHaveBeenCalledOnce();
   });
 
   it.each([
@@ -274,8 +296,7 @@ describe("<NewDeckReferenceStep>", () => {
       code: "reference_storage_contract_failed",
     }),
   ])("shows generic storage guidance after a failed check", async (error) => {
-    isReferenceStorageReadyMock.mockRejectedValue(error);
-    await renderStep({}, null);
+    await renderStep({}, null, error);
 
     expect(
       screen.queryByRole("dialog", { name: "Couldn't check storage" }),

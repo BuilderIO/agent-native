@@ -106,6 +106,7 @@ function isAllowedSlideResourceOrigin(
       LOOPBACK_HOSTS.has(parsed.hostname)
     );
   } catch {
+    // coercion-ok: malformed origins fail the runtime's URL safety validation.
     return false;
   }
 }
@@ -382,6 +383,7 @@ export function isSlideFontAssetList(
     try {
       new URL(appOrigin);
     } catch {
+      // coercion-ok: an invalid app origin makes this font asset list invalid.
       return false;
     }
   }
@@ -412,6 +414,7 @@ export function isSlideFontAssetList(
         return false;
       }
     } catch {
+      // coercion-ok: malformed asset origins fail the font asset list validation.
       return false;
     }
     allowedOrigins.add(origin);
@@ -461,6 +464,7 @@ export function isSlideFontAssetList(
       }
       assetOrigins.add(url.origin);
     } catch {
+      // coercion-ok: malformed font URLs fail the font asset list validation.
       return false;
     }
     seenIds.add(asset.assetId);
@@ -546,6 +550,7 @@ function isSlideWorkerRuntime(
         return false;
       }
     } catch {
+      // coercion-ok: malformed runtime asset URLs fail runtime validation.
       return false;
     }
   }
@@ -1313,7 +1318,7 @@ export function buildSlideSrcDoc(
         assetOrigins.add(parsed.origin);
       }
     } catch {
-      // Ignore malformed origins; artifact validation will reject them before rendering.
+      // coercion-ok: artifact validation rejects malformed origins before CSP assembly.
     }
   }
   const mediaSources = assetOrigins.size

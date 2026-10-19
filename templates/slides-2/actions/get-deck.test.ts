@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockResolveAccess = vi.fn();
+const mockAccessFilter = vi.fn((...args: unknown[]) => ({
+  accessRole: args[3],
+}));
 const mockCurrentRequestUserIsOrgAdmin = vi.fn();
 const mockNotifyClients = vi.fn();
 let currentOrgId = "org-a";
@@ -69,6 +72,7 @@ vi.mock("drizzle-orm", async (importOriginal) => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   resolveAccess: (...args: unknown[]) => mockResolveAccess(...args),
+  accessFilter: (...args: unknown[]) => mockAccessFilter(...args),
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
@@ -100,6 +104,7 @@ vi.mock("../server/db/index.js", () => ({
       data: "data_col",
       updatedAt: "ua_col",
     },
+    deckShares: "deck_shares",
   },
 }));
 
@@ -121,6 +126,7 @@ vi.mock("./get-design-system.js", () => ({
   default: { run: (...args: unknown[]) => mockGetDesignSystemRun(...args) },
 }));
 
+import { hashSlideSource } from "../server/lib/slide-source.js";
 import action from "./get-deck";
 
 beforeEach(() => {
@@ -178,6 +184,7 @@ describe("get-deck", () => {
   });
 
   it("does not persist duplicate-ID repair in a directory widget read", async () => {
+    currentAccessRole = "viewer";
     currentResource!.designSystemId = "ds-1";
     currentResource!.data = JSON.stringify({
       appId: "slides-2",
@@ -200,6 +207,78 @@ describe("get-deck", () => {
       { id: "ds-1", compact: "true" },
       expect.objectContaining({ caller: "mcp-widget" }),
     );
+  });
+
+  it("returns normalized duplicate IDs to viewers without persisting a repair", async () => {
+    currentAccessRole = "viewer";
+    const originalData = JSON.stringify({
+      appId: "slides-2",
+      title: "Quarterly Review",
+      sourceImport: {
+        mode: "source-preserving",
+        format: "pptx",
+        fidelity: "source-faithful",
+        slideCount: 2,
+        slideIds: ["duplicate", "duplicate"],
+        slides: [{ id: "duplicate" }, { id: "duplicate" }],
+      },
+      slides: [
+        { id: "duplicate", content: "<h1>First</h1>" },
+        { id: "duplicate", content: "<h1>Second</h1>" },
+      ],
+    });
+    currentResource!.data = originalData;
+    const originalUpdatedAt = currentResource!.updatedAt;
+
+    const result = (await action.run(
+      { id: "deck-1", compact: "true" },
+      { caller: "tool" },
+    )) as any;
+
+    expect(result.slides.map((slide: { id: string }) => slide.id)).toEqual(
+      result.sourceImport.slideIds,
+    );
+    expect(new Set(result.sourceImport.slideIds).size).toBe(2);
+    expect(currentResource!.data).toBe(originalData);
+    expect(currentResource!.updatedAt).toBe(originalUpdatedAt);
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockNotifyClients).not.toHaveBeenCalled();
+  });
+
+  it("persists duplicate-ID repair for editors with an editor access filter", async () => {
+    currentAccessRole = "editor";
+    currentResource!.data = JSON.stringify({
+      appId: "slides-2",
+      title: "Quarterly Review",
+      sourceImport: {
+        mode: "source-preserving",
+        format: "pptx",
+        fidelity: "source-faithful",
+        slideCount: 2,
+        slideIds: ["duplicate", "duplicate"],
+        slides: [{ id: "duplicate" }, { id: "duplicate" }],
+      },
+      slides: [
+        { id: "duplicate", content: "<h1>First</h1>" },
+        { id: "duplicate", content: "<h1>Second</h1>" },
+      ],
+    });
+
+    const result = (await action.run(
+      { id: "deck-1", compact: "true" },
+      { caller: "tool" },
+    )) as any;
+    const savedData = JSON.parse(currentResource!.data);
+
+    expect(mockUpdate).toHaveBeenCalledTimes(1);
+    expect(mockAccessFilter.mock.calls[0]?.[3]).toBe("editor");
+    expect(
+      new Set(savedData.slides.map((slide: { id: string }) => slide.id)).size,
+    ).toBe(2);
+    expect(result.sourceImport.slideIds).toEqual(
+      savedData.sourceImport.slideIds,
+    );
+    expect(mockNotifyClients).toHaveBeenCalledWith("deck-1");
   });
 
   it.each([
@@ -274,6 +353,69 @@ describe("get-deck", () => {
     expect(result.id).toBe("deck-1");
     expect(result.slides[0]).toMatchObject({ id: "slide-a" });
   });
+
+  it.each(["viewer", "commenter"] as const)(
+    "redacts presenter notes and their source hash from full %s reads",
+    async (role) => {
+      currentAccessRole = role;
+      const privateNotesSource =
+        'export const notes = ["Confidential source notes"]; export default function Slide() { return <h1>Opening</h1>; }';
+      currentResource!.data = JSON.stringify({
+        appId: "slides-2",
+        title: "Quarterly Review",
+        slides: [
+          {
+            id: "slide-a",
+            content: "<h1>Opening</h1>",
+            notes: "Confidential presenter notes",
+            sourceTsx: privateNotesSource,
+            sourceHash: hashSlideSource(privateNotesSource),
+          },
+        ],
+      });
+
+      const result = (await action.run(
+        { id: "deck-1", compact: "false" },
+        { caller: "tool" },
+      )) as any;
+
+      expect(result.slides[0]).not.toHaveProperty("notes");
+      expect(result.slides[0].sourceTsx).not.toContain(
+        "Confidential source notes",
+      );
+      expect(result.slides[0].sourceHash).toBe(
+        hashSlideSource(result.slides[0].sourceTsx),
+      );
+      expect(result.slides[0].sourceHash).not.toBe(
+        hashSlideSource(privateNotesSource),
+      );
+    },
+  );
+
+  it.each(["owner", "editor", "admin"] as const)(
+    "keeps presenter notes in full %s reads",
+    async (role) => {
+      currentAccessRole = role;
+      currentResource!.data = JSON.stringify({
+        appId: "slides-2",
+        title: "Quarterly Review",
+        slides: [
+          {
+            id: "slide-a",
+            content: "<h1>Opening</h1>",
+            notes: "Presenter notes",
+          },
+        ],
+      });
+
+      const result = (await action.run(
+        { id: "deck-1", compact: "false" },
+        { caller: "tool" },
+      )) as any;
+
+      expect(result.slides[0].notes).toBe("Presenter notes");
+    },
+  );
 
   it("rejects a markerless legacy deck after access is resolved", async () => {
     currentResource!.data = JSON.stringify({ slides: [] });

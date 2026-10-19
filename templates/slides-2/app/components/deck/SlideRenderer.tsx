@@ -114,7 +114,7 @@ function LazyImage({
   if (src === "PLACEHOLDER_IMAGE" || !safeSrc) {
     return (
       <div className="w-full max-w-[600px] mx-auto">
-        <Skeleton className="w-full aspect-video rounded-lg bg-white/[0.06]" />
+        <Skeleton className="w-full aspect-video rounded-lg bg-muted" />
       </div>
     );
   }
@@ -122,7 +122,7 @@ function LazyImage({
   return (
     <span className="relative block">
       {!loaded && !error && (
-        <Skeleton className="w-full aspect-video rounded-lg bg-white/[0.06] absolute inset-0" />
+        <Skeleton className="w-full aspect-video rounded-lg bg-muted absolute inset-0" />
       )}
       <img
         src={safeSrc}
@@ -1302,9 +1302,9 @@ export function SlideInner({
     <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
       <div className="flex flex-col items-center gap-3">
         <div className="w-48 h-32 rounded-lg overflow-hidden">
-          <Skeleton className="w-full h-full bg-white/[0.06]" />
+          <Skeleton className="w-full h-full bg-muted" />
         </div>
-        <span className="text-xs text-white/40 animate-pulse">
+        <span className="text-xs text-muted-foreground animate-pulse">
           {t("raw.generatingImage")}
         </span>
       </div>

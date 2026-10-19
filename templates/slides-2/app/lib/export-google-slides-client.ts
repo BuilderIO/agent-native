@@ -142,6 +142,7 @@ export async function exportDeckToGoogleSlides(
     body: form,
   });
 
+  // coercion-ok: if the result body is unreadable, the built deck is downloaded and the route records its own outcome.
   const payload = (await res.json().catch(() => null)) as {
     url?: string;
     error?: string;

@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SlideOverflowWarning } from "./SlideOverflowWarning";
 
+// source-read-ok: pins the editor adapter's warning persistence, lab gate, and agent repair contract.
 const source = readFileSync(
   path.join(path.dirname(fileURLToPath(import.meta.url)), "SlideEditor.tsx"),
   "utf8",

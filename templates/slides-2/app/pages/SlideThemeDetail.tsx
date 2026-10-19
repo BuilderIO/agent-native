@@ -15,7 +15,7 @@ import { ThemePreview } from "@/pages/SlideThemes";
 type ThemeDetail = {
   id: string;
   name: string;
-  description: string;
+  description?: string;
   mode: "light" | "dark";
   preview: {
     background: string;
@@ -176,9 +176,11 @@ export default function SlideThemeDetailPage() {
           </div>
 
           <aside className="grid content-start gap-4">
-            <p className="text-sm leading-relaxed text-muted-foreground">
-              {theme.description}
-            </p>
+            {theme.description ? (
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                {theme.description}
+              </p>
+            ) : null}
             <Button asChild>
               <Link
                 to={`/home?initialPrompt=${encodeURIComponent(t("themesPage.createDeckPrompt", { name: theme.name, id: theme.id }))}`}

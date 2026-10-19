@@ -142,7 +142,11 @@ export async function importPptxBufferToDeck(args: {
   }
   const requestedTitle = title?.trim() || presentation.title || "";
   const ownerEmail = getRequestUserEmail();
-  if (!ownerEmail) throw new Error("no authenticated user");
+  if (!ownerEmail)
+    fail("no authenticated user", {
+      errorCode: "not_authenticated",
+      statusCode: 401,
+    });
   const orgId = getRequestOrgId();
   const themeFont = presentation.theme?.fonts?.[0];
 
@@ -155,7 +159,10 @@ export async function importPptxBufferToDeck(args: {
       .where(eq(schema.decks.id, deckId))
       .limit(1);
     if (!deck) {
-      throw new Error(`Deck ${deckId} not found`);
+      fail(`Deck ${deckId} not found`, {
+        errorCode: "deck_not_found",
+        statusCode: 404,
+      });
     }
     assertSlides2DeckData(safeParseDeckData(deck.data));
   }
@@ -258,7 +265,10 @@ export async function importPptxBufferToDeck(args: {
         .from(schema.decks)
         .where(eq(schema.decks.id, deckId));
       if (!latestDeck) {
-        throw new Error(`Deck ${deckId} not found`);
+        fail(`Deck ${deckId} not found`, {
+          errorCode: "deck_not_found",
+          statusCode: 404,
+        });
       }
 
       const previousData = safeParseDeckData(latestDeck.data);
@@ -450,14 +460,16 @@ function safeParseDeckData(raw: string): Record<string, unknown> {
   try {
     parsed = JSON.parse(raw);
   } catch {
-    throw new Error(
-      "The target deck contains invalid JSON; refusing to overwrite it.",
-    );
+    fail("The target deck contains invalid JSON; refusing to overwrite it.", {
+      errorCode: "invalid_deck_data",
+      statusCode: 409,
+    });
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error(
-      "The target deck data is invalid; refusing to overwrite it.",
-    );
+    fail("The target deck data is invalid; refusing to overwrite it.", {
+      errorCode: "invalid_deck_data",
+      statusCode: 409,
+    });
   }
   return parsed as Record<string, unknown>;
 }

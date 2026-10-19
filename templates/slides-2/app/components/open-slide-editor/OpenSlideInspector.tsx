@@ -106,7 +106,7 @@ function isTransparentColor(value: string | undefined): boolean {
 
 function colorValue(
   value: string | null | undefined,
-  fallback = "#000000",
+  fallback = "#000000", // guard:allow-raw-color — native color input needs a concrete fallback for transparent values.
 ): string {
   if (!value || isTransparentColor(value)) return fallback;
   if (/^#[\da-f]{6}$/i.test(value)) return value;
@@ -874,7 +874,11 @@ export function OpenSlideInspector({
                 <span className="flex min-w-0 items-center gap-1">
                   <Input
                     type="color"
-                    value={colorValue(styles.backgroundColor, "#ffffff")}
+                    value={colorValue(
+                      styles.backgroundColor,
+                      /* guard:allow-raw-color — native color input needs a concrete fallback for transparent fills. */
+                      "#ffffff",
+                    )}
                     disabled={disabled}
                     onChange={(event) =>
                       editStyle("backgroundColor", event.currentTarget.value)

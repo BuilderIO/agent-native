@@ -36,6 +36,7 @@ async function fetchDeckExportFile(
     }),
   });
   if (!response.ok) {
+    // coercion-ok: HTTP status records failure; the optional error body may not be JSON.
     const payload = (await response.json().catch(() => null)) as {
       error?: string;
       message?: string;

@@ -17,12 +17,12 @@ function loadMermaid(): Promise<MermaidModule["default"]> {
           themeVariables: {
             darkMode: true,
             background: "transparent",
-            primaryColor: "#1a1a2e",
-            primaryTextColor: "#e0e0e0",
-            primaryBorderColor: "#00E5FF",
-            lineColor: "#00E5FF",
-            secondaryColor: "#16213e",
-            tertiaryColor: "#0f3460",
+            primaryColor: "#1a1a2e", // guard:allow-raw-color — Mermaid content palette for generated slide diagrams.
+            primaryTextColor: "#e0e0e0", // guard:allow-raw-color — Mermaid content palette for generated slide diagrams.
+            primaryBorderColor: "#00E5FF", // guard:allow-raw-color — Mermaid content palette for generated slide diagrams.
+            lineColor: "#00E5FF", // guard:allow-raw-color — Mermaid content palette for generated slide diagrams.
+            secondaryColor: "#16213e", // guard:allow-raw-color — Mermaid content palette for generated slide diagrams.
+            tertiaryColor: "#0f3460", // guard:allow-raw-color — Mermaid content palette for generated slide diagrams.
             fontFamily: "Poppins, sans-serif",
           },
           flowchart: { curve: "basis" },
@@ -97,7 +97,7 @@ export function MermaidRenderer({
       <div
         data-mermaid-index={index}
         data-mermaid-state="error"
-        className={`flex items-center justify-center p-4 text-xs text-red-400/70 ${className || ""}`}
+        className={`flex items-center justify-center p-4 text-xs text-destructive/70 ${className || ""}`}
       >
         <pre className="whitespace-pre-wrap">{error}</pre>
       </div>

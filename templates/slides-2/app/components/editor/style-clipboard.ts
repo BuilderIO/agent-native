@@ -77,14 +77,14 @@ export function setCopiedElementStyle(style: CopiedElementStyle | null): void {
 const STORAGE_KEY = appStorageKey("slide-brand-palette");
 
 const DEFAULT_PALETTE = [
-  "#00E5FF",
-  "#ffffff",
-  "#FF4D6D",
-  "#FFD166",
-  "#06D6A0",
-  "#8338EC",
-  "#FB5607",
-  "#3A86FF",
+  "#00E5FF", // guard:allow-raw-color — editable slide canvas color preset.
+  "#ffffff", // guard:allow-raw-color — editable slide canvas color preset.
+  "#FF4D6D", // guard:allow-raw-color — editable slide canvas color preset.
+  "#FFD166", // guard:allow-raw-color — editable slide canvas color preset.
+  "#06D6A0", // guard:allow-raw-color — editable slide canvas color preset.
+  "#8338EC", // guard:allow-raw-color — editable slide canvas color preset.
+  "#FB5607", // guard:allow-raw-color — editable slide canvas color preset.
+  "#3A86FF", // guard:allow-raw-color — editable slide canvas color preset.
 ];
 
 export function getBrandPalette(): string[] {
@@ -92,7 +92,7 @@ export function getBrandPalette(): string[] {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return JSON.parse(raw) as string[];
   } catch {
-    // ignore
+    // coercion-ok: malformed optional palette storage falls back to built-in swatches.
   }
   return [...DEFAULT_PALETTE];
 }

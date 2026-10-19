@@ -28,6 +28,7 @@ export function savePromptToComposerDraft(
     );
     return true;
   } catch {
+    // coercion-ok: false reports the failed save; retry flows retain the prompt in memory or session state.
     return false;
   }
 }

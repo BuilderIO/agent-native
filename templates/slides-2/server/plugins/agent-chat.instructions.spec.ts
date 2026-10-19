@@ -1,13 +1,24 @@
 import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { generateActionRegistryForProject } from "@agent-native/core/vite";
 import { describe, expect, it } from "vitest";
 
+const projectRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../..",
+);
+
+generateActionRegistryForProject(projectRoot);
+
+const { default: actionsRegistry } = await import(
+  `${pathToFileURL(path.join(projectRoot, ".generated/actions-registry.ts")).href}?cacheBust=${Date.now()}`
+);
+
+// source-read-ok: This checks tool, instruction, and action-registry alignment as an agent architecture contract.
 const agentChatSource = readFileSync(
   new URL("./agent-chat.ts", import.meta.url),
-  "utf8",
-);
-const actionsRegistrySource = readFileSync(
-  new URL("../../.generated/actions-registry.ts", import.meta.url),
   "utf8",
 );
 const appInstructions = readFileSync(
@@ -82,12 +93,8 @@ describe("Slides content-edit agent guidance", () => {
 
     expect(initialTools?.[1]).toContain('"search-svgl-logos"');
     expect(initialTools?.[1]).toContain('"import-svgl-logo"');
-    expect(actionsRegistrySource).toContain(
-      '"search-svgl-logos": a_search_svgl_logos',
-    );
-    expect(actionsRegistrySource).toContain(
-      '"import-svgl-logo": a_import_svgl_logo',
-    );
+    expect(actionsRegistry).toHaveProperty("search-svgl-logos");
+    expect(actionsRegistry).toHaveProperty("import-svgl-logo");
     expect(agentChatSource).toContain(
       "For public SVG logo lookup and import, use search-svgl-logos and import-svgl-logo",
     );
@@ -174,11 +181,11 @@ describe("Slides content-edit agent guidance", () => {
   });
 
   it("keeps content-only edits from changing slide styling", () => {
-    expect(
-      agentChatSource.match(/For every content-only request/g),
-    ).toHaveLength(2);
     expect(agentChatSource).toContain(
-      "preserve all existing markup, inline styles, style blocks, backgrounds, and slide-level styling",
+      "For requests limited to content, preserve all existing markup",
+    );
+    expect(agentChatSource).toContain(
+      "preserve all existing markup, inline styles, style blocks, backgrounds, and styling on each slide",
     );
   });
 
@@ -283,7 +290,7 @@ describe("Slides content-edit agent guidance", () => {
 
   it("routes source-backed focused selections through source actions", () => {
     expect(agentChatSource).toContain(
-      "For React source-backed slides, never send selected text or objectId to update-slide: read get-slide-source, then use update-slide-source with a unique locator grounded in the current source.",
+      "For React source slides, never send selected text or objectId to update-slide: read get-slide-source, then use update-slide-source with a unique locator grounded in the current source.",
     );
     expect(agentChatSource).toContain(
       "Never send source-backed selected text or objectId to",

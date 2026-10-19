@@ -133,7 +133,9 @@ function SlidePreview({
   const t = useT();
   return (
     <div
-      className={`relative overflow-hidden rounded-md bg-black ring-1 ring-border ${className ?? "aspect-video"}`}
+      className={
+        /* guard:allow-raw-color — presenter preview renders on the theme-independent black stage. */ `relative overflow-hidden rounded-md bg-black ring-1 ring-border ${className ?? "aspect-video"}`
+      }
     >
       {artifact ? (
         <OpenSlideCanvas flat>
@@ -162,8 +164,8 @@ function SlidePreview({
           aria-hidden="true"
           className={
             blackout === "black"
-              ? "absolute inset-0 bg-black"
-              : "absolute inset-0 bg-white"
+              ? /* guard:allow-raw-color — blackout must render fully black. */ "absolute inset-0 bg-black"
+              : /* guard:allow-raw-color — whiteout must render fully white. */ "absolute inset-0 bg-white"
           }
         />
       )}

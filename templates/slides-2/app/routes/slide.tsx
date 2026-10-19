@@ -24,12 +24,26 @@ export function meta() {
 function SlideError({ message }: { message: string }) {
   const t = useT();
   return (
-    <div className="flex h-screen w-screen items-center justify-center bg-black">
+    <div
+      className={
+        /* guard:allow-raw-color — slide preview errors remain on the fixed black stage. */ "flex h-screen w-screen items-center justify-center bg-black"
+      }
+    >
       <div className="text-center">
-        <div className="text-sm font-medium text-white/60">
+        <div
+          className={
+            /* guard:allow-raw-color — slide preview error copy contrasts with the fixed black stage. */ "text-sm font-medium text-white/60"
+          }
+        >
           {t("raw.slideUnavailable")}
         </div>
-        <div className="mt-1 text-xs text-white/35">{message}</div>
+        <div
+          className={
+            /* guard:allow-raw-color — slide preview error copy contrasts with the fixed black stage. */ "mt-1 text-xs text-white/35"
+          }
+        >
+          {message}
+        </div>
       </div>
     </div>
   );
@@ -131,7 +145,13 @@ export default function SlideRoute() {
   }, [deckId, slideIndex, slideIndexParam, slideNumber, slideNumberParam, t]);
 
   if (loading) {
-    return <div className="h-screen w-screen bg-black" />;
+    return (
+      <div
+        className={
+          /* guard:allow-raw-color — preserve the fixed slide preview stage while loading. */ "h-screen w-screen bg-black"
+        }
+      />
+    );
   }
 
   if (error || !slide) {
@@ -143,7 +163,11 @@ export default function SlideRoute() {
   }
 
   return (
-    <div className="relative h-screen w-screen overflow-hidden bg-black">
+    <div
+      className={
+        /* guard:allow-raw-color — shared slide preview uses a theme-independent black stage. */ "relative h-screen w-screen overflow-hidden bg-black"
+      }
+    >
       <SlideRenderer
         slide={slide}
         slidePosition={slidePosition}
@@ -155,7 +179,9 @@ export default function SlideRoute() {
       {inEmbed && (
         <button
           onClick={handleOpenInApp}
-          className="absolute bottom-3 right-3 z-10 flex items-center gap-1.5 rounded-md bg-white/10 px-2.5 py-1.5 text-xs font-medium text-white/70 backdrop-blur-sm hover:bg-white/20 hover:text-white"
+          className={
+            /* guard:allow-raw-color — preview control stays legible over the fixed black stage. */ "absolute bottom-3 right-3 z-10 flex items-center gap-1.5 rounded-md bg-white/10 px-2.5 py-1.5 text-xs font-medium text-white/70 backdrop-blur-sm hover:bg-white/20 hover:text-white"
+          }
         >
           <IconExternalLink className="h-3.5 w-3.5" />
           {t("raw.openInApp")}

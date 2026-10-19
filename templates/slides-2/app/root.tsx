@@ -178,7 +178,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
           dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
         />
         <link rel="icon" type="image/svg+xml" href={appPath("/favicon.svg")} />
-        <meta name="theme-color" content="#EC4899" />
+        {/* guard:allow-raw-color — browser chrome requires a concrete Slides accent color. */}
+        <meta name="theme-color" content="#609FF8" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta
           name="apple-mobile-web-app-status-bar-style"

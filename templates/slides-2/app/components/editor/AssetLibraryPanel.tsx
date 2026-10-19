@@ -130,6 +130,7 @@ export default function AssetLibraryPanel({
             body: form,
           });
           if (!res.ok) {
+            // coercion-ok: the HTTP status records failure; its optional error detail may not be JSON.
             const body = await res.json().catch(() => null);
             const errorCode = body?.errorCode;
             if (isAssetStorageSetupError(errorCode)) {
@@ -242,6 +243,7 @@ export default function AssetLibraryPanel({
         method: "POST",
         body: form,
       });
+      // coercion-ok: unreadable upload JSON yields no id, so the required-id check reports failure.
       const body: unknown = await response.json().catch(() => null);
       const result =
         body && typeof body === "object"
@@ -421,7 +423,7 @@ export default function AssetLibraryPanel({
                     e.stopPropagation();
                     openRename(asset);
                   }}
-                  className="absolute top-0.5 left-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/70 text-white/80 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 hover:text-white"
+                  className="absolute top-0.5 left-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-foreground/70 text-background/80 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 hover:text-background"
                   aria-label={t("deckCard.rename")}
                   title={t("deckCard.rename")}
                 >
@@ -434,7 +436,7 @@ export default function AssetLibraryPanel({
                     requestReplace(asset);
                   }}
                   disabled={replacingId !== null}
-                  className="absolute top-0.5 left-6 flex h-5 w-5 items-center justify-center rounded-full bg-black/70 text-white/80 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  className="absolute top-0.5 left-6 flex h-5 w-5 items-center justify-center rounded-full bg-foreground/70 text-background/80 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 hover:text-background disabled:cursor-not-allowed disabled:opacity-50"
                   aria-label={t("contextToolbar.replaceImage")}
                   title={t("contextToolbar.replaceImage")}
                 >
@@ -450,7 +452,7 @@ export default function AssetLibraryPanel({
                     e.stopPropagation();
                     void handleDelete(asset.id);
                   }}
-                  className="absolute top-0.5 right-0.5 w-5 h-5 bg-black/70 text-white/70 hover:text-red-400 flex items-center justify-center rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                  className="absolute top-0.5 right-0.5 w-5 h-5 bg-foreground/70 text-background/70 hover:text-destructive flex items-center justify-center rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
                   aria-label={t("raw.deleteAsset", {
                     filename: asset.filename,
                   })}

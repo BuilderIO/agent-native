@@ -1,15 +1,11 @@
-const config = async () => {
-  try {
-    const m = await import("dotenv");
-    m.config();
-  } catch {}
-};
 import { writeFileSync, mkdirSync } from "fs";
 import { dirname } from "path";
 
 import { parseArgs } from "@agent-native/core";
+import { defineAction, fail } from "@agent-native/core/action";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import pLimit from "p-limit";
+import { z } from "zod";
 
 import {
   delegateImageGenerationToAssets,
@@ -23,6 +19,23 @@ import {
   normalizeReferenceUrls,
 } from "../shared/api.js";
 import getDeck from "./get-deck.js";
+
+function toCliArgs(args: Record<string, unknown>): string[] {
+  return Object.entries(args).flatMap(([key, raw]) => {
+    if (raw == null) return [];
+    const value = String(raw);
+    return value.startsWith("--") ? [`--${key}=${value}`] : [`--${key}`, value];
+  });
+}
+
+const config = async () => {
+  try {
+    const m = await import("dotenv");
+    m.config();
+  } catch {
+    // coercion-ok: Dotenv is optional local setup; deployment credentials come from declared config.
+  }
+};
 
 const MAX_REFERENCE_IMAGE_URLS = 8;
 const MAX_REFERENCE_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -48,19 +61,26 @@ function urlHostLabel(value: string): string {
 export function normalizeReferenceImageUrls(urls: readonly string[]) {
   const normalized = normalizeReferenceUrls(urls);
   if (normalized.length > MAX_REFERENCE_IMAGE_URLS) {
-    throw new Error(
-      `Use no more than ${MAX_REFERENCE_IMAGE_URLS} reference images.`,
-    );
+    fail(`Use no more than ${MAX_REFERENCE_IMAGE_URLS} reference images.`, {
+      errorCode: "too_many_reference_images",
+      statusCode: 400,
+    });
   }
   for (const value of normalized) {
     let url: URL;
     try {
       url = new URL(value);
     } catch {
-      throw new Error("Reference image URLs must be valid HTTPS URLs.");
+      fail("Reference image URLs must be valid HTTPS URLs.", {
+        errorCode: "invalid_reference_image_url",
+        statusCode: 400,
+      });
     }
     if (url.protocol !== "https:" || url.username || url.password) {
-      throw new Error("Reference image URLs must be valid HTTPS URLs.");
+      fail("Reference image URLs must be valid HTTPS URLs.", {
+        errorCode: "invalid_reference_image_url",
+        statusCode: 400,
+      });
     }
   }
   return normalized;
@@ -139,7 +159,10 @@ async function saveDelegatedImages(
     console.error(
       `Assets returned no parseable image URL, so nothing was written to ${outputPrefix}.`,
     );
-    throw new Error("Script failed");
+    fail("Assets returned no parseable generated image URL.", {
+      errorCode: "generated_image_url_missing",
+      statusCode: 502,
+    });
   }
   mkdirSync(dirname(outputPrefix), { recursive: true });
   let failures = 0;
@@ -191,7 +214,10 @@ async function saveDelegatedImages(
     console.error(
       `${failures} of ${urls.length} generated image(s) could not be saved to ${outputPrefix}.`,
     );
-    throw new Error("Script failed");
+    fail("One or more generated images could not be downloaded.", {
+      errorCode: "generated_image_download_failed",
+      statusCode: 502,
+    });
   }
 }
 
@@ -229,7 +255,7 @@ export async function loadDeckContext(
   return { slideContent, deckText: textParts.join("\n") };
 }
 
-export default async function main(args: string[]) {
+async function main(args: string[]) {
   await config();
 
   const opts = parseArgs(args);
@@ -253,7 +279,10 @@ Options:
   const prompt = opts["prompt"];
   if (!prompt) {
     console.error("Error: --prompt is required");
-    throw new Error("Script failed");
+    fail("Prompt is required.", {
+      errorCode: "image_prompt_required",
+      statusCode: 400,
+    });
   }
 
   const count = parseInt(opts["count"] || "1", 10);
@@ -262,7 +291,7 @@ Options:
     opts["reference-image-urls"] ? opts["reference-image-urls"].split(",") : [],
   );
 
-  let slideContent = opts["slide-content"];
+  let slideContent: string | undefined = opts["slide-content"];
   let deckText = "";
 
   if (opts["deck-id"]) {
@@ -312,13 +341,19 @@ Options:
         `"${delegation.lastState}"). It was not cancelled — check the Assets ` +
         `app rather than generating a duplicate.`,
     );
-    throw new Error("Script failed");
+    fail(
+      `Assets is still generating (task ${delegation.taskId}, last state "${delegation.lastState}"). It was not cancelled; check the Assets app rather than generating a duplicate.`,
+      { errorCode: "image_generation_pending", statusCode: 409 },
+    );
   }
   if (delegation.status === "rejected") {
     console.error(
       `Assets could not generate this image (${delegation.state}): ${delegation.reason}`,
     );
-    throw new Error("Script failed");
+    fail(
+      `Assets could not generate this image (${delegation.state}): ${delegation.reason}`,
+      { errorCode: "image_generation_rejected", statusCode: 422 },
+    );
   }
   console.warn(
     `[slides/generate-image] Assets unavailable (${delegation.reason}); ` +
@@ -335,7 +370,10 @@ Options:
     console.error(
       "Error: No image generation provider configured. Save GOOGLE_GENERATIVE_AI_API_KEY or OPENAI_API_KEY in settings.",
     );
-    throw new Error("Script failed");
+    fail("No image generation provider is configured in settings.", {
+      errorCode: "image_provider_unavailable",
+      statusCode: 424,
+    });
   }
 
   const context =
@@ -433,3 +471,22 @@ Options:
 
   console.log("\nDone!");
 }
+
+export default defineAction({
+  description: "Run the local image-generation CLI helper.",
+  schema: z.object({
+    prompt: z.string().optional(),
+    "slide-content": z.string().optional(),
+    "deck-id": z.string().optional(),
+    "slide-id": z.string().optional(),
+    model: z.string().optional(),
+    "reference-image-urls": z.string().optional(),
+    count: z.string().optional(),
+    output: z.string().optional(),
+    help: z.boolean().optional(),
+  }),
+  http: false,
+  agentTool: false,
+  mcpTool: false,
+  run: (args) => main(toCliArgs(args)),
+});

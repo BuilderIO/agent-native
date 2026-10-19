@@ -13,6 +13,14 @@ export { schema };
 
 registerIdentityColumns([
   {
+    table: "uploaded_asset_cleanup_outbox",
+    column: "owner_email",
+    emailChange: "rekey",
+    offboard: "retain",
+    reason:
+      "Pending provider cleanup follows an email change and remains durable for storage deletion after offboarding.",
+  },
+  {
     table: "slide_comments",
     column: "author_email",
     emailChange: "rekey",

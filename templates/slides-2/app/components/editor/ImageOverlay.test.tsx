@@ -7,6 +7,11 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) =>
     ({
       "editorToolbar.assetLibrary": "Asset Library",
+      "raw.generate": "Generate",
+      "raw.upload": "Upload",
+      "raw.download": "Download",
+      "raw.fitCover": "Fit: Cover",
+      "raw.fitContain": "Fit: Contain",
       "styleInspector.position": "Position",
       "styleInspector.top": "Top",
       "styleInspector.left": "Left",

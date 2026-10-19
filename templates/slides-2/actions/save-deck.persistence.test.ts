@@ -66,19 +66,15 @@ vi.mock("../server/handlers/decks.js", () => ({
   notifyClients: mockNotifyClients,
 }));
 
-vi.mock("../server/lib/deck-versions.js", () => ({
-  createDeckVersionSnapshot: (...args: unknown[]) =>
-    mockCreateDeckVersionSnapshot(...args),
-  deckVersionContentSignature: (raw: unknown) => {
-    const data = typeof raw === "string" ? JSON.parse(raw) : raw;
-    if (data && typeof data === "object" && !Array.isArray(data)) {
-      const clone = { ...(data as Record<string, unknown>) };
-      delete clone.updatedAt;
-      return JSON.stringify(clone);
-    }
-    return JSON.stringify(data);
-  },
-}));
+vi.mock("../server/lib/deck-versions.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../server/lib/deck-versions.js")>();
+  return {
+    ...actual,
+    createDeckVersionSnapshot: (...args: unknown[]) =>
+      mockCreateDeckVersionSnapshot(...args),
+  };
+});
 
 vi.mock("./patch-deck", () => ({
   withDeckLock: (_deckId: string, callback: () => Promise<unknown>) =>
@@ -278,7 +274,7 @@ describe("save-deck design-system relation persistence", () => {
     ).rejects.toMatchObject({ errorCode: "render_artifact_in_slide_content" });
   });
 
-  it("skips a full replacement when only updatedAt differs", async () => {
+  it("normalizes an omitted Slides 2 marker before no-op comparison", async () => {
     const result = await saveDeckAction.run(
       {
         deckId: "deck-1",
@@ -297,9 +293,11 @@ describe("save-deck design-system relation persistence", () => {
 
     expect(result).toMatchObject({
       id: "deck-1",
+      appId: "slides-2",
       updatedAt: "2026-05-12T00:00:00.000Z",
     });
     expect(state.updatedFields).toBeUndefined();
+    expect(mockCreateDeckVersionSnapshot).not.toHaveBeenCalled();
     expect(mockNotifyClients).not.toHaveBeenCalled();
   });
 
@@ -420,8 +418,8 @@ describe("save-deck tracking", () => {
 
     expect(trackedNames()).toEqual(["deck_edited"]);
     expect(mockTrack.mock.calls[0]?.[1]).toMatchObject({
-      app_name: "slides",
-      template_name: "slides",
+      app_name: "slides-2",
+      template_name: "slides-2",
       caller: "frontend",
       run_id: "run-1",
       output_id: "deck-1",

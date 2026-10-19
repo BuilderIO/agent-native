@@ -19,10 +19,14 @@ vi.mock("@agent-native/core/sharing", () => ({
   resolveAccess: vi.fn(),
 }));
 
-vi.mock("drizzle-orm", () => ({
-  eq: (...args: unknown[]) => args,
-  lt: (...args: unknown[]) => args,
-}));
+vi.mock("drizzle-orm", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("drizzle-orm")>();
+  return {
+    ...actual,
+    eq: (...args: unknown[]) => args,
+    lt: (...args: unknown[]) => args,
+  };
+});
 
 vi.mock("../server/db/index.js", () => ({
   getDb: () => ({
@@ -42,6 +46,7 @@ vi.mock("../server/db/index.js", () => ({
       slides: "slides_col",
       aspectRatio: "aspect_ratio_col",
       designSystemData: "design_system_data_col",
+      deckId: "deck_id_col",
       createdAt: "created_at_col",
     },
   },
@@ -125,7 +130,8 @@ describe("create-share-link", () => {
       { userId: "owner@example.com" } as never,
     );
 
-    expect(result).toEqual({ shareToken: expect.any(String) });
+    expect(result).toMatchObject({ shareToken: expect.any(String) });
+    expect(result.url).toContain(`/share/${result.shareToken}`);
     expect(mocks.assertAccess).toHaveBeenCalledWith("deck", "deck-1", "admin");
     expect(mocks.readDeckLinkedDesignSystem).toHaveBeenCalledWith(
       expect.objectContaining({ id: "deck-1" }),
@@ -134,6 +140,7 @@ describe("create-share-link", () => {
     expect(mocks.insertedRows).toHaveLength(1);
 
     const row = mocks.insertedRows[0]!;
+    expect(row.deckId).toBe("deck-1");
     const slides = JSON.parse(row.slides as string);
 
     expect(slides).toEqual([

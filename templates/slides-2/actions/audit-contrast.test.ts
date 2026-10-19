@@ -180,7 +180,7 @@ describe("audit-contrast", () => {
     ]);
 
     await expect(run({ deckId: "deck-1" })).rejects.toThrow(
-      "open in the Slides editor",
+      "open in the Slides 2 editor",
     );
     expect(mockCallBrowserSession).not.toHaveBeenCalled();
   });

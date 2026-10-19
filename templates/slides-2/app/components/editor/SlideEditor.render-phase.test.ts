@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+// source-read-ok: pins React render-phase and DOM teardown safety boundaries in the canvas component.
 const source = readFileSync(
   path.join(path.dirname(fileURLToPath(import.meta.url)), "SlideEditor.tsx"),
   "utf8",

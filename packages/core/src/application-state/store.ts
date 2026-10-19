@@ -1,3 +1,4 @@
+import { getAppConfig } from "../app-config/index.js";
 import { getDbExec, isLocalDatabase, type DbExec } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
@@ -325,6 +326,40 @@ export async function appStateListByKeyPrefix(
     key: row.key as string,
     value: JSON.parse(row.value as string),
   }));
+}
+
+/** Lists metadata for maintenance keys within the current app namespace. */
+export async function appStateListKeysByKeySuffixPrefix(
+  suffixPrefix: string,
+  limit = 100,
+): Promise<Array<{ sessionId: string; key: string }>> {
+  if (!suffixPrefix || suffixPrefix.startsWith(":")) {
+    throw new Error(
+      "Cross-session application-state scans require a non-empty key suffix prefix.",
+    );
+  }
+  const keyPrefix = `${getAppStateMaintenanceNamespacePrefix()}${suffixPrefix}`;
+  await ensureTable();
+  const client = getDbExec();
+  const boundedLimit = Math.max(1, Math.min(Math.floor(limit), 2_048));
+  const { rows } = await client.execute({
+    sql: `SELECT session_id, key FROM application_state WHERE key LIKE ? ESCAPE '!' ORDER BY updated_at ASC LIMIT ?`,
+    args: [escapeLike(keyPrefix) + "%", boundedLimit],
+  });
+  return rows.map((row) => ({
+    sessionId: row.session_id as string,
+    key: row.key as string,
+  }));
+}
+
+function getAppStateMaintenanceNamespacePrefix(): string {
+  const namespace = getAppConfig().app.slug;
+  if (!namespace || namespace !== namespace.trim() || namespace.includes(":")) {
+    throw new Error(
+      "Application-state maintenance requires a configured app namespace.",
+    );
+  }
+  return `${namespace}:`;
 }
 
 export async function appStateDeleteByPrefix(

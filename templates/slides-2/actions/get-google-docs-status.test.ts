@@ -43,6 +43,8 @@ vi.mock("../server/lib/google-slides-export-availability.js", () => ({
 
 import action from "./get-google-docs-status";
 
+const frontendCtx = { caller: "frontend" } as never;
+
 describe("get-google-docs-status", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -73,7 +75,7 @@ describe("get-google-docs-status", () => {
 
   it("uses the current user and request origin to build status", async () => {
     await expect(
-      action.run({ origin: "https://slides.example.com" }),
+      action.run({ origin: "https://slides.example.com" }, frontendCtx),
     ).resolves.toMatchObject({
       configured: true,
       connected: true,
@@ -104,7 +106,7 @@ describe("get-google-docs-status", () => {
     mocks.getRequestUserEmail.mockReturnValue(undefined);
 
     await expect(
-      action.run({ origin: "https://slides.example.com" }),
+      action.run({ origin: "https://slides.example.com" }, frontendCtx),
     ).rejects.toMatchObject({
       statusCode: 401,
       errorCode: "not_authenticated",

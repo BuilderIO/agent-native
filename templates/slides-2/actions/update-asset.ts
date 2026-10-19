@@ -8,6 +8,11 @@ import { and, eq, inArray, isNull, like, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  finishOwnedUploadedAssetCleanup,
+  retryOwnedUploadedAssetCleanup,
+  scheduleUploadedAssetDeletion,
+} from "../server/lib/uploaded-asset-cleanup-outbox.js";
 
 function ownedImageScope(
   id: string,
@@ -25,6 +30,33 @@ function ownedImageScope(
       : isNull(schema.uploadedAssets.orgId),
     isNull(schema.uploadedAssets.deckId),
     like(schema.uploadedAssets.type, "image/%"),
+  );
+}
+
+function registeredCleanupMarkerScope(args: {
+  assetId: string;
+  ownerEmail: string;
+  orgId: string | null;
+  provider: string;
+  providerObjectId: string | null;
+  url: string;
+}) {
+  return and(
+    eq(schema.uploadedAssetCleanupOutbox.id, args.assetId),
+    eq(schema.uploadedAssetCleanupOutbox.ownerEmail, args.ownerEmail),
+    args.orgId
+      ? eq(schema.uploadedAssetCleanupOutbox.orgId, args.orgId)
+      : isNull(schema.uploadedAssetCleanupOutbox.orgId),
+    eq(schema.uploadedAssetCleanupOutbox.intent, "registration"),
+    eq(schema.uploadedAssetCleanupOutbox.state, "registered"),
+    eq(schema.uploadedAssetCleanupOutbox.provider, args.provider),
+    eq(schema.uploadedAssetCleanupOutbox.url, args.url),
+    args.providerObjectId
+      ? eq(
+          schema.uploadedAssetCleanupOutbox.providerObjectId,
+          args.providerObjectId,
+        )
+      : isNull(schema.uploadedAssetCleanupOutbox.providerObjectId),
   );
 }
 
@@ -234,7 +266,18 @@ export default defineAction({
         previous.providerObjectId !== null &&
         previous.providerObjectId === replacement.providerObjectId);
 
-    let updated: { filename: string };
+    let updated: {
+      filename: string;
+      cleanup: {
+        assetId: string;
+        ownerEmail: string;
+        orgId: string | null;
+        provider: string;
+        providerObjectId: string | null;
+        url: string;
+        token: string;
+      } | null;
+    };
     try {
       updated = await db.transaction(async (tx) => {
         const [saved] = await tx
@@ -247,16 +290,93 @@ export default defineAction({
             provider: replacement.provider,
             providerObjectId: replacement.providerObjectId,
           })
-          .where(ownedImageScope(id, ownerEmail, orgId))
+          .where(
+            and(
+              ownedImageScope(id, ownerEmail, orgId),
+              eq(schema.uploadedAssets.url, previous.url),
+              eq(schema.uploadedAssets.provider, previous.provider),
+              previous.providerObjectId
+                ? eq(
+                    schema.uploadedAssets.providerObjectId,
+                    previous.providerObjectId,
+                  )
+                : isNull(schema.uploadedAssets.providerObjectId),
+            ),
+          )
           .returning({ filename: schema.uploadedAssets.filename });
-        if (!saved) throw new Error("asset_replace_update_missing");
+        if (!saved)
+          fail("The image being replaced is no longer available.", {
+            errorCode: "asset_replace_update_missing",
+            statusCode: 409,
+          });
 
         const [removed] = await tx
           .delete(schema.uploadedAssets)
-          .where(ownedImageScope(replacementAssetId, ownerEmail, orgId))
+          .where(
+            and(
+              ownedImageScope(replacementAssetId, ownerEmail, orgId),
+              eq(schema.uploadedAssets.url, replacement.url),
+              eq(schema.uploadedAssets.provider, replacement.provider),
+              replacement.providerObjectId
+                ? eq(
+                    schema.uploadedAssets.providerObjectId,
+                    replacement.providerObjectId,
+                  )
+                : isNull(schema.uploadedAssets.providerObjectId),
+            ),
+          )
           .returning({ id: schema.uploadedAssets.id });
-        if (!removed) throw new Error("asset_replace_source_missing");
-        return saved;
+        if (!removed)
+          fail("The replacement image is no longer available.", {
+            errorCode: "asset_replace_source_missing",
+            statusCode: 409,
+          });
+
+        await tx.delete(schema.uploadedAssetCleanupOutbox).where(
+          registeredCleanupMarkerScope({
+            assetId: replacementAssetId,
+            ownerEmail,
+            orgId: replacement.orgId,
+            provider: replacement.provider,
+            providerObjectId: replacement.providerObjectId,
+            url: replacement.url,
+          }),
+        );
+
+        let cleanup: {
+          assetId: string;
+          ownerEmail: string;
+          orgId: string | null;
+          provider: string;
+          providerObjectId: string | null;
+          url: string;
+          token: string;
+        } | null = null;
+        if (!sameStoredFile) {
+          const cleanupInput = {
+            assetId: id,
+            ownerEmail,
+            orgId: previous.orgId,
+            provider: previous.provider,
+            providerObjectId: previous.providerObjectId,
+            url: previous.url,
+          };
+          const token = await scheduleUploadedAssetDeletion(tx, cleanupInput);
+          cleanup = { ...cleanupInput, token };
+        } else {
+          await tx.delete(schema.uploadedAssetCleanupOutbox).where(
+            registeredCleanupMarkerScope({
+              assetId: id,
+              ownerEmail,
+              orgId: previous.orgId,
+              provider: previous.provider,
+              providerObjectId: previous.providerObjectId,
+              url: previous.url,
+            }),
+          );
+        }
+
+        return { filename: saved.filename, cleanup };
       });
     } catch {
       fail("Could not replace the uploaded image.", {
@@ -266,14 +386,43 @@ export default defineAction({
     }
 
     let cleanupWarning = false;
-    if (!sameStoredFile) {
+    if (updated.cleanup) {
+      const cleanup = updated.cleanup;
+      const cleanupScope = {
+        assetId: cleanup.assetId,
+        ownerEmail: cleanup.ownerEmail,
+        orgId: cleanup.orgId,
+      };
       try {
-        cleanupWarning = !(await deleteUploadedFile(previous.provider, {
-          url: previous.url,
-          id: previous.providerObjectId ?? undefined,
-        }));
+        const deleted = await deleteUploadedFile(cleanup.provider, {
+          url: cleanup.url,
+          id: cleanup.providerObjectId ?? undefined,
+        });
+        if (!deleted) {
+          cleanupWarning = true;
+          await retryOwnedUploadedAssetCleanup(cleanupScope, cleanup.token, 1);
+        } else {
+          await db.transaction(async (tx) => {
+            const removed = await finishOwnedUploadedAssetCleanup(
+              tx,
+              cleanupScope,
+              cleanup.token,
+            );
+            if (!removed) {
+              fail("Replaced image cleanup lease is no longer current.", {
+                errorCode: "asset_replace_cleanup_lease_lost",
+                statusCode: 409,
+              });
+            }
+          });
+        }
       } catch {
         cleanupWarning = true;
+        try {
+          await retryOwnedUploadedAssetCleanup(cleanupScope, cleanup.token, 1);
+        } catch {
+          // The cleanup lease expires for the recurring sweep to reclaim.
+        }
       }
     }
 

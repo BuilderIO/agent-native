@@ -108,7 +108,11 @@ async function assertDeckImportScope(deckId: string): Promise<void> {
     .from(schema.decks)
     .where(eq(schema.decks.id, deckId))
     .limit(1);
-  if (!deck) throw new Error(`Deck ${deckId} not found`);
+  if (!deck)
+    fail(`Deck ${deckId} not found`, {
+      errorCode: "deck_not_found",
+      statusCode: 404,
+    });
   assertSlides2DeckData(safeParseDeckData(deck.data));
 }
 
@@ -170,28 +174,38 @@ export default defineAction({
       else if (ext === ".fig") detectedFormat = "fig";
       else if (rasterImageMediaType(filename)) detectedFormat = "image";
       else {
-        throw new Error(
+        fail(
           `Cannot detect format from extension "${ext}". Supported: .pptx, .docx, .pdf, .fig, .jpg, .png, .gif, .webp`,
+          { errorCode: "unsupported_import_format", statusCode: 415 },
         );
       }
     }
 
     if (detectedFormat === "image") {
       if (importIntoDeck) {
-        throw new Error(
+        fail(
           "Raster image imports are visual references, not slide imports. Use update-slide or add-slide to place the image after inspecting it.",
+          {
+            errorCode: "raster_image_slide_import_unsupported",
+            statusCode: 422,
+          },
         );
       }
       const mediaType = rasterImageMediaType(filename);
       if (!mediaType) {
-        throw new Error(
+        fail(
           "Vision image imports support only JPEG, PNG, GIF, and WebP files.",
+          {
+            errorCode: "unsupported_vision_image_type",
+            statusCode: 415,
+          },
         );
       }
       const imageData = fileBuffer.toString("base64");
       if (imageData.length > MAX_TOOL_RESULT_IMAGE_BASE64_CHARS) {
-        throw new Error(
+        fail(
           `Raster image "${filename}" exceeds the ${MAX_TOOL_RESULT_IMAGE_BASE64_CHARS.toLocaleString()}-character vision tool limit. Upload a smaller image and retry.`,
+          { errorCode: "vision_image_too_large", statusCode: 413 },
         );
       }
       return {
@@ -213,8 +227,9 @@ export default defineAction({
     if (detectedFormat === "fig") {
       await assertDesignSystemWorkflowsEnabled();
       if (importIntoDeck) {
-        throw new Error(
+        fail(
           "Figma .fig imports start Builder design-system indexing, not slide replacements. Re-run without importIntoDeck.",
+          { errorCode: "fig_import_cannot_replace_deck", statusCode: 422 },
         );
       }
       const title = titleFromPath(filename);
@@ -229,7 +244,11 @@ export default defineAction({
         ],
       });
       const ownerEmail = getRequestUserEmail();
-      if (!ownerEmail) throw new Error("no authenticated user");
+      if (!ownerEmail)
+        fail("no authenticated user", {
+          errorCode: "not_authenticated",
+          statusCode: 401,
+        });
       const proxy = await upsertBuilderProxyDesignSystem({
         result,
         ownerEmail,
@@ -271,10 +290,18 @@ export default defineAction({
       const title = presentation.title || "";
 
       if (importIntoDeck) {
-        if (!deckId) throw new Error("deckId is required to import into deck");
+        if (!deckId)
+          fail("deckId is required to import into deck", {
+            errorCode: "deck_id_required",
+            statusCode: 400,
+          });
         await assertDeckImportScope(deckId);
         const pptxOwnerEmail = getRequestUserEmail();
-        if (!pptxOwnerEmail) throw new Error("no authenticated user");
+        if (!pptxOwnerEmail)
+          fail("no authenticated user", {
+            errorCode: "not_authenticated",
+            statusCode: 401,
+          });
         const pptxOrgId = getRequestOrgId();
         assertPptxImagesRenderable(presentation.slides);
         const pptxThemeFont = presentation.theme?.fonts?.[0];
@@ -385,9 +412,16 @@ export default defineAction({
       const title = doc.title || "";
 
       if (importIntoDeck) {
-        if (!deckId) throw new Error("deckId is required to import into deck");
+        if (!deckId)
+          fail("deckId is required to import into deck", {
+            errorCode: "deck_id_required",
+            statusCode: 400,
+          });
         if (slideHtmlArray.length === 0) {
-          throw new Error("No importable text found in this DOCX file");
+          fail("No importable text found in this DOCX file", {
+            errorCode: "docx_has_no_importable_text",
+            statusCode: 422,
+          });
         }
         const slides = slideHtmlArray.map((content) => ({
           id: newSlideId(),
@@ -438,7 +472,11 @@ export default defineAction({
       const title = titleFromPath(filename);
 
       if (importIntoDeck) {
-        if (!deckId) throw new Error("deckId is required to import into deck");
+        if (!deckId)
+          fail("deckId is required to import into deck", {
+            errorCode: "deck_id_required",
+            statusCode: 400,
+          });
         await assertDeckImportScope(deckId);
         const imported = await importPdfPagesWithFidelity({
           fileBuffer,
@@ -467,8 +505,12 @@ export default defineAction({
       const textPages = pages.filter((p) => p.text.trim());
 
       if (textPages.length === 0) {
-        throw new Error(
+        fail(
           "No importable text found in this PDF. Scanned PDFs need OCR first.",
+          {
+            errorCode: "pdf_has_no_importable_text",
+            statusCode: 422,
+          },
         );
       }
 
@@ -494,8 +536,9 @@ export default defineAction({
       };
     }
 
-    throw new Error(
+    fail(
       `Unsupported format: ${typeof detectedFormat === "string" ? detectedFormat : (JSON.stringify(detectedFormat) ?? "unknown")}`,
+      { errorCode: "unsupported_import_format", statusCode: 415 },
     );
   },
 });
@@ -523,7 +566,11 @@ async function importPdfFromSidecar(args: {
   const { sidecar, fallbackTitle, deckId } = args;
 
   const ownerEmail = getRequestUserEmail();
-  if (!ownerEmail) throw new Error("no authenticated user");
+  if (!ownerEmail)
+    fail("no authenticated user", {
+      errorCode: "not_authenticated",
+      statusCode: 401,
+    });
   const orgId = getRequestOrgId();
   const slides = await Promise.all(
     sidecar.slides.map(async (slide) => ({
@@ -641,7 +688,10 @@ async function importPdfPagesWithFidelity(args: {
   }
 
   if (!Number.isInteger(pageCount) || pageCount < 1) {
-    throw new Error("The PDF renderer returned an invalid page count.");
+    fail("The PDF renderer returned an invalid page count.", {
+      errorCode: "pdf_renderer_invalid_page_count",
+      statusCode: 502,
+    });
   }
   if (
     pages.length !== pageCount ||
@@ -654,7 +704,10 @@ async function importPdfPagesWithFidelity(args: {
     }));
   }
   if (pages.length === 0) {
-    throw new Error("The PDF renderer returned no importable pages.");
+    fail("The PDF renderer returned no importable pages.", {
+      errorCode: "pdf_renderer_no_importable_pages",
+      statusCode: 422,
+    });
   }
 
   const hasRecoverableContent = pages.some((page) => {
@@ -662,8 +715,9 @@ async function importPdfPagesWithFidelity(args: {
     return page.text.trim().length > 0 || (fidelity?.elements.length ?? 0) > 0;
   });
   if (!hasRecoverableContent) {
-    throw new Error(
+    fail(
       "No importable text or images found in this PDF. Scanned PDFs need OCR first.",
+      { errorCode: "pdf_has_no_importable_content", statusCode: 422 },
     );
   }
 
@@ -673,7 +727,11 @@ async function importPdfPagesWithFidelity(args: {
     : undefined;
 
   const ownerEmail = getRequestUserEmail();
-  if (!ownerEmail) throw new Error("no authenticated user");
+  if (!ownerEmail)
+    fail("no authenticated user", {
+      errorCode: "not_authenticated",
+      statusCode: 401,
+    });
   const orgId = getRequestOrgId();
 
   const uploadLimit = pLimit(4);
@@ -1045,7 +1103,10 @@ async function appendDeckSlides(
       .limit(1);
 
     if (!existing.length) {
-      throw new Error(`Deck ${deckId} not found`);
+      fail(`Deck ${deckId} not found`, {
+        errorCode: "deck_not_found",
+        statusCode: 404,
+      });
     }
 
     const writeNow = nextDeckRevision(existing[0].updatedAt);
@@ -1108,14 +1169,16 @@ function safeParseDeckData(raw: string): Record<string, unknown> {
   try {
     parsed = JSON.parse(raw);
   } catch {
-    throw new Error(
-      "The target deck contains invalid JSON; refusing to overwrite it.",
-    );
+    fail("The target deck contains invalid JSON; refusing to overwrite it.", {
+      errorCode: "invalid_deck_data",
+      statusCode: 409,
+    });
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error(
-      "The target deck data is invalid; refusing to overwrite it.",
-    );
+    fail("The target deck data is invalid; refusing to overwrite it.", {
+      errorCode: "invalid_deck_data",
+      statusCode: 409,
+    });
   }
   return parsed as Record<string, unknown>;
 }

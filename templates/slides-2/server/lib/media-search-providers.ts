@@ -193,7 +193,7 @@ export async function searchProviderLogos(
         if (results.length > 0) return results;
       }
     } catch {
-      // The deterministic domain fallback keeps the UI usable during provider outages.
+      // coercion-ok: Logo.dev is optional; domain guesses retain a distinct source label.
     }
   }
 

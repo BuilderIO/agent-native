@@ -35,7 +35,7 @@ function previewText(value: string | undefined, limit = 280) {
 
 function slidePreviewDocument(content: string, width: number, height: number) {
   return `<!doctype html><html><head><style>
-    *,*::before,*::after{box-sizing:border-box}html,body{width:${width}px;height:${height}px;margin:0;overflow:hidden;background:#fff}.context-slide{position:relative;width:${width}px;height:${height}px;overflow:hidden}.context-slide>*{width:100%;height:100%}.fmd-slide{width:100%;height:100%}
+    *,*::before,*::after{box-sizing:border-box}html,body{width:${width}px;height:${height}px;margin:0;overflow:hidden;background:#fff;/* guard:allow-raw-color — slide preview uses a fixed white canvas. */}.context-slide{position:relative;width:${width}px;height:${height}px;overflow:hidden}.context-slide>*{width:100%;height:100%}.fmd-slide{width:100%;height:100%}
   </style></head><body><div class="context-slide">${content}</div></body></html>`;
 }
 
@@ -87,7 +87,9 @@ async function captureSlidePreviewMedia(input: {
           resourceId: input.deckId,
           contentHash,
         },
-      }).catch(() => null);
+      })
+        // coercion-ok: slide previews are optional media; deck capture already stores the required source blob.
+        .catch(() => null);
       if (!handle) return;
       const slide = input.slides.find(
         (candidate) => candidate.id === preview.id,

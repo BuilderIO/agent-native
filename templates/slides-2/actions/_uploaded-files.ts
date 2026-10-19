@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 
-import type { ActionRunContext } from "@agent-native/core/action";
+import { fail, type ActionRunContext } from "@agent-native/core/action";
 import {
   attachmentFailureToError,
   isAttachmentRef,
@@ -49,7 +49,11 @@ export async function readUserUploadedFile(
   ctx?: Pick<ActionRunContext, "attachments">,
 ): Promise<{ data: Buffer; filename: string }> {
   const email = getRequestUserEmail();
-  if (!email) throw new Error("no authenticated user");
+  if (!email)
+    fail("no authenticated user", {
+      errorCode: "not_authenticated",
+      statusCode: 401,
+    });
 
   const reference = isAttachmentRef(filePath)
     ? filePath

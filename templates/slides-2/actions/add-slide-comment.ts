@@ -131,7 +131,10 @@ export default defineAction({
       assertSlides2DeckData(deckData);
       const slides = (deckData as { slides?: unknown } | null)?.slides;
       if (!Array.isArray(slides)) {
-        throw new Error(`Deck has invalid slide data: ${deckId}`);
+        fail(`Deck has invalid slide data: ${deckId}`, {
+          errorCode: "invalid_deck_data",
+          statusCode: 422,
+        });
       }
       const targetSlide = slides.find(
         (slide) =>

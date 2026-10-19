@@ -1,3 +1,4 @@
+import { getDbExec } from "@agent-native/core/db";
 import {
   getRequestOrgId,
   runWithRequestContext,
@@ -7,6 +8,10 @@ import { eq } from "drizzle-orm";
 
 import { isSlides2DeckData } from "../../shared/deck-app-scope.js";
 import { getDb, schema } from "../db/index.js";
+
+type SlidesTransaction = Parameters<
+  Parameters<ReturnType<typeof getDb>["transaction"]>[0]
+>[0];
 
 function assetScopeError(
   message: string,
@@ -90,4 +95,48 @@ export async function assertDeckAssetUploadScope(args: {
       "asset_deck_scope_forbidden",
     );
   }
+}
+
+export async function registerDeckUploadedAsset(args: {
+  deckId: string;
+  email: string;
+  orgId?: string | null;
+  row: typeof schema.uploadedAssets.$inferInsert;
+  onRegistered?: (transaction: SlidesTransaction) => Promise<void>;
+}): Promise<void> {
+  const normalizedOrgId =
+    args.orgId === undefined ? getRequestOrgId() : (args.orgId ?? null);
+  await getDb().transaction(async (tx) => {
+    const [deck] = await tx
+      .select({
+        data: schema.decks.data,
+        ownerEmail: schema.decks.ownerEmail,
+        orgId: schema.decks.orgId,
+      })
+      .from(schema.decks)
+      .where(eq(schema.decks.id, args.deckId))
+      .for("update");
+    if (!deck || !isSlides2DeckData(deck.data)) {
+      throw assetScopeError("Deck not found.", 404, "deck_not_found");
+    }
+    if (
+      (deck.orgId ?? null) !== normalizedOrgId ||
+      (!deck.orgId && deck.ownerEmail !== args.email)
+    ) {
+      throw assetScopeError(
+        "This upload cannot be added to the deck asset collection.",
+        403,
+        "asset_deck_scope_forbidden",
+      );
+    }
+
+    await assertAccess("deck", args.deckId, "editor", {
+      userEmail: args.email,
+      ...(normalizedOrgId ? { orgId: normalizedOrgId } : {}),
+      transaction: getDbExec(),
+    });
+
+    await tx.insert(schema.uploadedAssets).values(args.row);
+    await args.onRegistered?.(tx);
+  });
 }

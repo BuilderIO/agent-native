@@ -3,10 +3,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { getDeckMock, flushDeckSaveMock } = vi.hoisted(() => ({
-  getDeckMock: vi.fn(),
-  flushDeckSaveMock: vi.fn(),
-}));
+const { getDeckMock, flushDeckSaveMock, getGoogleDocsStatusMock } = vi.hoisted(
+  () => ({
+    getDeckMock: vi.fn(),
+    flushDeckSaveMock: vi.fn(),
+    getGoogleDocsStatusMock: vi.fn(),
+  }),
+);
 
 vi.mock("@/context/DeckContext", () => ({
   useDecks: () => ({ getDeck: getDeckMock, flushDeckSave: flushDeckSaveMock }),
@@ -49,6 +52,11 @@ vi.mock("@agent-native/core/client/i18n", () => ({
     )[key] ?? key,
 }));
 
+vi.mock("@/lib/google-docs-client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/google-docs-client")>()),
+  getGoogleDocsStatus: getGoogleDocsStatusMock,
+}));
+
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
 
 import { fetchGoogleSlidesExportAvailability } from "@/lib/google-slides-export-availability-client";
@@ -56,10 +64,7 @@ import { fetchGoogleSlidesExportAvailability } from "@/lib/google-slides-export-
 import { ExportMenu } from "./ExportMenu";
 
 function statusResponse(body: unknown) {
-  return new Response(JSON.stringify(body), {
-    status: 200,
-    headers: { "content-type": "application/json" },
-  });
+  return { ok: true, status: 200, data: body, unreadable: false };
 }
 
 let queryClient: QueryClient;
@@ -97,6 +102,9 @@ beforeEach(() => {
   });
   getDeckMock.mockReturnValue(undefined);
   flushDeckSaveMock.mockResolvedValue(undefined);
+  getGoogleDocsStatusMock.mockResolvedValue(
+    statusResponse({ googleSlidesExport: { available: true } }),
+  );
 });
 
 afterEach(() => {
@@ -106,11 +114,11 @@ afterEach(() => {
 
 describe("<ExportMenu> Google Slides availability", () => {
   it("disables and badges the item when Google refuses the OAuth request", async () => {
-    globalThis.fetch = vi.fn(async () =>
+    getGoogleDocsStatusMock.mockResolvedValue(
       statusResponse({
         googleSlidesExport: { available: false, reason: "oauth-rejected" },
       }),
-    ) as typeof fetch;
+    );
 
     renderMenu();
     openExportMenu();
@@ -123,11 +131,11 @@ describe("<ExportMenu> Google Slides availability", () => {
   });
 
   it("does not send the user to a broken Google consent screen", async () => {
-    globalThis.fetch = vi.fn(async () =>
+    getGoogleDocsStatusMock.mockResolvedValue(
       statusResponse({
         googleSlidesExport: { available: false, reason: "not-configured" },
       }),
-    ) as typeof fetch;
+    );
     const onExportGoogleSlides = vi.fn();
 
     renderMenu(onExportGoogleSlides);
@@ -144,9 +152,9 @@ describe("<ExportMenu> Google Slides availability", () => {
   });
 
   it("leaves the item working when the integration is available", async () => {
-    globalThis.fetch = vi.fn(async () =>
+    getGoogleDocsStatusMock.mockResolvedValue(
       statusResponse({ googleSlidesExport: { available: true } }),
-    ) as typeof fetch;
+    );
     const onExportGoogleSlides = vi
       .fn()
       .mockResolvedValue({ url: "https://docs.google.com/presentation/d/x" });
@@ -163,9 +171,7 @@ describe("<ExportMenu> Google Slides availability", () => {
   });
 
   it("keeps the export usable when the status probe itself fails", async () => {
-    globalThis.fetch = vi.fn(async () => {
-      throw new Error("offline");
-    }) as typeof fetch;
+    getGoogleDocsStatusMock.mockRejectedValue(new Error("offline"));
     const onExportGoogleSlides = vi
       .fn()
       .mockResolvedValue({ url: "https://docs.google.com/presentation/d/x" });
@@ -186,12 +192,12 @@ describe("<ExportMenu> Google Slides availability", () => {
     const held = new Promise<void>((resolve) => {
       releaseStatus = resolve;
     });
-    globalThis.fetch = vi.fn(async () => {
+    getGoogleDocsStatusMock.mockImplementation(async () => {
       await held;
       return statusResponse({
         googleSlidesExport: { available: false, reason: "oauth-rejected" },
       });
-    }) as typeof fetch;
+    });
     const onExportGoogleSlides = vi.fn();
 
     renderMenu(onExportGoogleSlides);
@@ -211,41 +217,39 @@ describe("<ExportMenu> Google Slides availability", () => {
   });
 
   it("drops the verdict when the org switch invalidates queries", async () => {
-    const fetchMock = vi.fn(async () =>
+    getGoogleDocsStatusMock.mockResolvedValue(
       statusResponse({ googleSlidesExport: { available: true } }),
     );
-    globalThis.fetch = fetchMock as typeof fetch;
 
     await fetchGoogleSlidesExportAvailability(queryClient);
     await fetchGoogleSlidesExportAvailability(queryClient);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(getGoogleDocsStatusMock).toHaveBeenCalledTimes(1);
 
     await queryClient.invalidateQueries();
 
     await fetchGoogleSlidesExportAvailability(queryClient);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(getGoogleDocsStatusMock).toHaveBeenCalledTimes(2);
   });
 
   it("re-asks the server once the verdict goes stale", async () => {
-    const fetchMock = vi.fn(async () =>
+    getGoogleDocsStatusMock.mockResolvedValue(
       statusResponse({ googleSlidesExport: { available: true } }),
     );
-    globalThis.fetch = fetchMock as typeof fetch;
 
     await fetchGoogleSlidesExportAvailability(queryClient);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(getGoogleDocsStatusMock).toHaveBeenCalledTimes(1);
 
     vi.setSystemTime(Date.now() + 31_000);
     await fetchGoogleSlidesExportAvailability(queryClient);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(getGoogleDocsStatusMock).toHaveBeenCalledTimes(2);
 
     vi.useRealTimers();
   });
 
   it("keeps the export usable against a server that predates the gate", async () => {
-    globalThis.fetch = vi.fn(async () =>
+    getGoogleDocsStatusMock.mockResolvedValue(
       statusResponse({ configured: true, connected: true }),
-    ) as typeof fetch;
+    );
 
     renderMenu();
     openExportMenu();

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { fetchRemoteImage, publicOnlyLookup } from "./fetch-remote-image.js";
+import {
+  fetchRemoteImage,
+  normalizeRemoteImageContentType,
+  publicOnlyLookup,
+} from "./fetch-remote-image.js";
 
 function lookupResult(
   hostname: string,
@@ -50,5 +54,35 @@ describe("fetchRemoteImage", () => {
   it("refuses a hostname whose only addresses are private", async () => {
     const result = await fetchRemoteImage("http://localhost.localdomain/a.png");
     expect(result.ok).toBe(false);
+  });
+});
+
+describe("normalizeRemoteImageContentType", () => {
+  it.each([
+    "image/avif",
+    "image/bmp",
+    "image/gif",
+    "image/jpg",
+    "image/jpeg",
+    "image/png",
+    "image/vnd.microsoft.icon",
+    "image/webp",
+    "image/x-icon",
+  ])("accepts supported raster MIME type %s", (contentType) => {
+    expect(normalizeRemoteImageContentType(contentType)).toBe(contentType);
+  });
+
+  it("normalizes a supported MIME type and ignores parameters", () => {
+    expect(
+      normalizeRemoteImageContentType(" IMAGE/PNG ; charset=binary "),
+    ).toBe("image/png");
+  });
+
+  it("rejects SVG", () => {
+    expect(normalizeRemoteImageContentType("image/svg+xml")).toBeNull();
+  });
+
+  it("rejects unknown image MIME types", () => {
+    expect(normalizeRemoteImageContentType("image/x-unknown")).toBeNull();
   });
 });

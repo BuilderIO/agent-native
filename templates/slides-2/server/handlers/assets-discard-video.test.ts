@@ -2,10 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   deleteUploadedFile: vi.fn(),
-  deleteCleanup: vi.fn(),
+  finishCleanup: vi.fn(),
   getDb: vi.fn(),
   getQuery: vi.fn(),
-  recordCleanup: vi.fn(),
+  retryCleanup: vi.fn(),
+  scheduleCleanup: vi.fn(),
   resolveAuth: vi.fn(),
   runWithRequestContext: vi.fn(),
   setStatus: vi.fn(),
@@ -24,11 +25,13 @@ vi.mock("@agent-native/core/file-upload", () => ({
   deleteUploadedFile: (...args: unknown[]) => mocks.deleteUploadedFile(...args),
 }));
 
-vi.mock("../lib/chunked-upload-session.js", () => ({
-  deleteOrphanedVideoAssetCleanup: (...args: unknown[]) =>
-    mocks.deleteCleanup(...args),
-  recordOrphanedVideoAssetCleanup: (...args: unknown[]) =>
-    mocks.recordCleanup(...args),
+vi.mock("../lib/uploaded-asset-cleanup-outbox.js", () => ({
+  finishOwnedUploadedAssetCleanup: (...args: unknown[]) =>
+    mocks.finishCleanup(...args),
+  retryOwnedUploadedAssetCleanup: (...args: unknown[]) =>
+    mocks.retryCleanup(...args),
+  scheduleUploadedAssetDeletion: (...args: unknown[]) =>
+    mocks.scheduleCleanup(...args),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -40,6 +43,10 @@ vi.mock("drizzle-orm", () => ({
   and: (...args: unknown[]) => args,
   eq: (...args: unknown[]) => args,
   isNull: (...args: unknown[]) => ["isNull", ...args],
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
+    strings,
+    values,
+  }),
 }));
 
 vi.mock("../db/index.js", () => ({
@@ -61,9 +68,17 @@ import { discardUploadedVideoAsset } from "./assets";
 
 function assetDatabase(asset: Record<string, unknown> | null) {
   const deleteWhere = vi.fn().mockResolvedValue(undefined);
-  const selectWhere = vi.fn(() => ({
-    limit: vi.fn().mockResolvedValue(asset ? [asset] : []),
-  }));
+  const rows = asset ? [{ orgId: "org-1", ...asset }] : [];
+  const selectWhere = vi.fn();
+  const selectBuilder = {
+    limit: vi.fn().mockResolvedValue(rows),
+    for: vi.fn(() => selectBuilder),
+    then: (
+      resolve: (value: Record<string, unknown>[]) => unknown,
+      reject: (error: unknown) => unknown,
+    ) => Promise.resolve(rows).then(resolve, reject),
+  };
+  selectWhere.mockReturnValue(selectBuilder);
   const db = {
     delete: vi.fn(() => ({ where: deleteWhere })),
     select: vi.fn(() => ({
@@ -71,6 +86,9 @@ function assetDatabase(asset: Record<string, unknown> | null) {
         where: selectWhere,
       })),
     })),
+    transaction: vi.fn(async (callback: (transaction: unknown) => unknown) =>
+      callback(db),
+    ),
   };
   return { db, deleteWhere, selectWhere };
 }
@@ -87,8 +105,9 @@ describe("discardUploadedVideoAsset", () => {
       async (_context: unknown, callback: () => unknown) => callback(),
     );
     mocks.deleteUploadedFile.mockResolvedValue(true);
-    mocks.recordCleanup.mockResolvedValue("cleanup-1");
-    mocks.deleteCleanup.mockResolvedValue(undefined);
+    mocks.scheduleCleanup.mockResolvedValue("cleanup-1");
+    mocks.finishCleanup.mockResolvedValue(true);
+    mocks.retryCleanup.mockResolvedValue(true);
   });
 
   it("deletes the owned video object and its asset record", async () => {
@@ -114,7 +133,8 @@ describe("discardUploadedVideoAsset", () => {
       id: "provider-object-1",
       url: "https://media.example.com/clip.mp4",
     });
-    expect(mocks.recordCleanup).toHaveBeenCalledWith(
+    expect(mocks.scheduleCleanup).toHaveBeenCalledWith(
+      db,
       expect.objectContaining({
         ownerEmail: "owner@example.com",
         orgId: "org-1",
@@ -128,8 +148,16 @@ describe("discardUploadedVideoAsset", () => {
       ["asset-id", "asset-1"],
       ["owner-email", "owner@example.com"],
       ["org-id", "org-1"],
+      ["url", "https://media.example.com/clip.mp4"],
+      ["provider", "builder"],
+      ["provider-object-id", "provider-object-1"],
+      ["isNull", undefined],
     ]);
-    expect(mocks.deleteCleanup).toHaveBeenCalledWith("cleanup-1");
+    expect(mocks.finishCleanup).toHaveBeenCalledWith(
+      db,
+      { assetId: "asset-1", ownerEmail: "owner@example.com", orgId: "org-1" },
+      "cleanup-1",
+    );
   });
 
   it("treats an already missing asset as cleaned up", async () => {
@@ -173,7 +201,7 @@ describe("discardUploadedVideoAsset", () => {
     expect(mocks.deleteUploadedFile).not.toHaveBeenCalled();
   });
 
-  it("queues cleanup when the provider cannot delete the object", async () => {
+  it("retains SQL cleanup when the provider cannot delete the object", async () => {
     const { db, deleteWhere } = assetDatabase({
       id: "asset-1",
       url: "https://media.example.com/clip.mp4",
@@ -184,13 +212,20 @@ describe("discardUploadedVideoAsset", () => {
     mocks.deleteUploadedFile.mockResolvedValue(false);
 
     await expect(discardUploadedVideoAsset({} as never)).resolves.toEqual({
-      success: true,
+      error: "Could not discard uploaded video",
     });
-    expect(mocks.recordCleanup).toHaveBeenCalledWith(
+    expect(mocks.scheduleCleanup).toHaveBeenCalledWith(
+      db,
       expect.objectContaining({ assetId: "asset-1" }),
     );
-    expect(deleteWhere).toHaveBeenCalled();
-    expect(mocks.deleteCleanup).not.toHaveBeenCalled();
+    expect(mocks.retryCleanup).toHaveBeenCalledWith(
+      { assetId: "asset-1", ownerEmail: "owner@example.com", orgId: "org-1" },
+      "cleanup-1",
+      1,
+    );
+    expect(deleteWhere).not.toHaveBeenCalled();
+    expect(mocks.finishCleanup).not.toHaveBeenCalled();
+    expect(mocks.setStatus).toHaveBeenCalledWith(expect.anything(), 503);
   });
 
   it("retains queued cleanup when the provider throws", async () => {
@@ -204,10 +239,15 @@ describe("discardUploadedVideoAsset", () => {
     mocks.deleteUploadedFile.mockRejectedValue(new Error("storage is offline"));
 
     await expect(discardUploadedVideoAsset({} as never)).resolves.toEqual({
-      success: true,
+      error: "Could not discard uploaded video",
     });
-    expect(deleteWhere).toHaveBeenCalled();
-    expect(mocks.deleteCleanup).not.toHaveBeenCalled();
+    expect(deleteWhere).not.toHaveBeenCalled();
+    expect(mocks.retryCleanup).toHaveBeenCalledWith(
+      { assetId: "asset-1", ownerEmail: "owner@example.com", orgId: "org-1" },
+      "cleanup-1",
+      1,
+    );
+    expect(mocks.finishCleanup).not.toHaveBeenCalled();
   });
 
   it("keeps the asset when it cannot record durable cleanup", async () => {
@@ -218,7 +258,7 @@ describe("discardUploadedVideoAsset", () => {
       type: "video/mp4",
     });
     mocks.getDb.mockReturnValue(db);
-    mocks.recordCleanup.mockRejectedValue(
+    mocks.scheduleCleanup.mockRejectedValue(
       new Error("state storage is offline"),
     );
 
@@ -243,12 +283,18 @@ describe("discardUploadedVideoAsset", () => {
     await expect(discardUploadedVideoAsset({} as never)).resolves.toEqual({
       error: "Could not discard uploaded video",
     });
-    expect(mocks.recordCleanup).toHaveBeenCalledWith(
+    expect(mocks.scheduleCleanup).toHaveBeenCalledWith(
+      db,
       expect.objectContaining({ assetId: "asset-1" }),
     );
     expect(mocks.setStatus).toHaveBeenCalledWith(expect.anything(), 503);
-    expect(mocks.deleteUploadedFile).not.toHaveBeenCalled();
-    expect(mocks.deleteCleanup).not.toHaveBeenCalled();
+    expect(mocks.deleteUploadedFile).toHaveBeenCalledOnce();
+    expect(mocks.retryCleanup).toHaveBeenCalledWith(
+      { assetId: "asset-1", ownerEmail: "owner@example.com", orgId: "org-1" },
+      "cleanup-1",
+      1,
+    );
+    expect(mocks.finishCleanup).not.toHaveBeenCalled();
   });
 
   it("passes no provider id when the storage provider deletes by URL", async () => {

@@ -87,7 +87,13 @@ export default function Presentation() {
     );
   }
   if (!deck && fallbackState !== "missing") {
-    return <div className="h-screen bg-black" />;
+    return (
+      <div
+        className={
+          /* guard:allow-raw-color — keep the presentation stage black before the deck loads. */ "h-screen bg-black"
+        }
+      />
+    );
   }
   if (!deck) {
     return <Navigate to="/" replace />;

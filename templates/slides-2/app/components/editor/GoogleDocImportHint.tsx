@@ -287,7 +287,11 @@ export function GoogleDocImportHint({
           ) : error ? (
             <IconAlertCircle className="h-3.5 w-3.5 text-amber-500" />
           ) : (
-            <IconBrandGoogleDrive className="h-3.5 w-3.5 text-[#4285F4]" />
+            <IconBrandGoogleDrive
+              className={
+                /* guard:allow-raw-color — official Google Drive brand mark color. */ "h-3.5 w-3.5 text-[#4285F4]"
+              }
+            />
           )}
         </div>
         <div className="min-w-0 flex-1">

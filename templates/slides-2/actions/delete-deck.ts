@@ -1,11 +1,106 @@
 import { defineAction, fail } from "@agent-native/core/action";
+import { deleteUploadedFile } from "@agent-native/core/file-upload";
+import { runWithRequestContext } from "@agent-native/core/server";
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull, ne, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
+import {
+  finishOwnedUploadedAssetCleanup,
+  retryOwnedUploadedAssetCleanup,
+  scheduleUploadedAssetDeletion,
+  type SlidesTransaction,
+} from "../server/lib/uploaded-asset-cleanup-outbox.js";
 import { isSlides2DeckData } from "../shared/deck-app-scope.js";
+
+type DeckUploadedAsset = {
+  id: string;
+  url: string;
+  provider: string;
+  providerObjectId: string | null;
+  orgId: string | null;
+  ownerEmail: string;
+};
+
+function sameStoredObject(
+  left: Pick<DeckUploadedAsset, "provider" | "providerObjectId" | "url">,
+  right: Pick<DeckUploadedAsset, "provider" | "providerObjectId" | "url">,
+): boolean {
+  return (
+    left.url === right.url ||
+    (left.providerObjectId !== null &&
+      left.provider === right.provider &&
+      left.providerObjectId === right.providerObjectId)
+  );
+}
+
+function storedObjectGroups(
+  assets: DeckUploadedAsset[],
+): DeckUploadedAsset[][] {
+  const remaining = [...assets];
+  const groups: DeckUploadedAsset[][] = [];
+  while (remaining.length > 0) {
+    const group = [remaining.shift()!];
+    for (let index = 0; index < group.length; index += 1) {
+      for (
+        let candidateIndex = remaining.length - 1;
+        candidateIndex >= 0;
+        candidateIndex -= 1
+      ) {
+        const candidate = remaining[candidateIndex]!;
+        if (!sameStoredObject(group[index]!, candidate)) continue;
+        group.push(candidate);
+        remaining.splice(candidateIndex, 1);
+      }
+    }
+    groups.push(group);
+  }
+  return groups;
+}
+
+function storedObjectWhere(
+  asset: Pick<DeckUploadedAsset, "provider" | "providerObjectId" | "url">,
+) {
+  const conditions = [eq(schema.uploadedAssets.url, asset.url)];
+  if (asset.providerObjectId !== null) {
+    conditions.push(
+      and(
+        eq(schema.uploadedAssets.provider, asset.provider),
+        eq(schema.uploadedAssets.providerObjectId, asset.providerObjectId),
+      ),
+    );
+  }
+  return or(...conditions);
+}
+
+function uploadedAssetCleanupScope(asset: DeckUploadedAsset) {
+  return and(
+    eq(schema.uploadedAssetCleanupOutbox.id, asset.id),
+    eq(schema.uploadedAssetCleanupOutbox.ownerEmail, asset.ownerEmail),
+    asset.orgId
+      ? eq(schema.uploadedAssetCleanupOutbox.orgId, asset.orgId)
+      : isNull(schema.uploadedAssetCleanupOutbox.orgId),
+    eq(schema.uploadedAssetCleanupOutbox.provider, asset.provider),
+    eq(schema.uploadedAssetCleanupOutbox.url, asset.url),
+    asset.providerObjectId
+      ? eq(
+          schema.uploadedAssetCleanupOutbox.providerObjectId,
+          asset.providerObjectId,
+        )
+      : isNull(schema.uploadedAssetCleanupOutbox.providerObjectId),
+  );
+}
+
+async function clearUploadedAssetCleanup(
+  transaction: SlidesTransaction,
+  asset: DeckUploadedAsset,
+): Promise<void> {
+  await transaction
+    .delete(schema.uploadedAssetCleanupOutbox)
+    .where(uploadedAssetCleanupScope(asset));
+}
 
 export default defineAction({
   description: "Delete a deck and its saved versions.",
@@ -42,7 +137,8 @@ export default defineAction({
           .from(schema.decks)
           .where(eq(schema.decks.id, id))
           .for("update");
-        if (!lockedDeck) return { deletedDecks: [], shares: [] };
+        if (!lockedDeck)
+          return { deletedDecks: [], shares: [], assetCleanupRecords: [] };
         if (!isSlides2DeckData(lockedDeck.data)) {
           fail("Deck not found.", {
             errorCode: "deck_not_found",
@@ -57,9 +153,85 @@ export default defineAction({
           })
           .from(schema.deckShares)
           .where(eq(schema.deckShares.resourceId, id));
+        const uploadedAssets = await tx
+          .select({
+            id: schema.uploadedAssets.id,
+            url: schema.uploadedAssets.url,
+            provider: schema.uploadedAssets.provider,
+            providerObjectId: schema.uploadedAssets.providerObjectId,
+            orgId: schema.uploadedAssets.orgId,
+            ownerEmail: schema.uploadedAssets.ownerEmail,
+          })
+          .from(schema.uploadedAssets)
+          .where(eq(schema.uploadedAssets.deckId, id))
+          .for("update");
+        const assetsWithProvider = uploadedAssets.map((asset) => {
+          if (!asset.provider) {
+            fail("Could not delete deck assets without a storage provider.", {
+              errorCode: "deck_asset_cleanup_unavailable",
+              statusCode: 503,
+            });
+          }
+          return { ...asset, provider: asset.provider };
+        });
+        const assetCleanupRecords: Array<{
+          assetId: string;
+          url: string;
+          provider: string;
+          providerObjectId: string | null;
+          orgId: string | null;
+          ownerEmail: string;
+          token: string;
+        }> = [];
+        const deletedAssetIds = new Set(
+          uploadedAssets.map((asset) => asset.id),
+        );
+        for (const group of storedObjectGroups(assetsWithProvider)) {
+          const referenceConditions = group.map(storedObjectWhere);
+          const references = await tx
+            .select({ id: schema.uploadedAssets.id })
+            .from(schema.uploadedAssets)
+            .where(or(...referenceConditions))
+            .for("update");
+          const hasSurvivingReference = references.some(
+            (reference) => !deletedAssetIds.has(reference.id),
+          );
+
+          if (hasSurvivingReference) {
+            for (const asset of group) {
+              await clearUploadedAssetCleanup(tx, asset);
+            }
+            continue;
+          }
+
+          const [asset, ...duplicates] = group;
+          const token = await scheduleUploadedAssetDeletion(tx, {
+            assetId: asset.id,
+            ownerEmail: asset.ownerEmail,
+            orgId: asset.orgId,
+            provider: asset.provider,
+            providerObjectId: asset.providerObjectId,
+            url: asset.url,
+          });
+          assetCleanupRecords.push({
+            assetId: asset.id,
+            url: asset.url,
+            provider: asset.provider,
+            providerObjectId: asset.providerObjectId,
+            orgId: asset.orgId,
+            ownerEmail: asset.ownerEmail,
+            token,
+          });
+          for (const duplicate of duplicates) {
+            await clearUploadedAssetCleanup(tx, duplicate);
+          }
+        }
         await tx
           .delete(schema.deckShares)
           .where(eq(schema.deckShares.resourceId, id));
+        await tx
+          .delete(schema.deckShareLinks)
+          .where(eq(schema.deckShareLinks.deckId, id));
         await tx
           .delete(schema.deckVersions)
           .where(
@@ -69,13 +241,20 @@ export default defineAction({
             ),
           );
         await tx
+          .delete(schema.uploadedAssets)
+          .where(eq(schema.uploadedAssets.deckId, id));
+        await tx
           .delete(schema.slideComments)
           .where(eq(schema.slideComments.deckId, id));
         const deletedDecks = await tx
           .delete(schema.decks)
           .where(eq(schema.decks.id, id))
           .returning();
-        return { deletedDecks, shares };
+        return {
+          deletedDecks,
+          shares,
+          assetCleanupRecords,
+        };
       });
 
       if (result.deletedDecks.length === 0) {
@@ -84,6 +263,121 @@ export default defineAction({
           statusCode: 404,
         });
       }
+      await Promise.all(
+        result.assetCleanupRecords.map(async (asset) => {
+          const requestContext = {
+            userEmail: asset.ownerEmail,
+            ...(asset.orgId ? { orgId: asset.orgId } : {}),
+          };
+          try {
+            const [survivingReference] = await runWithRequestContext(
+              requestContext,
+              () =>
+                db
+                  .select({ id: schema.uploadedAssets.id })
+                  .from(schema.uploadedAssets)
+                  .where(
+                    and(
+                      ne(schema.uploadedAssets.id, asset.assetId),
+                      storedObjectWhere(asset),
+                    ),
+                  )
+                  .limit(1),
+            );
+            if (survivingReference) {
+              await runWithRequestContext(requestContext, () =>
+                db.transaction(async (tx) => {
+                  const removed = await finishOwnedUploadedAssetCleanup(
+                    tx,
+                    {
+                      assetId: asset.assetId,
+                      ownerEmail: asset.ownerEmail,
+                      orgId: asset.orgId,
+                    },
+                    asset.token,
+                  );
+                  if (!removed) {
+                    fail("Shared image cleanup lease is no longer current.", {
+                      errorCode: "deck_asset_cleanup_lease_lost",
+                      statusCode: 409,
+                    });
+                  }
+                }),
+              );
+              return;
+            }
+
+            const deleted = await runWithRequestContext(requestContext, () =>
+              deleteUploadedFile(asset.provider, {
+                id: asset.providerObjectId ?? undefined,
+                url: asset.url,
+              }),
+            );
+            if (deleted) {
+              await runWithRequestContext(requestContext, () =>
+                db.transaction(async (tx) => {
+                  const removed = await finishOwnedUploadedAssetCleanup(
+                    tx,
+                    {
+                      assetId: asset.assetId,
+                      ownerEmail: asset.ownerEmail,
+                      orgId: asset.orgId,
+                    },
+                    asset.token,
+                  );
+                  if (!removed) return;
+                  await tx
+                    .delete(schema.uploadedAssets)
+                    .where(
+                      and(
+                        eq(schema.uploadedAssets.id, asset.assetId),
+                        eq(schema.uploadedAssets.ownerEmail, asset.ownerEmail),
+                        asset.orgId
+                          ? eq(schema.uploadedAssets.orgId, asset.orgId)
+                          : isNull(schema.uploadedAssets.orgId),
+                        eq(schema.uploadedAssets.url, asset.url),
+                        eq(schema.uploadedAssets.provider, asset.provider),
+                        asset.providerObjectId
+                          ? eq(
+                              schema.uploadedAssets.providerObjectId,
+                              asset.providerObjectId,
+                            )
+                          : isNull(schema.uploadedAssets.providerObjectId),
+                        isNull(schema.uploadedAssets.deckId),
+                      ),
+                    );
+                }),
+              );
+            } else {
+              await runWithRequestContext(requestContext, () =>
+                retryOwnedUploadedAssetCleanup(
+                  {
+                    assetId: asset.assetId,
+                    ownerEmail: asset.ownerEmail,
+                    orgId: asset.orgId,
+                  },
+                  asset.token,
+                  1,
+                ),
+              );
+              console.warn(
+                "[slides-upload] deck asset cleanup remains queued",
+                {
+                  assetId: asset.assetId,
+                },
+              );
+            }
+          } catch (error) {
+            console.warn(
+              "[slides-upload] could not clean up deleted deck asset",
+              {
+                assetId: asset.assetId,
+                error: error instanceof Error ? error.message : String(error),
+              },
+            );
+          }
+        }),
+      );
       for (const share of result.shares) {
         if (
           share.principalType === "user" &&

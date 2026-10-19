@@ -77,6 +77,21 @@ describe("Slides share migrations", () => {
         created_at TIMESTAMP NOT NULL DEFAULT now()
       )
     `);
+    await exec.execute(`
+      CREATE TABLE deck_share_links (
+        token TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        slides TEXT NOT NULL,
+        aspect_ratio TEXT,
+        design_system_data TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT now()
+      )
+    `);
+    await exec.execute({
+      sql: `INSERT INTO deck_share_links (token, title, slides)
+        VALUES (?, ?, ?)`,
+      args: ["legacy-token", "Legacy", "[]"],
+    });
     await exec.execute(
       "CREATE TABLE slides_migrations (version BIGINT PRIMARY KEY)",
     );
@@ -227,6 +242,52 @@ describe("Slides share migrations", () => {
         expect.objectContaining({ name: "last_write_revision" }),
       ]),
     );
+    const { rows: shareLinkColumns } = await exec.execute(
+      `SELECT column_name AS name
+       FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'deck_share_links'`,
+    );
+    expect(shareLinkColumns).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "deck_id" })]),
+    );
+    const { rows: cleanupOutboxColumns } = await exec.execute(
+      `SELECT column_name AS name
+       FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'uploaded_asset_cleanup_outbox'`,
+    );
+    expect(cleanupOutboxColumns).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "owner_email" }),
+        expect.objectContaining({ name: "org_id" }),
+        expect.objectContaining({ name: "intent" }),
+        expect.objectContaining({ name: "state" }),
+        expect.objectContaining({ name: "provider" }),
+        expect.objectContaining({ name: "provider_object_id" }),
+        expect.objectContaining({ name: "url" }),
+        expect.objectContaining({ name: "lease_token" }),
+      ]),
+    );
+    await runSlidesMigrations({});
+    const { rows: cleanupMigration } = await exec.execute(
+      `SELECT version FROM slides_migrations WHERE version = 38`,
+    );
+    expect(cleanupMigration).toHaveLength(1);
+    const { rows: cleanupIndex } = await exec.execute(
+      `SELECT indexname AS name
+       FROM pg_indexes
+       WHERE schemaname = 'public'
+         AND indexname = 'uploaded_asset_cleanup_outbox_due_idx'`,
+    );
+    expect(cleanupIndex).toEqual([
+      { name: "uploaded_asset_cleanup_outbox_due_idx" },
+    ]);
+    const { rows: legacyShareLinks } = await exec.execute({
+      sql: "SELECT token, deck_id FROM deck_share_links WHERE token = ?",
+      args: ["legacy-token"],
+    });
+    expect(legacyShareLinks).toEqual([
+      { token: "legacy-token", deck_id: null },
+    ]);
     const { rows: versionIndexes } = await exec.execute(
       `SELECT indexname AS name
        FROM pg_indexes

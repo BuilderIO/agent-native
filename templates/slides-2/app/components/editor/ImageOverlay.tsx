@@ -99,7 +99,7 @@ export default function ImageOverlay({
         }}
         className="image-overlay-btn"
       >
-        <IconPhoto className="w-3.5 h-3.5 text-[#609FF8]" />
+        <IconPhoto className="w-3.5 h-3.5 text-primary" />
         {t("raw.generate")}
       </button>
       <button
@@ -109,7 +109,7 @@ export default function ImageOverlay({
         }}
         className="image-overlay-btn"
       >
-        <IconFolderOpen className="w-3.5 h-3.5 text-[#00E5FF]" />
+        <IconFolderOpen className="w-3.5 h-3.5 text-primary" />
         {t("editorToolbar.assetLibrary")}
       </button>
       <button

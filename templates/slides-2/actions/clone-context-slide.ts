@@ -1,4 +1,4 @@
-import { defineAction, embedApp } from "@agent-native/core";
+import { defineAction, embedApp, fail } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
 import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -50,18 +50,25 @@ export function cloneableNativeSlide(context: ContextDetail): {
     artifact.format !== "slides-html" ||
     context.version.mimeType !== "text/html"
   ) {
-    throw new Error("Creative Context item is not a Slides-native artifact.");
+    fail("Creative Context item is not a Slides-native artifact.", {
+      errorCode: "creative_context_artifact_invalid",
+      statusCode: 422,
+    });
   }
   if (!context.version.content.includes("google-slides-native")) {
-    throw new Error(
-      "Slides-native artifact code is missing its compiler root.",
-    );
+    fail("Slides-native artifact code is missing its compiler root.", {
+      errorCode: "creative_context_compiler_root_missing",
+      statusCode: 422,
+    });
   }
   if (
     context.item.provenance.compiler !==
     "@agent-native/creative-context:google-slides-native"
   ) {
-    throw new Error("Slides-native artifact compiler provenance is untrusted.");
+    fail("Slides-native artifact compiler provenance is untrusted.", {
+      errorCode: "creative_context_compiler_untrusted",
+      statusCode: 422,
+    });
   }
   validateCompiledNativeHtml(context.version.content, artifact);
   const metadata = context.version.metadata;
@@ -116,13 +123,20 @@ export default defineAction({
       contextMode?: "auto" | "off";
     } | null;
     if (contextState?.contextMode === "off") {
-      throw new Error(
+      fail(
         "Creative Context is off. Enable it before cloning a library slide.",
+        {
+          errorCode: "creative_context_disabled",
+          statusCode: 412,
+        },
       );
     }
     const context = await getCreativeContextItem(itemId, itemVersionId);
     if (!context || context.version.id !== itemVersionId) {
-      throw new Error("Pinned Creative Context item version was not found.");
+      fail("Pinned Creative Context item version was not found.", {
+        errorCode: "creative_context_version_not_found",
+        statusCode: 404,
+      });
     }
     const source = cloneableNativeSlide(context);
     const reassembled = await reassembleNativeCreativeArtifact({
@@ -139,7 +153,11 @@ export default defineAction({
         .select()
         .from(schema.decks)
         .where(eq(schema.decks.id, deckId));
-      if (!row) throw new Error(`Deck ${deckId} not found`);
+      if (!row)
+        fail(`Deck ${deckId} not found`, {
+          errorCode: "deck_not_found",
+          statusCode: 404,
+        });
       const deck = JSON.parse(row.data) as Record<string, unknown>;
       assertSlides2DeckData(deck);
       const slides = Array.isArray(deck.slides)
@@ -187,8 +205,9 @@ export default defineAction({
         ? existingContext.reuseLabels
         : [];
       if (existingContext.contextMode === "off") {
-        throw new Error(
+        fail(
           "Creative Context is disabled for this deck. Enable it before cloning a library slide.",
+          { errorCode: "creative_context_disabled", statusCode: 412 },
         );
       }
       const evidenceMembers = reassembled.evidence.map((entry) => ({

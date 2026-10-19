@@ -101,7 +101,7 @@ describe("<ImageDropPromptPopover> upload failures", () => {
 
     await waitFor(() =>
       expect(mocks.toastError).toHaveBeenCalledWith("raw.imageUploadFailed", {
-        description: "Private file storage failed.",
+        description: "raw.assetErrors.uploadFailed",
       }),
     );
     expect(mocks.sendToAgentChat).not.toHaveBeenCalled();

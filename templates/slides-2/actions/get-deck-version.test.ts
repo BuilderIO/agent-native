@@ -57,12 +57,17 @@ vi.mock("../server/db/index.js", () => ({
   },
 }));
 
+import { hashSlideSource } from "../server/lib/slide-source.js";
 import action from "./get-deck-version.js";
+
+const privateSnapshotSource =
+  'export const notes = ["Private snapshot notes"]; export default function Slide() { return <main />; }';
 
 describe("get-deck-version", () => {
   beforeEach(() => {
     mocks.assertAccess.mockReset();
     mocks.assertAccess.mockResolvedValue({
+      role: "owner",
       resource: {
         ownerEmail: "owner@example.com",
         data: JSON.stringify({ appId: "slides-2" }),
@@ -75,7 +80,17 @@ describe("get-deck-version", () => {
       title: "Deck",
       changeLabel: "Saved",
       createdAt: "2026-01-01T00:00:00.000Z",
-      data: JSON.stringify({ appId: "slides-2", slides: [{ id: "slide-1" }] }),
+      data: JSON.stringify({
+        appId: "slides-2",
+        slides: [
+          {
+            id: "slide-1",
+            notes: "Presenter notes",
+            sourceTsx: privateSnapshotSource,
+            sourceHash: hashSlideSource(privateSnapshotSource),
+          },
+        ],
+      }),
     };
     mocks.whereConditions = [];
     db.select.mockClear();
@@ -147,6 +162,55 @@ describe("get-deck-version", () => {
       ]),
     );
   });
+
+  it.each(["viewer", "commenter"] as const)(
+    "redacts notes and rehashes visible source for %s snapshot reads",
+    async (role) => {
+      mocks.assertAccess.mockResolvedValue({
+        role,
+        resource: {
+          ownerEmail: "owner@example.com",
+          data: JSON.stringify({ appId: "slides-2" }),
+        },
+      });
+
+      const result = (await action.run({
+        deckId: "deck-1",
+        versionId: "version-1",
+      })) as any;
+
+      for (const slide of [result.slides[0], result.data.slides[0]]) {
+        expect(slide).not.toHaveProperty("notes");
+        expect(slide.sourceTsx).not.toContain("Private snapshot notes");
+        expect(slide.sourceTsx).not.toContain("export const notes");
+        expect(slide.sourceHash).toBe(hashSlideSource(slide.sourceTsx));
+        expect(slide.sourceHash).not.toBe(
+          hashSlideSource(privateSnapshotSource),
+        );
+      }
+    },
+  );
+
+  it.each(["owner", "editor", "admin"] as const)(
+    "keeps presenter notes in %s snapshot reads",
+    async (role) => {
+      mocks.assertAccess.mockResolvedValue({
+        role,
+        resource: {
+          ownerEmail: "owner@example.com",
+          data: JSON.stringify({ appId: "slides-2" }),
+        },
+      });
+
+      const result = (await action.run({
+        deckId: "deck-1",
+        versionId: "version-1",
+      })) as any;
+
+      expect(result.slides[0].notes).toBe("Presenter notes");
+      expect(result.data.slides[0].notes).toBe("Presenter notes");
+    },
+  );
 
   it("returns a typed not-found failure for a missing snapshot", async () => {
     mocks.version = null;

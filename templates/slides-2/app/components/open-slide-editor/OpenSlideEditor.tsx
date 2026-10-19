@@ -491,6 +491,7 @@ function cropImageUrl(value: string | undefined): string | null {
       ? url.toString()
       : null;
   } catch {
+    // coercion-ok: malformed source URLs cannot provide a safe crop image and are omitted.
     return null;
   }
 }
@@ -603,7 +604,9 @@ function SlideThumbnail({
       <span className="min-w-0">
         <span
           ref={frameRef}
-          className={`relative block aspect-video overflow-hidden rounded border bg-white ${selected ? "border-primary" : "border-border"}`}
+          className={
+            /* guard:allow-raw-color — thumbnail previews render the fixed white slide canvas. */ `relative block aspect-video overflow-hidden rounded border bg-white ${selected ? "border-primary" : "border-border"}`
+          }
         >
           {visible && render.data ? (
             <OpenSlideCanvas scale={0.085} flat>
@@ -809,10 +812,6 @@ export function OpenSlideEditor({
   );
   useDbSync({
     ignoreSource: TAB_ID,
-    realtime:
-      hasEditPermission && !sourceConflict
-        ? { reason: "receive one-shot commands for the active slide editor" }
-        : undefined,
     pauseWhenHidden: false,
   });
   const [zoom, setZoom] = useState(1);
@@ -3690,7 +3689,9 @@ export function OpenSlideEditor({
                                 handle: key,
                               })}
                               onPointerDown={(event) => startHandle(event, key)}
-                              className="pointer-events-auto absolute size-2.5 rounded-sm border border-primary bg-white shadow-sm focus-visible:outline-2 focus-visible:outline-primary"
+                              className={
+                                /* guard:allow-raw-color — resize handles stay visible over arbitrary slide fills. */ "pointer-events-auto absolute size-2.5 rounded-sm border border-primary bg-white shadow-sm focus-visible:outline-2 focus-visible:outline-primary"
+                              }
                               style={{
                                 left: point.x - selectedRect.x - 5,
                                 top: point.y - selectedRect.y - 5,
@@ -3706,7 +3707,9 @@ export function OpenSlideEditor({
                           onPointerDown={(event) =>
                             startHandle(event, "rotate")
                           }
-                          className="pointer-events-auto absolute left-1/2 top-0 size-3 -translate-x-1/2 -translate-y-6 cursor-grab rounded-full border border-primary bg-white shadow-sm focus-visible:outline-2 focus-visible:outline-primary"
+                          className={
+                            /* guard:allow-raw-color — rotate handle stays visible over arbitrary slide fills. */ "pointer-events-auto absolute left-1/2 top-0 size-3 -translate-x-1/2 -translate-y-6 cursor-grab rounded-full border border-primary bg-white shadow-sm focus-visible:outline-2 focus-visible:outline-primary"
+                          }
                         />
                       </div>
                     ) : null}

@@ -1,6 +1,20 @@
 import { describe, expect, it } from "vitest";
 
+import { buildImageProxyResponseHeaders } from "../../lib/image-proxy-response.js";
 import { sharedDeckContainsImage } from "./image-proxy.get";
+
+describe("buildImageProxyResponseHeaders", () => {
+  it("keeps the same-origin image response inert and non-sniffable", () => {
+    expect(buildImageProxyResponseHeaders("image/png", 42, true)).toEqual({
+      "Content-Type": "image/png",
+      "Content-Length": "42",
+      "Cache-Control": "private, no-store",
+      "Access-Control-Allow-Origin": "*",
+      "Content-Security-Policy": "default-src 'none'; sandbox",
+      "X-Content-Type-Options": "nosniff",
+    });
+  });
+});
 
 describe("sharedDeckContainsImage", () => {
   it("matches only image sources stored in the shared slide snapshot", () => {

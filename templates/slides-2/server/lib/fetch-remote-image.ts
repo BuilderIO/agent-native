@@ -23,6 +23,24 @@ export type RemoteImageResult =
   | { ok: false; reason: RemoteImageFailure };
 
 const REQUEST_TIMEOUT_MS = 15_000;
+const REMOTE_IMAGE_MIME_TYPES = new Set([
+  "image/avif",
+  "image/bmp",
+  "image/gif",
+  "image/jpg",
+  "image/jpeg",
+  "image/png",
+  "image/vnd.microsoft.icon",
+  "image/webp",
+  "image/x-icon",
+]);
+
+export function normalizeRemoteImageContentType(
+  contentType: string,
+): string | null {
+  const mimeType = contentType.split(";", 1)[0]?.trim().toLowerCase() ?? "";
+  return REMOTE_IMAGE_MIME_TYPES.has(mimeType) ? mimeType : null;
+}
 
 /**
  * A `lookup` implementation that only ever hands the socket an address we have
@@ -155,8 +173,10 @@ export async function fetchRemoteImage(
       return { ok: false, reason: "fetch-failed" };
     }
 
-    const contentType = String(response.headers["content-type"] ?? "");
-    if (!contentType.startsWith("image/")) {
+    const contentType = normalizeRemoteImageContentType(
+      String(response.headers["content-type"] ?? ""),
+    );
+    if (!contentType) {
       response.discard();
       return { ok: false, reason: "not-an-image" };
     }

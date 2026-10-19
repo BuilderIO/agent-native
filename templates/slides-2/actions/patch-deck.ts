@@ -810,8 +810,9 @@ export function assertSourceImportSlidesCovered(
   );
   if (missingSlideIds.length === 0) return;
 
-  throw new Error(
+  fail(
     `Deck-wide source restyle requires one content patch per imported slide. Missing ${missingSlideIds.length} slide(s): ${missingSlideIds.slice(0, 12).join(", ")}${missingSlideIds.length > 12 ? ", …" : ""}. Continue with every source slide ID in one patch-deck call before verifying the changed slides with get-deck slideIds and compact=false.`,
+    { errorCode: "incomplete_source_restyle", statusCode: 422 },
   );
 }
 
@@ -1180,9 +1181,10 @@ export function applyOperation(
       const { orderedIds } = op;
       const duplicateId = firstDuplicate(orderedIds);
       if (duplicateId !== undefined) {
-        throw new Error(
-          `Cannot reorder slides with duplicate ID ${duplicateId}`,
-        );
+        fail(`Cannot reorder slides with duplicate ID ${duplicateId}`, {
+          errorCode: "duplicate_slide_id",
+          statusCode: 400,
+        });
       }
       const byId = new Map(slides.map((s: { id: string }) => [s.id, s]));
       // Build the new order from the client's desired order, keeping only
@@ -1757,8 +1759,9 @@ export default defineAction({
         .map((operation) => operation.slideId)
         .filter((slideId) => !existingSlideIds.has(slideId));
       if (missingSlideIds.length > 0) {
-        throw new Error(
+        fail(
           `Cannot patch missing slide(s): ${[...new Set(missingSlideIds)].join(", ")}`,
+          { errorCode: "slide_not_found", statusCode: 404 },
         );
       }
 
@@ -1786,8 +1789,9 @@ export default defineAction({
       const sourceRewriteRequested =
         isAgentCaller && rewriteSource && sourceImport !== null;
       if (isAgentCaller && rewriteSource && sourceImport === null) {
-        throw new Error(
+        fail(
           "rewriteSource=true only applies to a source-preserving deck; omit it for a regular deck",
+          { errorCode: "source_rewrite_unsupported", statusCode: 400 },
         );
       }
 
@@ -2067,8 +2071,12 @@ export default defineAction({
           ),
         ];
         if (!affectedSlideIds.length) {
-          throw new Error(
+          fail(
             "Creative Context provenance requires a patch-slide or add-slide operation",
+            {
+              errorCode: "creative_context_provenance_target_required",
+              statusCode: 400,
+            },
           );
         }
         if (
@@ -2076,8 +2084,12 @@ export default defineAction({
           creativeContext.contextPackId !== undefined &&
           creativeContext.contextPackId !== existingContext.contextPackId
         ) {
-          throw new Error(
+          fail(
             "The deck patch must use the deck's existing creative-context pack",
+            {
+              errorCode: "creative_context_pack_mismatch",
+              statusCode: 409,
+            },
           );
         }
         const effectivePackId =
@@ -2167,8 +2179,9 @@ export default defineAction({
         requestedSlideIds.length > 0 &&
         changedSlideIds.size === 0
       ) {
-        throw new Error(
+        fail(
           `Nothing was written: every patched slide (${requestedSlideIds.join(", ")}) is identical to the deck's current content, so the deck is unchanged. Do not report these slides as edited. Re-read them with get-deck and send content that actually differs.`,
+          { errorCode: "deck_patch_no_change", statusCode: 409 },
         );
       }
 
@@ -2180,8 +2193,9 @@ export default defineAction({
         generationRecord !== undefined;
       if (!meaningfulChange) {
         if (isAgentCaller) {
-          throw new Error(
+          fail(
             "Nothing was written: the requested deck patch is identical to the current deck. Re-read with get-deck before retrying.",
+            { errorCode: "deck_patch_no_change", statusCode: 409 },
           );
         }
         if (clientWrite) {

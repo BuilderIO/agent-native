@@ -19,11 +19,17 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: (...args: unknown[]) => mocks.assertAccess(...args),
+  registerShareableResource: vi.fn(),
 }));
 
-vi.mock("drizzle-orm", () => ({
-  eq: (left: unknown, right: unknown) => ({ left, right }),
-}));
+vi.mock("drizzle-orm", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("drizzle-orm")>();
+  return {
+    ...actual,
+    eq: (left: unknown, right: unknown) => ({ left, right }),
+    sql: actual.sql,
+  };
+});
 
 vi.mock("../server/handlers/import/pptx-assets.js", () => ({
   assertPptxImagesRenderable: vi.fn(),

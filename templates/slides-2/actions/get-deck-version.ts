@@ -5,6 +5,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { assertSlides2DeckData } from "./_deck-app-scope.js";
+import {
+  canReadPresenterNotes,
+  redactPresenterNotes,
+} from "./_presenter-notes.js";
 
 export default defineAction({
   description:
@@ -57,6 +61,13 @@ export default defineAction({
     assertSlides2DeckData(version.data);
     const data = JSON.parse(version.data);
     const slides = Array.isArray(data?.slides) ? data.slides : [];
+    const canReadNotes = canReadPresenterNotes(access.role);
+    const visibleSlides = canReadNotes
+      ? slides
+      : slides.map(redactPresenterNotes);
+    const visibleData = canReadNotes
+      ? data
+      : { ...data, slides: visibleSlides };
 
     return {
       id: version.id,
@@ -64,9 +75,9 @@ export default defineAction({
       title: version.title,
       label: version.changeLabel,
       createdAt: version.createdAt,
-      data,
-      slides,
-      slideCount: slides.length,
+      data: visibleData,
+      slides: visibleSlides,
+      slideCount: visibleSlides.length,
       aspectRatio: data?.aspectRatio ?? null,
       designSystemId: data?.designSystemId ?? null,
     };

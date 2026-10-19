@@ -766,6 +766,7 @@ function cssPx(value: string): number {
 }
 
 function normalizedColor(value: string): string {
+  // guard:allow-raw-color — recognizes getComputedStyle's serialized transparent color.
   return value === "rgba(0, 0, 0, 0)" ? "transparent" : value;
 }
 
@@ -11084,7 +11085,7 @@ export default function SlideEditor({
         <div className="absolute top-4 right-4 z-50">
           <button
             onClick={handleApplyUpdates}
-            className="px-4 py-2 rounded-lg bg-[#609FF8] text-black text-sm font-semibold hover:bg-[#7AB2FA] transition-colors shadow-lg"
+            className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors shadow-lg"
           >
             {t("slideEditor.applyUpdates", { count: pendingUpdateCount })}
           </button>

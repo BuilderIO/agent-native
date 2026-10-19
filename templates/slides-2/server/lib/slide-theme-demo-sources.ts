@@ -11,7 +11,7 @@ const AERO_DEMO_SOURCE = restoreSourceTemplateEscapes(String.raw`import {
 import type { CSSProperties, ReactNode } from 'react';
 
 export const design: DesignSystem = {
-  palette: { bg: '#4B1DFF', text: '#FFFFFF', accent: '#D8FF2E' },
+  palette: { bg: '#4B1DFF', text: '#FFFFFF', accent: '#D8FF2E' }, // guard:allow-raw-color — authored slide theme demo color, not app chrome.
   fonts: {
     display: '"Barlow Condensed", "Arial Narrow", system-ui, sans-serif',
     body: '"Barlow", system-ui, sans-serif',
@@ -20,11 +20,11 @@ export const design: DesignSystem = {
   radius: 0,
 };
 
-const INK = '#0B0A14';
-const CORAL = '#FF4A3D';
-const DEEP = '#2A0FA3';
-const LAV = '#D3CAFF';
-const WHITE_A = (a: number) => \`rgba(255,255,255,\${a})\`;
+const INK = '#0B0A14'; // guard:allow-raw-color — authored slide theme demo color, not app chrome.
+const CORAL = '#FF4A3D'; // guard:allow-raw-color — authored slide theme demo color, not app chrome.
+const DEEP = '#2A0FA3'; // guard:allow-raw-color — authored slide theme demo color, not app chrome.
+const LAV = '#D3CAFF'; // guard:allow-raw-color — authored slide theme demo color, not app chrome.
+const WHITE_A = (a: number) => \`rgba(255,255,255,\${a})\`; // guard:allow-raw-color — authored slide theme demo color, not app chrome.
 
 const KEYFRAMES = \`
 @keyframes ae-run { from { transform: translateX(0) } to { transform: translateX(calc(var(--tile) * -1)) } }
@@ -55,14 +55,14 @@ const TONES: Record<Tone, { bg: string; fg: string; dim: string; hi: string; hiF
   volt: {
     bg: 'var(--osd-accent)',
     fg: INK,
-    dim: 'rgba(11,10,20,0.66)',
+    dim: 'rgba(11,10,20,0.66)', // guard:allow-raw-color — authored slide theme demo color, not app chrome.
     hi: INK,
     hiFg: 'var(--osd-accent)',
   },
   ink: {
     bg: INK,
     fg: 'var(--osd-text)',
-    dim: 'rgba(255,255,255,0.6)',
+    dim: 'rgba(255,255,255,0.6)', // guard:allow-raw-color — authored slide theme demo color, not app chrome.
     hi: 'var(--osd-accent)',
     hiFg: INK,
   },
@@ -659,21 +659,21 @@ const KEYFRAMES = \`
 const SANS = '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, sans-serif';
 const SERIF = '"Newsreader", "Iowan Old Style", Georgia, serif';
 
-const BG = '#FFFEFC';
-const INK = '#191919';
-const CORAL = '#E8553B';
-const BODY = '#5F5E5B';
-const SOFT = '#9B9A97';
-const RULE = 'rgba(25,25,25,0.12)';
+const BG = '#FFFEFC'; // guard:allow-raw-color — authored slide theme demo color, not app chrome.
+const INK = '#191919'; // guard:allow-raw-color — authored slide theme demo color, not app chrome.
+const CORAL = '#E8553B'; // guard:allow-raw-color — authored slide theme demo color, not app chrome.
+const BODY = '#5F5E5B'; // guard:allow-raw-color — authored slide theme demo color, not app chrome.
+const SOFT = '#9B9A97'; // guard:allow-raw-color — authored slide theme demo color, not app chrome.
+const RULE = 'rgba(25,25,25,0.12)'; // guard:allow-raw-color — authored slide theme demo color, not app chrome.
 
-const YELLOW = '#F8DA7E';
-const BLUE = '#8DBDEB';
-const PINK = '#F6C3CF';
-const GREEN = '#A6D4B2';
+const YELLOW = '#F8DA7E'; // guard:allow-raw-color — authored slide theme demo color, not app chrome.
+const BLUE = '#8DBDEB'; // guard:allow-raw-color — authored slide theme demo color, not app chrome.
+const PINK = '#F6C3CF'; // guard:allow-raw-color — authored slide theme demo color, not app chrome.
+const GREEN = '#A6D4B2'; // guard:allow-raw-color — authored slide theme demo color, not app chrome.
 
-const TINT_YELLOW = '#FBF3DB';
-const TINT_BLUE = '#E7F3F8';
-const TINT_GREEN = '#EDF3EC';
+const TINT_YELLOW = '#FBF3DB'; // guard:allow-raw-color — authored slide theme demo color, not app chrome.
+const TINT_BLUE = '#E7F3F8'; // guard:allow-raw-color — authored slide theme demo color, not app chrome.
+const TINT_GREEN = '#EDF3EC'; // guard:allow-raw-color — authored slide theme demo color, not app chrome.
 
 const X0 = 120;
 
@@ -722,7 +722,7 @@ const Title = ({ children }: { children: ReactNode }) => (
       lineHeight: 1,
       letterSpacing: '-0.04em',
       wordSpacing: '0.08em',
-      color: '#191919',
+      color: /* guard:allow-raw-color — authored slide theme demo color, not app chrome. */ '#191919',
     }}
   >
     {children}
@@ -739,7 +739,7 @@ const Heading = ({ children, size = 104 }: { children: ReactNode; size?: number 
       lineHeight: 1,
       letterSpacing: size >= 100 ? '-0.04em' : '-0.03em',
       wordSpacing: '0.08em',
-      color: '#191919',
+      color: /* guard:allow-raw-color — authored slide theme demo color, not app chrome. */ '#191919',
     }}
   >
     {children}
@@ -753,7 +753,7 @@ const Eyebrow = ({ children }: { children: ReactNode }) => (
       fontSize: 26,
       fontWeight: 650,
       letterSpacing: '-0.01em',
-      color: '#E8553B',
+      color: /* guard:allow-raw-color — authored slide theme demo color, not app chrome. */ '#E8553B',
     }}
   >
     {children}
@@ -770,9 +770,9 @@ const Mark = ({ size = 24 }: { size?: number }) => (
   >
     <path
       d="M10 24C8.5 20 1.5 15 1.5 9.5a8.5 8.5 0 0 1 17 0C18.5 15 11.5 20 10 24Z"
-      fill="#191919"
+      fill={/* guard:allow-raw-color — authored slide theme demo color, not app chrome. */ "#191919"}
     />
-    <circle cx="10" cy="9.5" r="3.4" fill="#FFFEFC" />
+    <circle cx="10" cy="9.5" r="3.4" fill={/* guard:allow-raw-color — authored slide theme demo color, not app chrome. */ "#FFFEFC"} />
   </svg>
 );
 
@@ -798,12 +798,12 @@ const Footer = ({
         justifyContent: 'space-between',
         fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, sans-serif',
         fontSize: 21,
-        color: '#9B9A97',
+        color: /* guard:allow-raw-color — authored slide theme demo color, not app chrome. */ '#9B9A97',
       }}
     >
       <span style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <Mark size={24} />
-        <span style={{ color: '#191919', fontWeight: 720, letterSpacing: '-0.02em' }}>{brand}</span>
+        <span style={{ color: /* guard:allow-raw-color — authored slide theme demo color, not app chrome. */ '#191919', fontWeight: 720, letterSpacing: '-0.02em' }}>{brand}</span>
         <span style={{ marginLeft: 12 }}>{label}</span>
       </span>
       <span>
@@ -813,14 +813,14 @@ const Footer = ({
   );
 };
 
-const Highlight = ({ children, color = '#FCE38A' }: { children: ReactNode; color?: string }) => (
+const Highlight = ({ children, color = /* guard:allow-raw-color — authored slide theme demo color, not app chrome. */ '#FCE38A' }: { children: ReactNode; color?: string }) => (
   <span
     style={{
       background: color,
       borderRadius: '6px 12px 8px 14px',
       padding: '0 6px',
       margin: '0 -2px',
-      color: '#191919',
+      color: /* guard:allow-raw-color — authored slide theme demo color, not app chrome. */ '#191919',
       WebkitBoxDecorationBreak: 'clone',
       boxDecorationBreak: 'clone',
     }}
@@ -830,7 +830,7 @@ const Highlight = ({ children, color = '#FCE38A' }: { children: ReactNode; color
 );
 
 const TintCard = ({
-  tint = '#E7F3F8',
+  tint = /* guard:allow-raw-color — authored slide theme demo color, not app chrome. */ '#E7F3F8',
   style,
   children,
 }: {
@@ -872,7 +872,7 @@ const Ink = ({
       height={height}
       viewBox={viewBox ?? \`0 0 \${width} \${height}\`}
       fill="none"
-      stroke="#191919"
+      stroke={/* guard:allow-raw-color — authored slide theme demo color, not app chrome. */ "#191919"}
       strokeWidth={3.2}
       strokeLinecap="round"
       strokeLinejoin="round"
@@ -888,7 +888,7 @@ const Stroke = ({
   live,
   delay = 0.3,
   dur = 0.7,
-  color = '#191919',
+  color = /* guard:allow-raw-color — authored slide theme demo color, not app chrome. */ '#191919',
   width = 3.2,
 }: {
   d: string;
@@ -922,7 +922,7 @@ const CircleDoodle = ({
   w,
   h,
   live,
-  color = '#E8553B',
+  color = /* guard:allow-raw-color — authored slide theme demo color, not app chrome. */ '#E8553B',
   delay = 0.4,
 }: {
   x: number;
@@ -942,7 +942,7 @@ const Sparkle = ({
   x,
   y,
   s = 1,
-  fill = '#F8DA7E',
+  fill = /* guard:allow-raw-color — authored slide theme demo color, not app chrome. */ '#F8DA7E',
 }: {
   x: number;
   y: number;
@@ -970,7 +970,7 @@ const CoverArt = () => (
         width="250"
         height="310"
         rx="6"
-        fill="#FFFFFF"
+        fill={/* guard:allow-raw-color — authored slide theme demo color, not app chrome. */ "#FFFFFF"}
         transform="rotate(-9 295 265)"
       />
       <rect
@@ -979,11 +979,11 @@ const CoverArt = () => (
         width="250"
         height="310"
         rx="6"
-        fill="#FFFFFF"
+        fill={/* guard:allow-raw-color — authored slide theme demo color, not app chrome. */ "#FFFFFF"}
         transform="rotate(6 295 265)"
       />
       <g transform="rotate(-2 300 280)">
-        <rect x="170" y="120" width="260" height="320" rx="6" fill="#FFFFFF" />
+        <rect x="170" y="120" width="260" height="320" rx="6" fill={/* guard:allow-raw-color — authored slide theme demo color, not app chrome. */ "#FFFFFF"} />
         <path
           d="M170 170H430M170 220H430M170 270H430M170 320H430M170 370H430M250 120V440M340 120V440"
           strokeWidth={2.4}
@@ -993,22 +993,22 @@ const CoverArt = () => (
       </g>
       <g transform="translate(372 410) rotate(-38)">
         <rect x="0" y="-13" width="210" height="26" rx="3" fill={BLUE} />
-        <path d="M0 -13L-36 0L0 13Z" fill="#FFFFFF" />
+        <path d="M0 -13L-36 0L0 13Z" fill={/* guard:allow-raw-color — authored slide theme demo color, not app chrome. */ "#FFFFFF"} />
         <path d="M-36 0L-24 -4.3L-24 4.3Z" fill={INK} />
         <rect x="210" y="-13" width="28" height="26" rx="5" fill={PINK} />
         <path d="M206 -13V13" />
       </g>
     </g>
     <path d={pinPath(690, 120, 52)} fill={CORAL} />
-    <circle cx="690" cy="120" r="19" fill="#FFFFFF" />
+    <circle cx="690" cy="120" r="19" fill={/* guard:allow-raw-color — authored slide theme demo color, not app chrome. */ "#FFFFFF"} />
     <Sparkle x={790} y={250} s={1.1} />
-    <Sparkle x={250} y={110} s={0.7} fill="#FFFFFF" />
+    <Sparkle x={250} y={110} s={0.7} fill={/* guard:allow-raw-color — authored slide theme demo color, not app chrome. */ "#FFFFFF"} />
     <Sparkle x={190} y={540} s={0.9} />
     <path d="M60 640Q300 635 560 639T860 638" />
   </Ink>
 );
 
-const House = ({ x, y, fill = '#FFFFFF' }: { x: number; y: number; fill?: string }) => (
+const House = ({ x, y, fill = /* guard:allow-raw-color — authored slide theme demo color, not app chrome. */ '#FFFFFF' }: { x: number; y: number; fill?: string }) => (
   <g transform={\`translate(\${x} \${y})\`}>
     <path d="M-32 0L-32 -40L0 -66L32 -40L32 0Z" fill={fill} />
     <path d="M-9 0L-9 -22L9 -22L9 0" />
@@ -1022,13 +1022,13 @@ const BranchesArt = () => (
     <House x={150} y={186} fill={YELLOW} />
     <House x={244} y={186} />
     <path d={pinPath(150, 36, 22)} fill={CORAL} />
-    <circle cx="150" cy="36" r="8" fill="#FFFFFF" />
+    <circle cx="150" cy="36" r="8" fill={/* guard:allow-raw-color — authored slide theme demo color, not app chrome. */ "#FFFFFF"} />
   </Ink>
 );
 
 const PaymentsArt = () => (
   <Ink width={300} height={200}>
-    <rect x="70" y="24" width="96" height="168" rx="18" fill="#FFFFFF" />
+    <rect x="70" y="24" width="96" height="168" rx="18" fill={/* guard:allow-raw-color — authored slide theme demo color, not app chrome. */ "#FFFFFF"} />
     <path d="M104 42h28" />
     <circle cx="118" cy="112" r="24" fill={GREEN} />
     <path d="M107 112l7 7 14-15" strokeWidth={3.4} />
@@ -1042,11 +1042,11 @@ const PaymentsArt = () => (
 
 const OfflineArt = () => (
   <Ink width={300} height={200}>
-    <rect x="60" y="24" width="96" height="168" rx="18" fill="#FFFFFF" />
+    <rect x="60" y="24" width="96" height="168" rx="18" fill={/* guard:allow-raw-color — authored slide theme demo color, not app chrome. */ "#FFFFFF"} />
     <path d="M94 42h28" />
     <path d="M80 82h56M80 104h44M80 126h52" strokeWidth={2.6} />
     <rect x="80" y="144" width="56" height="26" rx="6" fill={PINK} />
-    <path d="M196 118Q190 92 216 90Q226 66 252 76Q278 72 278 98Q296 102 290 120Z" fill="#FFFFFF" />
+    <path d="M196 118Q190 92 216 90Q226 66 252 76Q278 72 278 98Q296 102 290 120Z" fill={/* guard:allow-raw-color — authored slide theme demo color, not app chrome. */ "#FFFFFF"} />
     <path d="M196 140L292 66" stroke={CORAL} strokeWidth={4} />
   </Ink>
 );
@@ -1058,12 +1058,12 @@ const ToolboxArt = () => (
     <path d="M202 216Q202 190 236 189Q270 190 270 214" />
     <path d="M122 250L470 246L462 420Q461 432 449 432L136 434Q124 434 123 422Z" fill={CORAL} />
     <path d="M110 216L482 212L478 252L114 255Z" fill={CORAL} />
-    <rect x="276" y="244" width="44" height="30" rx="5" fill="#FFFFFF" />
+    <rect x="276" y="244" width="44" height="30" rx="5" fill={/* guard:allow-raw-color — authored slide theme demo color, not app chrome. */ "#FFFFFF"} />
     <g transform="translate(440 178) scale(1.2)">
       <path d="M110 70Q100 58 110 46Q120 34 110 22M146 72Q136 60 146 48Q156 36 146 24" />
       <path
         d="M70 92Q69 87.5 74 87.5L177 87Q182 87 181.5 92L176.5 196Q175.5 214 157 214L95 214.5Q76.5 214.5 75.5 197Z"
-        fill="#FFFFFF"
+        fill={/* guard:allow-raw-color — authored slide theme demo color, not app chrome. */ "#FFFFFF"}
       />
       <path d="M73.4 142L179 141L178 161.5L74.4 162.5Z" fill={BLUE} stroke="none" />
       <path d="M70 92Q69 87.5 74 87.5L177 87Q182 87 181.5 92L176.5 196Q175.5 214 157 214L95 214.5Q76.5 214.5 75.5 197Z" />
@@ -1249,10 +1249,10 @@ const POMMI_DEMO_SOURCE = restoreSourceTemplateEscapes(String.raw`import {
   useIsActivePage,
   useSlidePageNumber,
 } from '@open-slide/core';
-import { type CSSProperties, type ReactNode, useEffect, useState } from 'react';
+import { type CSSProperties, type ReactNode } from 'react';
 
 export const design: DesignSystem = {
-  palette: { bg: '#FFF3DF', text: '#151313', accent: '#FF5A2C' },
+  palette: { bg: '#FFF3DF', text: '#151313', accent: '#FF5A2C' }, // guard:allow-raw-color — authored slide theme demo color, not app chrome.
   fonts: {
     display: '"Gabarito", system-ui, sans-serif',
     body: '"Gabarito", system-ui, sans-serif',
@@ -1264,13 +1264,13 @@ export const design: DesignSystem = {
 const CREAM = 'var(--osd-bg)';
 const INK = 'var(--osd-text)';
 const TOMATO = 'var(--osd-accent)';
-const BUTTER = '#FFD23F';
-const MINT = '#7EDDB0';
-const PERI = '#98A6FF';
-const PINK = '#FFB0D0';
-const PAPER = '#FFFCF6';
-const MUTED = 'rgba(21, 19, 19, 0.6)';
-const FAINT = 'rgba(21, 19, 19, 0.16)';
+const BUTTER = '#FFD23F'; // guard:allow-raw-color — authored slide theme demo color, not app chrome.
+const MINT = '#7EDDB0'; // guard:allow-raw-color — authored slide theme demo color, not app chrome.
+const PERI = '#98A6FF'; // guard:allow-raw-color — authored slide theme demo color, not app chrome.
+const PINK = '#FFB0D0'; // guard:allow-raw-color — authored slide theme demo color, not app chrome.
+const PAPER = '#FFFCF6'; // guard:allow-raw-color — authored slide theme demo color, not app chrome.
+const MUTED = 'rgba(21, 19, 19, 0.6)'; // guard:allow-raw-color — authored slide theme demo color, not app chrome.
+const FAINT = 'rgba(21, 19, 19, 0.16)'; // guard:allow-raw-color — authored slide theme demo color, not app chrome.
 
 const BORDER = \`4px solid \${INK}\`;
 const shadow = (n = 8) => \`\${n}px \${n}px 0 \${INK}\`;

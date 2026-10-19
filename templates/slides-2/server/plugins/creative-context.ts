@@ -32,12 +32,18 @@ type ProjectedLayoutTemplate = {
 
 function parseAssets(value: string | null): unknown[] {
   if (!value) return [];
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
+    parsed = JSON.parse(value);
+  } catch (error) {
+    throw new Error("Stored design-system assets are invalid JSON", {
+      cause: error,
+    });
   }
+  if (!Array.isArray(parsed)) {
+    throw new Error("Stored design-system assets must be a JSON array");
+  }
+  return parsed;
 }
 
 function isProjectedLayout(value: unknown): value is ProjectedLayoutTemplate {
@@ -171,12 +177,8 @@ registerOnboardingStep({
     },
   ],
   isComplete: async () => {
-    try {
-      const result = await listContextSources({ limit: 1 });
-      return result.sources.length > 0;
-    } catch {
-      return false;
-    }
+    const result = await listContextSources({ limit: 1 });
+    return result.sources.length > 0;
   },
 });
 

@@ -4,10 +4,12 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+// source-read-ok: pins the route's lazy-chunk ownership and prefetch boundary for editor shortcuts.
 const deckEditorSource = readFileSync(
   path.join(path.dirname(fileURLToPath(import.meta.url)), "DeckEditor.tsx"),
   "utf8",
 );
+// source-read-ok: pins the route's lazy-chunk ownership and prefetch boundary for editor shortcuts.
 const editorSidebarSource = readFileSync(
   path.join(
     path.dirname(fileURLToPath(import.meta.url)),
@@ -15,6 +17,7 @@ const editorSidebarSource = readFileSync(
   ),
   "utf8",
 );
+// source-read-ok: pins the route's lazy-chunk ownership and prefetch boundary for editor shortcuts.
 const actionClusterSource = readFileSync(
   path.join(
     path.dirname(fileURLToPath(import.meta.url)),

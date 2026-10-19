@@ -13,6 +13,7 @@ import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { agentEngineStatusUrlForChatApi } from "@agent-native/core/client/agent-chat";
 import { parse, type DefaultTreeAdapterTypes as P5 } from "parse5";
 
 import { IN_PLACE_TEXT_UNDO_LIMIT } from "../../app/components/editor/in-place-text-session.ts";
@@ -25,6 +26,7 @@ import {
   assertAuthoringPersistence,
   authoringFuzzBrowserSessionCorsHeaders,
   authoringFuzzBrowserSessionResponse,
+  isAuthoringFuzzBrowserSessionUrl,
   authoringFuzzUnavailableExitCode,
   authoringFuzzProfileIndex,
   canonicalizeAuthoringFuzzPersistence,
@@ -114,6 +116,8 @@ import {
  * Exit codes: 0 pass, 1 regression against baseline.json, 2 could not run.
  */
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+const agentEngineStatusRoute = (base: string) =>
+  new URL(agentEngineStatusUrlForChatApi(), base).href;
 const SCENARIOS = [
   "noop",
   "typedelete",
@@ -1324,7 +1328,7 @@ async function runChatTypingRegression(page: Page, base: string) {
   const submitRouteFinished = new Promise<void>((resolve) => {
     resolveSubmitRouteFinished = resolve;
   });
-  await page.route("**/_agent-native/agent-engine/status", (route: any) =>
+  await page.route(agentEngineStatusRoute(base), (route: any) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -1866,7 +1870,7 @@ async function runImeEscapeRegression(
       );
     }
   });
-  await page.route("**/_agent-native/agent-engine/status", (route: any) =>
+  await page.route(agentEngineStatusRoute(base), (route: any) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -2048,7 +2052,7 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
         origin: new URL(base).origin,
       });
   }
-  await page.route("**/_agent-native/agent-engine/status", (route: any) =>
+  await page.route(agentEngineStatusRoute(base), (route: any) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -2903,7 +2907,7 @@ async function runCaretQa(page: Page, base: string) {
   const problems: string[] = [];
   const slideId = "caret-qa-wrapped-row";
   let deckId = "";
-  await page.route("**/_agent-native/agent-engine/status", (route: any) =>
+  await page.route(agentEngineStatusRoute(base), (route: any) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -7906,11 +7910,12 @@ async function main() {
     if (authoringFuzzOnly) {
       // Fuzz covers slide authoring, not an idle host session's long poll.
       await context.route(
-        "**/_agent-native/browser-sessions**",
+        (url: URL) => isAuthoringFuzzBrowserSessionUrl(url.href, base),
         async (route: any) => {
           const request = route.request();
+          const requestHeaders = await request.allHeaders();
           const corsHeaders = authoringFuzzBrowserSessionCorsHeaders(
-            request.headers().origin,
+            requestHeaders.origin,
           );
           if (request.method() === "OPTIONS") {
             await route.fulfill({ status: 204, headers: corsHeaders });

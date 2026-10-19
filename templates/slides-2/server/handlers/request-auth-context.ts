@@ -62,7 +62,7 @@ export async function resolveSlidesRequestAuthContext(
       const orgContext = await getOrgContext(event);
       orgId = orgContext.orgId ?? undefined;
     } catch {
-      // Org tables can be unavailable during first boot; fall back below.
+      // coercion-ok: the verified session's orgId below remains available during an org-table bootstrap failure.
     }
   }
   if (!orgId && session?.orgId) {

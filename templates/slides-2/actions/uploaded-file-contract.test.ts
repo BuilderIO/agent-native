@@ -28,7 +28,10 @@ vi.mock("@agent-native/core/extensions/url-safety", () => ({
 vi.mock("@agent-native/core/ingestion", () => ({
   readBoundedResponseBytes: vi.fn(),
 }));
-vi.mock("@agent-native/core/sharing", () => ({ resolveAccess: vi.fn() }));
+vi.mock("@agent-native/core/sharing", () => ({
+  registerShareableResource: vi.fn(),
+  resolveAccess: vi.fn(),
+}));
 vi.mock("../server/handlers/assets.js", () => ({
   canSaveAsUploadedAsset: () => false,
   hasExpectedSvgSignature: () => true,

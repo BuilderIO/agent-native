@@ -121,13 +121,13 @@ export default function ImageSearchPanel({
                 if (e.key === "Enter") void handleSearch();
               }}
               placeholder={t("raw.searchImagesPlaceholder")}
-              className="w-full pl-8 pr-3 py-1.5 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground/70 outline-none focus:border-[#609FF8]/50"
+              className="w-full pl-8 pr-3 py-1.5 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground/70 outline-none focus:border-primary/50"
             />
           </div>
           <button
             onClick={handleSearch}
             disabled={loading || !query.trim()}
-            className="px-3 py-1.5 rounded-lg bg-[#609FF8] hover:bg-[#7AB2FA] disabled:opacity-50 text-black text-xs font-medium transition-colors"
+            className="px-3 py-1.5 rounded-lg bg-primary hover:bg-primary/90 disabled:opacity-50 text-primary-foreground text-xs font-medium transition-colors"
           >
             {loading ? (
               <IconLoader2 className="w-3.5 h-3.5 animate-spin" />
@@ -140,7 +140,7 @@ export default function ImageSearchPanel({
 
       <div className="px-4 pb-4 overflow-y-auto flex-1">
         {error && (
-          <div className="text-center py-4 text-red-400/70 text-xs">
+          <div className="text-center py-4 text-destructive/70 text-xs">
             {error}
           </div>
         )}
@@ -161,7 +161,7 @@ export default function ImageSearchPanel({
                 <TooltipTrigger asChild>
                   <button
                     onClick={() => handleSelect(result.url)}
-                    className="aspect-square rounded-md overflow-hidden border border-border bg-muted hover:ring-2 hover:ring-[#609FF8]/50 transition-all"
+                    className="aspect-square rounded-md overflow-hidden border border-border bg-muted hover:ring-2 hover:ring-primary/50 transition-all"
                   >
                     <img
                       src={result.thumbnail}

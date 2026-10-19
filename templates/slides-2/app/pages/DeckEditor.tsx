@@ -3544,6 +3544,7 @@ export default function DeckEditor() {
           errorCode: "image_upload_failed",
         });
       }
+      // coercion-ok: Upload error bodies are optional; null selects the translated generic failure below.
       const data = await res.json().catch(() => null);
       if (!res.ok || !data?.url) {
         const errorCode = data?.errorCode;

@@ -9,7 +9,11 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
-import { resolveAccess, type ShareRole } from "@agent-native/core/sharing";
+import {
+  accessFilter,
+  resolveAccess,
+  type ShareRole,
+} from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
@@ -33,6 +37,10 @@ import {
 import { normalizeSlideTransition } from "../shared/slide-transitions.js";
 import { getDeckUrl } from "./_app-url.js";
 import { assertSlides2DeckData } from "./_deck-app-scope.js";
+import {
+  canReadPresenterNotes,
+  redactPresenterNotes,
+} from "./_presenter-notes.js";
 import getDesignSystem from "./get-design-system.js";
 import { withDeckLock } from "./patch-deck.js";
 
@@ -95,26 +103,51 @@ async function readDeck(
   return { row, data, accessRole, ...normalized };
 }
 
+function canPersistSlideIdRepair(accessRole: "owner" | ShareRole): boolean {
+  return (
+    accessRole === "owner" || accessRole === "admin" || accessRole === "editor"
+  );
+}
+
+function normalizeDeckReadInMemory(
+  snapshot: Awaited<ReturnType<typeof readDeck>>,
+) {
+  return {
+    ...snapshot,
+    data: snapshot.changed
+      ? repairDeckSlideReferences(
+          snapshot.data,
+          snapshot.slides,
+          snapshot.originalIds,
+        )
+      : snapshot.data,
+    repaired: false,
+  };
+}
+
 async function loadDeckWithUniqueSlideIds(
   deckId: string,
   reviewPreview = false,
   reviewOrgId?: string,
 ) {
   if (reviewPreview) {
-    return {
-      ...(await readDeck(deckId, true, reviewOrgId)),
-      repaired: false,
-    };
+    return normalizeDeckReadInMemory(await readDeck(deckId, true, reviewOrgId));
   }
 
   for (let attempt = 0; attempt < MAX_REPAIR_ATTEMPTS; attempt += 1) {
     const snapshot = await readDeck(deckId);
     if (!snapshot.changed) return { ...snapshot, repaired: false };
+    if (!canPersistSlideIdRepair(snapshot.accessRole)) {
+      return normalizeDeckReadInMemory(snapshot);
+    }
 
     const repaired = await withDeckLock(deckId, async () => {
       const lockedSnapshot = await readDeck(deckId);
       if (!lockedSnapshot.changed) {
         return { ...lockedSnapshot, repaired: false };
+      }
+      if (!canPersistSlideIdRepair(lockedSnapshot.accessRole)) {
+        return normalizeDeckReadInMemory(lockedSnapshot);
       }
 
       const repairedData = {
@@ -140,6 +173,7 @@ async function loadDeckWithUniqueSlideIds(
             eq(schema.decks.id, lockedSnapshot.row.id),
             versionCondition,
             eq(schema.decks.data, lockedSnapshot.row.data),
+            accessFilter(schema.decks, schema.deckShares, undefined, "editor"),
           ),
         );
 
@@ -153,7 +187,10 @@ async function loadDeckWithUniqueSlideIds(
     }
   }
 
-  throw new Error(`Could not repair duplicate slide IDs for deck ${deckId}.`);
+  fail(`Could not repair duplicate slide IDs for deck ${deckId}.`, {
+    errorCode: "slide_id_repair_conflict",
+    statusCode: 409,
+  });
 }
 
 // Rows can hold legacy transition strings (slide, zoom, instant) and slides
@@ -332,7 +369,7 @@ export default defineAction({
       slides: storedSlides,
       accessRole,
     } = ctx?.caller === "mcp-widget"
-      ? await readDeck(deckId)
+      ? normalizeDeckReadInMemory(await readDeck(deckId))
       : await loadDeckWithUniqueSlideIds(
           deckId,
           args.reviewPreview,
@@ -456,19 +493,26 @@ export default defineAction({
     delete deckMetadata.slides;
 
     const formatHtml = args.format === "true";
+    const canReadNotes = canReadPresenterNotes(accessRole);
     const fullSlides = await Promise.all(
-      slideEntries.map(async ({ slide: s, index: i }) => ({
-        ...s,
-        slideNumber: i + 1,
-        zeroBasedIndex: i,
-        id: s.id,
-        layout: s.layout ?? null,
-        content: formatHtml
-          ? await formatSlideHtml(String(s.content ?? ""))
-          : s.content,
-        contentHash: hashSlideContent(String(s.content ?? "")),
-        notes: s.notes ?? null,
-      })),
+      slideEntries.map(async ({ slide: s, index: i }) => {
+        const slideWithoutNotes = redactPresenterNotes(s) as Record<
+          string,
+          unknown
+        >;
+        return {
+          ...(canReadNotes ? s : slideWithoutNotes),
+          slideNumber: i + 1,
+          zeroBasedIndex: i,
+          id: s.id,
+          layout: s.layout ?? null,
+          content: formatHtml
+            ? await formatSlideHtml(String(s.content ?? ""))
+            : s.content,
+          contentHash: hashSlideContent(String(s.content ?? "")),
+          ...(canReadNotes ? { notes: s.notes ?? null } : {}),
+        };
+      }),
     );
 
     return {

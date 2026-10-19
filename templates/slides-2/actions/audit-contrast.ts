@@ -51,7 +51,11 @@ export default defineAction({
     }
     assertSlides2DeckData(access.resource.data);
     const ownerEmail = getRequestUserEmail();
-    if (!ownerEmail) throw new Error("no authenticated user");
+    if (!ownerEmail)
+      fail("no authenticated user", {
+        errorCode: "not_authenticated",
+        statusCode: 401,
+      });
 
     const data = JSON.parse(access.resource.data) as {
       tweaks?: unknown;

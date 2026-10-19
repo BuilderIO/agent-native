@@ -145,7 +145,12 @@ export default defineAction({
       throw error;
     }
     const ownerEmail = getRequestUserEmail();
-    if (!ownerEmail) throw new Error("no authenticated user");
+    if (!ownerEmail) {
+      fail("no authenticated user", {
+        errorCode: "not_authenticated",
+        statusCode: 401,
+      });
+    }
 
     const proxy = await upsertBuilderProxyDesignSystem({
       result,

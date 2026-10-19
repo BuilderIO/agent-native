@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { searchProviderImages } from "../server/lib/media-search-providers.js";
@@ -20,7 +20,10 @@ export default defineAction({
   run: async (args) => {
     const q = args.q;
     if (!q) {
-      throw new Error("Missing query parameter 'q'");
+      fail("Missing query parameter 'q'", {
+        errorCode: "search_query_required",
+        statusCode: 400,
+      });
     }
     return searchProviderImages(q, args.count);
   },

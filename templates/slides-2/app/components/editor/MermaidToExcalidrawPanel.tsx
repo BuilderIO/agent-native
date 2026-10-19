@@ -55,12 +55,12 @@ export function MermaidToExcalidrawPanel({
         {mermaidDefinition.slice(0, 300)}
         {mermaidDefinition.length > 300 ? "..." : ""}
       </pre>
-      {error && <div className="text-xs text-red-400">{error}</div>}
+      {error && <div className="text-xs text-destructive">{error}</div>}
       <div className="flex gap-2">
         <button
           onClick={handleConvert}
           disabled={loading}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[#609FF8] hover:bg-[#7AB2FA] text-black text-xs font-medium disabled:opacity-50"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[hsl(var(--slides-accent))] hover:bg-[hsl(var(--slides-accent-hover))] text-[hsl(var(--slides-accent-foreground))] text-xs font-medium disabled:opacity-50"
         >
           {loading ? (
             <IconLoader2 className="w-3 h-3 animate-spin" />

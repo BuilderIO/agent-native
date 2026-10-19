@@ -4,9 +4,10 @@ import { deleteUploadedFile, uploadFile } from "@agent-native/core/file-upload";
 import {
   getRequestOrgId,
   runWithRequestContext,
+  type RecurringSweepContext,
 } from "@agent-native/core/server";
 import { parseBase64DataUrl } from "@agent-native/core/shared";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, ne, or } from "drizzle-orm";
 import {
   assertBodySize,
   defineEventHandler,
@@ -18,14 +19,29 @@ import { nanoid } from "nanoid";
 import { getDb, schema } from "../db/index.js";
 import { readBoundedMultipartFormData } from "../lib/bounded-multipart.js";
 import {
-  deleteOrphanedVideoAssetCleanup,
-  listOrphanedVideoAssetCleanups,
-  recordOrphanedVideoAssetCleanup,
-} from "../lib/chunked-upload-session.js";
-import {
   assertDeckAssetUploadScope,
   parseOptionalDeckId,
+  registerDeckUploadedAsset,
 } from "../lib/deck-asset-scope.js";
+import {
+  cancelUploadedAssetRegistration,
+  claimDueUploadedAssetCleanup,
+  claimFailedUploadedAssetRegistration,
+  clearRegisteredUploadedAsset,
+  completeUploadedAssetRegistration,
+  finishOwnedUploadedAssetCleanup,
+  listDueUploadedAssetCleanups,
+  listRegisteredUploadedAssetCleanups,
+  parkUnresolvedUploadedAssetRegistration,
+  recordUploadedAssetCleanupObject,
+  reserveUploadedAssetRegistration,
+  retryOwnedUploadedAssetCleanup,
+  scheduleUploadedAssetDeletion,
+  type UploadedAssetCleanupOutboxRow,
+  type UploadedAssetCleanupOutboxInput,
+  type UploadedAssetCleanupScope,
+  type SlidesTransaction,
+} from "../lib/uploaded-asset-cleanup-outbox.js";
 import {
   resolveSlidesRequestAuth,
   type SlidesRequestAuthContext,
@@ -36,6 +52,7 @@ type AuthedSlidesSession = SlidesRequestAuthContext & { email: string };
 export const MAX_ASSET_FILE_SIZE = 10 * 1024 * 1024;
 export const MAX_VIDEO_ASSET_FILE_SIZE = 50 * 1024 * 1024;
 const MAX_MULTIPART_OVERHEAD_BYTES = 1024 * 1024;
+const MAX_ORPHANED_ASSET_CLEANUPS_PER_UPLOAD = 5;
 export const MAX_ASSET_REQUEST_SIZE =
   MAX_ASSET_FILE_SIZE + MAX_MULTIPART_OVERHEAD_BYTES;
 export const MAX_VIDEO_ASSET_REQUEST_SIZE =
@@ -100,6 +117,111 @@ export interface RegisteredUploadedAsset extends UploadedAsset {
 
 export interface UploadedVideoAsset extends UploadedAsset {
   id: string;
+}
+
+async function registerUploadedAsset(args: {
+  row: typeof schema.uploadedAssets.$inferInsert;
+  deckId?: string;
+  email: string;
+  orgId?: string | null;
+  cleanupToken: string;
+  cleanupInput: UploadedAssetCleanupOutboxInput;
+}): Promise<void> {
+  const onRegistered = (transaction: SlidesTransaction) =>
+    completeUploadedAssetRegistration(
+      transaction,
+      args.cleanupInput,
+      args.cleanupToken,
+    );
+  if (args.deckId) {
+    await registerDeckUploadedAsset({
+      row: args.row,
+      deckId: args.deckId,
+      email: args.email,
+      orgId: args.orgId,
+      onRegistered,
+    });
+    return;
+  }
+  await getDb().transaction(async (transaction) => {
+    await transaction.insert(schema.uploadedAssets).values(args.row);
+    await onRegistered(transaction);
+  });
+}
+
+async function deleteFailedUploadUsingReservation(args: {
+  input: {
+    assetId: string;
+    ownerEmail: string;
+    orgId: string | null;
+    provider: string;
+    providerObjectId: string | null;
+    url: string;
+  };
+  token: string;
+  requestContext: { userEmail: string; orgId?: string };
+  mediaType: "image" | "video";
+}): Promise<boolean> {
+  const scope = {
+    assetId: args.input.assetId,
+    ownerEmail: args.input.ownerEmail,
+    orgId: args.input.orgId,
+  };
+  try {
+    const deleted = await runWithRequestContext(args.requestContext, () =>
+      deleteUploadedFile(args.input.provider, {
+        id: args.input.providerObjectId ?? undefined,
+        url: args.input.url,
+      }),
+    );
+    if (!deleted) {
+      await runWithRequestContext(args.requestContext, () =>
+        retryOwnedUploadedAssetCleanup(scope, args.token, 1),
+      );
+      console.warn(
+        `[slides-upload] orphaned ${args.mediaType} remains queued`,
+        {
+          assetId: args.input.assetId,
+        },
+      );
+      return false;
+    }
+    await runWithRequestContext(args.requestContext, () =>
+      getDb().transaction(async (transaction) => {
+        const removed = await finishOwnedUploadedAssetCleanup(
+          transaction,
+          scope,
+          args.token,
+        );
+        if (!removed) {
+          throw new Error(
+            "Uploaded asset cleanup lease was no longer current.",
+          );
+        }
+      }),
+    );
+    return true;
+  } catch (error) {
+    try {
+      await runWithRequestContext(args.requestContext, () =>
+        retryOwnedUploadedAssetCleanup(scope, args.token, 1),
+      );
+    } catch (retryError) {
+      console.warn("[slides-upload] failed cleanup lease will expire", {
+        assetId: args.input.assetId,
+        error:
+          retryError instanceof Error ? retryError.message : String(retryError),
+      });
+    }
+    console.warn(
+      `[slides-upload] could not delete orphaned ${args.mediaType}`,
+      {
+        assetId: args.input.assetId,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    );
+    return false;
+  }
 }
 
 async function requireSession(
@@ -1682,6 +1804,26 @@ export async function uploadImageAsset(args: {
 
   const orgId =
     args.orgId === undefined ? getRequestOrgId() : (args.orgId ?? undefined);
+  await reapOrphanedUploadedAssetObjects(args.email, orgId, {
+    limit: MAX_ORPHANED_ASSET_CLEANUPS_PER_UPLOAD,
+  });
+  const id = nanoid();
+  const cleanupScope: UploadedAssetCleanupScope = {
+    assetId: id,
+    ownerEmail: args.email,
+    orgId: orgId ?? null,
+  };
+  let cleanupToken: string;
+  try {
+    cleanupToken = await reserveUploadedAssetRegistration(cleanupScope);
+  } catch (error) {
+    console.warn("[slides-upload] could not reserve image cleanup", {
+      assetId: id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw imageUploadFailure("image_asset_registration_failed");
+  }
+
   let result: Awaited<ReturnType<typeof uploadFile>>;
   try {
     result = await runWithRequestContext(
@@ -1695,14 +1837,25 @@ export async function uploadImageAsset(args: {
         }),
     );
   } catch {
+    try {
+      await parkUnresolvedUploadedAssetRegistration(cleanupScope, cleanupToken);
+    } catch (error) {
+      console.warn(
+        "[slides-upload] unresolved image reservation could not be parked",
+        {
+          assetId: id,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+    }
     throw imageUploadFailure("image_upload_storage_failed");
   }
 
   if (!result) {
+    await cancelUploadedAssetRegistration(cleanupScope, cleanupToken);
     throw imageUploadFailure("image_upload_storage_unavailable");
   }
 
-  const id = nanoid();
   const asset: RegisteredUploadedAsset = {
     id,
     url: result.url,
@@ -1711,26 +1864,177 @@ export async function uploadImageAsset(args: {
     size: data.length,
     provider: result.provider,
   };
-
-  const db = getDb();
+  const cleanupInput: UploadedAssetCleanupOutboxInput = {
+    assetId: asset.id,
+    ownerEmail: args.email,
+    orgId: orgId ?? null,
+    provider: result.provider,
+    providerObjectId: result.id ?? null,
+    url: result.url,
+    intent: "registration",
+  };
   try {
-    await db.insert(schema.uploadedAssets).values({
-      id: asset.id,
-      filename: asset.filename,
-      url: asset.url,
-      type: asset.type,
-      size: asset.size,
-      provider: asset.provider ?? null,
-      providerObjectId: result.id ?? null,
-      deckId: args.deckId ?? null,
-      orgId: orgId ?? null,
-      ownerEmail: args.email,
-      createdAt: new Date().toISOString(),
+    const recorded = await recordUploadedAssetCleanupObject(
+      cleanupInput,
+      cleanupToken,
+    );
+    if (!recorded) {
+      throw new Error("Uploaded asset cleanup reservation was claimed.");
+    }
+  } catch (error) {
+    let deleted = false;
+    try {
+      deleted = await runWithRequestContext(
+        { userEmail: args.email, ...(orgId === undefined ? {} : { orgId }) },
+        () =>
+          deleteUploadedFile(result.provider, {
+            id: result.id ?? undefined,
+            url: result.url,
+          }),
+      );
+    } catch (deleteError) {
+      console.warn("[slides-upload] untracked image cleanup failed", {
+        assetId: asset.id,
+        error:
+          deleteError instanceof Error
+            ? deleteError.message
+            : String(deleteError),
+      });
+    }
+    if (deleted) {
+      await cancelUploadedAssetRegistration(cleanupScope, cleanupToken);
+    } else {
+      let deletionClaimed = false;
+      try {
+        const deletionToken = await claimFailedUploadedAssetRegistration(
+          cleanupInput,
+          cleanupToken,
+        );
+        if (deletionToken) {
+          deletionClaimed = true;
+          await retryOwnedUploadedAssetCleanup(cleanupScope, deletionToken, 1);
+        } else {
+          await parkUnresolvedUploadedAssetRegistration(
+            cleanupScope,
+            cleanupToken,
+          );
+        }
+      } catch (queueError) {
+        if (!deletionClaimed) {
+          try {
+            await parkUnresolvedUploadedAssetRegistration(
+              cleanupScope,
+              cleanupToken,
+            );
+          } catch {
+            // The reservation remains non-deletable until trusted metadata is stored.
+          }
+        }
+        console.warn("[slides-upload] image cleanup could not be queued", {
+          assetId: asset.id,
+          error:
+            queueError instanceof Error
+              ? queueError.message
+              : String(queueError),
+        });
+      }
+    }
+    console.warn("[slides-upload] could not record image cleanup metadata", {
+      assetId: asset.id,
+      error: error instanceof Error ? error.message : String(error),
     });
-  } catch {
     throw imageUploadFailure("image_asset_registration_failed");
   }
 
+  try {
+    await registerUploadedAsset({
+      row: {
+        id: asset.id,
+        filename: asset.filename,
+        url: asset.url,
+        type: asset.type,
+        size: asset.size,
+        provider: asset.provider ?? null,
+        providerObjectId: result.id ?? null,
+        deckId: args.deckId ?? null,
+        orgId: orgId ?? null,
+        ownerEmail: args.email,
+        createdAt: new Date().toISOString(),
+      },
+      deckId: args.deckId,
+      email: args.email,
+      orgId,
+      cleanupToken,
+      cleanupInput,
+    });
+  } catch (registrationError) {
+    let committedAsset: RegisteredUploadedAsset | null = null;
+    let assetLookupFailed = false;
+    try {
+      committedAsset = await findUploadedAssetById(
+        args.email,
+        asset.id,
+        orgId ?? null,
+      );
+    } catch {
+      assetLookupFailed = true;
+    }
+    if (committedAsset) {
+      try {
+        await clearRegisteredUploadedAsset(cleanupInput, cleanupToken);
+      } catch (error) {
+        console.warn("[slides-upload] registered image cleanup remains", {
+          assetId: asset.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      return committedAsset;
+    }
+    if (assetLookupFailed) {
+      console.warn("[slides-upload] image registration outcome is uncertain", {
+        assetId: asset.id,
+      });
+    } else {
+      try {
+        const deletionToken = await claimFailedUploadedAssetRegistration(
+          cleanupInput,
+          cleanupToken,
+        );
+        if (deletionToken) {
+          await deleteFailedUploadUsingReservation({
+            input: cleanupInput,
+            token: deletionToken,
+            requestContext: {
+              userEmail: args.email,
+              ...(orgId === undefined ? {} : { orgId }),
+            },
+            mediaType: "image",
+          });
+        }
+      } catch (error) {
+        console.warn("[slides-upload] image cleanup remains queued", {
+          assetId: asset.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    const candidate = (registrationError as { errorCode?: unknown })?.errorCode;
+    throw imageUploadFailure(
+      typeof candidate === "string" &&
+        Object.hasOwn(imageUploadFailures, candidate)
+        ? (candidate as ImageUploadFailureCode)
+        : "image_asset_registration_failed",
+    );
+  }
+
+  try {
+    await clearRegisteredUploadedAsset(cleanupInput, cleanupToken);
+  } catch (error) {
+    console.warn("[slides-upload] registered image cleanup remains", {
+      assetId: asset.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
   return asset;
 }
 
@@ -1836,20 +2140,32 @@ export function videoUploadFailureResponse(
   return { error: failure.message, errorCode: code };
 }
 
-async function deleteUploadedVideoAssetRow(
-  id: string,
+async function deleteUploadedAssetRow(
+  transaction: SlidesTransaction,
+  asset: {
+    id: string;
+    url: string;
+    provider: string;
+    providerObjectId: string | null;
+    orgId: string | null;
+  },
   ownerEmail: string,
-  orgId: string | null | undefined,
 ): Promise<void> {
-  await getDb()
+  await transaction
     .delete(schema.uploadedAssets)
     .where(
       and(
-        eq(schema.uploadedAssets.id, id),
+        eq(schema.uploadedAssets.id, asset.id),
         eq(schema.uploadedAssets.ownerEmail, ownerEmail),
-        orgId
-          ? eq(schema.uploadedAssets.orgId, orgId)
+        asset.orgId
+          ? eq(schema.uploadedAssets.orgId, asset.orgId)
           : isNull(schema.uploadedAssets.orgId),
+        eq(schema.uploadedAssets.url, asset.url),
+        eq(schema.uploadedAssets.provider, asset.provider),
+        asset.providerObjectId
+          ? eq(schema.uploadedAssets.providerObjectId, asset.providerObjectId)
+          : isNull(schema.uploadedAssets.providerObjectId),
+        isNull(schema.uploadedAssets.deckId),
       ),
     );
 }
@@ -1884,90 +2200,446 @@ async function findUploadedVideoAssetById(
   return { ...asset, provider: asset.provider ?? undefined };
 }
 
-async function uploadedVideoAssetRowExists(
-  id: string,
-  ownerEmail: string,
-  orgId: string | null | undefined,
-): Promise<boolean> {
-  return Boolean(await findUploadedVideoAssetById(ownerEmail, id, orgId));
+async function findUploadedAssetById(
+  email: string,
+  assetId: string,
+  requestedOrgId: string | null | undefined,
+): Promise<RegisteredUploadedAsset | null> {
+  const orgId = requestedOrgId ?? undefined;
+  const [asset] = await getDb()
+    .select({
+      id: schema.uploadedAssets.id,
+      filename: schema.uploadedAssets.filename,
+      url: schema.uploadedAssets.url,
+      type: schema.uploadedAssets.type,
+      size: schema.uploadedAssets.size,
+      provider: schema.uploadedAssets.provider,
+    })
+    .from(schema.uploadedAssets)
+    .where(
+      and(
+        eq(schema.uploadedAssets.id, assetId),
+        eq(schema.uploadedAssets.ownerEmail, email),
+        orgId
+          ? eq(schema.uploadedAssets.orgId, orgId)
+          : isNull(schema.uploadedAssets.orgId),
+      ),
+    )
+    .limit(1);
+  return asset ? { ...asset, provider: asset.provider ?? undefined } : null;
 }
 
-export async function reapOrphanedVideoAssetObjects(
-  ownerEmail: string,
-  orgId: string | undefined,
-): Promise<void> {
-  const requestContext = {
-    userEmail: ownerEmail,
-    ...(orgId === undefined ? {} : { orgId }),
-  };
-  let cleanups: Awaited<ReturnType<typeof listOrphanedVideoAssetCleanups>>;
-  try {
-    cleanups = await runWithRequestContext(requestContext, () =>
-      listOrphanedVideoAssetCleanups(),
-    );
-  } catch (error) {
-    console.warn("[slides-upload] could not read orphaned video receipts", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return;
-  }
+interface UploadedAssetCleanupRecord {
+  id: string;
+  url: string;
+  provider: string | null;
+  providerObjectId: string | null;
+  deckId: string | null;
+}
 
-  await Promise.all(
-    cleanups.map(async ({ key, cleanup }) => {
-      if (
-        cleanup.version !== 1 ||
-        cleanup.ownerEmail !== ownerEmail ||
-        (cleanup.orgId ?? null) !== (orgId ?? null) ||
-        !cleanup.provider ||
-        !cleanup.url ||
-        (cleanup.assetId !== undefined &&
-          (typeof cleanup.assetId !== "string" || !cleanup.assetId)) ||
-        (cleanup.preserveIfAssetExists !== undefined &&
-          (typeof cleanup.preserveIfAssetExists !== "boolean" ||
-            (cleanup.preserveIfAssetExists && !cleanup.assetId))) ||
-        (cleanup.providerObjectId !== null &&
-          typeof cleanup.providerObjectId !== "string")
-      ) {
-        return;
-      }
-      try {
-        if (
-          cleanup.assetId &&
-          cleanup.preserveIfAssetExists &&
-          (await runWithRequestContext(requestContext, () =>
-            uploadedVideoAssetRowExists(cleanup.assetId!, ownerEmail, orgId),
-          ))
-        ) {
-          await runWithRequestContext(requestContext, () =>
-            deleteOrphanedVideoAssetCleanup(key),
-          );
-          return;
-        }
-        if (cleanup.assetId && !cleanup.preserveIfAssetExists) {
-          await runWithRequestContext(requestContext, () =>
-            deleteUploadedVideoAssetRow(cleanup.assetId!, ownerEmail, orgId),
-          );
-        }
-        const deleted = await runWithRequestContext(requestContext, () =>
-          deleteUploadedFile(cleanup.provider, {
-            id: cleanup.providerObjectId ?? undefined,
-            url: cleanup.url,
-          }),
-        );
-        if (deleted) {
-          await runWithRequestContext(requestContext, () =>
-            deleteOrphanedVideoAssetCleanup(key),
-          );
-        }
-      } catch (error) {
-        console.warn("[slides-upload] orphaned video object retry failed", {
-          uploadSessionId: cleanup.uploadSessionId,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }),
+async function findUploadedAssetForCleanup(
+  ownerEmail: string,
+  assetId: string,
+  orgId: string | null | undefined,
+): Promise<UploadedAssetCleanupRecord | null> {
+  const [asset] = await getDb()
+    .select({
+      id: schema.uploadedAssets.id,
+      url: schema.uploadedAssets.url,
+      provider: schema.uploadedAssets.provider,
+      providerObjectId: schema.uploadedAssets.providerObjectId,
+      deckId: schema.uploadedAssets.deckId,
+    })
+    .from(schema.uploadedAssets)
+    .where(
+      and(
+        eq(schema.uploadedAssets.id, assetId),
+        eq(schema.uploadedAssets.ownerEmail, ownerEmail),
+        orgId
+          ? eq(schema.uploadedAssets.orgId, orgId)
+          : isNull(schema.uploadedAssets.orgId),
+      ),
+    )
+    .limit(1);
+  return asset ?? null;
+}
+
+async function hasOtherUploadedAssetReference(
+  asset: Pick<
+    UploadedAssetCleanupOutboxRow,
+    "id" | "provider" | "providerObjectId" | "url"
+  >,
+): Promise<boolean> {
+  if (!asset.provider || !asset.url) return false;
+  const matchingObject = [eq(schema.uploadedAssets.url, asset.url)];
+  if (asset.providerObjectId !== null) {
+    matchingObject.push(
+      and(
+        eq(schema.uploadedAssets.provider, asset.provider),
+        eq(schema.uploadedAssets.providerObjectId, asset.providerObjectId),
+      ),
+    );
+  }
+  const [reference] = await getDb()
+    .select({ id: schema.uploadedAssets.id })
+    .from(schema.uploadedAssets)
+    .where(and(ne(schema.uploadedAssets.id, asset.id), or(...matchingObject)))
+    .limit(1);
+  return Boolean(reference);
+}
+
+function uploadedAssetCleanupScope(
+  row: Pick<UploadedAssetCleanupOutboxRow, "id" | "ownerEmail" | "orgId">,
+) {
+  return and(
+    eq(schema.uploadedAssets.id, row.id),
+    eq(schema.uploadedAssets.ownerEmail, row.ownerEmail),
+    row.orgId
+      ? eq(schema.uploadedAssets.orgId, row.orgId)
+      : isNull(schema.uploadedAssets.orgId),
   );
 }
+
+async function deleteUploadedAssetRowForCleanup(
+  transaction: SlidesTransaction,
+  row: UploadedAssetCleanupOutboxRow,
+): Promise<void> {
+  await transaction
+    .delete(schema.uploadedAssets)
+    .where(
+      and(
+        uploadedAssetCleanupScope(row),
+        eq(schema.uploadedAssets.url, row.url),
+        eq(schema.uploadedAssets.provider, row.provider),
+        row.providerObjectId
+          ? eq(schema.uploadedAssets.providerObjectId, row.providerObjectId)
+          : isNull(schema.uploadedAssets.providerObjectId),
+        isNull(schema.uploadedAssets.deckId),
+      ),
+    );
+}
+
+function assertCleanupRunActive(options?: {
+  deadlineAt?: number;
+  signal?: AbortSignal;
+}): void {
+  if (options?.signal?.aborted) {
+    throw new Error(
+      "Slides asset cleanup sweep was aborted before completion.",
+    );
+  }
+  if (options?.deadlineAt !== undefined && Date.now() >= options.deadlineAt) {
+    throw new Error("Slides asset cleanup sweep exceeded its deadline.");
+  }
+}
+
+export async function reapOrphanedUploadedAssetObjects(
+  ownerEmail: string | undefined,
+  orgId: string | null | undefined,
+  options?: {
+    limit?: number;
+    deadlineAt?: number;
+    signal?: AbortSignal;
+    concurrency?: number;
+  },
+): Promise<{ failedAttempts: number }> {
+  const summary = { failedAttempts: 0 };
+  const requestedLimit =
+    options?.limit ?? MAX_ORPHANED_ASSET_CLEANUPS_PER_UPLOAD;
+  if (!Number.isSafeInteger(requestedLimit) || requestedLimit < 0) {
+    throw new RangeError("Asset cleanup limit must be a non-negative integer.");
+  }
+  const limit = Math.min(
+    requestedLimit,
+    MAX_ORPHANED_ASSET_CLEANUPS_PER_UPLOAD,
+  );
+  if (limit === 0) return summary;
+
+  let registered: UploadedAssetCleanupOutboxRow[];
+  let candidates: UploadedAssetCleanupOutboxRow[];
+  try {
+    const scope = ownerEmail ? { ownerEmail, orgId: orgId ?? null } : {};
+    [registered, candidates] = await Promise.all([
+      listRegisteredUploadedAssetCleanups({ ...scope, limit }),
+      listDueUploadedAssetCleanups({ ...scope, limit }),
+    ]);
+  } catch (error) {
+    console.warn("[slides-upload] could not read cleanup outbox", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { failedAttempts: 1 };
+  }
+
+  const concurrency = Math.max(1, Math.min(options?.concurrency ?? 4, 8));
+  for (let offset = 0; offset < registered.length; offset += concurrency) {
+    assertCleanupRunActive(options);
+    await Promise.all(
+      registered.slice(offset, offset + concurrency).map(async (row) => {
+        const requestContext = {
+          userEmail: row.ownerEmail,
+          ...(row.orgId ? { orgId: row.orgId } : {}),
+        };
+        try {
+          const asset = await runWithRequestContext(requestContext, () =>
+            findUploadedAssetForCleanup(row.ownerEmail, row.id, row.orgId),
+          );
+          if (!asset || !row.leaseToken) {
+            summary.failedAttempts += 1;
+            return;
+          }
+          if (
+            asset.provider !== row.provider ||
+            asset.url !== row.url ||
+            asset.providerObjectId !== row.providerObjectId
+          ) {
+            summary.failedAttempts += 1;
+            console.warn(
+              "[slides-upload] registered cleanup metadata no longer matches asset",
+              { assetId: row.id },
+            );
+            return;
+          }
+          const removed = await runWithRequestContext(requestContext, () =>
+            clearRegisteredUploadedAsset(
+              { assetId: row.id, ownerEmail: row.ownerEmail, orgId: row.orgId },
+              row.leaseToken!,
+            ),
+          );
+          if (!removed) summary.failedAttempts += 1;
+        } catch (error) {
+          summary.failedAttempts += 1;
+          console.warn("[slides-upload] could not clear registered cleanup", {
+            assetId: row.id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }),
+    );
+  }
+
+  for (let offset = 0; offset < candidates.length; offset += concurrency) {
+    assertCleanupRunActive(options);
+    await Promise.all(
+      candidates.slice(offset, offset + concurrency).map(async (candidate) => {
+        const requestContext = {
+          userEmail: candidate.ownerEmail,
+          ...(candidate.orgId ? { orgId: candidate.orgId } : {}),
+        };
+        let claimed: UploadedAssetCleanupOutboxRow | null;
+        try {
+          claimed = await runWithRequestContext(requestContext, () =>
+            claimDueUploadedAssetCleanup(candidate),
+          );
+        } catch (error) {
+          summary.failedAttempts += 1;
+          console.warn("[slides-upload] could not claim cleanup outbox row", {
+            assetId: candidate.id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          return;
+        }
+        if (!claimed || !claimed.leaseToken) return;
+
+        const cleanupScope = {
+          assetId: claimed.id,
+          ownerEmail: claimed.ownerEmail,
+          orgId: claimed.orgId,
+        };
+        const retry = async () => {
+          try {
+            const retried = await runWithRequestContext(requestContext, () =>
+              retryOwnedUploadedAssetCleanup(
+                cleanupScope,
+                claimed.leaseToken!,
+                claimed.attemptCount,
+              ),
+            );
+            if (!retried) summary.failedAttempts += 1;
+          } catch (error) {
+            summary.failedAttempts += 1;
+            console.warn("[slides-upload] could not reschedule cleanup", {
+              assetId: claimed.id,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        };
+
+        try {
+          assertCleanupRunActive(options);
+          if (
+            typeof claimed.provider !== "string" ||
+            typeof claimed.url !== "string" ||
+            !claimed.provider.trim() ||
+            !claimed.url.trim()
+          ) {
+            summary.failedAttempts += 1;
+            await retry();
+            return;
+          }
+
+          let asset: UploadedAssetCleanupRecord | null;
+          try {
+            asset = await runWithRequestContext(requestContext, () =>
+              findUploadedAssetForCleanup(
+                claimed.ownerEmail,
+                claimed.id,
+                claimed.orgId,
+              ),
+            );
+          } catch (error) {
+            summary.failedAttempts += 1;
+            console.warn("[slides-upload] could not verify cleanup asset", {
+              assetId: claimed.id,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            await retry();
+            return;
+          }
+
+          if (claimed.intent === "registration" && asset) {
+            const [registeredRow] = await runWithRequestContext(
+              requestContext,
+              () =>
+                getDb()
+                  .update(schema.uploadedAssetCleanupOutbox)
+                  .set({
+                    state: "registered",
+                    leaseExpiresAt: null,
+                    nextAttemptAt: null,
+                  })
+                  .where(
+                    and(
+                      eq(schema.uploadedAssetCleanupOutbox.id, claimed.id),
+                      eq(
+                        schema.uploadedAssetCleanupOutbox.ownerEmail,
+                        claimed.ownerEmail,
+                      ),
+                      claimed.orgId
+                        ? eq(
+                            schema.uploadedAssetCleanupOutbox.orgId,
+                            claimed.orgId,
+                          )
+                        : isNull(schema.uploadedAssetCleanupOutbox.orgId),
+                      eq(schema.uploadedAssetCleanupOutbox.state, "claimed"),
+                      eq(
+                        schema.uploadedAssetCleanupOutbox.leaseToken,
+                        claimed.leaseToken,
+                      ),
+                    ),
+                  )
+                  .returning({ id: schema.uploadedAssetCleanupOutbox.id }),
+            );
+            if (!registeredRow) {
+              summary.failedAttempts += 1;
+              return;
+            }
+            const removed = await runWithRequestContext(requestContext, () =>
+              clearRegisteredUploadedAsset(cleanupScope, claimed.leaseToken!),
+            );
+            if (!removed) summary.failedAttempts += 1;
+            return;
+          }
+
+          if (
+            claimed.intent === "delete" &&
+            asset &&
+            asset.url === claimed.url &&
+            asset.provider === claimed.provider &&
+            asset.providerObjectId === claimed.providerObjectId &&
+            asset.deckId
+          ) {
+            summary.failedAttempts += 1;
+            await retry();
+            return;
+          }
+
+          const hasOtherReference = await runWithRequestContext(
+            requestContext,
+            () => hasOtherUploadedAssetReference(claimed),
+          );
+          if (hasOtherReference) {
+            await runWithRequestContext(requestContext, () =>
+              getDb().transaction(async (transaction) => {
+                await deleteUploadedAssetRowForCleanup(transaction, claimed);
+                const removed = await finishOwnedUploadedAssetCleanup(
+                  transaction,
+                  cleanupScope,
+                  claimed.leaseToken!,
+                );
+                if (!removed) {
+                  throw new Error(
+                    "Shared asset cleanup claim was no longer current.",
+                  );
+                }
+              }),
+            );
+            return;
+          }
+
+          assertCleanupRunActive(options);
+          const deleted = await runWithRequestContext(requestContext, () =>
+            deleteUploadedFile(claimed.provider, {
+              id: claimed.providerObjectId ?? undefined,
+              url: claimed.url,
+            }),
+          );
+          if (!deleted) {
+            summary.failedAttempts += 1;
+            await retry();
+            return;
+          }
+
+          await runWithRequestContext(requestContext, () =>
+            getDb().transaction(async (transaction) => {
+              await deleteUploadedAssetRowForCleanup(transaction, claimed);
+              const removed = await finishOwnedUploadedAssetCleanup(
+                transaction,
+                cleanupScope,
+                claimed.leaseToken!,
+              );
+              if (!removed) {
+                throw new Error("Cleanup outbox claim was no longer current.");
+              }
+            }),
+          );
+        } catch (error) {
+          summary.failedAttempts += 1;
+          console.warn("[slides-upload] asset cleanup retry failed", {
+            assetId: claimed.id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          await retry();
+        }
+      }),
+    );
+  }
+
+  assertCleanupRunActive(options);
+  return summary;
+}
+
+const MAX_ORPHANED_ASSET_CLEANUPS_PER_SWEEP = 50;
+
+export async function sweepOrphanedUploadedAssetObjects({
+  deadlineAt,
+  signal,
+}: RecurringSweepContext): Promise<void> {
+  assertCleanupRunActive({ deadlineAt, signal });
+  const summary = await reapOrphanedUploadedAssetObjects(undefined, undefined, {
+    limit: MAX_ORPHANED_ASSET_CLEANUPS_PER_SWEEP,
+    deadlineAt,
+    signal,
+    concurrency: 4,
+  });
+  assertCleanupRunActive({ deadlineAt, signal });
+  if (summary.failedAttempts > 0) {
+    throw new Error(
+      `${summary.failedAttempts} uploaded asset cleanup attempt(s) failed; outbox records remain available for retry.`,
+    );
+  }
+}
+
+export const reapOrphanedVideoAssetObjects = reapOrphanedUploadedAssetObjects;
 
 export async function uploadVideoAsset(args: {
   email: string;
@@ -2010,7 +2682,9 @@ export async function uploadVideoAsset(args: {
     userEmail: args.email,
     ...(orgId === undefined ? {} : { orgId }),
   };
-  await reapOrphanedVideoAssetObjects(args.email, orgId);
+  await reapOrphanedUploadedAssetObjects(args.email, orgId, {
+    limit: MAX_ORPHANED_ASSET_CLEANUPS_PER_UPLOAD,
+  });
 
   if (args.uploadSessionId) {
     const completed = await findUploadedVideoAssetForSession(
@@ -2019,6 +2693,23 @@ export async function uploadVideoAsset(args: {
       orgId ?? null,
     );
     if (completed) return completed;
+  }
+
+  const id = nanoid();
+  const cleanupScope: UploadedAssetCleanupScope = {
+    assetId: id,
+    ownerEmail: args.email,
+    orgId: orgId ?? null,
+  };
+  let cleanupToken: string;
+  try {
+    cleanupToken = await reserveUploadedAssetRegistration(cleanupScope);
+  } catch (error) {
+    console.warn("[slides-upload] could not reserve video cleanup", {
+      assetId: id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw uploadedVideoError("video_asset_registration_failed");
   }
 
   const ext = path.extname(args.originalName).toLowerCase();
@@ -2034,14 +2725,35 @@ export async function uploadVideoAsset(args: {
       }),
     );
   } catch {
+    try {
+      await parkUnresolvedUploadedAssetRegistration(cleanupScope, cleanupToken);
+    } catch (error) {
+      console.warn(
+        "[slides-upload] unresolved video reservation could not be parked",
+        {
+          assetId: id,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+    }
     throw uploadedVideoError("video_upload_storage_failed");
   }
 
   if (!result) {
+    try {
+      await cancelUploadedAssetRegistration(cleanupScope, cleanupToken);
+    } catch (error) {
+      console.warn(
+        "[slides-upload] empty video reservation could not be cleared",
+        {
+          assetId: id,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+    }
     throw uploadedVideoError("video_upload_storage_unavailable");
   }
 
-  const id = nanoid();
   const asset: UploadedVideoAsset = {
     id,
     url: result.url,
@@ -2050,11 +2762,102 @@ export async function uploadVideoAsset(args: {
     size: args.data.length,
     provider: result.provider,
   };
+  const cleanupInput: UploadedAssetCleanupOutboxInput = {
+    assetId: asset.id,
+    ownerEmail: args.email,
+    orgId: orgId ?? null,
+    provider: result.provider,
+    providerObjectId: result.id ?? null,
+    url: result.url,
+    intent: "registration",
+  };
+  try {
+    const recorded = await recordUploadedAssetCleanupObject(
+      cleanupInput,
+      cleanupToken,
+    );
+    if (!recorded) {
+      throw new Error("Uploaded asset cleanup reservation was claimed.");
+    }
+  } catch (error) {
+    let deleted = false;
+    try {
+      deleted = await runWithRequestContext(requestContext, () =>
+        deleteUploadedFile(result.provider, {
+          id: result.id ?? undefined,
+          url: result.url,
+        }),
+      );
+    } catch (deleteError) {
+      console.warn("[slides-upload] untracked video cleanup failed", {
+        assetId: asset.id,
+        error:
+          deleteError instanceof Error
+            ? deleteError.message
+            : String(deleteError),
+      });
+    }
+    if (deleted) {
+      try {
+        await cancelUploadedAssetRegistration(cleanupScope, cleanupToken);
+      } catch (cancelError) {
+        console.warn(
+          "[slides-upload] deleted video reservation could not be cleared",
+          {
+            assetId: asset.id,
+            error:
+              cancelError instanceof Error
+                ? cancelError.message
+                : String(cancelError),
+          },
+        );
+      }
+    } else {
+      let deletionClaimed = false;
+      try {
+        const deletionToken = await claimFailedUploadedAssetRegistration(
+          cleanupInput,
+          cleanupToken,
+        );
+        if (deletionToken) {
+          deletionClaimed = true;
+          await retryOwnedUploadedAssetCleanup(cleanupScope, deletionToken, 1);
+        } else {
+          await parkUnresolvedUploadedAssetRegistration(
+            cleanupScope,
+            cleanupToken,
+          );
+        }
+      } catch (queueError) {
+        if (!deletionClaimed) {
+          try {
+            await parkUnresolvedUploadedAssetRegistration(
+              cleanupScope,
+              cleanupToken,
+            );
+          } catch {
+            // The reservation remains non-deletable until trusted metadata is stored.
+          }
+        }
+        console.warn("[slides-upload] video cleanup could not be queued", {
+          assetId: asset.id,
+          error:
+            queueError instanceof Error
+              ? queueError.message
+              : String(queueError),
+        });
+      }
+    }
+    console.warn("[slides-upload] could not record video cleanup metadata", {
+      assetId: asset.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw uploadedVideoError("video_asset_registration_failed");
+  }
 
   try {
-    await getDb()
-      .insert(schema.uploadedAssets)
-      .values({
+    await registerUploadedAsset({
+      row: {
         id: asset.id,
         filename: asset.filename,
         url: asset.url,
@@ -2067,8 +2870,14 @@ export async function uploadVideoAsset(args: {
         orgId: orgId ?? null,
         ownerEmail: args.email,
         createdAt: new Date().toISOString(),
-      });
-  } catch {
+      },
+      deckId: args.deckId,
+      email: args.email,
+      orgId,
+      cleanupToken,
+      cleanupInput,
+    });
+  } catch (registrationError) {
     let committedAsset: UploadedVideoAsset | null = null;
     let assetLookupFailed = false;
     try {
@@ -2080,7 +2889,17 @@ export async function uploadVideoAsset(args: {
     } catch {
       assetLookupFailed = true;
     }
-    if (committedAsset) return committedAsset;
+    if (committedAsset) {
+      try {
+        await clearRegisteredUploadedAsset(cleanupInput, cleanupToken);
+      } catch (error) {
+        console.warn("[slides-upload] registered video cleanup remains", {
+          assetId: asset.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      return committedAsset;
+    }
 
     let completed: UploadedVideoAsset | null = null;
     let sessionLookupFailed = false;
@@ -2096,84 +2915,64 @@ export async function uploadVideoAsset(args: {
       }
     }
 
-    if (completed?.id === asset.id) return completed;
-    const cleanupUncertain = assetLookupFailed || sessionLookupFailed;
+    if (completed?.id === asset.id) {
+      try {
+        await clearRegisteredUploadedAsset(cleanupInput, cleanupToken);
+      } catch (error) {
+        console.warn("[slides-upload] registered video cleanup remains", {
+          assetId: asset.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      return completed;
+    }
+    const candidate = (registrationError as { errorCode?: unknown })?.errorCode;
+    const failureCode =
+      typeof candidate === "string" &&
+      Object.hasOwn(videoUploadFailures, candidate)
+        ? (candidate as VideoUploadFailureCode)
+        : "video_asset_registration_failed";
 
-    const cleanupKey = `${args.uploadSessionId ?? asset.id}`;
-    let cleanupRecord: string | undefined;
+    if (assetLookupFailed || sessionLookupFailed) {
+      console.warn("[slides-upload] video registration outcome is uncertain", {
+        assetId: asset.id,
+        uploadSessionId: args.uploadSessionId,
+      });
+      throw uploadedVideoError(failureCode);
+    }
+
     try {
-      cleanupRecord = await runWithRequestContext(requestContext, () =>
-        recordOrphanedVideoAssetCleanup({
-          version: 1,
-          ownerEmail: args.email,
-          orgId: orgId ?? null,
-          ...(cleanupUncertain
-            ? { assetId: asset.id, preserveIfAssetExists: true }
-            : {}),
-          provider: result.provider,
-          providerObjectId: result.id ?? null,
-          url: result.url,
-          uploadSessionId: args.uploadSessionId ?? null,
-          createdAt: new Date().toISOString(),
-        }),
+      const deletionToken = await claimFailedUploadedAssetRegistration(
+        cleanupInput,
+        cleanupToken,
       );
+      if (deletionToken) {
+        await deleteFailedUploadUsingReservation({
+          input: cleanupInput,
+          token: deletionToken,
+          requestContext,
+          mediaType: "video",
+        });
+      }
     } catch (error) {
-      console.warn("[slides-upload] could not record orphaned video object", {
-        cleanupKey,
+      console.warn("[slides-upload] video cleanup remains queued", {
+        assetId: asset.id,
         error: error instanceof Error ? error.message : String(error),
       });
     }
 
-    if (cleanupUncertain) {
-      if (!cleanupRecord) {
-        console.error("[slides-upload] uncertain video object is untracked", {
-          cleanupKey,
-        });
-      }
-      if (completed && cleanupRecord) return completed;
-      throw uploadedVideoError("video_asset_registration_failed");
-    }
-
-    let objectDeleted = false;
-    try {
-      const deleted = await runWithRequestContext(requestContext, () =>
-        deleteUploadedFile(result.provider, {
-          id: result.id ?? undefined,
-          url: result.url,
-        }),
-      );
-      objectDeleted = deleted;
-      if (deleted && cleanupRecord) {
-        try {
-          await runWithRequestContext(requestContext, () =>
-            deleteOrphanedVideoAssetCleanup(cleanupRecord!),
-          );
-        } catch (error) {
-          console.warn(
-            "[slides-upload] orphaned video cleanup receipt remains",
-            {
-              cleanupKey,
-              error: error instanceof Error ? error.message : String(error),
-            },
-          );
-        }
-      }
-      if (!deleted && !cleanupRecord) {
-        console.error("[slides-upload] orphaned video object is untracked", {
-          cleanupKey,
-        });
-      }
-    } catch (error) {
-      console.warn("[slides-upload] could not delete orphaned video object", {
-        cleanupKey,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-
-    if (completed && (objectDeleted || cleanupRecord)) return completed;
-    throw uploadedVideoError("video_asset_registration_failed");
+    if (completed) return completed;
+    throw uploadedVideoError(failureCode);
   }
 
+  try {
+    await clearRegisteredUploadedAsset(cleanupInput, cleanupToken);
+  } catch (error) {
+    console.warn("[slides-upload] registered video cleanup remains", {
+      assetId: asset.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
   return asset;
 }
 
@@ -2277,73 +3076,86 @@ export const discardUploadedVideoAsset = defineEventHandler(async (event) => {
   }
 
   const db = getDb();
-  const [asset] = await db
-    .select({
-      id: schema.uploadedAssets.id,
-      url: schema.uploadedAssets.url,
-      provider: schema.uploadedAssets.provider,
-      providerObjectId: schema.uploadedAssets.providerObjectId,
-      type: schema.uploadedAssets.type,
-      orgId: schema.uploadedAssets.orgId,
-    })
-    .from(schema.uploadedAssets)
-    .where(
-      and(
-        eq(schema.uploadedAssets.id, id),
-        eq(schema.uploadedAssets.ownerEmail, session.email),
-        session.orgId
-          ? eq(schema.uploadedAssets.orgId, session.orgId)
-          : isNull(schema.uploadedAssets.orgId),
-      ),
-    )
-    .limit(1);
+  const requestContext = {
+    userEmail: session.email,
+    ...(session.orgId ? { orgId: session.orgId } : {}),
+  };
+  let result: {
+    asset: {
+      id: string;
+      url: string;
+      provider: string | null;
+      providerObjectId: string | null;
+      type: string;
+      orgId: string | null;
+      deckId: string | null;
+    };
+    token: string;
+  } | null;
+  try {
+    result = await db.transaction(async (transaction) => {
+      const [asset] = await transaction
+        .select({
+          id: schema.uploadedAssets.id,
+          url: schema.uploadedAssets.url,
+          provider: schema.uploadedAssets.provider,
+          providerObjectId: schema.uploadedAssets.providerObjectId,
+          type: schema.uploadedAssets.type,
+          orgId: schema.uploadedAssets.orgId,
+          deckId: schema.uploadedAssets.deckId,
+        })
+        .from(schema.uploadedAssets)
+        .where(
+          and(
+            eq(schema.uploadedAssets.id, id),
+            eq(schema.uploadedAssets.ownerEmail, session.email),
+            session.orgId
+              ? eq(schema.uploadedAssets.orgId, session.orgId)
+              : isNull(schema.uploadedAssets.orgId),
+          ),
+        )
+        .for("update");
+      if (!asset) return null;
+      if (!asset.type.startsWith("video/") || !asset.provider) {
+        return { asset, token: "" };
+      }
+      if (asset.deckId) return { asset, token: "attached" };
+      const token = await scheduleUploadedAssetDeletion(transaction, {
+        assetId: asset.id,
+        ownerEmail: session.email,
+        orgId: asset.orgId,
+        provider: asset.provider,
+        providerObjectId: asset.providerObjectId,
+        url: asset.url,
+      });
+      return { asset, token };
+    });
+  } catch (error) {
+    console.warn("[slides-upload] could not queue discarded video cleanup", {
+      assetId: id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    setResponseStatus(event, 503);
+    return { error: "Could not discard uploaded video" };
+  }
 
-  if (!asset) return { success: true };
+  if (!result) return { success: true };
+  const { asset, token } = result;
   if (!asset.type.startsWith("video/") || !asset.provider) {
     setResponseStatus(event, 404);
     return { error: "Uploaded video asset was not found" };
   }
-
   const provider = asset.provider;
-  const requestContext = {
-    userEmail: session.email,
-    ...(asset.orgId ? { orgId: asset.orgId } : {}),
+  if (token === "attached") {
+    setResponseStatus(event, 409);
+    return { error: "Video asset is attached to a presentation" };
+  }
+
+  const cleanupScope = {
+    assetId: asset.id,
+    ownerEmail: session.email,
+    orgId: asset.orgId,
   };
-  let cleanupKey: string;
-  try {
-    cleanupKey = await runWithRequestContext(requestContext, () =>
-      recordOrphanedVideoAssetCleanup({
-        version: 1,
-        ownerEmail: session.email,
-        orgId: asset.orgId ?? null,
-        assetId: asset.id,
-        provider,
-        providerObjectId: asset.providerObjectId ?? null,
-        url: asset.url,
-        uploadSessionId: null,
-        createdAt: new Date().toISOString(),
-      }),
-    );
-  } catch (error) {
-    console.warn("[slides-upload] could not record discarded video cleanup", {
-      assetId: asset.id,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    setResponseStatus(event, 503);
-    return { error: "Could not discard uploaded video" };
-  }
-
-  try {
-    await deleteUploadedVideoAssetRow(asset.id, session.email, asset.orgId);
-  } catch (error) {
-    console.warn("[slides-upload] could not remove discarded video record", {
-      assetId: asset.id,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    setResponseStatus(event, 503);
-    return { error: "Could not discard uploaded video" };
-  }
-
   try {
     const deleted = await runWithRequestContext(requestContext, () =>
       deleteUploadedFile(provider, {
@@ -2351,20 +3163,42 @@ export const discardUploadedVideoAsset = defineEventHandler(async (event) => {
         url: asset.url,
       }),
     );
-    if (deleted) {
+    if (!deleted) throw new Error("Provider did not confirm video deletion.");
+    await runWithRequestContext(requestContext, () =>
+      db.transaction(async (transaction) => {
+        await deleteUploadedAssetRow(
+          transaction,
+          { ...asset, provider },
+          session.email,
+        );
+        const removed = await finishOwnedUploadedAssetCleanup(
+          transaction,
+          cleanupScope,
+          token,
+        );
+        if (!removed) {
+          throw new Error("Video cleanup lease was no longer current.");
+        }
+      }),
+    );
+  } catch (error) {
+    try {
       await runWithRequestContext(requestContext, () =>
-        deleteOrphanedVideoAssetCleanup(cleanupKey),
+        retryOwnedUploadedAssetCleanup(cleanupScope, token, 1),
       );
-    } else {
-      console.warn("[slides-upload] discarded video cleanup queued", {
+    } catch (retryError) {
+      console.warn("[slides-upload] video cleanup lease will expire", {
         assetId: asset.id,
+        error:
+          retryError instanceof Error ? retryError.message : String(retryError),
       });
     }
-  } catch (error) {
-    console.warn("[slides-upload] discarded video cleanup queued", {
+    console.warn("[slides-upload] discarded video cleanup remains queued", {
       assetId: asset.id,
       error: error instanceof Error ? error.message : String(error),
     });
+    setResponseStatus(event, 503);
+    return { error: "Could not discard uploaded video" };
   }
 
   return { success: true };

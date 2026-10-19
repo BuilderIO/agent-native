@@ -29,6 +29,8 @@ vi.mock("../server/lib/google-docs-oauth.js", () => ({
 
 import action from "./get-google-picker-token";
 
+const frontendCtx = { caller: "frontend" } as never;
+
 describe("get-google-picker-token", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -51,7 +53,7 @@ describe("get-google-picker-token", () => {
   });
 
   it("returns the current user's token and picker config", async () => {
-    await expect(action.run({})).resolves.toEqual({
+    await expect(action.run({}, frontendCtx)).resolves.toEqual({
       accessToken: "short-lived-token",
       accountEmail: "picker@example.com",
       apiKey: "picker-api-key",
@@ -71,7 +73,7 @@ describe("get-google-picker-token", () => {
       appId: null,
     });
 
-    await expect(action.run({})).rejects.toMatchObject({
+    await expect(action.run({}, frontendCtx)).rejects.toMatchObject({
       statusCode: 422,
       errorCode: "missing_picker_config",
     });
@@ -81,7 +83,7 @@ describe("get-google-picker-token", () => {
   it("fails closed when the action has no signed-in user", async () => {
     mocks.getRequestUserEmail.mockReturnValue(undefined);
 
-    await expect(action.run({})).rejects.toMatchObject({
+    await expect(action.run({}, frontendCtx)).rejects.toMatchObject({
       statusCode: 401,
       errorCode: "not_authenticated",
     });

@@ -867,7 +867,7 @@ export function getSlideTextBoxDefaultColor(
   if (designSystemText) return designSystemText;
 
   const background = canvasStyle?.backgroundColor ?? "";
-  return isDarkColor(background) ? "#ffffff" : "#111827";
+  return isDarkColor(background) ? "#ffffff" : "#111827"; // guard:allow-raw-color — choose readable slide text from the canvas background.
 }
 
 export function removeTransientBuilderIds(element: HTMLElement): void {

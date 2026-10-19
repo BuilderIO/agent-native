@@ -206,13 +206,13 @@ export function DesignSystemCard({
             {title}
           </h3>
           {isWorkspaceDefault && (
-            <span className="ms-auto inline-flex shrink-0 items-center gap-1 rounded border border-[#609FF8]/40 px-1.5 py-0.5 text-[10px] text-[#609FF8]">
+            <span className="ms-auto inline-flex shrink-0 items-center gap-1 rounded border border-primary/40 px-1.5 py-0.5 text-[10px] text-primary">
               <IconBuildingCommunity className="h-3 w-3 shrink-0" />
               {t("home.workspaceDefaultBadge")}
             </span>
           )}
           {isDefault && (
-            <span className="ml-auto shrink-0 text-[10px] font-medium uppercase text-[#609FF8] bg-[#609FF8]/10 px-1.5 py-0.5 rounded">
+            <span className="ml-auto shrink-0 text-[10px] font-medium uppercase text-primary bg-primary/10 px-1.5 py-0.5 rounded">
               Default
             </span>
           )}

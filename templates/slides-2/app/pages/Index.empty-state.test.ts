@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+// source-read-ok: pins home-header control ownership between the page shell and library surface.
 const source = readFileSync(
   path.join(path.dirname(fileURLToPath(import.meta.url)), "Index.tsx"),
   "utf8",

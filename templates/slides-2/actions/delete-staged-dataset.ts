@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import { SLIDES_APP_ID } from "../server/lib/provider-api.js";
 
-export default createDeleteStagedDatasetAction({
+const action = createDeleteStagedDatasetAction({
   description:
     "Delete a staged dataset by id, freeing its scratch storage. Use after analysis is complete or before re-staging under the same name. Only the owner who staged the dataset can delete it.",
   schema: z.object({
@@ -19,3 +19,12 @@ export default createDeleteStagedDatasetAction({
   getOwnerEmail: () => getCredentialContext()?.userEmail ?? null,
   http: false,
 });
+
+export default {
+  ...action,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
+};

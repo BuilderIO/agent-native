@@ -104,6 +104,7 @@ function isShapeMarker(el: Element): boolean {
     parseCssPx(styleValue(el, "border-left-width")) > 0 ||
     parseCssPx(styleValue(el, "border-width")) > 0;
   const bg = styleValue(el, "background-color");
+  // guard:allow-raw-color — compare the browser's computed transparent serialization.
   const hasBg = !!bg && bg !== "transparent" && bg !== "rgba(0, 0, 0, 0)";
   const hasRadius = parseCssPx(styleValue(el, "border-radius")) > 0;
   return hasBorder || hasBg || hasRadius;
@@ -118,6 +119,7 @@ function styleValue(el: Element, prop: string): string {
     try {
       return window.getComputedStyle(el).getPropertyValue(prop);
     } catch {
+      // coercion-ok: unavailable computed styles leave only inline styles for marker detection.
       return "";
     }
   }

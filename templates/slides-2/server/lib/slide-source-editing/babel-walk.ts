@@ -81,6 +81,7 @@ export function tryParse(source: string): File | null {
       errorRecovery: true,
     });
   } catch {
+    // coercion-ok: null is the typed parse-failure result; callers reject edits without an AST.
     return null;
   }
 }

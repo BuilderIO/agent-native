@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   isEmailConfigured,
   sendEmail,
@@ -192,7 +192,10 @@ export default defineAction({
         )
         .limit(1);
       if (!existingShareAfterConflict) {
-        throw new Error("Deck access share conflict could not be resolved.");
+        fail("Deck access share conflict could not be resolved.", {
+          errorCode: "deck_access_share_conflict",
+          statusCode: 409,
+        });
       }
       return {
         ok: true as const,
@@ -221,7 +224,10 @@ export default defineAction({
       )
       .returning({ id: schema.deckEvents.id });
     if (!markedRequest) {
-      throw new Error("Deck access request approval could not be recorded.");
+      fail("Deck access request approval could not be recorded.", {
+        errorCode: "deck_access_request_conflict",
+        statusCode: 409,
+      });
     }
     invalidateCollabAccessCache("deck", deckId);
 

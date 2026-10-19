@@ -10,6 +10,7 @@ export function extractGoogleDocId(input: string): string | null {
   try {
     url = new URL(trimmed);
   } catch {
+    // coercion-ok: an input that is neither a document ID nor a URL has no extractable ID.
     return null;
   }
 

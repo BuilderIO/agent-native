@@ -350,6 +350,35 @@ ON uploaded_assets (deck_id, created_at)`,
       sql: `ALTER TABLE uploaded_assets ADD COLUMN IF NOT EXISTS font_family TEXT;
 ALTER TABLE uploaded_assets ADD COLUMN IF NOT EXISTS font_variant TEXT`,
     },
+    {
+      version: 37,
+      name: "slides-share-link-deck-relation",
+      sql: `ALTER TABLE deck_share_links
+ADD COLUMN IF NOT EXISTS deck_id TEXT REFERENCES decks(id) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS deck_share_links_deck_id_idx
+ON deck_share_links (deck_id)`,
+    },
+    {
+      version: 38,
+      name: "slides-uploaded-asset-cleanup-outbox",
+      sql: `CREATE TABLE IF NOT EXISTS uploaded_asset_cleanup_outbox (
+    id TEXT PRIMARY KEY,
+    owner_email TEXT NOT NULL,
+    org_id TEXT,
+    intent TEXT NOT NULL CHECK (intent IN ('registration', 'delete')),
+    state TEXT NOT NULL CHECK (state IN ('registering', 'registered', 'unresolved', 'deleting', 'pending', 'claimed')),
+    provider TEXT,
+    provider_object_id TEXT,
+    url TEXT,
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at TEXT,
+    lease_expires_at TEXT,
+    lease_token TEXT,
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+  );
+CREATE INDEX IF NOT EXISTS uploaded_asset_cleanup_outbox_due_idx
+ON uploaded_asset_cleanup_outbox (next_attempt_at, lease_expires_at, created_at)`,
+    },
   ],
   { table: "slides_migrations" },
 );
@@ -361,47 +390,52 @@ ALTER TABLE uploaded_assets ADD COLUMN IF NOT EXISTS font_variant TEXT`,
  * schema.ts without a matching hand-written ALTER migration, which silently
  * 500s every query touching a pre-existing production table. It only ever
  * adds missing columns — never drops, renames, or retypes anything — and any
- * failure here is logged and swallowed so it can never fail boot.
+ * failure here is logged and swallowed so it cannot block readiness.
  */
 export default (nitroApp: any): void => {
-  const init = (async () => {
-    await runSlidesMigrations(nitroApp);
-    try {
-      const summary = await ensureAdditiveColumns({
-        db: getDbExec(),
-        tables: schemaTables,
-      });
-      if (summary.errors.length > 0) {
+  if (!nitroApp?.h3) return;
+  let ready: Promise<void> | undefined;
+  const waitForReady = async (event: any) => {
+    ready ??= (async () => {
+      await runSlidesMigrations(nitroApp);
+      try {
+        const summary = await ensureAdditiveColumns({
+          db: getDbExec(),
+          tables: schemaTables,
+        });
+        if (summary.errors.length > 0) {
+          console.warn(
+            "[db] ensureAdditiveColumns completed with errors:",
+            summary.errors,
+          );
+        }
+      } catch (err) {
         console.warn(
-          "[db] ensureAdditiveColumns completed with errors:",
-          summary.errors,
+          "[db] ensureAdditiveColumns failed (non-fatal):",
+          err instanceof Error ? err.message : err,
         );
       }
-    } catch (err) {
-      console.warn(
-        "[db] ensureAdditiveColumns failed (non-fatal):",
-        err instanceof Error ? err.message : err,
-      );
+    })().then(
+      () => undefined,
+      (err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error("[db] Slides migrations failed:", message);
+        throw err;
+      },
+    );
+    const attempt = ready;
+    try {
+      await attempt;
+      return undefined;
+    } catch {
+      if (ready === attempt) ready = undefined;
     }
-  })();
-
-  const ready = init.then(
-    () => null,
-    (err: unknown) => {
-      const message = err instanceof Error ? err.message : String(err);
-      console.error("[db] Slides migrations failed:", message);
-      return message;
-    },
-  );
-  const waitForReady = async (event: any) => {
-    const error = await ready;
-    if (!error) return undefined;
     setResponseStatus(event, 503);
     setResponseHeader(event, "retry-after", "5");
     return { error: "Slides database is temporarily unavailable" };
   };
-  if (!nitroApp?.h3) return;
   const app = getH3App(nitroApp);
+  app.use("/_agent-native", waitForReady);
   for (const path of ["/", "/p", "/share", "/api"]) {
     app.use(path, waitForReady);
   }

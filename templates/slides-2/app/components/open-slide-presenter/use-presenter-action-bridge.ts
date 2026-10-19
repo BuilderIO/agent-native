@@ -7,6 +7,7 @@ import {
   callAction,
   useChangeVersion,
   useDbSync,
+  useSession,
 } from "@agent-native/core/client/hooks";
 import { appStateKey } from "@shared/app-state-tabs";
 import {
@@ -17,6 +18,7 @@ import {
   type PresenterControlInput,
 } from "@shared/presenter-control";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useLocation } from "react-router";
 
 import { TAB_ID } from "@/lib/tab-id";
 
@@ -25,6 +27,22 @@ import type { OpenSlidePresenterMessage } from "./presenter-channel";
 const QUEUE_KEY = appStateKey("presenter-control-queue");
 const QUEUE_VERSION_SOURCE = `app-state:${QUEUE_KEY}`;
 const MAX_QUEUE_WRITE_ATTEMPTS = 8;
+
+function isPrivatePresenterPath(
+  pathname: string,
+  search: string,
+  authenticated: boolean,
+): boolean {
+  const segments = pathname.replace(/\/+$/, "").split("/");
+  return (
+    authenticated &&
+    segments.length === 4 &&
+    segments[1] === "deck" &&
+    Boolean(segments[2]) &&
+    segments[3] === "present" &&
+    new URLSearchParams(search).get("view") === "presenter"
+  );
+}
 
 function presenterMessage(
   command: PresenterControlCommand,
@@ -102,12 +120,18 @@ export function usePresenterActionBridge({
   const deliveredCommandIdsRef = useRef(new Set<string>());
   const [error, setError] = useState<{ value: unknown } | null>(null);
   const queueVersion = useChangeVersion(QUEUE_VERSION_SOURCE);
+  const { pathname, search } = useLocation();
+  const { status: sessionStatus } = useSession();
+  const isAuthenticated = sessionStatus === "authenticated";
 
   useDbSync({
     ignoreSource: TAB_ID,
-    realtime: enabled
-      ? { reason: "relay queued presenter commands from other tabs" }
-      : undefined,
+    realtime:
+      enabled && isPrivatePresenterPath(pathname, search, isAuthenticated)
+        ? {
+            reason: "relay presenter commands to the linked projection",
+          }
+        : undefined,
     pauseWhenHidden: false,
   });
 

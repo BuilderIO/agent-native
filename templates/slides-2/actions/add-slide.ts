@@ -540,8 +540,12 @@ export default defineAction({
         previousGeneration?.contextPackId &&
         previousGeneration.contextPackId !== recordedPackId
       ) {
-        throw new Error(
+        fail(
           "The deck's recorded creative-context pack does not match its stored metadata",
+          {
+            errorCode: "creative_context_conflict",
+            statusCode: 409,
+          },
         );
       }
       const slideElementProvenance = slideReuseLabels.map((label) => ({

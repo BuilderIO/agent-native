@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 type Clause =
   | { kind: "and" | "or"; conditions: Clause[] }
   | { kind: "eq"; column: string; value: unknown }
+  | { kind: "ne"; column: string; value: unknown }
   | { kind: "isNull"; column: string }
   | { kind: "like"; column: string; value: string };
 
@@ -21,7 +22,8 @@ const mocks = vi.hoisted(() => ({
   email: "owner@example.com" as string | null,
   orgId: "org-1" as string | null,
   asset: null as Asset | null,
-  deleteFile: vi.fn(),
+  aliases: [] as Asset[],
+  scheduleCleanup: vi.fn(),
   events: [] as string[],
   schema: {
     uploadedAssets: {
@@ -45,6 +47,8 @@ function matches(clause: Clause, asset: Asset): boolean {
       return clause.conditions.some((condition) => matches(condition, asset));
     case "eq":
       return asset[clause.column as keyof Asset] === clause.value;
+    case "ne":
+      return asset[clause.column as keyof Asset] !== clause.value;
     case "isNull":
       return asset[clause.column as keyof Asset] == null;
     case "like": {
@@ -58,15 +62,15 @@ function matches(clause: Clause, asset: Asset): boolean {
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (definition: unknown) => definition,
+  isActionContractError: (error: unknown) =>
+    Boolean(
+      error &&
+      typeof error === "object" &&
+      "errorCode" in error &&
+      "statusCode" in error,
+    ),
   fail: (message: string, details: Record<string, unknown> = {}) => {
     throw Object.assign(new Error(message), details);
-  },
-}));
-
-vi.mock("@agent-native/core/file-upload", () => ({
-  deleteUploadedFile: (...args: unknown[]) => {
-    mocks.events.push("blob-delete");
-    return mocks.deleteFile(...args);
   },
 }));
 
@@ -82,6 +86,11 @@ vi.mock("drizzle-orm", () => ({
     column,
     value,
   }),
+  ne: (column: string, value: unknown): Clause => ({
+    kind: "ne",
+    column,
+    value,
+  }),
   isNull: (column: string): Clause => ({ kind: "isNull", column }),
   like: (column: string, value: string): Clause => ({
     kind: "like",
@@ -93,44 +102,59 @@ vi.mock("drizzle-orm", () => ({
 
 vi.mock("../server/db/index.js", () => ({
   getDb: () => ({
-    select: (selection: Record<string, string>) => ({
-      from: () => ({
-        where: (clause: Clause) => ({
-          limit: async () => {
-            mocks.events.push("asset-read");
-            if (!mocks.asset || !matches(clause, mocks.asset)) return [];
-            return [
-              Object.fromEntries(
-                Object.entries(selection).map(([key, column]) => [
-                  key,
-                  mocks.asset?.[column as keyof Asset],
-                ]),
-              ),
-            ];
-          },
+    transaction: async (run: (tx: unknown) => unknown) => {
+      mocks.events.push("transaction-begin");
+      const tx = {
+        select: (selection: Record<string, string>) => ({
+          from: () => ({
+            where: (clause: Clause) => ({
+              for: async (mode: string) => {
+                mocks.events.push(`asset-read-for-${mode}`);
+                if (!mocks.asset || !matches(clause, mocks.asset)) return [];
+                return [
+                  Object.fromEntries(
+                    Object.entries(selection).map(([key, column]) => [
+                      key,
+                      mocks.asset?.[column as keyof Asset],
+                    ]),
+                  ),
+                ];
+              },
+            }),
+          }),
         }),
-      }),
-    }),
-    delete: () => ({
-      where: (clause: Clause) => ({
-        returning: async (selection: Record<string, string>) => {
-          mocks.events.push("metadata-delete");
-          if (!mocks.asset || !matches(clause, mocks.asset)) return [];
-          const deleted = mocks.asset;
-          mocks.asset = null;
-          return [
-            Object.fromEntries(
-              Object.entries(selection).map(([key, column]) => [
-                key,
-                deleted[column as keyof Asset],
-              ]),
-            ),
-          ];
-        },
-      }),
-    }),
+        delete: () => ({
+          where: (clause: Clause) => ({
+            returning: async (selection: Record<string, string>) => {
+              mocks.events.push("metadata-delete");
+              if (!mocks.asset || !matches(clause, mocks.asset)) return [];
+              const deleted = mocks.asset;
+              mocks.asset = null;
+              return [
+                Object.fromEntries(
+                  Object.entries(selection).map(([key, column]) => [
+                    key,
+                    deleted[column as keyof Asset],
+                  ]),
+                ),
+              ];
+            },
+          }),
+        }),
+      };
+      const result = await run(tx);
+      mocks.events.push("transaction-commit");
+      return result;
+    },
   }),
   schema: mocks.schema,
+}));
+
+vi.mock("../server/lib/uploaded-asset-cleanup-outbox.js", () => ({
+  scheduleUploadedAssetDeletion: (...args: unknown[]) => {
+    mocks.events.push("cleanup-schedule");
+    return mocks.scheduleCleanup(...args);
+  },
 }));
 
 import action from "./delete-asset.js";
@@ -155,40 +179,117 @@ describe("delete-asset", () => {
     mocks.email = "owner@example.com";
     mocks.orgId = "org-1";
     mocks.asset = imageAsset();
+    mocks.aliases = [];
+    mocks.scheduleCleanup.mockResolvedValue("cleanup-1");
     mocks.events.length = 0;
-    mocks.deleteFile.mockResolvedValue(true);
   });
 
-  it("deletes the stored file before removing the owned global image record", async () => {
+  it("locks the owned asset before queuing cleanup and removing its record", async () => {
     await expect(action.run({ id: "asset-1" } as never)).resolves.toEqual({
       success: true,
     });
 
     expect(mocks.events).toEqual([
-      "asset-read",
-      "blob-delete",
+      "transaction-begin",
+      "asset-read-for-update",
+      "cleanup-schedule",
       "metadata-delete",
+      "transaction-commit",
     ]);
-    expect(mocks.deleteFile).toHaveBeenCalledWith("s3", {
-      id: "object-1",
+    expect(mocks.scheduleCleanup).toHaveBeenCalledWith(expect.any(Object), {
+      assetId: "asset-1",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+      provider: "s3",
+      providerObjectId: "object-1",
       url: "https://storage.example.test/asset-1.png",
     });
     expect(mocks.asset).toBeNull();
   });
 
-  it("lets the owner delete a legacy image without a workspace id", async () => {
+  it("does nothing when a concurrent replacement already removed the source row", async () => {
+    mocks.asset = null;
+
+    await expect(action.run({ id: "asset-1" } as never)).resolves.toEqual({
+      success: true,
+    });
+
+    expect(mocks.events).toEqual([
+      "transaction-begin",
+      "asset-read-for-update",
+      "transaction-commit",
+    ]);
+    expect(mocks.scheduleCleanup).not.toHaveBeenCalled();
+  });
+
+  it("uses the asset's actual workspace scope for a legacy image", async () => {
     mocks.asset = imageAsset({ orgId: null });
 
     await expect(action.run({ id: "asset-1" } as never)).resolves.toEqual({
       success: true,
     });
 
-    expect(mocks.events).toEqual([
-      "asset-read",
-      "blob-delete",
-      "metadata-delete",
-    ]);
+    expect(mocks.scheduleCleanup).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ orgId: null }),
+    );
     expect(mocks.asset).toBeNull();
+  });
+
+  it("schedules cleanup for reaper alias checks when another row references the object", async () => {
+    const asset = imageAsset();
+    const alias = imageAsset({
+      id: "asset-alias",
+      url: "https://storage.example.test/asset-alias.png",
+      ownerEmail: "another-owner@example.com",
+      orgId: "org-2",
+      deckId: "deck-1",
+    });
+    mocks.asset = asset;
+    mocks.aliases = [alias];
+
+    await expect(action.run({ id: asset.id } as never)).resolves.toEqual({
+      success: true,
+    });
+
+    expect(mocks.events).toEqual([
+      "transaction-begin",
+      "asset-read-for-update",
+      "cleanup-schedule",
+      "metadata-delete",
+      "transaction-commit",
+    ]);
+    expect(mocks.scheduleCleanup).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ provider: "s3", providerObjectId: "object-1" }),
+    );
+    expect(mocks.asset).toBeNull();
+    expect(mocks.aliases).toEqual([alias]);
+  });
+
+  it("preserves provider identity in cleanup when another provider has the same URL", async () => {
+    const asset = imageAsset();
+    const otherProviderAsset = imageAsset({
+      id: "asset-other-provider",
+      provider: "gcs",
+      providerObjectId: "other-object-1",
+      ownerEmail: "another-owner@example.com",
+      orgId: "org-2",
+      deckId: "deck-1",
+    });
+    mocks.asset = asset;
+    mocks.aliases = [otherProviderAsset];
+
+    await expect(action.run({ id: asset.id } as never)).resolves.toEqual({
+      success: true,
+    });
+
+    expect(mocks.scheduleCleanup).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ provider: "s3", providerObjectId: "object-1" }),
+    );
+    expect(mocks.asset).toBeNull();
+    expect(mocks.aliases).toEqual([otherProviderAsset]);
   });
 
   it.each<[string, Partial<Asset>]>([
@@ -203,38 +304,41 @@ describe("delete-asset", () => {
       success: true,
     });
 
-    expect(mocks.deleteFile).not.toHaveBeenCalled();
-    expect(mocks.events).toEqual(["asset-read"]);
+    expect(mocks.scheduleCleanup).not.toHaveBeenCalled();
+    expect(mocks.events).toEqual([
+      "transaction-begin",
+      "asset-read-for-update",
+      "transaction-commit",
+    ]);
     expect(mocks.asset).not.toBeNull();
   });
 
-  it("keeps the asset record when storage does not confirm deletion", async () => {
-    mocks.deleteFile.mockResolvedValue(false);
+  it("does not remove an image without a configured storage provider", async () => {
+    mocks.asset = imageAsset({ provider: null });
 
     await expect(action.run({ id: "asset-1" } as never)).rejects.toMatchObject({
-      errorCode: "asset_delete_storage_failed",
+      errorCode: "asset_delete_storage_unavailable",
       statusCode: 503,
     });
 
-    expect(mocks.events).toEqual(["asset-read", "blob-delete"]);
+    expect(mocks.scheduleCleanup).not.toHaveBeenCalled();
     expect(mocks.asset).not.toBeNull();
   });
 
-  it("keeps an S3 record when its scoped provider object handle is missing", async () => {
-    mocks.asset = imageAsset({ provider: "s3", providerObjectId: null });
-    mocks.deleteFile.mockResolvedValue(false);
+  it("keeps the asset record when cleanup cannot be queued", async () => {
+    mocks.scheduleCleanup.mockRejectedValueOnce(new Error("outbox failed"));
 
     await expect(action.run({ id: "asset-1" } as never)).rejects.toMatchObject({
-      errorCode: "asset_delete_storage_failed",
-      statusCode: 503,
+      errorCode: "asset_delete_failed",
+      statusCode: 500,
     });
 
-    expect(mocks.deleteFile).toHaveBeenCalledWith("s3", {
-      id: undefined,
-      url: "https://storage.example.test/asset-1.png",
-    });
+    expect(mocks.events).toEqual([
+      "transaction-begin",
+      "asset-read-for-update",
+      "cleanup-schedule",
+    ]);
     expect(mocks.asset).not.toBeNull();
-    expect(mocks.events).toEqual(["asset-read", "blob-delete"]);
   });
 
   it("does not access storage without an authenticated owner", async () => {
@@ -246,6 +350,6 @@ describe("delete-asset", () => {
     });
 
     expect(mocks.events).toEqual([]);
-    expect(mocks.deleteFile).not.toHaveBeenCalled();
+    expect(mocks.scheduleCleanup).not.toHaveBeenCalled();
   });
 });

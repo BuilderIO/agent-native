@@ -148,8 +148,8 @@ describe("trackSlideContentEdited", () => {
     expect(mockTrack).toHaveBeenCalledTimes(1);
     expect(mockTrack.mock.calls[0]?.[0]).toBe("deck_edited");
     expect(mockTrack.mock.calls[0]?.[1]).toEqual({
-      app_name: "slides",
-      template_name: "slides",
+      app_name: "slides-2",
+      template_name: "slides-2",
       run_id: "run-1",
       turn_id: "turn-1",
       thread_id: "thread-1",
@@ -214,8 +214,8 @@ describe("trackDeckCreationStarted", () => {
     expect(mockTrack.mock.calls[0]?.[0]).toBe("deck_creation_started");
     const properties = mockTrack.mock.calls[0]?.[1] as Record<string, unknown>;
     expect(properties).toEqual({
-      app_name: "slides",
-      template_name: "slides",
+      app_name: "slides-2",
+      template_name: "slides-2",
       run_id: "run-1",
       turn_id: "turn-1",
       thread_id: "thread-1",

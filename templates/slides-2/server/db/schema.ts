@@ -52,14 +52,23 @@ export const designSystems = table("design_systems", {
 
 export const designSystemShares = createSharesTable("design_system_shares");
 
-export const deckShareLinks = table("deck_share_links", {
-  token: text("token").primaryKey(),
-  title: text("title").notNull(),
-  slides: text("slides").notNull(), // JSON array of slide snapshots
-  aspectRatio: text("aspect_ratio"),
-  designSystemData: text("design_system_data"), // Share-safe token snapshot
-  createdAt: text("created_at").notNull().default(now()),
-});
+export const deckShareLinks = table(
+  "deck_share_links",
+  {
+    token: text("token").primaryKey(),
+    title: text("title").notNull(),
+    slides: text("slides").notNull(), // JSON array of slide snapshots
+    aspectRatio: text("aspect_ratio"),
+    designSystemData: text("design_system_data"), // Share-safe token snapshot
+    deckId: text("deck_id").references(() => decks.id, {
+      onDelete: "cascade",
+    }),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (shareLink) => ({
+    deckIdx: index("deck_share_links_deck_id_idx").on(shareLink.deckId),
+  }),
+);
 
 export const uploadedAssets = table(
   "uploaded_assets",
@@ -86,6 +95,32 @@ export const uploadedAssets = table(
     deckCreatedIdx: index("uploaded_assets_deck_created_idx").on(
       asset.deckId,
       asset.createdAt,
+    ),
+  }),
+);
+
+export const uploadedAssetCleanupOutbox = table(
+  "uploaded_asset_cleanup_outbox",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    intent: text("intent").notNull(),
+    state: text("state").notNull(),
+    provider: text("provider"),
+    providerObjectId: text("provider_object_id"),
+    url: text("url"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    nextAttemptAt: text("next_attempt_at"),
+    leaseExpiresAt: text("lease_expires_at"),
+    leaseToken: text("lease_token"),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (cleanup) => ({
+    dueIdx: index("uploaded_asset_cleanup_outbox_due_idx").on(
+      cleanup.nextAttemptAt,
+      cleanup.leaseExpiresAt,
+      cleanup.createdAt,
     ),
   }),
 );

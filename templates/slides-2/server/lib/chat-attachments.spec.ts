@@ -41,6 +41,7 @@ import {
   readSlidesDeckGenerationContext,
 } from "./chat-attachments";
 
+// source-read-ok: pins request-preparation registration at the Slides chat plugin boundary.
 const agentChatPlugin = readFileSync(
   new URL("../plugins/agent-chat.ts", import.meta.url),
   "utf8",

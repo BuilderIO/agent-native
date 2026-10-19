@@ -34,6 +34,10 @@ interface ReferenceImage {
   mimeType: string;
 }
 
+type ReferenceImageFetchResult =
+  | { status: "loaded"; image: ReferenceImage }
+  | { status: "unavailable"; host: string };
+
 interface DeckSlide {
   id?: string;
   content?: unknown;
@@ -70,23 +74,37 @@ const IMAGE_MIME_EXTENSIONS: Record<string, string> = {
   "image/webp": "webp",
 };
 
+function urlHostLabel(value: string): string {
+  try {
+    return new URL(value).host;
+  } catch {
+    // coercion-ok: this is diagnostic labeling for unavailable references only.
+    return "unknown host";
+  }
+}
+
 async function urlToReferenceImage(
   url: string,
-): Promise<ReferenceImage | null> {
+): Promise<ReferenceImageFetchResult> {
   try {
     const res = await ssrfSafeFetch(
       url,
       { signal: AbortSignal.timeout(15_000) },
       { httpsOnly: true, maxRedirects: 2 },
     );
-    if (!res.ok) return null;
+    if (!res.ok) return { status: "unavailable", host: urlHostLabel(url) };
     const contentType = res.headers.get("content-type") || "";
     const mimeType = contentType.split(";")[0].trim().toLowerCase();
-    if (!IMAGE_MIME_EXTENSIONS[mimeType]) return null;
+    if (!IMAGE_MIME_EXTENSIONS[mimeType]) {
+      return { status: "unavailable", host: urlHostLabel(url) };
+    }
     const data = await readImageResponse(res, MAX_REFERENCE_IMAGE_BYTES);
-    return { data: data.toString("base64"), mimeType };
+    return {
+      status: "loaded",
+      image: { data: data.toString("base64"), mimeType },
+    };
   } catch {
-    return null;
+    return { status: "unavailable", host: urlHostLabel(url) };
   }
 }
 
@@ -95,27 +113,37 @@ function isSafeReferenceImageUrl(value: string): boolean {
     const url = new URL(value);
     return url.protocol === "https:" && !url.username && !url.password;
   } catch {
+    // coercion-ok: URL parse failure is the invalid-input result consumed by the schema and action validation; it cannot become a successful URL.
     return false;
   }
 }
 
 function parseGeneratedImageUrl(url: string | undefined): string {
   if (!url) {
-    throw new Error(
+    fail(
       "Image generation did not return a parseable image URL for insertion",
+      {
+        errorCode: "generated_image_url_invalid",
+        statusCode: 422,
+      },
     );
   }
+  let parsed: URL;
   try {
-    const parsed = new URL(url);
-    if (parsed.protocol !== "https:" || parsed.username || parsed.password) {
-      throw new Error("unsupported URL");
-    }
-    return parsed.toString();
+    parsed = new URL(url);
   } catch {
-    throw new Error(
+    fail(
       "Image generation did not return a parseable image URL for insertion (HTTPS required)",
+      { errorCode: "generated_image_url_invalid", statusCode: 422 },
     );
   }
+  if (parsed.protocol !== "https:" || parsed.username || parsed.password) {
+    fail(
+      "Image generation did not return a parseable image URL for insertion (HTTPS required)",
+      { errorCode: "generated_image_url_invalid", statusCode: 422 },
+    );
+  }
+  return parsed.toString();
 }
 
 async function readImageResponse(
@@ -124,14 +152,20 @@ async function readImageResponse(
 ): Promise<Buffer> {
   const contentLength = Number(response.headers.get("content-length"));
   if (Number.isFinite(contentLength) && contentLength > maxBytes) {
-    throw new Error("Generated image is too large to add to this deck.");
+    fail("Generated image is too large to add to this deck.", {
+      errorCode: "generated_image_too_large",
+      statusCode: 413,
+    });
   }
 
   const reader = response.body?.getReader();
   if (!reader) {
     const data = Buffer.from(await response.arrayBuffer());
     if (data.length === 0 || data.length > maxBytes) {
-      throw new Error("Generated image is empty or exceeds the 10 MB limit.");
+      fail("Generated image is empty or exceeds the 10 MB limit.", {
+        errorCode: "generated_image_invalid_size",
+        statusCode: data.length > maxBytes ? 413 : 422,
+      });
     }
     return data;
   }
@@ -145,7 +179,10 @@ async function readImageResponse(
       size += value.byteLength;
       if (size > maxBytes) {
         await reader.cancel();
-        throw new Error("Generated image exceeds the 10 MB limit.");
+        fail("Generated image exceeds the 10 MB limit.", {
+          errorCode: "generated_image_too_large",
+          statusCode: 413,
+        });
       }
       chunks.push(value);
     }
@@ -153,7 +190,12 @@ async function readImageResponse(
     reader.releaseLock();
   }
 
-  if (size === 0) throw new Error("Generated image is empty.");
+  if (size === 0) {
+    fail("Generated image is empty.", {
+      errorCode: "generated_image_empty",
+      statusCode: 422,
+    });
+  }
   const data = Buffer.allocUnsafe(size);
   let offset = 0;
   for (const chunk of chunks) {
@@ -181,34 +223,45 @@ async function registerGeneratedImage({
       { httpsOnly: true, maxRedirects: 2 },
     );
     if (!response.ok) {
-      throw new Error(
-        `Could not download the selected image (HTTP ${response.status}).`,
-      );
+      fail(`Could not download the selected image (HTTP ${response.status}).`, {
+        errorCode: "selected_image_download_failed",
+        statusCode: 502,
+      });
     }
     mimeType = (response.headers.get("content-type") || "")
       .split(";")[0]
       .trim()
       .toLowerCase();
     if (!IMAGE_MIME_EXTENSIONS[mimeType]) {
-      throw new Error(
-        "The selected URL did not return a supported image type.",
-      );
+      fail("The selected URL did not return a supported image type.", {
+        errorCode: "selected_image_unsupported_type",
+        statusCode: 422,
+      });
     }
     data = await readImageResponse(response);
   } else {
     data = Buffer.from(input.data);
     mimeType = input.mimeType.split(";")[0].trim().toLowerCase();
     if (!IMAGE_MIME_EXTENSIONS[mimeType]) {
-      throw new Error("The generated image has an unsupported image type.");
+      fail("The generated image has an unsupported image type.", {
+        errorCode: "generated_image_invalid_type",
+        statusCode: 502,
+      });
     }
     if (data.length === 0 || data.length > MAX_ASSET_FILE_SIZE) {
-      throw new Error("Generated image is empty or exceeds the 10 MB limit.");
+      fail("Generated image is empty or exceeds the 10 MB limit.", {
+        errorCode: "generated_image_invalid_size",
+        statusCode: data.length > MAX_ASSET_FILE_SIZE ? 413 : 422,
+      });
     }
   }
 
   const email = getRequestUserEmail();
   if (!email)
-    throw new Error("An authenticated user is required to add an image.");
+    fail("An authenticated user is required to add an image.", {
+      errorCode: "not_authenticated",
+      statusCode: 401,
+    });
   const asset = await uploadImageAsset({
     email,
     orgId: getRequestOrgId(),
@@ -218,9 +271,10 @@ async function registerGeneratedImage({
     type: mimeType,
   });
   if (!asset.id || !asset.url) {
-    throw new Error(
-      "The generated image was uploaded without an asset handle.",
-    );
+    fail("The generated image was uploaded without an asset handle.", {
+      errorCode: "generated_image_asset_unverified",
+      statusCode: 503,
+    });
   }
   return asset;
 }
@@ -243,9 +297,10 @@ async function insertGeneratedImage({
   sourceHash?: string;
 }> {
   if (!deckId || !slideId) {
-    throw new Error(
-      "deckId and slideId are required when insertIntoSlide is true",
-    );
+    fail("deckId and slideId are required when insertIntoSlide is true", {
+      errorCode: "image_insertion_target_required",
+      statusCode: 400,
+    });
   }
   if (input.kind === "url") {
     input = { ...input, url: parseGeneratedImageUrl(input.url) };
@@ -258,7 +313,10 @@ async function insertGeneratedImage({
   })) as DeckWithSlides;
   const slide = deck.slides?.find((candidate) => candidate.id === slideId);
   if (!slide) {
-    throw new Error(`Slide ${slideId} was not found in deck ${deckId}.`);
+    fail(`Slide ${slideId} was not found in deck ${deckId}.`, {
+      errorCode: "slide_not_found",
+      statusCode: 404,
+    });
   }
 
   let sourceSnapshot:
@@ -272,8 +330,9 @@ async function insertGeneratedImage({
     typeof slide.content !== "string" ||
     typeof slide.contentHash !== "string"
   ) {
-    throw new Error(
+    fail(
       `Slide ${slideId} does not have readable content for image insertion.`,
+      { errorCode: "invalid_slide_data", statusCode: 422 },
     );
   }
 
@@ -281,9 +340,10 @@ async function insertGeneratedImage({
 
   if (sourceSnapshot) {
     if (!imageTarget) {
-      throw new Error(
-        `Slide ${slideId} has source but no safe image insertion target.`,
-      );
+      fail(`Slide ${slideId} has source but no safe image insertion target.`, {
+        errorCode: "image_insertion_target_not_found",
+        statusCode: 422,
+      });
     }
     const operation =
       imageTarget.operation === "replace-placeholder-with-image"
@@ -316,9 +376,10 @@ async function insertGeneratedImage({
       verified.slide.sourceHash !== update.sourceHash ||
       !verified.slide.sourceTsx.includes(assetRef)
     ) {
-      throw new Error(
-        `Image source update could not be verified on slide ${slideId}.`,
-      );
+      fail(`Image source update could not be verified on slide ${slideId}.`, {
+        errorCode: "image_source_update_unverified",
+        statusCode: 503,
+      });
     }
     return {
       inserted: true,
@@ -344,7 +405,10 @@ async function insertGeneratedImage({
     preserveSource: true,
   });
   if (!update.ok || !("applied" in update) || !update.applied) {
-    throw new Error(`Image insertion was not applied to slide ${slideId}.`);
+    fail(`Image insertion was not applied to slide ${slideId}.`, {
+      errorCode: "image_insertion_not_applied",
+      statusCode: 409,
+    });
   }
 
   const verifiedDeck = (await getDeckAction.run({
@@ -360,9 +424,10 @@ async function insertGeneratedImage({
     typeof verifiedSlide.content !== "string" ||
     !slideHtmlContainsImageSource(verifiedSlide.content, asset.url)
   ) {
-    throw new Error(
-      `Image insertion could not be verified on slide ${slideId}.`,
-    );
+    fail(`Image insertion could not be verified on slide ${slideId}.`, {
+      errorCode: "image_insertion_unverified",
+      statusCode: 503,
+    });
   }
 
   return { inserted: true, url: asset.url, assetId: asset.id };
@@ -414,7 +479,10 @@ export default defineAction({
   run: async (args) => {
     const prompt = args.prompt;
     if (!prompt?.trim()) {
-      throw new Error("Prompt is required");
+      fail("Prompt is required", {
+        errorCode: "image_prompt_required",
+        statusCode: 400,
+      });
     }
     const referenceImageUrls = normalizeReferenceUrls(args.referenceImageUrls);
     if (
@@ -427,18 +495,20 @@ export default defineAction({
       });
     }
     if (args.insertIntoSlide && (!args.deckId || !args.slideId)) {
-      throw new Error(
-        "deckId and slideId are required when insertIntoSlide is true",
-      );
+      fail("deckId and slideId are required when insertIntoSlide is true", {
+        errorCode: "image_insertion_target_required",
+        statusCode: 400,
+      });
     }
     if (args.insertIntoSlide && args.deckId) {
       await assertAccess("deck", args.deckId, "editor");
     }
     if (args.generatedImageUrl) {
       if (!args.insertIntoSlide) {
-        throw new Error(
-          "generatedImageUrl can only be used with insertIntoSlide: true",
-        );
+        fail("generatedImageUrl can only be used with insertIntoSlide: true", {
+          errorCode: "image_url_requires_insertion",
+          statusCode: 400,
+        });
       }
       const insertion = await insertGeneratedImage({
         deckId: args.deckId,
@@ -494,15 +564,17 @@ export default defineAction({
     }
 
     if (delegation.status === "pending") {
-      throw new Error(
+      fail(
         `Assets is still generating (task ${delegation.taskId}, state "${delegation.lastState}"). ` +
           `It was not cancelled - check the Assets app for the result instead of generating again.`,
+        { errorCode: "image_generation_pending", statusCode: 409 },
       );
     }
 
     if (delegation.status === "rejected") {
-      throw new Error(
+      fail(
         `Assets could not generate this image (${delegation.state}): ${delegation.reason}`,
+        { errorCode: "image_generation_rejected", statusCode: 422 },
       );
     }
 
@@ -525,8 +597,10 @@ export default defineAction({
       });
     }
     const results = await Promise.all(referenceUrls.map(urlToReferenceImage));
+    const unavailableReferenceImageHosts: string[] = [];
     for (const r of results) {
-      if (r) refImages.push(r);
+      if (r.status === "loaded") refImages.push(r.image);
+      else unavailableReferenceImageHosts.push(r.host);
     }
 
     const result = await provider.generate(prompt, refImages);
@@ -547,6 +621,7 @@ export default defineAction({
         showToUser: imagePreviewMarkdown(prompt, insertion.url),
         model: result.model,
         prompt,
+        unavailableReferenceImageHosts,
         ...insertion,
       };
     }
@@ -590,6 +665,7 @@ export default defineAction({
       url: uploaded.url,
       model: result.model,
       prompt,
+      unavailableReferenceImageHosts,
     };
   },
 });

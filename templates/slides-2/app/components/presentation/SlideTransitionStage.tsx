@@ -65,7 +65,9 @@ export function PresentationSlideLayer({
     return (
       <div
         role="status"
-        className="absolute inset-0 flex items-center justify-center p-10 text-center text-lg text-white/80"
+        className={
+          /* guard:allow-raw-color — transition error overlays use the fixed presenter-stage contrast. */ "absolute inset-0 flex items-center justify-center p-10 text-center text-lg text-white/80"
+        }
       >
         {t("presentation.reactSlideUnavailable")}
       </div>

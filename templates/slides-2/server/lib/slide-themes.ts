@@ -24,9 +24,9 @@ const themes = [
       "Kinetic sports-launch deck \u2014 electric violet, volt accent, italic condensed caps, every edge cut on one 12\u00b0 angle.",
     mode: "dark",
     preview: {
-      background: "#4B1DFF",
-      text: "#FFFFFF",
-      accent: "#D8FF2E",
+      background: "#4B1DFF", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      text: "#FFFFFF", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      accent: "#D8FF2E", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
     },
     guide: [
       "# Aero",
@@ -37,16 +37,16 @@ const themes = [
       "",
       "| Role     | Value                    | Notes                                                                                   |",
       "| -------- | ------------------------ | --------------------------------------------------------------------------------------- |",
-      '| bg       | `#4B1DFF`                | electric violet ("UV") \u2014 default page, `design.palette.bg`                              |',
-      "| text     | `#FFFFFF`                | primary copy on violet and ink                                                          |",
-      '| accent   | `#D8FF2E`                | volt \u2014 hero digits, bands, bib + kicker chips, the "target" in every chart              |',
-      "| ink      | `#0B0A14`                | near-black \u2014 text on volt, third page tone, chip / marker fill                          |",
-      "| deep     | `#2A0FA3`                | deep violet \u2014 streaks, baseline bars, track and start-line blocks on violet             |",
-      "| muted    | `#D3CAFF`                | lavender \u2014 secondary copy, labels, axis ticks on violet (`TONES.uv.dim`)                |",
-      '| coral    | `#FF4A3D`                | hot accent \u2014 placings ("1st"), record counts, one chip per page at most                 |',
-      "| foam     | `#BBAEFF`                | light violet tint for illustration fills only                                           |",
-      "| whiteA   | `rgba(255,255,255,a)`    | `0.6` dim copy on ink \u00b7 `0.22\u20130.36` streaks + rules \u00b7 `0.26` inactive bars \u00b7 `0.12` chip |",
-      "| inkA     | `rgba(11,10,20,a)`       | on volt pages: `0.66` secondary copy \u00b7 `0.7` captions \u00b7 `0.24` inactive bars + rules    |",
+      '| bg       | `#4B1DFF`                | electric violet ("UV") \u2014 default page, `design.palette.bg`                              |', // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "| text     | `#FFFFFF`                | primary copy on violet and ink                                                          |", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      '| accent   | `#D8FF2E`                | volt \u2014 hero digits, bands, bib + kicker chips, the "target" in every chart              |', // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "| ink      | `#0B0A14`                | near-black \u2014 text on volt, third page tone, chip / marker fill                          |", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "| deep     | `#2A0FA3`                | deep violet \u2014 streaks, baseline bars, track and start-line blocks on violet             |", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "| muted    | `#D3CAFF`                | lavender \u2014 secondary copy, labels, axis ticks on violet (`TONES.uv.dim`)                |", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      '| coral    | `#FF4A3D`                | hot accent \u2014 placings ("1st"), record counts, one chip per page at most                 |', // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "| foam     | `#BBAEFF`                | light violet tint for illustration fills only                                           |", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "| whiteA   | `rgba(255,255,255,a)`    | `0.6` dim copy on ink \u00b7 `0.22\u20130.36` streaks + rules \u00b7 `0.26` inactive bars \u00b7 `0.12` chip |", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "| inkA     | `rgba(11,10,20,a)`       | on volt pages: `0.66` secondary copy \u00b7 `0.7` captions \u00b7 `0.24` inactive bars + rules    |", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
       "",
       "### Design tokens + tones",
       "",
@@ -54,7 +54,7 @@ const themes = [
       "",
       "```tsx",
       "export const design: DesignSystem = {",
-      "  palette: { bg: '#4B1DFF', text: '#FFFFFF', accent: '#D8FF2E' },",
+      "  palette: { bg: '#4B1DFF', text: '#FFFFFF', accent: '#D8FF2E' },", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
       "  fonts: {",
       '    display: \'"Barlow Condensed", "Arial Narrow", system-ui, sans-serif\',',
       "    body: '\"Barlow\", system-ui, sans-serif',",
@@ -63,12 +63,12 @@ const themes = [
       "  radius: 0,",
       "};",
       "",
-      "const INK = '#0B0A14';",
-      "const CORAL = '#FF4A3D';",
-      "const DEEP = '#2A0FA3';",
-      "const LAV = '#D3CAFF';",
-      "const WHITE_A = (a: number) => `rgba(255,255,255,${a})`;",
-      "const INK_A = (a: number) => `rgba(11,10,20,${a})`;",
+      "const INK = '#0B0A14';", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "const CORAL = '#FF4A3D';", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "const DEEP = '#2A0FA3';", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "const LAV = '#D3CAFF';", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "const WHITE_A = (a: number) => `rgba(255,255,255,${a})`;", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "const INK_A = (a: number) => `rgba(11,10,20,${a})`;", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
       "",
       "type Tone = 'uv' | 'volt' | 'ink';",
       "",
@@ -77,14 +77,14 @@ const themes = [
       "  volt: {",
       "    bg: 'var(--osd-accent)',",
       "    fg: INK,",
-      "    dim: 'rgba(11,10,20,0.66)',",
+      "    dim: 'rgba(11,10,20,0.66)',", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
       "    hi: INK,",
       "    hiFg: 'var(--osd-accent)',",
       "  },",
       "  ink: {",
       "    bg: INK,",
       "    fg: 'var(--osd-text)',",
-      "    dim: 'rgba(255,255,255,0.6)',",
+      "    dim: 'rgba(255,255,255,0.6)',", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
       "    hi: 'var(--osd-accent)',",
       "    hiFg: INK,",
       "  },",
@@ -592,7 +592,7 @@ const themes = [
       "",
       '- `CutBar` \u2014 horizontal data bar; `deep` for baseline, `VoltBand` (or volt `CutBar`) for the target, `INK_A(0.24)` for "category average" on volt pages.',
       "- `SkewRule` \u2014 6 px volt divider between hero stats; 3 px `WHITE_A(0.3)` for split / table columns.",
-      '- `Chip` \u2014 coral by default for placings and callouts; `bg={WHITE_A(0.12)} fg="#FFFFFF"` for neutral codes (country, size).',
+      '- `Chip` \u2014 coral by default for placings and callouts; `bg={WHITE_A(0.12)} fg="#FFFFFF"` for neutral codes (country, size).', // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
       "- `SpecChip` \u2014 the spec row under a cover band: a plain first item, then each following spec led by a skewed volt tick (`4 drops`, `<SpecChip>38 markets</SpecChip>`, \u2026).",
       "",
       "## Motion",
@@ -723,9 +723,9 @@ const themes = [
       "Notion-style operating plan \u2014 warm off-white page, heavy Inter headlines, Newsreader italic quotes, wobbly ink illustrations, pastel tinted cards and coral hand-drawn annotations.",
     mode: "light",
     preview: {
-      background: "#FFFEFC",
-      text: "#191919",
-      accent: "#E8553B",
+      background: "#FFFEFC", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      text: "#191919", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      accent: "#E8553B", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
     },
     guide: [
       "# Fieldwork",
@@ -736,33 +736,33 @@ const themes = [
       "",
       "| Role        | Value                  | Notes                                                    |",
       "| ----------- | ---------------------- | -------------------------------------------------------- |",
-      "| bg          | `#FFFEFC`              | warm off-white page                                      |",
-      "| text        | `#191919`              | ink \u2014 headlines, strokes, primary copy                   |",
-      "| accent      | `#E8553B`              | coral \u2014 eyebrow, annotations, circled numbers, misses    |",
-      "| body        | `#5F5E5B`              | warm grey body copy and subtitles                        |",
-      '| muted       | `#9B9A97`              | captions, footer, card index, the "from" in from \u2192 to    |',
-      "| rule        | `rgba(25,25,25,0.12)`  | 1.5 px hairlines between rows                            |",
-      "| track       | `rgba(25,25,25,0.09)`  | progress-bar track                                       |",
-      '| neutral     | `#E7E5E0`              | "previous period" bars in charts                         |',
-      "| paper       | `#FFFFFF`              | fill inside ink drawings (phones, pages, faces)          |",
-      "| yellow      | `#F8DA7E`              | illustration fill, sparkles, backdrop circles            |",
-      "| blue        | `#8DBDEB`              | illustration fill                                        |",
-      "| pink        | `#F6C3CF`              | illustration fill                                        |",
-      "| green       | `#A6D4B2`              | illustration fill                                        |",
-      "| highlight   | `#FCE38A`              | marker highlight behind a phrase (alt: `#FADDE4` pink)   |",
-      "| tintYellow  | `#FBF3DB`              | card background                                          |",
-      "| tintBlue    | `#E7F3F8`              | card background                                          |",
-      "| tintPink    | `#FAF1F5`              | card background                                          |",
-      "| tintGreen   | `#EDF3EC`              | card background                                          |",
-      "| ok          | `#448361`              | status text \u2014 on track                                   |",
-      "| warn        | `#B07A12`              | status text \u2014 medium risk                                |",
-      '| note        | `#3E7FCF`              | secondary annotation stroke / "watch" status             |',
+      "| bg          | `#FFFEFC`              | warm off-white page                                      |", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "| text        | `#191919`              | ink \u2014 headlines, strokes, primary copy                   |", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "| accent      | `#E8553B`              | coral \u2014 eyebrow, annotations, circled numbers, misses    |", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "| body        | `#5F5E5B`              | warm grey body copy and subtitles                        |", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      '| muted       | `#9B9A97`              | captions, footer, card index, the "from" in from \u2192 to    |', // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "| rule        | `rgba(25,25,25,0.12)`  | 1.5 px hairlines between rows                            |", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "| track       | `rgba(25,25,25,0.09)`  | progress-bar track                                       |", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      '| neutral     | `#E7E5E0`              | "previous period" bars in charts                         |', // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "| paper       | `#FFFFFF`              | fill inside ink drawings (phones, pages, faces)          |", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "| yellow      | `#F8DA7E`              | illustration fill, sparkles, backdrop circles            |", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "| blue        | `#8DBDEB`              | illustration fill                                        |", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "| pink        | `#F6C3CF`              | illustration fill                                        |", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "| green       | `#A6D4B2`              | illustration fill                                        |", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "| highlight   | `#FCE38A`              | marker highlight behind a phrase (alt: `#FADDE4` pink)   |", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "| tintYellow  | `#FBF3DB`              | card background                                          |", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "| tintBlue    | `#E7F3F8`              | card background                                          |", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "| tintPink    | `#FAF1F5`              | card background                                          |", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "| tintGreen   | `#EDF3EC`              | card background                                          |", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "| ok          | `#448361`              | status text \u2014 on track                                   |", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "| warn        | `#B07A12`              | status text \u2014 medium risk                                |", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      '| note        | `#3E7FCF`              | secondary annotation stroke / "watch" status             |', // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
       "",
       "Tweakable tokens for a real slide (headlines read `var(--osd-font-display)`, hero size reads `var(--osd-size-hero)`):",
       "",
       "```tsx",
       "export const design: DesignSystem = {",
-      "  palette: { bg: '#FFFEFC', text: '#191919', accent: '#E8553B' },",
+      "  palette: { bg: '#FFFEFC', text: '#191919', accent: '#E8553B' },", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
       "  fonts: {",
       '    display: \'"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, sans-serif\',',
       '    body: \'"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, sans-serif\',',
@@ -826,7 +826,7 @@ const themes = [
       "      lineHeight: 1,",
       "      letterSpacing: '-0.04em',",
       "      wordSpacing: '0.08em',",
-      "      color: '#191919',",
+      "      color: '#191919',", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
       "    }}",
       "  >",
       "    {children}",
@@ -849,7 +849,7 @@ const themes = [
       "      lineHeight: 1,",
       "      letterSpacing: size >= 100 ? '-0.04em' : '-0.03em',",
       "      wordSpacing: '0.08em',",
-      "      color: '#191919',",
+      "      color: '#191919',", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
       "    }}",
       "  >",
       "    {children}",
@@ -874,9 +874,9 @@ const themes = [
       "  >",
       "    <path",
       '      d="M10 24C8.5 20 1.5 15 1.5 9.5a8.5 8.5 0 0 1 17 0C18.5 15 11.5 20 10 24Z"',
-      '      fill="#191919"',
+      '      fill="#191919"', // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
       "    />",
-      '    <circle cx="10" cy="9.5" r="3.4" fill="#FFFEFC" />',
+      '    <circle cx="10" cy="9.5" r="3.4" fill="#FFFEFC" />', // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
       "  </svg>",
       ");",
       "",
@@ -902,12 +902,12 @@ const themes = [
       "        justifyContent: 'space-between',",
       '        fontFamily: \'"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, sans-serif\',',
       "        fontSize: 21,",
-      "        color: '#9B9A97',",
+      "        color: '#9B9A97',", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
       "      }}",
       "    >",
       "      <span style={{ display: 'flex', alignItems: 'center', gap: 12 }}>",
       "        <Mark size={24} />",
-      "        <span style={{ color: '#191919', fontWeight: 720, letterSpacing: '-0.02em' }}>{brand}</span>",
+      "        <span style={{ color: '#191919', fontWeight: 720, letterSpacing: '-0.02em' }}>{brand}</span>", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
       "        <span style={{ marginLeft: 12 }}>{label}</span>",
       "      </span>",
       "      <span>",
@@ -930,7 +930,7 @@ const themes = [
       "      fontSize: 26,",
       "      fontWeight: 650,",
       "      letterSpacing: '-0.01em',",
-      "      color: '#E8553B',",
+      "      color: '#E8553B',", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
       "    }}",
       "  >",
       "    {children}",
@@ -943,14 +943,14 @@ const themes = [
       "Marker swipe behind one phrase per page. Uneven radii make it look hand-applied.",
       "",
       "```tsx",
-      "const Highlight = ({ children, color = '#FCE38A' }: { children: ReactNode; color?: string }) => (",
+      "const Highlight = ({ children, color = '#FCE38A' }: { children: ReactNode; color?: string }) => (", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
       "  <span",
       "    style={{",
       "      background: color,",
       "      borderRadius: '6px 12px 8px 14px',",
       "      padding: '0 6px',",
       "      margin: '0 -2px',",
-      "      color: '#191919',",
+      "      color: '#191919',", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
       "      WebkitBoxDecorationBreak: 'clone',",
       "      boxDecorationBreak: 'clone',",
       "    }}",
@@ -966,7 +966,7 @@ const themes = [
       "",
       "```tsx",
       "const TintCard = ({",
-      "  tint = '#E7F3F8',",
+      "  tint = '#E7F3F8',", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
       "  style,",
       "  children,",
       "}: {",
@@ -991,7 +991,7 @@ const themes = [
       "",
       "### Ink, Stroke, CircleDoodle, Sparkle",
       "",
-      'The hand-drawn layer. `Ink` is an SVG with round 3.2 px ink strokes run through a turbulence filter so every line wobbles slightly. Draw illustrations inside it with plain `<path>` / `<rect>` / `<circle>`: ink outline, `#FFFFFF` or a pastel fill, and a pastel backdrop circle with `stroke="none"`. `Stroke` draws itself in when `live` is true \u2014 pass `useIsActivePage()` from the page. `CircleDoodle` loops a key number in coral; `Sparkle` is the four-point star used as a bullet, milestone or garnish.',
+      'The hand-drawn layer. `Ink` is an SVG with round 3.2 px ink strokes run through a turbulence filter so every line wobbles slightly. Draw illustrations inside it with plain `<path>` / `<rect>` / `<circle>`: ink outline, `#FFFFFF` or a pastel fill, and a pastel backdrop circle with `stroke="none"`. `Stroke` draws itself in when `live` is true \u2014 pass `useIsActivePage()` from the page. `CircleDoodle` loops a key number in coral; `Sparkle` is the four-point star used as a bullet, milestone or garnish.', // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
       "",
       "```tsx",
       "const Ink = ({",
@@ -1017,7 +1017,7 @@ const themes = [
       "      height={height}",
       "      viewBox={viewBox ?? `0 0 ${width} ${height}`}",
       '      fill="none"',
-      '      stroke="#191919"',
+      '      stroke="#191919"', // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
       "      strokeWidth={3.2}",
       '      strokeLinecap="round"',
       '      strokeLinejoin="round"',
@@ -1039,7 +1039,7 @@ const themes = [
       "  live,",
       "  delay = 0.3,",
       "  dur = 0.7,",
-      "  color = '#191919',",
+      "  color = '#191919',", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
       "  width = 3.2,",
       "}: {",
       "  d: string;",
@@ -1073,7 +1073,7 @@ const themes = [
       "  w,",
       "  h,",
       "  live,",
-      "  color = '#E8553B',",
+      "  color = '#E8553B',", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
       "  delay = 0.4,",
       "}: {",
       "  x: number;",
@@ -1093,7 +1093,7 @@ const themes = [
       "  x,",
       "  y,",
       "  s = 1,",
-      "  fill = '#F8DA7E',",
+      "  fill = '#F8DA7E',", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
       "}: {",
       "  x: number;",
       "  y: number;",
@@ -1159,8 +1159,8 @@ const themes = [
       "  position: 'relative',",
       "  width: '100%',",
       "  height: '100%',",
-      "  background: '#FFFEFC',",
-      "  color: '#191919',",
+      "  background: '#FFFEFC',", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "  color: '#191919',", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
       '  fontFamily: \'"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, sans-serif\',',
       "  fontVariantNumeric: 'tabular-nums',",
       "  WebkitFontSmoothing: 'antialiased',",
@@ -1181,10 +1181,10 @@ const themes = [
       "        plan.",
       "      </Title>",
       "    </div>",
-      "    <p style={{ ...abs(120, 772, 760), margin: 0, fontSize: 34, lineHeight: 1.45, color: '#5F5E5B' }}>",
+      "    <p style={{ ...abs(120, 772, 760), margin: 0, fontSize: 34, lineHeight: 1.45, color: '#5F5E5B' }}>", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
       "      Where we are, where we are going, and <Highlight>who owns each step</Highlight>.",
       "    </p>",
-      "    <div style={{ ...abs(120, 906), fontSize: 24, color: '#9B9A97' }}>",
+      "    <div style={{ ...abs(120, 906), fontSize: 24, color: '#9B9A97' }}>", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
       "      All-hands pre-read \u00b7 Planning team",
       "    </div>",
       "    <Footer />",
@@ -1201,7 +1201,7 @@ const themes = [
       "      <div style={abs(120, 160)}>",
       "        <Heading>Three bets this year.</Heading>",
       "      </div>",
-      '      <TintCard tint="#E7F3F8" style={abs(120, 330, 536, 610)}>',
+      '      <TintCard tint="#E7F3F8" style={abs(120, 330, 536, 610)}>', // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
       "        \u2026",
       "      </TintCard>",
       "      <CircleDoodle x={710} y={834} w={300} h={104} live={live} />",
@@ -1219,9 +1219,9 @@ const themes = [
       "Playful consumer-brand deck \u2014 cream paper, ink outlines, tomato accent, sticker-bright fills, chunky Gabarito and springy motion.",
     mode: "light",
     preview: {
-      background: "#FFF3DF",
-      text: "#151313",
-      accent: "#FF5A2C",
+      background: "#FFF3DF", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      text: "#151313", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      accent: "#FF5A2C", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
     },
     guide: [
       "# Pommi",
@@ -1232,18 +1232,18 @@ const themes = [
       "",
       "| Role      | Value                   | Notes                                                                 |",
       "| --------- | ----------------------- | --------------------------------------------------------------------- |",
-      "| bg        | `#FFF3DF`               | cream canvas (`design.palette.bg` \u2192 `CREAM`)                          |",
-      "| text      | `#151313`               | ink: copy, outlines, shadows, pill fills (`design.palette.text` \u2192 `INK`) |",
-      '| accent    | `#FF5A2C`               | tomato: hero stat block, lead sticker, "you" marks (`design.palette.accent` \u2192 `TOMATO`) |',
-      "| butter    | `#FFD23F`               | default eyebrow fill, highlight sticker, sparkles                     |",
-      '| mint      | `#7EDDB0`               | positive / "done" fills, secondary sticker                            |',
-      "| peri      | `#98A6FF`               | cool fill, cover slab, third series                                   |",
-      "| pink      | `#FFB0D0`               | fourth series, small sparkles                                         |",
-      "| paper     | `#FFFCF6`               | card surface on top of cream                                          |",
-      "| white     | `#FFFFFF`               | chat-bubble style surfaces only                                       |",
-      "| muted     | `rgba(21, 19, 19, 0.6)` | captions, mono labels, footnotes (\u2248 `#736D65` on cream)               |",
-      '| faint     | `rgba(21, 19, 19, 0.16)`| dashed dividers, grid lines, "inactive" outlines (\u2248 `#DACFBE` on cream) |',
-      "| heat ramp | `rgba(255, 90, 44, a)`  | tomato at 0.1\u20131 alpha for heatmap tiles                               |",
+      "| bg        | `#FFF3DF`               | cream canvas (`design.palette.bg` \u2192 `CREAM`)                          |", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "| text      | `#151313`               | ink: copy, outlines, shadows, pill fills (`design.palette.text` \u2192 `INK`) |", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      '| accent    | `#FF5A2C`               | tomato: hero stat block, lead sticker, "you" marks (`design.palette.accent` \u2192 `TOMATO`) |', // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "| butter    | `#FFD23F`               | default eyebrow fill, highlight sticker, sparkles                     |", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      '| mint      | `#7EDDB0`               | positive / "done" fills, secondary sticker                            |', // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "| peri      | `#98A6FF`               | cool fill, cover slab, third series                                   |", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "| pink      | `#FFB0D0`               | fourth series, small sparkles                                         |", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "| paper     | `#FFFCF6`               | card surface on top of cream                                          |", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "| white     | `#FFFFFF`               | chat-bubble style surfaces only                                       |", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "| muted     | `rgba(21, 19, 19, 0.6)` | captions, mono labels, footnotes (\u2248 `#736D65` on cream)               |", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      '| faint     | `rgba(21, 19, 19, 0.16)`| dashed dividers, grid lines, "inactive" outlines (\u2248 `#DACFBE` on cream) |', // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "| heat ramp | `rgba(255, 90, 44, a)`  | tomato at 0.1\u20131 alpha for heatmap tiles                               |", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
       "",
       "Text on any fill (tomato, butter, mint, peri, pink) is always ink \u2014 never white.",
       "",
@@ -1296,7 +1296,7 @@ const themes = [
       "import { type CSSProperties, type ReactNode, useEffect, useState } from 'react';",
       "",
       "export const design: DesignSystem = {",
-      "  palette: { bg: '#FFF3DF', text: '#151313', accent: '#FF5A2C' },",
+      "  palette: { bg: '#FFF3DF', text: '#151313', accent: '#FF5A2C' },", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
       "  fonts: {",
       "    display: '\"Gabarito\", system-ui, sans-serif',",
       "    body: '\"Gabarito\", system-ui, sans-serif',",
@@ -1308,13 +1308,13 @@ const themes = [
       "const CREAM = 'var(--osd-bg)';",
       "const INK = 'var(--osd-text)';",
       "const TOMATO = 'var(--osd-accent)';",
-      "const BUTTER = '#FFD23F';",
-      "const MINT = '#7EDDB0';",
-      "const PERI = '#98A6FF';",
-      "const PINK = '#FFB0D0';",
-      "const PAPER = '#FFFCF6';",
-      "const MUTED = 'rgba(21, 19, 19, 0.6)';",
-      "const FAINT = 'rgba(21, 19, 19, 0.16)';",
+      "const BUTTER = '#FFD23F';", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "const MINT = '#7EDDB0';", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "const PERI = '#98A6FF';", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "const PINK = '#FFB0D0';", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "const PAPER = '#FFFCF6';", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "const MUTED = 'rgba(21, 19, 19, 0.6)';", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
+      "const FAINT = 'rgba(21, 19, 19, 0.16)';", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
       "",
       "const BORDER = `4px solid ${INK}`;",
       "const shadow = (n = 8) => `${n}px ${n}px 0 ${INK}`;",

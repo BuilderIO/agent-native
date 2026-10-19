@@ -8,6 +8,7 @@ import {
   fetchRemoteImage,
   type RemoteImageFailure,
 } from "../../lib/fetch-remote-image.js";
+import { buildImageProxyResponseHeaders } from "../../lib/image-proxy-response.js";
 
 /**
  * Re-serve a remote image from our own origin.
@@ -504,12 +505,14 @@ export default defineEventHandler(async (event) => {
     return { error: FAILURE_MESSAGE[result.reason] };
   }
 
-  event.node?.res?.setHeader("Content-Type", result.contentType);
-  event.node?.res?.setHeader("Content-Length", String(result.body.byteLength));
-  event.node?.res?.setHeader(
-    "Cache-Control",
-    publicShare ? "private, no-store" : "private, max-age=3600",
-  );
-  event.node?.res?.setHeader("Access-Control-Allow-Origin", "*");
+  for (const [name, value] of Object.entries(
+    buildImageProxyResponseHeaders(
+      result.contentType,
+      result.body.byteLength,
+      publicShare,
+    ),
+  )) {
+    event.node?.res?.setHeader(name, value);
+  }
   return result.body;
 });

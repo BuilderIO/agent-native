@@ -685,11 +685,17 @@ export default function PresentationView({
 
   if (!currentSlide) {
     return (
-      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black text-white">
+      <div
+        className={
+          /* guard:allow-raw-color — the fullscreen presentation stage is fixed black for slide contrast. */ "fixed inset-0 z-[100] flex items-center justify-center bg-black text-white"
+        }
+      >
         <button
           type="button"
           onClick={exit}
-          className="rounded-lg bg-white/10 px-4 py-3 text-sm text-white transition-colors hover:bg-white/20"
+          className={
+            /* guard:allow-raw-color — fullscreen controls use fixed white contrast over the black stage. */ "rounded-lg bg-white/10 px-4 py-3 text-sm text-white transition-colors hover:bg-white/20"
+          }
         >
           {t("presentation.noSlides")}
         </button>
@@ -718,7 +724,9 @@ export default function PresentationView({
 
   return (
     <div
-      className="fixed inset-0 z-[100] bg-black overflow-hidden"
+      className={
+        /* guard:allow-raw-color — the fullscreen presentation stage remains black behind slide content. */ "fixed inset-0 z-[100] bg-black overflow-hidden"
+      }
       style={{
         height: "100dvh",
         cursor: cursorVisible ? "default" : "none",
@@ -792,7 +800,11 @@ export default function PresentationView({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-4 sm:px-6 py-4 bg-gradient-to-t from-black/80 to-transparent">
-          <span className="text-sm text-white/50 font-mono">
+          <span
+            className={
+              /* guard:allow-raw-color — controls overlay uses fixed white contrast over the black stage. */ "text-sm text-white/50 font-mono"
+            }
+          >
             {nav.displayedIndex + 1} / {safeSlides.length}
           </span>
 
@@ -800,18 +812,30 @@ export default function PresentationView({
             <button
               onClick={goPrev}
               disabled={!canCommand(nav, layout, "prev")}
-              className="p-3 sm:p-2 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              className={
+                /* guard:allow-raw-color — navigation controls use fixed white contrast over the black stage. */ "p-3 sm:p-2 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              }
               aria-label={t("presentation.previousSlide")}
             >
-              <IconChevronLeft className="w-5 h-5 sm:w-4 sm:h-4 text-white" />
+              <IconChevronLeft
+                className={
+                  /* guard:allow-raw-color — navigation icons use fixed white contrast over the black stage. */ "w-5 h-5 sm:w-4 sm:h-4 text-white"
+                }
+              />
             </button>
             <button
               onClick={goNext}
               disabled={!canCommand(nav, layout, "next")}
-              className="p-3 sm:p-2 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              className={
+                /* guard:allow-raw-color — navigation controls use fixed white contrast over the black stage. */ "p-3 sm:p-2 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              }
               aria-label={t("presentation.nextSlide")}
             >
-              <IconChevronRight className="w-5 h-5 sm:w-4 sm:h-4 text-white" />
+              <IconChevronRight
+                className={
+                  /* guard:allow-raw-color — navigation icons use fixed white contrast over the black stage. */ "w-5 h-5 sm:w-4 sm:h-4 text-white"
+                }
+              />
             </button>
           </div>
 
@@ -848,26 +872,42 @@ export default function PresentationView({
             )}
             <button
               onClick={openPresenterWindow}
-              className="p-3 sm:p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors cursor-pointer"
+              className={
+                /* guard:allow-raw-color — presenter controls use fixed white contrast over the black stage. */ "p-3 sm:p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors cursor-pointer"
+              }
               aria-label={t("presentation.presenterView")}
               title={t("presentation.presenterView")}
             >
-              <IconNotes className="w-5 h-5 sm:w-4 sm:h-4 text-white" />
+              <IconNotes
+                className={
+                  /* guard:allow-raw-color — presenter icons use fixed white contrast over the black stage. */ "w-5 h-5 sm:w-4 sm:h-4 text-white"
+                }
+              />
             </button>
             <button
               onClick={exit}
-              className="p-3 sm:p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors"
+              className={
+                /* guard:allow-raw-color — exit control uses fixed white contrast over the black stage. */ "p-3 sm:p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors"
+              }
               aria-label={t("presentation.exitPresentation")}
             >
-              <IconX className="w-5 h-5 sm:w-4 sm:h-4 text-white" />
+              <IconX
+                className={
+                  /* guard:allow-raw-color — exit icon uses fixed white contrast over the black stage. */ "w-5 h-5 sm:w-4 sm:h-4 text-white"
+                }
+              />
             </button>
           </div>
         </div>
 
         {/* Progress bar */}
-        <div className="h-0.5 bg-white/10">
+        <div
+          className={
+            /* guard:allow-raw-color — progress track sits above a fixed black presentation stage. */ "h-0.5 bg-white/10"
+          }
+        >
           <div
-            className="h-full bg-[#609FF8]"
+            className="h-full bg-[hsl(var(--slides-accent))]"
             style={{
               transform: `scaleX(${(nav.displayedIndex + 1) / safeSlides.length})`,
               transformOrigin: "left",
@@ -887,7 +927,9 @@ export default function PresentationView({
             e.stopPropagation();
             enterFullscreen();
           }}
-          className="fixed top-4 right-4 z-[102] flex items-center gap-2 rounded-lg bg-white/10 px-4 py-3 text-sm text-white hover:bg-white/20 transition-colors"
+          className={
+            /* guard:allow-raw-color — fullscreen prompt uses fixed white contrast over the black stage. */ "fixed top-4 right-4 z-[102] flex items-center gap-2 rounded-lg bg-white/10 px-4 py-3 text-sm text-white hover:bg-white/20 transition-colors"
+          }
           aria-label={t("presentation.enterFullscreen")}
         >
           <IconMaximize className="w-4 h-4" />

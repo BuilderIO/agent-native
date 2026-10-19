@@ -23,12 +23,33 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SLIDE_FILE_STORAGE_STATUS_KEY } from "@/hooks/use-slide-file-storage-status";
 
+const useActionQueryMock = vi.hoisted(() => vi.fn());
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
+  useActionQuery: useActionQueryMock,
+}));
+vi.mock("@agent-native/toolkit/app/chat/FileStorageSetupPopover", () => ({
+  FileStorageSetupPopover: ({ open }: { open: boolean }) =>
+    open ? (
+      <div role="dialog" aria-label="Connect storage to upload files">
+        <button type="button">Use Builder.io</button>
+        <button type="button">Custom keys</button>
+      </div>
+    ) : null,
+}));
+
 function render(
   ui: ReactNode,
   options?: RenderOptions,
   storageConfigured = true,
 ) {
   const queryClient = new QueryClient();
+  useActionQueryMock.mockReturnValue({
+    data: { referenceStorageReady: storageConfigured },
+    isError: false,
+    isSuccess: true,
+    refetch: vi.fn(),
+  });
   queryClient.setQueryData(SLIDE_FILE_STORAGE_STATUS_KEY, {
     referenceStorageReady: storageConfigured,
   });
@@ -228,8 +249,14 @@ vi.mock("@agent-native/core/client/host", async (importOriginal) => ({
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (key: string) =>
+  useT: () => (key: string, options?: { source?: string }) =>
     ({
+      "home.importFromCopy": `Or ${options?.source ?? ""}`,
+      "home.backToPrompt": "Back to prompt",
+      "home.importModeTitle": `Import ${options?.source ?? ""}`,
+      "home.chooseImportFile": `Choose a ${options?.source ?? ""} file to open it as a deck.`,
+      "home.uploadImportFile": `Upload ${options?.source ?? ""}`,
+      "home.importMenu.import": "Import",
       "editorToolbar.importFile": "Import file",
       "home.googleSlidesImportLabel": "Slides",
       "home.googleSlidesReferenceTitle": "Google Slides",
@@ -437,6 +464,7 @@ describe("uploadPromptFiles", () => {
     cleanup();
     vi.unstubAllGlobals();
     ensureEmbedAuthFetchInterceptor.mockClear();
+    useActionQueryMock.mockReset();
   });
 
   it("reads reference storage readiness through the Slides 2 action", async () => {
@@ -1156,7 +1184,10 @@ describe("uploadPromptFiles", () => {
 describe.each(["popover", "inline"] as const)(
   "PromptPopover %s presentation",
   (presentation) => {
-    afterEach(() => cleanup());
+    afterEach(() => {
+      cleanup();
+      useActionQueryMock.mockReset();
+    });
 
     function renderPopover(
       onImport: React.ComponentProps<typeof PromptPopover>["onImport"],

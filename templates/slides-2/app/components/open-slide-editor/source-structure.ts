@@ -78,6 +78,7 @@ function parseJsx(sourceTsx: string): LocatedJsx[] | null {
     visit(ast, []);
     return located;
   } catch {
+    // coercion-ok: unparseable or incomplete JSX cannot be edited safely by source offsets.
     return null;
   }
 }

@@ -224,7 +224,7 @@ export default function ImageGenPanel({
                   className={`relative w-10 h-10 rounded overflow-hidden border transition-all ${
                     disabled
                       ? "border-border opacity-25 grayscale"
-                      : "border-[#609FF8]/40"
+                      : "border-[hsl(var(--slides-accent)/0.4)]"
                   }`}
                 >
                   <img
@@ -232,7 +232,9 @@ export default function ImageGenPanel({
                     alt=""
                     className="w-full h-full object-cover"
                   />
-                  {disabled && <div className="absolute inset-0 bg-black/40" />}
+                  {disabled && (
+                    <div className="absolute inset-0 bg-foreground/40" />
+                  )}
                 </button>
               );
             })}
@@ -244,7 +246,7 @@ export default function ImageGenPanel({
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           placeholder={t("raw.describeImagePlaceholder")}
-          className="w-full h-16 bg-muted border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/70 outline-none focus:border-[#609FF8]/50 resize-none"
+          className="w-full h-16 bg-muted border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/70 outline-none focus:border-[hsl(var(--slides-accent)/0.5)] resize-none"
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
               e.preventDefault();
@@ -256,7 +258,7 @@ export default function ImageGenPanel({
         {/* Generate button */}
         <button
           onClick={handleGenerate}
-          className="w-full px-4 py-2 rounded-lg bg-[#609FF8] hover:bg-[#7AB2FA] text-black text-sm font-medium transition-colors flex items-center justify-center gap-2"
+          className="w-full px-4 py-2 rounded-lg bg-[hsl(var(--slides-accent))] hover:bg-[hsl(var(--slides-accent-hover))] text-[hsl(var(--slides-accent-foreground))] text-sm font-medium transition-colors flex items-center justify-center gap-2"
         >
           {t("raw.generate")}
         </button>

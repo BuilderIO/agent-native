@@ -196,7 +196,7 @@ describe("exportDeckAsPdf", () => {
 
   afterEach(() => {
     document.head
-      .querySelectorAll<HTMLStyleElement>("[data-pdf-export-font-faces]")
+      .querySelectorAll<HTMLStyleElement>("[data-slide-export-font-faces]")
       .forEach((style) => style.remove());
     document.head
       .querySelectorAll<HTMLLinkElement>('link[data-pdf-export-test="font"]')
@@ -294,7 +294,7 @@ describe("exportDeckAsPdf", () => {
     });
     mocks.domToJpeg.mockImplementationOnce(async () => {
       expect(
-        document.querySelector("[data-pdf-export-font-faces]")?.textContent,
+        document.querySelector("[data-slide-export-font-faces]")?.textContent,
       ).toContain(fontCss);
       return "data:image/jpeg;base64,AA==";
     });
@@ -306,7 +306,7 @@ describe("exportDeckAsPdf", () => {
       link.href,
       expect.objectContaining({ credentials: "omit", mode: "cors" }),
     );
-    expect(document.querySelector("[data-pdf-export-font-faces]")).toBeNull();
+    expect(document.querySelector("[data-slide-export-font-faces]")).toBeNull();
   });
 
   it("writes slide-number digits into the capture clone only", async () => {
@@ -378,7 +378,7 @@ describe("exportDeckAsPdf", () => {
     releaseFirstText(fontCss);
     await Promise.resolve();
     await Promise.resolve();
-    expect(document.querySelector("[data-pdf-export-font-faces]")).toBeNull();
+    expect(document.querySelector("[data-slide-export-font-faces]")).toBeNull();
   });
 
   it("cleans up temporary font styles when font readiness is cancelled", async () => {
@@ -435,7 +435,9 @@ describe("exportDeckAsPdf", () => {
       await secondReadyStarted;
       controller.abort(new Error("PDF export cancelled"));
       await expect(exportPromise).rejects.toThrow("PDF export cancelled");
-      expect(document.querySelector("[data-pdf-export-font-faces]")).toBeNull();
+      expect(
+        document.querySelector("[data-slide-export-font-faces]"),
+      ).toBeNull();
     } finally {
       Object.defineProperty(document, "fonts", {
         configurable: true,

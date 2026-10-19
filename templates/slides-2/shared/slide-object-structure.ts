@@ -77,6 +77,7 @@ function parseFile(sourceTsx: string): AstNode | null {
       plugins: ["jsx", "typescript"],
     }) as unknown as AstNode;
   } catch {
+    // coercion-ok: null is the typed parse-failure result; source edits require a valid TSX AST.
     return null;
   }
 }

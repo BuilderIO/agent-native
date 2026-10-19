@@ -835,7 +835,9 @@ function OpenSlideProjectionPage() {
   ) {
     return (
       <div
-        className="h-full min-h-0 animate-pulse bg-black"
+        className={
+          /* guard:allow-raw-color — the presenter loading surface stays black before slide content paints. */ "h-full min-h-0 animate-pulse bg-black"
+        }
         aria-hidden="true"
       />
     );
@@ -843,7 +845,9 @@ function OpenSlideProjectionPage() {
   if (!deck && deckQuery.isError) {
     return (
       <div
-        className="grid h-full place-items-center bg-black px-6 text-center text-sm text-white"
+        className={
+          /* guard:allow-raw-color — presenter errors stay legible on the fixed black stage. */ "grid h-full place-items-center bg-black px-6 text-center text-sm text-white"
+        }
         role="alert"
       >
         {actionErrorMessage(deckQuery.error) ?? t("presentation.loadFailed")}
@@ -861,7 +865,11 @@ function OpenSlideProjectionPage() {
       ) ?? null);
   if (slides.length === 0) {
     return (
-      <div className="grid h-full place-items-center bg-black px-6 text-center text-sm text-white">
+      <div
+        className={
+          /* guard:allow-raw-color — no-slide presenter state stays on the fixed black stage. */ "grid h-full place-items-center bg-black px-6 text-center text-sm text-white"
+        }
+      >
         {t("presentation.noSlides")}
       </div>
     );
@@ -968,7 +976,9 @@ function OpenSlideProjectionPage() {
           </OpenSlideCanvas>
         ) : (
           <div
-            className="grid h-full w-full place-items-center bg-black px-6 text-center text-sm text-white"
+            className={
+              /* guard:allow-raw-color — presenter errors stay legible on the fixed black stage. */ "grid h-full w-full place-items-center bg-black px-6 text-center text-sm text-white"
+            }
             role="alert"
           >
             {liveRenderError ?? loadError ?? t("presentation.loadFailed")}

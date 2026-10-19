@@ -6,6 +6,7 @@ import {
   writeAppState,
 } from "@agent-native/core/application-state";
 import type { PrivateBlobHandle } from "@agent-native/core/private-blob";
+import { appStateListKeysByKeySuffixPrefix } from "@agent-native/core/server";
 import { nanoid } from "nanoid";
 
 import { appStorageKey } from "../../shared/app-storage.js";
@@ -29,9 +30,8 @@ export interface ChunkedUploadSession {
 
 const PREFIX = appStorageKey("slides-upload-chunks-");
 const ORPHAN_PREFIX = appStorageKey("slides-upload-orphan-chunk-");
-const ORPHAN_VIDEO_ASSET_PREFIX = appStorageKey(
-  "slides-upload-orphan-video-asset-",
-);
+const ORPHAN_VIDEO_ASSET_SUFFIX = "slides-upload-orphan-video-asset-";
+const ORPHAN_VIDEO_ASSET_PREFIX = appStorageKey(ORPHAN_VIDEO_ASSET_SUFFIX);
 const key = (sessionId: string) => `${PREFIX}${sessionId}`;
 
 export interface OrphanedChunkCleanup {
@@ -45,18 +45,25 @@ export interface OrphanedChunkCleanup {
   uncertain?: boolean;
 }
 
-export interface OrphanedVideoAssetCleanup {
+export interface OrphanedUploadedAssetCleanup {
   version: 1;
   ownerEmail: string;
   orgId: string | null;
   assetId?: string;
   preserveIfAssetExists?: boolean;
+  waitForAssetDeletion?: boolean;
+  attemptCount?: number;
+  lastAttemptAt?: string;
+  leaseExpiresAt?: string;
+  nextAttemptAt?: string;
   provider: string;
   providerObjectId: string | null;
   url: string;
   uploadSessionId: string | null;
   createdAt: string;
 }
+
+export type OrphanedVideoAssetCleanup = OrphanedUploadedAssetCleanup;
 
 export async function createChunkedUploadSession(
   sessionId: string,
@@ -129,8 +136,8 @@ export async function deleteOrphanedChunkCleanup(key: string): Promise<void> {
   await deleteAppState(appStorageKey(key));
 }
 
-export async function recordOrphanedVideoAssetCleanup(
-  cleanup: OrphanedVideoAssetCleanup,
+export async function recordOrphanedUploadedAssetCleanup(
+  cleanup: OrphanedUploadedAssetCleanup,
 ): Promise<string> {
   const cleanupKey = `${ORPHAN_VIDEO_ASSET_PREFIX}${nanoid()}`;
   await writeAppState(
@@ -140,18 +147,49 @@ export async function recordOrphanedVideoAssetCleanup(
   return cleanupKey;
 }
 
-export async function listOrphanedVideoAssetCleanups(): Promise<
-  Array<{ key: string; cleanup: OrphanedVideoAssetCleanup }>
-> {
-  const entries = await listAppState(ORPHAN_VIDEO_ASSET_PREFIX);
-  return entries.map(({ key: entryKey, value }) => ({
-    key: entryKey,
-    cleanup: value as unknown as OrphanedVideoAssetCleanup,
-  }));
+export async function listOrphanedUploadedAssetCleanups(
+  keys?: readonly string[],
+): Promise<Array<{ key: string; cleanup: OrphanedUploadedAssetCleanup }>> {
+  const entries = keys
+    ? await Promise.all(
+        [...new Set(keys)]
+          .filter((entryKey) => entryKey.startsWith(ORPHAN_VIDEO_ASSET_PREFIX))
+          .map(async (entryKey) => ({
+            key: entryKey,
+            value: await readAppState(entryKey),
+          })),
+      )
+    : await listAppState(ORPHAN_VIDEO_ASSET_PREFIX);
+  return entries
+    .map(({ key: entryKey, value }) => ({
+      key: entryKey,
+      cleanup: value as unknown as OrphanedUploadedAssetCleanup,
+    }))
+    .filter(({ cleanup }) => cleanup !== null);
 }
 
-export async function deleteOrphanedVideoAssetCleanup(
-  key: string,
-): Promise<void> {
-  await deleteAppState(appStorageKey(key));
+export async function listOrphanedUploadedAssetCleanupKeys(
+  limit = 50,
+): Promise<Array<{ sessionId: string; key: string }>> {
+  return appStateListKeysByKeySuffixPrefix(ORPHAN_VIDEO_ASSET_SUFFIX, limit);
 }
+
+export async function deleteOrphanedUploadedAssetCleanup(
+  key: string,
+  expected?: OrphanedUploadedAssetCleanup,
+): Promise<boolean> {
+  if (expected) {
+    return compareAndSetAppState(
+      appStorageKey(key),
+      expected as unknown as Record<string, unknown>,
+      null,
+    );
+  }
+  return deleteAppState(appStorageKey(key));
+}
+
+export const recordOrphanedVideoAssetCleanup =
+  recordOrphanedUploadedAssetCleanup;
+export const listOrphanedVideoAssetCleanups = listOrphanedUploadedAssetCleanups;
+export const deleteOrphanedVideoAssetCleanup =
+  deleteOrphanedUploadedAssetCleanup;

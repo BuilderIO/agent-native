@@ -45,6 +45,7 @@ export async function loader({
   const basePath = appBasePathForRequest();
   const url = new URL(`${basePath}/api/share/${params.token}`, requestUrl);
   const res = await fetch(url, { headers: { accept: "application/json" } });
+  // coercion-ok: Error responses may omit JSON; null selects the generic load error below.
   const data = await res.json().catch(() => null);
 
   if (!res.ok) {

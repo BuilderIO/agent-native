@@ -155,6 +155,7 @@ export default defineAction({
         access.role === "admin" ||
         access.role === "editor"
       ) {
+        deck.appId = "slides-2";
         const title =
           repairGeneratedDeckTitle(
             requestedTitle,
@@ -188,7 +189,6 @@ export default defineAction({
           }
           return { ...deck, updatedAt: access.resource.updatedAt };
         }
-        deck.appId = "slides-2";
         await db.transaction(async (tx: any) => {
           if (shouldSnapshotDeckWrite(access.resource, title, deck)) {
             await createDeckVersionSnapshot(

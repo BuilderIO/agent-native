@@ -62,7 +62,9 @@ export function OpenSlideCanvas({
       data-open-slide-canvas-container
     >
       <div
-        className={`${center ? "absolute left-1/2 top-1/2" : ""} overflow-hidden bg-white text-black ${flat ? "" : "rounded-md shadow-2xl"}`}
+        className={
+          /* guard:allow-raw-color — the open-slide canvas is a fixed white presentation surface. */ `${center ? "absolute left-1/2 top-1/2" : ""} overflow-hidden bg-white text-black ${flat ? "" : "rounded-md shadow-2xl"}`
+        }
         style={{
           width: scaledWidth,
           height: scaledHeight,

@@ -32,7 +32,7 @@ export type OpenSlideImageCropResult =
 
 export type OpenSlideImageCropLabels = {
   title: string;
-  description: string;
+  description?: string;
   fitMode: string;
   fitCover: string;
   fitContain: string;
@@ -225,7 +225,9 @@ export function OpenSlideImageCropControls({
       <DialogContent className="sm:max-w-2xl" closeLabel={labels.close}>
         <DialogHeader>
           <DialogTitle>{labels.title}</DialogTitle>
-          <DialogDescription>{labels.description}</DialogDescription>
+          {labels.description ? (
+            <DialogDescription>{labels.description}</DialogDescription>
+          ) : null}
         </DialogHeader>
 
         <ToggleGroup

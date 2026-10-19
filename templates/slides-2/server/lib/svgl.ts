@@ -87,6 +87,7 @@ export function normalizeSvglSvgUrl(value: unknown): string | null {
     }
     return url.toString();
   } catch {
+    // coercion-ok: Invalid third-party logo URLs become absent and are filtered from search results.
     return null;
   }
 }

@@ -325,6 +325,7 @@ function normalizeUrl(
   try {
     return new URL(trimmed, baseUrl || undefined).toString();
   } catch {
+    // coercion-ok: Invalid generated URLs are represented as absent and excluded from asset results.
     return null;
   }
 }

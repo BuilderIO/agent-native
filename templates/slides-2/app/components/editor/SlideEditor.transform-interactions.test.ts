@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+// source-read-ok: pins the editor's gesture ordering and transform-frame boundaries.
 const editorSource = readFileSync(
   path.join(path.dirname(fileURLToPath(import.meta.url)), "SlideEditor.tsx"),
   "utf8",

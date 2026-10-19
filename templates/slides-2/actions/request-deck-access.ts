@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { notifyWithDelivery } from "@agent-native/core/notifications";
 import {
   isEmailConfigured,
@@ -442,7 +442,10 @@ export default defineAction({
         await renewalInFlight;
       }
       if (!deliveredState) {
-        throw new Error("Notification delivery did not return a state.");
+        fail("Notification delivery did not return a state.", {
+          errorCode: "notification_delivery_unverified",
+          statusCode: 502,
+        });
       }
       return {
         state: deliveredState,

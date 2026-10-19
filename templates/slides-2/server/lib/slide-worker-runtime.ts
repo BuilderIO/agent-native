@@ -563,7 +563,10 @@ export function MorphElement({ id, children, as = "div", ...props }) {
 
 function safeStyle(value) {
   let root;
-  try { root = postcss.parse("x{" + value + "}", { from: undefined }); } catch { return ""; }
+  try { root = postcss.parse("x{" + value + "}", { from: undefined }); } catch {
+    // coercion-ok: Invalid imported declarations are discarded at the SVG sanitization boundary.
+    return "";
+  }
   const rule = root.nodes[0];
   if (!rule || rule.type !== "rule") return "";
   for (const child of [...(rule.nodes || [])]) {
@@ -1731,7 +1734,7 @@ function isPrimitive(value) { return value == null || ["string", "number", "bool
 export const CANVAS_WIDTH = 1920;
 export const CANVAS_HEIGHT = 1080;
 export const defaultDesign = Object.freeze({
-  palette: Object.freeze({ bg: "#f7f5f0", text: "#1a1814", accent: "#6d4cff" }),
+  palette: Object.freeze({ bg: "#f7f5f0", text: "#1a1814", accent: "#6d4cff" }), // guard:allow-raw-color — default generated slide palette, not app chrome.
   fonts: Object.freeze({
     display: 'Georgia, "Times New Roman", serif',
     body: '-apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif',

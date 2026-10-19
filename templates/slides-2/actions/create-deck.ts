@@ -232,6 +232,7 @@ function promptDraftMatches(
     }
     data = parsed as Record<string, unknown>;
   } catch {
+    // coercion-ok: malformed stored data cannot match the expected prompt draft; false leads to a conflict instead of reusing it.
     return false;
   }
 
@@ -538,7 +539,11 @@ export default defineAction({
         .where(eq(schema.decks.id, deckId))
         .limit(1);
       browserOwnedDeck = existing[0];
-      if (!browserOwnedDeck) throw new Error(`Deck not found: ${deckId}`);
+      if (!browserOwnedDeck)
+        fail(`Deck not found: ${deckId}`, {
+          errorCode: "deck_not_found",
+          statusCode: 404,
+        });
       const existingData = JSON.parse(browserOwnedDeck.data);
       assertSlides2DeckData(existingData);
       if (browserGenerationAttemptId !== undefined) {
@@ -548,13 +553,17 @@ export default defineAction({
           }
         ).generationContext?.generationAttemptId;
         if (persistedAttemptId !== browserGenerationAttemptId) {
-          throw new Error(
+          fail(
             "generationAttemptId does not match the deck's persisted generationContext",
+            { errorCode: "generation_attempt_conflict", statusCode: 409 },
           );
         }
       }
     } else if (browserGenerationAttemptId !== undefined) {
-      throw new Error("generationAttemptId requires a matching existing deck");
+      fail("generationAttemptId requires a matching existing deck", {
+        errorCode: "generation_attempt_deck_required",
+        statusCode: 400,
+      });
     }
     const now = new Date().toISOString();
     const sourceOwnerEmail =
@@ -564,9 +573,10 @@ export default defineAction({
       expandSourcePageArrays(rawSlides).map(async (slide) => {
         if (slide.sourceTsx !== undefined) {
           if (!sourceOwnerEmail) {
-            throw new Error(
-              "A signed-in owner is required to resolve slide assets.",
-            );
+            fail("A signed-in owner is required to resolve slide assets.", {
+              errorCode: "not_authenticated",
+              statusCode: 401,
+            });
           }
           const compiled = await compileSlideSource(slide.sourceTsx, {
             ownerEmail: sourceOwnerEmail,
@@ -708,7 +718,10 @@ export default defineAction({
         }
         const existingDeck = browserOwnedDeck;
         if (!existingDeck) {
-          throw new Error(`Deck not found: ${deckId}`);
+          fail(`Deck not found: ${deckId}`, {
+            errorCode: "deck_not_found",
+            statusCode: 404,
+          });
         }
         const existingDeckTitle =
           repairGeneratedDeckTitle(
@@ -893,7 +906,11 @@ export default defineAction({
       }
 
       const ownerEmail = getRequestUserEmail();
-      if (!ownerEmail) throw new Error("no authenticated user");
+      if (!ownerEmail)
+        fail("no authenticated user", {
+          errorCode: "not_authenticated",
+          statusCode: 401,
+        });
       assertHumanReadableDeckTitle(resolvedTitle);
 
       if (

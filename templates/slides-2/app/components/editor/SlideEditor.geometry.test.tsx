@@ -30,11 +30,15 @@ const { setClientAppState } = vi.hoisted(() => ({
 vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   setClientAppState,
+  usePinchZoom: () => undefined,
 }));
 vi.mock("@/components/deck/ExcalidrawSlide", () => ({
   ExcalidrawSlide: () => <div data-excalidraw-canvas="true" />,
   ExcalidrawThumbnail: () => null,
   parseExcalidrawData: (json?: string) => (json ? JSON.parse(json) : null),
+}));
+vi.mock("@/components/comments/SlideCommentPins", () => ({
+  SlideCommentPins: () => null,
 }));
 vi.mock("@/root", () => ({ enterSelectionMode: vi.fn() }));
 
@@ -684,9 +688,8 @@ describe("outline while typing", () => {
     await wait(320);
     const writes = setClientAppState.mock.calls.length;
     expect(writes).toBeGreaterThan(0);
-    // One selection write is the two slides-selection keys plus the two
-    // generic ones.
-    expect(writes).toBe(4);
+    // The tab-scoped selection is stored as one application-state value.
+    expect(writes).toBe(1);
   });
 
   it("drops a pending application-state write when the editor unmounts", async () => {

@@ -44,6 +44,7 @@ import {
   finalizeDeferredOutgoingBrowserSessionAbort,
   isConflictResourceConsoleError,
   isBrowserSessionPath,
+  isAuthoringFuzzBrowserSessionUrl,
   isCompetingBrowserSessionRegistration,
   isCompetingOutgoingBrowserSessionRequest,
   isCompetingRetiredBrowserSessionTraffic,
@@ -1225,6 +1226,32 @@ it("captures failed browser-session registration and subroute requests", () => {
   expect(isBrowserSessionPath("/_agent-native/actions/patch-deck")).toBe(false);
 });
 
+it("limits fuzz browser-session interception to the app origin and mocked paths", () => {
+  const base = "http://localhost:5173";
+  for (const pathname of [
+    "/_agent-native/browser-sessions",
+    "/_agent-native/browser-sessions/session-id",
+    "/_agent-native/browser-sessions/session-id/heartbeat",
+    "/_agent-native/browser-sessions/session-id/requests/claim",
+  ]) {
+    expect(isAuthoringFuzzBrowserSessionUrl(`${base}${pathname}`, base)).toBe(
+      true,
+    );
+  }
+
+  for (const url of [
+    "http://localhost:5174/_agent-native/browser-sessions",
+    "https://localhost:5173/_agent-native/browser-sessions",
+    "https://example.com/_agent-native/browser-sessions",
+    `${base}/_agent-native/browser-sessions-extra`,
+    `${base}/_agent-native/browser-sessions/session-id/requests/claim-extra`,
+    `${base}/_agent-native/browser-sessions/session-id/unknown`,
+    `${base}/_agent-native/actions/patch-deck`,
+  ]) {
+    expect(isAuthoringFuzzBrowserSessionUrl(url, base)).toBe(false);
+  }
+});
+
 it("redacts browser-session ids from request paths", () => {
   expect(
     redactBrowserSessionRequestPath(
@@ -1351,6 +1378,7 @@ it("mirrors browser-session CORS for fuzz-only responses and preflights", () => 
     "Access-Control-Allow-Origin": "null",
     "Access-Control-Allow-Methods": "GET,HEAD,POST,DELETE,OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type,X-Agent-Native-CSRF",
+    "Access-Control-Allow-Credentials": "true",
     Vary: "Origin",
   });
 });

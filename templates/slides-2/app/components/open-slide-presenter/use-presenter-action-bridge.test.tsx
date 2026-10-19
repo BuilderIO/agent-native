@@ -11,6 +11,11 @@ const mocks = vi.hoisted(() => ({
   callAction: vi.fn(),
   useChangeVersion: vi.fn(),
   useDbSync: vi.fn(),
+  sessionStatus: "authenticated" as string,
+  location: {
+    pathname: "/deck/deck-1/present",
+    search: "?view=presenter",
+  },
   send: vi.fn(() => true),
 }));
 
@@ -26,6 +31,11 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   getBrowserTabId: () => "test-tab",
   useChangeVersion: mocks.useChangeVersion,
   useDbSync: mocks.useDbSync,
+  useSession: () => ({ status: mocks.sessionStatus }),
+}));
+
+vi.mock("react-router", () => ({
+  useLocation: () => mocks.location,
 }));
 
 import { usePresenterActionBridge } from "./use-presenter-action-bridge";
@@ -70,6 +80,11 @@ describe("usePresenterActionBridge", () => {
       });
     mocks.callAction.mockReset();
     mocks.useDbSync.mockClear();
+    mocks.sessionStatus = "authenticated";
+    mocks.location = {
+      pathname: "/deck/deck-1/present",
+      search: "?view=presenter",
+    };
     mocks.send.mockReset().mockReturnValue(true);
   });
 
@@ -91,7 +106,10 @@ describe("usePresenterActionBridge", () => {
     );
     expect(mocks.useDbSync).toHaveBeenLastCalledWith({
       ignoreSource: expect.any(String),
-      realtime: { reason: "relay queued presenter commands from other tabs" },
+      realtime: {
+        reason:
+          "relay viewer-authorized presenter commands to the linked projection",
+      },
       pauseWhenHidden: false,
     });
 
@@ -107,6 +125,42 @@ describe("usePresenterActionBridge", () => {
       false,
     );
     setInterval.mockRestore();
+  });
+
+  it("keeps realtime off for anonymous presenter consoles", () => {
+    mocks.sessionStatus = "unauthenticated";
+    renderHook(() =>
+      usePresenterActionBridge({
+        deckId: "deck-1",
+        enabled: true,
+        send: mocks.send,
+        onSwitchDeck: vi.fn(),
+      }),
+    );
+
+    expect(mocks.useDbSync).toHaveBeenLastCalledWith({
+      ignoreSource: expect.any(String),
+      realtime: undefined,
+      pauseWhenHidden: false,
+    });
+  });
+
+  it("keeps realtime off on the public projection route", () => {
+    mocks.location.search = "";
+    renderHook(() =>
+      usePresenterActionBridge({
+        deckId: "deck-1",
+        enabled: true,
+        send: mocks.send,
+        onSwitchDeck: vi.fn(),
+      }),
+    );
+
+    expect(mocks.useDbSync).toHaveBeenLastCalledWith({
+      ignoreSource: expect.any(String),
+      realtime: undefined,
+      pauseWhenHidden: false,
+    });
   });
 
   it("restores a claimed command when the live projection cannot receive it", async () => {

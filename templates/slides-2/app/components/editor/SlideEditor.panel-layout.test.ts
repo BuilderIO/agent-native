@@ -4,10 +4,12 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+// source-read-ok: pins ownership and portal boundaries between the editor shell and canvas.
 const editorSource = readFileSync(
   path.join(path.dirname(fileURLToPath(import.meta.url)), "SlideEditor.tsx"),
   "utf8",
 );
+// source-read-ok: pins ownership and portal boundaries between the editor shell and canvas.
 const pageSource = readFileSync(
   path.join(
     path.dirname(fileURLToPath(import.meta.url)),

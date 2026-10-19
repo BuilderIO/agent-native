@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mockGetSession = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 const mockGetGoogleDocsAccessToken = vi.hoisted(() => vi.fn());
-const mockReadMultipartFormData = vi.hoisted(() => vi.fn());
+const mockReadBoundedMultipartFormData = vi.hoisted(() => vi.fn());
 const mockFetch = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/server", () => ({
@@ -22,9 +22,12 @@ vi.mock("@agent-native/core/org", () => ({
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
   setResponseStatus: (...args: unknown[]) => mockSetResponseStatus(...args),
-  readMultipartFormData: (...args: unknown[]) =>
-    mockReadMultipartFormData(...args),
   getRouterParam: vi.fn(() => "deck.pptx"),
+}));
+
+vi.mock("../../../lib/bounded-multipart.js", () => ({
+  readBoundedMultipartFormData: (...args: unknown[]) =>
+    mockReadBoundedMultipartFormData(...args),
 }));
 
 vi.mock("../../../../actions/export-html.js", () => ({
@@ -65,7 +68,7 @@ describe.each([
     mockGetSession.mockReset();
     mockSetResponseStatus.mockReset();
     mockGetGoogleDocsAccessToken.mockReset();
-    mockReadMultipartFormData.mockResolvedValue([]);
+    mockReadBoundedMultipartFormData.mockResolvedValue([]);
     mockFetch.mockReset();
   });
 
@@ -104,7 +107,7 @@ describe("google-slides connection failures", () => {
       email: "owner@example.com",
       orgId: "org-1",
     });
-    mockReadMultipartFormData.mockResolvedValue([
+    mockReadBoundedMultipartFormData.mockResolvedValue([
       { name: "file", data: new Uint8Array([1, 2, 3]) },
     ]);
   });

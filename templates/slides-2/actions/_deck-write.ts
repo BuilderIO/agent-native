@@ -1,3 +1,4 @@
+import { fail } from "@agent-native/core/action";
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 import { and, eq, isNull, type AnyColumn } from "drizzle-orm";
 import { z } from "zod";
@@ -94,9 +95,10 @@ export function deckRevisionWhere(
   expectedUpdatedAt: string | null | undefined,
 ): ReturnType<typeof and> {
   if (expectedUpdatedAt === undefined) {
-    throw new Error(
-      `Deck ${deckId} is missing its revision. Re-read it before saving.`,
-    );
+    fail(`Deck ${deckId} is missing its revision. Re-read it before saving.`, {
+      errorCode: "deck_revision_required",
+      statusCode: 400,
+    });
   }
   return and(
     eq(table.id, deckId),
@@ -127,6 +129,7 @@ export function assertDeckWriteApplied(
     candidate?.changes ??
     candidate?.meta?.changes;
   if (typeof affected !== "number") {
+    // guard:allow-bare-error — invariant: the database adapter must report the write row count.
     throw new Error(
       `Database did not report the affected row count for ${operation} on deck ${deckId}; refusing to claim persistence.`,
     );

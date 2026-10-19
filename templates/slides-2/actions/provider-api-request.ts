@@ -66,7 +66,7 @@ const PaginationSchema = z
   })
   .optional();
 
-export default createProviderApiRequestAction(
+const action = createProviderApiRequestAction(
   { executeRequest: executeProviderApiRequest },
   {
     description:
@@ -211,3 +211,12 @@ export default createProviderApiRequestAction(
     toolCallable: false,
   },
 );
+
+export default {
+  ...action,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: true,
+  },
+};

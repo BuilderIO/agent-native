@@ -174,6 +174,7 @@ export function OpenSlideAssetBrowser({
             method: "POST",
             body: form,
           });
+          // coercion-ok: HTTP status records failure; its optional error detail may not be JSON.
           const body = await response.json().catch(() => null);
           if (!response.ok) {
             const errorCode = body?.errorCode;
@@ -307,6 +308,7 @@ export function OpenSlideAssetBrowser({
         method: "POST",
         body: form,
       });
+      // coercion-ok: unreadable upload JSON yields no id, so the required-id check reports failure.
       const body: unknown = await response.json().catch(() => null);
       const result =
         body && typeof body === "object"

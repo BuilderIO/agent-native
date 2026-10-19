@@ -25,7 +25,7 @@ function readStoredCollapsed(): SidebarCollapsedState | undefined {
     if (stored === "true") return { collapsed: true };
     if (stored === "false") return { collapsed: false };
   } catch {
-    // localStorage is best-effort; application-state remains the source of truth.
+    // coercion-ok: app state remains authoritative when localStorage is unavailable.
   }
 
   return undefined;
@@ -40,7 +40,7 @@ function writeStoredCollapsed(collapsed: boolean) {
       String(collapsed),
     );
   } catch {
-    // localStorage is best-effort; application-state remains the source of truth.
+    // coercion-ok: app state remains authoritative when localStorage is unavailable.
   }
 }
 

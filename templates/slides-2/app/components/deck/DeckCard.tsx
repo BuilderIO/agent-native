@@ -117,7 +117,7 @@ export default function DeckCard({
               />
             </div>
           )}
-          <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[hsl(240,5%,8%)] via-transparent to-transparent opacity-60" />
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-foreground/80 via-transparent to-transparent opacity-60" />
         </div>
 
         {/* Info */}
@@ -157,7 +157,7 @@ export default function DeckCard({
               e.stopPropagation();
               onToggleStar(deck.id, !deck.starred);
             }}
-            className={`rounded-md border border-border bg-black/60 p-2 backdrop-blur-sm hover:bg-black/80 sm:p-1.5 ${
+            className={`rounded-md border border-border bg-foreground/60 p-2 text-background backdrop-blur-sm hover:bg-foreground/80 sm:p-1.5 ${
               deck.starred
                 ? ""
                 : "sm:invisible sm:pointer-events-none sm:opacity-0 sm:group-hover:visible sm:group-hover:pointer-events-auto sm:group-hover:opacity-100 sm:group-focus-within:visible sm:group-focus-within:pointer-events-auto sm:group-focus-within:opacity-100"
@@ -168,9 +168,9 @@ export default function DeckCard({
             aria-pressed={Boolean(deck.starred)}
           >
             {deck.starred ? (
-              <IconStarFilled className="h-3.5 w-3.5 text-[#F5C451]" />
+              <IconStarFilled className="h-3.5 w-3.5 text-primary" />
             ) : (
-              <IconStar className="h-3.5 w-3.5 text-white/70" />
+              <IconStar className="h-3.5 w-3.5 text-background/70" />
             )}
           </button>
         )}
@@ -181,14 +181,14 @@ export default function DeckCard({
                 e.preventDefault();
                 e.stopPropagation();
               }}
-              className={`rounded-md border border-border bg-black/60 p-2 backdrop-blur-sm hover:bg-black/80 sm:p-1.5 ${
+              className={`rounded-md border border-border bg-foreground/60 p-2 text-background backdrop-blur-sm hover:bg-foreground/80 sm:p-1.5 ${
                 menuOpen
                   ? "sm:visible sm:pointer-events-auto sm:opacity-100"
                   : "sm:invisible sm:pointer-events-none sm:opacity-0 sm:group-hover:visible sm:group-hover:pointer-events-auto sm:group-hover:opacity-100 sm:group-focus-within:visible sm:group-focus-within:pointer-events-auto sm:group-focus-within:opacity-100"
               }`}
               aria-label={t("raw.deckOptions")}
             >
-              <IconDots className="w-3.5 h-3.5 text-white/70" />
+              <IconDots className="w-3.5 h-3.5 text-background/70" />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent
@@ -274,7 +274,7 @@ export default function DeckCard({
                 pendingDeleteRef.current = true;
                 setMenuOpen(false);
               }}
-              className="text-red-400 focus:text-red-400"
+              className="text-destructive focus:text-destructive"
             >
               <IconTrash className="w-3.5 h-3.5 me-2" />
               {t("deckCard.delete")}

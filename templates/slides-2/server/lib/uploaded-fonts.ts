@@ -19,7 +19,10 @@ import {
   SLIDE_FONT_VARIANT_PATTERN,
 } from "../../shared/slide-design-tokens.js";
 import { getDb, schema } from "../db/index.js";
-import { assertDeckAssetUploadScope } from "./deck-asset-scope.js";
+import {
+  assertDeckAssetUploadScope,
+  registerDeckUploadedAsset,
+} from "./deck-asset-scope.js";
 import { type DownloadedGoogleFont } from "./google-fonts.js";
 
 const MAX_STORED_FONT_BYTES = 8 * 1024 * 1024;
@@ -344,6 +347,7 @@ async function recordAndReapFailedFontRegistration(args: {
       fontAssetExists(args.assetId, args.email, orgId, args.deckId),
     );
   } catch {
+    // coercion-ok: Undefined preserves the uncertain lookup state and records cleanup instead of deleting bytes.
     registered = undefined;
   }
   if (registered === false) {
@@ -355,8 +359,13 @@ async function recordAndReapFailedFontRegistration(args: {
           url: args.url,
         }),
       );
-    } catch {
-      // Retain a receipt below when possible.
+    } catch (error) {
+      console.warn(
+        "[slides-upload] could not immediately delete unregistered font",
+        {
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
     }
     if (deleted) return;
   } else if (registered) {
@@ -515,22 +524,27 @@ export async function importGoogleFontAsset(args: {
 
   const id = nanoid();
   try {
-    await db.insert(schema.uploadedAssets).values({
-      id,
-      filename,
-      url,
-      type: font.mimeType,
-      size: font.data.byteLength,
-      provider: uploaded.provider,
-      providerObjectId: uploaded.id ?? null,
-      fontFamily: font.family,
-      fontVariant: font.variant,
+    await registerDeckUploadedAsset({
+      row: {
+        id,
+        filename,
+        url,
+        type: font.mimeType,
+        size: font.data.byteLength,
+        provider: uploaded.provider,
+        providerObjectId: uploaded.id ?? null,
+        fontFamily: font.family,
+        fontVariant: font.variant,
+        deckId,
+        orgId: orgId ?? null,
+        ownerEmail: email,
+        createdAt: new Date().toISOString(),
+      },
       deckId,
-      orgId: orgId ?? null,
-      ownerEmail: email,
-      createdAt: new Date().toISOString(),
+      email,
+      orgId,
     });
-  } catch {
+  } catch (registrationError) {
     await recordAndReapFailedFontRegistration({
       email,
       orgId,
@@ -540,6 +554,13 @@ export async function importGoogleFontAsset(args: {
       providerObjectId: uploaded.id ?? null,
       url,
     });
+    const errorCode = (registrationError as { errorCode?: unknown })?.errorCode;
+    if (
+      errorCode === "asset_deck_scope_forbidden" ||
+      errorCode === "deck_not_found"
+    ) {
+      throw registrationError;
+    }
     throw fontFailure(
       "The uploaded font could not be registered.",
       "google_font_registration_failed",

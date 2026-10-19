@@ -21,6 +21,9 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@agent-native/core", () => ({
   defineAction: (value: unknown) => value,
   embedApp: (value: unknown) => value,
+  fail: (message: string) => {
+    throw new Error(message);
+  },
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
@@ -126,7 +129,7 @@ describe("clone-context-slide pack integration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.assertCreativeContextLabEnabled.mockResolvedValue(undefined);
-    mocks.updatedDeck = { slides: [] };
+    mocks.updatedDeck = { appId: "slides-2", slides: [] };
     mocks.readAppState.mockResolvedValue({ contextMode: "auto" });
     mocks.assertAccess.mockResolvedValue({ role: "editor" });
     mocks.getGenerationCreativeContext.mockResolvedValue(null);
@@ -231,6 +234,7 @@ describe("clone-context-slide pack integration", () => {
 
   it("derives an immutable union pack from the deck's existing pack", async () => {
     mocks.updatedDeck = {
+      appId: "slides-2",
       slides: [],
       creativeContext: {
         contextMode: "pinned",

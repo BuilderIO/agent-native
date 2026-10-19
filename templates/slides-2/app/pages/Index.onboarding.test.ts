@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+// source-read-ok: pins the authenticated page's handoff to the shared onboarding decision.
 const source = readFileSync(
   path.join(path.dirname(fileURLToPath(import.meta.url)), "Index.tsx"),
   "utf8",

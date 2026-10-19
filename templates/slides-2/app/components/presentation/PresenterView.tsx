@@ -385,12 +385,12 @@ export default function PresenterView({
   }
 
   return (
-    <div className="fixed inset-0 flex flex-col bg-[hsl(240,6%,6%)] text-white">
-      <header className="flex items-center justify-between gap-4 border-b border-white/10 px-5 py-3">
-        <span className="font-mono text-sm text-white/50">
+    <div className="fixed inset-0 flex flex-col bg-background text-foreground">
+      <header className="flex items-center justify-between gap-4 border-b border-border px-5 py-3">
+        <span className="font-mono text-sm text-muted-foreground">
           {index + 1} / {safeSlides.length}
         </span>
-        <span className="font-mono text-2xl tabular-nums text-white/80">
+        <span className="font-mono text-2xl tabular-nums text-foreground">
           {formatElapsed(elapsed)}
         </span>
         <div className="flex items-center gap-2">
@@ -437,7 +437,7 @@ export default function PresenterView({
           <button
             onClick={goPrev}
             disabled={!canCommand(navState, presenterLayout, "prev")}
-            className="cursor-pointer rounded-lg bg-white/10 p-2 hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-30"
+            className="cursor-pointer rounded-lg bg-muted p-2 hover:bg-accent disabled:cursor-not-allowed disabled:opacity-30"
             aria-label={t("presentation.previousSlide")}
           >
             <IconChevronLeft className="h-4 w-4" />
@@ -445,14 +445,14 @@ export default function PresenterView({
           <button
             onClick={goNext}
             disabled={!canCommand(navState, presenterLayout, "next")}
-            className="cursor-pointer rounded-lg bg-white/10 p-2 hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-30"
+            className="cursor-pointer rounded-lg bg-muted p-2 hover:bg-accent disabled:cursor-not-allowed disabled:opacity-30"
             aria-label={t("presentation.nextSlide")}
           >
             <IconChevronRight className="h-4 w-4" />
           </button>
           <button
             onClick={() => window.close()}
-            className="cursor-pointer rounded-lg bg-white/10 p-2 hover:bg-white/20"
+            className="cursor-pointer rounded-lg bg-muted p-2 hover:bg-accent"
             aria-label={t("presentation.closePresenterView")}
           >
             <IconX className="h-4 w-4" />
@@ -462,7 +462,11 @@ export default function PresenterView({
 
       <div className="flex min-h-0 flex-1 flex-col gap-4 p-4">
         <div className="flex gap-4">
-          <div className="w-2/3 overflow-hidden rounded-lg bg-black">
+          <div
+            className={
+              /* guard:allow-raw-color — slide previews use the fixed black stage behind transparent content. */ "w-2/3 overflow-hidden rounded-lg bg-black"
+            }
+          >
             {currentPreview && (
               <SlideRenderer
                 slide={currentPreview}
@@ -474,11 +478,15 @@ export default function PresenterView({
             )}
           </div>
           <div className="flex w-1/3 flex-col gap-2">
-            <div className="font-mono text-[11px] uppercase tracking-widest text-white/40">
+            <div className="font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
               {t("presentation.upNext")}
             </div>
             {next ? (
-              <div className="overflow-hidden rounded-lg bg-black">
+              <div
+                className={
+                  /* guard:allow-raw-color — slide previews use the fixed black stage behind transparent content. */ "overflow-hidden rounded-lg bg-black"
+                }
+              >
                 <SlideRenderer
                   slide={next}
                   slidePosition={{
@@ -491,23 +499,23 @@ export default function PresenterView({
                 />
               </div>
             ) : (
-              <div className="rounded-lg bg-white/[0.04] p-4 text-sm text-white/40">
+              <div className="rounded-lg bg-muted p-4 text-sm text-muted-foreground">
                 {t("presentation.endOfDeck")}
               </div>
             )}
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto rounded-lg bg-white/[0.04] p-5">
-          <div className="mb-2 font-mono text-[11px] uppercase tracking-widest text-white/40">
+        <div className="min-h-0 flex-1 overflow-y-auto rounded-lg bg-muted p-5">
+          <div className="mb-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
             {t("presentation.speakerNotes")}
           </div>
           {notes ? (
-            <p className="whitespace-pre-wrap text-lg leading-relaxed text-white/90">
+            <p className="whitespace-pre-wrap text-lg leading-relaxed text-foreground">
               {notes}
             </p>
           ) : (
-            <p className="text-sm text-white/40">
+            <p className="text-sm text-muted-foreground">
               {t("presentation.noNotesForSlide")}
             </p>
           )}

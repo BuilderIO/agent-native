@@ -195,6 +195,7 @@ export default defineEventHandler(async (event) => {
     return { error: "Could not reach Google Drive. Try again." };
   }
 
+  // coercion-ok: malformed Drive JSON yields no URL, so the status check below returns a 502 rather than success.
   const result = (await response.json().catch(() => null)) as {
     id?: string;
     webViewLink?: string;

@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -41,13 +41,20 @@ export default defineAction({
       try {
         parsedData = JSON.parse(data);
       } catch {
-        throw new Error("data must be a valid JSON string");
+        fail("data must be a valid JSON string", {
+          errorCode: "invalid_design_system_data",
+          statusCode: 400,
+        });
       }
       const missingFields = missingDesignSystemDataFields(parsedData);
       if (missingFields.length > 0) {
-        throw new Error(
+        fail(
           "data is missing required design system field(s): " +
             missingFields.join(", "),
+          {
+            errorCode: "invalid_design_system_data",
+            statusCode: 400,
+          },
         );
       }
       assertDesignSystemAssetUrlsPersistable(parsedData, "data");
@@ -57,7 +64,10 @@ export default defineAction({
       try {
         parsedAssets = JSON.parse(assets);
       } catch {
-        throw new Error("assets must be a valid JSON string");
+        fail("assets must be a valid JSON string", {
+          errorCode: "invalid_design_system_assets",
+          statusCode: 400,
+        });
       }
       assertDesignSystemAssetUrlsPersistable(parsedAssets, "assets");
     }

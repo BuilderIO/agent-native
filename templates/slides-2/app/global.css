@@ -172,6 +172,9 @@ button[title="Open agent sidebar"] {
   --sidebar-ring: 0 0% 50%;
 
   --accent-cyan: 187 100% 50%;
+  --slides-accent: 215 91% 67%;
+  --slides-accent-hover: 212 91% 73%;
+  --slides-accent-foreground: 0 0% 10%;
   --slides-crop-control: 0 0% 0%;
   --slides-crop-control-contrast: 0 0% 100%;
   --slides-thumbnail-shadow: 0 0% 0%;
@@ -218,6 +221,9 @@ button[title="Open agent sidebar"] {
   --sidebar-ring: 0 0% 65%;
 
   --accent-cyan: 193 82% 31%;
+  --slides-accent: 215 91% 67%;
+  --slides-accent-hover: 212 91% 73%;
+  --slides-accent-foreground: 0 0% 10%;
 }
 
 [data-slides-thumbnail-scroll]::before {

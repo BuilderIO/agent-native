@@ -49,7 +49,9 @@ export function SpeakerNotesPanel({
     setExpanded(next);
     try {
       localStorage.setItem(NOTES_EXPANDED_STORAGE_KEY, String(next));
-    } catch {}
+    } catch {
+      // coercion-ok: The current React state remains authoritative when browser storage is unavailable.
+    }
   };
 
   const startResize = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -67,7 +69,9 @@ export function SpeakerNotesPanel({
       window.removeEventListener("pointerup", onUp);
       try {
         localStorage.setItem(NOTES_HEIGHT_STORAGE_KEY, String(latestHeight));
-      } catch {}
+      } catch {
+        // coercion-ok: The resized height applies now even when it cannot persist across reloads.
+      }
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp, { once: true });

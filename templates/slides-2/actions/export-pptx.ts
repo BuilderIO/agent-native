@@ -32,6 +32,7 @@ import { fillSlideNumberTokensInHtml } from "../shared/slide-number.js";
 import { sourceRuntimeExportError } from "../shared/source-runtime-export.js";
 import { getExportUrl } from "./_app-url.js";
 import { assertSlides2DeckData } from "./_deck-app-scope.js";
+import { canReadPresenterNotes } from "./_presenter-notes.js";
 import { compileSlideSource } from "./_slide-source.js";
 
 type TableCell = PptxGenJS.TableCell;
@@ -464,7 +465,7 @@ export function parseSlideHtml(
     const bold =
       fontWeight !== null &&
       (parseInt(fontWeight) >= 700 || fontWeight === "bold");
-    const color = getStyle(style, "(?<!background-)color") || "#FFFFFF";
+    const color = getStyle(style, "(?<!background-)color") || "#FFFFFF"; // guard:allow-raw-color — PowerPoint export requires a concrete fallback slide color.
     const letterSpacing = getStyle(style, "letter-spacing");
     const lineHeight = getStyle(style, "line-height");
 
@@ -1556,8 +1557,9 @@ function replaceOnce(
   what: string,
 ): string {
   if (!pattern.test(xml)) {
-    throw new Error(
+    fail(
       `[export-pptx] could not rewrite ${what}: pptxgenjs no longer emits the node this patches. Nothing was written rather than shipping a deck that silently lost it.`,
+      { errorCode: "pptx_export_rewrite_failed", statusCode: 500 },
     );
   }
   return xml.replace(pattern, () => replacement);
@@ -1585,7 +1587,10 @@ export async function applyDeckIdentity(
   ) => {
     const xml = await zip.file(partPath)?.async("string");
     if (xml === undefined) {
-      throw new Error(`[export-pptx] generated package is missing ${partPath}`);
+      fail(`[export-pptx] generated package is missing ${partPath}`, {
+        errorCode: "pptx_export_package_incomplete",
+        statusCode: 500,
+      });
     }
     zip.file(partPath, replaceOnce(xml, pattern, replacement, what));
   };
@@ -1640,6 +1645,7 @@ export async function fetchImageAsBase64(
     const base64 = Buffer.from(buffer).toString("base64");
     return `data:${contentType};base64,${base64}`;
   } catch {
+    // coercion-ok: the caller treats null as an image export failure before creating the file.
     return null;
   }
 }
@@ -1709,13 +1715,14 @@ export default defineAction({
 
     facts.deckId = deckId;
     const row = access.resource;
+    const exportNotes = includeNotes && canReadPresenterNotes(access.role);
     assertSlides2DeckData(row.data);
     const exportRevision = pptxExportRevisionKey(
       deckId,
       row.updatedAt,
       row.title,
       row.data,
-      includeNotes,
+      exportNotes,
     );
     if (
       downloadContext?.slidesPptxDownloadExpectedRevision &&
@@ -2016,7 +2023,7 @@ export default defineAction({
       }
 
       if (
-        includeNotes &&
+        exportNotes &&
         slide &&
         typeof slide.notes === "string" &&
         slide.notes
@@ -2075,7 +2082,7 @@ export default defineAction({
     return {
       downloadUrl: getExportUrl(filename, {
         deckId,
-        includeNotes,
+        includeNotes: exportNotes,
         exportRevision,
       }),
       ...(downloadContext ? { buffer } : {}),

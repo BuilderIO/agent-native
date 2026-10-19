@@ -78,7 +78,11 @@ export default function SharedPresentation({
 
   if (loading) {
     return (
-      <div className="fixed inset-0 bg-black flex items-center justify-center p-8">
+      <div
+        className={
+          /* guard:allow-raw-color — live shared decks render on a theme-independent black stage. */ "fixed inset-0 bg-black flex items-center justify-center p-8"
+        }
+      >
         <div className="skeleton-shimmer w-full max-w-5xl aspect-video rounded-xl bg-foreground/[0.04]" />
       </div>
     );
@@ -86,15 +90,15 @@ export default function SharedPresentation({
 
   if (error || !deck) {
     return (
-      <div className="fixed inset-0 bg-[hsl(240,6%,4%)] flex items-center justify-center">
+      <div className="fixed inset-0 bg-background flex items-center justify-center">
         <div className="flex flex-col items-center gap-4 text-center max-w-sm">
-          <div className="w-12 h-12 rounded-full bg-red-500/10 flex items-center justify-center">
-            <IconAlertCircle className="w-6 h-6 text-red-400" />
+          <div className="w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center">
+            <IconAlertCircle className="w-6 h-6 text-destructive" />
           </div>
-          <h1 className="text-lg font-semibold text-white/90">
+          <h1 className="text-lg font-semibold text-foreground">
             {t("raw.presentationNotFound")}
           </h1>
-          <p className="text-sm text-white/50">
+          <p className="text-sm text-muted-foreground">
             {error || t("raw.sharedPresentationExpired")}
           </p>
         </div>

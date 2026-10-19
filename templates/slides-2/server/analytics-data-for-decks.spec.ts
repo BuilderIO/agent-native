@@ -13,6 +13,7 @@ const skill = readFileSync(
   ),
   "utf8",
 );
+// source-read-ok: pins plugin registration for the Slides-to-Analytics delegation boundary.
 const agentChatPlugin = readFileSync(
   new URL("./plugins/agent-chat.ts", import.meta.url),
   "utf8",
@@ -25,7 +26,9 @@ const netlifyConfig = readFileSync(
 describe("Slides analytics delegation contract", () => {
   it("routes analytics-backed deck requests through Analytics", () => {
     expect(agentsGuide).toContain("analytics-data-for-decks");
-    expect(agentsGuide).toContain("delegate via Analytics");
+    expect(agentsGuide).toContain(
+      ".agents/skills/analytics-data-for-decks/SKILL.md",
+    );
     expect(skill).toContain('agent: "analytics"');
     expect(skill).toContain("call-agent");
     expect(skill).toContain("natural-language `message`");

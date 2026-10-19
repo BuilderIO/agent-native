@@ -330,6 +330,7 @@ function isSafeTransitionSnapshot(
       }
       allowedOrigins.add(origin);
     } catch {
+      // coercion-ok: malformed origins fail the transition snapshot safety check.
       return false;
     }
   }
@@ -353,6 +354,7 @@ function isSafeTransitionSnapshot(
         return false;
       }
     } catch {
+      // coercion-ok: malformed asset URLs fail the transition snapshot safety check.
       return false;
     }
   }
@@ -400,6 +402,7 @@ function isAllowedTransitionAssetUrl(
       allowedOrigins.includes(url.origin)
     );
   } catch {
+    // coercion-ok: malformed URLs are rejected by transition asset validation.
     return false;
   }
 }

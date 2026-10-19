@@ -736,9 +736,9 @@ export default function OpenSlidePlayer({
   const chromeVisible = overlayOpen || pointerNearBottom || mobileChromeVisible;
   const hideCursor =
     controls && (laser || keyboardDriven || (idle && !pointerNearBottom));
-  const playerClassName = `fixed inset-0 flex items-center justify-center overflow-hidden bg-black ${
+  const playerClassName = /* guard:allow-raw-color — slides sit on a pure black playback surface. */ `fixed inset-0 flex items-center justify-center overflow-hidden bg-black ${
     controls ? "select-none" : ""
-  } ${hideCursor ? "cursor-none" : "cursor-default"}`; // guard:allow-raw-color — slides sit on a pure black playback surface
+  } ${hideCursor ? "cursor-none" : "cursor-default"}`;
 
   return (
     <div

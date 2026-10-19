@@ -5,7 +5,7 @@
  *   pnpm action get-slides-notification-prefs
  */
 
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { getUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
@@ -24,7 +24,12 @@ export default defineAction({
   readOnly: true,
   run: async (): Promise<SlidesNotificationPreferences> => {
     const email = getRequestUserEmail();
-    if (!email) throw new Error("Sign in required");
+    if (!email) {
+      fail("Sign in required", {
+        errorCode: "not_authenticated",
+        statusCode: 401,
+      });
+    }
     return getSlidesNotificationPreferences(
       await getUserSetting(email, SLIDES_USER_PREFS_KEY),
     );

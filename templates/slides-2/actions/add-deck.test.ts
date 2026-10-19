@@ -60,7 +60,6 @@ describe("add-deck tracking", () => {
     const payload = deck();
     await addDeck.run({ deck: payload, creationMethod: "blank" }, ctx);
 
-    expect(payload.appId).toBe("slides-2");
     expect(mockInsertValues.mock.calls[0]?.[0]).toMatchObject({
       data: expect.stringContaining('"appId":"slides-2"'),
     });

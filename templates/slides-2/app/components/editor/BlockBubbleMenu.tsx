@@ -52,24 +52,23 @@ interface Position {
 }
 
 const COLORS = [
-  "#FFFFFF",
-  "#E5E7EB",
-  "#9CA3AF",
-  "#000000",
-  "#00E5FF",
-  "#609FF8",
-  "#A78BFA",
-  "#F472B6",
-  "#F59E0B",
-  "#10B981",
-  "#EF4444",
+  "#FFFFFF", // guard:allow-raw-color — editable slide canvas color preset.
+  "#E5E7EB", // guard:allow-raw-color — editable slide canvas color preset.
+  "#9CA3AF", // guard:allow-raw-color — editable slide canvas color preset.
+  "#000000", // guard:allow-raw-color — editable slide canvas color preset.
+  "#00E5FF", // guard:allow-raw-color — editable slide canvas color preset.
+  "#609FF8", // guard:allow-raw-color — editable slide canvas color preset.
+  "#A78BFA", // guard:allow-raw-color — editable slide canvas color preset.
+  "#F472B6", // guard:allow-raw-color — editable slide canvas color preset.
+  "#F59E0B", // guard:allow-raw-color — editable slide canvas color preset.
+  "#10B981", // guard:allow-raw-color — editable slide canvas color preset.
+  "#EF4444", // guard:allow-raw-color — editable slide canvas color preset.
 ];
 
 const AI_TARGET_PREVIEW_LIMIT = 160;
 
 const AI_SEND_BUTTON_CLASS =
-  // guard:allow-raw-color — same accent as the link Apply button below.
-  "rounded p-1.5 text-[#609FF8] hover:bg-accent disabled:pointer-events-none disabled:opacity-40";
+  "rounded p-1.5 text-[hsl(var(--slides-accent))] hover:bg-accent disabled:pointer-events-none disabled:opacity-40";
 
 export function buildReviseSelectionContext({
   selectedText,
@@ -487,7 +486,7 @@ export function BlockBubbleMenu({
                 type="button"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={applyLink}
-                className="p-1 rounded hover:bg-accent text-[#609FF8]"
+                className="p-1 rounded hover:bg-accent text-[hsl(var(--slides-accent))]"
               >
                 <IconCheck className="w-3.5 h-3.5" />
               </button>
@@ -536,7 +535,7 @@ function ToolbarButton({
           aria-label={tooltip}
           className={`p-1.5 rounded transition-colors ${
             active
-              ? "bg-[#609FF8]/20 text-[#609FF8]"
+              ? "bg-[hsl(var(--slides-accent)/0.2)] text-[hsl(var(--slides-accent))]"
               : "text-foreground/80 hover:bg-accent hover:text-foreground"
           }`}
         >

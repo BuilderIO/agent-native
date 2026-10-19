@@ -17,6 +17,10 @@ vi.mock("drizzle-orm", () => ({
   and: vi.fn(),
   desc: vi.fn(),
   eq: vi.fn(),
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
+    strings,
+    values,
+  }),
 }));
 
 vi.mock("../db/index.js", () => ({

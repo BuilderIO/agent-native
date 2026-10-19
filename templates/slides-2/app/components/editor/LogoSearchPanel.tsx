@@ -154,13 +154,13 @@ export default function LogoSearchPanel({
                   if (e.key === "Enter") void handleSearch();
                 }}
                 placeholder={t("raw.searchCompanyPlaceholder")}
-                className="w-full pl-8 pr-3 py-1.5 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground/70 outline-none focus:border-[#609FF8]/50"
+                className="w-full pl-8 pr-3 py-1.5 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground/70 outline-none focus:border-[hsl(var(--slides-accent)/0.5)]"
               />
             </div>
             <button
               onClick={handleSearch}
               disabled={loading || !query.trim()}
-              className="px-3 py-1.5 rounded-lg bg-[#609FF8] hover:bg-[#7AB2FA] disabled:opacity-50 text-black text-xs font-medium transition-colors"
+              className="px-3 py-1.5 rounded-lg bg-[hsl(var(--slides-accent))] hover:bg-[hsl(var(--slides-accent-hover))] disabled:opacity-50 text-[hsl(var(--slides-accent-foreground))] text-xs font-medium transition-colors"
             >
               {loading ? (
                 <IconLoader2 className="w-3.5 h-3.5 animate-spin" />
@@ -174,7 +174,7 @@ export default function LogoSearchPanel({
 
       <div className="px-4 pb-4 overflow-y-auto flex-1">
         {error && (
-          <div className="text-center py-4 text-red-400/70 text-xs">
+          <div className="text-center py-4 text-destructive/70 text-xs">
             {error}
           </div>
         )}
@@ -198,7 +198,7 @@ export default function LogoSearchPanel({
               <button
                 key={r.domain}
                 onClick={() => setSelectedDomain(r.domain)}
-                className="w-full flex items-center gap-3 p-2.5 rounded-lg border border-border bg-muted hover:ring-2 hover:ring-[#609FF8]/50 transition-all text-left"
+                className="w-full flex items-center gap-3 p-2.5 rounded-lg border border-border bg-muted hover:ring-2 hover:ring-[hsl(var(--slides-accent)/0.5)] transition-all text-left"
               >
                 <LogoPreview
                   src={`https://cdn.brandfetch.io/${r.domain}/icon.png`}
@@ -234,7 +234,7 @@ export default function LogoSearchPanel({
                     <button
                       key={v.label}
                       onClick={() => handleSelect(v.url)}
-                      className="flex flex-col items-center gap-1.5 p-2 rounded-lg border border-border hover:ring-2 hover:ring-[#609FF8]/50 transition-all"
+                      className="flex flex-col items-center gap-1.5 p-2 rounded-lg border border-border hover:ring-2 hover:ring-[hsl(var(--slides-accent)/0.5)] transition-all"
                       style={{ backgroundColor: v.bg }}
                     >
                       <div
@@ -316,9 +316,9 @@ function buildVariations(
     {
       label: "Logo",
       items: [
-        { label: "Default", url: bf("logo.png"), bg: "rgba(255,255,255,0.03)" },
-        { label: t("raw.onDark"), url: bf("theme/dark/logo.png"), bg: "#111" },
-        { label: "SVG", url: bf("logo.svg"), bg: "rgba(255,255,255,0.03)" },
+        { label: "Default", url: bf("logo.png"), bg: "hsl(var(--muted))" },
+        { label: t("raw.onDark"), url: bf("theme/dark/logo.png"), bg: "#111" }, // guard:allow-raw-color — this is a fixed dark contrast sample for the returned logo asset.
+        { label: "SVG", url: bf("logo.svg"), bg: "hsl(var(--muted))" },
       ],
     },
     {
@@ -327,14 +327,14 @@ function buildVariations(
         {
           label: "Symbol",
           url: bf("symbol.png"),
-          bg: "rgba(255,255,255,0.03)",
+          bg: "hsl(var(--muted))",
         },
         {
           label: t("raw.symbolDark"),
           url: bf("theme/dark/symbol.png"),
-          bg: "#111",
+          bg: "#111", // guard:allow-raw-color — fixed dark contrast sample for the returned logo asset.
         },
-        { label: "Icon", url: bf("icon.png"), bg: "rgba(255,255,255,0.03)" },
+        { label: "Icon", url: bf("icon.png"), bg: "hsl(var(--muted))" },
       ],
     },
   ];
@@ -347,17 +347,17 @@ function buildVariations(
         {
           label: "Default",
           url: ld("size=400&format=png&retina=true"),
-          bg: "rgba(255,255,255,0.03)",
+          bg: "hsl(var(--muted))",
         },
         {
           label: t("raw.forDarkBg"),
           url: ld("size=400&format=png&retina=true&theme=light"),
-          bg: "#111",
+          bg: "#111", // guard:allow-raw-color — fixed dark contrast sample for the returned logo asset.
         },
         {
           label: "Greyscale",
           url: ld("size=400&format=png&retina=true&greyscale=true"),
-          bg: "rgba(255,255,255,0.03)",
+          bg: "hsl(var(--muted))",
         },
       ],
     });

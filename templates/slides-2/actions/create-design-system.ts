@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -10,6 +10,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { assertDesignSystemWorkflowsEnabled } from "../server/lib/design-system-workflows.js";
 import { missingDesignSystemDataFields } from "../shared/design-system-validation.js";
+import { getSlidesAppUrl } from "./_app-url.js";
 import { assertDesignSystemAssetUrlsPersistable } from "./_inline-image-storage.js";
 
 export default defineAction({
@@ -49,13 +50,17 @@ export default defineAction({
     try {
       parsedData = JSON.parse(data);
     } catch {
-      throw new Error("data must be a valid JSON string");
+      fail("data must be a valid JSON string", {
+        errorCode: "invalid_design_system_data",
+        statusCode: 400,
+      });
     }
     const missingFields = missingDesignSystemDataFields(parsedData);
     if (missingFields.length > 0) {
-      throw new Error(
+      fail(
         "data is missing required design system field(s): " +
           missingFields.join(", "),
+        { errorCode: "invalid_design_system_data", statusCode: 400 },
       );
     }
     assertDesignSystemAssetUrlsPersistable(parsedData, "data");
@@ -64,7 +69,10 @@ export default defineAction({
       try {
         parsedAssets = JSON.parse(assets);
       } catch {
-        throw new Error("assets must be a valid JSON string");
+        fail("assets must be a valid JSON string", {
+          errorCode: "invalid_design_system_assets",
+          statusCode: 400,
+        });
       }
       assertDesignSystemAssetUrlsPersistable(parsedAssets, "assets");
     }
@@ -73,7 +81,11 @@ export default defineAction({
     const id = nanoid();
     const now = new Date().toISOString();
     const ownerEmail = getRequestUserEmail();
-    if (!ownerEmail) throw new Error("no authenticated user");
+    if (!ownerEmail)
+      fail("no authenticated user", {
+        errorCode: "not_authenticated",
+        statusCode: 401,
+      });
     const orgId = getRequestOrgId();
 
     const existing = await db
@@ -109,6 +121,11 @@ export default defineAction({
       updatedAt: now,
     });
 
-    return { id, title, isDefault };
+    return {
+      id,
+      title,
+      isDefault,
+      url: `${getSlidesAppUrl()}/design-systems`,
+    };
   },
 });

@@ -36,19 +36,19 @@ export function MultiSelectChip({
         alignItems: "center",
         gap: 6,
         padding: "4px 6px 4px 12px",
-        background: "rgba(20, 20, 20, 0.95)",
-        color: "#fff",
-        border: "1px solid rgba(255, 255, 255, 0.12)",
+        background: "hsl(var(--popover) / 0.95)",
+        color: "hsl(var(--popover-foreground))",
+        border: "1px solid hsl(var(--border) / 0.12)",
         borderRadius: 999,
-        boxShadow: "0 4px 16px rgba(0, 0, 0, 0.4)",
+        boxShadow: "0 4px 16px hsl(var(--slides-thumbnail-shadow) / 0.4)",
         fontSize: 13,
         fontWeight: 500,
         userSelect: "none",
         pointerEvents: "auto",
       }}
     >
-      <span style={{ color: "#609FF8" }}>{count}</span>
-      <span style={{ color: "rgba(255,255,255,0.85)" }}>
+      <span style={{ color: "hsl(var(--slides-accent))" }}>{count}</span>
+      <span style={{ color: "hsl(var(--popover-foreground) / 0.85)" }}>
         {t("raw.selected")}
       </span>
       <button
@@ -60,8 +60,8 @@ export function MultiSelectChip({
           gap: 4,
           padding: "4px 10px",
           marginLeft: 4,
-          background: "#609FF8",
-          color: "#000",
+          background: "hsl(var(--slides-accent))",
+          color: "hsl(var(--slides-accent-foreground))",
           border: "none",
           borderRadius: 999,
           fontSize: 12,
@@ -83,7 +83,7 @@ export function MultiSelectChip({
           width: 22,
           height: 22,
           background: "transparent",
-          color: "rgba(255,255,255,0.7)",
+          color: "hsl(var(--popover-foreground) / 0.7)",
           border: "none",
           borderRadius: 999,
           cursor: "pointer",

@@ -8,6 +8,7 @@ import type { Deck } from "@/context/DeckContext";
 
 import { refreshDeckForGenerationOutcome } from "../lib/generation-lifecycle.js";
 
+// source-read-ok: pins the page boundary that wires generation signals to progress, overlay, and URL cleanup.
 const deckEditorSource = readFileSync(
   path.join(path.dirname(fileURLToPath(import.meta.url)), "DeckEditor.tsx"),
   "utf8",

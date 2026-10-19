@@ -4,10 +4,12 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+// source-read-ok: pins the home-to-editor agent-submit and route-handoff integration boundary.
 const source = readFileSync(
   path.join(path.dirname(fileURLToPath(import.meta.url)), "Index.tsx"),
   "utf8",
 );
+// source-read-ok: pins the home-to-editor agent-submit and route-handoff integration boundary.
 const editorSource = readFileSync(
   path.join(
     path.dirname(fileURLToPath(import.meta.url)),
@@ -15,6 +17,7 @@ const editorSource = readFileSync(
   ),
   "utf8",
 );
+// source-read-ok: pins the home-to-editor agent-submit and route-handoff integration boundary.
 const generationLibSource = readFileSync(
   path.join(
     path.dirname(fileURLToPath(import.meta.url)),

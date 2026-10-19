@@ -6,7 +6,7 @@ export default function GeneratingOverlay() {
   return (
     <div className="flex-1 flex items-center justify-center bg-background">
       <div className="flex max-w-sm flex-col items-center gap-4 px-6 text-center">
-        <IconLoader2 className="w-8 h-8 text-[#609FF8] animate-spin" />
+        <IconLoader2 className="w-8 h-8 text-[hsl(var(--slides-accent))] animate-spin" />
         <div className="space-y-1">
           <p className="text-sm font-medium text-foreground">
             {t("raw.firstSlidesTitle")}

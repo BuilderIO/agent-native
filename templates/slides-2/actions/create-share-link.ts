@@ -9,6 +9,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { slideRevealIssues } from "../server/lib/slide-reveal-issues.js";
 import { trackSlides } from "../server/lib/slides-tracking.js";
+import { getSlidesAppUrl } from "./_app-url.js";
 import { assertSlides2DeckData } from "./_deck-app-scope.js";
 import {
   projectRenderingDesignSystemData,
@@ -92,6 +93,7 @@ export default defineAction({
     const db = getDb();
     await db.insert(schema.deckShareLinks).values({
       token,
+      deckId: deck.id,
       title: deck.title ?? data.title ?? "Untitled",
       slides: JSON.stringify(slides),
       aspectRatio: data.aspectRatio ?? null,
@@ -117,6 +119,9 @@ export default defineAction({
           new Date(Date.now() - THIRTY_DAYS_MS).toISOString(),
         ),
       );
-    return { shareToken: token };
+    return {
+      shareToken: token,
+      url: `${getSlidesAppUrl()}/share/${encodeURIComponent(token)}`,
+    };
   },
 });

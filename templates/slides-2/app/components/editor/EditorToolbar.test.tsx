@@ -620,18 +620,27 @@ describe("<EditorToolbar>", () => {
     const file = new File(["pdf"], "import.pdf", { type: "application/pdf" });
     mocks.uploadPromptFiles.mockResolvedValue([uploaded]);
     mocks.cleanupUploadedPromptFiles.mockResolvedValue(undefined);
-    mocks.isPromptUploadNetworkError.mockImplementation(
-      (error: unknown) =>
-        (error as { errorCode?: string }).errorCode ===
-        "upload_service_unavailable",
-    );
-    const fetchMock = vi.fn(
-      async () =>
+    mocks.isPromptUploadNetworkError.mockImplementation((error: unknown) => {
+      const typed = error as { errorCode?: string; status?: number };
+      return (
+        typed.errorCode === "upload_service_unavailable" || typed.status === 504
+      );
+    });
+    const gatewayPage =
+      "<!DOCTYPE html><html><head><title>504 Gateway Time-out</title></head></html>";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(gatewayPage, { status: 504 }))
+      .mockResolvedValueOnce(new Response(gatewayPage, { status: 400 }))
+      .mockResolvedValueOnce(
         new Response(
-          "<!DOCTYPE html><html><head><title>504 Gateway Time-out</title></head></html>",
-          { status: 504 },
+          JSON.stringify({ error: "The PDF is password protected." }),
+          {
+            status: 422,
+            headers: { "Content-Type": "application/json" },
+          },
         ),
-    );
+      );
     vi.stubGlobal("fetch", fetchMock);
     render(
       <TooltipProvider>
@@ -669,6 +678,28 @@ describe("<EditorToolbar>", () => {
 
     options.action?.onClick();
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalledTimes(2));
+    const [, retryOptions] = mocks.toastError.mock.calls[1] as [
+      string,
+      { description: string; action?: { label: string } },
+    ];
+    expect(retryOptions.description).toBe(
+      "editorToolbar.importFailedDescription",
+    );
+    expect(retryOptions.action).toBeUndefined();
+    expect(JSON.stringify(retryOptions)).not.toMatch(/<!DOCTYPE|<html/i);
+
+    fireEvent.change(input, { target: { files: [file] } });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalledTimes(3));
+    const [, actionableOptions] = mocks.toastError.mock.calls[2] as [
+      string,
+      { description: string; action?: { label: string } },
+    ];
+    expect(actionableOptions.description).toBe(
+      "The PDF is password protected.",
+    );
+    expect(actionableOptions.action).toBeUndefined();
   });
 
   it("registers the editor actions in the Cmd+K palette", () => {

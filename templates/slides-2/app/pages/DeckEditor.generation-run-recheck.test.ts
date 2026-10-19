@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+// source-read-ok: pins the route's ordering of fresh guided-question state before generation-run cleanup.
 const deckEditorSource = readFileSync(
   path.join(path.dirname(fileURLToPath(import.meta.url)), "DeckEditor.tsx"),
   "utf8",

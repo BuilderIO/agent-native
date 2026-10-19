@@ -232,7 +232,9 @@ function PresenceAvatarTip({
     <Tooltip>
       <TooltipTrigger asChild>
         <div
-          className="rounded-full overflow-hidden flex items-center justify-center font-bold text-white/90 flex-shrink-0 ring-1 ring-black/40 cursor-default"
+          className={
+            /* guard:allow-raw-color — avatar text must contrast against the user's arbitrary presence color. */ "rounded-full overflow-hidden flex items-center justify-center font-bold text-white/90 flex-shrink-0 ring-1 ring-black/40 cursor-default"
+          }
           style={{
             width: size,
             height: size,
@@ -252,7 +254,9 @@ function PresenceAvatarTip({
       </TooltipTrigger>
       <TooltipContent side="right" className="flex items-center gap-2 p-2">
         <div
-          className="w-7 h-7 rounded-full overflow-hidden flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0"
+          className={
+            /* guard:allow-raw-color — avatar text must contrast against the user's arbitrary presence color. */ "w-7 h-7 rounded-full overflow-hidden flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0"
+          }
           style={{ backgroundColor: avatarUrl ? undefined : user.color }}
         >
           {avatarUrl ? (

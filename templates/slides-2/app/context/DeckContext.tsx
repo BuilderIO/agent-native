@@ -1301,7 +1301,9 @@ function notifySaveListeners() {
   saveStateListeners.forEach((fn) => {
     try {
       fn();
-    } catch {}
+    } catch (error) {
+      console.error("[slides] save-state listener failed", error);
+    }
   });
   flushDeferredRemoteSyncs();
 }
@@ -4254,45 +4256,45 @@ export function mergeServerSlideUpdate(
 export const defaultSlideContent: Record<SlideLayout, string> = {
   title: `<div class="fmd-slide" style="padding: 80px 110px; justify-content: space-between;">
   <div>
-    <div style="font-size: 16px; font-weight: 800; color: #fff; letter-spacing: 0; font-family: 'Poppins', sans-serif;">Deck</div>
+    <div style="font-size: 16px; font-weight: 800; color: #fff; letter-spacing: 0; font-family: 'Poppins', sans-serif;">Deck</div> <!-- // guard:allow-raw-color — default slide markup preserves the authored slide palette. -->
   </div>
   <div>
-    <div style="font-size: 54px; font-weight: 900; color: #fff; line-height: 1.1; letter-spacing: -1px; font-family: 'Poppins', sans-serif;">Presentation Title</div>
+    <div style="font-size: 54px; font-weight: 900; color: #fff; line-height: 1.1; letter-spacing: -1px; font-family: 'Poppins', sans-serif;">Presentation Title</div> <!-- // guard:allow-raw-color — default slide markup preserves the authored slide palette. -->
   </div>
   <div>
-    <div class="text-[16px] text-white/65 mb-1">Your Name</div>
-    <div class="text-[16px] text-white/50">Date</div>
+    <div class="text-[16px] text-white/65 mb-1">Your Name</div> <!-- // guard:allow-raw-color — default slide markup preserves the authored slide palette. -->
+    <div class="text-[16px] text-white/50">Date</div> <!-- // guard:allow-raw-color — default slide markup preserves the authored slide palette. -->
   </div>
 </div>`,
   content: `<div class="fmd-slide" style="padding: 80px 110px; justify-content: center;">
-  <div style="font-size: 16px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF; margin-bottom: 32px; font-family: 'Poppins', sans-serif;">SECTION</div>
-  <div style="font-size: 40px; font-weight: 900; color: #fff; line-height: 1.15; letter-spacing: -1px; font-family: 'Poppins', sans-serif; margin-bottom: 40px;">Slide Title</div>
+  <div style="font-size: 16px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF; margin-bottom: 32px; font-family: 'Poppins', sans-serif;">SECTION</div> <!-- // guard:allow-raw-color — default slide markup preserves the authored slide palette. -->
+  <div style="font-size: 40px; font-weight: 900; color: #fff; line-height: 1.15; letter-spacing: -1px; font-family: 'Poppins', sans-serif; margin-bottom: 40px;">Slide Title</div> <!-- // guard:allow-raw-color — default slide markup preserves the authored slide palette. -->
   <div style="display: flex; flex-direction: column; gap: 16px; padding-left: 16px;">
-    <div style="display: flex; align-items: baseline; gap: 20px; font-size: 22px; color: rgba(255,255,255,0.85); font-family: 'Poppins', sans-serif; line-height: 1.4;"><span style="color: #fff; font-size: 8px; position: relative; top: -4px;">&#x25CF;</span><span>First point</span></div>
-    <div style="display: flex; align-items: baseline; gap: 20px; font-size: 22px; color: rgba(255,255,255,0.85); font-family: 'Poppins', sans-serif; line-height: 1.4;"><span style="color: #fff; font-size: 8px; position: relative; top: -4px;">&#x25CF;</span><span>Second point</span></div>
-    <div style="display: flex; align-items: baseline; gap: 20px; font-size: 22px; color: rgba(255,255,255,0.85); font-family: 'Poppins', sans-serif; line-height: 1.4;"><span style="color: #fff; font-size: 8px; position: relative; top: -4px;">&#x25CF;</span><span>Third point</span></div>
+    <div style="display: flex; align-items: baseline; gap: 20px; font-size: 22px; color: rgba(255,255,255,0.85); font-family: 'Poppins', sans-serif; line-height: 1.4;"><span style="color: #fff; font-size: 8px; position: relative; top: -4px;">&#x25CF;</span><span>First point</span></div> <!-- // guard:allow-raw-color — default slide markup preserves the authored slide palette. -->
+    <div style="display: flex; align-items: baseline; gap: 20px; font-size: 22px; color: rgba(255,255,255,0.85); font-family: 'Poppins', sans-serif; line-height: 1.4;"><span style="color: #fff; font-size: 8px; position: relative; top: -4px;">&#x25CF;</span><span>Second point</span></div> <!-- // guard:allow-raw-color — default slide markup preserves the authored slide palette. -->
+    <div style="display: flex; align-items: baseline; gap: 20px; font-size: 22px; color: rgba(255,255,255,0.85); font-family: 'Poppins', sans-serif; line-height: 1.4;"><span style="color: #fff; font-size: 8px; position: relative; top: -4px;">&#x25CF;</span><span>Third point</span></div> <!-- // guard:allow-raw-color — default slide markup preserves the authored slide palette. -->
   </div>
 </div>`,
   "two-column": `<div class="fmd-slide" style="padding: 50px 70px; justify-content: center;">
   <div style="display: flex; gap: 40px; align-items: flex-start; width: 100%;">
     <div style="flex: 1;">
-      <div style="font-size: 16px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF; margin-bottom: 8px; font-family: 'Poppins', sans-serif;">SECTION</div>
-      <div style="font-size: 36px; font-weight: 900; color: #fff; line-height: 1.15; letter-spacing: -1px; font-family: 'Poppins', sans-serif; margin-bottom: 28px;">Left Column</div>
-      <div style="font-size: 20px; color: rgba(255,255,255,0.55); font-family: 'Poppins', sans-serif; line-height: 1.5;">Content for the left side</div>
+      <div style="font-size: 16px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF; margin-bottom: 8px; font-family: 'Poppins', sans-serif;">SECTION</div> <!-- // guard:allow-raw-color — default slide markup preserves the authored slide palette. -->
+      <div style="font-size: 36px; font-weight: 900; color: #fff; line-height: 1.15; letter-spacing: -1px; font-family: 'Poppins', sans-serif; margin-bottom: 28px;">Left Column</div> <!-- // guard:allow-raw-color — default slide markup preserves the authored slide palette. -->
+      <div style="font-size: 20px; color: rgba(255,255,255,0.55); font-family: 'Poppins', sans-serif; line-height: 1.5;">Content for the left side</div> <!-- // guard:allow-raw-color — default slide markup preserves the authored slide palette. -->
     </div>
     <div class="fmd-img-placeholder" style="flex: 1; min-height: 280px;">Right column visual</div>
   </div>
 </div>`,
   section: `<div class="fmd-slide" style="padding: 80px 110px; justify-content: center;">
-  <div style="font-size: 54px; font-weight: 900; color: #fff; line-height: 1.1; letter-spacing: -1px; font-family: 'Poppins', sans-serif;">Section Title</div>
+  <div style="font-size: 54px; font-weight: 900; color: #fff; line-height: 1.1; letter-spacing: -1px; font-family: 'Poppins', sans-serif;">Section Title</div> <!-- // guard:allow-raw-color — default slide markup preserves the authored slide palette. -->
 </div>`,
   image: `<div class="fmd-slide" style="padding: 60px 80px; align-items: center;">
-  <div style="font-size: 38px; font-weight: 900; color: #fff; line-height: 1.2; letter-spacing: -1px; font-family: 'Poppins', sans-serif; text-align: center; margin-bottom: 32px;">Image Slide Title</div>
+  <div style="font-size: 38px; font-weight: 900; color: #fff; line-height: 1.2; letter-spacing: -1px; font-family: 'Poppins', sans-serif; text-align: center; margin-bottom: 32px;">Image Slide Title</div> <!-- // guard:allow-raw-color — default slide markup preserves the authored slide palette. -->
   <div class="fmd-img-placeholder" style="width: 560px; flex: 1; min-height: 300px;">Image description</div>
 </div>`,
   statement: `<div class="fmd-slide" style="padding: 60px 110px; justify-content: center;">
-  <div style="font-size: 38px; font-weight: 900; color: #fff; line-height: 1.2; letter-spacing: -1px; font-family: 'Poppins', sans-serif; margin-bottom: 20px;">Bold statement or key message goes here</div>
-  <div style="font-size: 20px; color: rgba(255,255,255,0.6); line-height: 1.5; font-family: 'Poppins', sans-serif;">Supporting context or subtitle text</div>
+  <div style="font-size: 38px; font-weight: 900; color: #fff; line-height: 1.2; letter-spacing: -1px; font-family: 'Poppins', sans-serif; margin-bottom: 20px;">Bold statement or key message goes here</div> <!-- // guard:allow-raw-color — default slide markup preserves the authored slide palette. -->
+  <div style="font-size: 20px; color: rgba(255,255,255,0.6); line-height: 1.5; font-family: 'Poppins', sans-serif;">Supporting context or subtitle text</div> <!-- // guard:allow-raw-color — default slide markup preserves the authored slide palette. -->
 </div>`,
   "full-image": `<div class="fmd-slide" style="padding: 0; align-items: center; justify-content: center;">
   <div class="fmd-img-placeholder" style="width: 100%; height: 100%;">Full-bleed image or screenshot</div>
@@ -5492,12 +5494,16 @@ export function DeckProvider({
   const resyncDeckState = useCallback(async () => {
     try {
       await refetchDeckListIfChanged();
-    } catch {}
+    } catch (error) {
+      console.warn("[slides] deck list resync failed", error);
+    }
     const currentOpenId = currentOpenDeckIdFromWindow();
     if (!currentOpenId) return;
     try {
       await refetchOpenDeckIfChanged(currentOpenId);
-    } catch {}
+    } catch (error) {
+      console.warn("[slides] open deck resync failed", error);
+    }
   }, [refetchDeckListIfChanged, refetchOpenDeckIfChanged]);
 
   const resetDeckBaseline = useCallback(
@@ -6196,14 +6202,14 @@ export function DeckProvider({
                 content: defaultSlideContent.title,
                 notes: "",
                 layout: "title",
-                background: "bg-[#000000]",
+                background: "bg-[#000000]", // guard:allow-raw-color — default slide markup preserves the authored slide palette.
               },
               {
                 id: nanoid(8),
                 content: defaultSlideContent.content,
                 notes: "",
                 layout: "content",
-                background: "bg-[#000000]",
+                background: "bg-[#000000]", // guard:allow-raw-color — default slide markup preserves the authored slide palette.
               },
             ],
       };
@@ -6560,7 +6566,7 @@ export function DeckProvider({
         content: normalizeSlidePadding(defaultSlideContent[layout]),
         notes: "",
         layout,
-        background: "bg-[#000000]",
+        background: "bg-[#000000]", // guard:allow-raw-color — default slide markup preserves the authored slide palette.
       };
 
       const before = decksRef.current.find((d) => d.id === deckId);

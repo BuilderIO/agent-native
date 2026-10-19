@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from "vitest";
 
 vi.mock("@agent-native/core/client/api-path", () => ({
   appBasePath: () => "",
+  agentNativePath: (path: string) => path,
 }));
 
 vi.mock("@agent-native/core/client/host", () => ({

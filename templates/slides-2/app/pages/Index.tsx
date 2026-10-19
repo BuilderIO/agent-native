@@ -411,7 +411,12 @@ function savePromptForRetry(
         sessionStorage.removeItem(PENDING_PROMPT_REFERENCE_SELECTION_KEY);
       }
       signInHandoffSaved = true;
-    } catch {}
+    } catch (error) {
+      console.warn(
+        "[slides] pending prompt could not be saved for sign-in",
+        error,
+      );
+    }
   }
   const draftSaved = savePromptToComposerDraft(NEW_DECK_DRAFT_SCOPE, prompt);
   return signInHandoffSaved && draftSaved;
@@ -423,7 +428,9 @@ function clearPendingPromptForRetry() {
     sessionStorage.removeItem(PENDING_PROMPT_CONTEXT_KEY);
     sessionStorage.removeItem(PENDING_PROMPT_MODEL_SELECTION_KEY);
     sessionStorage.removeItem(PENDING_PROMPT_REFERENCE_SELECTION_KEY);
-  } catch {}
+  } catch (error) {
+    console.warn("[slides] pending prompt could not be cleared", error);
+  }
 }
 
 function mergeUploadedFilesForRetry(
@@ -1220,7 +1227,9 @@ export default function Index({ active = true }: { active?: boolean }) {
           "[slides] pending reference selection could not be restored",
         );
       }
-    } catch {}
+    } catch (error) {
+      console.warn("[slides] pending prompt could not be restored", error);
+    }
     if (!saved) return;
     setNewDeckRetryContext(savedContext);
     setNewDeckRetryPrompt(saved);

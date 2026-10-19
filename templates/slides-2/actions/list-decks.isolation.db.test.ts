@@ -2,15 +2,37 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { getDbExec } from "@agent-native/core/db";
+import { closeDbExec, getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { eq } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  middleware: [] as Array<{
+    path: string;
+    handler: (event: any) => Promise<unknown>;
+  }>,
+}));
+
+vi.mock("@agent-native/core/server", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/server")>();
+  return {
+    ...actual,
+    getH3App: () => ({
+      use: (path: string, handler: (event: any) => Promise<unknown>) => {
+        mocks.middleware.push({ path, handler });
+      },
+    }),
+  };
+});
 
 const TEST_DB_PATH = join(
   tmpdir(),
   `list-decks-isolation-${process.pid}-${Date.now()}.pglite`,
 );
+const originalDatabaseUrl = process.env.DATABASE_URL;
+const originalAppUrl = process.env.APP_URL;
 
 const ALICE = "alice@org-a.example.com";
 const BOB = "bob@org-b.example.com";
@@ -31,7 +53,20 @@ beforeAll(async () => {
   schema = dbModule.schema;
   listDecks = (await import("./list-decks.js")).default;
   const plugin = (await import("../server/plugins/db.js")).default;
-  await plugin(undefined as any);
+  await plugin({ h3: {} });
+  const frameworkMiddleware = mocks.middleware.find(
+    ({ path }) => path === "/_agent-native",
+  );
+  if (!frameworkMiddleware) {
+    throw new Error(
+      "Slides DB plugin did not register framework readiness middleware",
+    );
+  }
+  const beforeReadiness = await getDbExec().execute<{
+    relation: string | null;
+  }>("SELECT to_regclass('public.decks')::text AS relation");
+  expect(beforeReadiness.rows[0]?.relation).toBeNull();
+  await frameworkMiddleware.handler({});
   await getDbExec().execute(`CREATE TABLE IF NOT EXISTS organizations (
     id TEXT PRIMARY KEY, name TEXT NOT NULL, created_by TEXT NOT NULL,
     created_at BIGINT NOT NULL, identity_authority TEXT, identity_id TEXT
@@ -118,7 +153,12 @@ beforeAll(async () => {
     ]);
 }, 120000);
 
-afterAll(() => {
+afterAll(async () => {
+  await closeDbExec();
+  if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+  else process.env.DATABASE_URL = originalDatabaseUrl;
+  if (originalAppUrl === undefined) delete process.env.APP_URL;
+  else process.env.APP_URL = originalAppUrl;
   rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 

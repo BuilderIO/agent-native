@@ -1,3 +1,4 @@
+import { fail } from "@agent-native/core/action";
 import { and, eq, inArray, isNull, or } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import {
@@ -140,8 +141,12 @@ function replaceUploadedImageSources(
     if (src && !src.value.startsWith("asset://")) {
       const assetId = assetIdsByUrl.get(src.value);
       if (!assetId) {
-        throw new Error(
+        fail(
           "Imported slide images must reference an uploaded asset before source conversion.",
+          {
+            errorCode: "imported_slide_asset_not_uploaded",
+            statusCode: 400,
+          },
         );
       }
       src.value = `asset://${assetId}`;

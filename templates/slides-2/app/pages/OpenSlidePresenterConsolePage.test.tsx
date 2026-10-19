@@ -31,7 +31,11 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   actionErrorMessage: (error: unknown) =>
     error instanceof Error ? error.message : null,
   callAction: (...args: unknown[]) => mocks.callAction(...args),
+  deleteClientAppState: vi.fn(async () => undefined),
   getBrowserTabId: () => "presenter-console-test",
+  useChangeVersion: () => 0,
+  useDbSync: vi.fn(),
+  useSession: () => ({ status: "authenticated" }),
   useActionQuery: (action: string, input: Record<string, unknown> = {}) => {
     const ok = (data: unknown) => ({
       data,

@@ -18,7 +18,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 type ThemeSummary = {
   id: string;
   name: string;
-  description: string;
+  description?: string;
   mode: "light" | "dark";
   preview: {
     background: string;
@@ -90,9 +90,11 @@ export default function SlideThemes() {
               <h2 className="truncate text-sm font-medium text-foreground">
                 {theme.name}
               </h2>
-              <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-                {theme.description}
-              </p>
+              {theme.description ? (
+                <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+                  {theme.description}
+                </p>
+              ) : null}
             </div>
           </Link>
         </li>

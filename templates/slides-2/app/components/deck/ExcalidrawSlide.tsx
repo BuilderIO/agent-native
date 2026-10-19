@@ -33,6 +33,7 @@ export function parseExcalidrawData(json?: string): ExcalidrawData | null {
   try {
     return JSON.parse(json);
   } catch {
+    // coercion-ok: Malformed drawings become a typed null; thumbnails surface it as an error and editors start empty.
     return null;
   }
 }

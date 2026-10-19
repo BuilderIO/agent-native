@@ -237,7 +237,10 @@ describe("get-design-system", () => {
   });
 
   it("serves a deck reader the deck's linked design system without writing to it", async () => {
-    const deck = { designSystemId: "builder-ds-1", data: "{}" };
+    const deck = {
+      designSystemId: "builder-ds-1",
+      data: JSON.stringify({ appId: "slides-2" }),
+    };
     const { resource } = await mockResolveAccess();
     mockResolveAccess.mockImplementation((type: string) =>
       Promise.resolve(type === "deck" ? { resource: deck } : null),

@@ -127,10 +127,12 @@ describe("DeckCard delete lifecycle", () => {
       { button: 0 },
     );
     await waitFor(() =>
-      expect(screen.getByRole("menuitem", { name: "Delete" })).toBeTruthy(),
+      expect(
+        screen.getByRole("menuitem", { name: "deckCard.delete" }),
+      ).toBeTruthy(),
     );
 
-    fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "deckCard.delete" }));
 
     await waitFor(() => expect(screen.getByRole("alertdialog")).toBeTruthy());
 

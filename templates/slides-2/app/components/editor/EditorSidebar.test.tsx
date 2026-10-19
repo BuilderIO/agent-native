@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Slide } from "@/context/DeckContext";
 
 const sortableKeyDown = vi.hoisted(() => vi.fn());
+const deleteClientAppState = vi.hoisted(() => vi.fn(async () => undefined));
 const sortableState = vi.hoisted(() => ({
   isDragging: false,
   transform: null as {
@@ -28,8 +29,10 @@ vi.mock("@agent-native/core/client/api-path", () => ({
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
+  deleteClientAppState,
   getBrowserTabId: () => "test-tab",
   useAvatarUrl: () => null,
+  useChangeVersion: () => 0,
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({

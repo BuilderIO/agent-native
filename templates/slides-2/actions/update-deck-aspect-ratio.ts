@@ -50,8 +50,9 @@ export default defineAction({
     assertSlides2DeckData(data);
     if (data.aspectRatio === aspectRatio) {
       if (isAgentPatchCaller(ctx?.caller)) {
-        throw new Error(
+        fail(
           "Nothing was written: the requested aspect ratio is already set. Re-read with get-deck before retrying.",
+          { errorCode: "deck_patch_no_changes", statusCode: 409 },
         );
       }
       return { id: deckId, aspectRatio, applied: false };

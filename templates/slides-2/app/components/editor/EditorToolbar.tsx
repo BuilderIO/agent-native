@@ -105,6 +105,7 @@ import {
   uploadPromptFiles,
   type UploadedFile,
 } from "@/lib/prompt-file-uploads";
+import { looksLikeMarkup } from "@/lib/upload-response";
 
 import {
   normalizeSlideTransition,
@@ -480,10 +481,39 @@ export default function EditorToolbar({
       if (storageSetupRequired) void storageQuery.refetch();
       // A timeout, a gateway page or a dropped connection says nothing about
       // the file, so the same import is offered again rather than a new pick.
-      const retryable =
+      const networkFailure =
         !storageSetupRequired &&
         !(err instanceof DeckBackupError) &&
         isPromptUploadNetworkError(err);
+      const retryable = networkFailure;
+      const errorMessage =
+        actionErrorMessage(err) ??
+        (err instanceof Error ? err.message : undefined);
+      const safeErrorMessage =
+        errorMessage && !looksLikeMarkup(errorMessage)
+          ? errorMessage
+          : undefined;
+      const safeErrorDescription = storageSetupRequired
+        ? t("home.fileStorageSetupRequired")
+        : err instanceof DeckBackupError
+          ? t("editorToolbar.invalidBackup")
+          : isPromptUploadAuthRequiredError(err)
+            ? t("home.importMenu.notStarted")
+            : networkFailure
+              ? t("home.importMenu.networkFailed")
+              : isPromptUploadLimitError(err)
+                ? t("home.importMenu.uploadLimitExceeded")
+                : isPromptUploadStorageStatusError(err)
+                  ? t("editorToolbar.importFailedDescription")
+                  : (safeErrorMessage ??
+                    t("editorToolbar.importFailedDescription"));
+      const formattedErrorDescription = formatPromptUploadFailure(
+        err,
+        safeErrorDescription,
+      );
+      const toastDescription = looksLikeMarkup(formattedErrorDescription)
+        ? safeErrorDescription
+        : formattedErrorDescription;
       toast.error(t("editorToolbar.importFailed"), {
         ...(retryable
           ? {
@@ -493,25 +523,7 @@ export default function EditorToolbar({
               },
             }
           : {}),
-        description: formatPromptUploadFailure(
-          err,
-          storageSetupRequired
-            ? t("home.fileStorageSetupRequired")
-            : err instanceof DeckBackupError
-              ? t("editorToolbar.invalidBackup")
-              : isPromptUploadAuthRequiredError(err)
-                ? t("home.importMenu.notStarted")
-                : isPromptUploadNetworkError(err)
-                  ? t("home.importMenu.networkFailed")
-                  : isPromptUploadLimitError(err)
-                    ? t("home.importMenu.uploadLimitExceeded")
-                    : isPromptUploadStorageStatusError(err)
-                      ? t("editorToolbar.importFailedDescription")
-                      : (actionErrorMessage(err) ??
-                        (err instanceof Error
-                          ? err.message
-                          : t("editorToolbar.importFailedDescription"))),
-        ),
+        description: toastDescription,
       });
     } finally {
       await cleanupUploadedPromptFiles(uploadedFiles);

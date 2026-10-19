@@ -729,7 +729,7 @@ export default function PromptPopover({
     <>
       {!inline && centered && (
         <div
-          className="fixed inset-0 bg-black/40 z-[199]"
+          className="fixed inset-0 bg-foreground/40 z-[199]"
           onClick={() => onOpenChange(false)}
         />
       )}

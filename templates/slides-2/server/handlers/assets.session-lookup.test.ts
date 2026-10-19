@@ -20,6 +20,10 @@ vi.mock("drizzle-orm", () => ({
   isNull: vi.fn(),
   like: vi.fn(),
   or: vi.fn(),
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
+    strings,
+    values,
+  }),
 }));
 
 vi.mock("../db/index.js", () => ({

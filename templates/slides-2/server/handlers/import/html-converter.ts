@@ -22,15 +22,15 @@ export function buildFullBleedImageSlideHtml(
 ): string {
   let overlay = "";
   if (headingText && subtitleText) {
-    overlay = `\n    <div style="position: absolute; left: 0; right: 0; bottom: 0; background: linear-gradient(to top, rgba(12,10,8,0.95) 0%, rgba(12,10,8,0.88) 55%, rgba(12,10,8,0.4) 82%, rgba(12,10,8,0) 100%); padding: 56px 56px 60px; text-align: center; font-family: 'Poppins', sans-serif;">
-      <div style="width: 72px; height: 3px; background: #d8b26a; margin: 0 auto 20px;"></div>
-      <h2 style="font-size: 30px; font-weight: 800; color: #d8b26a; line-height: 1.25; margin: 0 0 14px;">${esc(headingText)}</h2>
-      <p style="font-size: 19px; font-weight: 500; color: #fff; line-height: 1.5; margin: 0;">${esc(subtitleText)}</p>
+    overlay = `\n    <div style="position: absolute; left: 0; right: 0; bottom: 0; background: linear-gradient(to top, rgba(12,10,8,0.95) 0%, rgba(12,10,8,0.88) 55%, rgba(12,10,8,0.4) 82%, rgba(12,10,8,0) 100%); padding: 56px 56px 60px; text-align: center; font-family: 'Poppins', sans-serif;"> <!-- // guard:allow-raw-color — imported slide HTML preserves authored presentation colors. -->
+      <div style="width: 72px; height: 3px; background: #d8b26a; margin: 0 auto 20px;"></div> <!-- // guard:allow-raw-color — imported slide HTML preserves authored presentation colors. -->
+      <h2 style="font-size: 30px; font-weight: 800; color: #d8b26a; line-height: 1.25; margin: 0 0 14px;">${esc(headingText)}</h2> <!-- // guard:allow-raw-color — imported slide HTML preserves authored presentation colors. -->
+      <p style="font-size: 19px; font-weight: 500; color: #fff; line-height: 1.5; margin: 0;">${esc(subtitleText)}</p> <!-- // guard:allow-raw-color — imported slide HTML preserves authored presentation colors. -->
     </div>`;
   } else if (headingText) {
-    overlay = `\n    <div style="position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.15) 45%, rgba(0,0,0,0) 65%);"></div>
+    overlay = `\n    <div style="position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.15) 45%, rgba(0,0,0,0) 65%);"></div> <!-- // guard:allow-raw-color — imported slide HTML preserves authored presentation colors. -->
     <div style="position: absolute; left: 0; right: 0; bottom: 0; padding: 60px 70px; font-family: 'Poppins', sans-serif;">
-      <h2 style="font-size: 40px; font-weight: 900; color: #fff; line-height: 1.15; letter-spacing: -1px; margin: 0;">${esc(headingText)}</h2>
+      <h2 style="font-size: 40px; font-weight: 900; color: #fff; line-height: 1.15; letter-spacing: -1px; margin: 0;">${esc(headingText)}</h2> <!-- // guard:allow-raw-color — imported slide HTML preserves authored presentation colors. -->
     </div>`;
   }
   return `<div class="fmd-slide" style="position: relative; width: 100%; height: 100%; overflow: hidden;">
@@ -1353,7 +1353,7 @@ function buildTitleSlide(
   const subtitleText = subtitlePara.map(formatRun).join(" ");
 
   return `<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; font-family: ${fontFamily};">
-    <h1 style="font-size: 64px; font-weight: 900; color: #fff; line-height: 1.1; letter-spacing: -2px; margin: 0 0 24px 0;">${titleText}</h1>${subtitleText ? `\n    <p style="font-size: 22px; color: rgba(255,255,255,0.55); margin: 0;">${subtitleText}</p>` : ""}
+    <h1 style="font-size: 64px; font-weight: 900; color: #fff; line-height: 1.1; letter-spacing: -2px; margin: 0 0 24px 0;">${titleText}</h1>${subtitleText ? `\n    <p style="font-size: 22px; color: rgba(255,255,255,0.55); margin: 0;">${subtitleText}</p>` : ""} <!-- // guard:allow-raw-color — imported slide HTML preserves authored presentation colors. -->
 </div>`;
 }
 
@@ -1373,8 +1373,8 @@ function buildContentSlide(
       .map((para) => {
         const text = para.map(formatRun).join(" ");
         return `      <div style="display: flex; align-items: flex-start; gap: 16px;">
-        <span style="font-size: 8px; color: #fff; margin-top: 8px; flex-shrink: 0;">&#x25CF;</span>
-        <span style="font-size: 22px; color: rgba(255,255,255,0.85); line-height: 1.5;">${text}</span>
+        <span style="font-size: 8px; color: #fff; margin-top: 8px; flex-shrink: 0;">&#x25CF;</span> <!-- // guard:allow-raw-color — imported slide HTML preserves authored presentation colors. -->
+        <span style="font-size: 22px; color: rgba(255,255,255,0.85); line-height: 1.5;">${text}</span> <!-- // guard:allow-raw-color — imported slide HTML preserves authored presentation colors. -->
       </div>`;
       })
       .join("\n");
@@ -1385,8 +1385,8 @@ ${bulletItems}
   }
 
   return `<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: flex-start; font-family: ${fontFamily};">
-    <div style="font-size: 14px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF; margin-bottom: 16px;">IMPORTED</div>
-    <h2 style="font-size: 40px; font-weight: 900; color: #fff; line-height: 1.15; letter-spacing: -1px; margin: 0 0 48px 0;">${headingText}</h2>${bulletsHtml}
+    <div style="font-size: 14px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF; margin-bottom: 16px;">IMPORTED</div> <!-- // guard:allow-raw-color — imported slide HTML preserves authored presentation colors. -->
+    <h2 style="font-size: 40px; font-weight: 900; color: #fff; line-height: 1.15; letter-spacing: -1px; margin: 0 0 48px 0;">${headingText}</h2>${bulletsHtml} <!-- // guard:allow-raw-color — imported slide HTML preserves authored presentation colors. -->
 </div>`;
 }
 
@@ -1434,7 +1434,7 @@ function buildOverlayImageSlide(
 
   return `<div class="fmd-slide" style="position: relative; width: 100%; height: 100%; overflow: hidden;">
     <img src="${esc(imageUrl)}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;" />
-    <div style="position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.35) 55%, rgba(0,0,0,0) 80%);"></div>
+    <div style="position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.35) 55%, rgba(0,0,0,0) 80%);"></div> <!-- // guard:allow-raw-color — imported slide HTML preserves authored presentation colors. -->
     <div style="position: absolute; left: 0; right: 0; bottom: 0; padding: 56px 70px; font-family: ${fontFamily};">
       <h2 style="font-size: 40px; font-weight: 900; color: #fff; /* guard:allow-raw-color - standalone imported slide HTML uses fixed contrast colors */ line-height: 1.15; letter-spacing: -1px; margin: 0 0 ${captionHtml ? "12px" : "0"} 0;">${headingHtml}</h2>${captionHtml ? `\n      ${captionHtml}` : ""}
     </div>
@@ -1497,8 +1497,8 @@ export function convertSectionsToSlides(
     if (lines.length === 0) {
       slides.push(
         `<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; font-family: 'Poppins', sans-serif;">
-    <div style="font-size: 16px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF; margin-bottom: 20px;">${String(slides.length + 1).padStart(2, "0")}</div>
-    <h2 style="font-size: 72px; font-weight: 900; color: #fff; line-height: 1.05; letter-spacing: -2px; margin: 0;">${esc(heading)}</h2>
+    <div style="font-size: 16px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF; margin-bottom: 20px;">${String(slides.length + 1).padStart(2, "0")}</div> <!-- // guard:allow-raw-color — imported slide HTML preserves authored presentation colors. -->
+    <h2 style="font-size: 72px; font-weight: 900; color: #fff; line-height: 1.05; letter-spacing: -2px; margin: 0;">${esc(heading)}</h2> <!-- // guard:allow-raw-color — imported slide HTML preserves authored presentation colors. -->
 </div>`,
       );
       continue;
@@ -1512,16 +1512,16 @@ export function convertSectionsToSlides(
           (
             line,
           ) => `      <div style="display: flex; align-items: flex-start; gap: 16px;">
-        <span style="font-size: 8px; color: #fff; margin-top: 8px; flex-shrink: 0;">&#x25CF;</span>
-        <span style="font-size: 22px; color: rgba(255,255,255,0.85); line-height: 1.5;">${esc(line)}</span>
+        <span style="font-size: 8px; color: #fff; margin-top: 8px; flex-shrink: 0;">&#x25CF;</span> <!-- // guard:allow-raw-color — imported slide HTML preserves authored presentation colors. -->
+        <span style="font-size: 22px; color: rgba(255,255,255,0.85); line-height: 1.5;">${esc(line)}</span> <!-- // guard:allow-raw-color — imported slide HTML preserves authored presentation colors. -->
       </div>`,
         )
         .join("\n");
 
       slides.push(
         `<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: flex-start; font-family: 'Poppins', sans-serif;">
-    <div style="font-size: 14px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF; margin-bottom: 16px;">IMPORTED</div>
-    <h2 style="font-size: 40px; font-weight: 900; color: #fff; line-height: 1.15; letter-spacing: -1px; margin: 0 0 48px 0;">${esc(heading)}</h2>
+    <div style="font-size: 14px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF; margin-bottom: 16px;">IMPORTED</div> <!-- // guard:allow-raw-color — imported slide HTML preserves authored presentation colors. -->
+    <h2 style="font-size: 40px; font-weight: 900; color: #fff; line-height: 1.15; letter-spacing: -1px; margin: 0 0 48px 0;">${esc(heading)}</h2> <!-- // guard:allow-raw-color — imported slide HTML preserves authored presentation colors. -->
     <div style="display: flex; flex-direction: column; gap: 20px;">
 ${bulletItems}
     </div>

@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -32,7 +32,12 @@ export default defineAction({
     const now = new Date().toISOString();
 
     const userEmail = getRequestUserEmail();
-    if (!userEmail) throw new Error("no authenticated user");
+    if (!userEmail) {
+      fail("no authenticated user", {
+        errorCode: "not_authenticated",
+        statusCode: 401,
+      });
+    }
     const orgId = getRequestOrgId();
 
     const [target] = await db
@@ -48,7 +53,10 @@ export default defineAction({
       target?.ownerEmail !== userEmail ||
       (target.orgId ?? null) !== (orgId ?? null)
     ) {
-      throw new Error("Only the owner can set a design system as default");
+      fail("Only the owner can set a design system as default", {
+        errorCode: "design_system_default_requires_owner",
+        statusCode: 403,
+      });
     }
 
     await db.transaction(async (tx) => {

@@ -24,6 +24,6 @@ export function touchAgentSlidePresence(args: {
       },
     });
   } catch {
-    // Presence is best-effort — swallow so it never breaks the write.
+    // coercion-ok: presence is optional and must not turn a successful slide write into an action failure.
   }
 }

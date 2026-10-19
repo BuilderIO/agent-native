@@ -14,16 +14,18 @@ function hasAlreadyReloaded(): boolean {
   try {
     return sessionStorage.getItem(RELOAD_GUARD_KEY) === "1";
   } catch {
-    return false;
+    // Avoid a reload loop when sessionStorage cannot persist the retry marker.
+    return true;
   }
 }
 
-function markReloaded(): void {
+function markReloaded(): boolean {
   try {
     sessionStorage.setItem(RELOAD_GUARD_KEY, "1");
+    return true;
   } catch {
-    // sessionStorage unavailable (e.g. private mode) — reload once anyway,
-    // worst case we reload more than once instead of not recovering at all.
+    // coercion-ok: without a durable marker, the importer reports its normal retry error instead of reloading.
+    return false;
   }
 }
 
@@ -33,8 +35,7 @@ export async function importExportModule<T>(
   try {
     return await loader();
   } catch (error) {
-    if (isStaleChunkError(error) && !hasAlreadyReloaded()) {
-      markReloaded();
+    if (isStaleChunkError(error) && !hasAlreadyReloaded() && markReloaded()) {
       window.location.reload();
       return new Promise<T>(() => {});
     }

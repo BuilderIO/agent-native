@@ -5,7 +5,12 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { hashSlideSource } from "../server/lib/slide-source.js";
 import { assertSlides2DeckData } from "./_deck-app-scope.js";
+import {
+  canReadPresenterNotes,
+  redactPresenterNotes,
+} from "./_presenter-notes.js";
 import { readStoredSlideSource } from "./_slide-source.js";
 
 function rethrowSlideSourceFailure(error: unknown): never {
@@ -52,7 +57,7 @@ export default defineAction({
     openWorldHint: false,
   },
   run: async ({ deckId, slideId }) => {
-    await assertAccess("deck", deckId, "viewer");
+    const access = await assertAccess("deck", deckId, "viewer");
     const [row] = await getDb()
       .select({
         id: schema.decks.id,
@@ -75,21 +80,34 @@ export default defineAction({
       rethrowSlideSourceFailure(error);
     }
     assertSlides2DeckData(snapshot.data);
+    const canReadNotes = canReadPresenterNotes(access.role);
+    const visibleSlide = canReadNotes
+      ? snapshot.slide
+      : (redactPresenterNotes(snapshot.slide) as Record<string, unknown>);
+    const visibleSourceTsx = visibleSlide.sourceTsx;
+    if (typeof visibleSourceTsx !== "string") {
+      fail("Slide source integrity could not be verified.", {
+        statusCode: 409,
+        errorCode: "slide_source_integrity_error",
+      });
+    }
     return {
       deck: { id: row.id, title: row.title },
       slide: {
         id: slideId,
         deckId,
         position: snapshot.position,
-        sourceTsx: snapshot.slide.sourceTsx,
+        sourceTsx: visibleSourceTsx,
         revision: snapshot.revision,
-        sourceHash: snapshot.sourceHash,
-        ...(typeof snapshot.slide.notes === "string"
-          ? { notes: snapshot.slide.notes }
+        ...(typeof visibleSlide.sourceHash === "string"
+          ? { sourceHash: visibleSlide.sourceHash }
+          : { sourceHash: hashSlideSource(visibleSourceTsx) }),
+        ...(canReadNotes && typeof visibleSlide.notes === "string"
+          ? { notes: visibleSlide.notes }
           : {}),
-        ...(typeof snapshot.slide.transition === "string" ||
-        snapshot.slide.transition === null
-          ? { transition: snapshot.slide.transition }
+        ...(typeof visibleSlide.transition === "string" ||
+        visibleSlide.transition === null
+          ? { transition: visibleSlide.transition }
           : {}),
       },
     };

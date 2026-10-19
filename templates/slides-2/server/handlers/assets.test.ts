@@ -1,16 +1,36 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockUploadFile = vi.hoisted(() => vi.fn());
 const mockDeleteUploadedFile = vi.hoisted(() => vi.fn());
 const mockRecordOrphanedVideoAssetCleanup = vi.hoisted(() => vi.fn());
 const mockDeleteOrphanedVideoAssetCleanup = vi.hoisted(() => vi.fn());
 const mockListOrphanedVideoAssetCleanups = vi.hoisted(() => vi.fn());
+const mockListOrphanedUploadedAssetCleanupKeys = vi.hoisted(() => vi.fn());
+const mockAppStateGetManyEntries = vi.hoisted(() => vi.fn());
+const mockCompareAndSetAppState = vi.hoisted(() => vi.fn());
 const mockValues = vi.hoisted(() => vi.fn());
 const mockSelectLimit = vi.hoisted(() => vi.fn());
+const mockSelectForUpdate = vi.hoisted(() => vi.fn());
 const mockDeleteWhere = vi.hoisted(() => vi.fn());
+const mockUpdateReturning = vi.hoisted(() => vi.fn());
+const mockTransaction = vi.hoisted(() => vi.fn());
 const mockEq = vi.hoisted(() => vi.fn((...args: unknown[]) => args));
 const mockRunWithRequestContext = vi.hoisted(() => vi.fn());
 const mockGetRequestOrgId = vi.hoisted(() => vi.fn());
+const mockRegisterDeckUploadedAsset = vi.hoisted(() => vi.fn());
+const mockReserveUploadedAssetRegistration = vi.hoisted(() => vi.fn());
+const mockRecordUploadedAssetCleanupObject = vi.hoisted(() => vi.fn());
+const mockCancelUploadedAssetRegistration = vi.hoisted(() => vi.fn());
+const mockParkUnresolvedUploadedAssetRegistration = vi.hoisted(() => vi.fn());
+const mockCompleteUploadedAssetRegistration = vi.hoisted(() => vi.fn());
+const mockClearRegisteredUploadedAsset = vi.hoisted(() => vi.fn());
+const mockClaimFailedUploadedAssetRegistration = vi.hoisted(() => vi.fn());
+const mockScheduleUploadedAssetDeletion = vi.hoisted(() => vi.fn());
+const mockFinishOwnedUploadedAssetCleanup = vi.hoisted(() => vi.fn());
+const mockRetryOwnedUploadedAssetCleanup = vi.hoisted(() => vi.fn());
+const mockListDueUploadedAssetCleanups = vi.hoisted(() => vi.fn());
+const mockListRegisteredUploadedAssetCleanups = vi.hoisted(() => vi.fn());
+const mockClaimDueUploadedAssetCleanup = vi.hoisted(() => vi.fn());
 const mockUploadedAssets = vi.hoisted(() => ({
   id: "uploaded_assets.id",
   filename: "uploaded_assets.filename",
@@ -19,14 +39,34 @@ const mockUploadedAssets = vi.hoisted(() => ({
   size: "uploaded_assets.size",
   provider: "uploaded_assets.provider",
   providerObjectId: "uploaded_assets.provider_object_id",
+  deckId: "uploaded_assets.deck_id",
   uploadSessionId: "uploaded_assets.upload_session_id",
   orgId: "uploaded_assets.org_id",
   ownerEmail: "uploaded_assets.owner_email",
+}));
+const mockDecks = vi.hoisted(() => ({
+  id: "decks.id",
+  data: "decks.data",
+  ownerEmail: "decks.owner_email",
+  orgId: "decks.org_id",
+}));
+const mockUploadedAssetCleanupOutbox = vi.hoisted(() => ({
+  id: "uploaded_asset_cleanup_outbox.id",
+  ownerEmail: "uploaded_asset_cleanup_outbox.owner_email",
+  orgId: "uploaded_asset_cleanup_outbox.org_id",
+  intent: "uploaded_asset_cleanup_outbox.intent",
+  state: "uploaded_asset_cleanup_outbox.state",
+  leaseToken: "uploaded_asset_cleanup_outbox.lease_token",
 }));
 
 vi.mock("@agent-native/core/file-upload", () => ({
   uploadFile: mockUploadFile,
   deleteUploadedFile: mockDeleteUploadedFile,
+}));
+
+vi.mock("@agent-native/core/application-state", () => ({
+  appStateGetManyEntries: mockAppStateGetManyEntries,
+  compareAndSetAppState: mockCompareAndSetAppState,
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -40,30 +80,78 @@ vi.mock("drizzle-orm", async (importOriginal) => ({
   and: (...args: unknown[]) => args,
   desc: (...args: unknown[]) => args,
   eq: (...args: unknown[]) => mockEq(...args),
+  isNull: (...args: unknown[]) => ["isNull", ...args],
+  ne: (...args: unknown[]) => ["ne", ...args],
   notLike: (...args: unknown[]) => args,
+  or: (...args: unknown[]) => ["or", ...args],
 }));
 
 vi.mock("../db/index.js", () => ({
-  getDb: () => ({
-    insert: () => ({ values: mockValues }),
-    delete: () => ({ where: mockDeleteWhere }),
-    select: () => ({
-      from: () => ({ where: () => ({ limit: mockSelectLimit }) }),
-    }),
-  }),
-  schema: { uploadedAssets: mockUploadedAssets },
+  getDb: () => {
+    const createDb = () => ({
+      insert: () => ({ values: mockValues }),
+      delete: () => ({ where: mockDeleteWhere }),
+      update: () => ({
+        set: () => ({ where: () => ({ returning: mockUpdateReturning }) }),
+      }),
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            limit: mockSelectLimit,
+            for: mockSelectForUpdate,
+          }),
+        }),
+      }),
+      transaction: (callback: (tx: unknown) => unknown) =>
+        mockTransaction(callback, createDb()),
+    });
+    return createDb();
+  },
+  schema: {
+    uploadedAssets: mockUploadedAssets,
+    uploadedAssetCleanupOutbox: mockUploadedAssetCleanupOutbox,
+    decks: mockDecks,
+  },
+}));
+
+vi.mock("../lib/deck-asset-scope.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../lib/deck-asset-scope.js")>()),
+  assertDeckAssetUploadScope: vi.fn().mockResolvedValue(undefined),
+  registerDeckUploadedAsset: mockRegisterDeckUploadedAsset,
 }));
 
 vi.mock("../lib/chunked-upload-session.js", () => ({
   recordOrphanedVideoAssetCleanup: mockRecordOrphanedVideoAssetCleanup,
   deleteOrphanedVideoAssetCleanup: mockDeleteOrphanedVideoAssetCleanup,
   listOrphanedVideoAssetCleanups: mockListOrphanedVideoAssetCleanups,
+  listOrphanedUploadedAssetCleanupKeys:
+    mockListOrphanedUploadedAssetCleanupKeys,
+}));
+
+vi.mock("../lib/uploaded-asset-cleanup-outbox.js", () => ({
+  cancelUploadedAssetRegistration: mockCancelUploadedAssetRegistration,
+  reserveUploadedAssetRegistration: mockReserveUploadedAssetRegistration,
+  recordUploadedAssetCleanupObject: mockRecordUploadedAssetCleanupObject,
+  parkUnresolvedUploadedAssetRegistration:
+    mockParkUnresolvedUploadedAssetRegistration,
+  completeUploadedAssetRegistration: mockCompleteUploadedAssetRegistration,
+  clearRegisteredUploadedAsset: mockClearRegisteredUploadedAsset,
+  claimFailedUploadedAssetRegistration:
+    mockClaimFailedUploadedAssetRegistration,
+  scheduleUploadedAssetDeletion: mockScheduleUploadedAssetDeletion,
+  finishOwnedUploadedAssetCleanup: mockFinishOwnedUploadedAssetCleanup,
+  retryOwnedUploadedAssetCleanup: mockRetryOwnedUploadedAssetCleanup,
+  listDueUploadedAssetCleanups: mockListDueUploadedAssetCleanups,
+  listRegisteredUploadedAssetCleanups: mockListRegisteredUploadedAssetCleanups,
+  claimDueUploadedAssetCleanup: mockClaimDueUploadedAssetCleanup,
 }));
 
 import {
   canSaveAsUploadedAsset,
   canSaveAsUploadedVideoAsset,
+  reapOrphanedUploadedAssetObjects,
   reapOrphanedVideoAssetObjects,
+  sweepOrphanedUploadedAssetObjects,
   uploadImageAsset,
   uploadVideoAsset,
 } from "./assets";
@@ -80,22 +168,66 @@ beforeEach(() => {
   mockRecordOrphanedVideoAssetCleanup.mockReset();
   mockRecordOrphanedVideoAssetCleanup.mockResolvedValue("cleanup-1");
   mockDeleteOrphanedVideoAssetCleanup.mockReset();
-  mockDeleteOrphanedVideoAssetCleanup.mockResolvedValue(undefined);
+  mockDeleteOrphanedVideoAssetCleanup.mockResolvedValue(true);
   mockListOrphanedVideoAssetCleanups.mockReset();
   mockListOrphanedVideoAssetCleanups.mockResolvedValue([]);
+  mockListOrphanedUploadedAssetCleanupKeys.mockReset();
+  mockListOrphanedUploadedAssetCleanupKeys.mockResolvedValue([]);
+  mockAppStateGetManyEntries.mockReset();
+  mockAppStateGetManyEntries.mockResolvedValue([]);
+  mockCompareAndSetAppState.mockReset();
+  mockCompareAndSetAppState.mockResolvedValue(true);
   mockValues.mockReset();
   mockValues.mockResolvedValue(undefined);
   mockSelectLimit.mockReset();
   mockSelectLimit.mockResolvedValue([]);
+  mockSelectForUpdate.mockReset();
+  mockSelectForUpdate.mockResolvedValue([]);
   mockDeleteWhere.mockReset();
   mockDeleteWhere.mockResolvedValue(undefined);
+  mockUpdateReturning.mockReset();
+  mockUpdateReturning.mockResolvedValue([]);
+  mockTransaction.mockReset();
+  mockTransaction.mockImplementation(async (callback, tx) => callback(tx));
   mockEq.mockClear();
   mockGetRequestOrgId.mockReset();
   mockGetRequestOrgId.mockReturnValue(undefined);
+  mockRegisterDeckUploadedAsset.mockReset();
+  mockRegisterDeckUploadedAsset.mockResolvedValue(undefined);
+  mockReserveUploadedAssetRegistration.mockReset();
+  mockReserveUploadedAssetRegistration.mockResolvedValue("registration-token");
+  mockRecordUploadedAssetCleanupObject.mockReset();
+  mockRecordUploadedAssetCleanupObject.mockResolvedValue(true);
+  mockCancelUploadedAssetRegistration.mockReset();
+  mockCancelUploadedAssetRegistration.mockResolvedValue(true);
+  mockParkUnresolvedUploadedAssetRegistration.mockReset();
+  mockParkUnresolvedUploadedAssetRegistration.mockResolvedValue(true);
+  mockCompleteUploadedAssetRegistration.mockReset();
+  mockCompleteUploadedAssetRegistration.mockResolvedValue(undefined);
+  mockClearRegisteredUploadedAsset.mockReset();
+  mockClearRegisteredUploadedAsset.mockResolvedValue(true);
+  mockClaimFailedUploadedAssetRegistration.mockReset();
+  mockClaimFailedUploadedAssetRegistration.mockResolvedValue("deletion-token");
+  mockScheduleUploadedAssetDeletion.mockReset();
+  mockScheduleUploadedAssetDeletion.mockResolvedValue("deletion-token");
+  mockFinishOwnedUploadedAssetCleanup.mockReset();
+  mockFinishOwnedUploadedAssetCleanup.mockResolvedValue(true);
+  mockRetryOwnedUploadedAssetCleanup.mockReset();
+  mockRetryOwnedUploadedAssetCleanup.mockResolvedValue(true);
+  mockListDueUploadedAssetCleanups.mockReset();
+  mockListDueUploadedAssetCleanups.mockResolvedValue([]);
+  mockListRegisteredUploadedAssetCleanups.mockReset();
+  mockListRegisteredUploadedAssetCleanups.mockResolvedValue([]);
+  mockClaimDueUploadedAssetCleanup.mockReset();
+  mockClaimDueUploadedAssetCleanup.mockResolvedValue(null);
   mockRunWithRequestContext.mockReset();
   mockRunWithRequestContext.mockImplementation(
     async (_context: unknown, callback: () => unknown) => callback(),
   );
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("uploadedAssetUrl", () => {
@@ -356,6 +488,231 @@ describe("uploaded asset validation", () => {
         providerObjectId: "uploads/object-key.svg",
       }),
     );
+  });
+
+  it("bounds opportunistic SQL outbox scans on image and video uploads", async () => {
+    await uploadImageAsset({
+      email: "owner@example.com",
+      originalName: "logo.svg",
+      data: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" />'),
+    });
+    await uploadVideoAsset({
+      email: "owner@example.com",
+      originalName: "clip.mp4",
+      data: makeMp4Video(),
+    });
+
+    expect(mockListDueUploadedAssetCleanups).toHaveBeenCalledTimes(2);
+    expect(mockListRegisteredUploadedAssetCleanups).toHaveBeenCalledTimes(2);
+    expect(mockListDueUploadedAssetCleanups).toHaveBeenCalledWith(
+      expect.objectContaining({ limit: 5 }),
+    );
+    expect(mockAppStateGetManyEntries).not.toHaveBeenCalled();
+  });
+
+  it("does not upload an image when its SQL cleanup reservation fails", async () => {
+    mockReserveUploadedAssetRegistration.mockRejectedValueOnce(
+      new Error("database unavailable"),
+    );
+
+    await expect(
+      uploadImageAsset({
+        email: "owner@example.com",
+        originalName: "image.svg",
+        data: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" />'),
+      }),
+    ).rejects.toMatchObject({ errorCode: "image_asset_registration_failed" });
+
+    expect(mockUploadFile).not.toHaveBeenCalled();
+  });
+
+  it("does not upload a video when its SQL cleanup reservation fails", async () => {
+    mockReserveUploadedAssetRegistration.mockRejectedValueOnce(
+      new Error("database unavailable"),
+    );
+
+    await expect(
+      uploadVideoAsset({
+        email: "owner@example.com",
+        originalName: "clip.mp4",
+        data: makeMp4Video(),
+      }),
+    ).rejects.toMatchObject({ errorCode: "video_asset_registration_failed" });
+
+    expect(mockUploadFile).not.toHaveBeenCalled();
+  });
+
+  it("queues trusted SQL cleanup when image registration fails", async () => {
+    mockGetRequestOrgId.mockReturnValue("active-org");
+    mockUploadFile.mockResolvedValue({
+      provider: "s3",
+      id: "image-object-1",
+      url: "https://cdn.example.com/image.png",
+    });
+    mockValues.mockRejectedValueOnce(new Error("asset row insert failed"));
+
+    await expect(
+      uploadImageAsset({
+        email: "owner@example.com",
+        originalName: "image.svg",
+        data: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" />'),
+      }),
+    ).rejects.toMatchObject({ errorCode: "image_asset_registration_failed" });
+
+    expect(mockReserveUploadedAssetRegistration).toHaveBeenCalledWith(
+      expect.objectContaining({
+        assetId: expect.any(String),
+        ownerEmail: "owner@example.com",
+        orgId: "active-org",
+      }),
+    );
+    expect(
+      mockReserveUploadedAssetRegistration.mock.invocationCallOrder[0],
+    ).toBeLessThan(mockUploadFile.mock.invocationCallOrder[0]);
+    expect(mockRecordUploadedAssetCleanupObject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "s3",
+        providerObjectId: "image-object-1",
+        url: "https://cdn.example.com/image.png",
+      }),
+      "registration-token",
+    );
+    expect(mockClaimFailedUploadedAssetRegistration).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerEmail: "owner@example.com",
+        orgId: "active-org",
+      }),
+      "registration-token",
+    );
+    expect(mockDeleteUploadedFile).toHaveBeenCalledWith("s3", {
+      id: "image-object-1",
+      url: "https://cdn.example.com/image.png",
+    });
+    expect(mockFinishOwnedUploadedAssetCleanup).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ ownerEmail: "owner@example.com" }),
+      "deletion-token",
+    );
+  });
+
+  it("keeps image cleanup queued when provider deletion fails", async () => {
+    mockUploadFile.mockResolvedValue({
+      provider: "s3",
+      id: "image-object-1",
+      url: "https://cdn.example.com/image.png",
+    });
+    mockValues.mockRejectedValueOnce(new Error("asset row insert failed"));
+    mockDeleteUploadedFile.mockResolvedValueOnce(false);
+
+    await expect(
+      uploadImageAsset({
+        email: "owner@example.com",
+        originalName: "image.svg",
+        data: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" />'),
+      }),
+    ).rejects.toMatchObject({ errorCode: "image_asset_registration_failed" });
+
+    expect(mockDeleteUploadedFile).toHaveBeenCalledWith("s3", {
+      id: "image-object-1",
+      url: "https://cdn.example.com/image.png",
+    });
+    expect(mockRetryOwnedUploadedAssetCleanup).toHaveBeenCalledWith(
+      expect.objectContaining({ assetId: expect.any(String) }),
+      "deletion-token",
+      1,
+    );
+    expect(mockFinishOwnedUploadedAssetCleanup).not.toHaveBeenCalled();
+  });
+
+  it("does not delete an image object when registration cannot be checked", async () => {
+    mockGetRequestOrgId.mockReturnValue("active-org");
+    mockUploadFile.mockResolvedValue({
+      provider: "s3",
+      id: "image-object-1",
+      url: "https://cdn.example.com/image.png",
+    });
+    mockValues.mockRejectedValueOnce(new Error("insert acknowledgement lost"));
+    mockSelectLimit.mockRejectedValueOnce(new Error("database unavailable"));
+
+    await expect(
+      uploadImageAsset({
+        email: "owner@example.com",
+        originalName: "image.svg",
+        data: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" />'),
+      }),
+    ).rejects.toMatchObject({ errorCode: "image_asset_registration_failed" });
+
+    expect(mockClaimFailedUploadedAssetRegistration).not.toHaveBeenCalled();
+    expect(mockClearRegisteredUploadedAsset).not.toHaveBeenCalled();
+    expect(mockDeleteUploadedFile).not.toHaveBeenCalled();
+  });
+
+  it("passes image registration through the deck-scoped transaction helper", async () => {
+    mockGetRequestOrgId.mockReturnValue("active-org");
+
+    const asset = await uploadImageAsset({
+      email: "owner@example.com",
+      orgId: "active-org",
+      deckId: "deck-1",
+      originalName: "image.svg",
+      data: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" />'),
+    });
+
+    expect(mockRegisterDeckUploadedAsset).toHaveBeenCalledWith(
+      expect.objectContaining({
+        deckId: "deck-1",
+        email: "owner@example.com",
+        orgId: "active-org",
+        row: expect.objectContaining({
+          id: asset.id,
+          deckId: "deck-1",
+          orgId: "active-org",
+        }),
+      }),
+    );
+    expect(mockValues).not.toHaveBeenCalled();
+  });
+
+  it("uses the trusted reservation when the deck disappears before registration", async () => {
+    mockGetRequestOrgId.mockReturnValue("active-org");
+    mockUploadFile.mockResolvedValue({
+      provider: "s3",
+      id: "image-object-1",
+      url: "https://cdn.example.com/image.png",
+    });
+    mockRegisterDeckUploadedAsset.mockRejectedValueOnce(
+      Object.assign(new Error("Deck not found."), {
+        errorCode: "deck_not_found",
+        statusCode: 404,
+      }),
+    );
+
+    await expect(
+      uploadImageAsset({
+        email: "owner@example.com",
+        orgId: "active-org",
+        deckId: "deck-1",
+        originalName: "image.svg",
+        data: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" />'),
+      }),
+    ).rejects.toMatchObject({ errorCode: "deck_not_found" });
+
+    expect(mockValues).not.toHaveBeenCalled();
+    expect(mockClaimFailedUploadedAssetRegistration).toHaveBeenCalledWith(
+      expect.objectContaining({
+        assetId: expect.any(String),
+        provider: "s3",
+        providerObjectId: "image-object-1",
+      }),
+      "registration-token",
+    );
+    expect(
+      mockClaimFailedUploadedAssetRegistration.mock.invocationCallOrder[0],
+    ).toBeLessThan(mockDeleteUploadedFile.mock.invocationCallOrder[0]);
+    expect(mockDeleteUploadedFile).toHaveBeenCalledWith("s3", {
+      id: "image-object-1",
+      url: "https://cdn.example.com/image.png",
+    });
   });
 });
 
@@ -900,10 +1257,104 @@ describe("uploaded video validation", () => {
         ownerEmail: "owner@example.com",
       }),
     );
+    expect(mockReserveUploadedAssetRegistration).toHaveBeenCalledWith(
+      expect.objectContaining({
+        assetId: uploaded.id,
+        ownerEmail: "owner@example.com",
+        orgId: "active-org",
+      }),
+    );
+    expect(
+      mockReserveUploadedAssetRegistration.mock.invocationCallOrder[0],
+    ).toBeLessThan(mockUploadFile.mock.invocationCallOrder[0]);
+    expect(mockRecordUploadedAssetCleanupObject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        assetId: uploaded.id,
+        provider: "s3",
+        providerObjectId: "uploads/provider-object-1.mp4",
+      }),
+      "registration-token",
+    );
     expect(mockRunWithRequestContext).toHaveBeenCalledWith(
       { userEmail: "owner@example.com", orgId: "active-org" },
       expect.any(Function),
     );
+  });
+
+  it("passes video registration through the deck-scoped transaction helper", async () => {
+    mockGetRequestOrgId.mockReturnValue("active-org");
+
+    const asset = await uploadVideoAsset({
+      email: "owner@example.com",
+      orgId: "active-org",
+      deckId: "deck-1",
+      originalName: "clip.mp4",
+      data: mp4,
+    });
+
+    expect(mockRegisterDeckUploadedAsset).toHaveBeenCalledWith(
+      expect.objectContaining({
+        deckId: "deck-1",
+        email: "owner@example.com",
+        orgId: "active-org",
+        row: expect.objectContaining({
+          id: asset.id,
+          deckId: "deck-1",
+          orgId: "active-org",
+        }),
+      }),
+    );
+    expect(
+      mockReserveUploadedAssetRegistration.mock.invocationCallOrder[0],
+    ).toBeLessThan(mockUploadFile.mock.invocationCallOrder[0]);
+    expect(mockValues).not.toHaveBeenCalled();
+  });
+
+  it("uses the trusted reservation when the deck disappears before registration", async () => {
+    mockGetRequestOrgId.mockReturnValue("active-org");
+    mockUploadFile.mockResolvedValue({
+      provider: "s3",
+      id: "video-object-1",
+      url: "https://cdn.example.com/clip.mp4",
+    });
+    mockRegisterDeckUploadedAsset.mockRejectedValueOnce(
+      Object.assign(new Error("Deck not found."), {
+        errorCode: "deck_not_found",
+        statusCode: 404,
+      }),
+    );
+
+    await expect(
+      uploadVideoAsset({
+        email: "owner@example.com",
+        orgId: "active-org",
+        deckId: "deck-1",
+        originalName: "clip.mp4",
+        data: mp4,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "deck_not_found",
+      statusCode: 404,
+    });
+
+    expect(mockValues).not.toHaveBeenCalled();
+    expect(mockClaimFailedUploadedAssetRegistration).toHaveBeenCalledWith(
+      expect.objectContaining({
+        assetId: expect.any(String),
+        ownerEmail: "owner@example.com",
+        orgId: "active-org",
+        provider: "s3",
+        providerObjectId: "video-object-1",
+      }),
+      "registration-token",
+    );
+    expect(
+      mockClaimFailedUploadedAssetRegistration.mock.invocationCallOrder[0],
+    ).toBeLessThan(mockDeleteUploadedFile.mock.invocationCallOrder[0]);
+    expect(mockDeleteUploadedFile).toHaveBeenCalledWith("s3", {
+      id: "video-object-1",
+      url: "https://cdn.example.com/clip.mp4",
+    });
   });
 
   it("normalizes provider diagnostics from failed video uploads", async () => {
@@ -924,6 +1375,14 @@ describe("uploaded video validation", () => {
     });
 
     expect(mockValues).not.toHaveBeenCalled();
+    expect(mockReserveUploadedAssetRegistration).toHaveBeenCalledOnce();
+    expect(
+      mockReserveUploadedAssetRegistration.mock.invocationCallOrder[0],
+    ).toBeLessThan(mockUploadFile.mock.invocationCallOrder[0]);
+    expect(mockParkUnresolvedUploadedAssetRegistration).toHaveBeenCalledWith(
+      expect.objectContaining({ assetId: expect.any(String) }),
+      "registration-token",
+    );
   });
 
   it("returns a typed error when video storage is not configured", async () => {
@@ -943,6 +1402,10 @@ describe("uploaded video validation", () => {
     });
 
     expect(mockValues).not.toHaveBeenCalled();
+    expect(mockCancelUploadedAssetRegistration).toHaveBeenCalledWith(
+      expect.objectContaining({ assetId: expect.any(String) }),
+      "registration-token",
+    );
   });
 
   it("returns the existing uploaded video for a completed upload session", async () => {
@@ -1034,14 +1497,20 @@ describe("uploaded video validation", () => {
       statusCode: 500,
     });
 
-    expect(mockRecordOrphanedVideoAssetCleanup).toHaveBeenCalledWith(
+    expect(mockReserveUploadedAssetRegistration).toHaveBeenCalledWith(
       expect.objectContaining({
+        assetId: expect.any(String),
         ownerEmail: "owner@example.com",
         orgId: "active-org",
+      }),
+    );
+    expect(mockRecordUploadedAssetCleanupObject).toHaveBeenCalledWith(
+      expect.objectContaining({
         provider: "s3",
         providerObjectId: "provider-object-1",
-        uploadSessionId: "session-1",
+        url: "https://cdn.example.com/clip.mp4",
       }),
+      "registration-token",
     );
     expect(mockDeleteUploadedFile).toHaveBeenCalledWith("s3", {
       id: "provider-object-1",
@@ -1051,9 +1520,47 @@ describe("uploaded video validation", () => {
       { userEmail: "owner@example.com", orgId: "active-org" },
       expect.any(Function),
     );
-    expect(mockDeleteOrphanedVideoAssetCleanup).toHaveBeenCalledWith(
-      "cleanup-1",
+    expect(mockClaimFailedUploadedAssetRegistration).toHaveBeenCalledWith(
+      expect.objectContaining({ assetId: expect.any(String) }),
+      "registration-token",
     );
+    expect(mockFinishOwnedUploadedAssetCleanup).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ assetId: expect.any(String) }),
+      "deletion-token",
+    );
+  });
+
+  it("keeps video cleanup queued when provider deletion fails", async () => {
+    mockUploadFile.mockResolvedValue({
+      provider: "s3",
+      id: "provider-object-1",
+      url: "https://cdn.example.com/clip.mp4",
+    });
+    mockValues.mockRejectedValueOnce(new Error("asset row insert failed"));
+    mockSelectLimit.mockResolvedValueOnce([]);
+    mockDeleteUploadedFile.mockResolvedValueOnce(false);
+
+    await expect(
+      uploadVideoAsset({
+        email: "owner@example.com",
+        originalName: "clip.mp4",
+        data: mp4,
+      }),
+    ).rejects.toMatchObject({ errorCode: "video_asset_registration_failed" });
+
+    expect(mockReserveUploadedAssetRegistration).toHaveBeenCalledOnce();
+    expect(mockClaimFailedUploadedAssetRegistration).toHaveBeenCalledWith(
+      expect.objectContaining({ assetId: expect.any(String) }),
+      "registration-token",
+    );
+    expect(mockDeleteUploadedFile).toHaveBeenCalledOnce();
+    expect(mockRetryOwnedUploadedAssetCleanup).toHaveBeenCalledWith(
+      expect.objectContaining({ assetId: expect.any(String) }),
+      "deletion-token",
+      1,
+    );
+    expect(mockFinishOwnedUploadedAssetCleanup).not.toHaveBeenCalled();
   });
 
   it("returns the winning upload when a concurrent insert already committed", async () => {
@@ -1123,7 +1630,10 @@ describe("uploaded video validation", () => {
       url: "https://cdn.builder.io/logo.svg",
     });
 
-    expect(mockRecordOrphanedVideoAssetCleanup).not.toHaveBeenCalled();
+    expect(mockClearRegisteredUploadedAsset).toHaveBeenCalledWith(
+      expect.objectContaining({ assetId: expect.any(String) }),
+      "registration-token",
+    );
     expect(mockDeleteUploadedFile).not.toHaveBeenCalled();
   });
 
@@ -1150,13 +1660,8 @@ describe("uploaded video validation", () => {
       statusCode: 500,
     });
 
-    expect(mockRecordOrphanedVideoAssetCleanup).toHaveBeenCalledWith(
-      expect.objectContaining({
-        assetId: expect.any(String),
-        preserveIfAssetExists: true,
-        uploadSessionId: null,
-      }),
-    );
+    expect(mockClaimFailedUploadedAssetRegistration).not.toHaveBeenCalled();
+    expect(mockClearRegisteredUploadedAsset).not.toHaveBeenCalled();
     expect(mockDeleteUploadedFile).not.toHaveBeenCalled();
   });
 
@@ -1188,140 +1693,306 @@ describe("uploaded video validation", () => {
       type: "video/mp4",
       url: "https://cdn.builder.io/logo.svg",
     });
-    expect(mockRecordOrphanedVideoAssetCleanup).not.toHaveBeenCalled();
+    expect(mockClearRegisteredUploadedAsset).toHaveBeenCalledWith(
+      expect.objectContaining({ assetId: expect.any(String) }),
+      "registration-token",
+    );
     expect(mockDeleteUploadedFile).not.toHaveBeenCalled();
   });
 
-  it("preserves a committed video when retrying uncertain cleanup", async () => {
+  it("ignores forged app-state cleanup receipts", async () => {
+    const forgedKey = "slides-2:slides-upload-orphan-video-asset-forged";
+    const forgedReceipt = {
+      version: 1,
+      ownerEmail: "owner@example.com",
+      orgId: "active-org",
+      assetId: "asset-1",
+      provider: "attacker-provider",
+      providerObjectId: "another-users-object",
+      url: "https://attacker.example.com/arbitrary-object",
+      createdAt: "2026-10-19T00:00:00.000Z",
+    };
+    mockListOrphanedUploadedAssetCleanupKeys.mockResolvedValueOnce([
+      { sessionId: "owner@example.com", key: forgedKey },
+    ]);
+    mockAppStateGetManyEntries.mockResolvedValueOnce([
+      { key: forgedKey, value: forgedReceipt },
+    ]);
     mockListOrphanedVideoAssetCleanups.mockResolvedValueOnce([
+      { key: forgedKey, cleanup: forgedReceipt },
+    ]);
+
+    await reapOrphanedVideoAssetObjects("owner@example.com", "active-org");
+
+    expect(mockAppStateGetManyEntries).not.toHaveBeenCalled();
+    expect(mockCompareAndSetAppState).not.toHaveBeenCalled();
+    expect(mockDeleteUploadedFile).not.toHaveBeenCalled();
+  });
+
+  it("deletes from a claimed SQL outbox row and its lease", async () => {
+    const candidate = {
+      id: "asset-1",
+      ownerEmail: "owner@example.com",
+      orgId: "active-org",
+      intent: "delete",
+      state: "pending",
+      provider: "trusted-storage",
+      providerObjectId: "objects/authorized-image.png",
+      url: "https://storage.example.com/authorized-image.png",
+      attemptCount: 1,
+      nextAttemptAt: null,
+      leaseExpiresAt: null,
+      leaseToken: null,
+      createdAt: "2026-10-19T00:00:00.000Z",
+    };
+    const claimed = {
+      ...candidate,
+      state: "claimed",
+      attemptCount: 2,
+      leaseToken: "lease-1",
+      leaseExpiresAt: "2026-10-19T00:05:00.000Z",
+    };
+    mockListDueUploadedAssetCleanups.mockResolvedValueOnce([candidate]);
+    mockClaimDueUploadedAssetCleanup.mockResolvedValueOnce(claimed);
+    mockSelectLimit.mockResolvedValueOnce([
       {
-        key: "cleanup-uncertain",
-        cleanup: {
-          version: 1,
-          ownerEmail: "owner@example.com",
-          orgId: "active-org",
-          assetId: "asset-committed",
-          preserveIfAssetExists: true,
-          provider: "s3",
-          providerObjectId: "provider-object-1",
-          url: "https://cdn.example.com/clip.mp4",
-          uploadSessionId: "session-1",
-          createdAt: "2026-10-07T00:00:00.000Z",
+        id: "asset-1",
+        url: "https://storage.example.com/authorized-image.png",
+        provider: "trusted-storage",
+        providerObjectId: "objects/authorized-image.png",
+        deckId: null,
+      },
+    ]);
+
+    await reapOrphanedUploadedAssetObjects("owner@example.com", "active-org");
+
+    expect(mockDeleteUploadedFile).toHaveBeenCalledWith("trusted-storage", {
+      id: "objects/authorized-image.png",
+      url: "https://storage.example.com/authorized-image.png",
+    });
+    expect(mockFinishOwnedUploadedAssetCleanup).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        assetId: "asset-1",
+        ownerEmail: "owner@example.com",
+        orgId: "active-org",
+      },
+      "lease-1",
+    );
+    expect(mockAppStateGetManyEntries).not.toHaveBeenCalled();
+  });
+
+  it("retries a claimed cleanup when its SQL asset lookup is uncertain", async () => {
+    const candidate = {
+      id: "asset-1",
+      ownerEmail: "owner@example.com",
+      orgId: "active-org",
+      intent: "delete",
+      state: "pending",
+      provider: "trusted-storage",
+      providerObjectId: "objects/authorized-image.png",
+      url: "https://storage.example.com/authorized-image.png",
+      attemptCount: 0,
+      nextAttemptAt: null,
+      leaseExpiresAt: null,
+      leaseToken: null,
+      createdAt: "2026-10-19T00:00:00.000Z",
+    };
+    mockListDueUploadedAssetCleanups.mockResolvedValueOnce([candidate]);
+    mockClaimDueUploadedAssetCleanup.mockResolvedValueOnce({
+      ...candidate,
+      state: "claimed",
+      attemptCount: 1,
+      leaseToken: "lease-1",
+    });
+    mockSelectLimit.mockRejectedValueOnce(new Error("database unavailable"));
+
+    await reapOrphanedUploadedAssetObjects("owner@example.com", "active-org");
+
+    expect(mockDeleteUploadedFile).not.toHaveBeenCalled();
+    expect(mockRetryOwnedUploadedAssetCleanup).toHaveBeenCalledWith(
+      {
+        assetId: "asset-1",
+        ownerEmail: "owner@example.com",
+        orgId: "active-org",
+      },
+      "lease-1",
+      1,
+    );
+  });
+
+  it("does not delete an asset that remains attached to a deck", async () => {
+    const candidate = {
+      id: "asset-1",
+      ownerEmail: "owner@example.com",
+      orgId: "active-org",
+      intent: "delete",
+      state: "pending",
+      provider: "trusted-storage",
+      providerObjectId: "objects/authorized-image.png",
+      url: "https://storage.example.com/authorized-image.png",
+      attemptCount: 0,
+      nextAttemptAt: null,
+      leaseExpiresAt: null,
+      leaseToken: null,
+      createdAt: "2026-10-19T00:00:00.000Z",
+    };
+    mockListDueUploadedAssetCleanups.mockResolvedValueOnce([candidate]);
+    mockClaimDueUploadedAssetCleanup.mockResolvedValueOnce({
+      ...candidate,
+      state: "claimed",
+      attemptCount: 1,
+      leaseToken: "lease-1",
+    });
+    mockSelectLimit.mockResolvedValueOnce([
+      {
+        id: "asset-1",
+        url: "https://storage.example.com/authorized-image.png",
+        provider: "trusted-storage",
+        providerObjectId: "objects/authorized-image.png",
+        deckId: "deck-1",
+      },
+    ]);
+
+    await reapOrphanedUploadedAssetObjects("owner@example.com", "active-org");
+
+    expect(mockDeleteUploadedFile).not.toHaveBeenCalled();
+    expect(mockRetryOwnedUploadedAssetCleanup).toHaveBeenCalledWith(
+      {
+        assetId: "asset-1",
+        ownerEmail: "owner@example.com",
+        orgId: "active-org",
+      },
+      "lease-1",
+      1,
+    );
+  });
+
+  it("preserves a provider object referenced by another uploaded asset row", async () => {
+    const candidate = {
+      id: "deck-asset",
+      ownerEmail: "owner@example.com",
+      orgId: "active-org",
+      intent: "delete",
+      state: "pending",
+      provider: "trusted-storage",
+      providerObjectId: "objects/shared-image.png",
+      url: "https://storage.example.com/shared-image.png",
+      attemptCount: 0,
+      nextAttemptAt: null,
+      leaseExpiresAt: null,
+      leaseToken: null,
+      createdAt: "2026-10-19T00:00:00.000Z",
+    };
+    mockListDueUploadedAssetCleanups.mockResolvedValueOnce([candidate]);
+    mockClaimDueUploadedAssetCleanup.mockResolvedValueOnce({
+      ...candidate,
+      state: "claimed",
+      attemptCount: 1,
+      leaseToken: "lease-1",
+    });
+    mockSelectLimit
+      .mockResolvedValueOnce([
+        {
+          id: "deck-asset",
+          url: candidate.url,
+          provider: candidate.provider,
+          providerObjectId: candidate.providerObjectId,
+          deckId: null,
         },
+      ])
+      .mockResolvedValueOnce([{ id: "global-asset-alias" }]);
+
+    await reapOrphanedUploadedAssetObjects("owner@example.com", "active-org");
+
+    expect(mockDeleteUploadedFile).not.toHaveBeenCalled();
+    expect(mockFinishOwnedUploadedAssetCleanup).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        assetId: "deck-asset",
+        ownerEmail: "owner@example.com",
+        orgId: "active-org",
+      },
+      "lease-1",
+    );
+    expect(mockRetryOwnedUploadedAssetCleanup).not.toHaveBeenCalled();
+    expect(mockDeleteWhere).toHaveBeenCalledOnce();
+  });
+
+  it("clears a registered reservation only after its SQL asset row exists", async () => {
+    mockListRegisteredUploadedAssetCleanups.mockResolvedValueOnce([
+      {
+        id: "asset-1",
+        ownerEmail: "owner@example.com",
+        orgId: "active-org",
+        intent: "registration",
+        state: "registered",
+        provider: "trusted-storage",
+        providerObjectId: "objects/authorized-image.png",
+        url: "https://storage.example.com/authorized-image.png",
+        attemptCount: 0,
+        nextAttemptAt: null,
+        leaseExpiresAt: null,
+        leaseToken: "registration-token",
+        createdAt: "2026-10-19T00:00:00.000Z",
       },
     ]);
     mockSelectLimit.mockResolvedValueOnce([
       {
-        id: "asset-committed",
-        filename: "clip.mp4",
-        url: "https://cdn.example.com/clip.mp4",
-        type: "video/mp4",
-        size: 4,
-        provider: "s3",
+        id: "asset-1",
+        url: "https://storage.example.com/authorized-image.png",
+        provider: "trusted-storage",
+        providerObjectId: "objects/authorized-image.png",
+        deckId: "deck-1",
       },
     ]);
 
-    await reapOrphanedVideoAssetObjects("owner@example.com", "active-org");
+    await reapOrphanedUploadedAssetObjects("owner@example.com", "active-org");
 
-    expect(mockDeleteUploadedFile).not.toHaveBeenCalled();
-    expect(mockDeleteWhere).not.toHaveBeenCalled();
-    expect(mockDeleteOrphanedVideoAssetCleanup).toHaveBeenCalledWith(
-      "cleanup-uncertain",
+    expect(mockClearRegisteredUploadedAsset).toHaveBeenCalledWith(
+      {
+        assetId: "asset-1",
+        ownerEmail: "owner@example.com",
+        orgId: "active-org",
+      },
+      "registration-token",
     );
-  });
-
-  it("retains uncertain cleanup when the database is still unavailable", async () => {
-    mockListOrphanedVideoAssetCleanups.mockResolvedValueOnce([
-      {
-        key: "cleanup-uncertain",
-        cleanup: {
-          version: 1,
-          ownerEmail: "owner@example.com",
-          orgId: "active-org",
-          assetId: "asset-committed",
-          preserveIfAssetExists: true,
-          provider: "s3",
-          providerObjectId: "provider-object-1",
-          url: "https://cdn.example.com/clip.mp4",
-          uploadSessionId: "session-1",
-          createdAt: "2026-10-07T00:00:00.000Z",
-        },
-      },
-    ]);
-    mockSelectLimit.mockRejectedValueOnce(new Error("database unavailable"));
-
-    await reapOrphanedVideoAssetObjects("owner@example.com", "active-org");
-
     expect(mockDeleteUploadedFile).not.toHaveBeenCalled();
-    expect(mockDeleteWhere).not.toHaveBeenCalled();
-    expect(mockDeleteOrphanedVideoAssetCleanup).not.toHaveBeenCalled();
   });
 
-  it("removes a discarded asset row before retrying its object cleanup", async () => {
-    mockListOrphanedVideoAssetCleanups.mockResolvedValueOnce([
+  it("preserves a registered cleanup marker when the asset now points at a different object", async () => {
+    mockListRegisteredUploadedAssetCleanups.mockResolvedValueOnce([
       {
-        key: "cleanup-1",
-        cleanup: {
-          version: 1,
-          ownerEmail: "owner@example.com",
-          orgId: "active-org",
-          assetId: "asset-1",
-          provider: "s3",
-          providerObjectId: "provider-object-1",
-          url: "https://cdn.example.com/clip.mp4",
-          uploadSessionId: null,
-          createdAt: "2026-10-07T00:00:00.000Z",
-        },
+        id: "asset-1",
+        ownerEmail: "owner@example.com",
+        orgId: "active-org",
+        intent: "registration",
+        state: "registered",
+        provider: "trusted-storage",
+        providerObjectId: "objects/old-image.png",
+        url: "https://storage.example.com/old-image.png",
+        attemptCount: 0,
+        nextAttemptAt: null,
+        leaseExpiresAt: null,
+        leaseToken: "registration-token",
+        createdAt: "2026-10-19T00:00:00.000Z",
       },
     ]);
-    mockDeleteUploadedFile.mockResolvedValueOnce(false);
-
-    await uploadVideoAsset({
-      email: "owner@example.com",
-      orgId: "active-org",
-      originalName: "clip.mp4",
-      data: mp4,
-    });
-
-    expect(mockDeleteWhere).toHaveBeenCalledTimes(1);
-    expect(mockDeleteWhere).toHaveBeenCalledWith([
-      ["uploaded_assets.id", "asset-1"],
-      ["uploaded_assets.owner_email", "owner@example.com"],
-      ["uploaded_assets.org_id", "active-org"],
+    mockSelectLimit.mockResolvedValueOnce([
+      {
+        id: "asset-1",
+        url: "https://storage.example.com/replacement.png",
+        provider: "trusted-storage",
+        providerObjectId: "objects/replacement.png",
+        deckId: null,
+      },
     ]);
-    expect(mockDeleteUploadedFile).toHaveBeenCalledWith("s3", {
-      id: "provider-object-1",
-      url: "https://cdn.example.com/clip.mp4",
-    });
-    expect(mockDeleteOrphanedVideoAssetCleanup).not.toHaveBeenCalled();
-  });
-
-  it("keeps retryable cleanup metadata when duplicate object deletion fails", async () => {
-    const completed = {
-      id: "video-asset-1",
-      filename: "clip.mp4",
-      url: "https://cdn.example.com/clip.mp4",
-      type: "video/mp4",
-      size: 4,
-      provider: "s3",
-    };
-    mockGetRequestOrgId.mockReturnValue("active-org");
-    mockSelectLimit
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([completed]);
-    mockValues.mockRejectedValueOnce(new Error("unique constraint conflict"));
-    mockDeleteUploadedFile.mockResolvedValue(false);
 
     await expect(
-      uploadVideoAsset({
-        email: "owner@example.com",
-        originalName: "clip.mp4",
-        data: mp4,
-        uploadSessionId: "session-1",
-      }),
-    ).resolves.toEqual(completed);
-    expect(mockRecordOrphanedVideoAssetCleanup).toHaveBeenCalledTimes(1);
-    expect(mockDeleteOrphanedVideoAssetCleanup).not.toHaveBeenCalled();
+      reapOrphanedUploadedAssetObjects("owner@example.com", "active-org"),
+    ).resolves.toEqual({ failedAttempts: 1 });
+
+    expect(mockClearRegisteredUploadedAsset).not.toHaveBeenCalled();
+    expect(mockDeleteUploadedFile).not.toHaveBeenCalled();
   });
 });

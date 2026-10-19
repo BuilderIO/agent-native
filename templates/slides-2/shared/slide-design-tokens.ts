@@ -64,9 +64,9 @@ export type SlideFontAsset = {
 };
 
 export const DEFAULT_SLIDE_DESIGN_TOKENS: SlideDesignTokens = {
-  background: "#ffffff",
-  text: "#111827",
-  accent: "#2563eb",
+  background: "#ffffff", // guard:allow-raw-color — default slide-content token, not app chrome.
+  text: "#111827", // guard:allow-raw-color — default slide-content token, not app chrome.
+  accent: "#2563eb", // guard:allow-raw-color — default slide-content token, not app chrome.
   displayFont: "Arial",
   bodyFont: "Arial",
   heroScale: 1,

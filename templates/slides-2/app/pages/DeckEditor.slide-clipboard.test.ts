@@ -32,6 +32,7 @@ import {
   syncSlideContentSnapshots,
 } from "./DeckEditor";
 
+// source-read-ok: pins document-level clipboard ownership to focused editor surfaces at the route boundary.
 const deckEditorSource = readFileSync(
   path.join(path.dirname(fileURLToPath(import.meta.url)), "DeckEditor.tsx"),
   "utf8",

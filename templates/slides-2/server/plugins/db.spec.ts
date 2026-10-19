@@ -21,6 +21,7 @@ import * as schema from "../db/schema";
  * schema column with zero mentions in the migration history.
  */
 
+// source-read-ok: Migration SQL text is the subject of this schema-coverage and migration-order contract.
 const dbTsSource = readFileSync(new URL("./db.ts", import.meta.url), "utf8");
 
 interface DrizzleColumn {
@@ -164,6 +165,12 @@ describe("slides db.ts wires ensureAdditiveColumns after runMigrations", () => {
   it("does not remove the v19 performance indexes", () => {
     expect(dbTsSource).toMatch(
       /CREATE INDEX IF NOT EXISTS decks_owner_org_updated_idx ON decks \(owner_email, org_id, updated_at\)/,
+    );
+  });
+
+  it("waits for database readiness before framework actions run", () => {
+    expect(dbTsSource).toMatch(
+      /app\.use\(["']\/_agent-native["'],\s*waitForReady\)/,
     );
   });
 });

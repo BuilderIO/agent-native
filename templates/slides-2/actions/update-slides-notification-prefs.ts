@@ -5,7 +5,7 @@
  *   pnpm action update-slides-notification-prefs --emailNotifications=false
  */
 
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { mutateUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
@@ -35,7 +35,12 @@ export default defineAction({
   },
   run: async (args): Promise<SlidesNotificationPreferences> => {
     const email = getRequestUserEmail();
-    if (!email) throw new Error("Sign in required");
+    if (!email) {
+      fail("Sign in required", {
+        errorCode: "not_authenticated",
+        statusCode: 401,
+      });
+    }
     // Merge so the write never drops preferences stored beside this one.
     const next = await mutateUserSetting(
       email,

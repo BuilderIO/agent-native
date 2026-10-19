@@ -177,6 +177,28 @@ export function authoringFuzzBrowserSessionResponse(
   return null;
 }
 
+export function isAuthoringFuzzBrowserSessionUrl(
+  requestUrl: string,
+  baseUrl: string,
+) {
+  let request: URL;
+  let base: URL;
+  try {
+    request = new URL(requestUrl);
+    base = new URL(baseUrl);
+  } catch {
+    return false;
+  }
+  if (request.origin !== base.origin) return false;
+
+  return (
+    request.pathname === "/_agent-native/browser-sessions" ||
+    /^\/_agent-native\/browser-sessions\/[^/]+(?:\/heartbeat|\/requests\/claim)?$/.test(
+      request.pathname,
+    )
+  );
+}
+
 export function redactBrowserSessionRequestPath(pathname: string) {
   return pathname.replace(
     /^\/_agent-native\/browser-sessions\/[^/]+(?=\/|$)/,
@@ -204,7 +226,7 @@ export function authoringFuzzBrowserSessionCorsHeaders(
     "Access-Control-Allow-Methods": "GET,HEAD,POST,DELETE,OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type,X-Agent-Native-CSRF",
     ...(origin ? { Vary: "Origin" } : {}),
-    ...(origin && origin !== "null"
+    ...(origin !== undefined
       ? { "Access-Control-Allow-Credentials": "true" }
       : {}),
   };

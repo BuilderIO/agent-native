@@ -329,7 +329,7 @@ export function buildStandaloneHtml(
 
     html, body {
       width: 100%; height: 100%;
-      background: #111;
+      background: #111; /* guard:allow-raw-color — standalone exported presentation controls use fixed colors. */
       overflow: hidden;
       font-family: 'Inter', sans-serif;
     }
@@ -408,7 +408,7 @@ export function buildStandaloneHtml(
       left: 0;
       right: 0;
       height: 40px;
-      background: rgba(0, 0, 0, 0.7);
+      background: rgba(0, 0, 0, 0.7); /* guard:allow-raw-color — standalone exported presentation controls use fixed colors. */
       backdrop-filter: blur(8px);
       display: flex;
       align-items: center;
@@ -416,7 +416,7 @@ export function buildStandaloneHtml(
       padding: 0 20px;
       font-family: 'Inter', sans-serif;
       font-size: 13px;
-      color: rgba(255, 255, 255, 0.5);
+      color: rgba(255, 255, 255, 0.5); /* guard:allow-raw-color — standalone exported presentation controls use fixed colors. */
       z-index: 100;
       opacity: 0;
       transition: opacity 0.2s;
@@ -458,7 +458,7 @@ export function buildStandaloneHtml(
     }
 
     kbd {
-      background: rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.1); /* guard:allow-raw-color — standalone exported presentation controls use fixed colors. */
       border-radius: 3px;
       padding: 1px 5px;
       font-size: 11px;
@@ -583,7 +583,7 @@ export function buildStandaloneHtml(
             break;
           case 'Escape':
             if (document.fullscreenElement && document.exitFullscreen) {
-              document.exitFullscreen().catch(function() {});
+              document.exitFullscreen().catch(function() {}); // coercion-ok: fullscreen cleanup is best-effort and does not affect exported slide data.
             }
             break;
         }

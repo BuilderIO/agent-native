@@ -36,6 +36,7 @@ import {
   safeGeneratedFilename,
   tenantExportDir,
 } from "../server/lib/tenant-files";
+import exportGoogleSlides from "./export-google-slides";
 import exportPptx, {
   applyDeckIdentity,
   assertServerPptxExportable,
@@ -61,6 +62,83 @@ describe("export-pptx action", () => {
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
   });
+
+  it.each([
+    ["viewer", false],
+    ["commenter", false],
+    ["editor", true],
+    ["admin", true],
+    ["owner", true],
+  ] as const)(
+    "includes presenter notes in PPTX exports for %s access only when permitted",
+    async (role, canReadNotes) => {
+      const privateNotes = "PRIVATE PRESENTER NOTES";
+      mocks.resolveAccess.mockResolvedValue({
+        role,
+        resource: {
+          title: "Deck",
+          data: JSON.stringify({
+            appId: "slides-2",
+            slides: [
+              {
+                id: "slide-1",
+                content: importedSlide(""),
+                notes: privateNotes,
+              },
+            ],
+          }),
+        },
+      });
+
+      const result = await exportPptx.run(
+        { deckId: "deck-1", includeNotes: true },
+        { slidesPptxDownload: true } as never,
+      );
+
+      expect(result.buffer).toBeInstanceOf(Buffer);
+      const notesXml = await exportedPresenterNotes(result.buffer as Buffer);
+      expect(notesXml.includes(privateNotes)).toBe(canReadNotes);
+      expect(new URL(result.downloadUrl).searchParams.get("includeNotes")).toBe(
+        String(canReadNotes),
+      );
+    },
+  );
+
+  it.each(["viewer", "commenter"] as const)(
+    "omits presenter notes from Google Slides exports for %s access",
+    async (role) => {
+      const privateNotes = "PRIVATE PRESENTER NOTES";
+      mocks.resolveAccess.mockResolvedValue({
+        role,
+        resource: {
+          title: "Deck",
+          data: JSON.stringify({
+            appId: "slides-2",
+            slides: [
+              {
+                id: "slide-1",
+                content: importedSlide(""),
+                notes: privateNotes,
+              },
+            ],
+          }),
+        },
+      });
+
+      const result = await exportGoogleSlides.run(
+        { deckId: "deck-1", includeNotes: true },
+        { slidesPptxDownload: true } as never,
+      );
+
+      expect(result.buffer).toBeInstanceOf(Buffer);
+      expect(
+        await exportedPresenterNotes(result.buffer as Buffer),
+      ).not.toContain(privateNotes);
+      expect(new URL(result.downloadUrl).searchParams.get("includeNotes")).toBe(
+        "false",
+      );
+    },
+  );
 
   it("rejects empty decks before generating a PowerPoint", async () => {
     mocks.resolveAccess.mockResolvedValue({
@@ -354,6 +432,7 @@ describe("export-pptx action", () => {
       slides: [{ id: "s1", content: importedSlide("") }],
     });
     mocks.resolveAccess.mockResolvedValue({
+      role: "owner",
       resource: {
         title: "Deck",
         data,
@@ -523,6 +602,18 @@ describe("export-pptx action", () => {
     expect(mocks.track).not.toHaveBeenCalled();
   });
 });
+
+async function exportedPresenterNotes(buffer: Buffer): Promise<string> {
+  const JSZip = (await import("jszip")).default;
+  const archive = await JSZip.loadAsync(buffer);
+  const noteFiles = Object.entries(archive.files).filter(
+    ([filename, file]) =>
+      filename.startsWith("ppt/notesSlides/notesSlide") && !file.dir,
+  );
+  return (
+    await Promise.all(noteFiles.map(([, file]) => file.async("string")))
+  ).join("\n");
+}
 
 function importedSlide(element: string, slideStyle = "background:#000000;") {
   return `<div class="fmd-slide fmd-imported-pptx" data-imported-pptx="true" style="${slideStyle}">${element}</div>`;

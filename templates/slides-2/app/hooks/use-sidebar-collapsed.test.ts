@@ -16,8 +16,16 @@ import {
   useSidebarCollapsed,
 } from "./use-sidebar-collapsed";
 
-const URL = "/_agent-native/application-state/slides-2%3AsidebarCollapsed";
+const URL = "/_agent-native/application-state/slides-2:sidebarCollapsed";
 const QUERY_KEY = ["app-state", "slides-2:sidebarCollapsed"] as const;
+const APP_STATE_KEY = "slides-2:sidebarCollapsed";
+
+function appStateResponse(collapsed: boolean) {
+  return JSON.stringify({
+    values: { [APP_STATE_KEY]: { collapsed } },
+    missing: [],
+  });
+}
 
 function makeWrapper() {
   const client = new QueryClient({
@@ -114,7 +122,7 @@ describe("useSidebarCollapsed", () => {
   });
 
   it("reads collapsed=true from a stored value", async () => {
-    stubFetch({ ok: true, body: JSON.stringify({ collapsed: true }) });
+    stubFetch({ ok: true, body: appStateResponse(true) });
     const { result } = renderHook(() => useSidebarCollapsed(), {
       wrapper: makeWrapper().Wrapper,
     });
@@ -134,7 +142,7 @@ describe("useSidebarCollapsed", () => {
               resolve();
               releaseFetch = () => {
                 responseResolve(
-                  new Response(JSON.stringify({ collapsed: true }), {
+                  new Response(appStateResponse(true), {
                     status: 200,
                   }),
                 );
@@ -179,7 +187,7 @@ describe("useSidebarCollapsed", () => {
   it("does not let an in-flight poll overwrite the optimistic update", async () => {
     const stub = stubFetch({
       ok: true,
-      body: JSON.stringify({ collapsed: false }),
+      body: appStateResponse(false),
     });
     const { client, Wrapper } = makeWrapper();
     const { result } = renderHook(() => useSidebarCollapsed(), {
@@ -198,7 +206,7 @@ describe("useSidebarCollapsed", () => {
     stub.fetchMock.mockImplementationOnce(async () => {
       markSlowGetStarted!();
       await slowGet;
-      return new Response(JSON.stringify({ collapsed: false }), {
+      return new Response(appStateResponse(false), {
         status: 200,
       });
     });
@@ -219,7 +227,7 @@ describe("useSidebarCollapsed", () => {
   it("rolls back (re-fetches truth) when the PUT fails", async () => {
     const stub = stubFetch({
       ok: true,
-      body: JSON.stringify({ collapsed: false }),
+      body: appStateResponse(false),
     });
     const { result } = renderHook(() => useSidebarCollapsed(), {
       wrapper: makeWrapper().Wrapper,
@@ -227,7 +235,7 @@ describe("useSidebarCollapsed", () => {
     await waitFor(() => expect(result.current.collapsed).toBe(false));
 
     stub.failNextPut();
-    stub.setNextGet({ ok: true, body: JSON.stringify({ collapsed: false }) });
+    stub.setNextGet({ ok: true, body: appStateResponse(false) });
     await act(async () => {
       void result.current.setCollapsed(true);
     });

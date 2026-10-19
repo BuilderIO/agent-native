@@ -23,12 +23,11 @@ function queryString(value: unknown): string {
 }
 
 function parseDeckData(value: string): Record<string, any> {
-  try {
-    const parsed = JSON.parse(value);
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
+  const parsed = JSON.parse(value);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Stored Slides-2 deck data must be an object.");
   }
+  return parsed;
 }
 
 export default defineEventHandler(async (event) => {
