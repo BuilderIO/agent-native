@@ -79,7 +79,7 @@ describe("commandPathForNavigation", () => {
     ).toBe("/settings/app?tab=members#invite");
   });
 
-  it("normalizes mounted paths when navigation is specified by path alone", () => {
+  it("normalizes an explicit public path when no view is provided", () => {
     vi.stubEnv("VITE_APP_BASE_PATH", "/chat");
     vi.stubGlobal("window", {
       location: { pathname: "/chat/chat/thread-one" },
@@ -88,8 +88,20 @@ describe("commandPathForNavigation", () => {
     expect(
       commandPathForNavigation({
         path: "/chat/rooms/123?week=2026-10-05",
+        publicPath: "/chat/rooms/123",
       }),
     ).toBe("/rooms/123?week=2026-10-05");
+  });
+
+  it("preserves path-only local chat routes under the mount prefix", () => {
+    vi.stubEnv("VITE_APP_BASE_PATH", "/chat");
+    vi.stubGlobal("window", {
+      location: { pathname: "/chat/chat/thread-one" },
+    });
+
+    expect(commandPathForNavigation({ path: "/chat/thread-one" })).toBe(
+      "/chat/thread-one",
+    );
   });
 
   it("preserves router-local chat paths and their query strings", () => {

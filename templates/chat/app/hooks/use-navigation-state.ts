@@ -40,11 +40,17 @@ export function commandPathForNavigation(command: NavigationState): string {
   const suffixIndex = path.search(/[?#]/);
   const pathname = suffixIndex === -1 ? path : path.slice(0, suffixIndex);
   const suffix = suffixIndex === -1 ? "" : path.slice(suffixIndex);
+  const publicPath =
+    typeof command?.publicPath === "string" ? command.publicPath : "";
+  const publicPathSuffixIndex = publicPath.search(/[?#]/);
+  const declaredPublicPath =
+    publicPathSuffixIndex === -1
+      ? publicPath
+      : publicPath.slice(0, publicPathSuffixIndex);
   const publicViewPath = appPathFromLocalRoute(pathForView(command?.view));
   if (
     matchesPathPrefix(pathname, publicViewPath) ||
-    matchesPathPrefix(pathname, `${basePath}${basePath}`) ||
-    (!command?.view && matchesPathPrefix(pathname, basePath))
+    (declaredPublicPath && declaredPublicPath === pathname)
   ) {
     return `${pathname.slice(basePath.length) || "/"}${suffix}`;
   }

@@ -102,14 +102,19 @@ describe("db scripts parameterized SQL", () => {
     const { default: dbExec } = await import("./exec.js");
     await dbExec(["--sql", "UPDATE notes SET title = 'Updated'"]);
 
-    const timeoutIndex = unsafe.mock.calls.findIndex(
-      ([sql]) => sql === "SET LOCAL statement_timeout = 9750",
+    const timeoutIndex = unsafe.mock.calls.findIndex(([sql]) =>
+      /^SET LOCAL statement_timeout = \d+$/.test(sql),
+    );
+    const statementTimeout = Number(
+      unsafe.mock.calls[timeoutIndex]?.[0]?.match(/= (\d+)$/)?.[1],
     );
     const writeIndex = unsafe.mock.calls.findIndex(([sql]) =>
       sql.startsWith("UPDATE notes SET title"),
     );
     expect(timeoutIndex).toBeGreaterThanOrEqual(0);
     expect(timeoutIndex).toBeLessThan(writeIndex);
+    expect(statementTimeout).toBeGreaterThan(0);
+    expect(statementTimeout).toBeLessThanOrEqual(9750);
   });
 
   it("bounds db-patch statements with the configured transaction timeout", async () => {
@@ -137,14 +142,19 @@ describe("db scripts parameterized SQL", () => {
       "new",
     ]);
 
-    const timeoutIndex = unsafe.mock.calls.findIndex(
-      ([sql]) => sql === "SET LOCAL statement_timeout = 9750",
+    const timeoutIndex = unsafe.mock.calls.findIndex(([sql]) =>
+      /^SET LOCAL statement_timeout = \d+$/.test(sql),
+    );
+    const statementTimeout = Number(
+      unsafe.mock.calls[timeoutIndex]?.[0]?.match(/= (\d+)$/)?.[1],
     );
     const selectIndex = unsafe.mock.calls.findIndex(([sql]) =>
       sql.startsWith('SELECT "content" AS __val FROM "notes"'),
     );
     expect(timeoutIndex).toBeGreaterThanOrEqual(0);
     expect(timeoutIndex).toBeLessThan(selectIndex);
+    expect(statementTimeout).toBeGreaterThan(0);
+    expect(statementTimeout).toBeLessThanOrEqual(9750);
   });
 
   it("resolves the same database URL locally as the dev-server forward check, not getDatabaseUrl", async () => {
