@@ -2,6 +2,14 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 
+const foldReapedRunIntoThreadMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue(undefined),
+);
+
+vi.mock("./reaped-run-thread.js", () => ({
+  foldReapedRunIntoThread: foldReapedRunIntoThreadMock,
+}));
+
 const pglite = await createTestPglite();
 let afterStaleCandidateScan: (() => Promise<void>) | undefined;
 
@@ -101,6 +109,7 @@ const { assertNoInlineImageBytes } = await import("../shared/inline-bytes.js");
 beforeEach(async () => {
   __resetNoRunningRunsProbeForTests();
   afterStaleCandidateScan = undefined;
+  foldReapedRunIntoThreadMock.mockReset().mockResolvedValue(undefined);
 });
 
 let seq = 0;
@@ -274,6 +283,56 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
 
     expect(await reapIfStale(runId)).toBe(true);
     expect((await readRow(runId))?.status).toBe("errored");
+  });
+
+  it("retries a stale-run thread projection after its terminal event commits", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn);
+    await setStaleLiveness(runId, Date.now() - STALE_PAST_MS);
+    foldReapedRunIntoThreadMock.mockRejectedValueOnce(
+      new Error("thread write failed"),
+    );
+
+    await expect(reapIfStale(runId)).resolves.toBe(true);
+
+    const [reaped] = (await pglite
+      .prepare(
+        `SELECT status, thread_projection_pending
+         FROM agent_runs WHERE id = ?`,
+      )
+      .all(runId)) as Array<{
+      status: string;
+      thread_projection_pending: boolean;
+    }>;
+    const terminalEvents = await pglite
+      .prepare(
+        `SELECT event_data FROM agent_run_events
+         WHERE run_id = ? ORDER BY seq`,
+      )
+      .all(runId);
+    expect(reaped).toEqual({
+      status: "errored",
+      thread_projection_pending: true,
+    });
+    expect(terminalEvents).toHaveLength(1);
+    expect(String(terminalEvents[0]?.event_data)).toContain(
+      '"errorCode":"stale_run"',
+    );
+
+    await expect(reapAllStaleRuns()).resolves.toEqual({
+      reaped: 0,
+      failed: 0,
+      truncated: false,
+    });
+    const [projected] = (await pglite
+      .prepare(
+        `SELECT thread_projection_pending
+         FROM agent_runs WHERE id = ?`,
+      )
+      .all(runId)) as Array<{ thread_projection_pending: boolean }>;
+    expect(foldReapedRunIntoThreadMock).toHaveBeenCalledTimes(2);
+    expect(projected?.thread_projection_pending).toBe(false);
   });
 
   it("does not fail a missing-payload dispatch while a worker owns the live lease", async () => {

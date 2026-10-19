@@ -132,4 +132,14 @@ export const AGENT_RUN_MIGRATIONS: MigrationEntry[] = [
         ON agent_execution_steps (thread_id, turn_id, status, created_at)
     `,
   },
+  {
+    version: 9,
+    name: "agent-run-thread-projection-retry",
+    sql: `
+      ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS thread_projection_pending BOOLEAN NOT NULL DEFAULT FALSE;
+      CREATE INDEX IF NOT EXISTS agent_runs_thread_projection_pending_idx
+        ON agent_runs (completed_at, id)
+        WHERE thread_projection_pending IS TRUE
+    `,
+  },
 ];

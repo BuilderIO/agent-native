@@ -270,7 +270,8 @@ export const agentRunsStore = defineStore({
           diag_stage TEXT,
           dispatch_payload TEXT,
           peak_rss_mb BIGINT,
-          continuation_order BIGINT
+          continuation_order BIGINT,
+          thread_projection_pending BOOLEAN NOT NULL DEFAULT FALSE
         )
       `;
         const agentRunEventsCreateSql = `
@@ -335,6 +336,7 @@ export const agentRunsStore = defineStore({
           ["in_flight_since", "BIGINT"],
           ["continuation_order", "BIGINT"],
           ["auto_continue_of", "TEXT"],
+          ["thread_projection_pending", "BOOLEAN NOT NULL DEFAULT FALSE"],
         ] as const) {
           await ensureColumnExists(
             "agent_runs",
@@ -2701,7 +2703,7 @@ async function reapSingleStaleRun(
   runId: string,
   source: string,
   maxStaleMs?: number,
-): Promise<boolean> {
+): Promise<{ reaped: boolean; projectionFailed: boolean }> {
   const completedAt = Date.now();
   const staleClause =
     typeof maxStaleMs === "number"
@@ -2743,7 +2745,7 @@ async function reapSingleStaleRun(
     typeof runScope?.thread_id !== "string" ||
     typeof runScope.turn_id !== "string"
   ) {
-    return false;
+    return { reaped: false, projectionFailed: false };
   }
   const reapResult = await client.transaction(async (tx) => {
     await tx.execute({
@@ -2781,6 +2783,14 @@ async function reapSingleStaleRun(
           args: [runScope.thread_id, runScope.turn_id, runId, lease.generation],
         });
       }
+      if (generationMatches || (!lease && run.worker_generation == null)) {
+        await tx.execute({
+          sql: `UPDATE agent_runs
+                SET thread_projection_pending = TRUE
+                WHERE id = ? AND status = 'errored'`,
+          args: [runId],
+        });
+      }
       return { reaped: false, outcome: null };
     }
     const { rowsAffected } = await tx.execute({
@@ -2803,6 +2813,25 @@ async function reapSingleStaleRun(
         lease && !generationMatches
           ? { outcome: "execution_lease_changed" }
           : await attemptStaleRunRecovery(tx, runId);
+      await appendTerminalRunEventInTransaction(
+        tx,
+        runId,
+        STALE_RUN_ERROR_EVENT,
+      );
+      if (outcome.outcome !== "execution_lease_changed") {
+        const projection = await tx.execute({
+          sql: `UPDATE agent_runs
+                SET thread_projection_pending = TRUE
+                WHERE id = ? AND status = 'errored'
+                RETURNING id`,
+          args: [runId],
+        });
+        if ((projection.rowsAffected ?? projection.rows.length) !== 1) {
+          throw new Error(
+            `Stale run ${runId} did not retain its thread projection retry marker`,
+          );
+        }
+      }
     }
     return { reaped, outcome };
   });
@@ -2857,13 +2886,14 @@ async function reapSingleStaleRun(
   // Saved before the successor starts: a successor that folds its own reply
   // first would have this older run's steps land after its, and take its
   // error and status.
+  let projectionFailed = false;
   if (reaped) {
     // A newer generation owns the turn, so it must remain the sole thread projector.
-    await finalizeStaleRun(
+    projectionFailed = !(await finalizeStaleRun(
       runId,
       source,
       outcome?.outcome !== "execution_lease_changed",
-    );
+    ));
   }
 
   if (reaped && outcome && outcome.outcome !== "not_background") {
@@ -2890,7 +2920,7 @@ async function reapSingleStaleRun(
     ).catch(() => {});
   }
 
-  return reaped;
+  return { reaped, projectionFailed };
 }
 
 export async function reapIfStale(
@@ -2899,9 +2929,10 @@ export async function reapIfStale(
 ): Promise<boolean> {
   await ensureRunTables();
   if (await reconcileTerminalRunFromEvents(runId)) return false;
-  const reaped = await reapSingleStaleRun(runId, "reap-if-stale", maxStaleMs);
-  if (!reaped && (await reconcileTerminalRunFromEvents(runId))) return false;
-  return reaped;
+  const result = await reapSingleStaleRun(runId, "reap-if-stale", maxStaleMs);
+  if (!result.reaped && (await reconcileTerminalRunFromEvents(runId)))
+    return false;
+  return result.reaped;
 }
 
 export async function reapUnclaimedBackgroundRun(
@@ -4368,8 +4399,23 @@ export async function reapAllStaleRuns(): Promise<StaleRunReapResult> {
     truncated: false,
   };
   await ensureRunTables();
-  if (!(await hasRunningRuns())) return nothingStale;
   const client = getDbExec();
+  let failedCount = 0;
+  let truncated = false;
+  try {
+    const pending = await retryPendingStaleRunThreadProjections(client);
+    failedCount += pending.failed;
+    truncated = pending.truncated;
+  } catch (error) {
+    failedCount += 1;
+    console.error(
+      "[run-store] stale-run thread projection retry failed:",
+      error,
+    );
+  }
+  if (!(await hasRunningRuns())) {
+    return { ...nothingStale, failed: failedCount, truncated };
+  }
   const now = Date.now();
   const scanned = await client.execute({
     sql: `SELECT id FROM agent_runs
@@ -4379,7 +4425,7 @@ export async function reapAllStaleRuns(): Promise<StaleRunReapResult> {
           LIMIT ${REAP_ALL_STALE_BATCH_LIMIT + 1}`,
     args: [now],
   });
-  const truncated = scanned.rows.length > REAP_ALL_STALE_BATCH_LIMIT;
+  truncated ||= scanned.rows.length > REAP_ALL_STALE_BATCH_LIMIT;
   const stale = {
     rows: truncated
       ? scanned.rows.slice(0, REAP_ALL_STALE_BATCH_LIMIT)
@@ -4392,12 +4438,13 @@ export async function reapAllStaleRuns(): Promise<StaleRunReapResult> {
     }
   }
   let reapedCount = 0;
-  let failedCount = 0;
   for (const row of stale.rows) {
     const id = (row as { id?: unknown }).id;
     if (typeof id !== "string") continue;
     try {
-      if (await reapSingleStaleRun(id, "reap-all-stale")) reapedCount += 1;
+      const result = await reapSingleStaleRun(id, "reap-all-stale");
+      if (result.reaped) reapedCount += 1;
+      if (result.projectionFailed) failedCount += 1;
     } catch (error) {
       failedCount += 1;
       console.error(`[run-store] stale reap failed for run ${id}:`, error);
@@ -4431,8 +4478,11 @@ async function pruneAndRollUpPrunedRunOutcomes(
       sql: `DELETE FROM agent_runs
             WHERE id IN (
               SELECT id FROM agent_runs
-              WHERE (status = 'completed' AND completed_at < ?)
-                 OR (status IN ${UNSUCCESSFUL_STATUS_SQL_LIST} AND completed_at < ?)
+              WHERE (
+                (status = 'completed' AND completed_at < ?)
+                OR (status IN ${UNSUCCESSFUL_STATUS_SQL_LIST} AND completed_at < ?)
+              )
+                AND thread_projection_pending IS NOT TRUE
               ORDER BY completed_at ASC, id ASC
               LIMIT ${RUN_OUTCOME_PRUNE_BATCH_LIMIT}
             )
@@ -4654,21 +4704,23 @@ export async function ensureTerminalRunEvent(
   return appendTerminalRunEvent(runId, event);
 }
 
-/**
- * Ends a run the server reaped because its worker stopped: records the stop
- * in the run's ledger, then saves what the run did into its thread, which the
- * dead worker never got to do.
- */
+/** Projects a run after its stale status and terminal event committed. */
 async function finalizeStaleRun(
   runId: string,
   source: string,
   projectThread = true,
-): Promise<void> {
-  await safeAppendTerminalRunEvent(runId, STALE_RUN_ERROR_EVENT, source);
-  if (!projectThread) return;
+): Promise<boolean> {
+  if (!projectThread) return true;
   try {
     const { foldReapedRunIntoThread } = await import("./reaped-run-thread.js");
     await foldReapedRunIntoThread(runId);
+    await getDbExec().execute({
+      sql: `UPDATE agent_runs
+            SET thread_projection_pending = FALSE
+            WHERE id = ? AND thread_projection_pending IS TRUE`,
+      args: [runId],
+    });
+    return true;
   } catch (error) {
     captureError(error, {
       tags: {
@@ -4678,7 +4730,85 @@ async function finalizeStaleRun(
       },
       extra: { runId },
     });
+    return false;
   }
+}
+
+async function appendTerminalRunEventInTransaction(
+  tx: DbExec,
+  runId: string,
+  event: Record<string, unknown>,
+): Promise<void> {
+  const { rows } = await tx.execute({
+    sql: `SELECT seq, event_data
+          FROM agent_run_events
+          WHERE run_id = ?
+          ORDER BY seq DESC
+          LIMIT 1`,
+    args: [runId],
+  });
+  const last = rows[0] as
+    | { seq?: number | string; event_data?: string }
+    | undefined;
+  if (last?.event_data) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(last.event_data);
+    } catch (error) {
+      throw new Error(`Run ${runId} has malformed last event data`, {
+        cause: error,
+      });
+    }
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      terminalStatusForEvent(parsed as AgentChatEvent)
+    ) {
+      return;
+    }
+  }
+  const nextSeq = last ? Number(last.seq ?? -1) + 1 : 0;
+  if (!Number.isSafeInteger(nextSeq)) {
+    throw new Error(`Run ${runId} has no safe sequence for its terminal event`);
+  }
+  const inserted = await tx.execute({
+    sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT (run_id, seq) DO NOTHING
+          RETURNING seq`,
+    args: [
+      runId,
+      nextSeq,
+      Date.now(),
+      stripInlineBytesFromJson(JSON.stringify(event), "placeholder"),
+    ],
+  });
+  if ((inserted.rowsAffected ?? inserted.rows.length) !== 1) {
+    throw new Error(
+      `Run ${runId} terminal event sequence ${nextSeq} was not persisted`,
+    );
+  }
+}
+
+async function retryPendingStaleRunThreadProjections(
+  client: ReturnType<typeof getDbExec>,
+): Promise<{ failed: number; truncated: boolean }> {
+  const { rows } = await client.execute({
+    sql: `SELECT id FROM agent_runs
+          WHERE thread_projection_pending IS TRUE
+          ORDER BY completed_at ASC, id ASC
+          LIMIT ${REAP_ALL_STALE_BATCH_LIMIT + 1}`,
+    args: [],
+  });
+  const truncated = rows.length > REAP_ALL_STALE_BATCH_LIMIT;
+  const pending = truncated ? rows.slice(0, REAP_ALL_STALE_BATCH_LIMIT) : rows;
+  let failed = 0;
+  for (const row of pending) {
+    const runId = (row as { id?: unknown }).id;
+    if (typeof runId !== "string") continue;
+    if (!(await finalizeStaleRun(runId, "stale-projection-retry"))) failed += 1;
+  }
+  return { failed, truncated };
 }
 
 async function safeAppendTerminalRunEvent(
