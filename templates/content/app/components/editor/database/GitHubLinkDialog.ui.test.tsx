@@ -157,7 +157,7 @@ describe("GitHub link dialog", () => {
     expect(text).toContain("publishededitor.propertyTypes.date2026-09-01");
     expect(text).toContain("FAQfaq.md");
     expect(text).toContain("demo.mdxMDX isn’t supported yet");
-    expect(text).toContain("huge.mdLarger than 1 MiB");
+    expect(text).toContain("huge.mdToo large to import");
     expect(text).toContain(
       "Images in this folder show once file storage is set up.",
     );

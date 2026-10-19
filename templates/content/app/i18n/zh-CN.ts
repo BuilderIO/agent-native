@@ -17,7 +17,7 @@ const database = {
   githubLinkPages: "页面",
   githubLinkSkipped: "未关联",
   githubSkipMdx: "暂不支持 MDX",
-  githubSkipTooLarge: "大于 1 MiB",
+  githubSkipTooLarge: "文件过大，无法导入",
   githubSkipNotText: "不是 UTF-8 文本",
   githubLinkImagesWaiting: "设置好文件存储后，此文件夹中的图片就会显示。",
   githubLinkBlockedHasRows:

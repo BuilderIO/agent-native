@@ -18,7 +18,7 @@ const database = {
   githubLinkPages: "الصفحات",
   githubLinkSkipped: "غير مرتبطة",
   githubSkipMdx: "MDX غير مدعوم بعد",
-  githubSkipTooLarge: "أكبر من 1 ميبيبايت",
+  githubSkipTooLarge: "كبير جدًا للاستيراد",
   githubSkipNotText: "ليس نص UTF-8",
   githubLinkImagesWaiting: "ستظهر الصور في هذا المجلد بعد إعداد تخزين الملفات.",
   githubLinkBlockedHasRows:

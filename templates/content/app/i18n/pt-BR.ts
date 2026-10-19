@@ -18,7 +18,7 @@ const database = {
   githubLinkPages: "Páginas",
   githubLinkSkipped: "Não vinculados",
   githubSkipMdx: "MDX ainda não é compatível",
-  githubSkipTooLarge: "Maior que 1 MiB",
+  githubSkipTooLarge: "Grande demais para importar",
   githubSkipNotText: "Não é texto UTF-8",
   githubLinkImagesWaiting:
     "As imagens desta pasta aparecem quando o armazenamento de arquivos for configurado.",

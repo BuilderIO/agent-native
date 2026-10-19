@@ -17,7 +17,7 @@ const database = {
   githubLinkPages: "पेज",
   githubLinkSkipped: "लिंक नहीं हुईं",
   githubSkipMdx: "MDX अभी समर्थित नहीं है",
-  githubSkipTooLarge: "1 MiB से बड़ी",
+  githubSkipTooLarge: "इंपोर्ट करने के लिए बहुत बड़ी है",
   githubSkipNotText: "UTF-8 टेक्स्ट नहीं है",
   githubLinkImagesWaiting: "फ़ाइल स्टोरेज सेट होने पर इस फ़ोल्डर की इमेज दिखेंगी।",
   githubLinkBlockedHasRows:

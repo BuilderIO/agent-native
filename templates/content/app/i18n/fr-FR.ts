@@ -18,7 +18,7 @@ const database = {
   githubLinkPages: "Pages",
   githubLinkSkipped: "Non liés",
   githubSkipMdx: "MDX n’est pas encore pris en charge",
-  githubSkipTooLarge: "Plus de 1 Mio",
+  githubSkipTooLarge: "Trop volumineux pour être importé",
   githubSkipNotText: "Pas du texte UTF-8",
   githubLinkImagesWaiting:
     "Les images de ce dossier s’afficheront une fois le stockage de fichiers configuré.",

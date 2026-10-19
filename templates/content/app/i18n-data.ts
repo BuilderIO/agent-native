@@ -22,7 +22,7 @@ const databaseMessages = {
   githubLinkPages: "Pages",
   githubLinkSkipped: "Not linked",
   githubSkipMdx: "MDX isn’t supported yet",
-  githubSkipTooLarge: "Larger than 1 MiB",
+  githubSkipTooLarge: "Too large to import",
   githubSkipNotText: "Not UTF-8 text",
   githubLinkImagesWaiting:
     "Images in this folder show once file storage is set up.",

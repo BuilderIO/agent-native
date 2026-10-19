@@ -17,7 +17,7 @@ const database = {
   githubLinkPages: "페이지",
   githubLinkSkipped: "연결되지 않음",
   githubSkipMdx: "MDX는 아직 지원되지 않습니다",
-  githubSkipTooLarge: "1MiB 초과",
+  githubSkipTooLarge: "너무 커서 가져올 수 없습니다",
   githubSkipNotText: "UTF-8 텍스트가 아님",
   githubLinkImagesWaiting:
     "이 폴더의 이미지는 파일 저장소를 설정하면 표시됩니다.",

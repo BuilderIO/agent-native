@@ -1173,7 +1173,7 @@ const overrides = {
     githubLinkPages: "頁面",
     githubLinkSkipped: "未連結",
     githubSkipMdx: "尚不支援 MDX",
-    githubSkipTooLarge: "大於 1 MiB",
+    githubSkipTooLarge: "檔案過大，無法匯入",
     githubSkipNotText: "不是 UTF-8 文字",
     githubLinkImagesWaiting: "設定好檔案儲存空間後，此資料夾中的圖片就會顯示。",
     githubLinkBlockedHasRows:

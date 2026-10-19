@@ -19,7 +19,7 @@ const database = {
   githubLinkPages: "ページ",
   githubLinkSkipped: "リンクされないファイル",
   githubSkipMdx: "MDX はまだサポートされていません",
-  githubSkipTooLarge: "1 MiB を超えています",
+  githubSkipTooLarge: "大きすぎてインポートできません",
   githubSkipNotText: "UTF-8 テキストではありません",
   githubLinkImagesWaiting:
     "このフォルダーの画像は、ファイルストレージを設定すると表示されます。",
