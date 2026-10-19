@@ -3195,17 +3195,26 @@ export async function deleteThread(
 ): Promise<boolean> {
   await ensureTable();
   const client = getDbExec();
-  const result = await client.execute({
-    sql: `DELETE FROM chat_threads WHERE id = ? AND LOWER(owner_email) = LOWER(?)`,
-    args: [id, ownerEmail],
+  if (!client.transaction) {
+    throw new Error("Atomic chat thread deletion requires transaction support");
+  }
+  const result = await client.transaction(async (tx) => {
+    const deleted = await tx.execute({
+      sql: `DELETE FROM chat_threads WHERE id = ? AND LOWER(owner_email) = LOWER(?)`,
+      args: [id, ownerEmail],
+    });
+    if (deleted.rowsAffected === 0) return deleted;
+    await tx.execute({
+      sql: `DELETE FROM agent_chat_submission_inbox WHERE thread_id = ?`,
+      args: [id],
+    });
+    await tx.execute({
+      sql: `DELETE FROM chat_thread_shares WHERE resource_id = ?`,
+      args: [id],
+    });
+    return deleted;
   });
   if (result.rowsAffected > 0) {
-    await client
-      .execute({
-        sql: `DELETE FROM chat_thread_shares WHERE resource_id = ?`,
-        args: [id],
-      })
-      .catch(() => {});
     emitChatThreadChange(id);
     return true;
   }

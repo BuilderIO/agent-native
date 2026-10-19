@@ -49,6 +49,7 @@ import {
   blockQueuedSubmissionReceipt,
   createThread,
   createThreadShareLink,
+  deleteThread,
   forkThread,
   getQueuedSubmissionReceipt,
   getThreadByShareToken,
@@ -147,6 +148,29 @@ describe("chat thread store", () => {
       const args = typeof query === "string" ? [] : query.args;
       if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
+      }
+      if (/DELETE FROM chat_threads/i.test(sql)) {
+        if (
+          !row ||
+          row.id !== args[0] ||
+          row.owner_email.toLowerCase() !== String(args[1]).toLowerCase()
+        ) {
+          return { rows: [], rowsAffected: 0 };
+        }
+        row = null;
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (/DELETE FROM agent_chat_submission_inbox/i.test(sql)) {
+        const before = submissionRows.length;
+        submissionRows = submissionRows.filter(
+          (submission) => submission.thread_id !== args[0],
+        );
+        return { rows: [], rowsAffected: before - submissionRows.length };
+      }
+      if (/DELETE FROM chat_thread_shares/i.test(sql)) {
+        const before = shareRows.length;
+        shareRows = shareRows.filter((share) => share.resource_id !== args[0]);
+        return { rows: [], rowsAffected: before - shareRows.length };
       }
       if (
         /FROM agent_chat_submission_inbox/i.test(sql) &&
@@ -489,6 +513,51 @@ describe("chat thread store", () => {
       null,
       null,
       null,
+    ]);
+  });
+
+  it("deletes queued submission payloads and shares with their thread", async () => {
+    submissionRows.push({
+      thread_id: "thread-1",
+      message_id: "queued-1",
+      state: "queued",
+      payload_json: JSON.stringify({ id: "queued-1", text: "Private prompt" }),
+    });
+    shareRows.push({
+      id: "share-1",
+      resource_id: "thread-1",
+      principal_id: "reader@example.com",
+      role: "viewer",
+      created_by: "user@example.com",
+    });
+
+    await expect(deleteThread("thread-1", "other@example.com")).resolves.toBe(
+      false,
+    );
+    expect(submissionRows).toHaveLength(1);
+    expect(shareRows).toHaveLength(1);
+
+    await expect(deleteThread("thread-1", "user@example.com")).resolves.toBe(
+      true,
+    );
+
+    expect(row).toBeNull();
+    expect(submissionRows).toEqual([]);
+    expect(shareRows).toEqual([]);
+    expect(emitChatThreadChangeMock).toHaveBeenCalledWith("thread-1");
+    expect(
+      executeMock.mock.calls
+        .map(([query]) => (typeof query === "string" ? query : query.sql))
+        .filter((sql) =>
+          /^DELETE FROM (chat_threads|agent_chat_submission_inbox|chat_thread_shares)/i.test(
+            sql,
+          ),
+        ),
+    ).toEqual([
+      expect.stringMatching(/^DELETE FROM chat_threads/i),
+      expect.stringMatching(/^DELETE FROM chat_threads/i),
+      expect.stringMatching(/^DELETE FROM agent_chat_submission_inbox/i),
+      expect.stringMatching(/^DELETE FROM chat_thread_shares/i),
     ]);
   });
 
