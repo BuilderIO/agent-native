@@ -7367,9 +7367,15 @@ function PageEditorSessionBody({
   }, [bodyThreads, commentAi.freshResolutions]);
   const pagePropertiesDatabaseId =
     databaseId ?? document.databaseMembership?.databaseId ?? null;
-  // The same read the Page's Properties make, so it costs no request.
+  // The same read the Page's Properties make, so it costs no request. It only
+  // labels Property threads, so a read-only widget, which has no Comments and
+  // reads its fields from the Page, skips it like the comments read above.
   const pagePropertiesQuery = useDocumentProperties(
-    document.databaseMembership && !isLocalFileDocument ? documentId : null,
+    document.databaseMembership &&
+      !isLocalFileDocument &&
+      !mcpDirectoryWidgetReadOnly
+      ? documentId
+      : null,
     pagePropertiesDatabaseId,
   );
   const pageProperties = documentPropertiesResponseMatchesScope(
