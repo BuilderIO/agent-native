@@ -487,6 +487,19 @@ function stopReviewOverlayEvent(event: { stopPropagation: () => void }) {
   event.stopPropagation();
 }
 
+/**
+ * Preview-frame elements belong to another realm, so instanceof against this window's
+ * HTMLElement or SVGElement is false for them. Check the shape instead.
+ */
+function isRenderedElement(value: unknown): value is HTMLElement | SVGElement {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as Element).nodeType === 1 &&
+    typeof (value as HTMLElement).style === "object"
+  );
+}
+
 /** The element a saved source-equivalent selector names, resolved the way the bridge built it. */
 function selectorElement(
   canvas: HTMLElement,
@@ -1710,7 +1723,7 @@ export function ReviewCanvasPins({
           (resolved.anchor.selector
             ? selectorElement(canvas, resolved.anchor.selector)
             : null);
-        if (element instanceof HTMLElement || element instanceof SVGElement) {
+        if (isRenderedElement(element)) {
           element.scrollIntoView({ block: "center", inline: "center" });
           const previousBoxShadow = element.style.boxShadow;
           element.style.boxShadow =
@@ -2327,10 +2340,9 @@ export function ReviewCanvasPins({
         await callAction("begin-node-rewrite-request", pending);
         const submission = formatNodeRepromptSubmission({
           ...pending,
-          subtreeHtml:
-            element instanceof HTMLElement || element instanceof SVGElement
-              ? element.outerHTML
-              : undefined,
+          subtreeHtml: isRenderedElement(element)
+            ? element.outerHTML
+            : undefined,
         });
         const delivery = await sendToDesignAgentChatAndConfirm(
           {
@@ -2420,10 +2432,9 @@ export function ReviewCanvasPins({
           fileId: targetId,
           target,
           instruction,
-          subtreeHtml:
-            element instanceof HTMLElement || element instanceof SVGElement
-              ? element.outerHTML
-              : undefined,
+          subtreeHtml: isRenderedElement(element)
+            ? element.outerHTML
+            : undefined,
         });
         const delivery = await sendToDesignAgentChatAndConfirm(
           {
