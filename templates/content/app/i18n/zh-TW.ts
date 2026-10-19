@@ -440,6 +440,18 @@ const overrides = {
     addBlockField: "新增欄位",
     blockFieldChanged: "自你上次檢視後已變更",
     blockFieldTabs: "欄位",
+    blockFieldMenu: "{{name}} 選項",
+    blockFieldMenuScope: "此集合中的每一列共用",
+    blockFieldName: "欄位名稱",
+    renameBlockField: "重新命名",
+    renameBlockFieldFailed: "無法重新命名欄位",
+    deleteBlockField: "刪除",
+    deleteBlockFieldFailed: "無法刪除欄位",
+    deleteBlockFieldQuestion: "要刪除「{{name}}」嗎？",
+    deleteBlockFieldDescription:
+      "這會從此集合的每一列中刪除「{{name}}」及其文字。此動作無法復原。",
+    deleteBlockFieldBodyWarning:
+      "「{{name}}」是頁面內文，因此每一列的內文也會一併刪除。",
     title: "標題",
     creatingDatabase: "正在建立內嵌集合...",
     databaseCreated: "集合已建立",

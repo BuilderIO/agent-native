@@ -1394,6 +1394,18 @@ const overrides = {
     addBlockField: "إضافة حقل",
     blockFieldChanged: "تغيّر منذ آخر مرة عرضته فيها",
     blockFieldTabs: "الحقول",
+    blockFieldMenu: "خيارات {{name}}",
+    blockFieldMenuScope: "مشترك بين كل صفوف هذه المجموعة",
+    blockFieldName: "اسم الحقل",
+    renameBlockField: "إعادة التسمية",
+    renameBlockFieldFailed: "تعذّرت إعادة تسمية الحقل",
+    deleteBlockField: "حذف",
+    deleteBlockFieldFailed: "تعذّر حذف الحقل",
+    deleteBlockFieldQuestion: "حذف «{{name}}»؟",
+    deleteBlockFieldDescription:
+      "سيؤدي هذا إلى حذف «{{name}}» ونصه من كل صف في هذه المجموعة. لا يمكن التراجع عن ذلك.",
+    deleteBlockFieldBodyWarning:
+      "«{{name}}» هو متن الصفحة، لذا سيُحذف النص الرئيسي لكل صف أيضًا.",
   },
   comments: {
     add: "إضافة تعليق...",

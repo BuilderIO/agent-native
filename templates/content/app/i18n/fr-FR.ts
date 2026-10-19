@@ -1446,6 +1446,18 @@ const overrides = {
     addBlockField: "Ajouter un champ",
     blockFieldChanged: "Modifié depuis votre dernière consultation",
     blockFieldTabs: "Champs",
+    blockFieldMenu: "Options de {{name}}",
+    blockFieldMenuScope: "Partagé par toutes les lignes de cette collection",
+    blockFieldName: "Nom du champ",
+    renameBlockField: "Renommer",
+    renameBlockFieldFailed: "Impossible de renommer le champ",
+    deleteBlockField: "Supprimer",
+    deleteBlockFieldFailed: "Impossible de supprimer le champ",
+    deleteBlockFieldQuestion: "Supprimer « {{name}} » ?",
+    deleteBlockFieldDescription:
+      "« {{name}} » et son texte seront supprimés de toutes les lignes de cette collection. Cette action est irréversible.",
+    deleteBlockFieldBodyWarning:
+      "« {{name}} » est le corps de la page : le texte principal de chaque ligne sera aussi supprimé.",
   },
   comments: {
     add: "Ajouter un commentaire...",

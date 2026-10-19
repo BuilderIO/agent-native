@@ -12,7 +12,12 @@ import {
   isPrimaryBlocksField,
   type BlocksStorageTarget,
 } from "@shared/properties";
-import { IconGripVertical, IconPlus } from "@tabler/icons-react";
+import {
+  IconGripVertical,
+  IconPencil,
+  IconPlus,
+  IconTrash,
+} from "@tabler/icons-react";
 import {
   useCallback,
   useEffect,
@@ -22,6 +27,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
   type PointerEvent as ReactPointerEvent,
 } from "react";
@@ -29,7 +35,25 @@ import { useLocation, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import { QueryErrorState } from "@/components/QueryErrorState";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
 import {
   Tooltip,
@@ -40,6 +64,7 @@ import {
   documentPropertiesPlaceholder,
   documentPropertiesResponseMatchesScope,
   useConfigureDocumentProperty,
+  useDeleteDocumentProperty,
   useDocumentProperties,
   useReorderDocumentProperty,
   useSetDocumentProperty,
@@ -71,6 +96,7 @@ import {
   rememberBlockFieldSeen,
   resolveSelectedBlockFieldId,
   searchParamsForBlockField,
+  visibleBlockFieldEditor,
   type BlockFieldSeen,
   type BlockFieldTabDirection,
 } from "./blockFieldTabs";
@@ -319,7 +345,8 @@ export function primaryBlocksFieldAvailable(
  *   like the current Notion-style body (no header).
  * - TWO or more → a sticky tab row with each field's name and word count; the
  *   tabs reorder by dragging, `?field=<propertyId>` names any tab but the
- *   first, and "+" adds a field for people who can change the schema.
+ *   first, and people who can change the schema add a field with "+" and
+ *   rename or delete one from its tab's menu.
  *
  * Solo reversibility: deleting down to one field returns to chromeless but keeps
  * the surviving field's stored name.
@@ -355,8 +382,9 @@ export function DocumentBlockFields({
     propertiesData?.canEditValues === true &&
     databaseId !== null &&
     databaseDocumentId !== null;
-  // The same permission as the property menu's "Add property".
-  const canAddField =
+  // The same permission as the property menu's "Add property", rename, and
+  // delete.
+  const canManageFields =
     canEdit &&
     !usePagePropertiesOnly &&
     propertiesData?.canManageSchema === true &&
@@ -375,6 +403,24 @@ export function DocumentBlockFields({
   useLayoutEffect(() => {
     onPrimaryFieldAvailabilityChange?.(scope, primaryAvailable);
   }, [onPrimaryFieldAvailabilityChange, primaryAvailable, scope]);
+
+  // Deleting down to one field removes the tab row, and the focused tab with
+  // it. Put focus in the editor that's left instead of dropping it on the page.
+  const soloRef = useRef<HTMLDivElement>(null);
+  const previousKindRef = useRef(state.kind);
+  useLayoutEffect(() => {
+    const previousKind = previousKindRef.current;
+    previousKindRef.current = state.kind;
+    if (previousKind !== "multi" || state.kind !== "solo") return;
+    const focusEditor = () => {
+      const active = globalThis.document.activeElement;
+      if (active && active !== globalThis.document.body) return true;
+      const editor = visibleBlockFieldEditor(soloRef.current);
+      editor?.focus();
+      return editor !== null;
+    };
+    if (!focusEditor()) requestAnimationFrame(focusEditor);
+  }, [state.kind]);
 
   // A failed property read is not an empty field list. Rendering the editor in
   // that state could bind the body before we know which storage target owns it.
@@ -424,6 +470,7 @@ export function DocumentBlockFields({
         return (
           <div
             className={cn(BLOCK_FIELDS_GRID, "gap-1")}
+            ref={soloRef}
             data-block-fields-state="solo"
           >
             <AdditionalBlockEditor
@@ -441,6 +488,7 @@ export function DocumentBlockFields({
       return (
         <div
           className={cn(BLOCK_FIELDS_GRID, "gap-1")}
+          ref={soloRef}
           data-block-fields-state="solo"
         >
           {primaryEditor}
@@ -454,7 +502,7 @@ export function DocumentBlockFields({
           databaseDocumentId={databaseDocumentId ?? documentId}
           canEdit={canEditFields && !suggesting}
           allowPendingSave={canEditFields && enteringSuggestion}
-          canAddField={canAddField}
+          canManageFields={canManageFields}
           blockFields={state.fields}
           primaryEditor={primaryEditor}
           primaryContent={primaryContent}
@@ -517,7 +565,7 @@ function MultiBlockFields({
   databaseDocumentId,
   canEdit,
   allowPendingSave,
-  canAddField,
+  canManageFields,
   blockFields,
   primaryEditor,
   primaryContent,
@@ -530,7 +578,7 @@ function MultiBlockFields({
   databaseDocumentId: string;
   canEdit: boolean;
   allowPendingSave: boolean;
-  canAddField: boolean;
+  canManageFields: boolean;
   blockFields: DocumentProperty[];
   primaryEditor: ReactNode;
   primaryContent?: string;
@@ -548,6 +596,17 @@ function MultiBlockFields({
     databaseDocumentId,
   );
   const configure = useConfigureDocumentProperty(
+    documentId,
+    databaseId,
+    databaseDocumentId,
+  );
+  // Its own mutation, so a rename doesn't show "+" as busy.
+  const rename = useConfigureDocumentProperty(
+    documentId,
+    databaseId,
+    databaseDocumentId,
+  );
+  const remove = useDeleteDocumentProperty(
     documentId,
     databaseId,
     databaseDocumentId,
@@ -735,14 +794,148 @@ function MultiBlockFields({
       .map((field) => field.id),
   );
 
-  // A field added from "+" opens once the property read includes it.
+  // A tab's menu (rename, delete), the tab whose name is being edited, the
+  // field waiting on a delete confirmation, and names saved but not yet read
+  // back.
+  const [menuFieldId, setMenuFieldId] = useState<string | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [pendingNames, setPendingNames] = useState<
+    Record<string, { name: string; saved: boolean }>
+  >({});
+  const focusTabIdRef = useRef<string | null>(null);
+  const deleteConfirmedRef = useRef(false);
+  // The delete dialog traps focus until it has closed, so it hands focus back
+  // itself.
+  const focusTabAfterDialogRef = useRef<string | null>(null);
+
+  const canManage = (property: DocumentProperty) =>
+    canManageFields && !property.definition.systemRole;
+  const fieldName = (property: DocumentProperty) =>
+    pendingNames[property.definition.id]?.name ?? property.definition.name;
+
+  // A saved name stays on the tab until the next read carries it.
+  useEffect(() => {
+    setPendingNames((current) => {
+      const next = { ...current };
+      let changed = false;
+      for (const [id, pending] of Object.entries(current)) {
+        const name = blockFields.find(
+          (property) => property.definition.id === id,
+        )?.definition.name;
+        if (pending.saved || name === undefined || name === pending.name) {
+          delete next[id];
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [blockFields]);
+
+  // Put focus back on a tab once its menu, name input, or delete dialog is gone.
+  useLayoutEffect(() => {
+    const id = focusTabIdRef.current;
+    if (id === null || renamingId !== null || deletingId !== null) return;
+    focusTabIdRef.current = null;
+    tabRefs.current.get(id)?.focus();
+  });
+
+  function focusTabAfterClose(propertyId: string) {
+    focusTabIdRef.current = propertyId;
+  }
+
+  // A field added from "+" opens once the property read includes it, with its
+  // name ready to type over.
   const [awaitingFieldId, setAwaitingFieldId] = useState<string | null>(null);
   useEffect(() => {
     if (!awaitingFieldId || !fieldIds.includes(awaitingFieldId)) return;
     setAwaitingFieldId(null);
     selectField(awaitingFieldId);
+    setRenamingId(awaitingFieldId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [awaitingFieldId, fieldOrderKey]);
+
+  // Enter and Escape return focus to the tab; clicking away leaves it where
+  // the click put it.
+  async function renameField(
+    property: DocumentProperty,
+    draft: string | null,
+    refocus: boolean,
+  ) {
+    const id = property.definition.id;
+    setRenamingId(null);
+    if (refocus) focusTabAfterClose(id);
+    const name = draft?.trim();
+    if (!name || name === fieldName(property)) return;
+    setPendingNames((current) => ({
+      ...current,
+      [id]: { name, saved: false },
+    }));
+    // The same metadata the property menu sends, with the new name.
+    const { definition } = property;
+    try {
+      await rename.mutateAsync({
+        id,
+        documentId,
+        name,
+        type: definition.type,
+        description: definition.description,
+        visibility: definition.visibility,
+        options: definition.options,
+        icon: definition.icon ?? null,
+      });
+      setPendingNames((current) =>
+        current[id]?.name === name
+          ? { ...current, [id]: { name, saved: true } }
+          : current,
+      );
+    } catch (error) {
+      setPendingNames((current) => {
+        if (current[id]?.name !== name) return current;
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
+      toast.error(t("editor.renameBlockFieldFailed"), {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    }
+  }
+
+  async function deleteField(property: DocumentProperty) {
+    const id = property.definition.id;
+    deleteConfirmedRef.current = true;
+    setDeletingId(null);
+    // Leave the deleted tab, and leave no `?field=` behind when only one
+    // field (shown without tabs) will be left.
+    if (id === selectedId || blockFields.length <= 2) writeSelection(null);
+    const next = fieldIds.find((fieldId) => fieldId !== id);
+    focusTabAfterDialogRef.current =
+      id === selectedId && next ? next : (selectedId ?? id);
+    try {
+      await remove.mutateAsync({ documentId, propertyId: id });
+    } catch (error) {
+      toast.error(t("editor.deleteBlockFieldFailed"), {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    }
+  }
+
+  function handleTabClick(property: DocumentProperty) {
+    const propertyId = property.definition.id;
+    if (propertyId !== selectedId) {
+      selectField(propertyId);
+      return;
+    }
+    // The open tab's own click opens its menu.
+    if (canManage(property)) {
+      setMenuFieldId((current) => (current === propertyId ? null : propertyId));
+    }
+  }
+
+  const deletingField =
+    blockFields.find((property) => property.definition.id === deletingId) ??
+    null;
 
   async function addBlocksField() {
     if (configure.isPending) return;
@@ -968,6 +1161,14 @@ function MultiBlockFields({
     );
     const index = tab ? fieldIds.indexOf(tab.dataset.blockFieldId ?? "") : -1;
     if (index === -1) return;
+    if (event.key === "F2") {
+      const property = blockFields[index]!;
+      if (!canManage(property)) return;
+      event.preventDefault();
+      setMenuFieldId(null);
+      setRenamingId(property.definition.id);
+      return;
+    }
     const nextIndex = blockFieldTabIndexForKey(
       event.key,
       index,
@@ -1007,40 +1208,90 @@ function MultiBlockFields({
           >
             {blockFields.map((property, index) => {
               const propertyId = property.definition.id;
+              const manageable = canManage(property);
+              const menuOpen = manageable && menuFieldId === propertyId;
               return (
-                <BlockFieldTab
+                <span
                   key={propertyId}
-                  tabRef={(element) => {
-                    if (element) tabRefs.current.set(propertyId, element);
-                    else tabRefs.current.delete(propertyId);
-                  }}
-                  id={tabId(propertyId)}
-                  panelId={panelId(propertyId)}
-                  property={property}
-                  content={liveContent(property)}
-                  selected={propertyId === selectedId}
-                  changed={changedIds.has(propertyId)}
-                  dragging={drag?.propertyId === propertyId}
-                  dropIndicator={
-                    dropGapIndex === index
-                      ? index === 0
-                        ? "first"
-                        : "before"
-                      : dropGapIndex === blockFields.length &&
-                          index === blockFields.length - 1
-                        ? "after"
-                        : null
-                  }
-                  onSelect={() => selectField(propertyId)}
-                  onPointerDown={(event) =>
-                    startTabPointerDrag(property, event)
-                  }
-                  t={t}
-                />
+                  role="presentation"
+                  className="relative inline-flex shrink-0 items-stretch"
+                >
+                  {renamingId === propertyId ? (
+                    <BlockFieldNameInput
+                      initialName={fieldName(property)}
+                      onDone={(draft, refocus) =>
+                        void renameField(property, draft, refocus)
+                      }
+                      t={t}
+                    />
+                  ) : (
+                    <BlockFieldTab
+                      tabRef={(element) => {
+                        if (element) tabRefs.current.set(propertyId, element);
+                        else tabRefs.current.delete(propertyId);
+                      }}
+                      id={tabId(propertyId)}
+                      panelId={panelId(propertyId)}
+                      property={property}
+                      name={fieldName(property)}
+                      content={liveContent(property)}
+                      selected={propertyId === selectedId}
+                      changed={changedIds.has(propertyId)}
+                      dragging={drag?.propertyId === propertyId}
+                      menu={
+                        manageable && propertyId === selectedId
+                          ? { open: menuOpen }
+                          : null
+                      }
+                      dropIndicator={
+                        dropGapIndex === index
+                          ? index === 0
+                            ? "first"
+                            : "before"
+                          : dropGapIndex === blockFields.length &&
+                              index === blockFields.length - 1
+                            ? "after"
+                            : null
+                      }
+                      onClick={() => handleTabClick(property)}
+                      onContextMenu={
+                        manageable
+                          ? (event) => {
+                              event.preventDefault();
+                              setMenuFieldId(propertyId);
+                            }
+                          : undefined
+                      }
+                      onPointerDown={(event) =>
+                        startTabPointerDrag(property, event)
+                      }
+                      t={t}
+                    />
+                  )}
+                  {menuOpen ? (
+                    <BlockFieldTabMenu
+                      name={fieldName(property)}
+                      tab={() => tabRefs.current.get(propertyId) ?? null}
+                      onClose={(refocus) => {
+                        setMenuFieldId(null);
+                        if (refocus) focusTabAfterClose(propertyId);
+                      }}
+                      onRename={() => {
+                        setMenuFieldId(null);
+                        setRenamingId(propertyId);
+                      }}
+                      onDelete={() => {
+                        setMenuFieldId(null);
+                        setDeletingId(propertyId);
+                      }}
+                      t={t}
+                    />
+                  ) : null}
+                </span>
               );
             })}
           </div>
-          {canAddField ? (
+          {canManageFields ? (
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -1098,7 +1349,200 @@ function MultiBlockFields({
           </div>
         );
       })}
+      <AlertDialog
+        open={deletingField !== null}
+        onOpenChange={(open) => {
+          if (open) return;
+          // Confirming already chose where focus goes.
+          if (!deleteConfirmedRef.current && deletingId !== null) {
+            focusTabAfterDialogRef.current = deletingId;
+          }
+          deleteConfirmedRef.current = false;
+          setDeletingId(null);
+        }}
+      >
+        <AlertDialogContent
+          className="max-w-sm gap-0 rounded-lg p-5"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            const id = focusTabAfterDialogRef.current;
+            focusTabAfterDialogRef.current = null;
+            if (id !== null) tabRefs.current.get(id)?.focus();
+          }}
+        >
+          <AlertDialogHeader className="space-y-0 gap-1.5 text-start">
+            <AlertDialogTitle className="text-base leading-tight tracking-tight">
+              {t("editor.deleteBlockFieldQuestion", {
+                name: deletingField ? fieldName(deletingField) : "",
+              })}
+            </AlertDialogTitle>
+            <AlertDialogDescription className="leading-normal [text-wrap:pretty]">
+              {t("editor.deleteBlockFieldDescription", {
+                name: deletingField ? fieldName(deletingField) : "",
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {deletingField &&
+          isPrimaryBlocksField(deletingField.definition.options) ? (
+            <div
+              className="mt-3 rounded-md border border-yellow-500/40 bg-yellow-500/10 px-3 py-2 text-sm text-yellow-800 dark:text-yellow-200"
+              data-block-field-body-warning
+            >
+              {t("editor.deleteBlockFieldBodyWarning", {
+                name: fieldName(deletingField),
+              })}
+            </div>
+          ) : null}
+          <AlertDialogFooter className="mt-4 flex-row items-center justify-end gap-2 sm:space-x-0">
+            <AlertDialogCancel
+              size="sm"
+              className="mt-0 focus-visible:ring-1 focus-visible:ring-muted-foreground/40 focus-visible:ring-offset-1"
+            >
+              {t("editor.properties.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              size="sm"
+              className="focus-visible:ring-1 focus-visible:ring-muted-foreground/40 focus-visible:ring-offset-1"
+              onClick={() => {
+                if (deletingField) void deleteField(deletingField);
+              }}
+              data-block-field-delete-confirm
+            >
+              {t("editor.deleteBlockField")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
+  );
+}
+
+/**
+ * The menu a field's tab opens: rename and delete. Fields belong to the
+ * collection, so the menu says both reach every row.
+ */
+function BlockFieldTabMenu({
+  name,
+  tab,
+  onClose,
+  onRename,
+  onDelete,
+  t,
+}: {
+  name: string;
+  tab: () => HTMLElement | null;
+  onClose: (refocus: boolean) => void;
+  onRename: () => void;
+  onDelete: () => void;
+  t: ReturnType<typeof useT>;
+}) {
+  const escapedRef = useRef(false);
+  return (
+    <DropdownMenu
+      open
+      modal={false}
+      onOpenChange={(open) => {
+        if (!open) onClose(escapedRef.current);
+      }}
+    >
+      {/* Only an anchor: the tab itself opens and closes the menu. */}
+      <DropdownMenuTrigger asChild>
+        <span
+          aria-hidden="true"
+          tabIndex={-1}
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-0"
+        />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        collisionPadding={8}
+        className="w-64"
+        aria-label={t("editor.blockFieldMenu", { name })}
+        aria-labelledby={undefined}
+        onEscapeKeyDown={() => {
+          escapedRef.current = true;
+        }}
+        onInteractOutside={(event) => {
+          // A click on the tab toggles the menu itself.
+          const target = event.target as Node | null;
+          if (target && tab()?.contains(target)) event.preventDefault();
+        }}
+        onCloseAutoFocus={(event) => event.preventDefault()}
+        data-block-field-menu
+      >
+        <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+          {t("editor.blockFieldMenuScope")}
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={onRename} data-block-field-rename>
+          <IconPencil className="mr-2 size-4 text-muted-foreground" />
+          {t("editor.renameBlockField")}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+          onSelect={onDelete}
+          data-block-field-delete
+        >
+          <IconTrash className="mr-2 size-4" />
+          {t("editor.deleteBlockField")}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/**
+ * A field's name, editable in place of its tab. Enter saves, Escape keeps the
+ * old name, and clicking away saves.
+ */
+function BlockFieldNameInput({
+  initialName,
+  onDone,
+  t,
+}: {
+  initialName: string;
+  onDone: (draft: string | null, refocus: boolean) => void;
+  t: ReturnType<typeof useT>;
+}) {
+  const [draft, setDraft] = useState(initialName);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const doneRef = useRef(false);
+  useLayoutEffect(() => {
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, []);
+
+  function finish(value: string | null, refocus: boolean) {
+    if (doneRef.current) return;
+    doneRef.current = true;
+    onDone(value, refocus);
+  }
+
+  return (
+    <span className="inline-flex h-9 shrink-0 items-center px-1">
+      <input
+        ref={inputRef}
+        value={draft}
+        aria-label={t("editor.blockFieldName")}
+        // Grows with the name, within limits.
+        size={Math.min(Math.max(draft.length, 6), 32) + 1}
+        className="h-7 min-w-0 rounded-md border border-input bg-background px-1.5 text-sm font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        onChange={(event) => setDraft(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            finish(draft, true);
+          } else if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
+            finish(null, true);
+          }
+        }}
+        onBlur={() => finish(draft, false)}
+        data-block-field-name-input
+      />
+    </span>
   );
 }
 
@@ -1107,12 +1551,15 @@ function BlockFieldTab({
   id,
   panelId,
   property,
+  name,
   content,
   selected,
   changed,
   dragging,
+  menu,
   dropIndicator,
-  onSelect,
+  onClick,
+  onContextMenu,
   onPointerDown,
   t,
 }: {
@@ -1120,12 +1567,16 @@ function BlockFieldTab({
   id: string;
   panelId: string;
   property: DocumentProperty;
+  name: string;
   content: string;
   selected: boolean;
   changed: boolean;
   dragging: boolean;
+  /** Set when a click on this tab opens its menu. */
+  menu: { open: boolean } | null;
   dropIndicator: "first" | "before" | "after" | null;
-  onSelect: () => void;
+  onClick: () => void;
+  onContextMenu?: (event: ReactMouseEvent<HTMLButtonElement>) => void;
   onPointerDown: (event: ReactPointerEvent<HTMLButtonElement>) => void;
   t: ReturnType<typeof useT>;
 }) {
@@ -1138,6 +1589,8 @@ function BlockFieldTab({
       id={id}
       aria-selected={selected}
       aria-controls={panelId}
+      aria-haspopup={menu ? "menu" : undefined}
+      aria-expanded={menu ? menu.open : undefined}
       tabIndex={selected ? 0 : -1}
       className={cn(
         "relative inline-flex h-9 shrink-0 select-none items-center gap-1.5 whitespace-nowrap rounded-t-md px-2.5 text-sm font-medium transition-colors",
@@ -1150,14 +1603,15 @@ function BlockFieldTab({
       )}
       data-block-field-tab
       data-block-field-id={property.definition.id}
-      onClick={onSelect}
+      onClick={onClick}
+      onContextMenu={onContextMenu}
       onPointerDown={onPointerDown}
     >
       {dropIndicator ? (
         <span
           aria-hidden="true"
           className={cn(
-            "notion-dropcursor pointer-events-none absolute inset-y-1.5 w-[3px]",
+            "notion-dropcursor pointer-events-none absolute inset-y-1.5 w-0.75",
             dropIndicator === "first" && "start-0",
             dropIndicator === "before" && "-start-0.5",
             dropIndicator === "after" && "end-0",
@@ -1165,7 +1619,7 @@ function BlockFieldTab({
           data-block-field-drop-indicator={dropIndicator}
         />
       ) : null}
-      <span className="max-w-48 truncate">{property.definition.name}</span>
+      <span className="max-w-48 truncate">{name}</span>
       {words > 0 ? (
         <span className="text-xs font-normal text-muted-foreground">
           {t("editor.properties.wordCount", { count: words })}

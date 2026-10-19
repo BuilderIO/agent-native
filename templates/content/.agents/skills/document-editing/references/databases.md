@@ -121,19 +121,32 @@ Each additional Blocks field stores its own content in
 two Blocks fields ever share content — adding a second Blocks field creates a
 new, empty, independent field. On the page: one Blocks field renders
 chromeless (no header, just the body); two or more show as a row of tabs that
-sticks to the top while scrolling. Each tab shows the field's name and word
-count, tabs reorder by dragging, "+" after the last tab adds a Blocks field
-(for people who can change the collection's properties), and a dot marks a
-tab that changed since this browser last showed it. Only one field shows at a
-time, but every field's editor stays open. `/page/<id>?field=<propertyId>`
+sticks to the top while scrolling.
+
+People rarely say "Blocks field". They say tabs, page tabs, document tabs, or
+sections, or name one by its field ("the Notes tab"). Each of those is a Blocks
+field: "add a tab" means adding a `blocks` property with
+`configure-document-property`, "rename the Notes tab" means renaming that
+property, and "what's in my Notes tab" means reading that field. Fields are
+defined on the collection, so adding, renaming, or deleting one changes it on
+every row. Say so before doing it for someone who asked about one page.
+
+Each tab shows the field's name and word count, tabs reorder by dragging, and a
+dot marks a tab that changed since this browser last showed it. People who can
+change the collection's properties also get "+" after the last tab, which adds
+a Blocks field and opens it with its name ready to type, and a menu with Rename
+and Delete on each tab (click the open tab, right-click any tab, or press F2 on
+one to rename it). Only one field shows at a time, but every field's editor
+stays open. `/page/<id>?field=<propertyId>`
 opens a given tab (no `field` means the first), so `navigate` with that path
 shows a person a specific field, and `navigation` reports the open tab as
 `fieldId`. Page comments anchor in the primary field, so their cards show only
 on its tab, and opening a comment switches back to it. The surviving lone field
 keeps its stored name when fields are deleted back down to one. In table views a
-Blocks column shows a word count (e.g. "412 words"), not the body. A Blocks field can only be deleted from the
-collection view's column menu (not from the page body); deleting the last
-Blocks field warns that it removes the body for every object of the type.
+Blocks column shows a word count (e.g. "412 words"), not the body. A Blocks
+field is renamed or deleted from its tab's menu or the collection view's column
+menu. Deleting one can't be undone and removes its text from every row; the
+tab's confirmation warns when the field is the page body.
 
 For one-block agent edits, call `list-content-database-blocks` with the exact
 space, collection, backing document, membership row, row document, and property

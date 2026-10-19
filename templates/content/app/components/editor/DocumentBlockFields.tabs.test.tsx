@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => ({
       ({}) as Record<string, unknown>,
   ),
   configurePending: false,
+  remove: vi.fn(async (_request: Record<string, unknown>) => ({})),
+  toastError: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -35,9 +37,11 @@ vi.mock("@/hooks/use-document-properties", () => ({
     mutateAsync: mocks.configure,
     isPending: mocks.configurePending,
   }),
+  useDeleteDocumentProperty: () => ({ mutateAsync: mocks.remove }),
   useReorderDocumentProperty: () => ({ mutateAsync: mocks.reorder }),
   useSetDocumentProperty: () => ({ mutateAsync: mocks.save }),
 }));
+vi.mock("sonner", () => ({ toast: { error: mocks.toastError } }));
 vi.mock("@/components/QueryErrorState", () => ({
   QueryErrorState: () => null,
 }));
@@ -183,6 +187,9 @@ describe("DocumentBlockFields tabs", () => {
     mocks.reorder.mockImplementation(async () => ({}));
     mocks.configure.mockReset();
     mocks.configurePending = false;
+    mocks.remove.mockReset();
+    mocks.remove.mockImplementation(async () => ({}));
+    mocks.toastError.mockReset();
     primaryLifecycle.mounts = 0;
     primaryLifecycle.unmounts = 0;
     onAdditionalContentChange.mockClear();
@@ -199,6 +206,7 @@ describe("DocumentBlockFields tabs", () => {
   function tree(
     props: {
       primaryContent?: string;
+      primaryEditor?: ReactNode;
       usePagePropertiesOnly?: boolean;
       onPrimaryFieldTabChange?: (tab: PrimaryBlockFieldTab) => void;
     } = {},
@@ -709,7 +717,7 @@ describe("DocumentBlockFields tabs", () => {
       );
     }
 
-    it("adds a Blocks field the way the property menu does and opens it (TABS-8)", async () => {
+    it("adds a Blocks field the way the property menu does and opens it to name (TABS-8)", async () => {
       const created = field("blocks-3", { name: "Blocks", position: 2 });
       mocks.configure.mockImplementation(async () => ({
         documentId: "doc-1",
@@ -733,9 +741,19 @@ describe("DocumentBlockFields tabs", () => {
 
       setFields([content(), notes(), created]);
       await render();
-      expect(selectedTabId()).toBe("blocks-3");
       expect(location.href).toBe("/page/doc-1?field=blocks-3");
       expect(panel("blocks-3").hidden).toBe(false);
+      // Its name is ready to type over.
+      const input = container.querySelector<HTMLInputElement>(
+        "[data-block-field-name-input]",
+      );
+      expect(input?.value).toBe("Blocks");
+      expect(document.activeElement).toBe(input);
+
+      await key(input!, "Escape");
+      expect(selectedTabId()).toBe("blocks-3");
+      expect(document.activeElement).toBe(tab("blocks-3"));
+      expect(mocks.configure).toHaveBeenCalledTimes(1);
     });
 
     it("shows + only to people who can change the collection's schema (TABS-8)", async () => {
@@ -746,6 +764,264 @@ describe("DocumentBlockFields tabs", () => {
       setFields([content(), notes()]);
       await render({ usePagePropertiesOnly: true });
       expect(addButton()).toBeNull();
+    });
+  });
+
+  describe("tab menu", () => {
+    function menu() {
+      return document.querySelector<HTMLElement>("[data-block-field-menu]");
+    }
+
+    function nameInput() {
+      return container.querySelector<HTMLInputElement>(
+        "[data-block-field-name-input]",
+      );
+    }
+
+    function dialog() {
+      return document.querySelector<HTMLElement>('[role="alertdialog"]');
+    }
+
+    async function rightClick(element: HTMLElement) {
+      await act(async () => {
+        element.dispatchEvent(
+          new MouseEvent("contextmenu", {
+            bubbles: true,
+            cancelable: true,
+            button: 2,
+          }),
+        );
+      });
+    }
+
+    async function choose(selector: string) {
+      const item = document.querySelector<HTMLElement>(selector);
+      if (!item) throw new Error(`No menu item ${selector}`);
+      await click(item);
+    }
+
+    async function typeName(value: string) {
+      const input = nameInput();
+      if (!input) throw new Error("No name input");
+      await act(async () => {
+        // Through the native setter, so React sees the change.
+        Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          "value",
+        )!.set!.call(input, value);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    }
+
+    async function confirmDelete() {
+      await click(
+        document.querySelector<HTMLElement>(
+          "[data-block-field-delete-confirm]",
+        )!,
+      );
+    }
+
+    it("opens from the open tab's click or any tab's right-click (TABS-11)", async () => {
+      await render();
+      expect(tab("content").getAttribute("aria-haspopup")).toBe("menu");
+      expect(tab("content").getAttribute("aria-expanded")).toBe("false");
+      expect(tab("notes").hasAttribute("aria-haspopup")).toBe(false);
+
+      await click(tab("content"));
+      expect(menu()?.getAttribute("aria-label")).toBe("editor.blockFieldMenu");
+      expect(menu()?.textContent).toContain("editor.blockFieldMenuScope");
+      expect(tab("content").getAttribute("aria-expanded")).toBe("true");
+
+      await click(tab("content"));
+      expect(menu()).toBeNull();
+
+      // Another tab's click only opens that tab.
+      await click(tab("notes"));
+      expect(selectedTabId()).toBe("notes");
+      expect(menu()).toBeNull();
+
+      await rightClick(tab("content"));
+      expect(menu()).not.toBeNull();
+      expect(selectedTabId()).toBe("notes");
+    });
+
+    it("renames a field and keeps the rest of its definition (TABS-11)", async () => {
+      await render();
+      await click(tab("notes"));
+      await click(tab("notes"));
+      await choose("[data-block-field-rename]");
+      expect(menu()).toBeNull();
+      expect(nameInput()?.value).toBe("Notes");
+      expect(document.activeElement).toBe(nameInput());
+
+      await typeName("  Margins  ");
+      await key(nameInput()!, "Enter");
+      expect(mocks.configure).toHaveBeenCalledWith({
+        id: "notes",
+        documentId: "doc-1",
+        name: "Margins",
+        type: "blocks",
+        description: undefined,
+        visibility: "always_show",
+        options: { blocks: { primary: false } },
+        icon: null,
+      });
+      // The tab shows the new name before the next read carries it.
+      expect(nameInput()).toBeNull();
+      expect(tab("notes").textContent).toContain("Margins");
+      expect(document.activeElement).toBe(tab("notes"));
+
+      setFields([content(), notes({ name: "Margins" })]);
+      await render();
+      expect(tab("notes").textContent).toContain("Margins");
+    });
+
+    it("renames with F2, cancels with Escape, and saves on blur (TABS-11)", async () => {
+      await render();
+      await key(tab("content"), "F2");
+      expect(nameInput()?.value).toBe("Content");
+      await typeName("Poem");
+      await key(nameInput()!, "Escape");
+      expect(mocks.configure).not.toHaveBeenCalled();
+      expect(tab("content").textContent).toContain("Content");
+      expect(document.activeElement).toBe(tab("content"));
+
+      await key(tab("content"), "F2");
+      await typeName("Poem");
+      const elsewhere = document.createElement("button");
+      document.body.append(elsewhere);
+      await act(async () => elsewhere.focus());
+      expect(mocks.configure).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: "content",
+          name: "Poem",
+          options: { blocks: { primary: true } },
+        }),
+      );
+      // Clicking away leaves focus where the click put it.
+      expect(document.activeElement).toBe(elsewhere);
+      elsewhere.remove();
+    });
+
+    it("skips an empty or unchanged name", async () => {
+      await render();
+      await key(tab("notes"), "F2");
+      await typeName("   ");
+      await key(nameInput()!, "Enter");
+      await key(tab("notes"), "F2");
+      await key(nameInput()!, "Enter");
+      expect(mocks.configure).not.toHaveBeenCalled();
+      expect(tab("notes").textContent).toContain("Notes");
+    });
+
+    it("puts the old name back when a rename fails", async () => {
+      mocks.configure.mockRejectedValueOnce(new Error("Offline"));
+      await render();
+      await key(tab("notes"), "F2");
+      await typeName("Margins");
+      await key(nameInput()!, "Enter");
+      expect(tab("notes").textContent).toContain("Notes");
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        "editor.renameBlockFieldFailed",
+        { description: "Offline" },
+      );
+    });
+
+    it("deletes a field only after confirming (TABS-12)", async () => {
+      entry = "/page/doc-1?field=notes";
+      await render();
+      await click(tab("notes"));
+      await choose("[data-block-field-delete]");
+      expect(dialog()?.textContent).toContain(
+        "editor.deleteBlockFieldQuestion",
+      );
+      expect(dialog()?.textContent).toContain(
+        "editor.deleteBlockFieldDescription",
+      );
+      expect(
+        document.querySelector("[data-block-field-body-warning]"),
+      ).toBeNull();
+      expect(mocks.remove).not.toHaveBeenCalled();
+
+      await confirmDelete();
+      expect(mocks.remove).toHaveBeenCalledWith({
+        documentId: "doc-1",
+        propertyId: "notes",
+      });
+      expect(dialog()).toBeNull();
+      // The deleted tab leaves the URL.
+      expect(location.href).toBe("/page/doc-1");
+    });
+
+    it("warns that deleting the page body clears every row's main text (TABS-12)", async () => {
+      await render();
+      await rightClick(tab("content"));
+      await choose("[data-block-field-delete]");
+      expect(
+        document.querySelector("[data-block-field-body-warning]")?.textContent,
+      ).toBe("editor.deleteBlockFieldBodyWarning");
+
+      const cancel = [...dialog()!.querySelectorAll("button")].find(
+        (button) => button.textContent === "editor.properties.cancel",
+      );
+      await click(cancel!);
+      expect(dialog()).toBeNull();
+      expect(mocks.remove).not.toHaveBeenCalled();
+      expect(tabs()).toHaveLength(2);
+    });
+
+    it("reports a failed delete", async () => {
+      mocks.remove.mockRejectedValueOnce(new Error("Offline"));
+      await render();
+      await rightClick(tab("notes"));
+      await choose("[data-block-field-delete]");
+      await confirmDelete();
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        "editor.deleteBlockFieldFailed",
+        { description: "Offline" },
+      );
+    });
+
+    it("moves focus into the editor that's left when the tabs go away (TABS-12)", async () => {
+      const primaryEditor = (
+        <div className="ProseMirror" tabIndex={-1} data-focus-probe="" />
+      );
+      await render({ primaryEditor });
+      tab("notes").focus();
+      expect(document.activeElement).toBe(tab("notes"));
+
+      setFields([content()]);
+      await render({ primaryEditor });
+      expect(container.querySelector('[role="tablist"]')).toBeNull();
+      expect(document.activeElement).toBe(
+        container.querySelector("[data-focus-probe]"),
+      );
+    });
+
+    it("leaves focus alone when the tabs go away while someone works elsewhere", async () => {
+      const primaryEditor = (
+        <div className="ProseMirror" tabIndex={-1} data-focus-probe="" />
+      );
+      await render({ primaryEditor });
+      const elsewhere = document.createElement("button");
+      document.body.append(elsewhere);
+      elsewhere.focus();
+
+      setFields([content()]);
+      await render({ primaryEditor });
+      expect(document.activeElement).toBe(elsewhere);
+      elsewhere.remove();
+    });
+
+    it("offers no menu, rename, or delete without schema permission (TABS-11)", async () => {
+      setFields([content(), notes()], { canManageSchema: false });
+      await render();
+      expect(tab("content").hasAttribute("aria-haspopup")).toBe(false);
+      await click(tab("content"));
+      await rightClick(tab("notes"));
+      await key(tab("content"), "F2");
+      expect(menu()).toBeNull();
+      expect(nameInput()).toBeNull();
     });
   });
 

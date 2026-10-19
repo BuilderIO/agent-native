@@ -1307,6 +1307,18 @@ const enUS = {
     addBlockField: "Add field",
     blockFieldChanged: "Changed since you last viewed it",
     blockFieldTabs: "Fields",
+    blockFieldMenu: "Options for {{name}}",
+    blockFieldMenuScope: "Shared by every row in this collection",
+    blockFieldName: "Field name",
+    renameBlockField: "Rename",
+    renameBlockFieldFailed: "Couldn't rename the field",
+    deleteBlockField: "Delete",
+    deleteBlockFieldFailed: "Couldn't delete the field",
+    deleteBlockFieldQuestion: "Delete “{{name}}”?",
+    deleteBlockFieldDescription:
+      "This deletes “{{name}}” and its text from every row in this collection. You can't undo this.",
+    deleteBlockFieldBodyWarning:
+      "“{{name}}” is the page body, so every row's main text is deleted too.",
     title: "Title",
     creatingDatabase: "Creating inline collection...",
     databaseCreated: "Collection created",
