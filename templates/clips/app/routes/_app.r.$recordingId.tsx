@@ -2839,15 +2839,17 @@ export default function RecordingPage() {
                     {t("recordingPage.enhanceRecording")}
                   </DropdownMenuSubTrigger>
                   <DropdownMenuSubContent className="w-56 max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-x-hidden overflow-y-auto">
-                    <DropdownMenuItem
-                      disabled={requestTranscript.isPending}
-                      onSelect={() => regenerateTranscript(recording.id)}
-                    >
-                      {requestTranscript.isPending ? (
-                        <Spinner className="size-4" />
-                      ) : null}
-                      {t("transcriptPanel.regenerate")}
-                    </DropdownMenuItem>
+                    {canTranscribe ? (
+                      <DropdownMenuItem
+                        disabled={requestTranscript.isPending}
+                        onSelect={() => regenerateTranscript(recording.id)}
+                      >
+                        {requestTranscript.isPending ? (
+                          <Spinner className="size-4" />
+                        ) : null}
+                        {t("transcriptPanel.regenerate")}
+                      </DropdownMenuItem>
+                    ) : null}
                     <DropdownMenuItem
                       disabled={backgroundAiBusy}
                       onSelect={() => {

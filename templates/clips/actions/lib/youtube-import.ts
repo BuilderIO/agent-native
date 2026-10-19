@@ -56,14 +56,22 @@ export async function fetchYouTubeOembed(
   endpoint.searchParams.set("url", watchUrl);
   endpoint.searchParams.set("format", "json");
 
-  const res = await ssrfSafeFetch(
-    endpoint.href,
-    {
-      headers: { Accept: "application/json" },
-      signal: AbortSignal.timeout(15_000),
-    },
-    { maxRedirects: 2 },
-  );
+  let res: Response;
+  try {
+    res = await ssrfSafeFetch(
+      endpoint.href,
+      {
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(15_000),
+      },
+      { maxRedirects: 2 },
+    );
+  } catch (err) {
+    fail(
+      `Clips couldn't reach YouTube (${(err as Error)?.message ?? String(err)}). Try again in a moment.`,
+      { errorCode: "youtube_unreachable", statusCode: 502 },
+    );
+  }
   if (res.status === 401 || res.status === 403) {
     fail(
       "This YouTube video is private or its owner doesn't allow playing it outside YouTube, so Clips can't embed it.",
@@ -83,7 +91,10 @@ export async function fetchYouTubeOembed(
     );
   }
 
-  const parsed = YouTubeOembedSchema.safeParse(await res.json());
+  const parsed = YouTubeOembedSchema.safeParse(
+    // coercion-ok: null fails the schema, so a body that isn't JSON fails below as youtube_unreachable
+    await res.json().catch(() => null),
+  );
   if (!parsed.success) {
     fail("YouTube returned an unexpected response for that video.", {
       errorCode: "youtube_unreachable",

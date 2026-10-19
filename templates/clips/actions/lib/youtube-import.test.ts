@@ -167,6 +167,36 @@ describe("importYouTubeVideo", () => {
     expect(mocks.insertValues).not.toHaveBeenCalled();
   });
 
+  it.each([
+    [
+      "a body that isn't JSON",
+      () =>
+        mocks.ssrfSafeFetch.mockResolvedValue(
+          new Response("<html>", { status: 200 }),
+        ),
+    ],
+    [
+      "a request that never reaches YouTube",
+      () =>
+        mocks.ssrfSafeFetch.mockRejectedValue(
+          new DOMException("The operation timed out.", "TimeoutError"),
+        ),
+    ],
+  ])("reports %s as YouTube being unreachable", async (_case, arrange) => {
+    arrange();
+
+    await expect(
+      importYouTubeVideo(
+        { url: "https://www.youtube.com/watch?v=jNQXAC9IVRw" },
+        undefined,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "youtube_unreachable",
+      statusCode: 502,
+    });
+    expect(mocks.insertValues).not.toHaveBeenCalled();
+  });
+
   it("rejects YouTube pages that aren't a video before calling YouTube", async () => {
     await expect(
       importYouTubeVideo(
