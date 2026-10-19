@@ -1131,7 +1131,7 @@ export function FirstRunOnboarding({
                 <PopoverContent
                   side="top"
                   align="end"
-                  className="w-80 space-y-3 p-4 text-left"
+                  className="w-96 space-y-3 p-4 text-left"
                 >
                   <div className="space-y-1">
                     <p className="text-sm font-semibold text-foreground">
