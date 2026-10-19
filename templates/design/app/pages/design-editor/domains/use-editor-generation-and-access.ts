@@ -732,6 +732,9 @@ export function useEditorGenerationAndAccess({
           queryFailed: query.state.status === "error",
         });
       },
+      notifyOnChangeProps: failedLocalhostConsentClear
+        ? ["data", "error", "status", "dataUpdatedAt"]
+        : ["data", "error", "status"],
     },
   );
   const clearLocalhostConsentRequestMutation = useActionMutation(

@@ -11,6 +11,7 @@ import {
   COMPONENT_REF_ATTR,
   COMPONENT_ID_ATTR,
 } from "@shared/component-model";
+import { pruneDeletedNativeEffects } from "@shared/native-effect-pruning";
 import { sourceContentHash } from "@shared/source-workspace";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
@@ -663,9 +664,9 @@ export function runDeleteSelection({
       }
       if (content === originalContent) continue;
       if (!useBreakpointScopedDelete) {
-        content = removeEmptyGeneratedGroupWrappers(
-          content,
-          formerParentAttrIds,
+        content = pruneDeletedNativeEffects(
+          originalContent,
+          removeEmptyGeneratedGroupWrappers(content, formerParentAttrIds),
         );
       }
       if (file.id === activeFile?.id && !useBreakpointScopedDelete) {
@@ -767,11 +768,12 @@ export function runDeleteSelection({
     }
     return;
   }
-  const nextContent = removeElementFromHtml(
+  const removedContent = removeElementFromHtml(
     baseContent,
     selectedElement.selector,
   );
-  if (!nextContent) return;
+  if (!removedContent) return;
+  const nextContent = pruneDeletedNativeEffects(baseContent, removedContent);
   if (
     selectedElement.sourceId &&
     previousMotionFileIdRef.current === activeFile?.id
