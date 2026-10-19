@@ -22,7 +22,7 @@ export const RESPONSE_TYPOGRAPHY_GUIDANCE =
   "Keep body typography quiet: do not use bold or italics as routine emphasis, scan anchors, or decoration. Use them only when the user explicitly requests styled Markdown or when faithfully preserving formatting supplied by the user or a source.";
 
 export const WORKSPACE_APP_DELEGATION_GUIDANCE =
-  "Default to local actions. Delegate only on request or when the outcome needs peer-exclusive data, credentials, or capability; availability or enrichment alone is insufficient. Keep artifact authorship here.";
+  "Default to local. Delegate only on request or for peer-exclusive data, credentials, or capability; availability or optional enrichment alone is insufficient. Keep authorship here.";
 
 const DEFAULT_PROVIDER_ACTIONS = [
   "provider-search",

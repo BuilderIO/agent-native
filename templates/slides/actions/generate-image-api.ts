@@ -1,7 +1,7 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import pLimit from "p-limit";
 import { z } from "zod";
 
 import {
@@ -9,6 +9,11 @@ import {
   extractAssetUrl,
   imagePreviewMarkdown,
 } from "../server/lib/assets-image-delegation.js";
+import {
+  fetchReferenceImage,
+  type ReferenceImage,
+  type ReferenceImageFailure,
+} from "../server/lib/reference-image-fetch.js";
 import {
   insertImageIntoSlideHtml,
   slideHtmlContainsImageSource,
@@ -20,11 +25,6 @@ import {
 import getDeckAction from "./get-deck.js";
 import updateSlideAction from "./update-slide.js";
 
-interface ReferenceImage {
-  data: string;
-  mimeType: string;
-}
-
 interface DeckSlide {
   id?: string;
   content?: unknown;
@@ -33,26 +33,6 @@ interface DeckSlide {
 
 interface DeckWithSlides {
   slides?: DeckSlide[];
-}
-
-async function urlToReferenceImage(
-  url: string,
-): Promise<ReferenceImage | null> {
-  try {
-    const res = await ssrfSafeFetch(
-      url,
-      { signal: AbortSignal.timeout(15_000) },
-      { httpsOnly: true, maxRedirects: 2 },
-    );
-    if (!res.ok) return null;
-    const contentType = res.headers.get("content-type") || "image/png";
-    const mimeType = contentType.split(";")[0].trim().toLowerCase();
-    if (!mimeType.startsWith("image/")) return null;
-    const buffer = Buffer.from(await res.arrayBuffer());
-    return { data: buffer.toString("base64"), mimeType };
-  } catch {
-    return null;
-  }
 }
 
 function parseGeneratedImageUrl(url: string | undefined): string {
@@ -249,15 +229,25 @@ export default defineAction({
       await import("../server/handlers/image-providers/index.js");
     const provider = await getProvider(args.model || "auto");
 
-    const refImages: ReferenceImage[] = [];
-    const results = await Promise.all(
-      normalizeReferenceUrls([
-        ...DEFAULT_STYLE_REFERENCE_URLS,
-        ...normalizeReferenceUrls(args.referenceImageUrls),
-      ]).map(urlToReferenceImage),
+    const referenceUrls = normalizeReferenceUrls([
+      ...DEFAULT_STYLE_REFERENCE_URLS,
+      ...normalizeReferenceUrls(args.referenceImageUrls),
+    ]);
+    const refFetchLimit = pLimit(4);
+    const referenceResults = await Promise.all(
+      referenceUrls.map((url) => refFetchLimit(() => fetchReferenceImage(url))),
     );
-    for (const r of results) {
-      if (r) refImages.push(r);
+    const refImages: ReferenceImage[] = [];
+    const referenceFailures: Array<{
+      index: number;
+      reason: ReferenceImageFailure;
+    }> = [];
+    for (const [index, result] of referenceResults.entries()) {
+      if (result.ok) {
+        refImages.push(result.image);
+      } else {
+        referenceFailures.push({ index: index + 1, reason: result.reason });
+      }
     }
 
     const context = args.slideContent
@@ -296,6 +286,12 @@ export default defineAction({
       url: uploaded.url,
       model: result.model,
       prompt,
+      referenceImages: {
+        requested: referenceUrls.length,
+        loaded: refImages.length,
+        failed: referenceFailures.length,
+        failures: referenceFailures,
+      },
       ...insertion,
     };
   },

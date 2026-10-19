@@ -18,6 +18,10 @@ import {
   imagePreviewMarkdown,
   stripHtml,
 } from "../server/lib/assets-image-delegation.js";
+import {
+  fetchReferenceImage,
+  type ReferenceImage,
+} from "../server/lib/reference-image-fetch.js";
 import { DEFAULT_STYLE_REFERENCE_URLS } from "../shared/api.js";
 
 async function saveDelegatedImages(
@@ -229,50 +233,27 @@ Options:
   ];
 
   const refFetchLimit = pLimit(4);
-  const refImages = (
-    await Promise.all(
-      referenceUrls.map((url) =>
-        refFetchLimit(async () => {
-          try {
-            console.log(`Loading reference image: ${url}`);
-            const res = await ssrfSafeFetch(
-              url,
-              { signal: AbortSignal.timeout(8000) },
-              { httpsOnly: true, maxRedirects: 2 },
-            );
-            if (!res.ok) {
-              console.warn(`Failed to load reference image: ${url}`);
-              return null;
-            }
-            const contentType = res.headers
-              .get("content-type")
-              ?.split(";")[0]
-              .trim()
-              .toLowerCase();
-            if (!contentType?.startsWith("image/")) {
-              await res.body?.cancel().catch(() => {});
-              console.warn(`Refusing non-image reference: ${url}`);
-              return null;
-            }
-            const buffer = Buffer.from(await res.arrayBuffer());
-            return {
-              data: buffer.toString("base64"),
-              mimeType: contentType,
-            };
-          } catch (err: any) {
-            console.warn(
-              `Error loading reference image ${url}: ${err.message}`,
-            );
-            return null;
-          }
-        }),
-      ),
-    )
-  ).filter((r): r is { data: string; mimeType: string } => r !== null);
+  const referenceResults = await Promise.all(
+    referenceUrls.map((url) =>
+      refFetchLimit(() => fetchReferenceImage(url, { timeoutMs: 8_000 })),
+    ),
+  );
+  const refImages: ReferenceImage[] = [];
+  let referenceFailureCount = 0;
+  for (const [index, result] of referenceResults.entries()) {
+    if (result.ok) {
+      refImages.push(result.image);
+    } else {
+      referenceFailureCount++;
+      console.warn(
+        `Reference image ${index + 1} was not loaded (${JSON.stringify(result.reason)}).`,
+      );
+    }
+  }
 
   console.log(`\nGenerating ${count} image(s) with prompt: "${prompt}"`);
   console.log(
-    `Using ${refImages.length} reference image(s) for style matching`,
+    `Loaded ${refImages.length} of ${referenceUrls.length} reference image(s) for style matching; ${referenceFailureCount} failed.`,
   );
   if (context) {
     console.log(

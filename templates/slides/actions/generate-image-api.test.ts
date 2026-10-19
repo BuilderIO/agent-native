@@ -8,6 +8,7 @@ const {
   mockUploadFile,
   mockGetProvider,
   mockProviderGenerate,
+  mockFetchReferenceImage,
   mockGetDeckRun,
   mockUpdateSlideRun,
 } = vi.hoisted(() => ({
@@ -16,6 +17,7 @@ const {
   mockUploadFile: vi.fn(),
   mockGetProvider: vi.fn(),
   mockProviderGenerate: vi.fn(),
+  mockFetchReferenceImage: vi.fn(),
   mockGetDeckRun: vi.fn(),
   mockUpdateSlideRun: vi.fn(),
 }));
@@ -43,6 +45,11 @@ vi.mock("../server/handlers/image-providers/index.js", () => ({
     mockGetProvider(...args),
 }));
 
+vi.mock("../server/lib/reference-image-fetch.js", () => ({
+  fetchReferenceImage: (...args: Parameters<typeof mockFetchReferenceImage>) =>
+    mockFetchReferenceImage(...args),
+}));
+
 vi.mock("./get-deck.js", () => ({
   default: {
     run: (...args: Parameters<typeof mockGetDeckRun>) =>
@@ -66,6 +73,7 @@ describe("generate-image-api", () => {
     mockExtractAssetUrl.mockReturnValue(
       "https://cdn.example.com/generated.png",
     );
+    mockFetchReferenceImage.mockReset();
     DEFAULT_STYLE_REFERENCE_URLS.splice(0, DEFAULT_STYLE_REFERENCE_URLS.length);
   });
 
@@ -149,22 +157,20 @@ describe("generate-image-api", () => {
     DEFAULT_STYLE_REFERENCE_URLS.push(
       "https://cdn.example.com/default-style.png",
     );
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: string | URL) => {
-        const url = String(input);
-        const body = url.includes("default-style")
-          ? "default-style-bytes"
-          : url.includes("style-1")
-            ? "style-1-bytes"
-            : "style-2-bytes";
-        return {
-          ok: true,
-          headers: new Headers({ "content-type": "image/png" }),
-          arrayBuffer: async () => Buffer.from(body),
-        } as Response;
-      }),
-    );
+    mockFetchReferenceImage.mockImplementation(async (url: string) => {
+      const body = url.includes("default-style")
+        ? "default-style-bytes"
+        : url.includes("style-1")
+          ? "style-1-bytes"
+          : "style-2-bytes";
+      return {
+        ok: true,
+        image: {
+          data: Buffer.from(body).toString("base64"),
+          mimeType: "image/png",
+        },
+      };
+    });
 
     mockDelegateImageGenerationToAssets.mockResolvedValue({
       status: "unavailable",
@@ -218,6 +224,42 @@ describe("generate-image-api", () => {
       url: "https://cdn.example.com/fallback.png",
       showToUser: "![a brand hero image](https://cdn.example.com/fallback.png)",
       model: "gemini",
+      referenceImages: {
+        requested: 3,
+        loaded: 3,
+        failed: 0,
+        failures: [],
+      },
+    });
+  });
+
+  it("reports reference URLs omitted from local generation", async () => {
+    mockFetchReferenceImage.mockResolvedValue({
+      ok: false,
+      reason: { code: "http_error", status: 403 },
+    });
+    mockProviderGenerate.mockResolvedValue({
+      imageData: Buffer.from("local-image"),
+      mimeType: "image/png",
+      model: "gemini",
+    });
+    mockGetProvider.mockResolvedValue({ generate: mockProviderGenerate });
+    mockUploadFile.mockResolvedValue({
+      url: "https://cdn.example.com/local.png",
+    });
+
+    const result = await action.run({
+      prompt: "a sunset",
+      referenceImageUrls: ["https://cdn.example.com/style.png"],
+    });
+
+    expect(result).toMatchObject({
+      referenceImages: {
+        requested: 1,
+        loaded: 0,
+        failed: 1,
+        failures: [{ index: 1, reason: { code: "http_error", status: 403 } }],
+      },
     });
   });
 

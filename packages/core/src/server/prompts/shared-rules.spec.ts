@@ -5,10 +5,11 @@ import { buildFrameworkCore } from "./framework-core.js";
 import { RESPONSE_TYPOGRAPHY_GUIDANCE, sharedRule8 } from "./shared-rules.js";
 
 describe("shared framework prompt rules", () => {
-  it("uses Assets only for requested media that needs its peer-owned capability", () => {
+  it("keeps image generation local when available and permits exclusive peer capabilities", () => {
     for (const prompt of [buildFrameworkCore(), buildFrameworkCoreCompact()]) {
+      expect(prompt).toContain("Image generation: use local when available");
       expect(prompt).toContain(
-        "Use Assets only for user-requested brand-library media; keep other generation local.",
+        "use Assets for requested brand-library media or a needed capability only it has",
       );
     }
   });
@@ -16,13 +17,13 @@ describe("shared framework prompt rules", () => {
   it("keeps peer delegation necessary and local artifact authorship in both prompts", () => {
     for (const prompt of [buildFrameworkCore(), buildFrameworkCoreCompact()]) {
       expect(prompt).toContain(
-        "Default to local actions. Delegate only on request or when the outcome needs peer-exclusive data, credentials, or capability",
+        "Default to local. Delegate only on request or for peer-exclusive data, credentials, or capability",
       );
       expect(prompt).toContain(
-        "availability or enrichment alone is insufficient.",
+        "availability or optional enrichment alone is insufficient.",
       );
-      expect(prompt).toContain("Keep artifact authorship here.");
-      expect(prompt).toContain("never use it for local actions or self-calls");
+      expect(prompt).toContain("Keep authorship here.");
+      expect(prompt).toContain("never local actions or self-calls");
     }
   });
 

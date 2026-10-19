@@ -3259,18 +3259,24 @@ const FEEDBACK_ATTACHMENT_COVERAGE_REGEX_CASES = [
   [false, "Please inspect the image before reproducing the bug."],
 ];
 const A2A_OVERDELEGATION_RE =
-  /\b(?:way too|too|so|overly)\s+(?:eager|quick|frequent|often|ready|inclined)\b[^.!?\n]{0,80}\b(?:a2a|call-agent|(?:delegat\w*|handoff\w*)\s+(?:to\s+)?(?:another|different|peer)\s+(?:app|agent))\b|\b(?:a2a|call-agent)\b[^.!?\n]{0,35}\b(?:delegat\w*|handoff\w*)\b[^.!?\n]{0,40}\b(?:irrelevant|unnecessary|not relevant|too eager|too much)\b|\b(?:don['’]?t|do not|shouldn['’]?t|should not)\s+(?:delegate|call|use)\b[^.!?\n]{0,80}\b(?:a2a|call-agent|(?:another|different|peer|design|assets|analytics|slides|content)\s+app)\b/i;
+  /\b(?:way too|too|so|overly)\s+(?:eager|quick|frequent|often|ready|inclined)\b[^.!?\n]{0,80}\b(?:a2a|call-agent|(?:delegat\w*|handoff\w*)\s+(?:to\s+)?(?:another|different|peer)\s+(?:app|agent))\b|\b(?:a2a|call-agent)\b[^.!?\n]{0,35}\b(?:delegat\w*|handoff\w*)\b[^.!?\n]{0,40}\b(?:irrelevant|unnecessary|not relevant|too eager|too much)\b|\b(?:don['’]?t|do not|shouldn['’]?t|should not|never|stop)\s+(?:delegat\w*|call\w*|use\w*)\b[^.!?\n]{0,80}\b(?:a2a|call-agent|assets\b|(?:the\s+)?(?:design|analytics|slides|content)\s+app\b|(?:another|different|peer)\s+(?:app|agent))\b/i;
 const A2A_OVERDELEGATION_REGEX_CASES = [
   [true, "We are being way too eager to use A2A when it is not relevant."],
   [true, "Slides should not delegate to the Design app for slide generation."],
   [true, "A2A delegation is unnecessary for work this app can do."],
   [true, "The A2A handoff is unnecessary for this local action."],
+  [true, "Don't call Assets for this."],
+  [true, "Stop calling the Design app."],
+  [true, "Never use A2A for this."],
+  [true, "Do not delegate to the peer app for this request."],
   [false, "Call a peer when it owns the credentials required for the task."],
   [false, "The Design app is available in this workspace."],
   [false, "Design system corrections are unrelated to app handoffs."],
   [false, "A2A is too slow for this generation task."],
   [false, "The A2A response has too much verbosity."],
   [false, "A2A has unnecessary latency."],
+  [false, "The Assets app is not available in this workspace."],
+  [false, "Never use the Design color system for this slide."],
   [
     false,
     "Delegate coding tasks to sub-agents when the user asks for parallel work.",

@@ -4,12 +4,12 @@ const {
   mockDelegateImageGenerationToAssets,
   mockGetProvider,
   mockGenerate,
-  mockSsrfSafeFetch,
+  mockFetchReferenceImage,
 } = vi.hoisted(() => ({
   mockDelegateImageGenerationToAssets: vi.fn(),
   mockGetProvider: vi.fn(),
   mockGenerate: vi.fn(),
-  mockSsrfSafeFetch: vi.fn(),
+  mockFetchReferenceImage: vi.fn(),
 }));
 
 vi.mock("../server/lib/assets-image-delegation.js", () => ({
@@ -25,8 +25,8 @@ vi.mock("../server/handlers/image-providers/index.js", () => ({
   getProvider: (...args: unknown[]) => mockGetProvider(...args),
 }));
 
-vi.mock("@agent-native/core/extensions/url-safety", () => ({
-  ssrfSafeFetch: (...args: unknown[]) => mockSsrfSafeFetch(...args),
+vi.mock("../server/lib/reference-image-fetch.js", () => ({
+  fetchReferenceImage: (...args: unknown[]) => mockFetchReferenceImage(...args),
 }));
 
 import { DEFAULT_STYLE_REFERENCE_URLS } from "../shared/api.js";
@@ -39,13 +39,14 @@ describe("generate-image CLI", () => {
     vi.clearAllMocks();
     mockDelegateImageGenerationToAssets.mockReset();
     mockGenerate.mockReset();
-    mockSsrfSafeFetch.mockReset();
+    mockFetchReferenceImage.mockReset();
     originalExitCode = process.exitCode;
     process.exitCode = 0;
     DEFAULT_STYLE_REFERENCE_URLS.splice(0, DEFAULT_STYLE_REFERENCE_URLS.length);
     mockGetProvider.mockResolvedValue({ generate: mockGenerate });
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -83,11 +84,13 @@ describe("generate-image CLI", () => {
   });
 
   it("uses SSRF-safe HTTPS fetches and only forwards image references", async () => {
-    mockSsrfSafeFetch.mockResolvedValue(
-      new Response("image bytes", {
-        headers: { "content-type": "image/webp; charset=binary" },
-      }),
-    );
+    mockFetchReferenceImage.mockResolvedValue({
+      ok: true,
+      image: {
+        data: Buffer.from("image bytes").toString("base64"),
+        mimeType: "image/webp",
+      },
+    });
     mockGenerate.mockResolvedValue({
       imageData: Buffer.from("image"),
       mimeType: "image/png",
@@ -102,10 +105,9 @@ describe("generate-image CLI", () => {
       "https://cdn.example.com/reference.webp",
     ]);
 
-    expect(mockSsrfSafeFetch).toHaveBeenCalledWith(
+    expect(mockFetchReferenceImage).toHaveBeenCalledWith(
       "https://cdn.example.com/reference.webp",
-      { signal: expect.any(AbortSignal) },
-      { httpsOnly: true, maxRedirects: 2 },
+      { timeoutMs: 8_000 },
     );
     expect(mockGenerate).toHaveBeenCalledWith(
       "a hero image",
@@ -120,11 +122,10 @@ describe("generate-image CLI", () => {
   });
 
   it("does not send non-image reference bodies to the provider", async () => {
-    mockSsrfSafeFetch.mockResolvedValue(
-      new Response("<html>not an image</html>", {
-        headers: { "content-type": "text/html" },
-      }),
-    );
+    mockFetchReferenceImage.mockResolvedValue({
+      ok: false,
+      reason: { code: "unsupported_content_type", contentType: "text/html" },
+    });
     mockGenerate.mockResolvedValue({
       imageData: Buffer.from("image"),
       mimeType: "image/png",
@@ -140,6 +141,9 @@ describe("generate-image CLI", () => {
     ]);
 
     expect(mockGenerate).toHaveBeenCalledWith("a hero image", [], undefined);
+    expect(console.warn).toHaveBeenCalledWith(
+      'Reference image 1 was not loaded ({"code":"unsupported_content_type","contentType":"text/html"}).',
+    );
   });
 
   it("fails instead of falling back when Assets has no unavailability reason", async () => {
