@@ -180,4 +180,37 @@ describe("apply-builder-edits", () => {
       error: "Builder did not finish applying these edits",
     });
   });
+
+  it("holds a timed-out batch as unconfirmed instead of requeueing it", async () => {
+    pendingRows = [{ id: "e1", instruction: "Anything", target: null }];
+    sendFusionBranchMessage.mockResolvedValue({
+      sent: true,
+      unconfirmed: true,
+      error:
+        "Timed out waiting for the app agent to finish; it may still be working",
+    });
+
+    await expect(
+      action.run({ designId: "design_1" } as never),
+    ).rejects.toMatchObject({
+      errorCode: "fusion_edit_unconfirmed",
+      statusCode: 504,
+      message: expect.stringContaining("retryUnconfirmed: true"),
+    });
+    expect(updateCalls).toHaveLength(1);
+    expect(updateCalls[0]).toMatchObject({
+      status: "unconfirmed",
+      batchId: "batch_123",
+    });
+  });
+
+  it("requeues unconfirmed edits only when asked to retry them", async () => {
+    pendingRows = [{ id: "e1", instruction: "Anything", target: null }];
+    sendFusionBranchMessage.mockResolvedValue({ sent: true, completed: true });
+
+    await action.run({ designId: "design_1", retryUnconfirmed: true } as never);
+
+    expect(updateCalls[0]).toMatchObject({ status: "pending" });
+    expect(updateCalls.at(-1)).toMatchObject({ status: "sent" });
+  });
 });

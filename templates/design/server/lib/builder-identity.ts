@@ -223,7 +223,11 @@ async function builderProjectRole(
   projectId: string,
 ): Promise<BuilderProjectRole> {
   const entry = delegatedCredentials.get(email.toLowerCase());
-  if (!entry || entry.expiresAtMs < Date.now() || !entry.spaceId) return null;
+  // No usable Builder credential here (it expired, or this instance never
+  // saw the exchange, e.g. after a restart) is not Builder saying no.
+  if (!entry || entry.expiresAtMs < Date.now() || !entry.spaceId) {
+    throw new BuilderSignInRequiredError();
+  }
   const cacheKey = `${email.toLowerCase()}:${entry.spaceId}:${projectId}`;
   const cached = accessCache.get(cacheKey);
   if (cached && Date.now() - cached.at < ACCESS_CACHE_MS) return cached.role;
@@ -269,6 +273,18 @@ export class BuilderUnavailableError extends Error {
     super("Builder is unavailable right now; try again shortly.");
     this.name = "BuilderUnavailableError";
     this.reason = reason;
+  }
+}
+
+/**
+ * This server holds no current Builder credential for the user, so it cannot
+ * ask Builder. The host re-runs the sign-in exchange to recover.
+ */
+export class BuilderSignInRequiredError extends BuilderUnavailableError {
+  constructor() {
+    super("no delegated Builder credential");
+    this.name = "BuilderSignInRequiredError";
+    this.message = "Sign in to Builder again to open this design.";
   }
 }
 

@@ -11,6 +11,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  BuilderSignInRequiredError,
   BuilderUnavailableError,
   canAccessBuilderProject,
 } from "../server/lib/builder-identity.js";
@@ -73,6 +74,12 @@ export default defineAction({
         ? undefined
         : await canAccessBuilderProject(ownerEmail!, projectId).catch(
             (error: unknown) => {
+              if (error instanceof BuilderSignInRequiredError) {
+                fail(error.message, {
+                  errorCode: "builder_sign_in_required",
+                  statusCode: 401,
+                });
+              }
               if (error instanceof BuilderUnavailableError) {
                 fail(error.message, {
                   errorCode: "builder_unavailable",

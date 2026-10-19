@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 process.env.BUILDER_IDENTITY = "1";
 
 const {
+  BuilderSignInRequiredError,
   BuilderUnavailableError,
   canAccessBuilderProject,
   rememberDelegatedCredential,
@@ -67,5 +68,12 @@ describe("Builder project access", () => {
     await expect(
       canAccessBuilderProject("visitor@example.com", "proj-public"),
     ).resolves.toBe(true);
+  });
+
+  it("asks for a fresh sign-in when this server holds no credential", async () => {
+    await expect(
+      canAccessBuilderProject("never-exchanged@example.com", "proj-any"),
+    ).rejects.toBeInstanceOf(BuilderSignInRequiredError);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
