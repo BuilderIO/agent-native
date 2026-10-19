@@ -120,6 +120,8 @@ vi.mock("./oauth-store.js", () => ({
 
 const { handleMcpRequest } = await import("./server.js");
 const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
+const { default: setResourceVisibility } =
+  await import("../sharing/actions/set-resource-visibility.js");
 
 const A2A_SECRET = "connector-catalog-a2a-secret";
 const OAUTH_SECRET = "connector-catalog-oauth-secret";
@@ -1021,6 +1023,94 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
     delete process.env.BETTER_AUTH_SECRET;
     delete process.env.AGENT_NATIVE_MCP_FULL_CATALOG;
     vi.clearAllMocks();
+  });
+
+  it("keeps the default catalog exactly when action declarations add tools", async () => {
+    const read = {
+      tool: { description: "Read a record" },
+      readOnly: true,
+      run: async () => ({ ok: true }),
+    };
+    const write = {
+      tool: { description: "Update a record" },
+      run: async () => ({ ok: true }),
+    };
+    const actions = {
+      "set-resource-visibility": setResourceVisibility,
+      "declared-read": read,
+      "declared-write": write,
+      "unrelated-read": read,
+    };
+    const token = await signA2AToken("member@example.test");
+    const listNames = async (
+      entries: Record<string, unknown>,
+      overrides: Record<string, unknown> = {},
+    ) => {
+      const out = await call(
+        { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} },
+        {
+          headers: { authorization: `Bearer ${token}` },
+          mcpConfig: {
+            ...connectorConfig,
+            connectorCatalog: undefined,
+            externalAgents: { writes: "allowlisted" },
+            actions: entries,
+            productionActions: entries,
+            ...overrides,
+          },
+        },
+      );
+      return out.result.tools.map((tool: any) => tool.name).sort();
+    };
+    const before = await listNames(actions);
+    expect(before).toEqual([
+      "ask_app",
+      "ask_app_status",
+      "create_embed_session",
+      "list_apps",
+      "open_app",
+      "set-resource-visibility",
+    ]);
+    const declaredActions = {
+      ...actions,
+      "declared-read": { ...read, mcpTool: true },
+      "declared-write": { ...write, mcpTool: true },
+    };
+    const after = await listNames(declaredActions);
+    expect(after).toEqual(
+      [...before, "declared-read", "declared-write"].sort(),
+    );
+    expect(
+      await listNames(declaredActions, { connectorCatalog: ["declared-read"] }),
+    ).toEqual(
+      after.filter((name: string) => name !== "set-resource-visibility"),
+    );
+    expect(await listNames(declaredActions, { connectorCatalog: [] })).toEqual(
+      after.filter((name: string) => name !== "set-resource-visibility"),
+    );
+    expect(
+      await listNames(declaredActions, {
+        externalAgents: {
+          writes: "allowlisted",
+          denyActions: ["set-resource-visibility", "declared-read"],
+        },
+      }),
+    ).toEqual(
+      after.filter(
+        (name: string) =>
+          name !== "set-resource-visibility" && name !== "declared-read",
+      ),
+    );
+    expect(
+      await listNames(declaredActions, {
+        externalAgents: { writes: "ask_app_only" },
+      }),
+    ).toEqual(
+      after.filter(
+        (name: string) =>
+          name !== "set-resource-visibility" && name !== "declared-write",
+      ),
+    );
   });
 
   it("falls back to the compact surface when connectorCatalog is not declared", async () => {
