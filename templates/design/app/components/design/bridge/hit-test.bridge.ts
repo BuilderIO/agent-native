@@ -17,7 +17,8 @@
  *     guidePlacement: 'before'|'after'|'inside', axis: 'x'|'y',
  *     anchorRect: { left: number, top: number, width: number, height: number },
  *     gridPlacement?: { column: number, columnEnd: number, row: number, rowEnd: number },
- *     guideRect?: { left: number, top: number, width: number, height: number } }
+ *     guideRect?: { left: number, top: number, width: number, height: number },
+ *     absoluteOrigin?: { left: number, top: number } }
  *
  * `anchorSelector` accompanies `pendingNodeId`, and also accompanies an
  * ambiguous stable anchor id only when the hit-test has an exact source
@@ -184,8 +185,7 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
       var childTag = (child.tagName || "").toLowerCase();
       if (
         BRIDGE_LEAF_TAGS.indexOf(childTag) === -1 &&
-        !INLINE_TEXT_TAGS.has(childTag) &&
-        BRIDGE_INTERACTIVE_LEAF_TAGS.indexOf(childTag) === -1
+        !INLINE_TEXT_TAGS.has(childTag)
       ) {
         return false;
       }
@@ -907,6 +907,11 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
     return true;
   }
 
+  function isOutOfFlow(el: Element): boolean {
+    var position = window.getComputedStyle(el).position;
+    return position === "absolute" || position === "fixed";
+  }
+
   function isAbsolutePrimitiveContainer(el: Element | null): boolean {
     if (!el || el.nodeType !== 1) return false;
     if (BRIDGE_REPLACED_TAGS[(el.tagName || "").toLowerCase()]) return false;
@@ -924,6 +929,32 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
     var cs = window.getComputedStyle(el);
     if (primitive === "frame" && cs.position === "relative") return true;
     return cs.position === "absolute" || cs.position === "fixed";
+  }
+
+  // No in-flow children to stack against, so a drop keeps its release point.
+  // An empty static box is not a frame and stays a flow target; an empty
+  // screen body is the screen's frame.
+  function isFreeformDropContainer(el: Element): boolean {
+    if (isAutoLayoutElement(el)) return false;
+    var hasChild = false;
+    for (var i = 0; i < el.children.length; i += 1) {
+      var child = el.children[i]!;
+      if (isOverlayElement(child)) continue;
+      var childStyle = window.getComputedStyle(child);
+      if (childStyle.display === "none") continue;
+      if (
+        childStyle.position !== "absolute" &&
+        childStyle.position !== "fixed"
+      ) {
+        return false;
+      }
+      hasChild = true;
+    }
+    return (
+      hasChild ||
+      el === document.body ||
+      window.getComputedStyle(el).position !== "static"
+    );
   }
 
   function hasAbsolutePositionedChild(el: Element): boolean {
@@ -1373,7 +1404,7 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
     while (cursor && cursor !== document.body) {
       if (isLayerInteractionBlocked(cursor)) return null;
       var parent: Element | null = cursor.parentElement;
-      if (parent && isAutoLayoutElement(parent)) {
+      if (parent && isAutoLayoutElement(parent) && !isOutOfFlow(cursor)) {
         if (!hasKnownFlexMainAxis(parent)) return null;
         var emptyGridCell = gridEmptyCellInsertionTarget(
           parent,
@@ -1508,7 +1539,9 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
           anchor: blockCursor,
           placement: "inside",
           axis: "y",
-          dropMode: "flow-insert",
+          dropMode: isFreeformDropContainer(blockCursor)
+            ? "absolute-container"
+            : "flow-insert",
         };
       }
       blockCursor = blockCursor.parentElement;
@@ -1676,9 +1709,37 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
       container.parentElement === document.body &&
       containerPrimitive !== "frame"
     ) {
-      return nearestChildInsertionTarget(document.body, clientX, clientY);
+      var besideContainer = nearestChildInsertionTarget(
+        document.body,
+        clientX,
+        clientY,
+      );
+      if (besideContainer && isFreeformDropContainer(document.body)) {
+        besideContainer.dropMode = "absolute-container";
+      }
+      return besideContainer;
     }
     return null;
+  }
+
+  // Where left:0/top:0 lands for a layer placed at this target: the drop
+  // container's containing block, which a static container is not.
+  function absoluteOriginForTarget(
+    target: HitTestTarget,
+  ): { left: number; top: number } | null {
+    var container =
+      target.placement === "inside"
+        ? target.anchor
+        : target.anchor.parentElement;
+    if (!container) return null;
+    var probe = document.createElement("div");
+    probe.setAttribute("data-agent-native-edit-overlay", "absolute-origin");
+    probe.style.cssText =
+      "position:absolute;left:0;top:0;width:0;height:0;margin:0;visibility:hidden;pointer-events:none";
+    container.appendChild(probe);
+    var probeRect = probe.getBoundingClientRect();
+    probe.remove();
+    return { left: probeRect.left, top: probeRect.top };
   }
 
   function showInsertionGuideFor(target: HitTestTarget | null): void {
@@ -2073,6 +2134,10 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
     var axis: string = result ? result.axis : "y";
     var dropMode: string = result ? result.dropMode : "flow-insert";
     var anchorRect = result ? result.anchor.getBoundingClientRect() : null;
+    var absoluteOrigin =
+      result && dropMode === "absolute-container" && !e.data.preview
+        ? absoluteOriginForTarget(result)
+        : null;
     try {
       (window.parent as Window).postMessage(
         {
@@ -2103,6 +2168,7 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
               }
             : undefined,
           guideRect: result ? result.guideRect : undefined,
+          absoluteOrigin: absoluteOrigin || undefined,
         },
         "*",
       );

@@ -424,7 +424,14 @@ export type SlidesSelectionMode =
   | "resizing"
   | "canvas";
 
-export type SlidesSelectionTool = "select" | "draw" | "pin" | "text" | "shape";
+export type SlidesSelectionTool =
+  | "select"
+  | "hand"
+  | "scale"
+  | "draw"
+  | "pin"
+  | "text"
+  | "shape";
 
 export interface SlidesSelectionState<TItem> {
   deckId?: string;
@@ -478,6 +485,8 @@ export function createSlidesSelectionState<TItem>({
   pinMode,
   textBoxMode,
   shapeMode = false,
+  handMode = false,
+  scaleMode = false,
   activeTool,
 }: {
   deckId?: string;
@@ -489,6 +498,8 @@ export function createSlidesSelectionState<TItem>({
   pinMode: boolean;
   textBoxMode: boolean;
   shapeMode?: boolean;
+  handMode?: boolean;
+  scaleMode?: boolean;
   activeTool?: SlidesSelectionTool;
 }): SlidesSelectionState<TItem> {
   return {
@@ -499,15 +510,19 @@ export function createSlidesSelectionState<TItem>({
     mode,
     activeTool:
       activeTool ??
-      (drawMode
-        ? "draw"
-        : pinMode
-          ? "pin"
-          : textBoxMode
-            ? "text"
-            : shapeMode
-              ? "shape"
-              : "select"),
+      (scaleMode
+        ? "scale"
+        : handMode
+          ? "hand"
+          : drawMode
+            ? "draw"
+            : pinMode
+              ? "pin"
+              : textBoxMode
+                ? "text"
+                : shapeMode
+                  ? "shape"
+                  : "select"),
     items,
   };
 }
@@ -589,6 +604,15 @@ export function resolveSlideSelectionAnchor(
     if (!current) return null;
   }
   return current instanceof HTMLElement ? current : null;
+}
+
+export function resolveRetainedSlideSelectionNode(
+  root: HTMLElement,
+  retainedNode: HTMLElement | null,
+): HTMLElement | null {
+  return retainedNode?.isConnected && root.contains(retainedNode)
+    ? retainedNode
+    : null;
 }
 
 function establishesSlideObjectContainingBlock(element: HTMLElement): boolean {
@@ -5049,6 +5073,97 @@ export function resizeTransformedSlideObject(
   };
 }
 
+const SCALE_CORNER_SIGNS: Partial<
+  Record<ResizeHandle, { x: -1 | 1; y: -1 | 1 }>
+> = {
+  nw: { x: -1, y: -1 },
+  ne: { x: 1, y: -1 },
+  sw: { x: -1, y: 1 },
+  se: { x: 1, y: 1 },
+};
+
+/**
+ * Uniform factor for a corner drag, with the pointer delta that yields exactly
+ * that factor. The factor is the pointer's corner projected onto the box
+ * diagonal, so it moves continuously with the pointer. Proportional resizing
+ * that picks whichever axis travelled further jumps whenever the path crosses
+ * |dx| = |dy|, and a wide box then snaps between two very different scales.
+ */
+export function resolveProportionalScale(
+  size: { width: number; height: number },
+  delta: { x: number; y: number },
+  {
+    handle,
+    altKey = false,
+    minSize = MIN_SLIDE_OBJECT_SIZE,
+  }: { handle: ResizeHandle; altKey?: boolean; minSize?: number },
+): { factor: number; delta: { x: number; y: number } } | null {
+  const sign = SCALE_CORNER_SIGNS[handle];
+  if (!sign || !(size.width > 0) || !(size.height > 0)) return null;
+  const reach = altKey ? 2 : 1;
+  const width = size.width + sign.x * delta.x * reach;
+  const height = size.height + sign.y * delta.y * reach;
+  const projected =
+    (width * size.width + height * size.height) /
+    (size.width * size.width + size.height * size.height);
+  // A box already under the minimum can't shrink further, but must not be
+  // forced to grow.
+  const factor = Math.max(
+    projected,
+    Math.min(1, Math.max(minSize / size.width, minSize / size.height)),
+  );
+  return {
+    factor,
+    delta: {
+      x: (sign.x * (factor - 1) * size.width) / reach,
+      y: (sign.y * (factor - 1) * size.height) / reach,
+    },
+  };
+}
+
+/** `resizeTransformedSlideObject` for a uniform corner scale (see `resolveProportionalScale`). */
+export function scaleTransformedSlideObject(
+  start: SlideObjectGeometry,
+  transform: SlideObjectTransformSnapshot,
+  {
+    handle,
+    dx,
+    dy,
+    altKey = false,
+    fitText = false,
+    minSize = MIN_SLIDE_OBJECT_SIZE,
+  }: Omit<ResizeOptions, "preserveAspectRatio"> & {
+    altKey?: boolean;
+    fitText?: boolean;
+  },
+): SlideObjectGeometry | null {
+  const matrix = readSlideObjectTransformMatrix(start, transform.transform);
+  if (!matrix) return null;
+  const [a, b, c, d] = matrix;
+  const determinant = a * d - b * c;
+  if (!Number.isFinite(determinant) || Math.abs(determinant) < 1e-8) {
+    return null;
+  }
+  const scale = resolveProportionalScale(
+    start,
+    {
+      x: (d * dx - c * dy) / determinant,
+      y: (a * dy - b * dx) / determinant,
+    },
+    { handle, altKey, minSize },
+  );
+  if (!scale) return null;
+  return resizeTransformedSlideObject(start, transform, {
+    handle,
+    dx: a * scale.delta.x + c * scale.delta.y,
+    dy: b * scale.delta.x + d * scale.delta.y,
+    altKey,
+    fitText,
+    minSize,
+    preserveAspectRatio: false,
+  });
+}
+
 export function readSlideObjectSelectionFrame(
   element: HTMLElement,
   rect: Pick<
@@ -6144,6 +6259,104 @@ export function distributeSlideObjectMembers(
 
 export interface CopiedSlideObjects {
   html: string[];
+  /**
+   * Per object: box in layout px relative to the slide root, so a paste keeps
+   * the group's arrangement and, on another slide, lands where it was.
+   */
+  layout?: Pick<DOMRect, "left" | "top" | "width" | "height">[];
+  /**
+   * Per object: the custom properties its markup references and the inherited
+   * text properties, resolved where it was copied. The target slide's root may
+   * not define them, so paste re-applies whatever differs there.
+   */
+  context?: Record<string, string>[];
+}
+
+export function slidePositioningLayerOf(fmdSlide: HTMLElement): HTMLElement {
+  return (
+    Array.from(fmdSlide.children).find(
+      (child): child is HTMLElement =>
+        child instanceof HTMLElement &&
+        child.hasAttribute("data-fmd-autofit-content"),
+    ) ?? fmdSlide
+  );
+}
+
+/** Layout px per viewport px for an element under the editor's zoom. */
+export function layoutScaleOf(
+  element: HTMLElement,
+  rect: Pick<DOMRect, "width" | "height"> = element.getBoundingClientRect(),
+): { x: number; y: number } {
+  return {
+    x:
+      element.offsetWidth > 0 && rect.width > 0
+        ? element.offsetWidth / rect.width
+        : 1,
+    y:
+      element.offsetHeight > 0 && rect.height > 0
+        ? element.offsetHeight / rect.height
+        : 1,
+  };
+}
+
+function layoutBoxWithin(
+  element: HTMLElement,
+  fmdSlide: HTMLElement,
+): Pick<DOMRect, "left" | "top" | "width" | "height"> {
+  const slideRect = fmdSlide.getBoundingClientRect();
+  const scale = layoutScaleOf(fmdSlide, slideRect);
+  const rect = element.getBoundingClientRect();
+  // `left`/`top` position the margin box, so back the margins out.
+  const computed = element.ownerDocument.defaultView?.getComputedStyle(element);
+  const marginLeft = Number.parseFloat(computed?.marginLeft ?? "") || 0;
+  const marginTop = Number.parseFloat(computed?.marginTop ?? "") || 0;
+  return {
+    left: (rect.left - slideRect.left) * scale.x - marginLeft,
+    top: (rect.top - slideRect.top) * scale.y - marginTop,
+    width: rect.width * scale.x,
+    height: rect.height * scale.y,
+  };
+}
+
+const SLIDE_OBJECT_INHERITED_PROPERTIES = ["font-family", "color"] as const;
+
+function captureSlideObjectContext(
+  element: HTMLElement,
+  html: string,
+): Record<string, string> {
+  const computed = element.ownerDocument.defaultView?.getComputedStyle(element);
+  const context: Record<string, string> = {};
+  if (!computed) return context;
+  for (const match of html.matchAll(/var\(\s*(--[\w-]+)/g)) {
+    const value = computed.getPropertyValue(match[1]).trim();
+    if (value) context[match[1]] = value;
+  }
+  for (const property of SLIDE_OBJECT_INHERITED_PROPERTIES) {
+    const value = computed.getPropertyValue(property).trim();
+    if (value) context[property] = value;
+  }
+  return context;
+}
+
+/** Pin what the target's containing block would not give the pasted object. */
+export function applySlideObjectContext(
+  element: HTMLElement,
+  context: Record<string, string> | undefined,
+  containingBlock: HTMLElement,
+): void {
+  if (!context) return;
+  // The pasted element still belongs to its template's inert document.
+  const target =
+    containingBlock.ownerDocument.defaultView?.getComputedStyle(
+      containingBlock,
+    );
+  if (!target) return;
+  for (const [property, value] of Object.entries(context)) {
+    if (target.getPropertyValue(property).trim() === value) continue;
+    if (!property.startsWith("--") && element.style.getPropertyValue(property))
+      continue;
+    element.style.setProperty(property, value);
+  }
 }
 
 const SLIDE_OBJECT_CLIPBOARD_MARKER =
@@ -6282,7 +6495,7 @@ export async function writeSlideObjectClipboard(
   clipboardId: string,
   copied: CopiedSlideObjects,
   doc: Document | null = typeof document === "undefined" ? null : document,
-): Promise<"rich" | "text-only"> {
+): Promise<"rich"> {
   const html = slideObjectClipboardHtml(clipboardId, copied);
   const textDocument =
     doc ?? (typeof document === "undefined" ? null : document);
@@ -6290,34 +6503,6 @@ export async function writeSlideObjectClipboard(
   const text = slideObjectClipboardText(copied, textDocument);
   const representations = { text, html };
   if (writeSlideObjectClipboardLegacy(representations, doc)) return "rich";
-
-  const clipboard =
-    typeof navigator === "undefined" ? null : (navigator.clipboard ?? null);
-  const ClipboardItemCtor =
-    typeof globalThis.ClipboardItem === "undefined"
-      ? null
-      : globalThis.ClipboardItem;
-
-  let richWriteError: unknown;
-  if (clipboard?.write && ClipboardItemCtor) {
-    try {
-      await clipboard.write([
-        new ClipboardItemCtor({
-          "text/plain": new Blob([text], { type: "text/plain" }),
-          "text/html": new Blob([html], { type: "text/html" }),
-        }),
-      ]);
-      return "rich";
-    } catch (error) {
-      richWriteError = error;
-    }
-  }
-
-  if (richWriteError) throw richWriteError;
-  if (clipboard?.writeText) {
-    await clipboard.writeText(text);
-    return "text-only";
-  }
   throw new Error("Clipboard writing is not supported");
 }
 
@@ -6325,17 +6510,27 @@ export function copySlideObjects(
   elements: HTMLElement[],
   storedForm?: (copy: HTMLElement) => string | null,
 ): CopiedSlideObjects {
-  return {
-    html: normalizeSlideObjectRoots(elements)
-      .filter(isValidSlideClipboardRoot)
-      .map((element) => {
-        const clone = cloneSlideObject(element);
-        const html = storedForm?.(clone);
-        if (html != null) return html;
-        stripSourceStamps(clone);
-        return clone.outerHTML;
-      }),
-  };
+  const roots = normalizeSlideObjectRoots(elements).filter(
+    isValidSlideClipboardRoot,
+  );
+  const html = roots.map((element) => {
+    const clone = cloneSlideObject(element);
+    const stored = storedForm?.(clone);
+    if (stored != null) return stored;
+    stripSourceStamps(clone);
+    return clone.outerHTML;
+  });
+  const context = roots.map((element, index) =>
+    captureSlideObjectContext(element, html[index]),
+  );
+  // Boxes only mean something relative to one shared slide root.
+  const fmdSlide = roots[0]?.closest<HTMLElement>(".fmd-slide");
+  const layout =
+    fmdSlide &&
+    roots.every((element) => element.closest(".fmd-slide") === fmdSlide)
+      ? roots.map((element) => layoutBoxWithin(element, fmdSlide))
+      : undefined;
+  return { html, layout, context };
 }
 
 export const SLIDE_OBJECT_PASTE_OFFSET = 16;

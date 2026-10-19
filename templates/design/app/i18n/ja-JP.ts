@@ -918,6 +918,10 @@ export default {
       animations: "アニメーション",
       pathEditAmbiguous:
         "このレイヤーには複数の位置アニメーションがあるため、パスを一意に編集できません。",
+      pathEditPositionConflict:
+        "このレイヤーには別の位置アニメーションがあるため、パスを曲線にできません。",
+      positionStyleConflict:
+        "このレイヤーには、他と組み合わせられない位置アニメーションがすでにあります。",
       animationStyles: {
         title: "アニメーション",
         createTitle: "新しいアニメーションスタイルを作成",
@@ -1033,6 +1037,51 @@ export default {
         tooMany: "スタイルには最大24個のアニメーションを含められます。",
         limit: "このデザインはアニメーションスタイルの上限64件に達しています。",
       },
+      builtInRecipes: {
+        tempo: { fast: "速い", medium: "中速", slow: "遅い" },
+        enter: {
+          recipe01: "Builder 到着 01",
+          recipe02: "Builder 到着 02",
+          recipe03: "Builder 到着 03",
+          recipe04: "Builder 到着 04",
+          recipe05: "Builder 到着 05",
+          recipe06: "Builder 到着 06",
+          recipe07: "Builder 到着 07",
+          recipe08: "Builder 到着 08",
+          recipe09: "Builder 到着 09",
+          recipe10: "Builder 到着 10",
+          recipe11: "Builder 到着 11",
+          recipe12: "Builder 到着 12",
+        },
+        cycle: {
+          recipe01: "Builder ループ 01",
+          recipe02: "Builder ループ 02",
+          recipe03: "Builder ループ 03",
+          recipe04: "Builder ループ 04",
+          recipe05: "Builder ループ 05",
+          recipe06: "Builder ループ 06",
+          recipe07: "Builder ループ 07",
+          recipe08: "Builder ループ 08",
+          recipe09: "Builder ループ 09",
+          recipe10: "Builder ループ 10",
+          recipe11: "Builder ループ 11",
+          recipe12: "Builder ループ 12",
+        },
+        exit: {
+          recipe01: "Builder 退出 01",
+          recipe02: "Builder 退出 02",
+          recipe03: "Builder 退出 03",
+          recipe04: "Builder 退出 04",
+          recipe05: "Builder 退出 05",
+          recipe06: "Builder 退出 06",
+          recipe07: "Builder 退出 07",
+          recipe08: "Builder 退出 08",
+          recipe09: "Builder 退出 09",
+          recipe10: "Builder 退出 10",
+          recipe11: "Builder 退出 11",
+          recipe12: "Builder 退出 12",
+        },
+      },
       tabLabel: "モーション",
       transform: "変形",
       layout: "レイアウト",
@@ -1066,6 +1115,8 @@ export default {
         "このアニメーションは、動作を変えずに Motion で読み取ることができません。",
       sourceWriteUnavailable:
         "現在、Motion のコードを書き込めるのはインライン HTML デザインのみです。",
+      unresolvedStylesheets:
+        "Motion を編集または追加する前に、外部スタイルシートを解決してください。",
       sourceConflict:
         "タイムラインに未保存の変更がある間に Motion のソースが変更されました。コードを再読み込みすると、これらの変更を破棄して最新のソースを使用します。",
       reloadFromSource: "コードを再読み込み",
@@ -1147,17 +1198,20 @@ export default {
       },
       nativeTextStagger: {
         create: "テキストのスタッガー",
-        animationDirection: "アニメーションの方向",
+        animationDirection: "方向",
         enter: "入場",
         exit: "退場",
-        grouping: "グループ化",
+        grouping: "各",
         order: "順序",
         overlap: "重なり",
+        ignoreSpaces: "空白を無視",
         positionDirection: "位置の方向",
         rotationDirection: "回転方向",
         orderOptions: {
           leftToRight: "左から右",
           rightToLeft: "右から左",
+          centerOut: "中央から外側へ",
+          random: "ランダム",
           topToBottom: "上から下",
           bottomToTop: "下から上",
         },
@@ -1177,6 +1231,11 @@ export default {
       addKeyframe: "キーフレームを追加",
       trackExists:
         "「{{property}}」トラックは {{label}} にすでに存在します。タイムラインでキーフレームを編集してください。",
+      recipeDoesNotFit:
+        "現在のタイムライン位置にこのアニメーションを追加する十分な空きがありません。",
+      textSyncUnsupported: "このテキストモーション設定は同期できません。",
+      textPropertyAlreadyAnimated:
+        "コードのテキストアニメーションがこのプロパティをすでに制御しています。",
       layerAnimationSpan: "{{label}} のアニメーション範囲",
       keyframeAt: "{{ms}}ms のキーフレーム",
       deleteKeyframe: "キーフレームを削除",
@@ -1714,6 +1773,8 @@ export default {
     tweaksPlaceholder: "アクセントオプション、密度、角丸、ダークモード...",
     designExport: "Design エクスポート",
     designPreview: "Design プレビュー",
+    preview: "プレビュー",
+    publish: "公開",
     presentMode: "プレゼントモード",
     useThisDirection: "この方向を使用してください",
     variantHandoffHelp:
@@ -1796,6 +1857,8 @@ export default {
         "新しいフレームとして追加するルートを選ぶか、パスを入力してください。",
       searchPlaceholder: "ルートを検索…",
       noRoutes: "一致するルートがありません",
+      noDiscoveredRoutes:
+        "このアプリでルートが見つかりません。画面を追加するにはパスを入力してください。",
       useCustomPath: "「{{path}}」を追加",
       viewportDesktop: "デスクトップ",
       viewportMobile: "モバイル",
@@ -2073,8 +2136,8 @@ export default {
         title: "ローカル開発サーバーからレンダー",
       },
       fusion: {
-        label: "Fusion リモート",
-        title: "Fusion からレンダー",
+        label: "Builder リモート",
+        title: "Builder からレンダー",
       },
       inline: {
         label: "埋め込み",

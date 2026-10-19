@@ -714,8 +714,7 @@ async function uploadImage(
   return image;
 }
 
-// fixme: product bug: Its assertions pass. A new chat requests GET /_agent-native/agent-chat/checkpoints?threadId=… before the thread is saved; core answers
-test.fixme("Design Home sends a 6 MB uploaded image through generation", async ({
+test("Design Home sends a 6 MB uploaded image through generation", async ({
   page,
 }) => {
   test.skip(
@@ -890,8 +889,7 @@ test.fixme("Design Home sends a 6 MB uploaded image through generation", async (
   ).toEqual([]);
 });
 
-// fixme: product bug: Its assertions pass. A new chat requests GET /_agent-native/agent-chat/checkpoints?threadId=… before the thread is saved; core answers
-test.fixme("Design Home preserves image pixels when a document crosses the upload limit", async ({
+test("Design Home preserves image pixels when a document crosses the upload limit", async ({
   page,
 }) => {
   test.skip(
@@ -1087,8 +1085,7 @@ test.fixme("Design Home preserves image pixels when a document crosses the uploa
   ).toEqual([]);
 });
 
-// fixme: product bug: Its assertions pass. A new chat requests GET /_agent-native/agent-chat/checkpoints?threadId=… before the thread is saved; core answers
-test.fixme("Design editor sidebar sends uploaded PNG bytes to model vision input", async ({
+test("Design editor sidebar sends uploaded PNG bytes to model vision input", async ({
   page,
 }) => {
   test
@@ -1267,8 +1264,7 @@ test("Design editor shows an error for invalid exact canvas dimensions", async (
   }).toStrictEqual({ files: ["__board__.html"], canvasFrames: {} });
 });
 
-// fixme: product bug: Its assertions pass. A new chat requests GET /_agent-native/agent-chat/checkpoints?threadId=… before the thread is saved; core answers
-test.fixme("Design chat hydrates a 2.3 MB HTTPS upload into model vision input", async ({
+test("Design chat hydrates a 2.3 MB HTTPS upload into model vision input", async ({
   page,
 }) => {
   test
@@ -1370,8 +1366,7 @@ test.fixme("Design chat hydrates a 2.3 MB HTTPS upload into model vision input",
   ).toBe(true);
 });
 
-// fixme: product bug: Its assertions pass. A new chat requests GET /_agent-native/agent-chat/checkpoints?threadId=… before the thread is saved; core answers
-test.fixme("Design editor hydrates a 6 MB PNG's resized durable URL into model vision input", async ({
+test("Design editor hydrates a 6 MB PNG's resized durable URL into model vision input", async ({
   page,
 }) => {
   test
@@ -1508,8 +1503,7 @@ test.fixme("Design editor hydrates a 6 MB PNG's resized durable URL into model v
   await assertNoInlineImageDataPersisted(IMAGE_PROMPT, page, resizedBytes);
 });
 
-// fixme: product bug: Its assertions pass. A new chat requests GET /_agent-native/agent-chat/checkpoints?threadId=… before the thread is saved; core answers
-test.fixme("Design editor downscales a 6 MB PNG for vision and retains the original upload", async ({
+test("Design editor downscales a 6 MB PNG for vision and retains the original upload", async ({
   page,
 }) => {
   test
@@ -1857,8 +1851,7 @@ test.fixme("Design editor downscales a 6 MB PNG for vision and retains the origi
   ).toEqual([]);
 });
 
-// fixme: product bug: Its assertions pass. A new chat requests GET /_agent-native/agent-chat/checkpoints?threadId=… before the thread is saved; core answers
-test.fixme("Design editor sidebar applies a same-thread edit and persists it", async ({
+test("Design editor sidebar applies a same-thread edit and persists it", async ({
   page,
 }) => {
   test.skip(
@@ -1957,8 +1950,7 @@ test.fixme("Design editor sidebar applies a same-thread edit and persists it", a
   );
 });
 
-// fixme: product bug: Its assertions pass. A new chat requests GET /_agent-native/agent-chat/checkpoints?threadId=… before the thread is saved; core answers
-test.fixme("Design chat preserves EXIF-rotated JPEG dimensions and orientation", async ({
+test("Design chat preserves EXIF-rotated JPEG dimensions and orientation", async ({
   page,
 }) => {
   test.skip(
@@ -2107,8 +2099,7 @@ test.fixme("Design chat preserves EXIF-rotated JPEG dimensions and orientation",
   expect(providerText).not.toContain("<chat-attachment-processing-error");
 });
 
-// fixme: product bug: Its assertions pass. A new chat requests GET /_agent-native/agent-chat/checkpoints?threadId=… before the thread is saved; core answers
-test.fixme("Design chat keeps uploaded image bytes out of every SQL table", async ({
+test("Design chat keeps uploaded image bytes out of every SQL table", async ({
   page,
 }) => {
   test.skip(
@@ -2281,8 +2272,7 @@ test.fixme("Design chat keeps uploaded image bytes out of every SQL table", asyn
   expect(newInlineBytesHits(sqlBefore, control.afterRollback)).toEqual([]);
 });
 
-// fixme: product bug: Its assertions pass. A new chat requests GET /_agent-native/agent-chat/checkpoints?threadId=… before the thread is saved; core answers
-test.fixme("Design chat sends a queued image to model vision input", async ({
+test("Design chat sends a queued image to model vision input", async ({
   page,
 }) => {
   test.skip(
@@ -2344,4 +2334,52 @@ test.fixme("Design chat sends a queued image to model vision input", async ({
     .flatMap((summary) => summary.userMessages)
     .join("\n");
   expect(providerText).not.toContain("reference-only-unavailable");
+});
+
+test("Edit with Agent from a layer's context menu focuses the Agent composer and takes typed input", async ({
+  page,
+}) => {
+  test.skip(
+    process.env.E2E_AI_SIDEBAR_LOOPBACK !== "1",
+    "requires E2E_AI_SIDEBAR_LOOPBACK=1",
+  );
+  await page.context().addInitScript(() => {
+    if (location.origin === "null") return;
+    const selection = JSON.stringify({
+      model: "agentkit-loopback",
+      engine: "ai-sdk:openai",
+      effort: "medium",
+    });
+    localStorage.setItem(
+      "agent-native:chat-models:selection:design",
+      selection,
+    );
+    localStorage.setItem("agent-native:chat-models:selection", selection);
+  });
+  const { designId, fileId } = await createDesign(page);
+  await configureProvider(page, designId, fileId, "observe");
+  await gotoEditor(page, designId);
+  const heading = designFrame(page, fileId).locator("h1.title");
+  await expect(heading).toBeVisible({ timeout: 30_000 });
+  const contentBefore = (await readDesign(page, designId)).files?.find(
+    (file) => file.id === fileId,
+  )?.content;
+
+  const box = (await heading.boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, {
+    button: "right",
+  });
+  await page
+    .getByRole("menuitem", { name: "Edit with Agent", exact: true })
+    .click();
+
+  const composer = page.locator("[data-design-agent-panel] .ProseMirror");
+  await expect(composer).toBeFocused();
+  await page.keyboard.type("Make this heading more concise");
+  await expect(composer).toContainText("Make this heading more concise");
+  expect(
+    (await readDesign(page, designId)).files?.find((file) => file.id === fileId)
+      ?.content,
+    "the keystrokes went to the composer, not the canvas",
+  ).toBe(contentBefore);
 });

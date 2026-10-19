@@ -1,8 +1,9 @@
 name: CI
 
 on:
+  # No `branches` filter: a stacked PR targets its parent PR's branch, and the
+  # required checks must report on it too.
   pull_request:
-    branches: [main]
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
@@ -33,6 +34,7 @@ jobs:
       trusted_acceptance: ${{ steps.scope.outputs.trusted_acceptance }}
       scaffold: ${{ steps.scope.outputs.scaffold }}
       builder_code_starter_scaffold: ${{ steps.scope.outputs.builder_code_starter_scaffold }}
+      deploy_paths: ${{ steps.scope.outputs.deploy_paths }}
       ssr_boot: ${{ steps.scope.outputs.ssr_boot }}
       ssr_boot_apps: ${{ steps.scope.outputs.ssr_boot_apps }}
       guards: ${{ steps.scope.outputs.guards }}
@@ -44,6 +46,7 @@ jobs:
       design_canvas_broad_workflows: ${{ steps.scope.outputs.design_canvas_broad_workflows }}
       pre_auth_session_replay_e2e: ${{ steps.scope.outputs.pre_auth_session_replay_e2e }}
       design_canvas_e2e_specs: ${{ steps.scope.outputs.design_canvas_e2e_specs }}
+      design_canvas_e2e_diagnostic_specs: ${{ steps.scope.outputs.design_canvas_e2e_diagnostic_specs }}
       agentkit_acceptance: ${{ steps.scope.outputs.agentkit_acceptance }}
       slides_chat_e2e: ${{ steps.scope.outputs.slides_chat_e2e }}
       slides_authoring_e2e: ${{ steps.scope.outputs.slides_authoring_e2e }}
@@ -64,7 +67,11 @@ jobs:
           node-version: "22"
 
       - name: Test change scope classifier
-        run: node --experimental-strip-types --test scripts/ci-change-scope.test.ts scripts/ci-build-workspaces.test.ts
+        run: >-
+          node --experimental-strip-types --test
+          scripts/ci-change-scope.test.ts
+          scripts/ci-change-scope-renames.test.ts
+          scripts/ci-build-workspaces.test.ts
 
       - name: Test fast-test lane planner
         run: node --experimental-strip-types --test scripts/ci-test-lanes.test.ts
@@ -515,7 +522,7 @@ jobs:
       - name: Run focused Design regression cases
         if: ${{ !startsWith(matrix.shard, 'screen-history-') }}
         working-directory: templates/design
-        timeout-minutes: 6
+        timeout-minutes: 7
         env:
           E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
         run: |
@@ -528,7 +535,8 @@ jobs:
             echo "::error::No Design regression pins resolved for shard ${{ matrix.shard }}"
             exit 2
           fi
-          pnpm exec playwright test "${focused_specs[@]}" --workers=1
+          required_pin_identities_json="$(node --experimental-strip-types ../../scripts/design-e2e-regression-pin-identities.ts "${{ matrix.shard }}")"
+          E2E_REQUIRED_PIN_IDENTITIES="$required_pin_identities_json" pnpm exec playwright test "${focused_specs[@]}" --workers=1
 
       - name: Detect retried Design test failures
         id: retry-artifacts
@@ -752,9 +760,9 @@ jobs:
   design-canvas-changed-spec-diagnostics:
     name: Design changed-spec diagnostics (${{ matrix.shard }})
     needs: change-scope
-    if: needs.change-scope.outputs.design_canvas_e2e_specs != '[]'
+    if: needs.change-scope.outputs.design_canvas_e2e_specs != '[]' && needs.change-scope.outputs.design_canvas_e2e_diagnostic_specs != '[]'
     runs-on: ubuntu-latest
-    timeout-minutes: 19
+    timeout-minutes: 22
     strategy:
       fail-fast: false
       matrix:
@@ -833,10 +841,10 @@ jobs:
 
       - name: Run changed Design E2E specs
         working-directory: templates/design
-        timeout-minutes: 15
+        timeout-minutes: 18
         env:
           E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
-          DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}
+          DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_diagnostic_specs }}
           E2E_LOG_TEST_PROGRESS: "1"
           PW_TEST_DEBUG_REPORTERS: "1"
         run: |
@@ -1256,6 +1264,27 @@ jobs:
     if: needs.change-scope.outputs.core_integration == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read
+    env:
+      AGENT_RUN_POSTGRES_TEST_URL: postgres://postgres@127.0.0.1:5432/agent_harness_test
+    services:
+      postgres:
+        image: ghcr.io/builderio/agent-native-ci-postgres-fallback:17-alpine
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          POSTGRES_DB: agent_harness_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d agent_harness_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -1903,6 +1932,9 @@ jobs:
       - name: Test source-reading tests guard
         run: pnpm test:no-source-reading-tests
 
+      - name: Test legacy MCP hint baseline guard
+        run: pnpm test:no-new-legacy-mcp-hints
+
       - name: Test Neon transfer alert and offline backtest
         run: pnpm test:neon-transfer-alert
 
@@ -1923,6 +1955,8 @@ jobs:
           scripts/guard-no-heavy-dashboard-list-reads.test.ts
 
       - name: Run security guards
+        env:
+          GITHUB_BASE_REF: ${{ github.base_ref }}
         run: pnpm guards
 
       - name: Check the Slides interaction oracle against one full test run
@@ -1988,3 +2022,16 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - uses: ./.github/actions/standalone-chat-acceptance
+
+  deploy-paths:
+    name: Deploy paths
+    needs: change-scope
+    # Run when selected, and also when change-scope did not succeed so the
+    # check fails closed instead of reporting "skipped".
+    if: ${{ !cancelled() && (needs.change-scope.result != 'success' || needs.change-scope.outputs.deploy_paths == 'true') }}
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/deploy-paths.yml
+    with:
+      source: local

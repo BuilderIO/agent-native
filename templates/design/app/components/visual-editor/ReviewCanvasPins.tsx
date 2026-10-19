@@ -416,10 +416,15 @@ function elementAnchorAtPoint(
     if (!document || !iframe || !iframeRect) return {};
     const scaleX = iframe.clientWidth / Math.max(1, iframeRect.width);
     const scaleY = iframe.clientHeight / Math.max(1, iframeRect.height);
-    const element = document.elementFromPoint(
-      (clientX - iframeRect.left) * scaleX,
-      (clientY - iframeRect.top) * scaleY,
-    );
+    const element =
+      document
+        .elementsFromPoint(
+          (clientX - iframeRect.left) * scaleX,
+          (clientY - iframeRect.top) * scaleY,
+        )
+        .find(
+          (candidate) => !candidate.closest("[data-agent-native-edit-overlay]"),
+        ) ?? null;
     let identifiedAncestor: Element | null = null;
     for (
       let current = element;

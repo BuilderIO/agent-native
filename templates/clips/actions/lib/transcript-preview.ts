@@ -6,6 +6,7 @@ export interface TranscriptPreview {
   recordingId: string;
   language: string | null | undefined;
   status: string | null | undefined;
+  source?: string | null;
   fullTextSnippet: string;
   fullTextLength: number;
   previewTruncated: boolean;
@@ -18,12 +19,14 @@ export function buildTranscriptPreview({
   recordingId,
   language,
   status,
+  source,
   fullText,
   segments,
 }: {
   recordingId: string;
   language: string | null | undefined;
   status: string | null | undefined;
+  source?: string | null;
   fullText: string | null | undefined;
   segments: unknown;
 }): TranscriptPreview {
@@ -38,6 +41,7 @@ export function buildTranscriptPreview({
     recordingId,
     language,
     status,
+    source,
     fullTextSnippet: text.slice(0, TRANSCRIPT_PREVIEW_CHARS),
     fullTextLength: text.length,
     previewTruncated,

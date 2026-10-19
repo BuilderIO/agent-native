@@ -10,12 +10,10 @@
  *
  * Fix: the HTML base is now read via `readLiveSourceFile` (collab-authoritative
  * when a doc exists, else the SQL row) and persisted via
- * `writeInlineSourceFile`, which re-reads the live text immediately before its
- * own write and rejects if it no longer matches the `expectedVersionHash`
- * captured at the same point in time the base was read — closing the race
- * window instead of silently corrupting, the same fix already applied to
- * apply-visual-edit.ts / remove-motion-timeline.ts / insert-design-native-
- * asset.ts / insert-asset.ts.
+ * `writeInlineSourceFile`, which re-reads the live text under the per-file
+ * write lock. It rejects a divergent change after preparation, but accepts a
+ * completed editor save only when live text exactly matches the working copy
+ * Motion transformed.
  *
  * This spec exercises the REAL apply-motion-edit action module (not mocked at
  * the writeInlineSourceFile boundary) against a fake minimal DB + a real
@@ -28,7 +26,10 @@ import * as Y from "yjs";
 import { createMotionNativeStyleInstance } from "../shared/motion-native-style-runtime.js";
 import { readMotionTextDocument } from "../shared/motion-text-code.js";
 
-const collabDocs = vi.hoisted(() => ({ docs: new Map<string, unknown>() }));
+const collabDocs = vi.hoisted(() => ({
+  docs: new Map<string, unknown>(),
+  afterInlineSourcePreparation: null as null | (() => Promise<void>),
+}));
 
 function getOrCreateDoc(docId: string): InstanceType<typeof Y.Doc> {
   let doc = collabDocs.docs.get(docId) as
@@ -117,6 +118,23 @@ vi.mock("@agent-native/core/collab", () => ({
     }
   },
 }));
+
+vi.mock("../server/source-workspace.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../server/source-workspace.js")>();
+  return {
+    ...actual,
+    prepareInlineSourceEdit: async (
+      ...args: Parameters<typeof actual.prepareInlineSourceEdit>
+    ) => {
+      const prepared = await actual.prepareInlineSourceEdit(...args);
+      const afterPrepare = collabDocs.afterInlineSourcePreparation;
+      collabDocs.afterInlineSourcePreparation = null;
+      if (afterPrepare) await afterPrepare();
+      return prepared;
+    },
+  };
+});
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: vi.fn().mockResolvedValue({
@@ -308,10 +326,14 @@ vi.mock("../server/db/index.js", () => {
 import {
   agentEnterDocument,
   applyText,
+  applyTextToYDoc,
   hasCollabState,
 } from "@agent-native/core/collab";
 
-import { readLiveSourceFile } from "../server/source-workspace.js";
+import {
+  readLiveSourceFile,
+  withPreparedSourceFileMutation,
+} from "../server/source-workspace.js";
 import action from "./apply-motion-edit.js";
 import getMotionTimeline from "./get-motion-timeline.js";
 
@@ -353,6 +375,7 @@ function oneTrack(nodeId = "node-hero") {
 beforeEach(() => {
   vi.clearAllMocks();
   collabDocs.docs.clear();
+  collabDocs.afterInlineSourcePreparation = null;
   designFilesStore.rows.clear();
   motionTimelineStore.rows.clear();
   seedFile(baseDoc());
@@ -375,6 +398,26 @@ const captionTextDocument = {
     },
   ],
 };
+
+function upgradeLegacyTextDocument(document: {
+  version: 1;
+  animations: Array<{
+    direction: "forward" | "reverse";
+    [key: string]: unknown;
+  }>;
+}) {
+  return {
+    version: 2 as const,
+    animations: document.animations.map((animation) => ({
+      ...animation,
+      animationDirection: "in" as const,
+      order:
+        animation.direction === "reverse" ? "right-to-left" : "left-to-right",
+      ignoreSpaces: true,
+      delayMs: 0,
+    })),
+  };
+}
 
 const animationStyles = [
   {
@@ -440,7 +483,7 @@ describe("apply-motion-edit collab-aware persist (contract-bypass fix)", () => {
       animationStyleCount: 1,
     });
     expect(readback.timelines[0]).toMatchObject({
-      textDocument,
+      textDocument: upgradeLegacyTextDocument(textDocument),
       animationStyles: hiddenStyles,
     });
   });
@@ -463,16 +506,16 @@ describe("apply-motion-edit collab-aware persist (contract-bypass fix)", () => {
     expect(readback.timelines).toHaveLength(1);
     expect(readback.timelines[0]).toMatchObject({
       tracks: [],
-      textDocument: captionTextDocument,
+      textDocument: upgradeLegacyTextDocument(captionTextDocument),
       durationMs: 600,
       compiledHash: saved.compiledHash,
       cssHash: saved.compiledHash,
     });
     expect(currentFileRef().content).toContain(
-      'data-agent-native-motion-text-source="v1"',
+      'data-agent-native-motion-text-source="v2"',
     );
     expect(currentFileRef().content).toContain(
-      'data-agent-native-motion-text-runtime="v1"',
+      'data-agent-native-motion-text-runtime="v2"',
     );
   });
 
@@ -490,11 +533,22 @@ describe("apply-motion-edit collab-aware persist (contract-bypass fix)", () => {
         blurEnabled: true,
       },
     };
+    const textDocument = {
+      version: 2 as const,
+      animations: captionTextDocument.animations.map((animation) => ({
+        ...animation,
+        animationDirection: "in" as const,
+        order: "left-to-right" as const,
+        overlapPercent: 92,
+        ignoreSpaces: false,
+        delayMs: 0,
+      })),
+    };
     const saved = await action.run({
       designId: DESIGN_ID,
       fileId: FILE_ID,
       tracks: [],
-      textDocument: captionTextDocument,
+      textDocument,
       nativeStyles: [nativeStyle],
       durationMs: 600,
     } as never);
@@ -517,9 +571,114 @@ describe("apply-motion-edit collab-aware persist (contract-bypass fix)", () => {
       ).toEqual(["opacity", "filter", "translate"]);
     }
     expect(readback.timelines[0]).toMatchObject({
-      textDocument: captionTextDocument,
+      textDocument,
       nativeStyles: [nativeStyle],
     });
+  });
+
+  it("seeds a new TextStagger from an authored v2 whitespace default", async () => {
+    const textDocument = {
+      version: 2 as const,
+      animations: [
+        {
+          targetNodeId: "node-caption",
+          unit: "character" as const,
+          direction: "forward" as const,
+          staggerMs: 250,
+          animationDirection: "in" as const,
+          order: "left-to-right" as const,
+          overlapPercent: 50,
+          property: "opacity" as const,
+          durationMs: 500,
+          keyframes: [
+            { t: 0, value: "0" },
+            { t: 1, value: "1" },
+          ],
+        },
+      ],
+    };
+    const nativeStyle = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "node-caption",
+    });
+    expect(nativeStyle.props.ignoreSpaces).toBe(false);
+
+    await action.run({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      tracks: [],
+      textDocument,
+      nativeStyles: [nativeStyle],
+      durationMs: 600,
+    } as never);
+
+    const sourceText = readMotionTextDocument(currentFileRef().content);
+    expect(sourceText.status).toBe("valid");
+    if (sourceText.status === "valid") {
+      expect(sourceText.document.animations[0]?.ignoreSpaces).toBe(true);
+    }
+    const readback = await getMotionTimeline.run({
+      designId: DESIGN_ID,
+      sourceRef: FILE_ID,
+    } as never);
+    expect(readback.timelines[0]?.nativeStyles[0]?.props.ignoreSpaces).toBe(
+      true,
+    );
+  });
+
+  it("rejects an existing TextStagger when authored whitespace semantics change", async () => {
+    const textDocument = {
+      version: 2 as const,
+      animations: [
+        {
+          targetNodeId: "node-caption",
+          unit: "character" as const,
+          direction: "forward" as const,
+          staggerMs: 250,
+          animationDirection: "in" as const,
+          order: "left-to-right" as const,
+          overlapPercent: 50,
+          ignoreSpaces: false,
+          property: "opacity" as const,
+          durationMs: 500,
+          keyframes: [
+            { t: 0, value: "0" },
+            { t: 1, value: "1" },
+          ],
+        },
+      ],
+    };
+    const nativeStyle = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "node-caption",
+    });
+    await action.run({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      tracks: [],
+      textDocument,
+      nativeStyles: [nativeStyle],
+      durationMs: 600,
+    } as never);
+    const savedContent = currentFileRef().content;
+
+    await expect(
+      action.run({
+        designId: DESIGN_ID,
+        fileId: FILE_ID,
+        tracks: [],
+        textDocument: {
+          ...textDocument,
+          animations: textDocument.animations.map((animation) => ({
+            ...animation,
+            ignoreSpaces: true,
+          })),
+        },
+        nativeStyles: [nativeStyle],
+        durationMs: 600,
+      } as never),
+    ).rejects.toThrow("grouping or timing settings differ");
+    expect(currentFileRef().content).toBe(savedContent);
   });
 
   it("source-backs audio clips, preserves them when omitted, and clears them explicitly", async () => {
@@ -635,7 +794,7 @@ describe("apply-motion-edit collab-aware persist (contract-bypass fix)", () => {
     } as never);
     expect(preserved.timelines[0]).toMatchObject({
       tracks: oneTrack(),
-      textDocument: captionTextDocument,
+      textDocument: upgradeLegacyTextDocument(captionTextDocument),
     });
 
     const cleared = await action.run({
@@ -847,6 +1006,69 @@ describe("apply-motion-edit collab-aware persist (contract-bypass fix)", () => {
     const finalLive = await readLiveSourceFile(currentFileRef());
     expect(finalLive.content).toContain("Caption text (unsaved locally)");
     expect(finalLive.content).toContain("data-agent-native-motion");
+  });
+
+  it("saves Motion when update-file publishes the exact prepared working copy before its write", async () => {
+    const workingCopy = baseDoc().replace("opacity: 1;", "opacity: 0.7;");
+    let updateFileCompleted = false;
+    collabDocs.afterInlineSourcePreparation = async () => {
+      await withPreparedSourceFileMutation(FILE_ID, "agent", async (lease) => {
+        applyTextToYDoc(lease.doc, "content", workingCopy, "agent");
+        await lease.persist({} as never, workingCopy);
+        seedFile(workingCopy, "2026-07-06T00:00:01.000Z");
+      });
+      updateFileCompleted = true;
+    };
+
+    const result = await action.run({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      tracks: oneTrack(),
+      durationMs: 500,
+      currentContent: workingCopy,
+      revision: "2026-07-06T00:00:00.000Z",
+    } as never);
+
+    expect(updateFileCompleted).toBe(true);
+    expect(result.persisted).toBe(true);
+    const finalLive = await readLiveSourceFile(currentFileRef());
+    expect(finalLive.content).toContain("opacity: 0.7;");
+    expect(finalLive.content).toContain("data-agent-native-motion");
+    expect(currentFileRef().content).toBe(finalLive.content);
+  });
+
+  it("rejects a save that diverges from the prepared Motion working copy", async () => {
+    const workingCopy = baseDoc().replace(
+      "Caption text",
+      "Caption text (local edit)",
+    );
+    const divergentContent = baseDoc().replace(
+      "Caption text",
+      "Caption text (different edit)",
+    );
+    collabDocs.afterInlineSourcePreparation = async () => {
+      await withPreparedSourceFileMutation(FILE_ID, "agent", async (lease) => {
+        applyTextToYDoc(lease.doc, "content", divergentContent, "agent");
+        await lease.persist({} as never, divergentContent);
+        seedFile(divergentContent, "2026-07-06T00:00:01.000Z");
+      });
+    };
+
+    await expect(
+      action.run({
+        designId: DESIGN_ID,
+        fileId: FILE_ID,
+        tracks: oneTrack(),
+        durationMs: 500,
+        currentContent: workingCopy,
+        revision: "2026-07-06T00:00:00.000Z",
+      } as never),
+    ).rejects.toThrow(/changed since it was read/);
+
+    const finalLive = await readLiveSourceFile(currentFileRef());
+    expect(finalLive.content).toContain("Caption text (different edit)");
+    expect(finalLive.content).not.toContain("data-agent-native-motion");
+    expect(currentFileRef().content).toBe(finalLive.content);
   });
 
   it("rejects (loud, not silent) when a concurrent write lands using a caller-supplied stale currentContent base", async () => {

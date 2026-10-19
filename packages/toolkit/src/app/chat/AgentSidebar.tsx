@@ -268,6 +268,7 @@ export interface AgentSidebarProps {
   /** @deprecated Use screenRefreshEnabled when disabling this boundary. */
   screenRefreshOnlyWhenPanelActive?: boolean;
   emptyStateText?: string;
+  mcpSuggestionExcludedIntegrationIds?: AssistantChatProps["mcpSuggestionExcludedIntegrationIds"];
   suggestions?: AssistantChatProps["suggestions"];
   dynamicSuggestions?: AssistantChatProps["dynamicSuggestions"];
   composerToolbarSlot?: AssistantChatProps["composerToolbarSlot"];
@@ -350,6 +351,7 @@ export function AgentSidebar({
   screenRefreshEnabled = true,
   screenRefreshOnlyWhenPanelActive,
   emptyStateText = "How can I help you?",
+  mcpSuggestionExcludedIntegrationIds,
   defaultMode = "chat",
   suggestions,
   dynamicSuggestions,
@@ -1747,6 +1749,9 @@ export function AgentSidebar({
                 onNavigationChange={onNavigationChange}
                 onTabsClosing={onTabsClosing}
                 emptyStateText={emptyStateText}
+                mcpSuggestionExcludedIntegrationIds={
+                  mcpSuggestionExcludedIntegrationIds
+                }
                 suggestions={suggestions}
                 dynamicSuggestions={dynamicSuggestions}
                 suggestionPlacement="context-chips"

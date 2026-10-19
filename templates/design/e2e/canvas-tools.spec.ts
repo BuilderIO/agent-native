@@ -5,6 +5,7 @@ import {
   type Page,
 } from "@playwright/test";
 
+import { DEFAULT_LEFT_SIDEBAR_WIDTH } from "../app/pages/design-editor/left-sidebar-width";
 import { ANNOTATE_LAB } from "../shared/labs";
 import { e2eBaseURL } from "./base-url";
 import { FIXTURE_HTML } from "./global-setup";
@@ -1199,8 +1200,7 @@ function expectCloseToFrameSize(
   expect(Math.abs(viewport.height - frame.height)).toBeLessThanOrEqual(2);
 }
 
-// fixme: product bug: Exiting responsive preview leaves Home at (71,310) instead of (534,68): pushed to the left edge, mostly under the Layers panel.
-test.fixme("top bar modes toggle the editor mode buttons", async ({ page }) => {
+test("top bar modes toggle the editor mode buttons", async ({ page }) => {
   const homeBox = roundedBox(await screenShell(page).boundingBox());
   await expect(modeButton(page, "edit")).toHaveAttribute(
     "aria-pressed",
@@ -1241,8 +1241,7 @@ test.fixme("top bar modes toggle the editor mode buttons", async ({ page }) => {
     .toEqual(["move", "frame", "shapes", "text", "pen", "comment"]);
 });
 
-// fixme: fails on current main after the merge: Error: expect(received).toBeLessThanOrEqual(expected)
-test.fixme("keyboard shortcuts dialog opens without remounting the overview iframe", async ({
+test("keyboard shortcuts dialog opens without remounting the overview iframe", async ({
   page,
 }) => {
   const railBox = await page
@@ -1252,11 +1251,15 @@ test.fixme("keyboard shortcuts dialog opens without remounting the overview ifra
     .getByRole("complementary", { name: "Layers" })
     .boundingBox();
   // The rail is 7 baseline units (`--design-chrome-rail-width`); the Layers
-  // panel opens at its 240px default width beside it.
+  // panel opens at its default width beside it.
   expect(railBox?.width).toBe(56);
   expect(layersBox).not.toBeNull();
   expect(
-    Math.abs(layersBox!.x + layersBox!.width - (railBox!.width + 240)),
+    Math.abs(
+      layersBox!.x +
+        layersBox!.width -
+        (railBox!.width + DEFAULT_LEFT_SIDEBAR_WIDTH),
+    ),
   ).toBeLessThanOrEqual(1);
 
   const iframe = screenShell(page, "Home")
@@ -1638,8 +1641,7 @@ test("overview pan and cursor-anchored zoom retain a continuously painted iframe
   await expectIframePaintStable(page, "overview-navigation-stable");
 });
 
-// fixme: product bug: Alpha dropped in the row's empty end leaves the row (saved row children are just [beta]).
-test.fixme("selection, same-screen move, text and style edits, undo redo, and zoom never paint a blank focused frame", async ({
+test("selection, same-screen move, text and style edits, undo redo, and zoom never paint a blank focused frame", async ({
   app,
   page,
 }) => {
@@ -1724,7 +1726,6 @@ test.fixme("selection, same-screen move, text and style edits, undo redo, and zo
   await expectIframePaintStable(page, "focused-edit-stable");
 });
 
-// oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
 test("Hand and Scale shortcuts project the active move-group tool", async ({
   page,
 }) => {
@@ -1919,7 +1920,6 @@ test("click text creates auto-width text and survives reload", async ({
   ).toHaveCount(1);
 });
 
-// oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
 test("typing into a new text layer and clicking out renders it once, in order", async ({
   page,
 }) => {
@@ -2381,8 +2381,7 @@ test("dragging a rectangle between screens moves it across files", async ({
   await expectStableIframeIdentity();
 });
 
-// fixme: product bug: Alpha leaves the row (reparented into Main), as the grader saw: saved row children stay [beta].
-test.fixme("dragging within an auto-layout row reorders at the visual insertion point and persists", async ({
+test("dragging within an auto-layout row reorders at the visual insertion point and persists", async ({
   app,
   page,
 }) => {
@@ -2421,8 +2420,7 @@ test.fixme("dragging within an auto-layout row reorders at the visual insertion 
   expectOnlyChanged(before, after, ["e2e-alpha-button"]);
 });
 
-// fixme: product bug: Main shrinks from 784px at x 328 to 420px at x 510 once the screen body becomes flex.
-test.fixme("Shift+A enables auto layout on one overview screen with flash-free undo, redo, and persistence", async ({
+test("Shift+A enables auto layout on one overview screen with flash-free undo, redo, and persistence", async ({
   app,
   page,
 }) => {
@@ -2632,8 +2630,7 @@ test("screen-row hide and lock state is enforced by the overview canvas", async 
   await expect(page.locator("[data-frame-selection-box]")).toBeVisible();
 });
 
-// fixme: fails on current main after the merge: Error: expect(received).toEqual(expected) // deep equality
-test.fixme("screen layer rows reorder the canonical canvas stack with undo, redo, and persistence", async ({
+test("screen layer rows reorder the canonical canvas stack with undo, redo, and persistence", async ({
   page,
 }) => {
   await postAction(page.request, "create-file", {
@@ -2710,8 +2707,7 @@ test.fixme("screen layer rows reorder the canonical canvas stack with undo, redo
   });
 });
 
-// fixme: fails on current main after the merge: Error: expect(locator).toBeVisible() failed
-test.fixme("dragging a screen primitive into a board rectangle nests and persists", async ({
+test("dragging a screen primitive into a board rectangle nests and persists", async ({
   page,
 }) => {
   await postAction(page.request, "create-file", {
@@ -2862,8 +2858,7 @@ test.fixme("dragging a screen primitive into a board rectangle nests and persist
     .toBe(targetId);
 });
 
-// fixme: intermittent: Passed in its worker run and in a solo re-run, failed once in the full confirmation run (2 of 3).
-test.fixme("same-board rectangle nesting into a finite-origin frame persists without poisoned coordinates", async ({
+test("same-board rectangle nesting into a finite-origin frame persists without poisoned coordinates", async ({
   page,
 }) => {
   const boardFile = (await designFiles(page)).find(
@@ -2952,8 +2947,7 @@ test.fixme("same-board rectangle nesting into a finite-origin frame persists wit
   expect(reloadedPosition).toEqual(nestedPosition);
 });
 
-// fixme: fails on current main after the merge: Error: expect(locator).toBeVisible() failed
-test.fixme("frame insertion inside a screen creates a nested frame", async ({
+test("frame insertion inside a screen creates a nested frame", async ({
   page,
 }) => {
   const card = await homeScreenCard(page);
@@ -3046,7 +3040,6 @@ test("frame drawn left of the first screen creates a new screen", async ({
     .toBeLessThan(0);
 });
 
-// oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
 test("rectangle drawn left of the first screen persists on the board", async ({
   page,
 }) => {
@@ -3687,14 +3680,8 @@ test("single-screen undo does not consume overview history", async ({
     .toBe(aboutRectanglesBefore);
 });
 
-// Measured: not "restores one item too many". After drawing a rectangle in
-// Home, drawing one in About, deleting the About screen, then ONE undo,
-// index.html still has 1 rectangle where homeRectanglesBefore (0) is expected.
-// The undo step is consumed by the deleted screen's own content history
-// instead of skipping past it, so the Home edit is never reached. Undo/redo
-// semantics — do not rewrite without review.
-// fixme: product bug: One Cmd+Z after deleting About leaves Home's rectangle in place (expected 0, got 1).
-test.fixme("overview undo skips deleted screen content history", async ({
+// Deleting a Screen is one undo step, so About returns before its own edit is undone.
+test("overview undo restores a deleted screen first, then walks back each screen's own edits", async ({
   page,
 }) => {
   await postAction(page.request, "create-file", {
@@ -3778,17 +3765,44 @@ test.fixme("overview undo skips deleted screen content history", async ({
     )
     .toBe(false);
 
+  const screenFilenames = async () =>
+    htmlScreenFiles(await designFiles(page))
+      .map((file) => file.filename)
+      .sort();
+
+  await pressPrimaryShortcut(page, "z");
+  await expect
+    .poll(screenFilenames, { timeout: 20_000 })
+    .toEqual(["about.html", "index.html"]);
+  expect(
+    htmlScreenFiles(await designFiles(page)).some(
+      (file) => file.id === aboutFile.id,
+    ),
+    "the restored About is a new file, not the deleted id",
+  ).toBe(false);
+  expect(await primitiveCount(page, "about.html", "rectangle")).toBe(
+    aboutRectanglesBefore + 1,
+  );
+  expect(await primitiveCount(page, "index.html", "rectangle")).toBe(
+    homeRectanglesBefore + 1,
+  );
+
+  await pressPrimaryShortcut(page, "z");
+  await expect
+    .poll(() => primitiveCount(page, "about.html", "rectangle"), {
+      timeout: 20_000,
+    })
+    .toBe(aboutRectanglesBefore);
+  expect(await primitiveCount(page, "index.html", "rectangle")).toBe(
+    homeRectanglesBefore + 1,
+  );
+
   await pressPrimaryShortcut(page, "z");
   await expect
     .poll(() => primitiveCount(page, "index.html", "rectangle"), {
       timeout: 20_000,
     })
     .toBe(homeRectanglesBefore);
-  expect(
-    htmlScreenFiles(await designFiles(page)).some(
-      (file) => file.id === aboutFile.id,
-    ),
-  ).toBe(false);
 
   await pressPrimaryShortcut(page, "z", { shift: true });
   await expect
@@ -3796,11 +3810,94 @@ test.fixme("overview undo skips deleted screen content history", async ({
       timeout: 20_000,
     })
     .toBe(homeRectanglesBefore + 1);
+  expect(await primitiveCount(page, "about.html", "rectangle")).toBe(
+    aboutRectanglesBefore,
+  );
+});
+
+test("overview undo skips the content history of a screen deleted outside the editor", async ({
+  app,
+  page,
+}) => {
+  await postAction(page.request, "create-file", {
+    designId,
+    filename: "about.html",
+    content: FIXTURE_HTML.replace("E2E Fixture", "E2E Second Fixture"),
+    fileType: "html",
+  });
+  await gotoEditor(page, designId);
+  await expect(screenShell(page, "About")).toBeVisible();
+
+  const aboutFile = (await designFiles(page)).find(
+    (file) => file.filename === "about.html",
+  );
+  if (!aboutFile) throw new Error("about.html was not created");
+
+  const homeShell = screenShell(page, "Home");
+  const aboutShell = screenShell(page, "About");
+  const homeCardBox = await homeShell
+    .locator("[data-screen-card]")
+    .boundingBox();
+  const aboutCardBox = await aboutShell
+    .locator("[data-screen-card]")
+    .boundingBox();
+  if (!homeCardBox || !aboutCardBox) throw new Error("missing screen card box");
+  const homeRectanglesBefore = await primitiveCount(
+    page,
+    "index.html",
+    "rectangle",
+  );
+  const aboutRectanglesBefore = await primitiveCount(
+    page,
+    "about.html",
+    "rectangle",
+  );
+
+  await createDraftPrimitive(page, "Rectangle", "Rectangle", {
+    start: {
+      x: homeCardBox.x + homeCardBox.width * 0.16,
+      y: homeCardBox.y + homeCardBox.height * 0.18,
+    },
+    end: {
+      x: homeCardBox.x + homeCardBox.width * 0.3,
+      y: homeCardBox.y + homeCardBox.height * 0.3,
+    },
+  });
+  await expect
+    .poll(() => primitiveCount(page, "index.html", "rectangle"), {
+      timeout: 20_000,
+    })
+    .toBe(homeRectanglesBefore + 1);
+
+  await createDraftPrimitive(page, "Rectangle", "Rectangle", {
+    start: {
+      x: aboutCardBox.x + aboutCardBox.width * 0.16,
+      y: aboutCardBox.y + aboutCardBox.height * 0.18,
+    },
+    end: {
+      x: aboutCardBox.x + aboutCardBox.width * 0.3,
+      y: aboutCardBox.y + aboutCardBox.height * 0.3,
+    },
+  });
+  await expect
+    .poll(() => primitiveCount(page, "about.html", "rectangle"), {
+      timeout: 20_000,
+    })
+    .toBe(aboutRectanglesBefore + 1);
+
+  await app.settled();
+  await postAction(page.request, "delete-file", { id: aboutFile.id });
+  await expect(aboutShell).toBeHidden({ timeout: 20_000 });
+
+  await pressPrimaryShortcut(page, "z");
+  await expect
+    .poll(() => primitiveCount(page, "index.html", "rectangle"), {
+      timeout: 20_000,
+    })
+    .toBe(homeRectanglesBefore);
   expect(
-    htmlScreenFiles(await designFiles(page)).some(
-      (file) => file.id === aboutFile.id,
-    ),
-  ).toBe(false);
+    htmlScreenFiles(await designFiles(page)).map((file) => file.filename),
+  ).toEqual(["index.html"]);
 });
 
 test("overview undo does not restore ghost geometry for deleted screens", async ({

@@ -1,9 +1,6 @@
 import { isSelectableAudioInputDevice } from "@shared/media-device-selection";
 
-import {
-  readFileUploadStatusProbe,
-  type FileUploadStatusProbe,
-} from "../../shared/file-upload-status";
+import { type FileUploadStatusProbe } from "../../shared/file-upload-status";
 import {
   MEDIA_PERMISSION_DEVICES,
   hasGrantedDeviceLabels,
@@ -77,7 +74,28 @@ type PopupStatusResponse = {
   error?: string;
 };
 
-type AuthStatus = "checking" | "signed-in" | "signed-out";
+type AuthStatus = "checking" | "signed-in" | "signed-out" | "unavailable";
+
+export function classifyAuthProbe(
+  status: number | null,
+  body: { email?: string; error?: string } | null,
+  hasStoredAuth: boolean,
+): { status: AuthStatus; clearStoredAuth: boolean } {
+  if (
+    status === null ||
+    status >= 500 ||
+    ((status < 200 || status >= 300) && status !== 401)
+  ) {
+    return { status: "unavailable", clearStoredAuth: false };
+  }
+  if (status === 401 || body?.error === "Not authenticated") {
+    return { status: "signed-out", clearStoredAuth: hasStoredAuth };
+  }
+  if (typeof body?.email === "string" && body.email) {
+    return { status: "signed-in", clearStoredAuth: false };
+  }
+  return { status: "unavailable", clearStoredAuth: false };
+}
 
 export function recordingControlVisibility(
   recording: NativeRecording | null,
@@ -88,6 +106,13 @@ export function recordingControlVisibility(
     startHidden: active || authStatus !== "signed-in",
     signInHidden: active || authStatus !== "signed-out",
   };
+}
+
+export function popupStartAuthDecision(
+  authStatus: AuthStatus,
+): "start" | "sign-in" | "retry" {
+  if (authStatus === "signed-in") return "start";
+  return authStatus === "signed-out" ? "sign-in" : "retry";
 }
 
 type StoredAuth = {
@@ -469,11 +494,15 @@ async function readAuthStatus(
       email?: string;
       error?: string;
     } | null;
-    if (response.ok && body?.email) return "signed-in";
-    if (headers.Authorization) await clearStoredAuth();
-    return "signed-out";
+    const result = classifyAuthProbe(
+      response.status,
+      body,
+      Boolean(headers.Authorization),
+    );
+    if (result.clearStoredAuth) await clearStoredAuth();
+    return result.status;
   } catch {
-    return "signed-out";
+    return classifyAuthProbe(null, null, Boolean(headers.Authorization)).status;
   }
 }
 
@@ -484,13 +513,55 @@ async function readVideoStorageStatus(
 
   try {
     const headers = await authHeaders(settings);
-    const response = await fetch(`${base}/_agent-native/file-upload/status`, {
-      method: "GET",
-      headers,
-      credentials: "include",
-      cache: "no-store",
-    });
-    return await readFileUploadStatusProbe(response);
+    const response = await fetch(
+      `${base}/_agent-native/actions/get-video-storage-status`,
+      {
+        method: "GET",
+        headers,
+        credentials: "include",
+        cache: "no-store",
+      },
+    );
+    if (!response.ok) return "unavailable";
+    const body = (await response.json()) as {
+      result?: unknown;
+      configured?: unknown;
+      mode?: unknown;
+      hostedRemaining?: unknown;
+    };
+    const status = body.result ?? body;
+    if (
+      typeof status !== "object" ||
+      status === null ||
+      !(
+        "configured" in status &&
+        "mode" in status &&
+        "hostedRemaining" in status
+      )
+    ) {
+      return "unavailable";
+    }
+    const value = status as {
+      configured: unknown;
+      mode: unknown;
+      hostedRemaining: unknown;
+    };
+    if (
+      typeof value.configured !== "boolean" ||
+      (value.mode !== "own" &&
+        value.mode !== "hosted" &&
+        value.mode !== "none") ||
+      !Number.isSafeInteger(value.hostedRemaining) ||
+      (value.hostedRemaining as number) < 0 ||
+      value.configured !== (value.mode !== "none") ||
+      (value.mode === "hosted" && (value.hostedRemaining as number) < 1)
+    ) {
+      return "unavailable";
+    }
+    return value.mode === "own" ||
+      (value.mode === "hosted" && (value.hostedRemaining as number) > 0)
+      ? "configured"
+      : "missing";
   } catch {
     return "unavailable";
   }
@@ -1197,6 +1268,12 @@ async function init(): Promise<void> {
   authStatus = await readAuthStatus(settings);
   renderActiveRecording(activeRecording, arming, authStatus);
   if (authStatus === "signed-out") setStatus("");
+  if (authStatus === "unavailable") {
+    setStatus(
+      "Couldn't verify Clips sign-in. Reopen the popup to retry.",
+      "error",
+    );
+  }
 
   start.addEventListener("click", async () => {
     start.disabled = true;
@@ -1205,9 +1282,15 @@ async function init(): Promise<void> {
     setStatus("");
     try {
       authStatus = await readAuthStatus(settings);
-      if (authStatus === "signed-out") {
-        renderActiveRecording(activeRecording, arming, authStatus);
-        setStatus("");
+      const authDecision = popupStartAuthDecision(authStatus);
+      if (authDecision !== "start") {
+        if (authDecision === "sign-in") {
+          renderActiveRecording(activeRecording, arming, authStatus);
+          setStatus("");
+        } else {
+          start.disabled = false;
+          setStatus("Couldn't verify Clips sign-in. Try again.", "error");
+        }
         return;
       }
       // Recording never waits on storage: without it, record in the Clips

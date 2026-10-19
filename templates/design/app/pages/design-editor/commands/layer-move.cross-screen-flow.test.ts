@@ -7,6 +7,7 @@ import {
 import { afterEach, describe, expect, it } from "vitest";
 
 import { runPublishCanonicalContent } from "@/pages/design-editor/commands/publish-canonical-content";
+import { BOARD_TEXT_AUTO_COLOR_MARKER } from "@/pages/design-editor/cross-screen-text-color";
 import { prepareCanonicalSourceContent } from "@/pages/design-editor/source-publication";
 import type { DesignFile } from "@/pages/design-editor/types";
 
@@ -165,6 +166,23 @@ function runCrossScreenMove(
 afterEach(() => document.body.replaceChildren());
 
 describe("runLayerMove: cross-screen live layout", () => {
+  it("adapts auto text color when a layer moves to another layer in another screen", () => {
+    const sourceContent = `<html><body><div data-agent-native-node-id="moving" data-an-primitive="text" ${BOARD_TEXT_AUTO_COLOR_MARKER} style="color:#000000">Move</div></body></html>`;
+    const targetContent = `<html><head><style>.dark-surface { background: #111111; }</style></head><body><section data-agent-native-node-id="target" class="dark-surface"></section></body></html>`;
+    mountPreview(sourceContent, SOURCE_ID);
+    mountPreview(targetContent, TARGET_ID);
+
+    const { updates } = runCrossScreenMove(sourceContent, targetContent);
+    const nextTarget = updates.get(TARGET_ID);
+    const moved = new DOMParser()
+      .parseFromString(nextTarget!, "text/html")
+      .querySelector<HTMLElement>('[data-agent-native-node-id="moving"]');
+
+    expect(nextTarget).toBeTruthy();
+    expect(moved?.style.color).toBe("#ffffff");
+    expect(moved?.hasAttribute(BOARD_TEXT_AUTO_COLOR_MARKER)).toBe(true);
+  });
+
   it("moves a class-positioned freeform layer into CSS-authored auto layout flow", () => {
     const sourceContent = `<html><head><style>
 .freeform { display:block; position:relative; }

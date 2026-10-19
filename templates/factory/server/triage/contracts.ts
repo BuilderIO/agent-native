@@ -21,6 +21,7 @@ export const triageItemStatusSchema = z.enum([
   "pr_observed",
   "auto_approved",
   "merged",
+  "resolved",
 ]);
 export type TriageItemStatus = z.infer<typeof triageItemStatusSchema>;
 

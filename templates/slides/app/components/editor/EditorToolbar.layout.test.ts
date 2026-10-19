@@ -12,6 +12,9 @@ const globalCssSource = readFileSync(
   path.join(path.dirname(fileURLToPath(import.meta.url)), "../../global.css"),
   "utf8",
 );
+// The top-right action cluster doubles as the anchor for floating panels.
+const TOP_RIGHT_ACTIONS_OPEN_TAG =
+  /<div\s+ref=\{panelAnchorRef\}\s+className="ml-auto flex shrink-0 items-center gap-1"\s*>/;
 
 describe("EditorToolbar layout contract", () => {
   it("keeps the title input measuring its own width without flex-shrinking", () => {
@@ -40,15 +43,13 @@ describe("EditorToolbar layout contract", () => {
   });
 
   it("pushes the top-right actions to the row edge when the style toolbar moves below", () => {
-    expect(editorToolbarSource).toContain(
-      '<div className="ml-auto flex shrink-0 items-center gap-1">',
-    );
+    expect(editorToolbarSource).toMatch(TOP_RIGHT_ACTIONS_OPEN_TAG);
   });
 
   it("keeps the AI presence indicator beside the top-right editor actions", () => {
     const presenceIndex = editorToolbarSource.indexOf("<PresenceBar");
-    const actionClusterIndex = editorToolbarSource.indexOf(
-      '<div className="ml-auto flex shrink-0 items-center gap-1">',
+    const actionClusterIndex = editorToolbarSource.search(
+      TOP_RIGHT_ACTIONS_OPEN_TAG,
     );
     const menuIndex = editorToolbarSource.indexOf("<DropdownMenu>");
     const shareIndex = editorToolbarSource.indexOf("{/* Framework share");

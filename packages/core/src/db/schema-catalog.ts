@@ -9,8 +9,7 @@
 import type { DbExec } from "./client.js";
 
 /** Tables whose rows are migration bookkeeping, dumped with their data. */
-const BOOKKEEPING_TABLE =
-  /(?:^_.*migrations?$|_migrations$|^_an_store_migrations$)/;
+const BOOKKEEPING_TABLE = /^_[a-z0-9_]*migrations(?:_named)?$/;
 
 export interface SchemaFingerprint {
   tables: string[];
@@ -33,6 +32,8 @@ function literal(value: unknown): string {
     return String(value);
   }
   if (typeof value === "boolean") return value ? "TRUE" : "FALSE";
+  // Locale-formatted dates do not parse back; ISO 8601 does, in any time zone.
+  if (value instanceof Date) return `'${value.toISOString()}'`;
   return `'${String(value).replace(/'/g, "''")}'`;
 }
 
@@ -89,21 +90,46 @@ const FUNCTIONS_SQL = `
    ORDER BY p.proname`;
 
 const TRIGGERS_SQL = `
-  SELECT t.tgname AS name, pg_get_triggerdef(t.oid) AS definition
+  SELECT c.relname AS table_name, t.tgname AS name,
+         pg_get_triggerdef(t.oid) AS definition
     FROM pg_trigger t
     JOIN pg_class c ON c.oid = t.tgrelid
     JOIN pg_namespace n ON n.oid = c.relnamespace
    WHERE n.nspname = 'public' AND NOT t.tgisinternal
    ORDER BY c.relname, t.tgname`;
 
+export interface DumpSchemaOptions {
+  /** Also emit the rows of every migration bookkeeping table. */
+  withBookkeepingRows?: boolean;
+  /** Leave these tables, and their constraints, indexes and triggers, out. */
+  skipTable?: (table: string) => boolean;
+}
+
 /** Replayable SQL for the schema plus the rows of every bookkeeping table. */
 export async function dumpSchemaSql(exec: DbExec): Promise<string> {
+  const statements = await dumpSchemaStatements(exec, {
+    withBookkeepingRows: true,
+  });
+  return `${statements.join("\n\n")}\n`;
+}
+
+/**
+ * The schema as an ordered list of statements, each safe to send on its own.
+ * Function bodies contain semicolons, so the statements cannot be joined and
+ * split again.
+ */
+export async function dumpSchemaStatements(
+  exec: DbExec,
+  options: DumpSchemaOptions = {},
+): Promise<string[]> {
+  const keep = (table: unknown) => !options.skipTable?.(String(table));
   const out: string[] = [];
   for (const seq of await rows(exec, SEQUENCES_SQL)) {
     out.push(`CREATE SEQUENCE IF NOT EXISTS ${quoteIdent(String(seq.name))};`);
   }
   const byTable = new Map<string, string[]>();
   for (const col of await rows(exec, COLUMNS_SQL)) {
+    if (!keep(col.table_name)) continue;
     const table = String(col.table_name);
     const parts = [quoteIdent(String(col.column_name)), String(col.type)];
     if (col.identity === "a") parts.push("GENERATED ALWAYS AS IDENTITY");
@@ -122,7 +148,9 @@ export async function dumpSchemaSql(exec: DbExec): Promise<string> {
       `CREATE TABLE ${quoteIdent(table)} (\n  ${columns.join(",\n  ")}\n);`,
     );
   }
-  const constraints = await rows(exec, CONSTRAINTS_SQL);
+  const constraints = (await rows(exec, CONSTRAINTS_SQL)).filter((con) =>
+    keep(con.table_name),
+  );
   // Foreign keys last: they can point at tables created later in the dump.
   for (const con of [
     ...constraints.filter((c) => c.kind !== "f"),
@@ -133,17 +161,20 @@ export async function dumpSchemaSql(exec: DbExec): Promise<string> {
     );
   }
   for (const index of await rows(exec, INDEXES_SQL)) {
+    if (!keep(index.table_name)) continue;
     out.push(`${String(index.definition)};`);
   }
   for (const fn of await rows(exec, FUNCTIONS_SQL)) {
     out.push(`${String(fn.definition).trim()};`);
   }
   for (const trigger of await rows(exec, TRIGGERS_SQL)) {
+    if (!keep(trigger.table_name)) continue;
     out.push(`${String(trigger.definition)};`);
   }
-  for (const table of [...byTable.keys()].filter((t) =>
-    BOOKKEEPING_TABLE.test(t),
-  )) {
+  const bookkeeping = options.withBookkeepingRows
+    ? [...byTable.keys()].filter((t) => BOOKKEEPING_TABLE.test(t))
+    : [];
+  for (const table of bookkeeping) {
     // guard:allow-unbounded-read — release tooling dumping migration bookkeeping, never a request path
     const data = await rows(exec, `SELECT * FROM ${quoteIdent(table)}`);
     for (const row of data) {
@@ -155,7 +186,7 @@ export async function dumpSchemaSql(exec: DbExec): Promise<string> {
       );
     }
   }
-  return `${out.join("\n\n")}\n`;
+  return out;
 }
 
 /** Order-independent description of the schema, for comparing two databases. */

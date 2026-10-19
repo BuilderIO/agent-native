@@ -1,6 +1,7 @@
 import { OPS } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { describe, expect, it } from "vitest";
 
+import { convertToSlideHtml } from "./html-converter.js";
 import {
   annotateLineDecorations,
   applyPoint,
@@ -691,6 +692,43 @@ function fakeDoc(
 }
 
 describe("parsePdfFidelity: paint order", () => {
+  it("keeps PDF source leading without adding the PPTX line-height default", async () => {
+    const text = ["Heading", "Body"];
+    const doc = fakeDoc(
+      [OPS.showText, OPS.showText],
+      text.map((value) => [Array.from({ length: value.length }, () => ({}))]),
+      async () => ({
+        items: text.map((str, index) => ({
+          str,
+          transform: [12, 0, 0, 12, 10, 100 + index * 14],
+          width: str.length * 6,
+        })),
+      }),
+    );
+
+    const [page] = await parsePdfFidelity(doc, []);
+    const textElement = page.elements.find(
+      (element) => element.kind === "text",
+    );
+    expect(textElement?.kind).toBe("text");
+    if (textElement?.kind !== "text")
+      throw new Error("missing parsed PDF text");
+    expect(
+      textElement.paragraphs?.map((paragraph) => paragraph.lineSpacing),
+    ).toEqual([1, 1]);
+    expect(textElement.paragraphs?.[1]?.spaceBeforePt).toBeCloseTo(2);
+
+    const html = convertToSlideHtml({
+      texts: [],
+      images: [],
+      elements: [textElement],
+      widthEmu: page.widthEmu,
+      heightEmu: page.heightEmu,
+    });
+    expect(html.match(/line-height:1;/g)).toHaveLength(2);
+    expect(html).toContain("margin:10.8px 0 0px");
+  });
+
   it("sorts a later-painted image after earlier-painted text instead of always putting images first", async () => {
     const fnArray = [OPS.showText, OPS.transform, OPS.paintImageXObject];
     const argsArray = [[[{}, {}]], [100, 0, 0, 100, 10, 10], ["image-1"]];

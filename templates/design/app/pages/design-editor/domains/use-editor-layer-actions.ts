@@ -2,9 +2,13 @@ import { agentNativePath } from "@agent-native/core/client/api-path";
 import { type CodeLayerNode, type CodeLayerTreeNode } from "@shared/code-layer";
 import type { InteractionState } from "@shared/interaction-states";
 import { isRunningAppSourceType } from "@shared/source-mode";
-import { useState, useCallback, useRef, useMemo } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { toast } from "sonner";
 
+import {
+  parseSolidFillLayer,
+  splitCssLayers,
+} from "@/components/design/edit-panel/fill-gradient-helpers";
 import { type LayersPanelMoveIntent } from "@/components/design/LayersPanel";
 import {
   getInitialFrameGeometry,
@@ -26,8 +30,10 @@ import type {
 
 import {
   bridgeSourceIdForCodeLayerNode,
+  canonicalElementInfoForCodeLayerNode,
   elementInfoFromCodeLayerNode,
   findCodeLayerSiblingOrder,
+  hasSettledPortableStyles,
   preferredCodeLayerSelector,
 } from "../code-layer-state";
 import { runCanMoveLayer } from "../commands/can-move-layer";
@@ -54,6 +60,7 @@ import {
   measurePositionCoordinateContext,
   positionCoordinateRenderOffsetForWindow,
 } from "../position-coordinate-context";
+import { readRelativePositionStyles } from "../relative-position-offset";
 import {
   isScreenRootElementInfo,
   resolveMarqueeAdditive,
@@ -93,7 +100,9 @@ function readRenderedLayerInfo(
         preferredCodeLayerSelector(owner.node),
       );
       if (!element) continue;
-      const computed = preview.getComputedStyle(element);
+      const relativePosition = readRelativePositionStyles(element, (target) =>
+        preview.getComputedStyle(target),
+      );
       const parent = element.parentElement;
       const renderOffset = positionCoordinateRenderOffsetForWindow(preview);
       if (!renderOffset) continue;
@@ -115,9 +124,10 @@ function readRenderedLayerInfo(
         sourceLayerIdentity: { screenId: owner.fileId, nodeId: owner.node.id },
         computedStyles: {
           ...base.computedStyles,
-          position: computed.position,
-          zIndex: computed.zIndex,
+          ...relativePosition.computedStyles,
         },
+        relativeContainingBlockDirection:
+          relativePosition.relativeContainingBlockDirection,
         boundingRect: {
           x: rect.x + scrollX,
           y: rect.y + scrollY,
@@ -211,6 +221,7 @@ export function useEditorLayerActions({
     setSelectedLayerIdsState,
     renderedElementInfoByLayerKeyRef,
     renderedElementInfoRevisionRef,
+    setRenderedElementInfoVersion,
     rehydrateRenderedElementInfoRef,
     codeLayerOwnerByNodeIdRef,
     overviewSelectedScreenIds,
@@ -478,10 +489,17 @@ export function useEditorLayerActions({
   const inScreenBackgroundImage =
     selectedElement?.inlineStyles?.backgroundImage ??
     selectedElement?.computedStyles.backgroundImage;
+  const inScreenBackgroundLayers = splitCssLayers(
+    inScreenBackgroundImage ?? "",
+  );
+  const onlyBackgroundLayer =
+    inScreenBackgroundLayers.length === 1 ? inScreenBackgroundLayers[0] : null;
+  // The handles rewrite the whole value as one gradient; a solid layer is stored as a linear-gradient too.
   const inScreenGradientEditCssValue =
     inScreenGradientEditNodeId &&
-    inScreenBackgroundImage?.trim().startsWith("linear-gradient(")
-      ? inScreenBackgroundImage
+    onlyBackgroundLayer?.startsWith("linear-gradient(") &&
+    !parseSolidFillLayer(onlyBackgroundLayer)
+      ? onlyBackgroundLayer
       : null;
   const inScreenGradientEditTarget = useMemo<{
     screenId: string;
@@ -756,6 +774,9 @@ export function useEditorLayerActions({
           activeFile,
           applyFileContentUpdate,
           boardFileId,
+          canvasFrameGeometryById: getCanvasFrameGeometry(
+            designDataJsonRef.current,
+          ),
           codeLayerOwnerByNodeId,
           effectiveCodeLayerState,
           files,
@@ -968,9 +989,17 @@ export function useEditorLayerActions({
               measured.positionContainingBlockOrigin,
             positionContainingBlockTransform:
               measured.positionContainingBlockTransform,
+            relativeContainingBlockDirection:
+              measured.relativeContainingBlockDirection,
             computedStyles: {
               ...measured.computedStyles,
               ...current.computedStyles,
+              position: measured.computedStyles.position,
+              left: measured.computedStyles.left,
+              right: measured.computedStyles.right,
+              top: measured.computedStyles.top,
+              bottom: measured.computedStyles.bottom,
+              zIndex: measured.computedStyles.zIndex,
             },
           };
           return samePlainData(merged, current) ? current : merged;
@@ -1017,8 +1046,61 @@ export function useEditorLayerActions({
       });
     }
   }, []);
-  rehydrateRenderedElementInfoRef.current = () =>
+  const measureMultiSelectionLayers = useCallback((ids: string[]) => {
+    if (ids.length < 2) return;
+    const renderedRevision = renderedElementInfoRevisionRef.current;
+    const breakpointWidth = activeBreakpointWidthStateRef.current;
+    const currentBoardFileId = boardFileIdRef.current;
+    const measurements = ids.flatMap((layerId) => {
+      const owner = codeLayerOwnerByNodeIdRef.current.get(layerId);
+      if (!owner) return [];
+      const layerKey = `${owner.fileId}:${owner.node.id}`;
+      const cached = renderedElementInfoByLayerKeyRef.current.get(layerKey);
+      if (hasSettledPortableStyles(cached ?? null)) return [];
+      return [
+        requestSelectionMeasurement({
+          targetWindows: () =>
+            designPreviewWindowsForScreen(
+              owner.fileId,
+              breakpointWidth,
+              currentBoardFileId,
+            ),
+          screenId: owner.fileId,
+          selector: preferredCodeLayerSelector(owner.node),
+        }).then((measured) => {
+          if (
+            !measured ||
+            renderedElementInfoRevisionRef.current !== renderedRevision ||
+            codeLayerOwnerByNodeIdRef.current.get(layerId)?.node !== owner.node
+          ) {
+            return false;
+          }
+          renderedElementInfoByLayerKeyRef.current.set(
+            layerKey,
+            canonicalElementInfoForCodeLayerNode(
+              measured,
+              owner.node,
+              owner.fileId,
+            ),
+          );
+          return true;
+        }),
+      ];
+    });
+    if (measurements.length === 0) return;
+    void Promise.all(measurements).then((stored) => {
+      if (stored.includes(true)) {
+        setRenderedElementInfoVersion((version) => version + 1);
+      }
+    });
+  }, []);
+  useEffect(() => {
+    measureMultiSelectionLayers(selectedLayerIdsState);
+  }, [measureMultiSelectionLayers, selectedLayerIdsState]);
+  rehydrateRenderedElementInfoRef.current = () => {
     hydrateRenderedLayerInfoForIds(selectedLayerIdsStateRef.current);
+    measureMultiSelectionLayers(selectedLayerIdsStateRef.current);
+  };
 
   const handleLayerSelectionChange = useCallback(
     (

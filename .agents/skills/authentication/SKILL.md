@@ -22,7 +22,7 @@ Auth is powered by **Better Auth** with account-first design. Every new user cre
 | **Development (default)** | Real Better Auth — same flow as production. There is **no auth bypass**. On first run the framework auto-creates a throwaway dev account and signs you in without printing its credentials (disable with `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1`), so you are not stuck at a login wall. `getSession()` returns the signed-in user or `null` — it never falls back to a sentinel identity. |
 | **Production (default)**  | Magic-link-first Better Auth when outbound email is ready, with email/password fallback and social providers (Google, GitHub). Organizations built in. |
 | **`AUTH_MODE=local`**     | **Not** a browser auth bypass, and never returns `local@localhost`. It only affects CLI/agent identity: it lets `pnpm action` / the local agent loop auto-bind to the single real signed-in dev user from the `sessions` table (see `scripts/dev-session.ts`). Browser login is unchanged. |
-| **`AUTH_SKIP_EMAIL_VERIFICATION=1`** | QA/preview escape hatch for password-fallback accounts. Signup skips email verification and does not send the signup verification email. Local dev/test skips verification by default; set `AUTH_SKIP_EMAIL_VERIFICATION=0` only when testing verification itself. It does not change magic-link delivery. Use `+qa` emails for test accounts. |
+| **`AUTH_SKIP_EMAIL_VERIFICATION=1`** | QA/preview escape hatch for password-fallback accounts. Signup skips email verification and does not send the signup verification email. Local dev/test skips verification by default; set `AUTH_SKIP_EMAIL_VERIFICATION=0` only when testing verification itself. It does not change magic-link delivery. Give test accounts a test-identity address, such as `an-e2e-probe-you@example.com` or one containing `+qa-test-bot-` (the rule is `isTestIdentityEmail` in `packages/core/src/shared/qa-test-email.ts`), so they stay out of metrics. Test identities still get sign-in, verification, password-reset, and org-invitation mail, but no share notices or other app email. |
 | **`auth.requireEmailVerification`** | Declares the password-signup verification policy for any environment, production included, via `defineAppConfig({ auth: { requireEmailVerification: false } })` or `AUTH_REQUIRE_EMAIL_VERIFICATION=0`. A declared value outranks `AUTH_SKIP_EMAIL_VERIFICATION` and the per-environment default. `false` accepts an unverified address as a login credential; `true` with no email provider disables password signup instead of stranding accounts on a verification nobody can deliver. |
 | **`AUTH_MAGIC_LINK=0`** | Force the email/password fallback even when outbound email is ready. |
 | **`AUTH_DISABLED=true`** | Skip login/signup entirely — every request runs as `dev@local.test`. For local dev, cloud previews, and internal demos only; not for production with real users. |
@@ -117,6 +117,15 @@ Owners and admins can require Google sign-in for an organization from Team
 settings or `PUT /_agent-native/org/auth-provider` with `{ provider: "google" }`.
 Enabling it revokes current Better Auth and legacy sessions; password signup,
 password login, and non-Google social sessions are rejected for that org.
+
+Agents manage membership through two core actions in the `orgAdministration`
+tool group. `list-organization-members` reads members, and pending invitations for
+owners and admins. `invite-organization-member` sends one member invitation through the
+same path as Settings > Members. It emails a real person, so it sets
+`needsApproval: true` with `allowPersistentApproval: false`: every call asks the
+user, and "always allow" is not offered. It cannot grant admin; owners invite
+admins from settings. Role changes, removal, and revoking an invitation have no
+agent tool. Keep it that way unless the new tool follows the same approval rule.
 
 The active org flows automatically: `session.orgId` — resolved by `getOrgContext` from `org_members` plus the user's `active-org-id` setting (_not_ from a Better Auth session field) — → `AGENT_ORG_ID` → SQL scoping (see `security` skill).
 

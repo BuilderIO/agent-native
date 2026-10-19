@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { RunChunkControl } from "../agent/run-manager.js";
 import { startIntervalJob } from "../server/interval-job.js";
 import {
   getRequestOrgId,
@@ -19,6 +20,16 @@ import {
   MAX_AUTOMATION_TRIGGER_EVENT_FAILURES,
 } from "./event-queue.js";
 
+function createRunChunkControl(signal: AbortSignal): RunChunkControl {
+  return {
+    turnSignal: signal,
+    chunkSignal: signal,
+    chunkBoundaryReason: () => null,
+    beginChunk: () => signal,
+    flushEvents: async () => {},
+  };
+}
+
 const resourceListAllOwnersMock = vi.hoisted(() => vi.fn());
 const resourceFingerprintAllOwnersMock = vi.hoisted(() => vi.fn());
 // The fingerprint of the rows a scan read; the default matches the default
@@ -37,7 +48,7 @@ const getThreadMock = vi.hoisted(() =>
     messageCount: 0,
   })),
 );
-const updateThreadDataMock = vi.hoisted(() => vi.fn(async () => {}));
+const updateThreadDataMock = vi.hoisted(() => vi.fn(async () => true));
 const subscribeAllMock = vi.hoisted(() => vi.fn());
 const emitMock = vi.hoisted(() => vi.fn());
 const registerEventMock = vi.hoisted(() => vi.fn());
@@ -1179,6 +1190,7 @@ Respond to the event.`,
         runFn: (
           send: (event: unknown) => void,
           signal: AbortSignal,
+          control: RunChunkControl,
         ) => Promise<void>,
         onComplete?: (run: { status: string }) => void | Promise<void>,
       ) => {
@@ -1200,16 +1212,20 @@ Respond to the event.`,
             },
           ],
         };
-        void Promise.resolve().then(async () => {
+        const finalized = Promise.resolve().then(async () => {
           try {
-            await runFn(vi.fn(), abort.signal);
+            await runFn(
+              vi.fn(),
+              abort.signal,
+              createRunChunkControl(abort.signal),
+            );
             activeRun.status = "completed";
           } catch {
             activeRun.status = "errored";
           }
           await onComplete?.(activeRun);
         });
-        return activeRun;
+        return { ...activeRun, finalized };
       },
     );
     recordUsageMock.mockResolvedValue(undefined);

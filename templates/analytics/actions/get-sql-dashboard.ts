@@ -1,24 +1,29 @@
 import { defineAction, embedApp, fail } from "@agent-native/core";
 import {
-  currentRequestUserIsOrgAdmin,
-  getAppConfig,
   getRequestUserEmail,
   getRequestOrgId,
   buildDeepLink,
 } from "@agent-native/core/server";
 import { z } from "zod";
 
+import type {
+  DashboardAnnotations,
+  SqlPanel,
+} from "../app/pages/adhoc/sql-dashboard/types";
 import {
   buildDashboardAgentContext,
   buildDashboardSeedAgentContext,
   isAgentContextCaller,
 } from "../server/lib/agent-readable-resource-context";
 import { repairKnownFirstPartyDashboardQueries } from "../server/lib/canonical-first-party-dashboard-repair";
-import { loadDashboardSeed } from "../server/lib/dashboard-seeds";
-import {
-  getDashboard,
-  getDashboardForReview,
-} from "../server/lib/dashboards-store";
+import { loadDashboardAnnotationSummary } from "../server/lib/dashboard-annotation-reads";
+import { storedDashboardAnnotationScope } from "../server/lib/dashboard-annotation-scope";
+import { dataNotesForReader } from "../server/lib/dashboard-data-notes";
+import { getReviewedDashboard } from "../server/lib/dashboard-review-access";
+import { listDataNotes } from "../server/lib/data-notes-store";
+import { listKeyDateSets } from "../server/lib/key-dates-store";
+import { openDashboard } from "../server/lib/open-dashboard";
+import { drawsKeyDates, keyDateEvents } from "../shared/key-dates";
 
 export default defineAction({
   description:
@@ -90,57 +95,75 @@ export default defineAction({
       includeConfig: args.includeConfig === true,
       panelIds: args.panelIds,
       forAgent: isAgentContextCaller(actionContext?.caller),
+      reviewPreview: args.reviewPreview === true,
     };
 
-    let dash;
-    if (args.reviewPreview) {
-      if (!orgId || !(await currentRequestUserIsOrgAdmin(orgId))) {
-        fail(
-          "Only organization owners and admins can preview reviewed dashboards.",
-          { statusCode: 403 },
-        );
-      }
-      const superOrgId = getAppConfig().observability.superOrgId;
-      const isSuperOrg = superOrgId === orgId;
-      const targetOrgId = isSuperOrg ? args.reviewOrgId : orgId;
-      if (!targetOrgId) {
-        fail(
-          "A customer organization is required for this dashboard preview.",
-          {
-            statusCode: 400,
-          },
-        );
-      }
-      dash = await getDashboardForReview(
-        args.id,
-        isSuperOrg
-          ? { kind: "super-organization", orgId: targetOrgId }
-          : { kind: "organization", orgId: targetOrgId },
-      );
-    } else {
-      dash = await getDashboard(args.id, ctx);
-    }
-    if (args.reviewPreview && (!dash || dash.kind !== "sql")) {
-      fail("Dashboard not found.", { statusCode: 404 });
+    const opened = args.reviewPreview
+      ? null
+      : await openDashboard(args.id, ctx);
+    const dash = args.reviewPreview
+      ? await getReviewedDashboard(args.id, orgId, args.reviewOrgId)
+      : opened?.saved;
+    const builtin = opened?.builtin;
+    if (builtin) {
+      // `id` is the built-in's, so a page opened at an old copy's id
+      // can move to the built-in's URL.
+      return {
+        ...buildDashboardSeedAgentContext(builtin.id, builtin.config, {
+          ...detail,
+          annotationSummary: detail.forAgent
+            ? await loadDashboardAnnotationSummary(
+                { scope: ctx, editable: true },
+                builtin.id,
+                builtin.config,
+              )
+            : undefined,
+        }),
+        role: "viewer",
+        canEdit: false,
+        canManage: false,
+        revision: builtin.version,
+        builtin: { id: builtin.id, version: builtin.version },
+        ...(builtin.id !== args.id ? { requestedId: args.id } : {}),
+      };
     }
     if (!dash || dash.kind !== "sql") {
-      const seed = loadDashboardSeed(args.id);
-      if (seed) {
-        const config = repairKnownFirstPartyDashboardQueries(
-          args.id,
-          seed,
-        ).config;
-        return buildDashboardSeedAgentContext(args.id, config, detail);
-      }
-      throw Object.assign(new Error("Dashboard not found"), {
-        statusCode: 404,
-      });
+      fail("Dashboard not found.", { statusCode: 404 });
     }
     const dashboard = {
       ...dash,
       config: repairKnownFirstPartyDashboardQueries(args.id, dash.config)
         .config,
     };
-    return buildDashboardAgentContext(dashboard, detail);
+    const annotationScope = storedDashboardAnnotationScope(dashboard, ctx);
+    const context = buildDashboardAgentContext(dashboard, {
+      ...detail,
+      annotationSummary: detail.forAgent
+        ? await loadDashboardAnnotationSummary(
+            annotationScope,
+            args.id,
+            dashboard.config as Record<string, unknown>,
+          )
+        : undefined,
+    });
+    // The preview UI draws every record; an agent gets the bounded summary.
+    if (!args.reviewPreview || detail.forAgent) return context;
+    // The reviewer may be in another organization, so list-key-dates and
+    // list-data-notes would return theirs, not the ones this dashboard draws.
+    const [sets, notes] = await Promise.all([
+      listKeyDateSets(annotationScope.scope),
+      listDataNotes(annotationScope.scope),
+    ]);
+    const config = dashboard.config as {
+      panels?: SqlPanel[];
+      annotations?: DashboardAnnotations;
+    };
+    return {
+      ...context,
+      keyDates: drawsKeyDates(config.panels ?? [])
+        ? keyDateEvents(sets, config.annotations)
+        : [],
+      dataNotes: dataNotesForReader(notes, dashboard),
+    };
   },
 });

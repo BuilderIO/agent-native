@@ -2084,9 +2084,11 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       }) as DOMRect;
     Object.defineProperty(iframe, "clientWidth", { value: 800 });
     Object.defineProperty(iframe, "clientHeight", { value: 600 });
-    Object.defineProperty(iframeDocument, "elementFromPoint", {
+    Object.defineProperty(iframeDocument, "elementsFromPoint", {
       configurable: true,
-      value: () => iframeDocument.querySelector("[data-agent-native-node-id]"),
+      value: () => [
+        iframeDocument.querySelector("[data-agent-native-node-id]"),
+      ],
     });
     canvas.appendChild(iframe);
 

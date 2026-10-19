@@ -143,6 +143,32 @@ export function overviewSelectionTargetsElement(args: {
   );
 }
 
+export function overviewNudgeTargetsElement(args: {
+  targetScreenIds: readonly string[];
+  explicitScreenIds: readonly string[];
+  selectedElement: ElementInfo | null | undefined;
+  selectedLayerIds: readonly string[];
+  fileIds: readonly string[];
+}): boolean {
+  const explicitScreenIds = new Set(args.explicitScreenIds);
+  if (
+    args.targetScreenIds.length > 0 &&
+    args.targetScreenIds.every((screenId) => explicitScreenIds.has(screenId))
+  ) {
+    return false;
+  }
+  return overviewSelectionTargetsElement(args);
+}
+
+export function getMarqueeScreenSelectionIds(args: {
+  additive: boolean;
+  baseSelectedScreenIds: readonly string[];
+  hitScreenIds: readonly string[];
+}): string[] {
+  if (!args.additive) return [...new Set(args.hitScreenIds)];
+  return [...new Set([...args.baseSelectedScreenIds, ...args.hitScreenIds])];
+}
+
 export function shouldMirrorSelectedElementToAgentChat(
   info: ElementInfo | null | undefined,
 ): info is ElementInfo {
@@ -418,13 +444,22 @@ export function shouldEscapeToOverview(args: {
   mode: EditorMode;
   pinMode: boolean;
   selectedElement: ElementInfo | null;
+  selectedLayerIds: readonly string[];
   viewMode: "single" | "overview";
 }) {
-  const { activeTool, drawMode, mode, pinMode, selectedElement, viewMode } =
-    args;
+  const {
+    activeTool,
+    drawMode,
+    mode,
+    pinMode,
+    selectedElement,
+    selectedLayerIds,
+    viewMode,
+  } = args;
   return (
     viewMode === "single" &&
     !selectedElement &&
+    selectedLayerIds.length === 0 &&
     !drawMode &&
     !pinMode &&
     mode === "edit" &&

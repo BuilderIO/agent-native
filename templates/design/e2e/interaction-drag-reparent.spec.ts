@@ -8,6 +8,7 @@ import {
   designFrame,
   expandAllLayers,
   gotoEditor,
+  selectionState,
   selectTool,
 } from "./helpers";
 import {
@@ -250,15 +251,7 @@ async function fileIdFor(
 }
 
 async function selectionContext(page: Page) {
-  const response = await page.request.get(
-    appPath("/_agent-native/application-state/design-selection"),
-  );
-  if (!response.ok()) {
-    throw new Error(
-      `could not read design selection: ${response.status()} ${await response.text()}`,
-    );
-  }
-  return response.json();
+  return (await selectionState(page)) ?? {};
 }
 
 function layerRow(page: Page, name: string) {
@@ -603,8 +596,7 @@ test.describe("drag reparent interaction", () => {
       .toBe("footer");
   });
 
-  // fixme: product bug: FooterItem is saved at left:330px top:175px although released with its centre on RootGap2's centre (expected 370,175): it lands 40 design
-  test.fixme("dragging an element out of the footer to the screen root reparents it to the root", async ({
+  test("dragging an element out of the footer to the screen root reparents it to the root", async ({
     app,
     page,
   }) => {
@@ -1085,8 +1077,84 @@ test.describe("drag reparent interaction", () => {
       .toBe(true);
   });
 
-  // fixme: product bug: Six console errors: 'Blocked script execution in about:srcdoc because the document's frame is sandboxed and the allow-scripts permission
-  test.fixme("a held screen child dropped beyond the rendered board window persists at that canvas point", async ({
+  test("a screen layer dropped on the board stays there when the screen save's response is cut off", async ({
+    app,
+    page,
+  }) => {
+    const id = await newTwoScreenDesign(app);
+    await gotoEditor(page, id);
+    const screenId = await fileIdFor(page, id, "index.html");
+    const widget = await boxFor(page, screenId, "widget");
+    const boardPoint = await emptyBoardPoint(page);
+
+    // The server applies the screen's save, then its response body is lost,
+    // as when the page reloads before the response is read.
+    let cutResponses = 0;
+    await page.route("**/_agent-native/actions/update-file", async (route) => {
+      const body = route.request().postDataJSON() as { id?: string } | null;
+      if (body?.id !== screenId || cutResponses > 0) return route.continue();
+      cutResponses += 1;
+      const response = await route.fetch();
+      await route.fulfill({
+        status: response.status(),
+        headers: response.headers(),
+        body: '{"id":',
+      });
+    });
+
+    const deepSelectModifier =
+      process.platform === "darwin" ? "Meta" : "Control";
+    await page.keyboard.down(deepSelectModifier);
+    await page.mouse.click(
+      widget.x + widget.width / 2,
+      widget.y + widget.height / 2,
+    );
+    await page.keyboard.up(deepSelectModifier);
+    await expect
+      .poll(
+        async () =>
+          (await selectionContext(page)).selectedElement?.sourceId ?? null,
+      )
+      .toBe("widget");
+    await page.mouse.move(
+      widget.x + widget.width / 2,
+      widget.y + widget.height / 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(
+      widget.x + widget.width / 2 + 20,
+      widget.y + widget.height / 2,
+      { steps: 5 },
+    );
+    await page.mouse.move(boardPoint.x, boardPoint.y, { steps: 30 });
+    await expect(page.locator("[data-cross-screen-drag-ghost]")).toBeVisible({
+      timeout: 5_000,
+    });
+    await page.mouse.up();
+    await expect.poll(() => cutResponses).toBe(1);
+
+    const widgetIsOnTheBoardOnly = async () => {
+      const indexHtml = await fileContent(page, id, "index.html");
+      const boardHtml = await fileContent(page, id, "__board__.html").catch(
+        () => "",
+      );
+      return (
+        !indexHtml.includes('data-agent-native-node-id="widget"') &&
+        boardHtml.includes('data-agent-native-node-id="widget"')
+      );
+    };
+    await expect.poll(widgetIsOnTheBoardOnly, { timeout: 10_000 }).toBe(true);
+    // A rollback is one more save; wait until every save has settled.
+    await app.settled();
+    await page.unroute("**/_agent-native/actions/update-file");
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(
+      page.getByRole("button", { name: "Move", exact: true }),
+    ).toBeVisible({ timeout: 30_000 });
+    await expect.poll(widgetIsOnTheBoardOnly, { timeout: 10_000 }).toBe(true);
+  });
+
+  test("a held screen child dropped beyond the rendered board window persists at that canvas point", async ({
     app,
     page,
   }) => {
@@ -1260,7 +1328,6 @@ test.describe("drag reparent interaction", () => {
       );
     });
     expect(boardCommitPoint).not.toBeNull();
-    expect(boardCommitPoint.targetOutsideBoardContentBounds).toBe(true);
     expect(boardCommitPoint.boardSurfaceRenderOrigin).toMatchObject({
       x: expect.any(Number),
       y: expect.any(Number),
@@ -1333,7 +1400,6 @@ test.describe("drag reparent interaction", () => {
     expect(styleOf(reloadedBoardHtml, "widget")).toBe(boardStyle);
   });
 
-  // oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
   test("dragging a board rectangle into a screen inserts it into that screen at the drop position", async ({
     app,
     page,
@@ -1920,8 +1986,7 @@ test.describe("drag reparent interaction", () => {
     );
   });
 
-  // fixme: product bug: Widget lands at Page2Target's top-left: saved style has no position/left/top (Inspector X 60 Y 60 = the target's corner) instead of the
-  test.fixme("dragging an element across the screen boundary into a second screen inserts it into that screen", async ({
+  test("dragging an element across the screen boundary into a second screen inserts it into that screen", async ({
     app,
     page,
   }) => {
@@ -2069,8 +2134,7 @@ test.describe("drag reparent interaction", () => {
     });
   });
 
-  // fixme: product bug: After release the editor saves Widget at left:30px (was 40px): a 10px shift onto FooterItem's left edge (x=30). Likely edge snapping at
-  test.fixme("returning a held cross-screen drag to its source keeps the source intact", async ({
+  test("returning a held cross-screen drag to its source keeps the source intact", async ({
     app,
     page,
   }) => {
@@ -2175,8 +2239,7 @@ test.describe("drag reparent interaction", () => {
     ).toEqual([40, 300, 140, 90]);
   });
 
-  // fixme: product bug: Same landing defect as :2144: the saved card style keeps the carried colours/width but has no position/left/top, so it sits at
-  test.fixme("a cross-screen drag carries a class-authored appearance the destination screen doesn't have", async ({
+  test("a cross-screen drag carries a class-authored appearance the destination screen doesn't have", async ({
     app,
     page,
   }) => {

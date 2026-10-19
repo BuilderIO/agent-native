@@ -11,6 +11,11 @@ export interface FirstRunOnboardingExtension {
   component: ComponentType<FirstRunOnboardingExtensionProps>;
   placement?: "before-setup" | "after-setup";
   stepCount?: number;
+  /**
+   * True when the extension's steps offer a skip. Step events carry it as
+   * `optional`, so Analytics funnels don't count a skip as drop-off.
+   */
+  optional?: boolean;
 }
 
 let extensions: FirstRunOnboardingExtension[] = [];

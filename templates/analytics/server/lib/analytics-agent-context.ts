@@ -206,6 +206,8 @@ function candidateContent(candidate: AnalyticsQueryCatalogCandidate): string {
           status: candidate.status,
           approved: candidate.approved,
           aiGenerated: candidate.aiGenerated,
+          sourceKind: candidate.sourceKind,
+          semanticModel: candidate.semanticModel,
         },
       ]),
       candidate.semanticScope

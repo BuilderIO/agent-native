@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 let lastExecArgs: string[] = [];
+let ffmpegExitCode = 0;
+let readFileCount = 0;
+let deletedFiles: string[] = [];
+let deleteFileFailure: Error | null = null;
 const originalDocument = (globalThis as { document?: unknown }).document;
 
 class FakeFfmpeg {
@@ -22,14 +26,18 @@ class FakeFfmpeg {
     lastExecArgs = args;
     this.handlers.get("log")?.({ message: "frame=12 fps=30" });
     this.handlers.get("progress")?.({ progress: 0.42 });
-    return 0;
+    return ffmpegExitCode;
   }
 
   async readFile(): Promise<Uint8Array> {
+    readFileCount += 1;
     return new Uint8Array([1, 2, 3]);
   }
 
-  async deleteFile(): Promise<void> {}
+  async deleteFile(name: string): Promise<void> {
+    deletedFiles.push(name);
+    if (deleteFileFailure) throw deleteFileFailure;
+  }
 }
 
 vi.mock("@ffmpeg/ffmpeg", () => ({ FFmpeg: FakeFfmpeg }));
@@ -49,6 +57,10 @@ const originalWindow = (globalThis as { window?: unknown }).window;
 
 afterEach(() => {
   lastExecArgs = [];
+  ffmpegExitCode = 0;
+  readFileCount = 0;
+  deletedFiles = [];
+  deleteFileFailure = null;
   resetFfmpegInstance();
   if (originalDocument === undefined) {
     Reflect.deleteProperty(globalThis, "document");
@@ -153,5 +165,51 @@ describe("exportMp4 progress", () => {
     expect(updates.every((progress) => progress.progress >= 0)).toBe(true);
     expect(updates.every((progress) => progress.progress <= 1)).toBe(true);
     expect(updates.find((progress) => progress.message)?.progress).toBe(0);
+  });
+
+  it("rejects a failed ffmpeg command and removes its temporary files", async () => {
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {},
+    });
+    ffmpegExitCode = 1;
+
+    await expect(
+      exportMp4(
+        {
+          id: "rec-1",
+          videoUrl: "/api/video/rec-1",
+          durationMs: 1_000,
+          videoFormat: "webm",
+        },
+        null,
+      ),
+    ).rejects.toThrow("ffmpeg MP4 export failed with exit code 1");
+
+    expect(readFileCount).toBe(0);
+    expect(deletedFiles).toEqual(["input.webm", "output.mp4"]);
+  });
+
+  it("surfaces temporary-file cleanup failures after a successful export", async () => {
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {},
+    });
+    deleteFileFailure = new Error("worker stopped before cleanup");
+
+    await expect(
+      exportMp4(
+        {
+          id: "rec-1",
+          videoUrl: "/api/video/rec-1",
+          durationMs: 1_000,
+          videoFormat: "webm",
+        },
+        null,
+      ),
+    ).rejects.toThrow("Failed to clean up ffmpeg export files");
+
+    expect(readFileCount).toBe(1);
+    expect(deletedFiles).toEqual(["input.webm", "output.mp4"]);
   });
 });

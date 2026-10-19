@@ -17,6 +17,7 @@ import type {
   MotionAnimationStyleMetadata,
   MotionAnimationStyleTrackDefinition,
 } from "@shared/motion-animation-styles";
+import type { MotionBuiltInRecipe } from "@shared/motion-built-in-recipes";
 import type { MotionAudioClip } from "@shared/motion-code";
 import type { MotionEasingVariable } from "@shared/motion-easing";
 import type {
@@ -206,6 +207,7 @@ import type { TextContrastContext } from "./edit-panel/text-contrast";
 import {
   mergeRotationValue,
   normalizeRotationDegrees,
+  sharedRotationValue,
 } from "./edit-panel/transform-helpers";
 import {
   displayFontFamilyName,
@@ -495,6 +497,7 @@ interface EditPanelProps {
   componentInstanceHasLocalOverrides?: boolean;
   onResetComponentInstanceOverrides?: (nodeId: string) => void;
   onRestoreComponent?: (nodeId: string) => void;
+  onGoToMainComponent?: () => void;
   componentSwapPickerRequest?: number;
   sourceCapabilities?: string[];
   onCreateComponent?: (name: string) => void;
@@ -544,6 +547,7 @@ interface EditPanelProps {
   motionAnimationStyles?: MotionAnimationStyleDefinition[];
   motionAnimationStyleTargetTracks?: MotionAnimationStyleTrackDefinition[];
   onApplyMotionAnimationStyle?: (style: MotionAnimationStyleDefinition) => void;
+  onApplyMotionRecipe?: (recipe: MotionBuiltInRecipe) => void;
   onSaveMotionAnimationStyle?: (
     metadata: MotionAnimationStyleMetadata,
     tracks: MotionAnimationStyleTrackDefinition[],
@@ -2107,6 +2111,7 @@ function GroupFillProperties({
       documentColorPalette={documentColors}
       hideAddFill={disabled}
       cancelOpacityGestureOnHistoryUndo={!disabled}
+      allowDesignHistoryHotkeys={!disabled}
       onAddFill={onAddFill}
       uploadScopeKey={uploadScopeKey}
     />
@@ -2242,6 +2247,7 @@ export const EditPanel = memo(function EditPanel({
   componentInstanceHasLocalOverrides = false,
   onResetComponentInstanceOverrides,
   onRestoreComponent,
+  onGoToMainComponent,
   componentSwapPickerRequest,
   sourceCapabilities = [],
   onCreateComponent,
@@ -2274,6 +2280,7 @@ export const EditPanel = memo(function EditPanel({
   motionAnimationStyles = [],
   motionAnimationStyleTargetTracks = [],
   onApplyMotionAnimationStyle,
+  onApplyMotionRecipe,
   onSaveMotionAnimationStyle,
   onCreateMotionTextAnimation,
   motionTextAnimations,
@@ -2307,6 +2314,27 @@ export const EditPanel = memo(function EditPanel({
     useState(false);
   const [animationStyleBrowserOpen, setAnimationStyleBrowserOpen] =
     useState(false);
+  const animationStyleBrowserTriggerRef = useRef<HTMLButtonElement | null>(
+    null,
+  );
+  const [animationStyleBrowserSideOffset, setAnimationStyleBrowserSideOffset] =
+    useState(0);
+  const handleAnimationStyleBrowserOpenChange = useCallback((open: boolean) => {
+    if (open) {
+      const trigger = animationStyleBrowserTriggerRef.current;
+      const section = trigger?.closest<HTMLElement>(
+        "[data-design-inspector-section]",
+      );
+      if (trigger && section) {
+        setAnimationStyleBrowserSideOffset(
+          trigger.getBoundingClientRect().left -
+            section.getBoundingClientRect().left +
+            2,
+        );
+      }
+    }
+    setAnimationStyleBrowserOpen(open);
+  }, []);
 
   const effectiveSelectedElements = useMemo(
     () =>
@@ -2331,6 +2359,13 @@ export const EditPanel = memo(function EditPanel({
       breakpointContext?.upperBoundPx,
       effectiveSelectedElements,
     ],
+  );
+  const sharedSelectionRotation = useMemo(
+    () =>
+      effectiveSelectedElements.length > 1
+        ? sharedRotationValue(effectiveSelectedElements)
+        : undefined,
+    [effectiveSelectedElements],
   );
   const inspectorElement = useMemo(() => {
     const element =
@@ -2389,6 +2424,8 @@ export const EditPanel = memo(function EditPanel({
     inspectorElement?.sourceLayerIdentity?.screenId ?? fileId;
   const glslShaderContext: GlslShaderPanelContext | undefined = useMemo(() => {
     if (!designId || !shaderFileId || selectedCount > 1) return undefined;
+    // A screen deleted while selected is gone; reading it would 404.
+    if (!files?.some((file) => file.id === shaderFileId)) return undefined;
     const nodeId = inspectorElement?.sourceId;
     if (!nodeId) return undefined;
     const base = {
@@ -2457,6 +2494,7 @@ export const EditPanel = memo(function EditPanel({
       const screenFileId = selectedScreenGeometry?.id;
       const nodeId = selectedScreenElement?.sourceId;
       if (!designId || !screenFileId || !nodeId) return undefined;
+      if (!files?.some((file) => file.id === screenFileId)) return undefined;
       return {
         designId,
         fileId: screenFileId,
@@ -2467,6 +2505,7 @@ export const EditPanel = memo(function EditPanel({
       };
     }, [
       designId,
+      files,
       selectedScreenGeometry?.id,
       selectedScreenElement?.sourceId,
       selectedScreenElement?.selector,
@@ -2927,6 +2966,7 @@ export const EditPanel = memo(function EditPanel({
                         ? () => onRestoreComponent(componentNodeId)
                         : undefined
                     }
+                    onGoToMainComponent={onGoToMainComponent}
                     onComponentPropApplied={onComponentPropApplied}
                     sourceCapabilities={sourceCapabilities}
                   />
@@ -3106,17 +3146,20 @@ export const EditPanel = memo(function EditPanel({
                         title={t("designEditor.motion.animations")}
                         actions={
                           motionSelectedTarget ? (
-                            <div className="flex items-center gap-1">
+                            <div className="flex -translate-x-[11px] items-center gap-1">
                               <Popover
                                 open={animationStyleBrowserOpen}
-                                onOpenChange={setAnimationStyleBrowserOpen}
+                                onOpenChange={
+                                  handleAnimationStyleBrowserOpenChange
+                                }
                               >
                                 <PopoverTrigger asChild>
                                   <Button
                                     type="button"
+                                    ref={animationStyleBrowserTriggerRef}
                                     size="sm"
                                     variant="ghost"
-                                    className="h-6 px-2 text-[11px]"
+                                    className="h-6 w-6 px-0 text-[11px]"
                                     aria-label={t(
                                       "designEditor.motion.animationStyles.title",
                                     )}
@@ -3130,11 +3173,12 @@ export const EditPanel = memo(function EditPanel({
                                   </Button>
                                 </PopoverTrigger>
                                 <PopoverContent
-                                  align="end"
+                                  align="start"
                                   side="left"
-                                  className="w-[244px] p-0"
+                                  sideOffset={animationStyleBrowserSideOffset}
+                                  className="h-[min(485px,calc(100dvh-4rem))] w-[240px] overflow-hidden p-0"
                                 >
-                                  <div className="h-[min(480px,calc(100dvh-4rem))]">
+                                  <div className="h-full min-h-0 overflow-hidden">
                                     <AnimationStyleBrowser
                                       styles={motionAnimationStyles}
                                       basicStyles={getMotionDockPrimaryStyles(
@@ -3147,6 +3191,9 @@ export const EditPanel = memo(function EditPanel({
                                       onApply={(style) => {
                                         onApplyMotionAnimationStyle?.(style);
                                       }}
+                                      onApplyRecipe={(recipe) =>
+                                        onApplyMotionRecipe?.(recipe)
+                                      }
                                       onApplyPreset={(style) =>
                                         onCreateMotionStyle?.(style)
                                       }
@@ -3232,6 +3279,7 @@ export const EditPanel = memo(function EditPanel({
                       element={
                         stateResolvedInspectorElement ?? inspectorElement
                       }
+                      sharedRotation={sharedSelectionRotation}
                       onStyleChange={onStyleChange}
                       onStylesChange={onStylesChange}
                       onAlignSelection={onAlignSelection}

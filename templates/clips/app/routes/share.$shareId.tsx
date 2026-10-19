@@ -63,6 +63,7 @@ import { ClipsAvatar } from "@/components/clips-avatar";
 import { PageBreadcrumb, PageHeader } from "@/components/library/page-header";
 import { RecordingContextSection } from "@/components/lookback/recording-context-panel";
 import { AccessPasswordPrompt } from "@/components/player/access-password-prompt";
+import { ChapterList } from "@/components/player/chapter-list";
 import { ClipAgentWebMcp } from "@/components/player/clip-agent-webmcp";
 import { ClipsShareTrigger } from "@/components/player/clips-share-trigger";
 import { CommentsPanel } from "@/components/player/comments-panel";
@@ -831,6 +832,13 @@ export default function ShareRoute() {
   });
 
   const recording = dataQ.data?.data?.recording;
+  const hostedFailureCode = (recording as any)?.failureCode;
+  const localizedHostedFailure =
+    hostedFailureCode === "global_storage_cap"
+      ? t("clipsFinalRaw.hostedStorageFull")
+      : hostedFailureCode === "taken_down"
+        ? t("clipsFinalRaw.hostedRecordingTakenDown")
+        : null;
   useEffect(() => {
     if (recording && !recording.enableComments) {
       // Functional update so this branch doesn't need `panel` as a
@@ -1517,7 +1525,9 @@ export default function ShareRoute() {
     const signInHref = buildSignInReturnHref({
       returnTo: appPath(`/r/${recording.id}`),
     });
-    const detail = failureDetail(rawFailureReason);
+    const detail = localizedHostedFailure
+      ? null
+      : failureDetail(rawFailureReason);
     const label = storageSetupFailure
       ? t("sharePage.connectStorageFinish")
       : stuckFailure
@@ -1538,7 +1548,9 @@ export default function ShareRoute() {
           ? t("sharePage.uploadNotCompleteSession")
           : t("sharePage.uploadNotCompleteSignIn")
         : explicitFailure
-          ? (rawFailureReason ?? t("sharePage.creatorMayRetry"))
+          ? (localizedHostedFailure ??
+            rawFailureReason ??
+            t("sharePage.creatorMayRetry"))
           : t("sharePage.uploadingAssembling");
     const canDownloadLocalCopy = isFailure && viewerIsOwner && !isImage;
 
@@ -1968,6 +1980,19 @@ export default function ShareRoute() {
                   ) : null}
                 </div>
               ) : null}
+              {isImage ? null : (
+                <ChapterList
+                  key={recording.id}
+                  recordingId={recording.id}
+                  chapters={chapters}
+                  mediaUpdatedAt={recording.mediaUpdatedAt ?? ""}
+                  updatedAt={recording.updatedAt ?? ""}
+                  editsJson={recording.editsJson}
+                  durationMs={recording.durationMs}
+                  canEdit={false}
+                  onSeek={(ms) => playerRef.current?.seek(ms)}
+                />
+              )}
             </section>
           </div>
         </main>

@@ -69,7 +69,6 @@ function runStoredCrossScreenDrop(args: {
   sourceContent: string;
   destinationContent: string;
   boardFileId?: string;
-  refusePersistFalseFor?: string[];
   drop: Parameters<typeof runCrossScreenElementDrop>[1];
   publish?: Parameters<
     typeof runCrossScreenElementDrop
@@ -126,12 +125,6 @@ function runStoredCrossScreenDrop(args: {
     >[2],
   ) => {
     if (options?.persist === false) cancelledFileIds.push(fileId);
-    if (
-      options?.persist === false &&
-      args.refusePersistFalseFor?.includes(fileId)
-    ) {
-      return { status: "refused" as const };
-    }
     const result =
       options?.persist === false
         ? { ...acceptFixture(fileId, content), saveCompletion: undefined }
@@ -398,21 +391,21 @@ describe("shouldAbsolutePlaceOnEmptyScreen", () => {
 });
 
 describe("absolutePlacePointForDrop", () => {
-  it("uses the pointer on an empty screen even when a stale anchor rect is present", () => {
+  it("uses the pointer on an empty screen even when a stale absolute origin is present", () => {
     expect(
       absolutePlacePointForDrop({
         placeAbsoluteOnEmptyScreen: true,
-        targetAnchorRect: { left: 180, top: 240 },
+        targetAbsoluteOrigin: { left: 180, top: 240 },
         targetLocalPoint: { x: 180, y: 240 },
       }),
     ).toEqual({ x: 180, y: 240 });
   });
 
-  it("subtracts the anchor origin when placing into a positioned container", () => {
+  it("subtracts the absolute origin when placing into a container", () => {
     expect(
       absolutePlacePointForDrop({
         placeAbsoluteOnEmptyScreen: false,
-        targetAnchorRect: { left: 100, top: 50 },
+        targetAbsoluteOrigin: { left: 100, top: 50 },
         targetLocalPoint: { x: 180, y: 240 },
       }),
     ).toEqual({ x: 80, y: 190 });
@@ -608,6 +601,40 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
     expect(result.clearExplicitOverviewScreenSelection).toHaveBeenCalledOnce();
   });
 
+  it("clears the source Screen's selection once the copy lands in another Screen", () => {
+    const sourceFrame = document.createElement("iframe");
+    sourceFrame.setAttribute("data-screen-iframe-id", "source");
+    document.body.appendChild(sourceFrame);
+    const postMessage = vi.spyOn(sourceFrame.contentWindow!, "postMessage");
+    try {
+      const result = runStoredCrossScreenDrop({
+        sourceContent: `<html><body><div data-agent-native-node-id="source">Source</div></body></html>`,
+        destinationContent: `<html><body><main data-agent-native-node-id="frame"></main></body></html>`,
+        drop: {
+          sourceSelector: '[data-agent-native-node-id="source"]',
+          sourceNodeId: "source",
+          sourceScreenId: "source",
+          targetScreenId: "target",
+          targetAnchorNodeId: "frame",
+          targetAnchorSelector: '[data-agent-native-node-id="frame"]',
+          targetAnchorProvenance: { uniqueNodeId: "frame" },
+          targetAnchorPlacement: "inside",
+          targetDropMode: "flow-insert",
+          duplicate: true,
+          sourceCloneHtml: '<div data-agent-native-node-id="copy">Copy</div>',
+        },
+      });
+
+      expect(result.writes.get("target")).toContain("Copy");
+      expect(postMessage).toHaveBeenCalledWith(
+        { type: "clear-selection" },
+        "*",
+      );
+    } finally {
+      sourceFrame.remove();
+    }
+  });
+
   it("links an inline duplicate into another Screen in the same Design", () => {
     const designId = "design-1";
     const sourceContent = `<!doctype html><html><body>
@@ -777,7 +804,7 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
             row: 2,
             rowEnd: 3,
           },
-          targetAnchorRect: { left: 100, top: 50, width: 400, height: 300 },
+          targetAbsoluteOrigin: { left: 100, top: 50 },
           targetLocalPoint: { x: 240, y: 300 },
           sourcePointerOffset: { x: 10, y: 12 },
           duplicate: true,
@@ -852,7 +879,7 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
         targetAnchorSelector: '[data-agent-native-node-id="frame-1"]',
         targetAnchorPlacement: "inside",
         targetDropMode: "absolute-container",
-        targetAnchorRect: { left: 100, top: 50, width: 400, height: 300 },
+        targetAbsoluteOrigin: { left: 100, top: 50 },
         targetLocalPoint: { x: 240, y: 300 },
         sourcePointerOffset: { x: 10, y: 12 },
         targetAnchorProvenance: { uniqueNodeId: "frame-1" },
@@ -1004,7 +1031,7 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
         targetAnchorProvenance: { uniqueNodeId: "frame-1" },
         targetAnchorPlacement: "inside",
         targetDropMode: "absolute-container",
-        targetAnchorRect: { left: 100, top: 50, width: 400, height: 300 },
+        targetAbsoluteOrigin: { left: 100, top: 50 },
         targetLocalPoint: { x: 240, y: 300 },
         sourcePointerOffset: { x: 10, y: 12 },
         duplicate: true,
@@ -1049,7 +1076,7 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
         targetAnchorProvenance: { uniqueNodeId: "frame-1" },
         targetAnchorPlacement: "inside",
         targetDropMode: "absolute-container",
-        targetAnchorRect: { left: 100, top: 50, width: 400, height: 300 },
+        targetAbsoluteOrigin: { left: 100, top: 50 },
         targetLocalPoint: { x: 240, y: 300 },
         duplicate: true,
         sourceCloneHtml,
@@ -1097,7 +1124,6 @@ describe("runCrossScreenElementDrop ordinary move routing", () => {
         targetScreenId: "target",
         targetDropMode: "absolute-container",
         targetCanvasPoint,
-        targetOutsideBoardContentBounds: true,
         targetLocalPoint,
         sourcePointerOffset,
       },
@@ -1115,9 +1141,13 @@ describe("runCrossScreenElementDrop ordinary move routing", () => {
     );
   });
 
-  it("keeps render-window-local coordinates for an in-window board drop", () => {
-    const targetCanvasPoint = { x: 8_276, y: 5_000 };
-    const targetLocalPoint = { x: 84, y: 904 };
+  it("persists an unanchored drop inside board content in canvas coordinates, not render-window-local ones", () => {
+    const renderOrigin = { x: -4_096, y: -4_096 };
+    const targetCanvasPoint = { x: 912, y: 764 };
+    const targetLocalPoint = {
+      x: targetCanvasPoint.x - renderOrigin.x,
+      y: targetCanvasPoint.y - renderOrigin.y,
+    };
     const sourcePointerOffset = { x: 32, y: 12 };
     const sourceContent = `<!DOCTYPE html><html><body><div data-agent-native-node-id="widget" style="position:absolute;left:10px;top:20px;width:64px;height:32px">Widget</div></body></html>`;
     const { writes } = runStoredCrossScreenDrop({
@@ -1132,7 +1162,6 @@ describe("runCrossScreenElementDrop ordinary move routing", () => {
         targetScreenId: "target",
         targetDropMode: "absolute-container",
         targetCanvasPoint,
-        targetOutsideBoardContentBounds: false,
         targetLocalPoint,
         sourcePointerOffset,
       },
@@ -1143,10 +1172,10 @@ describe("runCrossScreenElementDrop ordinary move routing", () => {
       .querySelector<HTMLElement>('[data-agent-native-node-id="widget"]');
     expect(persistedWidget).not.toBeNull();
     expect(Number.parseFloat(persistedWidget!.style.left)).toBe(
-      targetLocalPoint.x - sourcePointerOffset.x,
+      targetCanvasPoint.x - sourcePointerOffset.x,
     );
     expect(Number.parseFloat(persistedWidget!.style.top)).toBe(
-      targetLocalPoint.y - sourcePointerOffset.y,
+      targetCanvasPoint.y - sourcePointerOffset.y,
     );
   });
 
@@ -1300,7 +1329,7 @@ describe("runCrossScreenElementDrop shader publication preflight", () => {
         targetAnchorProvenance: { uniqueNodeId: "frame-1" },
         targetAnchorPlacement: "inside",
         targetDropMode: "absolute-container",
-        targetAnchorRect: { left: 100, top: 50, width: 400, height: 300 },
+        targetAbsoluteOrigin: { left: 100, top: 50 },
         targetLocalPoint: { x: 240, y: 300 },
         duplicate: true,
         sourceCloneHtml:
@@ -1436,7 +1465,7 @@ describe("runCrossScreenElementDrop real publication refusal", () => {
     },
   );
 
-  it("rolls back both optimistic files and history queues for a retryable save", async () => {
+  it("keeps the move when the source save is queued for retry", async () => {
     const sourceContent = `<!doctype html><html><body><button data-agent-native-node-id="moving">Move</button></body></html>`;
     const destinationContent = `<!doctype html><html><body><main data-agent-native-node-id="target-root"></main></body></html>`;
     let resolveTarget!: (saved: FileContentSaveCompletion) => void;
@@ -1481,67 +1510,19 @@ describe("runCrossScreenElementDrop real publication refusal", () => {
     resolveSource("retryable");
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(result.historyEntries).toEqual([]);
-    expect(result.selectionEvents).toEqual([]);
-    expect(publicationCount).toBe(3);
-    expect(result.clearPendingHistoryCalls()).toBe(1);
-    expect(result.cancelledFileIds).toEqual(["source"]);
-    expect(result.contentByFile.get("source")).toBe(
-      acceptFixture("source", sourceContent).content,
-    );
-    expect(result.contentByFile.get("target")).toBe(
-      acceptFixture("target", destinationContent).content,
-    );
-  });
-
-  it("does not locally restore a conflicting side in a mixed retryable result", async () => {
-    const sourceContent = `<!doctype html><html><body><button data-agent-native-node-id="moving">Move</button></body></html>`;
-    const destinationContent = `<!doctype html><html><body><main data-agent-native-node-id="target-root"></main></body></html>`;
-    let resolveTarget!: (saved: FileContentSaveCompletion) => void;
-    let resolveSource!: (saved: FileContentSaveCompletion) => void;
-    const targetSave = new Promise<FileContentSaveCompletion>((resolve) => {
-      resolveTarget = resolve;
-    });
-    const sourceSave = new Promise<FileContentSaveCompletion>((resolve) => {
-      resolveSource = resolve;
-    });
-    let publicationCount = 0;
-    const result = runStoredCrossScreenDrop({
-      sourceContent,
-      destinationContent,
-      publish: (fileId, content) => {
-        const publication = acceptFixture(fileId, content);
-        publicationCount += 1;
-        return {
-          ...publication,
-          saveCompletion: publicationCount === 1 ? targetSave : sourceSave,
-        };
-      },
-      drop: {
-        sourceSelector: '[data-agent-native-node-id="moving"]',
-        sourceNodeId: "moving",
-        sourceProvenance: { uniqueNodeId: "moving" },
-        sourceScreenId: "source",
-        targetScreenId: "target",
-        targetAnchorNodeId: "target-root",
-        targetAnchorSelector: '[data-agent-native-node-id="target-root"]',
-        targetAnchorProvenance: { uniqueNodeId: "target-root" },
-        targetAnchorPlacement: "inside",
-      },
-    });
-
-    resolveTarget("conflict");
-    resolveSource("retryable");
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
     expect(publicationCount).toBe(2);
-    expect(result.cancelledFileIds).toEqual(["source"]);
-    expect(result.historyEntries).toEqual([]);
-    expect(result.selectionEvents).toEqual([]);
-    expect(result.contentByFile.get("target")).toBe(destinationContent);
+    expect(result.cancelledFileIds).toEqual([]);
+    expect(result.historyEntries).toHaveLength(1);
+    expect(result.clearPendingHistoryCalls()).toBe(0);
+    expect(result.contentByFile.get("target")).toContain(
+      'data-agent-native-node-id="moving"',
+    );
+    expect(result.contentByFile.get("source")).not.toContain(
+      'data-agent-native-node-id="moving"',
+    );
   });
 
-  it("still restores the source when the target retryable rollback refuses", async () => {
+  it("keeps the move when both saves are queued for retry", async () => {
     const sourceContent = `<!doctype html><html><body><button data-agent-native-node-id="moving">Move</button></body></html>`;
     const destinationContent = `<!doctype html><html><body><main data-agent-native-node-id="target-root"></main></body></html>`;
     let resolveTarget!: (saved: FileContentSaveCompletion) => void;
@@ -1556,7 +1537,6 @@ describe("runCrossScreenElementDrop real publication refusal", () => {
     const result = runStoredCrossScreenDrop({
       sourceContent,
       destinationContent,
-      refusePersistFalseFor: ["target"],
       publish: (fileId, content) => {
         const publication = acceptFixture(fileId, content);
         publicationCount += 1;
@@ -1588,10 +1568,62 @@ describe("runCrossScreenElementDrop real publication refusal", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(publicationCount).toBe(2);
-    expect(result.cancelledFileIds).toEqual(["target", "source"]);
+    expect(result.cancelledFileIds).toEqual([]);
+    expect(result.historyEntries).toHaveLength(1);
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("restores a retryable source with a saved rollback when the target save conflicts", async () => {
+    const sourceContent = `<!doctype html><html><body><button data-agent-native-node-id="moving">Move</button></body></html>`;
+    const destinationContent = `<!doctype html><html><body><main data-agent-native-node-id="target-root"></main></body></html>`;
+    let resolveTarget!: (saved: FileContentSaveCompletion) => void;
+    let resolveSource!: (saved: FileContentSaveCompletion) => void;
+    const targetSave = new Promise<FileContentSaveCompletion>((resolve) => {
+      resolveTarget = resolve;
+    });
+    const sourceSave = new Promise<FileContentSaveCompletion>((resolve) => {
+      resolveSource = resolve;
+    });
+    let publicationCount = 0;
+    const result = runStoredCrossScreenDrop({
+      sourceContent,
+      destinationContent,
+      publish: (fileId, content) => {
+        const publication = acceptFixture(fileId, content);
+        publicationCount += 1;
+        return {
+          ...publication,
+          saveCompletion:
+            publicationCount === 1
+              ? targetSave
+              : publicationCount === 2
+                ? sourceSave
+                : Promise.resolve("persisted" as const),
+        };
+      },
+      drop: {
+        sourceSelector: '[data-agent-native-node-id="moving"]',
+        sourceNodeId: "moving",
+        sourceProvenance: { uniqueNodeId: "moving" },
+        sourceScreenId: "source",
+        targetScreenId: "target",
+        targetAnchorNodeId: "target-root",
+        targetAnchorSelector: '[data-agent-native-node-id="target-root"]',
+        targetAnchorProvenance: { uniqueNodeId: "target-root" },
+        targetAnchorPlacement: "inside",
+      },
+    });
+
+    resolveTarget("conflict");
+    resolveSource("retryable");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(publicationCount).toBe(3);
+    expect(result.cancelledFileIds).toEqual([]);
     expect(result.contentByFile.get("source")).toBe(
       acceptFixture("source", sourceContent).content,
     );
+    expect(result.contentByFile.get("target")).toBe(destinationContent);
     expect(result.historyEntries).toEqual([]);
     expect(result.selectionEvents).toEqual([]);
     expect(result.clearPendingHistoryCalls()).toBe(1);
@@ -3104,7 +3136,7 @@ describe("runCrossScreenElementDrop — portable style capture failure", () => {
         targetAnchorSelector: "body",
         targetAnchorPlacement: "inside",
         targetDropMode: "absolute-container",
-        targetAnchorRect: { left: 100, top: 50, width: 400, height: 300 },
+        targetAbsoluteOrigin: { left: 100, top: 50 },
         targetLocalPoint: { x: 240, y: 300 },
         styleSnapshotCaptureFailed: true,
       },

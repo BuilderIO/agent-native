@@ -503,8 +503,7 @@ test("pasted SVG is an editable sized layer and image scale mode writes object-f
   await expect(siblingShape).toHaveCSS("fill", "rgb(22, 163, 74)");
 });
 
-// fixme: product bug: The pasted paths' ids 'first'/'second' are rewritten to copy-id-<uuid>, and Layers shows them as 'Copy Id 97d7cf34 0c8f 4820 B234
-test.fixme("stroke gradient edits stay on the selected nested pasted-SVG shape", async ({
+test("stroke gradient edits stay on the selected nested pasted-SVG shape", async ({
   app,
   page,
 }, testInfo) => {
@@ -547,12 +546,7 @@ test.fixme("stroke gradient edits stay on the selected nested pasted-SVG shape",
   const shapeNames = await shapeRows
     .locator("[data-layer-row-name]")
     .evaluateAll((names) => names.map((name) => name.getAttribute("title")));
-  expect
-    .soft(
-      shapeNames.filter((name) => /^Copy Id /.test(name ?? "")),
-      "imported shapes keep readable names, not regenerated copy ids",
-    )
-    .toEqual([]);
+  expect(shapeNames).toEqual(["Second", "First"]);
   await shapeRows.nth(0).locator("[data-layer-row-button]").click();
   await expect(shapeRows.nth(0)).toHaveAttribute("aria-selected", "true");
 
@@ -576,7 +570,7 @@ test.fixme("stroke gradient edits stay on the selected nested pasted-SVG shape",
   const updated = await paint();
   expect(updated[0]?.stroke).toBe("#111827");
   expect(updated[0]?.style).not.toContain("--an-vector-stroke-gradient:");
-  expect(updated[1]?.stroke).toBe("#7c3aed");
+  expect(updated[1]?.stroke).toBeNull();
   expect(updated[1]?.style).toMatch(/stroke: url\(["']?#/);
 
   await expect
@@ -597,6 +591,13 @@ test.fixme("stroke gradient edits stay on the selected nested pasted-SVG shape",
   );
   const reloadedPaths = reloadedSvg.locator("g > path");
   await expect(reloadedPaths).toHaveCount(2);
+  await expandAllLayers(page);
+  const reloadedShapeNames = await page
+    .getByRole("tree", { name: "Layers" })
+    .getByRole("treeitem", { level: 4 })
+    .locator("[data-layer-row-name]")
+    .evaluateAll((names) => names.map((name) => name.getAttribute("title")));
+  expect(reloadedShapeNames).toEqual(["Second", "First"]);
   const reloadedPaint = await reloadedPaths.evaluateAll((elements) =>
     elements.map((element) => ({
       style: element.getAttribute("style") ?? "",
@@ -607,7 +608,6 @@ test.fixme("stroke gradient edits stay on the selected nested pasted-SVG shape",
   expect(reloadedPaint[0]?.style).not.toContain("--an-vector-stroke-gradient:");
   expect(reloadedPaint[1]?.style).toContain("--an-vector-stroke-gradient:");
   expect(reloadedPaint[1]?.style).toMatch(/stroke: url\(["']?#/);
-  await expandAllLayers(page);
   const reloadedTarget = page
     .getByRole("tree", { name: "Layers" })
     .getByRole("treeitem", { level: 4 })

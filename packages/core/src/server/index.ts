@@ -15,9 +15,12 @@ export {
   getAppConfig,
   resolveAppHomePath,
   resetAppConfigForTests,
+  resolveClipsHostedStorageConfig,
   appConfigSchema,
   type AppConfig,
   type AppConfigInput,
+  type ClipsHostedStorageConfig,
+  type ResolvedClipsHostedStorageConfig,
 } from "../app-config/index.js";
 export { platformWaitUntil } from "./background-work.js";
 export { resolveDeployEnvironment } from "./deploy-environment.js";
@@ -196,6 +199,7 @@ export {
   type JevContextCredentials,
   type ResolvedOwnerApiKey,
 } from "../agent/production-agent.js";
+export { approvalKeyWithArguments } from "../agent/approval-key.js";
 export {
   isJevEnabled,
   requestJevThroughBuilder,
@@ -247,6 +251,10 @@ export {
   runBetterAuthMigrations,
 } from "./better-auth-migrations.js";
 export { runFrameworkReleaseMigrations } from "./release-migrations.js";
+export {
+  runAppReleaseMigrations,
+  type AppReleaseMigrationResult,
+} from "./app-release-migrations.js";
 export {
   initServerSentry,
   isServerSentryEnabled,
@@ -638,6 +646,8 @@ export {
   getBuilderAuthHeader,
   resolveBuilderPrivateKey,
   resolveBuilderAuthHeader,
+  registerDelegatedBuilderCredentials,
+  type DelegatedBuilderCredentials,
   resolveHasBuilderPrivateKey,
   resolveHasCompleteBuilderConnection,
   resolveBuilderCredentials,
@@ -713,6 +723,11 @@ export {
   type BuilderLegacyCredentialKey,
   type BuilderRequestAuthorization,
 } from "./builder-api-auth.js";
+export {
+  createFusionAgentFeed,
+  fusionStepToAgentChatEvents,
+  type FusionAgentFeedSummary,
+} from "./fusion-agent-feed.js";
 export {
   BUILDER_ASSETS_WRITE_SCOPE,
   BUILDER_OAUTH_SCOPE,

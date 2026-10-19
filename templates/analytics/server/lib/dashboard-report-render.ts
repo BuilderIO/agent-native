@@ -12,12 +12,26 @@ import {
 import type {
   ColumnFormat,
   SqlDashboardConfig,
+  PanelEvent,
   SqlPanel,
   TableColumnConfig,
 } from "../../app/pages/adhoc/sql-dashboard/types";
-import { resolveDashboardFunnelRows } from "../../shared/dashboard-funnel";
+import {
+  describeFunnelOutcomeProblems,
+  resolveDashboardFunnelRows,
+} from "../../shared/dashboard-funnel";
 import { DASHBOARD_REPORT_ACTION_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
+import {
+  dataNoteIsRecent,
+  dataNotesOnChart,
+  dataNoteTone,
+  formatDataNoteDates,
+  type DataNote,
+  type DataNoteTone,
+} from "../../shared/data-notes";
 import { formatDollars } from "../../shared/format-dollars";
+import { panelEventsWithKeyDates } from "../../shared/key-dates";
+import { resolvePanelEvents } from "../../shared/panel-events";
 import {
   chartPointLimit,
   limitChartRows,
@@ -41,6 +55,8 @@ import {
   renderReportChartSvg,
   renderFunnelChartSvg,
   REPORT_CHART_FONT_FAMILY,
+  type ReportChartBand,
+  type ReportChartEvent,
   type ReportChartSeries,
   type ReportChartType,
   type ReportChartValueFormatter,
@@ -56,6 +72,10 @@ export type ReportSnapshot = {
   generatedAt: string;
   panelIds: string[];
   panels: SqlDashboardConfig["panels"];
+  /** The dashboard's key dates, drawn on every time chart alongside each panel's own events. */
+  keyDates?: PanelEvent[];
+  /** Each panel's data notes, minus the ones the dashboard hides there; panels without notes are absent. */
+  dataNotesByPanel?: Record<string, DataNote[]>;
   variables?: Record<string, string>;
 };
 
@@ -99,6 +119,12 @@ const MUTED_COLOR = "#6b7280";
 const BORDER_COLOR = "#e5e7eb";
 const ERROR_BORDER_COLOR = "#dc2626";
 const ERROR_BG_COLOR = "#fef2f2";
+// guard:allow-raw-color — email clients and the rasterized chart can't read the app's CSS theme variables.
+const DATA_NOTE_COLORS: Record<DataNoteTone, string> = {
+  incident: "#dc2626", // guard:allow-raw-color — email copy of --destructive
+  data: "#d97706", // guard:allow-raw-color — email copy of --brand-orange
+  fixed: "#9ca3af", // guard:allow-raw-color — email copy of --muted-foreground
+};
 
 export function reportPanelVariables(
   snapshot: ReportSnapshot,
@@ -430,6 +456,7 @@ const REPORT_CHART_TYPES: Record<string, ReportChartType> = {
   bar: "bar",
   line: "line",
   area: "area",
+  combo: "combo",
   pie: "pie",
   funnel: "funnel",
   "stacked-bar": "bar",
@@ -450,6 +477,10 @@ function pivotPanelRows(
 }
 
 type ChartInput = {
+  events: ReportChartEvent[];
+  bands: ReportChartBand[];
+  /** The notes this chart shows, each written out under it, whether or not it has a band. */
+  dataNotes: DataNote[];
   labels: string[];
   series: ReportChartSeries[];
   pointLimit: ChartPointLimit | null;
@@ -460,6 +491,9 @@ function buildChartInput(
   rows: Array<Record<string, unknown>>,
   chartType: ReportChartType,
   forcedYKeys: string[] | undefined,
+  keyDates: readonly PanelEvent[] = [],
+  dataNotes: readonly DataNote[] = [],
+  now: number = Date.now(),
 ): ChartInput | null {
   const config = panel.config;
   const detected = detectChartKeys(rows, config, forcedYKeys);
@@ -485,8 +519,37 @@ function buildChartInput(
   const dualAxis = resolveDualAxis(plotted, config);
   const formatterFor = (key: string): ReportChartValueFormatter | undefined =>
     dualAxis.formatterFor(key);
+  const barKeys = new Set(config?.barKeys ?? []);
+
+  const events =
+    chartType === "pie"
+      ? []
+      : resolvePanelEvents(
+          panelEventsWithKeyDates(panel, keyDates),
+          visible.map((row) => row[xKey]),
+        ).map(({ index, label, color }) => ({ index, label, color }));
+
+  // A pie has no x axis to place notes on, so it lists the recent ones.
+  const shownNotes = dataNotesOnChart(
+    dataNotes,
+    chartType === "pie" ? [] : visible.map((row) => row[xKey]),
+    { xKey, now },
+  );
 
   return {
+    events,
+    bands: shownNotes.flatMap(({ note, bands }) =>
+      bands.length > 0
+        ? [
+            {
+              label: note.title,
+              color: DATA_NOTE_COLORS[dataNoteTone(note)],
+              runs: bands,
+            },
+          ]
+        : [],
+    ),
+    dataNotes: shownNotes.map(({ note }) => note),
     labels,
     series: plotted.map((key, index) => ({
       label: formatReportSeriesLabel(panel, key),
@@ -494,6 +557,9 @@ function buildChartInput(
       color: colors[index],
       ...(dualAxis.enabled ? { axis: dualAxis.sideFor(key) } : {}),
       ...(formatterFor(key) ? { formatter: formatterFor(key) } : {}),
+      ...(chartType === "combo"
+        ? { mark: barKeys.has(key) ? ("bar" as const) : ("line" as const) }
+        : {}),
     })),
     pointLimit: chartPointLimit(rows, panel.chartType, xKey),
   };
@@ -548,6 +614,36 @@ const HEAD_CELL_STYLE = `padding:6px 8px;border-bottom:1px solid ${BORDER_COLOR}
 
 function noteHtml(text: string): string {
   return `<p style="margin:6px 0 0;font-size:12px;color:${MUTED_COLOR};">${escapeHtml(text)}</p>`;
+}
+
+function dataNoteDatesText(note: DataNote): string {
+  const dates = formatDataNoteDates(note, "en-US");
+  if (!dates) return "";
+  return dates.kind === "since"
+    ? `since ${dates.text}`
+    : dates.kind === "until"
+      ? `until ${dates.text}`
+      : dates.text;
+}
+
+/** One line per data note under a panel: email has no hover, so the full note is spelled out. */
+function dataNoteLines(notes: readonly DataNote[]): {
+  html: string;
+  text: string;
+} {
+  if (notes.length === 0) return { html: "", text: "" };
+  const lines = notes.map((note) => {
+    const when = dataNoteDatesText(note);
+    const fix = note.status === "fixed" && note.fix ? ` Fix: ${note.fix}` : "";
+    return {
+      html: `<p style="margin:6px 0 0;font-size:12px;color:${TEXT_COLOR};"><span style="color:${DATA_NOTE_COLORS[dataNoteTone(note)]};">&#9632;</span> <strong>${escapeHtml(note.title)}</strong>${when ? ` (${escapeHtml(when)})` : ""}: ${escapeHtml(note.note)}${escapeHtml(fix)}</p>`,
+      text: `! ${note.title}${when ? ` (${when})` : ""}: ${note.note}${fix}`,
+    };
+  });
+  return {
+    html: lines.map((line) => line.html).join(""),
+    text: lines.map((line) => `\n${line.text}`).join(""),
+  };
 }
 
 function renderMetricHtml(
@@ -849,20 +945,35 @@ async function renderChartBlock(args: {
   chartType: Exclude<ReportChartType, "funnel">;
   index: number;
   description: string;
+  keyDates?: readonly PanelEvent[];
+  dataNotes?: readonly DataNote[];
+  now: number;
 }): Promise<PanelBlock> {
-  const { panel, rows, chartType, index, description } = args;
-  const input = buildChartInput(panel, rows, chartType, args.forcedYKeys);
+  const { panel, rows, chartType, index, description, now } = args;
+  const input = buildChartInput(
+    panel,
+    rows,
+    chartType,
+    args.forcedYKeys,
+    args.keyDates,
+    args.dataNotes,
+    now,
+  );
   if (!input) {
     const table = renderTableHtml(panel, rows);
+    const notes = dataNoteLines(
+      (args.dataNotes ?? []).filter((note) => dataNoteIsRecent(note, now)),
+    );
     return {
       panelId: panel.id,
       html: panelCardHtml(
         panel,
-        `${table.html}${noteHtml("No chartable columns were returned, so the rows are shown as a table.")}`,
+        `${table.html}${noteHtml("No chartable columns were returned, so the rows are shown as a table.")}${notes.html}`,
       ),
-      text: `${panel.title}\n${table.text}`,
+      text: `${panel.title}\n${table.text}${notes.text}`,
     };
   }
+  const notes = dataNoteLines(input.dataNotes);
 
   const subtitleParts = [description].filter(Boolean);
   if (input.pointLimit) {
@@ -883,6 +994,8 @@ async function renderChartBlock(args: {
       type: chartType,
       width: CHART_WIDTH,
       height: CHART_HEIGHT,
+      events: input.events,
+      bands: input.bands,
       ...(panel.config?.stacked === true ? { stacked: true } : {}),
     });
     const png = await rasterizeChartPng(svg, CHART_WIDTH * CHART_RASTER_SCALE);
@@ -895,9 +1008,9 @@ async function renderChartBlock(args: {
         panel,
         `<img src="cid:${contentId}" alt="${escapeHtml(alt)}" width="${CHART_WIDTH}" style="display:block;width:100%;max-width:${CHART_WIDTH}px;height:auto;border:0;" />${
           subtitle ? noteHtml(subtitle) : ""
-        }`,
+        }${notes.html}`,
       ),
-      text: `${panel.title}: chart attached${subtitle ? ` (${subtitle})` : ""}`,
+      text: `${panel.title}: chart attached${subtitle ? ` (${subtitle})` : ""}${notes.text}`,
       attachment: {
         filename: `${slug}.png`,
         content: png,
@@ -926,6 +1039,7 @@ async function renderFunnelChartBlock(args: {
     rows,
     panel.config?.xKey,
     panel.config?.yKey,
+    panel.config?.funnelOutcomes,
   );
   if (funnel.items.length === 0) {
     const table = renderTableHtml(panel, rows);
@@ -946,6 +1060,7 @@ async function renderFunnelChartBlock(args: {
       title: "",
       subtitle,
       rows: funnel.items,
+      ...(funnel.outcomes ? { outcomes: funnel.outcomes } : {}),
       width: CHART_WIDTH,
       height: CHART_HEIGHT,
       formatter: panel.config?.yFormatter,
@@ -955,13 +1070,16 @@ async function renderFunnelChartBlock(args: {
     const slug =
       panel.id.replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 40) || "panel";
     const contentId = `dashboard-report-panel-${index}-${slug}`;
+    const outcomeProblems = funnel.outcomes
+      ? describeFunnelOutcomeProblems(funnel.outcomes)
+      : null;
     return {
       panelId: panel.id,
       html: panelCardHtml(
         panel,
-        `<img src="cid:${contentId}" alt="${escapeHtml(alt)}" width="${CHART_WIDTH}" style="display:block;width:100%;max-width:${CHART_WIDTH}px;height:auto;border:0;" />`,
+        `<img src="cid:${contentId}" alt="${escapeHtml(alt)}" width="${CHART_WIDTH}" style="display:block;width:100%;max-width:${CHART_WIDTH}px;height:auto;border:0;" />${outcomeProblems ? noteHtml(outcomeProblems) : ""}`,
       ),
-      text: `${panel.title}: chart attached${subtitle ? ` (${subtitle})` : ""}`,
+      text: `${panel.title}: chart attached${subtitle ? ` (${subtitle})` : ""}${outcomeProblems ? `\n${outcomeProblems}` : ""}`,
       attachment: {
         filename: `${slug}.png`,
         content: png,
@@ -1020,6 +1138,7 @@ export async function renderReportEmail(args: {
   const vars = reportPanelVariables(snapshot);
   const blocks: PanelBlock[] = [];
   let chartIndex = 0;
+  const now = Date.parse(snapshot.generatedAt);
 
   for (const panel of snapshot.panels ?? []) {
     const description = interpolate(panel.config?.description, vars);
@@ -1078,6 +1197,10 @@ export async function renderReportEmail(args: {
       timeRangeDays(vars.timeRange),
     );
 
+    const panelNotes = snapshot.dataNotesByPanel?.[panel.id] ?? [];
+    const recentNotes = dataNoteLines(
+      panelNotes.filter((note) => dataNoteIsRecent(note, now)),
+    );
     const chartType: ReportChartType | undefined =
       REPORT_CHART_TYPES[panel.chartType];
     if (chartType) {
@@ -1089,6 +1212,8 @@ export async function renderReportEmail(args: {
           description,
         });
         if (truncatedNote) block.html += truncatedNote;
+        block.html += recentNotes.html;
+        block.text += recentNotes.text;
         blocks.push(block);
         continue;
       }
@@ -1099,6 +1224,9 @@ export async function renderReportEmail(args: {
         chartType,
         index: chartIndex++,
         description,
+        ...(snapshot.keyDates ? { keyDates: snapshot.keyDates } : {}),
+        dataNotes: panelNotes,
+        now,
       });
       if (truncatedNote) block.html += truncatedNote;
       blocks.push(block);
@@ -1118,9 +1246,9 @@ export async function renderReportEmail(args: {
       panelId: panel.id,
       html: panelCardHtml(
         panel,
-        `${rendered.html}${description ? noteHtml(description) : ""}${truncatedNote}`,
+        `${rendered.html}${description ? noteHtml(description) : ""}${truncatedNote}${recentNotes.html}`,
       ),
-      text: `${panel.title}\n${rendered.text}`,
+      text: `${panel.title}\n${rendered.text}${recentNotes.text}`,
     });
   }
 

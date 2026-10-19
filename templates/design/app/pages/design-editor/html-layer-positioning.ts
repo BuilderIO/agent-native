@@ -18,6 +18,8 @@ const ABS_POSITION_PROPS = [
   "inset",
 ] as const;
 
+const INSET_LONGHANDS = new Set(["top", "right", "bottom", "left"]);
+
 const FLEX_ITEM_PROPS = [
   "flex",
   "flex-grow",
@@ -85,7 +87,20 @@ function patchNodeStyleInHtml(
     return content;
   }
 
-  const nextStyle = patchInlineStyleDeclarations(previousStyle, updates);
+  // Chrome also reports a set `inset` through its longhands; save the shorthand alone.
+  const insetIsSet = updates.some(
+    (update) => update.property === "inset" && update.value,
+  );
+  const nextStyle = patchInlineStyleDeclarations(
+    previousStyle,
+    insetIsSet
+      ? updates.map((update) =>
+          INSET_LONGHANDS.has(update.property)
+            ? { ...update, value: null }
+            : update,
+        )
+      : updates,
+  );
   if (nextStyle === previousStyle) return content;
 
   const patched = patchCodeLayerNodeAttributes(content, [
@@ -97,6 +112,24 @@ function patchNodeStyleInHtml(
     },
   ]);
   return patched ?? content;
+}
+
+/** Writes `updates` into the element's style text, leaving every other declaration as authored. */
+export function patchElementInlineStyle(
+  element: HTMLElement | SVGElement,
+  updates: Array<{ property: string; value: string | null }>,
+): void {
+  const changed = updates.filter(
+    (update) =>
+      element.style.getPropertyValue(update.property) !== (update.value ?? ""),
+  );
+  if (changed.length === 0) return;
+  const nextStyle = patchInlineStyleDeclarations(
+    element.getAttribute("style"),
+    changed.map((update) => ({ ...update, priority: "" })),
+  );
+  if (nextStyle === null) element.removeAttribute("style");
+  else element.setAttribute("style", nextStyle);
 }
 
 function patchInlineStyleDeclarations(
@@ -171,9 +204,7 @@ export function removeAbsolutePositioningFromNodeInHtml(
       }
       if (keepsContainingBlock) {
         element.style.setProperty("position", "relative");
-        for (const prop of ["left", "top", "right", "bottom"] as const) {
-          element.style.setProperty(prop, "auto");
-        }
+        element.style.setProperty("inset", "auto");
       }
     },
   );
@@ -196,6 +227,50 @@ export function authoredDocumentPositionForNode(
     // coercion-ok: unreadable HTML is "no authored position", same as a missing node.
     return null;
   }
+}
+
+export function authoredAbsoluteChildOriginForNode(
+  content: string,
+  parentAttrId: string,
+): { x: number; y: number } | null {
+  if (typeof window === "undefined" || !parentAttrId) return null;
+  const doc = new DOMParser().parseFromString(content, "text/html");
+  const parent = doc.querySelector(
+    `[data-agent-native-node-id="${CSS.escape(parentAttrId)}"]`,
+  );
+  if (!parent) return null;
+  for (
+    let ancestor: Element | null = parent;
+    ancestor && ancestor !== doc.documentElement;
+    ancestor = ancestor.parentElement
+  ) {
+    if (isAuthoredPositioned(ancestor)) {
+      const position = authoredElementPosition(ancestor);
+      const style = (ancestor as HTMLElement).style;
+      return {
+        x: position.x + (parseInlinePx(style.borderLeftWidth) ?? 0),
+        y: position.y + (parseInlinePx(style.borderTopWidth) ?? 0),
+      };
+    }
+  }
+  return { x: 0, y: 0 };
+}
+
+function isAuthoredPositioned(element: Element): boolean {
+  const position = (element as HTMLElement).style.position;
+  if (
+    position === "absolute" ||
+    position === "fixed" ||
+    position === "relative" ||
+    position === "sticky"
+  ) {
+    return true;
+  }
+  const className =
+    typeof (element as HTMLElement).className === "string"
+      ? (element as HTMLElement).className
+      : "";
+  return POSITION_CLASS_RE.test(className);
 }
 
 export function authoredContainingBlockPositionForNode(
@@ -281,9 +356,7 @@ export function setFlowPositioningOverrideForNodeInHtml(
         "important",
       );
       if (keepsContainingBlock) {
-        for (const prop of ["left", "top", "right", "bottom"] as const) {
-          element.style.setProperty(prop, "auto", "important");
-        }
+        element.style.setProperty("inset", "auto", "important");
       }
     },
   );

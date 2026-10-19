@@ -8,9 +8,14 @@ import {
 import { axisDirection, isDateAxis } from "./chart-axis-labels";
 import { normalizeDashboardConfig } from "./dashboard-config-normalization";
 import {
+  describeFunnelOutcomeProblems,
+  funnelOutcomeColumns,
+  funnelOutcomeKeys,
   resolveDashboardFunnelRows,
   type DashboardFunnelRows,
 } from "./dashboard-funnel";
+import { isValidPanelEvent, panelEventProblem } from "./panel-events";
+import { isValidPanelBreakdowns } from "./row-breakdown";
 import {
   NON_APP_SERIES_COLORS,
   UNKNOWN_APP_COLOR,
@@ -34,6 +39,7 @@ const PANEL_TOP_LEVEL_KEY_SET = {
   source: true,
   chartType: true,
   width: true,
+  height: true,
   columns: true,
   config: true,
   tab: true,
@@ -51,6 +57,7 @@ interface PanelConfigKeyInfo {
 // SqlPanelConfig gains a key the renderer contract has not registered.
 export const PANEL_CONFIG_KEYS = {
   timeScope: {},
+  events: { onlyFor: ["line", "area", "bar", "combo"] },
   xKey: {},
   yKey: {},
   yKeys: {},
@@ -63,11 +70,13 @@ export const PANEL_CONFIG_KEYS = {
   seriesLabels: {},
   description: {},
   pivot: {},
+  funnelOutcomes: { onlyFor: ["funnel"] },
   stacked: {},
   legend: {},
   valueLabels: {},
   sortable: {},
   columns: {},
+  breakdowns: { onlyFor: ["table"] },
   limit: {},
   extensionId: {},
   extensionSlotId: {},
@@ -244,6 +253,8 @@ function unknownConfigKeyIssue(
 interface ConfigValueShape {
   valid: (value: unknown) => boolean;
   expected: string;
+  /** Names what is wrong with an invalid value, when the shape can tell. */
+  problem?: (value: unknown) => string | null;
 }
 
 const STRING_ARRAY_SHAPE: ConfigValueShape = {
@@ -252,10 +263,30 @@ const STRING_ARRAY_SHAPE: ConfigValueShape = {
   expected: "an array of result column names",
 };
 
+const FUNNEL_OUTCOME_FIELDS = [
+  "completedKey",
+  "leftKey",
+  "skippedKey",
+  "optionalKey",
+];
+
 const CONFIG_VALUE_SHAPES: Record<string, ConfigValueShape> = {
   yKeys: STRING_ARRAY_SHAPE,
   rightYKeys: STRING_ARRAY_SHAPE,
   barKeys: STRING_ARRAY_SHAPE,
+  events: {
+    valid: (value) => Array.isArray(value) && value.every(isValidPanelEvent),
+    expected:
+      'an array of { date: "YYYY-MM-DD", label: non-empty string, time?: "HH:MM", timeZone?: IANA zone (with time), color?: 3, 4, 6, or 8 digit hex color }',
+    problem: (value) => {
+      if (!Array.isArray(value)) return null;
+      for (let index = 0; index < value.length; index += 1) {
+        const problem = panelEventProblem(value[index]);
+        if (problem) return `config.events[${index}]: ${problem}`;
+      }
+      return null;
+    },
+  },
   pivot: {
     valid: (value) =>
       isRecord(value) &&
@@ -266,6 +297,20 @@ const CONFIG_VALUE_SHAPES: Record<string, ConfigValueShape> = {
         STRING_ARRAY_SHAPE.valid(value.seriesOrder)),
     expected:
       "an object with string xKey, seriesKey and valueKey, and an optional seriesOrder array of series values",
+  },
+  breakdowns: {
+    valid: isValidPanelBreakdowns,
+    expected:
+      "a non-empty array of { column: result column identifier, label?: string } with no repeated column; the panel SQL selects and groups by the column inside a {{?breakdown}}…{{/breakdown}} block",
+  },
+  funnelOutcomes: {
+    valid: (value) =>
+      funnelOutcomeKeys(value) !== null &&
+      Object.keys(value as object).every((key) =>
+        FUNNEL_OUTCOME_FIELDS.includes(key),
+      ),
+    expected:
+      "an object with string completedKey and leftKey, and optional string skippedKey and optionalKey, each a result column name",
   },
 };
 
@@ -367,12 +412,15 @@ export function unknownPanelConfigKeys(
       }
       const shape = CONFIG_VALUE_SHAPES[key];
       if (shape && !shape.valid(value) && changedConfig(key, panel.config)) {
+        const problem = shape.problem?.(value);
         issues.push({
           panelId,
           path: `config.${key}`,
           key,
           kind: "invalid-value",
-          message: `${label} config.${key} must be ${shape.expected}, not ${clipHead(stableStringify(value), 60)}.`,
+          message:
+            `${label} config.${key} must be ${shape.expected}, not ${clipHead(stableStringify(value), 60)}.` +
+            (problem ? ` ${problem}.` : ""),
         });
       }
       const onlyFor = CONFIG_KEY_INFO[key].onlyFor;
@@ -393,6 +441,22 @@ export function unknownPanelConfigKeys(
               : `${label} config.${key} only applies to chartType "${onlyFor.join('" or "')}", and this panel is "${chartType}".`,
         });
       }
+    }
+    // A breakdown reruns the panel's SQL and matches its raw rows, which a
+    // pivoted table no longer shows.
+    if (
+      panel.config.breakdowns != null &&
+      panel.config.pivot != null &&
+      (changedConfig("breakdowns", panel.config) ||
+        changedConfig("pivot", panel.config))
+    ) {
+      issues.push({
+        panelId,
+        path: "config.breakdowns",
+        key: "breakdowns",
+        kind: "invalid-value",
+        message: `${label} config.breakdowns does not work with config.pivot: a breakdown matches the panel's raw rows, not pivoted ones. Remove one of them.`,
+      });
     }
   }
   return issues;
@@ -531,6 +595,13 @@ function collectMissingKeys(
     check(col?.linkKey, bound);
   }
   if (panel.chartType === "heatmap") check(config?.color, bound);
+  const outcomes =
+    panel.chartType === "funnel"
+      ? funnelOutcomeKeys(config?.funnelOutcomes)
+      : null;
+  for (const key of outcomes ? funnelOutcomeColumns(outcomes) : []) {
+    check(key, bound);
+  }
   return Array.from(missing);
 }
 
@@ -911,6 +982,7 @@ export function planPanelRender(
           limitChartRows(rows, panel.chartType),
           config?.xKey,
           config?.yKey,
+          config?.funnelOutcomes,
         )
       : null;
   const heatmap =
@@ -934,6 +1006,14 @@ export function planPanelRender(
   const ignoredConfig = noRows
     ? []
     : collectIgnoredConfig(panel, yKeys, pivoted?.seriesKeys, missingKeys);
+  // A missing outcome column is already in missingKeys.
+  const outcomeProblems =
+    funnel?.outcomes && funnel.outcomes.missingColumns.length === 0
+      ? describeFunnelOutcomeProblems(funnel.outcomes)
+      : null;
+  if (outcomeProblems) {
+    ignoredConfig.push({ key: "funnelOutcomes", reason: outcomeProblems });
+  }
 
   return {
     rows,

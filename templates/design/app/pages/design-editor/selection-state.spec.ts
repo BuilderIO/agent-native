@@ -9,10 +9,12 @@ import {
   elementInfoForSelectionSnapshot,
   getOverviewScreenContentKey,
   explicitOverviewScreenSelectionForHistory,
+  getMarqueeScreenSelectionIds,
   reconcileSelectedLayerIdsForOverviewScreens,
   hasSelectableCodeLayerParent,
   isDocumentShellCodeLayerNode,
   isUserOriginatedSelectionIntent,
+  overviewNudgeTargetsElement,
   overviewSelectionTargetsElement,
   overviewScreenSelectionForPendingEcho,
   applyExplicitOverviewScreenSelectionToggle,
@@ -569,6 +571,7 @@ describe("shouldEscapeToOverview", () => {
     mode: "edit" as const,
     pinMode: false,
     selectedElement: null,
+    selectedLayerIds: [],
     viewMode: "single" as const,
   };
 
@@ -590,6 +593,12 @@ describe("shouldEscapeToOverview", () => {
           sourceId: "n1",
           selector: ".card",
         } as unknown as (typeof base)["selectedElement"],
+      }),
+    ).toBe(false);
+    expect(
+      shouldEscapeToOverview({
+        ...base,
+        selectedLayerIds: ["created-layer"],
       }),
     ).toBe(false);
   });
@@ -658,6 +667,61 @@ describe("overviewSelectionTargetsElement", () => {
         fileIds: ["screen-1"],
       }),
     ).toBe(false);
+  });
+});
+
+describe("overviewNudgeTargetsElement", () => {
+  const element = {
+    tagName: "DIV",
+    selector: ".card",
+  } as unknown as Parameters<
+    typeof overviewNudgeTargetsElement
+  >[0]["selectedElement"];
+
+  it("keeps an explicit screen nudge on the screen despite stale layer state", () => {
+    expect(
+      overviewNudgeTargetsElement({
+        targetScreenIds: ["screen-1"],
+        explicitScreenIds: ["screen-1"],
+        selectedElement: element,
+        selectedLayerIds: ["html:stale-card"],
+        fileIds: ["screen-1"],
+      }),
+    ).toBe(false);
+  });
+
+  it("routes a nudge to an element when its screen is not explicit", () => {
+    expect(
+      overviewNudgeTargetsElement({
+        targetScreenIds: ["screen-1"],
+        explicitScreenIds: [],
+        selectedElement: element,
+        selectedLayerIds: ["html:card"],
+        fileIds: ["screen-1"],
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("getMarqueeScreenSelectionIds", () => {
+  it("keeps previously selected screens during an additive marquee", () => {
+    expect(
+      getMarqueeScreenSelectionIds({
+        additive: true,
+        baseSelectedScreenIds: ["screen-1", "screen-2"],
+        hitScreenIds: ["screen-2", "screen-3"],
+      }),
+    ).toEqual(["screen-1", "screen-2", "screen-3"]);
+  });
+
+  it("replaces the selection during a non-additive marquee", () => {
+    expect(
+      getMarqueeScreenSelectionIds({
+        additive: false,
+        baseSelectedScreenIds: ["screen-1"],
+        hitScreenIds: ["screen-2", "screen-2"],
+      }),
+    ).toEqual(["screen-2"]);
   });
 });
 

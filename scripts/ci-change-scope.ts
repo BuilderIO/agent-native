@@ -1,7 +1,9 @@
 import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync, readdirSync } from "node:fs";
-import { basename, extname, join, resolve } from "node:path";
+import { appendFileSync, existsSync, readFileSync, readdirSync } from "node:fs";
+import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { DEPLOY_GUIDE_PATHS } from "./qa-deploy-paths-lib.ts";
 
 const DOCS_PATH_PREFIXES = [
   "docs/",
@@ -32,6 +34,8 @@ const DOCS_SUPPORT_PATHS = new Set([
 ]);
 
 const COMMUNITY_TEMPLATES_ROOT = "community-templates";
+const PRE_AUTH_SESSION_REPLAY_E2E_SPEC =
+  "templates/design/e2e/pre-auth-session-replay-smoke.spec.ts";
 
 // Agent instructions are inputs to core (bundled skills, prompt resources) and
 // to the skills package, and several guards read them, so they are not docs.
@@ -45,6 +49,20 @@ const INSTRUCTION_WORKSPACE_FILTERS = [
 // exercised by the guards job; no workspace build or test imports them.
 const SCRIPT_TEST_RE = /^scripts\/.+\.(?:test|spec)\.(?:ts|mts|mjs|js)$/u;
 const GUARD_SCRIPT_RE = /^scripts\/(?:lib\/)?guard-[^/]+\.(?:ts|mts|mjs|js)$/u;
+const RELATED_SCRIPT_TESTS = new Map([
+  [
+    "scripts/design-e2e-regression-pins.ts",
+    "scripts/design-e2e-regression-pins.test.ts",
+  ],
+  [
+    "scripts/design-e2e-regression-pin-identities.ts",
+    "scripts/design-e2e-regression-pin-identities.test.ts",
+  ],
+  [
+    ".github/workflows/deploy-canary.yml",
+    "scripts/deploy-alerts-workflow.test.ts",
+  ],
+]);
 const GUARD_SCOPE_FILES = new Set([
   "scripts/serverless-function-baseline.json",
 ]);
@@ -93,10 +111,37 @@ const DESIGN_CANVAS_E2E_FILES = new Set([
   "templates/design/e2e/interaction-report-interactions.spec.ts",
   "templates/design/e2e/interaction-oversized-nested.spec.ts",
   "templates/design/e2e/interaction-alt-drag-duplicate.spec.ts",
+  "templates/design/e2e/css-style-helpers.ts",
   "templates/design/e2e/z-order-behavior.spec.ts",
   "templates/design/e2e/interaction-vector-endpoints.spec.ts",
   "templates/design/e2e/responsive-overview-regressions.spec.ts",
   "templates/design/playwright.config.ts",
+]);
+
+const DESIGN_CANVAS_E2E_ROOT = "templates/design/e2e";
+const DESIGN_CANVAS_E2E_SOURCE_RE = /\.[cm]?[jt]sx?$/u;
+const DESIGN_CANVAS_E2E_SOURCE_EXTENSIONS = [
+  ".ts",
+  ".tsx",
+  ".mts",
+  ".cts",
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".cjs",
+] as const;
+
+type E2eSourceToken = {
+  kind: "identifier" | "punctuation" | "string";
+  value: string;
+  uncertain?: boolean;
+};
+
+const DESIGN_CANVAS_PIN_ATTESTATION_FILES = new Set([
+  "scripts/design-e2e-regression-pin-identities.ts",
+  "scripts/design-e2e-regression-pins.ts",
+  "scripts/guard-design-e2e-regression-pins.ts",
+  "templates/design/e2e/retry-failure-reporter.ts",
 ]);
 
 const DESIGN_CANVAS_CONFIG_FILES = new Set([
@@ -118,7 +163,7 @@ const PRE_AUTH_SESSION_REPLAY_E2E_FILES = new Set([
   "templates/analytics/server/handlers/session-replay.ts",
   "templates/analytics/server/lib/session-replay.ts",
   "templates/clips/server/plugins/config.ts",
-  "templates/design/e2e/pre-auth-session-replay-smoke.spec.ts",
+  PRE_AUTH_SESSION_REPLAY_E2E_SPEC,
   "templates/design/playwright.config.ts",
   "templates/design/server/plugins/config.ts",
   "templates/slides/server/plugins/config.ts",
@@ -153,6 +198,7 @@ const CHECK_NAMES = [
   "trusted_acceptance",
   "scaffold",
   "builder_code_starter_scaffold",
+  "deploy_paths",
   "ssr_boot",
   "guards",
   "qa_static",
@@ -219,6 +265,7 @@ export type CheckSelection = Record<CheckName, boolean>;
 export type ChangeScope = {
   changedPaths: string[];
   designCanvasE2eSpecs: string[];
+  designCanvasE2eDiagnosticSpecs: string[];
   designCanvasE2eSpecCount: number;
   docsOnly: boolean;
   full: boolean;
@@ -331,6 +378,8 @@ export function scriptTestsForPaths(
 ): string[] {
   const tests = new Set<string>();
   for (const path of paths.map(normalizeChangedPath)) {
+    const relatedTest = RELATED_SCRIPT_TESTS.get(path);
+    if (relatedTest && fileExists(relatedTest)) tests.add(relatedTest);
     if (SCRIPT_TEST_RE.test(path)) {
       if (fileExists(path)) tests.add(path);
       continue;
@@ -501,19 +550,398 @@ function hasPath(paths: readonly string[], prefix: string): boolean {
   return paths.some((path) => path.startsWith(prefix));
 }
 
+// The deploy-path check runs the commands these guides print, so an edit to a
+// guide has to reach it even when the change is docs-only.
+function isDeployGuidePath(path: string): boolean {
+  return DEPLOY_GUIDE_PATHS.includes(normalizeChangedPath(path));
+}
+
 function isDesignCanvasE2eSpecPath(path: string): boolean {
   return (
     path.startsWith("templates/design/e2e/") &&
-    path !== "templates/design/e2e/pre-auth-session-replay-smoke.spec.ts" &&
+    path !== PRE_AUTH_SESSION_REPLAY_E2E_SPEC &&
     /\.(?:spec|test)\.[cm]?[jt]sx?$/u.test(path)
   );
+}
+
+function isEligibleDesignCanvasE2eSpecPath(
+  path: string,
+  includePreAuthSessionReplay: boolean,
+): boolean {
+  return (
+    isDesignCanvasE2eSpecPath(path) ||
+    (includePreAuthSessionReplay && path === PRE_AUTH_SESSION_REPLAY_E2E_SPEC)
+  );
+}
+
+function isDesignCanvasE2eSupportPath(path: string): boolean {
+  return (
+    path.startsWith("templates/design/e2e/") &&
+    DESIGN_CANVAS_E2E_SOURCE_EXTENSIONS.some((extension) =>
+      path.endsWith(extension),
+    ) &&
+    !/\.(?:spec|test)\.[cm]?[jt]sx?$/u.test(path) &&
+    !DESIGN_CANVAS_PIN_ATTESTATION_FILES.has(path)
+  );
+}
+
+function tokenizeE2eSource(source: string): {
+  tokens: E2eSourceToken[];
+  uncertain: boolean;
+} {
+  const tokens: E2eSourceToken[] = [];
+  let index = 0;
+  let uncertain = false;
+
+  while (index < source.length) {
+    const character = source[index];
+    const nextCharacter = source[index + 1];
+    if (/\s/u.test(character)) {
+      index += 1;
+      continue;
+    }
+    if (character === "/" && nextCharacter === "/") {
+      index += 2;
+      while (index < source.length && source[index] !== "\n") index += 1;
+      continue;
+    }
+    if (character === "/" && nextCharacter === "*") {
+      index += 2;
+      while (
+        index < source.length &&
+        !(source[index] === "*" && source[index + 1] === "/")
+      ) {
+        index += 1;
+      }
+      index = Math.min(source.length, index + 2);
+      continue;
+    }
+    if (character === "`" || character === "'" || character === '"') {
+      const quote = character;
+      index += 1;
+      let value = "";
+      let stringUncertain = false;
+      while (index < source.length && source[index] !== quote) {
+        if (source[index] === "\\" && index + 1 < source.length) {
+          stringUncertain = true;
+          value += source[index + 1];
+          index += 2;
+        } else {
+          if (
+            quote === "`" &&
+            source[index] === "$" &&
+            source[index + 1] === "{"
+          ) {
+            stringUncertain = true;
+            uncertain = true;
+          }
+          value += source[index];
+          index += 1;
+        }
+      }
+      const terminated = index < source.length;
+      if (terminated) index += 1;
+      else uncertain = true;
+      tokens.push({
+        kind: "string",
+        value,
+        uncertain: stringUncertain || !terminated,
+      });
+      continue;
+    }
+    if (/[A-Za-z_$]/u.test(character)) {
+      const start = index;
+      index += 1;
+      while (index < source.length && /[\w$]/u.test(source[index])) index += 1;
+      tokens.push({
+        kind: "identifier",
+        value: source.slice(start, index),
+      });
+      continue;
+    }
+    tokens.push({ kind: "punctuation", value: character });
+    index += 1;
+  }
+
+  return { tokens, uncertain };
+}
+
+function moduleSpecifiersInE2eSource(source: string): {
+  specifiers: string[];
+  uncertain: boolean;
+} {
+  const tokenization = tokenizeE2eSource(source);
+  const tokens = tokenization.tokens;
+  const specifiers = new Set<string>();
+  let uncertain = tokenization.uncertain;
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (token.kind !== "identifier") continue;
+
+    if (token.value === "require" && tokens[index + 1]?.value === "(") {
+      const argument = tokens[index + 2];
+      if (argument?.kind === "string" && tokens[index + 3]?.value === ")") {
+        specifiers.add(argument.value);
+        uncertain ||= Boolean(argument.uncertain);
+      } else {
+        uncertain = true;
+      }
+      continue;
+    }
+
+    if (token.value === "import") {
+      const next = tokens[index + 1];
+      if (next?.value === ".") continue;
+      if (next?.value === "(") {
+        const argument = tokens[index + 2];
+        if (argument?.kind === "string" && tokens[index + 3]?.value === ")") {
+          specifiers.add(argument.value);
+          uncertain ||= Boolean(argument.uncertain);
+        } else {
+          uncertain = true;
+        }
+        continue;
+      }
+      if (next?.kind === "string") {
+        specifiers.add(next.value);
+        uncertain ||= Boolean(next.uncertain);
+        continue;
+      }
+    } else if (token.value === "export") {
+      let firstClauseToken = tokens[index + 1];
+      if (firstClauseToken?.value === "type") {
+        firstClauseToken = tokens[index + 2];
+      }
+      if (firstClauseToken?.value !== "*" && firstClauseToken?.value !== "{") {
+        continue;
+      }
+    } else {
+      continue;
+    }
+
+    for (let cursor = index + 1; cursor < tokens.length; cursor += 1) {
+      if (tokens[cursor].value === ";") break;
+      if (
+        tokens[cursor].value === "from" &&
+        tokens[cursor + 1]?.kind === "string"
+      ) {
+        specifiers.add(tokens[cursor + 1].value);
+        uncertain ||= Boolean(tokens[cursor + 1].uncertain);
+        break;
+      }
+    }
+  }
+
+  // Extra graph edges only over-select CI; the token scanner can mistake regex or JSX quotes for strings.
+  const rawImportPatterns = [
+    /\b(?:import|require)\s*\(\s*(["'`])((?:\.{1,2}\/)[^"'`\\$]*)\1/gu,
+    /\bimport\s*(["'`])((?:\.{1,2}\/)[^"'`\\$]*)\1/gu,
+    /\bfrom\s*(["'`])((?:\.{1,2}\/)[^"'`\\$]*)\1/gu,
+  ];
+  for (const pattern of rawImportPatterns) {
+    for (const match of source.matchAll(pattern)) {
+      if (match[2]) specifiers.add(match[2]);
+    }
+  }
+
+  return { specifiers: [...specifiers], uncertain };
+}
+
+function designCanvasE2eSourcePaths(repositoryRoot: string): string[] {
+  const root = join(repositoryRoot, DESIGN_CANVAS_E2E_ROOT);
+  const paths: string[] = [];
+  const visit = (directory: string) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const absolutePath = join(directory, entry.name);
+      if (entry.isDirectory()) {
+        visit(absolutePath);
+      } else if (
+        entry.isFile() &&
+        DESIGN_CANVAS_E2E_SOURCE_RE.test(entry.name)
+      ) {
+        paths.push(
+          normalizeChangedPath(relative(repositoryRoot, absolutePath)),
+        );
+      }
+    }
+  };
+
+  visit(root);
+  return paths.sort();
+}
+
+function designCanvasE2ePathsFromGit(repositoryRoot: string): string[] {
+  const output = execFileSync(
+    "git",
+    [
+      "ls-files",
+      "--cached",
+      "--others",
+      "--exclude-standard",
+      "--",
+      DESIGN_CANVAS_E2E_ROOT,
+    ],
+    { encoding: "utf8", cwd: repositoryRoot },
+  );
+  return output
+    .split("\n")
+    .filter((path) => DESIGN_CANVAS_E2E_SOURCE_RE.test(path))
+    .sort();
+}
+
+function relativeE2eImportTargets(
+  importerPath: string,
+  specifier: string,
+  repositoryRoot: string,
+  e2eSourcePaths: ReadonlySet<string>,
+): string[] {
+  if (!specifier.startsWith("./") && !specifier.startsWith("../")) return [];
+
+  const absoluteTarget = resolve(
+    repositoryRoot,
+    dirname(importerPath),
+    specifier,
+  );
+  const baseTarget = normalizeChangedPath(
+    relative(repositoryRoot, absoluteTarget),
+  );
+  if (baseTarget === ".." || baseTarget.startsWith("../")) return [];
+
+  const extension = extname(baseTarget);
+  let candidates: string[];
+  if (extension) {
+    const stem = baseTarget.slice(0, -extension.length);
+    const typedAlternates =
+      extension === ".js"
+        ? [".ts", ".tsx", ".mts", ".cts"]
+        : extension === ".jsx"
+          ? [".tsx", ".ts"]
+          : extension === ".mjs"
+            ? [".mts", ".ts"]
+            : extension === ".cjs"
+              ? [".cts", ".ts"]
+              : [];
+    candidates = [
+      baseTarget,
+      ...typedAlternates.map((alternate) => `${stem}${alternate}`),
+    ];
+  } else {
+    candidates = [
+      ...DESIGN_CANVAS_E2E_SOURCE_EXTENSIONS.map(
+        (candidateExtension) => `${baseTarget}${candidateExtension}`,
+      ),
+      ...DESIGN_CANVAS_E2E_SOURCE_EXTENSIONS.map((candidateExtension) =>
+        join(baseTarget, `index${candidateExtension}`),
+      ),
+    ];
+  }
+
+  const existingCandidates = candidates.filter((candidate) =>
+    e2eSourcePaths.has(candidate),
+  );
+  if (existingCandidates.length > 0) return [existingCandidates[0]];
+  return candidates.filter((candidate) =>
+    DESIGN_CANVAS_E2E_SOURCE_RE.test(candidate),
+  );
+}
+
+export function designCanvasE2eSpecsForPaths(
+  paths: readonly string[],
+  repositoryRoot = process.cwd(),
+  includePreAuthSessionReplay = false,
+): string[] {
+  const changedPaths = paths.map(normalizeChangedPath);
+  const isTargetSpec = (path: string) =>
+    isEligibleDesignCanvasE2eSpecPath(path, includePreAuthSessionReplay);
+  const directSpecs = changedPaths.filter(isTargetSpec);
+  const changedHelpers = changedPaths.filter(isDesignCanvasE2eSupportPath);
+  if (changedHelpers.length === 0) return [...new Set(directSpecs)].sort();
+
+  let sourcePaths: string[];
+  try {
+    sourcePaths = designCanvasE2eSourcePaths(repositoryRoot);
+  } catch {
+    sourcePaths = designCanvasE2ePathsFromGit(repositoryRoot);
+  }
+  const sourcePathSet = new Set(sourcePaths);
+  const importersByPath = new Map<string, string[]>();
+  const allEligibleSpecs = () => {
+    let specs = sourcePaths.filter(isTargetSpec);
+    if (specs.length === 0) {
+      specs = designCanvasE2ePathsFromGit(repositoryRoot).filter(isTargetSpec);
+    }
+    if (specs.length === 0) {
+      throw new Error(
+        "Cannot safely route Design E2E helper changes because no eligible specs were found.",
+      );
+    }
+    return [...new Set([...directSpecs, ...specs])].sort();
+  };
+  let uncertainDependency = false;
+
+  try {
+    for (const sourcePath of sourcePaths) {
+      const modules = moduleSpecifiersInE2eSource(
+        readFileSync(join(repositoryRoot, sourcePath), "utf8"),
+      );
+      uncertainDependency ||= modules.uncertain;
+      for (const specifier of modules.specifiers) {
+        for (const importedPath of relativeE2eImportTargets(
+          sourcePath,
+          specifier,
+          repositoryRoot,
+          sourcePathSet,
+        )) {
+          const importers = importersByPath.get(importedPath) ?? [];
+          importers.push(sourcePath);
+          importersByPath.set(importedPath, importers);
+        }
+      }
+    }
+  } catch {
+    // If a partial checkout prevents tracing imports, select every eligible spec found.
+    return allEligibleSpecs();
+  }
+
+  const selectedSpecs = new Set(directSpecs);
+  if (uncertainDependency) {
+    return allEligibleSpecs();
+  }
+
+  for (const helperPath of changedHelpers) {
+    const visited = new Set<string>([helperPath]);
+    const pending = [helperPath];
+    const consumers = new Set<string>();
+    while (pending.length > 0) {
+      const current = pending.pop();
+      if (!current) continue;
+      for (const importer of importersByPath.get(current) ?? []) {
+        if (visited.has(importer)) continue;
+        visited.add(importer);
+        if (isTargetSpec(importer)) {
+          consumers.add(importer);
+        }
+        pending.push(importer);
+      }
+    }
+
+    if (consumers.size === 0) {
+      for (const spec of allEligibleSpecs()) selectedSpecs.add(spec);
+    } else {
+      for (const spec of consumers) selectedSpecs.add(spec);
+    }
+  }
+
+  return [...selectedSpecs].sort();
 }
 
 function isDesignDndRuntimePath(path: string): boolean {
   if (
     DESIGN_CANVAS_E2E_FILES.has(path) ||
     DESIGN_CANVAS_CONFIG_FILES.has(path) ||
-    isDesignCanvasE2eSpecPath(path)
+    isDesignCanvasE2eSpecPath(path) ||
+    isDesignCanvasE2eSupportPath(path)
   ) {
     return true;
   }
@@ -690,6 +1118,9 @@ function buildChecks(
     toolkitChanged ||
     agentkitChanged ||
     hasPath(changedPaths, "packages/creative-context/");
+  const designCanvasPinAttestationChanged = changedPaths.some((path) =>
+    DESIGN_CANVAS_PIN_ATTESTATION_FILES.has(path),
+  );
   const preAuthSessionReplayE2eChanged = changedPaths.some((path) =>
     PRE_AUTH_SESSION_REPLAY_E2E_FILES.has(path),
   );
@@ -717,6 +1148,17 @@ function buildChecks(
       hasPath(changedPaths, "templates/dispatch/"),
     // The bundled Builder Code starter is a layer in core over templates/chat.
     builder_code_starter_scaffold: coreChanged || chatChanged,
+    // Installs the packages a standalone Chat app depends on, so a change to
+    // any of them can break a deploy path.
+    deploy_paths:
+      coreChanged ||
+      toolkitChanged ||
+      agentkitChanged ||
+      sharedAppConfigChanged ||
+      hasPath(changedPaths, "packages/otel/") ||
+      hasPath(changedPaths, "packages/recap-cli/") ||
+      chatChanged ||
+      changedPaths.some(isDeployGuidePath),
     ssr_boot:
       ssrBootSharedPackageChanged(changedPaths) ||
       contentChanged ||
@@ -739,7 +1181,8 @@ function buildChecks(
     // The probe imports only core's database client, so templates cannot
     // move it.
     neon_connection_budget: coreChanged,
-    design_canvas_core_regression: designCanvasInteractionE2eChanged,
+    design_canvas_core_regression:
+      designCanvasInteractionE2eChanged || designCanvasPinAttestationChanged,
     design_canvas_broad_workflows: designCanvasInteractionE2eChanged,
     pre_auth_session_replay_e2e: preAuthSessionReplayE2eChanged,
     slides_chat_e2e: slidesChatE2eChanged,
@@ -749,12 +1192,30 @@ function buildChecks(
   };
 }
 
-export function classifyChangedPaths(paths: readonly string[]): ChangeScope {
+export function classifyChangedPaths(
+  paths: readonly string[],
+  sameDirectoryPureDesignSpecRenames: readonly string[] = [],
+  repositoryRoot = process.cwd(),
+): ChangeScope {
   const changedPaths = paths.map(normalizeChangedPath);
   const nonDocsPaths = changedPaths.filter((path) => !isDocsPath(path));
+  const sameDirectoryPureDesignSpecRenameSet = new Set(
+    sameDirectoryPureDesignSpecRenames.map(normalizeChangedPath),
+  );
   const docsOnly = changedPaths.length > 0 && nonDocsPaths.length === 0;
   const workspaceFilters = workspaceFiltersForPaths(changedPaths);
   const testWorkspaceFilters = testWorkspaceFiltersForPaths(changedPaths);
+  const allDesignCanvasE2eSpecs = designCanvasE2eSpecsForPaths(
+    changedPaths,
+    repositoryRoot,
+    true,
+  );
+  const preAuthSessionReplayE2eChanged = allDesignCanvasE2eSpecs.includes(
+    PRE_AUTH_SESSION_REPLAY_E2E_SPEC,
+  );
+  const designCanvasE2eSpecs = allDesignCanvasE2eSpecs.filter(
+    (path) => path !== PRE_AUTH_SESSION_REPLAY_E2E_SPEC,
+  );
   const full =
     changedPaths.length === 0 ||
     changedPaths.some(isFullPath) ||
@@ -766,19 +1227,24 @@ export function classifyChangedPaths(paths: readonly string[]): ChangeScope {
           name,
           name === "lint" ||
             (name === "guards" && changedPaths.some(isReadmePath)) ||
+            (name === "deploy_paths" && changedPaths.some(isDeployGuidePath)) ||
             (name === "changeset" && changedPaths.some(isChangesetPath)),
         ]),
       ) as CheckSelection)
     : buildChecks(changedPaths, full);
+  if (preAuthSessionReplayE2eChanged) {
+    checks.pre_auth_session_replay_e2e = true;
+  }
   const queryBudgetApps = queryBudgetAppsFor(changedPaths, full, checks);
-  const changedDesignSpecs = changedPaths
-    .filter(isDesignCanvasE2eSpecPath)
-    .sort();
+  const changedDesignDiagnosticSpecs = designCanvasE2eSpecs.filter(
+    (path) => !sameDirectoryPureDesignSpecRenameSet.has(path),
+  );
 
   return {
     changedPaths,
-    designCanvasE2eSpecs: changedDesignSpecs,
-    designCanvasE2eSpecCount: changedDesignSpecs.length,
+    designCanvasE2eSpecs,
+    designCanvasE2eDiagnosticSpecs: changedDesignDiagnosticSpecs,
+    designCanvasE2eSpecCount: designCanvasE2eSpecs.length,
     docsOnly,
     full,
     nonDocsPaths,
@@ -792,15 +1258,89 @@ export function classifyChangedPaths(paths: readonly string[]): ChangeScope {
   };
 }
 
-export function readChangedPaths(baseSha: string, headSha: string): string[] {
+export function readChangedPaths(
+  baseSha: string,
+  headSha: string,
+  cwd = process.cwd(),
+): string[] {
   const output = execFileSync(
     "git",
     ["diff", "--name-only", "-z", `${baseSha}...${headSha}`],
     {
       encoding: "utf8",
+      cwd,
     },
   );
   return output.split("\0").filter(Boolean);
+}
+
+export function readSameDirectoryPureDesignSpecRenames(
+  baseSha: string,
+  headSha: string,
+  cwd = process.cwd(),
+): string[] {
+  const output = execFileSync(
+    "git",
+    [
+      "diff",
+      "--raw",
+      "--no-abbrev",
+      "--find-renames=100%",
+      "-z",
+      `${baseSha}...${headSha}`,
+    ],
+    {
+      encoding: "utf8",
+      cwd,
+    },
+  );
+  const fields = output.split("\0");
+  const renamedSpecs: string[] = [];
+
+  for (let index = 0; index < fields.length - 1; ) {
+    const header = fields[index++];
+    const match =
+      /^:(\d{6}) (\d{6}) ([0-9a-f]+) ([0-9a-f]+) ([A-Z])(\d*)$/u.exec(header);
+    if (!match) {
+      throw new Error(`Unexpected git diff --raw record: ${header}`);
+    }
+
+    const [, oldMode, newMode, oldBlob, newBlob, status, score] = match;
+    const oldPath = fields[index++];
+    if (oldPath === undefined || oldPath === "") {
+      throw new Error("Missing old path in git diff --raw output");
+    }
+    if (status !== "R") continue;
+
+    const newPath = fields[index++];
+    if (newPath === undefined || newPath === "") {
+      throw new Error("Missing new path in git diff --raw rename output");
+    }
+
+    const normalizedOldPath = normalizeChangedPath(oldPath);
+    const normalizedNewPath = normalizeChangedPath(newPath);
+    const oldDirectory = normalizedOldPath.slice(
+      0,
+      normalizedOldPath.lastIndexOf("/"),
+    );
+    const newDirectory = normalizedNewPath.slice(
+      0,
+      normalizedNewPath.lastIndexOf("/"),
+    );
+
+    if (
+      score === "100" &&
+      oldMode === newMode &&
+      oldBlob === newBlob &&
+      oldDirectory === newDirectory &&
+      isDesignCanvasE2eSpecPath(normalizedOldPath) &&
+      isDesignCanvasE2eSpecPath(normalizedNewPath)
+    ) {
+      renamedSpecs.push(normalizedNewPath);
+    }
+  }
+
+  return renamedSpecs.sort();
 }
 
 function writeOutputs(scope: ChangeScope): void {
@@ -811,6 +1351,7 @@ function writeOutputs(scope: ChangeScope): void {
       `full=${scope.full ? "true" : "false"}`,
       `changed_count=${scope.changedPaths.length}`,
       `design_canvas_e2e_specs=${JSON.stringify(scope.designCanvasE2eSpecs)}`,
+      `design_canvas_e2e_diagnostic_specs=${JSON.stringify(scope.designCanvasE2eDiagnosticSpecs)}`,
       `workspace_filters=${JSON.stringify(scope.workspaceFilters)}`,
       `script_tests=${JSON.stringify(scope.scriptTests)}`,
       `query_budget_matrix=${JSON.stringify({ include: scope.queryBudgetShards })}`,
@@ -839,6 +1380,7 @@ function writeOutputs(scope: ChangeScope): void {
         `- Test/typecheck selectors: **${scope.testWorkspaceFilters.join(", ") || "none"}**`,
         `- Selected checks: **${selectedChecks.join(", ") || "docs"}**`,
         `- Design E2E changed spec files: **${scope.designCanvasE2eSpecCount}**`,
+        `- Design E2E diagnostic spec files: **${scope.designCanvasE2eDiagnosticSpecs.length}**`,
         ...(preview.length > 0
           ? [
               "",
@@ -863,6 +1405,8 @@ function main(): void {
   }
 
   const changedPaths = readChangedPaths(baseSha, headSha);
+  const sameDirectoryPureDesignSpecRenames =
+    readSameDirectoryPureDesignSpecRenames(baseSha, headSha);
   const runtimeSourceChanges = runtimeSourceChangesInTestTitledPr(
     process.env.CI_PR_TITLE ?? "",
     changedPaths,
@@ -876,7 +1420,10 @@ function main(): void {
     );
   }
 
-  const scope = classifyChangedPaths(changedPaths);
+  const scope = classifyChangedPaths(
+    changedPaths,
+    sameDirectoryPureDesignSpecRenames,
+  );
   console.log(JSON.stringify(scope, null, 2));
   writeOutputs(scope);
 }

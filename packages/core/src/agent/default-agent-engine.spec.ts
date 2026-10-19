@@ -46,7 +46,11 @@ const { __resetAuditInitForTests, ensureAuditTables } =
 
 const ORG_A = "org-a";
 const ORG_B = "org-b";
-const meta = { actionName: "manage-agent-engine", caller: "frontend" as const };
+const { auditAttribution } = await import("../audit/attribution.js");
+const meta = {
+  actionName: "manage-agent-engine",
+  attribution: auditAttribution({ caller: "frontend" }),
+};
 
 async function addMember(orgId: string, email: string, role: string) {
   await pglite.query(
@@ -72,8 +76,12 @@ async function adminAuthority(orgId: string | undefined, email: string) {
   return authority;
 }
 
+const { __resetStoreLedgerSnapshotForTests } =
+  await import("../db/store-registry.js");
+
 beforeEach(async () => {
   pglite = await createTestPglite();
+  __resetStoreLedgerSnapshotForTests();
   __resetAuditInitForTests();
   await pglite.exec(`CREATE TABLE settings (
     key TEXT PRIMARY KEY,
@@ -429,7 +437,10 @@ describe("default model scope", () => {
     await writeDefaultAgentEngineSelection(
       await adminAuthority(ORG_A, "admin-a@example.test"),
       { engine: "ai-sdk:openai", model: "gpt-5.5" },
-      { actionName: "manage-agent-engine", caller: "tool" },
+      {
+        actionName: "manage-agent-engine",
+        attribution: auditAttribution({ caller: "tool" }),
+      },
     );
 
     expect(await auditRows()).toEqual([

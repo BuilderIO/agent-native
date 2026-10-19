@@ -118,6 +118,7 @@ import {
   updateRecordingBackupMeta,
   type LocalRecorderPlatform,
 } from "@/lib/recording-backup";
+import { isPolicyPermissionError } from "@/lib/recording-error-classification";
 import { copyFreshRecordingShareLink } from "@/lib/recording-link";
 import {
   buildCaptureTitle,
@@ -132,6 +133,7 @@ import { uploadVideoBlobThumbnail } from "@/lib/thumbnail-capture";
 import { uploadChunkRequest } from "@/lib/upload-request";
 import {
   abandonUploadTarget,
+  hostedUploadLimits,
   openUploadTarget,
   uploadTargetAtStart,
   type CreatedUploadTarget,
@@ -290,6 +292,10 @@ function isEmbeddedWindow(): boolean {
   }
 }
 
+function isEmbeddedWebClient(): boolean {
+  return isEmbeddedWindow() && getCaptureHostApp().kind !== "desktop";
+}
+
 function saveBlobToDisk(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -302,11 +308,18 @@ function saveBlobToDisk(blob: Blob, filename: string): void {
   window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
 }
 
-function openUrlFromUserGesture(url: string): void {
-  const opened = window.open(url, "_blank", "noopener,noreferrer");
+export function openUrlFromUserGesture(
+  url: string,
+  fallbackToCurrentFrame = true,
+): boolean {
+  // `noopener` returns null even for a successful popup, so clear opener afterward.
+  const opened = window.open(url, "_blank");
   if (!opened) {
-    window.location.href = url;
+    if (fallbackToCurrentFrame) window.location.href = url;
+    return false;
   }
+  opened.opener = null;
+  return true;
 }
 
 function bugReportDonePath(
@@ -358,14 +371,20 @@ function capturePolicy(): BrowserDocumentPolicy | null {
   return doc.permissionsPolicy ?? doc.featurePolicy ?? null;
 }
 
-function isCaptureFeatureBlockedByPolicy(feature: string): boolean {
+function captureFeaturePolicyState(
+  feature: string,
+): "allowed" | "blocked" | "unknown" {
   const policy = capturePolicy();
-  if (!policy?.allowsFeature) return false;
+  if (!policy?.allowsFeature) return "unknown";
   try {
-    return !policy.allowsFeature(feature);
+    return policy.allowsFeature(feature) ? "allowed" : "blocked";
   } catch {
-    return false;
+    return "unknown";
   }
+}
+
+function isCaptureFeatureBlockedByPolicy(feature: string): boolean {
+  return captureFeaturePolicyState(feature) === "blocked";
 }
 
 function getPolicyBlockedCaptureLabel(opts: {
@@ -394,13 +413,15 @@ function getPolicyBlockedCaptureLabel(opts: {
 }
 
 function directRecorderUrl(opts?: {
-  mode: RecordingMode;
-  displaySurface: DisplaySurface;
+  mode?: RecordingMode;
+  displaySurface?: DisplaySurface;
 }): string {
   if (typeof window === "undefined") return "/record";
   const url = new URL(window.location.href);
-  if (opts) {
+  if (opts?.mode) {
     url.searchParams.set("mode", opts.mode);
+  }
+  if (opts?.displaySurface) {
     url.searchParams.set("surface", opts.displaySurface);
   }
   return url.toString();
@@ -425,12 +446,6 @@ function isPermissionError(message: string): boolean {
   );
 }
 
-function isPolicyPermissionError(message: string): boolean {
-  return /permissions-policy|app frame|embedding frame|frame that allows/i.test(
-    message,
-  );
-}
-
 function isScreenPermissionError(message: string): boolean {
   return (
     isPermissionError(message) &&
@@ -446,6 +461,25 @@ function isCameraPermissionError(message: string): boolean {
 
 function isMicrophonePermissionError(message: string): boolean {
   return isPermissionError(message) && /microphone|mic/i.test(message);
+}
+
+function isEmbeddedCapturePolicyUnknownError(message: string): boolean {
+  if (!isEmbeddedWebClient()) return false;
+  if (isCameraPermissionError(message)) {
+    return captureFeaturePolicyState("camera") === "unknown";
+  }
+  if (isMicrophonePermissionError(message)) {
+    return captureFeaturePolicyState("microphone") === "unknown";
+  }
+  return false;
+}
+
+function shouldOpenRecorderInTab(message: string): boolean {
+  return (
+    (isPolicyPermissionError(message) && isEmbeddedWebClient()) ||
+    isEmbeddedCapturePolicyUnknownError(message) ||
+    (isEmbeddedWebClient() && isScreenPermissionError(message))
+  );
 }
 
 function wantsMicrophone(micDeviceId?: string | null): boolean {
@@ -483,13 +517,14 @@ function permissionGuidance(
   if (isUploadFailureError(message)) return null;
   if (!isPermissionError(message)) return null;
   if (isPolicyPermissionError(message)) {
+    if (!isEmbeddedWebClient()) return null;
     if (opts?.mode === "screen") {
       return "Browser site permissions are not the blocker here. Open Clips directly in a browser tab, or use an app frame that delegates screen capture.";
     }
     return "Browser site permissions are not the blocker here. Open Clips directly in a browser tab, or use an app frame that delegates the selected capture sources.";
   }
   if (isScreenPermissionError(message)) {
-    if (isEmbeddedWindow() && getCaptureHostApp().kind !== "desktop") {
+    if (isEmbeddedWebClient()) {
       return "The web client is running Clips inside a frame. Open the recorder in its own tab, then start recording; Chrome can block screen sharing in embedded pages even when macOS access is enabled.";
     }
     if (isMacPlatform()) {
@@ -542,6 +577,68 @@ function permissionSettingsUrl(
   return MAC_SCREEN_RECORDING_PREF_URL;
 }
 
+export function recordingErrorToastRecoveryAction(
+  message: string,
+  mode: RecordingMode | undefined,
+  directUrl: string,
+): {
+  labelKey: "recordRoute.openRecorderInTab" | "recordRoute.openSettings";
+  url: string;
+} | null {
+  if (isUploadFailureError(message)) return null;
+  if (shouldOpenRecorderInTab(message)) {
+    return { labelKey: "recordRoute.openRecorderInTab", url: directUrl };
+  }
+
+  const url = permissionSettingsUrl(message, mode);
+  return url ? { labelKey: "recordRoute.openSettings", url } : null;
+}
+
+export function buildRecordingErrorToastOptions(
+  message: string,
+  pendingOpts: {
+    mode?: RecordingMode;
+    displaySurface?: DisplaySurface;
+    micDeviceId?: string | null;
+  } | null,
+  t: (
+    key: "recordRoute.openRecorderInTab" | "recordRoute.openSettings",
+  ) => string,
+  openRecoveryUrl: (url: string, fallbackToCurrentFrame: boolean) => boolean,
+  onPopupBlocked: () => void,
+) {
+  const uploadFailure = isUploadFailureError(message);
+  const embeddedCapturePolicyUnknownError =
+    isEmbeddedCapturePolicyUnknownError(message);
+  const guidance =
+    uploadFailure || embeddedCapturePolicyUnknownError
+      ? null
+      : permissionGuidance(message, pendingOpts ?? undefined);
+  const recoveryAction = recordingErrorToastRecoveryAction(
+    message,
+    pendingOpts?.mode,
+    directRecorderUrl(pendingOpts ?? undefined),
+  );
+  return {
+    description: guidance ?? friendlyRecordingErrorMessage(message),
+    duration: guidance ? 20_000 : 10_000,
+    action: recoveryAction
+      ? {
+          label: t(recoveryAction.labelKey),
+          onClick: () => {
+            const fallbackToCurrentFrame =
+              recoveryAction.labelKey === "recordRoute.openSettings";
+            const opened = openRecoveryUrl(
+              recoveryAction.url,
+              fallbackToCurrentFrame,
+            );
+            if (!opened && !fallbackToCurrentFrame) onPopupBlocked();
+          },
+        }
+      : undefined,
+  };
+}
+
 function isDismissedCapturePicker(err: unknown, message: string): boolean {
   const name = err instanceof Error ? err.name : "";
   return (
@@ -588,10 +685,12 @@ function uploadAbortMetadata(error: unknown): Record<string, unknown> {
       ? (error as Record<string, unknown>)
       : {};
   const failureCode =
-    details.failureCode === "chunk_html_error" ||
-    details.failureCode === "multipart_start_failed"
-      ? details.failureCode
-      : "upload_failed";
+    details.errorCode === "hosted_storage_unavailable"
+      ? "hosted_storage_unavailable"
+      : details.failureCode === "chunk_html_error" ||
+          details.failureCode === "multipart_start_failed"
+        ? details.failureCode
+        : "upload_failed";
   const failureStage =
     details.failureStage === "chunk_upload" ||
     details.failureStage === "reset_chunks" ||
@@ -643,8 +742,14 @@ function friendlyRecordingErrorMessage(error: string): string {
   if (isUploadFailureError(error)) {
     return "The video could not finish uploading. Retry the upload before starting over.";
   }
-  if (isPolicyPermissionError(error)) {
+  if (
+    isEmbeddedWebClient() &&
+    (isPolicyPermissionError(error) || isScreenPermissionError(error))
+  ) {
     return "This recorder is embedded somewhere that blocks capture permissions.";
+  }
+  if (isPolicyPermissionError(error)) {
+    return "Something blocked the recorder before it could start.";
   }
   if (isScreenPermissionError(error)) {
     if (isMacPlatform()) {
@@ -680,6 +785,8 @@ interface PendingRecording {
   abortUrl: string;
   resetChunksUrl?: string;
   uploadMode?: UploadMode;
+  maxClipBytes?: number;
+  maxClipDurationMs?: number;
   /** No server row yet: storage was not connected when recording started. */
   localOnly?: boolean;
 }
@@ -763,6 +870,8 @@ function localUploadFailureLabel(
   switch (code) {
     case "session_expired":
       return withNote(t("recordRoute.sessionExpired"));
+    case "hosted_storage_unavailable":
+      return withNote(t("storageSetup.hostedStorageUnavailable"));
     case "recording_too_large":
       return withNote(t("recordRoute.videoTooLarge"));
     case "missing_local_copy":
@@ -940,6 +1049,7 @@ function RecorderRouteViewport({ children }: { children: ReactNode }) {
 export function RecordingErrorCard({
   error,
   mode,
+  displaySurface,
   micDeviceId,
   canRetryUpload,
   canDownloadRecording,
@@ -948,6 +1058,7 @@ export function RecordingErrorCard({
 }: {
   error: string;
   mode: RecordingMode;
+  displaySurface?: DisplaySurface;
   micDeviceId: string | null;
   canRetryUpload: boolean;
   canDownloadRecording: boolean;
@@ -956,23 +1067,22 @@ export function RecordingErrorCard({
 }) {
   const t = useT();
   const uploadFailure = isUploadFailureError(error);
-  const guidance = uploadFailure
-    ? null
-    : permissionGuidance(error, { mode, micDeviceId });
+  const embeddedCapturePolicyUnknownError =
+    !uploadFailure && isEmbeddedCapturePolicyUnknownError(error);
+  const guidance =
+    uploadFailure || embeddedCapturePolicyUnknownError
+      ? null
+      : permissionGuidance(error, { mode, micDeviceId });
   const permissionError = !uploadFailure && isPermissionError(error);
   const policyError = !uploadFailure && isPolicyPermissionError(error);
-  const embeddedScreenError =
-    !uploadFailure &&
-    isEmbeddedWindow() &&
-    getCaptureHostApp().kind !== "desktop" &&
-    isScreenPermissionError(error);
-  const settings = permissionError
-    ? getModePermissionLabels(mode, micDeviceId)
-    : [];
-  const directUrl = directRecorderUrl();
+  const openDirectly = !uploadFailure && shouldOpenRecorderInTab(error);
+  const settings =
+    permissionError && !openDirectly
+      ? getModePermissionLabels(mode, micDeviceId)
+      : [];
+  const directUrl = directRecorderUrl({ mode, displaySurface });
   const friendlyMessage = friendlyRecordingErrorMessage(error);
   const showTechnicalDetails = friendlyMessage !== error;
-  const openDirectly = policyError || embeddedScreenError;
   const downloadIsPrimary = canDownloadRecording && !canRetryUpload;
 
   return (
@@ -1014,7 +1124,11 @@ export function RecordingErrorCard({
         {openDirectly && (
           <Button
             type="button"
-            onClick={() => openUrlFromUserGesture(directUrl)}
+            onClick={() => {
+              if (!openUrlFromUserGesture(directUrl, false)) {
+                toast.error(t("clipsSettings.popupBlocked"));
+              }
+            }}
             className="w-full gap-2"
           >
             <IconExternalLink className="size-4" />
@@ -1248,6 +1362,7 @@ export default function RecordRoute() {
     useState<FirstRunStorageSetupDismissal>(readFirstRunStorageSetupDismissal);
   const [firstRunStorageSetupIntent, setFirstRunStorageSetupIntent] =
     useState(false);
+  const [skipHostedStorageSetup, setSkipHostedStorageSetup] = useState(false);
   const [savingKind, setSavingKind] = useState<"recording" | "upload" | null>(
     null,
   );
@@ -1285,6 +1400,11 @@ export default function RecordRoute() {
     [location.search],
   );
   const storageQuery = useVideoStorageStatus(!clipIntake);
+  const hostedAllowanceExhausted =
+    !clipIntake && storageQuery.data?.denyReason === "exhausted";
+  const hostedStorageUnavailable =
+    !clipIntake &&
+    storageQuery.data?.providerError === "hosted_storage_unavailable";
   const connectStorageRequested =
     new URLSearchParams(location.search).get("connectStorage") === "1";
   const pendingUploadFile = hasPendingUploadFile();
@@ -1356,18 +1476,21 @@ export default function RecordRoute() {
     (pendingUploadFile ||
       connectStorageRequested ||
       firstRunStorageSetup ||
-      firstRunStorageSetupIntent);
+      firstRunStorageSetupIntent ||
+      (hostedAllowanceExhausted && !skipHostedStorageSetup));
+  const showHostedClipsRemaining =
+    storageQuery.data?.mode === "hosted" &&
+    Boolean(storageQuery.data.hostedRemaining) &&
+    storageQuery.data.hostedRemaining < storageQuery.data.hostedLimit;
   const markStorageConfigured = useCallback(
     (status?: VideoStorageStatus) => {
-      queryClient.setQueryData<VideoStorageStatus>(
-        VIDEO_STORAGE_STATUS_KEY,
-        (prev) =>
-          status ?? {
-            configured: true,
-            activeProvider: prev?.activeProvider ?? null,
-            builderConfigured: prev?.builderConfigured ?? false,
-          },
-      );
+      if (status) {
+        queryClient.setQueryData(VIDEO_STORAGE_STATUS_KEY, status);
+      } else {
+        void queryClient.invalidateQueries({
+          queryKey: VIDEO_STORAGE_STATUS_KEY,
+        });
+      }
     },
     [queryClient],
   );
@@ -1449,7 +1572,13 @@ export default function RecordRoute() {
       if (info) {
         const uploadChunkUrl = `${appBasePath()}${info.uploadChunkUrl}`;
         const abortUrl = `${appBasePath()}${info.abortUrl}`;
-        pendingRef.current = { id: info.id, uploadChunkUrl, abortUrl };
+        pendingRef.current = {
+          id: info.id,
+          uploadChunkUrl,
+          abortUrl,
+          maxClipBytes: info.clientLimits?.maxClipBytes,
+          maxClipDurationMs: info.clientLimits?.maxClipDurationMs,
+        };
         engine.setUploadTarget({
           recordingId: info.id,
           uploadUrl: uploadChunkUrl,
@@ -1458,6 +1587,10 @@ export default function RecordRoute() {
             ? `${appBasePath()}${info.resetChunksUrl}`
             : undefined,
           uploadMode: info.uploadMode,
+          maxUploadBytes: info.clientLimits?.maxClipBytes,
+        });
+        void queryClient.invalidateQueries({
+          queryKey: VIDEO_STORAGE_STATUS_KEY,
         });
       } else {
         const localId = newRecordingId();
@@ -1472,7 +1605,7 @@ export default function RecordRoute() {
       localCopy.markRecordedHere(pendingRef.current.id);
       return pendingRef.current.id;
     },
-    [localCopy],
+    [localCopy, queryClient],
   );
   const countdownAudioCueRef = useRef<CountdownAudioCue | null>(null);
   const confettiRef = useRef<ConfettiHandle>(null);
@@ -1532,25 +1665,13 @@ export default function RecordRoute() {
     (message: string) => {
       const pendingOpts = pendingStartOptsRef.current;
       const uploadFailure = isUploadFailureError(message);
-      const guidance = uploadFailure
-        ? null
-        : permissionGuidance(message, pendingOpts ?? undefined);
-      const settingsUrl = uploadFailure
-        ? null
-        : permissionSettingsUrl(message, pendingOpts?.mode);
-      const friendlyMessage = friendlyRecordingErrorMessage(message);
-      const options = {
-        description: guidance ?? friendlyMessage,
-        duration: guidance ? 20_000 : 10_000,
-        action: settingsUrl
-          ? {
-              label: t("recordRoute.openSettings"),
-              onClick: () => {
-                openUrlFromUserGesture(settingsUrl);
-              },
-            }
-          : undefined,
-      };
+      const options = buildRecordingErrorToastOptions(
+        message,
+        pendingOpts,
+        t,
+        openUrlFromUserGesture,
+        () => toast.error(t("clipsSettings.popupBlocked")),
+      );
       if (uploadFailure) {
         failUploadToast(t("recordRoute.uploadFailed"), options);
       } else {
@@ -1575,11 +1696,15 @@ export default function RecordRoute() {
           })
         : null;
       if (blockedFeature) {
-        openUrlFromUserGesture(directRecorderUrl(opts));
-        toast.info(t("recordRoute.openedRecorderInNewTab"), {
-          description: `Chrome is blocking ${blockedFeature} access in this embedded web client.`,
-          duration: 8000,
-        });
+        const opened = openUrlFromUserGesture(directRecorderUrl(opts), false);
+        if (opened) {
+          toast.info(t("recordRoute.openedRecorderInNewTab"), {
+            description: `Chrome is blocking ${blockedFeature} access in this embedded web client.`,
+            duration: 8000,
+          });
+        } else {
+          toast.error(t("clipsSettings.popupBlocked"));
+        }
         return;
       }
 
@@ -1764,6 +1889,11 @@ export default function RecordRoute() {
                   ? { status: cause.status }
                   : { message: cause.message }),
               });
+              if (cause.kind === "http" && cause.status === 503) {
+                void queryClient.invalidateQueries({
+                  queryKey: VIDEO_STORAGE_STATUS_KEY,
+                });
+              }
             },
           });
 
@@ -1911,21 +2041,36 @@ export default function RecordRoute() {
       }
 
       let createdId: string | null = null;
+      let uploadMaxBytes = MAX_UPLOAD_BYTES;
+      let maxClipDurationMs = 0;
       try {
         const intake = clipIntakeRef.current;
         if (!intake) {
           const status = await fetchVideoStorageStatus();
           if (isStale()) return;
           markStorageConfigured(status);
-          if (!status.configured) {
+          const canUploadToStorage =
+            status.mode === "own" ||
+            (status.mode === "hosted" && status.hostedRemaining > 0);
+          if (!status.configured || !canUploadToStorage) {
             throw new Error(
               "No video storage configured. Use Builder.io (free tier storage + AI) or S3-compatible storage.",
             );
           }
+          const hostedLimits = hostedUploadLimits(status);
+          if (hostedLimits) {
+            uploadMaxBytes = Math.min(
+              MAX_UPLOAD_BYTES,
+              hostedLimits.maxClipBytes,
+            );
+            maxClipDurationMs = hostedLimits.maxClipDurationMs;
+          }
         }
-
         const meta = await probeVideoMetadata(file);
         if (isStale()) return;
+        if (maxClipDurationMs > 0 && meta.durationMs > maxClipDurationMs) {
+          throw new Error(t("recordRoute.clipExceedsMaxDuration"));
+        }
 
         let uploadBlob: Blob = file;
         let uploadMimeType = mimeType;
@@ -1984,14 +2129,16 @@ export default function RecordRoute() {
               compressionError,
             );
           }
-          if (uploadBlob.size > MAX_UPLOAD_BYTES && compression.compressed) {
+          if (uploadBlob.size > uploadMaxBytes && compression.compressed) {
             uploadTooLargeDetail = `${formatMb(uploadBlob.size)} after compression`;
           }
           setCompressionProgress(null);
         }
-        if (COMPRESSION_ENABLED && uploadBlob.size > MAX_UPLOAD_BYTES) {
+        if (uploadBlob.size > uploadMaxBytes) {
           throw new Error(
-            uploadTooLargeMessage(uploadBlob.size, uploadTooLargeDetail),
+            uploadTooLargeDetail
+              ? uploadTooLargeMessage(uploadBlob.size, uploadTooLargeDetail)
+              : t("recordRoute.clipExceedsSizeLimit"),
           );
         }
         setUiState("uploading");
@@ -2175,7 +2322,10 @@ export default function RecordRoute() {
                       (responseError.errorCode ===
                       "video_storage_status_unavailable"
                         ? t("storageSetup.statusUnavailable")
-                        : responseError.responseText) ||
+                        : responseError.errorCode ===
+                            "hosted_storage_unavailable"
+                          ? t("storageSetup.hostedStorageUnavailable")
+                          : responseError.responseText) ||
                       (responseError.isHtml
                         ? `HTML error response (${chunkRes.status})`
                         : chunkRes.statusText),
@@ -2185,6 +2335,7 @@ export default function RecordRoute() {
                   status: responseError.status,
                   failureCode: responseError.failureCode,
                   failureStage: responseError.failureStage,
+                  errorCode: responseError.errorCode,
                 },
               );
               if (!uploadError) {
@@ -2268,7 +2419,9 @@ export default function RecordRoute() {
                   (responseError.errorCode ===
                   "video_storage_status_unavailable"
                     ? t("storageSetup.statusUnavailable")
-                    : responseError.responseText) ||
+                    : responseError.errorCode === "hosted_storage_unavailable"
+                      ? t("storageSetup.hostedStorageUnavailable")
+                      : responseError.responseText) ||
                   (responseError.isHtml
                     ? `HTML error response (${chunkRes.status})`
                     : chunkRes.statusText),
@@ -2278,6 +2431,7 @@ export default function RecordRoute() {
               status: responseError.status,
               failureCode: responseError.failureCode,
               failureStage: responseError.failureStage,
+              errorCode: responseError.errorCode,
             },
           );
           if (
@@ -2354,8 +2508,18 @@ export default function RecordRoute() {
           }, 50);
         }
       } catch (err) {
-        const message =
-          err instanceof Error ? err.message : t("recordRoute.uploadFailed");
+        const errorCode =
+          err &&
+          typeof err === "object" &&
+          (err as Record<string, unknown>).errorCode ===
+            "hosted_storage_unavailable"
+            ? "hosted_storage_unavailable"
+            : undefined;
+        const message = errorCode
+          ? t("storageSetup.hostedStorageUnavailable")
+          : err instanceof Error
+            ? err.message
+            : t("recordRoute.uploadFailed");
         const aborted = err instanceof Error && err.name === "AbortError";
         const status =
           err instanceof Error
@@ -2384,9 +2548,11 @@ export default function RecordRoute() {
         setUiState("error");
         if (message !== "SESSION_EXPIRED") {
           failUploadToast(
-            isUploadSizeError(message)
-              ? t("recordRoute.videoTooLarge")
-              : t("recordRoute.uploadFailed"),
+            errorCode === "hosted_storage_unavailable"
+              ? t("storageSetup.hostedStorageUnavailable")
+              : isUploadSizeError(message)
+                ? t("recordRoute.videoTooLarge")
+                : t("recordRoute.uploadFailed"),
             {
               description: createdId
                 ? "The clip was marked failed in your library. You can remove it from the card menu."
@@ -3237,6 +3403,27 @@ export default function RecordRoute() {
 
   doStopRef.current = doStop;
 
+  useEffect(() => {
+    if (uiState !== "recording" || isPaused) return;
+    const maxDurationMs = pendingRef.current?.maxClipDurationMs;
+    if (!maxDurationMs || maxDurationMs <= 0) return;
+    let stopStarted = false;
+    const interval = window.setInterval(() => {
+      const engine = engineRef.current;
+      if (
+        stopStarted ||
+        engine?.getState() !== "recording" ||
+        engine.getElapsedMs() < maxDurationMs
+      ) {
+        return;
+      }
+      stopStarted = true;
+      toast.info(t("recordRoute.maxClipDurationReached"));
+      void doStopRef.current();
+    }, 250);
+    return () => window.clearInterval(interval);
+  }, [isPaused, t, uiState]);
+
   const retryFailedUpload = useCallback(async () => {
     const engine = engineRef.current;
     const pending = pendingRef.current;
@@ -3890,8 +4077,9 @@ export default function RecordRoute() {
     storageSetupRequested &&
     (storageConfigured === false || storageStatusUnavailable);
   const canSkipStorageSetup = shouldAllowSkippingStorageSetup({
-    firstRunStorageSetup,
-    firstRunStorageSetupIntent,
+    firstRunStorageSetup: firstRunStorageSetup || hostedAllowanceExhausted,
+    firstRunStorageSetupIntent:
+      firstRunStorageSetupIntent || hostedAllowanceExhausted,
     connectStorageRequested,
     hasPendingUpload: pendingUploadFile,
     isClipIntake: !!clipIntake,
@@ -3900,6 +4088,7 @@ export default function RecordRoute() {
     storageStatusUnavailable && storageSetupRequested;
   const skipStorageSetup = () => {
     setFirstRunStorageSetupIntent(false);
+    if (hostedAllowanceExhausted) setSkipHostedStorageSetup(true);
     if (
       shouldPersistFirstRunStorageSetupDismissal({
         firstRunStorageSetup,
@@ -3915,8 +4104,8 @@ export default function RecordRoute() {
     const search = params.toString();
     void navigate(`/record${search ? `?${search}` : ""}`, { replace: true });
   };
-  const configureFirstRunStorage = () => {
-    markStorageConfigured();
+  const configureFirstRunStorage = (status?: VideoStorageStatus) => {
+    markStorageConfigured(status);
     void navigate("/home", { replace: true });
   };
 
@@ -3963,6 +4152,14 @@ export default function RecordRoute() {
       {uiState === "idle" && (
         <RecorderRouteViewport>
           <div className="mx-auto grid w-full max-w-[420px] gap-2">
+            {hostedStorageUnavailable ? (
+              <div
+                className="rounded-lg border border-border bg-card p-3 text-sm text-muted-foreground"
+                role="status"
+              >
+                {t("storageSetup.hostedStorageUnavailable")}
+              </div>
+            ) : null}
             <div className="min-w-0">
               {showStorageSetupFirst ? (
                 <div className="flex flex-col gap-2">
@@ -3978,6 +4175,17 @@ export default function RecordRoute() {
                         : markStorageConfigured
                     }
                     onSkip={canSkipStorageSetup ? skipStorageSetup : undefined}
+                    title={
+                      hostedAllowanceExhausted
+                        ? t("recordRoute.hostedClipsExhaustedTitle")
+                        : undefined
+                    }
+                    description={
+                      hostedAllowanceExhausted
+                        ? t("recordRoute.hostedClipsExhaustedDescription")
+                        : undefined
+                    }
+                    showBuilderStorageOffer={!hostedAllowanceExhausted}
                     connectSource="clips_record_storage_setup_card"
                     connectFlow="record"
                   />
@@ -4000,17 +4208,26 @@ export default function RecordRoute() {
                   ) : null}
                 </div>
               ) : (
-                <PreRecordPanel
-                  onStart={startFlow}
-                  initialMode={
-                    rememberedRecorderOptions?.mode ??
-                    initialRecorderOptions.mode
-                  }
-                  initialDisplaySurface={
-                    rememberedRecorderOptions?.displaySurface ??
-                    initialRecorderOptions.surface
-                  }
-                />
+                <div className="grid gap-2">
+                  <PreRecordPanel
+                    onStart={startFlow}
+                    initialMode={
+                      rememberedRecorderOptions?.mode ??
+                      initialRecorderOptions.mode
+                    }
+                    initialDisplaySurface={
+                      rememberedRecorderOptions?.displaySurface ??
+                      initialRecorderOptions.surface
+                    }
+                  />
+                  {showHostedClipsRemaining && storageQuery.data ? (
+                    <p className="text-center text-xs text-muted-foreground">
+                      {t("recordRoute.freeClipsLeft", {
+                        count: storageQuery.data.hostedRemaining,
+                      })}
+                    </p>
+                  ) : null}
+                </div>
               )}
             </div>
             {!isDesktopApp && <DesktopRecorderCallout />}
@@ -4045,15 +4262,24 @@ export default function RecordRoute() {
                   fallbackBlob={localPreviewMemoryBlob}
                 />
                 <StorageSetupCard
-                  onConfigured={() => {
-                    markStorageConfigured();
+                  onConfigured={(status) => {
+                    markStorageConfigured(status);
                     void uploadPendingLocal(pendingLocal.id);
                   }}
-                  title={t("recordRoute.pendingStorageTitle")}
-                  description={`${t("recordRoute.pendingStorageDescription")} ${localCopyNote(
-                    t,
-                    !!bufferedEngineRef.current,
-                  )}`}
+                  title={
+                    hostedAllowanceExhausted
+                      ? t("recordRoute.hostedClipsExhaustedTitle")
+                      : t("recordRoute.pendingStorageTitle")
+                  }
+                  description={
+                    hostedAllowanceExhausted
+                      ? t("recordRoute.hostedClipsExhaustedDescription")
+                      : `${t("recordRoute.pendingStorageDescription")} ${localCopyNote(
+                          t,
+                          !!bufferedEngineRef.current,
+                        )}`
+                  }
+                  showBuilderStorageOffer={!hostedAllowanceExhausted}
                   connectedDescription={t(
                     "recordRoute.storageConnectedUploading",
                   )}
@@ -4061,7 +4287,6 @@ export default function RecordRoute() {
                   key={pendingLocal.id}
                   recordingAttemptId={pendingLocal.id}
                   connectFlow="record_first"
-                  openSettingsInNewTab
                 />
               </>
             ) : (
@@ -4394,8 +4619,8 @@ export default function RecordRoute() {
           {error.includes("No video storage configured") ? (
             <div className="w-full max-w-md">
               <StorageSetupCard
-                onConfigured={() => {
-                  markStorageConfigured();
+                onConfigured={(status) => {
+                  markStorageConfigured(status);
                   setError(null);
                   setUiState("idle");
                   const opts = pendingStartOptsRef.current;
@@ -4405,6 +4630,17 @@ export default function RecordRoute() {
                     }, 0);
                   }
                 }}
+                title={
+                  hostedAllowanceExhausted
+                    ? t("recordRoute.hostedClipsExhaustedTitle")
+                    : undefined
+                }
+                description={
+                  hostedAllowanceExhausted
+                    ? t("recordRoute.hostedClipsExhaustedDescription")
+                    : undefined
+                }
+                showBuilderStorageOffer={!hostedAllowanceExhausted}
                 connectedDescription={t(
                   "recordRoute.storageConnectedReopeningRecorder",
                 )}
@@ -4430,6 +4666,7 @@ export default function RecordRoute() {
             <RecordingErrorCard
               error={error}
               mode={recordingMode}
+              displaySurface={pendingStartOptsRef.current?.displaySurface}
               micDeviceId={pendingStartOptsRef.current?.micDeviceId ?? null}
               canRetryUpload={!!engineRef.current?.canRetryUpload()}
               canDownloadRecording={

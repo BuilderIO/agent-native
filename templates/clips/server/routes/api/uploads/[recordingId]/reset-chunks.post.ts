@@ -5,11 +5,10 @@ import {
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
-import { getActiveFileUploadProviderForRequest } from "@agent-native/core/file-upload";
 import { runWithRequestContext } from "@agent-native/core/server";
 import type { UploadMode } from "@shared/recording-core.js";
 import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, ne, or } from "drizzle-orm";
 import {
   defineEventHandler,
   getRouterParam,
@@ -20,6 +19,7 @@ import {
 
 import { getDb, schema } from "../../../../db/index.js";
 import { isMediaVerificationPending } from "../../../../lib/media-verification-state.js";
+import { reconcileMeetingOnRecordingFailed } from "../../../../lib/reconcile-meeting-on-finalize.js";
 import { trackRecordingFailure } from "../../../../lib/recording-failures.js";
 import { snapshotUploadRecoveryPolicy } from "../../../../lib/recording-policy.js";
 import { deleteRecordingChunks } from "../../../../lib/recording-upload-state.js";
@@ -40,6 +40,10 @@ import {
   renewUploadLease,
   uploadLeaseExpiry,
 } from "../../../../lib/upload-lease.js";
+import {
+  reacquireHostedClipRecordingForRetry,
+  resolveClipsVideoStorage,
+} from "../../../../lib/video-storage.js";
 import { allowsSqlRecordingChunkScratch } from "../../../../lib/video-storage.js";
 
 interface CompressionMeta {
@@ -195,7 +199,9 @@ export async function handleResetRecordingChunks(
       .select({
         id: schema.recordings.id,
         status: schema.recordings.status,
+        failureCode: schema.recordings.failureCode,
         videoUrl: schema.recordings.videoUrl,
+        storageMode: schema.recordings.storageMode,
         uploadAttemptId: schema.recordings.uploadAttemptId,
         uploadGenerationId: schema.recordings.uploadGenerationId,
         recordingPlatform: schema.recordings.recordingPlatform,
@@ -212,6 +218,22 @@ export async function handleResetRecordingChunks(
       setResponseStatus(event, 404);
       return { error: "Recording not found" };
     }
+
+    if (existing.failureCode === "taken_down") {
+      setResponseStatus(event, 409);
+      return { error: "Recording is no longer available.", terminal: true };
+    }
+
+    const storage = await resolveClipsVideoStorage({
+      intent: "existing",
+      recordingId,
+      email: ownerEmail,
+      userId: authUserId,
+    });
+    const maxUploadBytes =
+      storage.mode === "hosted"
+        ? storage.maxClipBytes
+        : MAX_RECORDING_UPLOAD_BYTES;
 
     if (existing.status === "ready" && existing.videoUrl) {
       setResponseStatus(event, 409);
@@ -276,6 +298,21 @@ export async function handleResetRecordingChunks(
       return { error: "Recording upload is no longer resettable" };
     }
 
+    if (storage.mode === "hosted") {
+      const reservation = await reacquireHostedClipRecordingForRetry({
+        recordingId,
+        ownerEmail,
+        userId: authUserId,
+      });
+      if (!reservation.ok) {
+        setResponseStatus(event, 409);
+        return {
+          error: "Hosted recording storage is temporarily unavailable.",
+          reason: reservation.reason,
+        };
+      }
+    }
+
     // Fence this reset before deleting any provider or buffered state. A
     // retry that lost the token race must not tear down the winner's session.
     const now = new Date().toISOString();
@@ -327,6 +364,10 @@ export async function handleResetRecordingChunks(
           eq(schema.recordings.id, recordingId),
           ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
           eq(schema.recordings.status, existing.status),
+          or(
+            isNull(schema.recordings.failureCode),
+            ne(schema.recordings.failureCode, "taken_down"),
+          ),
           existingAttemptId === null
             ? isNull(schema.recordings.uploadAttemptId)
             : eq(schema.recordings.uploadAttemptId, existingAttemptId),
@@ -429,7 +470,7 @@ export async function handleResetRecordingChunks(
         return { error: "A supported video mimeType is required for retry" };
       }
 
-      const uploadProvider = await getActiveFileUploadProviderForRequest();
+      const uploadProvider = storage.provider;
       if (
         shouldEnableStreamingUpload({
           client: "desktop",
@@ -444,7 +485,7 @@ export async function handleResetRecordingChunks(
           const session = await uploadProvider.resumable.startSession(
             filename,
             mimeType,
-            MAX_RECORDING_UPLOAD_BYTES,
+            maxUploadBytes,
           );
           await setResumableSession(
             recordingId,
@@ -478,13 +519,14 @@ export async function handleResetRecordingChunks(
           if (!bufferedFallbackAvailable) {
             if (err instanceof S3MultipartStartError) {
               const failureReason = `Multipart upload could not start (${err.status}).`;
+              const failedAt = new Date().toISOString();
               const failed = await db
                 .update(schema.recordings)
                 .set({
                   status: "failed",
                   failureCode: "multipart_start_failed",
                   failureReason,
-                  updatedAt: new Date().toISOString(),
+                  updatedAt: failedAt,
                 })
                 .where(
                   and(
@@ -507,6 +549,25 @@ export async function handleResetRecordingChunks(
                 )
                 .returning({ id: schema.recordings.id });
               if (failed.length === 1) {
+                const uploadStateUpdated = await compareAndSetAppState(
+                  uploadStateKey,
+                  uploadStateSnapshot,
+                  {
+                    ...(uploadStateSnapshot ?? {}),
+                    recordingId,
+                    status: "failed",
+                    failureCode: "multipart_start_failed",
+                    failureReason,
+                    uploadAttemptId: existingAttemptId,
+                    uploadGenerationId: nextGenerationId,
+                    updatedAt: failedAt,
+                  },
+                );
+                if (!uploadStateUpdated) {
+                  console.info(
+                    `[reset-chunks-${recordingId}] upload state changed after multipart start failure; preserving replacement state`,
+                  );
+                }
                 trackRecordingFailure({
                   recordingId,
                   userId: ownerEmail,
@@ -515,6 +576,10 @@ export async function handleResetRecordingChunks(
                   failureCode: "multipart_start_failed",
                   failureStage: "multipart_start",
                   httpStatus: err.status,
+                });
+                await reconcileMeetingOnRecordingFailed({
+                  recordingId,
+                  ownerEmail,
                 });
               } else {
                 setResponseStatus(event, 409);
@@ -577,7 +642,7 @@ export async function handleResetRecordingChunks(
         bytesReceived: 0,
         uploadAttemptId: preservedAttemptId,
         uploadGenerationId: nextGenerationId,
-        maxBytes: MAX_RECORDING_UPLOAD_BYTES,
+        maxBytes: maxUploadBytes,
         updatedAt: now,
       },
     );

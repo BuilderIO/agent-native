@@ -112,8 +112,39 @@ function uniqueElementMarkup(
   return markup;
 }
 
+// An edit can send a splice against the version it expects instead of the whole file.
+function submittedContent(
+  payload: Record<string, unknown>,
+  sourceByHash: ReadonlyMap<string, string>,
+): string | null {
+  if (typeof payload.content === "string") return payload.content;
+  const patch = payload.contentPatch as
+    | { start?: unknown; deleteCount?: unknown; text?: unknown }
+    | undefined;
+  const base =
+    typeof payload.expectedVersionHash === "string"
+      ? sourceByHash.get(payload.expectedVersionHash)
+      : undefined;
+  if (
+    base === undefined ||
+    typeof patch?.start !== "number" ||
+    typeof patch.deleteCount !== "number" ||
+    typeof patch.text !== "string"
+  ) {
+    return null;
+  }
+  return (
+    base.slice(0, patch.start) +
+    patch.text +
+    base.slice(patch.start + patch.deleteCount)
+  );
+}
+
 function captureUpdateFileTrace(page: Page) {
   const updateFileTrace: UpdateFileTrace[] = [];
+  const sourceByHash = new Map<string, string>();
+  const rememberSource = (content: string) =>
+    sourceByHash.set(sourceContentHash(content), content);
   const tracesByRequest = new WeakMap<object, UpdateFileTrace>();
   const responseTraceTasks: Promise<void>[] = [];
   page.on("request", (request) => {
@@ -130,8 +161,7 @@ function captureUpdateFileTrace(page: Page) {
         payload = parsed as Record<string, unknown>;
       }
     } catch {}
-    const submittedHtml =
-      typeof payload.content === "string" ? payload.content : null;
+    const submittedHtml = submittedContent(payload, sourceByHash);
     const trace: UpdateFileTrace = {
       requestedAt: new Date().toISOString(),
       requestUrl: request.url(),
@@ -176,7 +206,7 @@ function captureUpdateFileTrace(page: Page) {
     trace.error =
       request.failure()?.errorText ?? "Request failed without a response";
   });
-  return { updateFileTrace, responseTraceTasks };
+  return { updateFileTrace, responseTraceTasks, rememberSource };
 }
 
 async function postAction(
@@ -449,8 +479,7 @@ async function attachEvidence(args: {
   });
 }
 
-// fixme: fails in CI on current main: expect(received).toBeGreaterThan(expected)
-test.fixme("captured Luna Orbit source survives deterministic Screen-scoped and visual edits", async ({
+test("captured Luna Orbit source survives deterministic Screen-scoped and visual edits", async ({
   app,
   page,
 }, testInfo) => {
@@ -461,7 +490,8 @@ test.fixme("captured Luna Orbit source survives deterministic Screen-scoped and 
   );
   app.adopt(designId);
   const consoleErrors: string[] = [];
-  const { updateFileTrace, responseTraceTasks } = captureUpdateFileTrace(page);
+  const { updateFileTrace, responseTraceTasks, rememberSource } =
+    captureUpdateFileTrace(page);
   const persistedSourceSnapshots: PersistedSourceSnapshot[] = [];
   let stage = "open editor";
   let expectedOwner: string | null = null;
@@ -715,6 +745,7 @@ test.fixme("captured Luna Orbit source survives deterministic Screen-scoped and 
         .filter((trace) => trace.fileId === secondScreenId),
     ).toHaveLength(0);
     const noteTraceStart = updateFileTrace.length;
+    rememberSource(currentAiSource);
 
     const noteSize = page.locator('input[aria-label="Size" i]').first();
     await expect(noteSize).toBeVisible();

@@ -162,6 +162,29 @@ export function appPath(path: string): string {
   return url.toString();
 }
 
+/** This tab's selection: parallel workers share one user, so the global key is anyone's. */
+export async function selectionState(page: Page) {
+  const tabId = await page.evaluate(() =>
+    sessionStorage.getItem("agent-native:browser-tab-id"),
+  );
+  expect(tabId).toBeTruthy();
+  const response = await page.request.get(
+    appPath(
+      `/_agent-native/application-state/${encodeURIComponent(`design-selection:${tabId}`)}`,
+    ),
+  );
+  expect(response.ok()).toBe(true);
+  // An empty body: the editor has not written a selection yet.
+  const body = await response.text();
+  return body
+    ? (JSON.parse(body) as {
+        activeFileId?: string | null;
+        selectedScreenIds?: string[];
+        selectedElement?: { sourceId?: string } | null;
+      })
+    : null;
+}
+
 export async function panTargetIntoUnobscuredCanvas(
   page: Page,
   target: Locator,
@@ -506,9 +529,11 @@ export async function gotoEditor(page: Page, designId: string): Promise<void> {
   await page.goto(appPath(`/design/${designId}`), {
     waitUntil: "domcontentloaded",
   });
-  await expect(
-    page.getByRole("button", { name: "Move", exact: true }),
-  ).toBeVisible({ timeout: 30_000 });
+  const designMode = page.locator(
+    '[data-design-top-bar] [data-design-mode="edit"]',
+  );
+  await expect(designMode).toBeVisible({ timeout: 30_000 });
+  await expect(designMode).toHaveAttribute("aria-pressed", "true");
   await waitForDesignBridgeReady(page);
 }
 

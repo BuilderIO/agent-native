@@ -4,9 +4,20 @@ import {
   IconChevronDown,
   IconDeviceFloppy,
   IconFilterOff,
+  IconPlus,
+  IconUser,
 } from "@tabler/icons-react";
-import { useCallback, useId, useMemo, useState } from "react";
-import { useSearchParams } from "react-router";
+import {
+  Component,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentPropsWithoutRef,
+  type RefObject,
+} from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -38,59 +49,85 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 import { DateRangeInput } from "../_shared/components/DateRangeInput";
 import {
+  NameDraftDashboardContext,
+  useDashboardNameDraft,
+} from "./DashboardNameDrafts";
+import {
   FILTER_PARAM_PREFIX,
   isDateRangePresetFilter,
+  MAX_FILTER_PRESETS,
   MULTI_SELECT_EMPTY,
   resolveDefault,
   resolveFilterVars,
   usableFilterPresets,
 } from "./filter-vars";
 import type { DashboardFilter, FilterPreset } from "./types";
+import { useFilterSearchParams } from "./use-filter-search-params";
 
 export { FILTER_PARAM_PREFIX, resolveFilterVars } from "./filter-vars";
 
-export interface DashboardDefaultView {
+export interface DashboardSavedView {
   id: string;
   filters: Record<string, string>;
+  isDefault?: boolean;
 }
 
+// Reset returns to the saved view open in the URL (filter edits keep `view`), so
+// editing a view and resetting lands back on it. With no view open it goes where
+// a fresh load does: the default view, otherwise each filter's own default.
+export function resetTargetView(
+  views: readonly DashboardSavedView[],
+  searchParams: URLSearchParams,
+): DashboardSavedView | undefined {
+  const viewId = searchParams.get("view");
+  return (
+    views.find((view) => view.id === viewId) ??
+    views.find((view) => view.isDefault)
+  );
+}
+
+const NO_VIEWS: readonly DashboardSavedView[] = [];
+
 // Compare resolved values, not param presence: a URL that spells out a default
-// (f_timeRange=30d) is still at the defaults.
-export function filtersAtDefaults(
+// (f_timeRange=30d) still matches.
+export function filtersMatchView(
   filters: DashboardFilter[],
   searchParams: URLSearchParams,
-  defaultView: DashboardDefaultView | undefined,
+  view: DashboardSavedView | undefined,
 ): boolean {
   const current = resolveFilterVars(
     filters,
     (key) => searchParams.get(FILTER_PARAM_PREFIX + key) ?? "",
   );
-  const defaults = resolveFilterVars(
+  const target = resolveFilterVars(
     filters,
-    (key) => defaultView?.filters[FILTER_PARAM_PREFIX + key] ?? "",
+    (key) => view?.filters[FILTER_PARAM_PREFIX + key] ?? "",
   );
-  return Object.keys(defaults).every((key) => current[key] === defaults[key]);
+  return Object.keys(target).every((key) => current[key] === target[key]);
 }
 
-// A fresh load lands on the default view when the dashboard has one, so a
-// reset goes there too; otherwise every filter falls back to its own default.
 export function resetFilterParams(
   prev: URLSearchParams,
-  defaultView: DashboardDefaultView | undefined,
+  view: DashboardSavedView | undefined,
 ): URLSearchParams {
   const next = new URLSearchParams(prev);
   for (const key of Array.from(next.keys())) {
     if (key.startsWith(FILTER_PARAM_PREFIX)) next.delete(key);
   }
-  if (defaultView) {
-    for (const [key, value] of Object.entries(defaultView.filters)) {
+  if (view) {
+    for (const [key, value] of Object.entries(view.filters)) {
       if (value) next.set(key, value);
     }
-    next.set("view", defaultView.id);
+    next.set("view", view.id);
   } else {
     next.delete("view");
   }
@@ -126,27 +163,114 @@ export function extractFilterParams(
 
 interface DashboardFilterBarProps {
   filters: DashboardFilter[];
-  defaultView?: DashboardDefaultView;
+  loadedDashboardId?: string | null;
+  // null while the saved views load or after they fail: Reset cannot know its target, so it stays hidden.
+  views?: readonly DashboardSavedView[] | null;
+  // While a cached list refetches it can still hold a deleted view, so Reset is
+  // disabled rather than put that view's id back in the URL.
+  viewsRefreshing?: boolean;
   onSaveView?: (
     name: string,
     filters: Record<string, string>,
     isDefault: boolean,
   ) => void | Promise<void>;
+  // Passed only in edit mode: a preset changes the dashboard for everyone who
+  // can see it, so view mode never offers one.
+  onSavePreset?: (filterId: string, preset: FilterPreset) => void;
+  shared?: boolean;
 }
 
-export function DashboardFilterBar({
+interface BusyFocusBoundaryProps extends ComponentPropsWithoutRef<
+  typeof Collapsible
+> {
+  busy: boolean;
+  barRef: RefObject<HTMLDivElement | null>;
+}
+
+class BusyFocusBoundary extends Component<
+  BusyFocusBoundaryProps,
+  unknown,
+  boolean
+> {
+  getSnapshotBeforeUpdate(previous: BusyFocusBoundaryProps) {
+    const bar = this.props.barRef.current;
+    // Chromium can blur a disabled native control during DOM mutation, before
+    // layout effects can inspect which element owned focus.
+    return (
+      !previous.busy &&
+      this.props.busy &&
+      !!bar?.contains(bar.ownerDocument.activeElement)
+    );
+  }
+
+  componentDidUpdate(
+    _previous: BusyFocusBoundaryProps,
+    _state: unknown,
+    ownedFocus: boolean,
+  ) {
+    if (!ownedFocus) return;
+    const bar = this.props.barRef.current;
+    if (!bar) return;
+    const active = bar.ownerDocument.activeElement;
+    if (active === bar.ownerDocument.body || bar.contains(active)) {
+      bar.focus({ preventScroll: true });
+    }
+  }
+
+  render() {
+    const { busy: _busy, barRef, ...props } = this.props;
+    return <Collapsible {...props} ref={barRef} />;
+  }
+}
+
+export function DashboardFilterBar(props: DashboardFilterBarProps) {
+  return (
+    <NameDraftDashboardContext value={props.loadedDashboardId ?? null}>
+      <DashboardFilterBarContent {...props} />
+    </NameDraftDashboardContext>
+  );
+}
+
+function DashboardFilterBarContent({
   filters,
-  defaultView,
+  loadedDashboardId,
+  views = NO_VIEWS,
+  viewsRefreshing = false,
   onSaveView,
+  onSavePreset,
+  shared = false,
 }: DashboardFilterBarProps) {
   const t = useT();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams, setSearchParams, filtersBusy, canUpdateFilters] =
+    useFilterSearchParams(loadedDashboardId);
+  const barRef = useRef<HTMLDivElement>(null);
+  const restoreBusyFocus = (event: Event) => {
+    // An overlay's unmount callback can retain its pre-navigation render.
+    const bar = barRef.current;
+    if (bar?.getAttribute("aria-busy") !== "true") return;
+    event.preventDefault();
+    const active = bar.ownerDocument.activeElement;
+    // Radix dispatches on the closing focus scope, possibly after it detaches.
+    if (
+      active === bar.ownerDocument.body ||
+      (event.target instanceof HTMLElement && event.target.contains(active))
+    ) {
+      bar.focus({ preventScroll: true });
+    }
+  };
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
-  const [viewName, setViewName] = useState("");
-  const [setAsDefault, setSetAsDefault] = useState(false);
+  const [
+    { name: viewName, isDefault: setAsDefault },
+    setViewDraft,
+    completeViewSave,
+  ] = useDashboardNameDraft("view", { name: "", isDefault: false });
   const [savingView, setSavingView] = useState(false);
   const defaultCheckboxId = useId();
   const [filtersOpen, setFiltersOpen] = useState(true);
+  useEffect(() => {
+    if (!filtersBusy) return;
+    setSaveDialogOpen(false);
+  }, [filtersBusy]);
   const uniqueFilters = useMemo(() => {
     const seen = new Set<string>();
     const duplicates = new Set<string>();
@@ -188,17 +312,20 @@ export function DashboardFilterBar({
   );
 
   const resetFilters = useCallback(() => {
-    setSearchParams((prev) => resetFilterParams(prev, defaultView));
-  }, [defaultView, setSearchParams]);
+    if (!views) return;
+    setSearchParams((prev) =>
+      resetFilterParams(prev, resetTargetView(views, prev)),
+    );
+  }, [views, setSearchParams]);
 
   const handleSaveView = useCallback(async () => {
-    if (!viewName.trim() || !onSaveView || savingView) return;
+    if (!canUpdateFilters() || !viewName.trim() || !onSaveView || savingView)
+      return;
     setSavingView(true);
     try {
       const currentFilters = extractFilterParams(uniqueFilters, searchParams);
       await onSaveView(viewName.trim(), currentFilters, setAsDefault);
-      setViewName("");
-      setSetAsDefault(false);
+      completeViewSave();
       setSaveDialogOpen(false);
     } catch (error) {
       toast.error(
@@ -213,12 +340,14 @@ export function DashboardFilterBar({
       setSavingView(false);
     }
   }, [
+    canUpdateFilters,
     viewName,
     onSaveView,
     savingView,
     uniqueFilters,
     searchParams,
     setAsDefault,
+    completeViewSave,
     t,
   ]);
 
@@ -227,18 +356,29 @@ export function DashboardFilterBar({
     [uniqueFilters, getParam],
   );
 
-  const filtersChanged = !filtersAtDefaults(
-    uniqueFilters,
-    searchParams,
-    defaultView,
-  );
+  // Reset, the only-you label and Save view share this one test: the label's
+  // tooltip offers saving a view, so the button must show whenever it does.
+  const filtersChanged =
+    views !== null &&
+    !filtersMatchView(
+      uniqueFilters,
+      searchParams,
+      resetTargetView(views, searchParams),
+    );
 
   return (
     <>
-      <Collapsible
+      <BusyFocusBoundary
+        busy={filtersBusy}
+        barRef={barRef}
+        role="group"
+        aria-label={t("sqlDashboard.filters")}
+        aria-busy={filtersBusy}
+        title={filtersBusy ? t("sqlDashboard.updating") : undefined}
+        tabIndex={-1}
         open={filtersOpen}
         onOpenChange={setFiltersOpen}
-        className="group rounded-lg bg-card px-3 py-2"
+        className="group @container rounded-lg bg-card px-3 py-2"
       >
         <div className="flex flex-wrap items-end justify-between gap-3">
           <span className="self-center text-xs font-medium text-muted-foreground group-data-[state=open]:hidden">
@@ -250,11 +390,22 @@ export function DashboardFilterBar({
                 <FilterControl
                   key={f.id}
                   filter={f}
+                  disabled={filtersBusy}
+                  onCloseAutoFocus={restoreBusyFocus}
                   vars={vars}
                   hasParam={(key) =>
                     searchParams.has(FILTER_PARAM_PREFIX + key)
                   }
                   setValue={(updates) => setParam(updates)}
+                  onSavePreset={
+                    onSavePreset &&
+                    ((preset) => {
+                      if (!canUpdateFilters()) return false;
+                      onSavePreset(f.id, preset);
+                      return true;
+                    })
+                  }
+                  shared={shared}
                 />
               ))}
             </div>
@@ -266,6 +417,7 @@ export function DashboardFilterBar({
                   variant="ghost"
                   size="sm"
                   className="h-6 px-2 text-xs text-muted-foreground hover:text-primary"
+                  disabled={filtersBusy}
                   onClick={() => setSaveDialogOpen(true)}
                 >
                   <IconDeviceFloppy className="h-3 w-3 mr-1" />
@@ -277,6 +429,7 @@ export function DashboardFilterBar({
                   variant="ghost"
                   size="sm"
                   className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+                  disabled={filtersBusy}
                   aria-label={
                     filtersOpen
                       ? t("sqlDashboard.collapseFilters")
@@ -297,10 +450,33 @@ export function DashboardFilterBar({
             </div>
             {/* Outside the hover group on purpose: hidden until hover, people missed it. */}
             {filtersChanged && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span
+                    tabIndex={0}
+                    className="flex items-center gap-1 px-2 text-xs text-muted-foreground"
+                  >
+                    <IconUser className="h-3 w-3" />
+                    {/* Below this bar width the text pushes four filters onto a
+                        second row each time a filter changes, moving the page. */}
+                    <span className="sr-only @min-[68rem]:not-sr-only">
+                      {t("dashboardFilterScope.onlyYou")}
+                    </span>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  {onSaveView
+                    ? t("dashboardFilterScope.hintSaveView")
+                    : t("dashboardFilterScope.hint")}
+                </TooltipContent>
+              </Tooltip>
+            )}
+            {filtersChanged && (
               <Button
                 variant="ghost"
                 size="sm"
                 className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+                disabled={filtersBusy || viewsRefreshing}
                 onClick={resetFilters}
               >
                 <IconFilterOff className="h-3 w-3 mr-1" />
@@ -309,27 +485,35 @@ export function DashboardFilterBar({
             )}
           </div>
         </div>
-      </Collapsible>
+      </BusyFocusBoundary>
 
       <Dialog
-        open={saveDialogOpen}
+        open={saveDialogOpen && !filtersBusy}
         onOpenChange={(open) => {
-          setSaveDialogOpen(open);
-          if (!open) {
-            setViewName("");
-            setSetAsDefault(false);
+          setSaveDialogOpen(open && !filtersBusy);
+          if (!open && !filtersBusy) {
+            setViewDraft({ name: "", isDefault: false });
           }
         }}
       >
-        <DialogContent className="sm:max-w-[400px]">
+        <DialogContent
+          hidden={filtersBusy}
+          inert={filtersBusy}
+          className="sm:max-w-[400px]"
+          onCloseAutoFocus={restoreBusyFocus}
+        >
           <DialogHeader>
             <DialogTitle>{t("sqlDashboard.saveAsView")}</DialogTitle>
           </DialogHeader>
           <div className="py-4">
             <Input
+              disabled={filtersBusy}
               placeholder={t("sqlDashboard.viewNameRecentPlaceholder")}
               value={viewName}
-              onChange={(e) => setViewName(e.target.value)}
+              onChange={(e) => {
+                const name = e.target.value;
+                setViewDraft((draft) => ({ ...draft, name }));
+              }}
               onKeyDown={(e) => e.key === "Enter" && void handleSaveView()}
               autoFocus
             />
@@ -338,9 +522,15 @@ export function DashboardFilterBar({
               className="mt-3 flex cursor-pointer items-center gap-2 text-sm"
             >
               <Checkbox
+                disabled={filtersBusy}
                 id={defaultCheckboxId}
                 checked={setAsDefault}
-                onCheckedChange={(checked) => setSetAsDefault(checked === true)}
+                onCheckedChange={(checked) =>
+                  setViewDraft((draft) => ({
+                    ...draft,
+                    isDefault: checked === true,
+                  }))
+                }
               />
               <span>{t("sqlDashboard.setAsDefault")}</span>
             </label>
@@ -351,17 +541,16 @@ export function DashboardFilterBar({
               size="sm"
               onClick={() => {
                 setSaveDialogOpen(false);
-                setViewName("");
-                setSetAsDefault(false);
+                setViewDraft({ name: "", isDefault: false });
               }}
-              disabled={savingView}
+              disabled={filtersBusy || savingView}
             >
               {t("sidebar.cancel")}
             </Button>
             <Button
               size="sm"
               onClick={() => void handleSaveView()}
-              disabled={!viewName.trim() || savingView}
+              disabled={filtersBusy || !viewName.trim() || savingView}
             >
               {savingView ? t("sqlDashboard.saving") : t("explorer.save")}
             </Button>
@@ -417,10 +606,18 @@ function MultiSelectFilter({
   filter,
   value,
   setValue,
+  onSavePreset,
+  shared,
+  disabled,
+  onCloseAutoFocus,
 }: {
   filter: DashboardFilter;
   value: string;
   setValue: (updates: Record<string, string>) => void;
+  onSavePreset?: (preset: FilterPreset) => boolean;
+  shared: boolean;
+  disabled: boolean;
+  onCloseAutoFocus: (event: Event) => void;
 }) {
   const t = useT();
   const labelId = useId();
@@ -428,6 +625,32 @@ function MultiSelectFilter({
   const optionsListId = useId();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [naming, setNaming] = useState(false);
+  const [groupName, setGroupName] = useDashboardNameDraft<string>(
+    "preset",
+    "",
+    filter.id,
+  );
+  useEffect(() => {
+    if (!disabled) return;
+    setOpen(false);
+    setQuery("");
+    setNaming(false);
+  }, [disabled]);
+  const saveAsGroupRef = useRef<HTMLButtonElement>(null);
+  const refocusSaveAsGroupRef = useRef(false);
+  useEffect(() => {
+    if (naming || !refocusSaveAsGroupRef.current) return;
+    refocusSaveAsGroupRef.current = false;
+    saveAsGroupRef.current?.focus();
+  }, [naming]);
+  // A save unmounts the name form, and a rejected save then unmounts the group
+  // it showed. Until the dropdown closes, focus that falls to the page goes to
+  // the saved group, or back to Save as group once that group is gone.
+  const savedPresetLabelRef = useRef<string | null>(null);
+  const focusIfLost = (button: HTMLButtonElement | null) => {
+    if (button && document.activeElement === document.body) button.focus();
+  };
   const seenOptionValues = new Set<string>();
   const options = (filter.options ?? []).filter((option) => {
     if (seenOptionValues.has(option.value)) return false;
@@ -490,20 +713,56 @@ function MultiSelectFilter({
         : selected.filter((value) => value !== optionValue),
     );
 
+  // A save rejects a value with no option, so a URL-only value rules a group out.
+  const canSaveGroup =
+    onSavePreset !== undefined &&
+    presets.length < MAX_FILTER_PRESETS &&
+    !normalizedQuery &&
+    selectedSet.size >= 2 &&
+    !allOptionsSelected &&
+    !selectedPreset &&
+    selected.every((selectedValue) => seenOptionValues.has(selectedValue));
+  const trimmedGroupName = groupName.trim();
+  const groupNameTaken = presets.some(
+    (preset) => preset.label === trimmedGroupName,
+  );
+  const stopNaming = () => {
+    setNaming(false);
+    setGroupName("");
+  };
+  const saveGroup = () => {
+    if (!onSavePreset || !trimmedGroupName || groupNameTaken) return;
+    if (
+      !onSavePreset({
+        label: trimmedGroupName,
+        values: options
+          .filter((option) => selectedSet.has(option.value))
+          .map((option) => option.value),
+      })
+    )
+      return;
+    savedPresetLabelRef.current = trimmedGroupName;
+    stopNaming();
+  };
+
   return (
     <div className="flex flex-col gap-1">
       <label id={labelId} className="text-xs text-muted-foreground font-medium">
         {filter.label}
       </label>
       <Popover
-        open={open}
+        open={open && !disabled}
         onOpenChange={(nextOpen) => {
-          setOpen(nextOpen);
-          if (!nextOpen) setQuery("");
+          setOpen(nextOpen && !disabled);
+          if (nextOpen || disabled) return;
+          savedPresetLabelRef.current = null;
+          setQuery("");
+          stopNaming();
         }}
       >
         <PopoverTrigger asChild>
           <Button
+            disabled={disabled}
             id={triggerId}
             aria-labelledby={`${labelId} ${triggerId}`}
             variant="outline"
@@ -522,9 +781,19 @@ function MultiSelectFilter({
           </Button>
         </PopoverTrigger>
         <PopoverContent
+          hidden={disabled}
+          inert={disabled}
+          onCloseAutoFocus={onCloseAutoFocus}
           align="start"
           // Room for Select all, a preset and Clear all on one row.
           className={presets.length > 0 ? "w-72" : "w-64"}
+          onEscapeKeyDown={(event) => {
+            if (!naming) return;
+            // Escape in the name field backs out of naming, not the dropdown.
+            event.preventDefault();
+            refocusSaveAsGroupRef.current = true;
+            stopNaming();
+          }}
         >
           <MenuSearchInput
             aria-controls={optionsListId}
@@ -533,11 +802,14 @@ function MultiSelectFilter({
             value={query}
             onChange={(event) => setQuery(event.currentTarget.value)}
           />
-          <div className="flex flex-wrap items-center gap-x-1 gap-y-1 border-b px-2 py-1.5">
+          {/* Presets wrap inside their own column, so Select all and Clear all
+              keep their places on the first line however many groups exist. */}
+          <div className="flex items-start gap-1 border-b px-2 py-1.5">
             <Button
               type="button"
               variant="ghost"
               size="xs"
+              className="shrink-0"
               disabled={noFilteredOptions || allFilteredOptionsSelected}
               onClick={selectAllFiltered}
             >
@@ -547,13 +819,18 @@ function MultiSelectFilter({
               <div
                 role="group"
                 aria-label={t("sqlDashboard.presets")}
-                className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-1"
+                className="flex min-w-0 flex-1 flex-wrap items-center gap-1"
               >
                 {presets.map((preset) => {
                   const active = presetSelected(preset);
                   return (
                     <Button
                       key={preset.label}
+                      ref={(button) => {
+                        if (savedPresetLabelRef.current === preset.label) {
+                          focusIfLost(button);
+                        }
+                      }}
                       type="button"
                       variant="ghost"
                       size="xs"
@@ -576,6 +853,7 @@ function MultiSelectFilter({
                 type="button"
                 variant="ghost"
                 size="xs"
+                className="ml-auto shrink-0"
                 onClick={() => setSelected([])}
               >
                 {t("sqlDashboard.clearAll")}
@@ -616,6 +894,63 @@ function MultiSelectFilter({
               {noFilteredOptions ? t("sqlDashboard.noValuesFound") : ""}
             </div>
           </div>
+          {canSaveGroup && (
+            <div className="border-t p-1">
+              {naming ? (
+                <form
+                  className="flex flex-col gap-1 p-0.5"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    saveGroup();
+                  }}
+                >
+                  {/* The name gets the full width: beside "Save for everyone"
+                      (longer still in most locales) it would scroll out of view. */}
+                  <Input
+                    size="sm"
+                    autoFocus
+                    value={groupName}
+                    onChange={(event) => setGroupName(event.target.value)}
+                    placeholder={t("sqlDashboard.groupName")}
+                    aria-label={t("sqlDashboard.groupName")}
+                    aria-invalid={groupNameTaken}
+                  />
+                  {groupNameTaken && (
+                    <p role="alert" className="px-1 text-xs text-destructive">
+                      {t("sqlDashboard.groupNameTaken")}
+                    </p>
+                  )}
+                  <Button
+                    type="submit"
+                    size="sm"
+                    className="self-end"
+                    disabled={!trimmedGroupName || groupNameTaken}
+                  >
+                    {shared
+                      ? t("sqlDashboard.saveForEveryone")
+                      : t("explorer.save")}
+                  </Button>
+                </form>
+              ) : (
+                <Button
+                  ref={(button) => {
+                    saveAsGroupRef.current = button;
+                    if (savedPresetLabelRef.current !== null) {
+                      focusIfLost(button);
+                    }
+                  }}
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="w-full justify-start"
+                  onClick={() => setNaming(true)}
+                >
+                  <IconPlus />
+                  {t("sqlDashboard.saveAsGroup")}
+                </Button>
+              )}
+            </div>
+          )}
         </PopoverContent>
       </Popover>
     </div>
@@ -627,6 +962,10 @@ interface FilterControlProps {
   vars: Record<string, string>;
   hasParam: (key: string) => boolean;
   setValue: (updates: Record<string, string>) => void;
+  onSavePreset?: (preset: FilterPreset) => boolean;
+  shared: boolean;
+  disabled: boolean;
+  onCloseAutoFocus: (event: Event) => void;
 }
 
 function FilterControl({
@@ -634,13 +973,23 @@ function FilterControl({
   vars,
   hasParam,
   setValue,
+  onSavePreset,
+  shared,
+  disabled,
+  onCloseAutoFocus,
 }: FilterControlProps) {
   const t = useT();
+  const [selectOpen, setSelectOpen] = useState(false);
+  useEffect(() => {
+    if (disabled) setSelectOpen(false);
+  }, [disabled]);
   if (filter.type === "date-range") {
     const startKey = `${filter.id}Start`;
     const endKey = `${filter.id}End`;
     return (
       <DateRangeInput
+        disabled={disabled}
+        onCloseAutoFocus={onCloseAutoFocus}
         label={filter.label}
         startDate={vars[startKey] || ""}
         endDate={vars[endKey] || ""}
@@ -657,6 +1006,8 @@ function FilterControl({
           {filter.label}
         </label>
         <DatePicker
+          disabled={disabled}
+          onCloseAutoFocus={onCloseAutoFocus}
           value={vars[filter.id] || ""}
           onChange={(v) => setValue({ [filter.id]: v })}
         />
@@ -676,6 +1027,9 @@ function FilterControl({
           {filter.label}
         </label>
         <Select
+          disabled={disabled}
+          open={selectOpen && !disabled}
+          onOpenChange={(open) => setSelectOpen(open && !disabled)}
           value={current}
           onValueChange={(v) =>
             setValue({
@@ -695,7 +1049,11 @@ function FilterControl({
           >
             <SelectValue className="min-w-0 flex-1 text-left" />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent
+            hidden={disabled}
+            inert={disabled}
+            onCloseAutoFocus={onCloseAutoFocus}
+          >
             {filter.options?.map((opt) => (
               <SelectItem key={opt.value} value={opt.value} className="text-xs">
                 {opt.label}
@@ -716,6 +1074,8 @@ function FilterControl({
         <div className="flex min-w-0 flex-wrap items-end gap-3">
           {selectControl}
           <DateRangeInput
+            disabled={disabled}
+            onCloseAutoFocus={onCloseAutoFocus}
             label={t("sqlDashboard.customRange")}
             startDate={vars[startKey] || ""}
             endDate={vars[endKey] || ""}
@@ -735,6 +1095,10 @@ function FilterControl({
         filter={filter}
         value={vars[filter.id] || ""}
         setValue={setValue}
+        onSavePreset={onSavePreset}
+        shared={shared}
+        disabled={disabled}
+        onCloseAutoFocus={onCloseAutoFocus}
       />
     );
   }
@@ -747,6 +1111,7 @@ function FilterControl({
           {filter.label}
         </label>
         <Button
+          disabled={disabled}
           variant={active ? "default" : "outline"}
           size="sm"
           className="text-xs"
@@ -768,6 +1133,7 @@ function FilterControl({
             {filter.label}
           </label>
           <Button
+            disabled={disabled}
             variant={active ? "default" : "outline"}
             size="sm"
             className="text-xs"
@@ -788,6 +1154,8 @@ function FilterControl({
               {t("sqlDashboard.since")}
             </label>
             <DatePicker
+              disabled={disabled}
+              onCloseAutoFocus={onCloseAutoFocus}
               value={current}
               onChange={(v) => setValue({ [filter.id]: v })}
             />
@@ -803,6 +1171,7 @@ function FilterControl({
         {filter.label}
       </label>
       <Input
+        disabled={disabled}
         size="sm"
         value={vars[filter.id] || ""}
         onChange={(e) => setValue({ [filter.id]: e.target.value })}

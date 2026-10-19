@@ -278,6 +278,16 @@ async function seedEveryRegisteredIdentityColumn(
 }
 
 describe("IDENTITY_REKEY_COLUMNS offboard policy", () => {
+  it("retains queued submission actor attribution after offboarding", () => {
+    expect(
+      IDENTITY_REKEY_COLUMNS.find(
+        (entry) =>
+          entry.table === "agent_chat_submission_inbox" &&
+          entry.column === "actor_email",
+      ),
+    ).toMatchObject({ offboard: "retain" });
+  });
+
   it("retains OAuth issuance identity on offboarding while permitting email rekey", () => {
     for (const table of ["mcp_oauth_codes", "mcp_oauth_refresh_tokens"]) {
       expect(
