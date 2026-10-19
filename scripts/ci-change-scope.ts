@@ -197,15 +197,23 @@ const CONTENT_CONVERGENCE_FILES = new Set([
 ]);
 
 const CONTENT_CONVERGENCE_CORE_FILES = new Set([
+  "packages/core/src/application-state/emitter.ts",
   "packages/core/src/collab/client.ts",
   "packages/core/src/client/client-status-requests.ts",
   "packages/core/src/client/use-db-sync.ts",
   "packages/core/src/client/use-session.ts",
+  "packages/core/src/db/client.ts",
+  "packages/core/src/db/ddl-guard.ts",
+  "packages/core/src/db/migration-policy.ts",
+  "packages/core/src/db/request-pool-context.ts",
+  "packages/core/src/db/store-registry.ts",
   "packages/core/src/server/collab-plugin.ts",
   "packages/core/src/server/core-routes-plugin.ts",
   "packages/core/src/server/http-route.ts",
   "packages/core/src/server/poll-events.ts",
   "packages/core/src/server/poll.ts",
+  "packages/core/src/server/request-context.ts",
+  "packages/core/src/sharing/access.ts",
 ]);
 
 const CONTENT_CONVERGENCE_CORE_PATH_PREFIXES = [
