@@ -545,6 +545,26 @@ describe("GitHub folder source", () => {
     });
   });
 
+  it("keeps the link and reports it when the first sync fails unexpectedly", async () => {
+    github.commit(BASE_FILES);
+    const database = await newCollection();
+    github.state.duringBlobRead = async () => {
+      github.state.failure = new Error("socket hang up");
+    };
+
+    const linked = await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    expect(linked).toMatchObject({
+      dryRun: false,
+      sync: { state: "error", problem: { code: "unavailable" } },
+      source: { sourceType: "github" },
+    });
+    expect(linked.summary).toContain("the first sync failed");
+    const status = await as(() => getSource.run({ databaseId: database.id }));
+    expect(status.source?.syncState).toBe("error");
+  });
+
   it("refuses the link when a row arrives while it reads GitHub", async () => {
     github.commit(BASE_FILES);
     const database = await newCollection();

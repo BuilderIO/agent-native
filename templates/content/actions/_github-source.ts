@@ -771,6 +771,15 @@ function emptyResult(
   };
 }
 
+/** A sync that failed for a reason it couldn't name, like a dropped socket. */
+export function unexpectedSyncFailure(at: string): GitHubSyncResult {
+  return emptyResult("error", null, {
+    code: "unavailable",
+    message: "The sync failed. The background sync tries again.",
+    at,
+  });
+}
+
 /** The status problem for images a sync couldn't store, if there are any. */
 function storageProblem(
   imagesWaiting: number,

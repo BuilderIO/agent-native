@@ -19,6 +19,8 @@ import {
   previewGitHubFolder,
   resolveGitHubFolder,
   syncGitHubSource,
+  unexpectedSyncFailure,
+  type GitHubSyncResult,
 } from "./_github-source.js";
 import { serializeDatabase } from "./_property-utils.js";
 
@@ -179,14 +181,34 @@ export default defineAction({
         if (blockedNow) throw blockedError(blockedNow);
       },
     });
-    const sync = await syncGitHubSource({
-      sourceId,
-      // The link is saved by now, so a lost connection is reported on it
-      // rather than thrown, which would leave the caller thinking it failed.
-      budgetMs: FIRST_SYNC_BUDGET_MS,
-    });
-    await writeAppState("refresh-signal", { ts: Date.now() });
-    const source = await getContentDatabaseSourceSnapshot(database);
+    // The link is saved by now, so anything that fails from here is reported
+    // on it rather than thrown, which would leave the caller thinking it failed.
+    let sync: GitHubSyncResult;
+    try {
+      sync = await syncGitHubSource({
+        sourceId,
+        budgetMs: FIRST_SYNC_BUDGET_MS,
+      });
+    } catch (error) {
+      console.warn(
+        "[github-source] first sync failed:",
+        error instanceof Error ? error.message : String(error),
+      );
+      sync = unexpectedSyncFailure(new Date().toISOString());
+    }
+    await writeAppState("refresh-signal", { ts: Date.now() }).catch(
+      (error: unknown) => {
+        // The change event below still reaches open pages.
+        console.warn(
+          "[github-source] refresh signal failed:",
+          error instanceof Error ? error.message : String(error),
+        );
+      },
+    );
+    // coercion-ok: the status line reads the link on its own; this is a courtesy copy.
+    const source = await getContentDatabaseSourceSnapshot(database).catch(
+      () => null,
+    );
     return {
       dryRun: false,
       database: serializeDatabase(database),
