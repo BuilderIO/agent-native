@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { table, text } from "@agent-native/core/db/schema";
-import { and, asc, eq, gt, or, sql } from "drizzle-orm";
+import { and, asc, eq, gt, isNull, or, sql } from "drizzle-orm";
 
 import { SEED_BUILTIN_DASHBOARD_IDS } from "../../shared/builtin-dashboard-ids";
 import { normalizeDashboardConfig } from "../../shared/dashboard-config-normalization";
@@ -74,7 +74,10 @@ export async function materializeLegacyBuiltinDashboardSettings(
             eq(schema.dashboards.id, scoped[3]),
             orgId
               ? eq(schema.dashboards.orgId, orgId)
-              : eq(schema.dashboards.ownerEmail, scoped[2]),
+              : and(
+                  eq(schema.dashboards.ownerEmail, scoped[2]),
+                  isNull(schema.dashboards.orgId),
+                ),
           ),
         )
         .limit(1);

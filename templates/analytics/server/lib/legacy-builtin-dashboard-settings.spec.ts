@@ -287,7 +287,7 @@ describe("legacy settings before the built-in dashboard deploy pass", () => {
         original,
       );
       await client.query(
-        `INSERT INTO dashboards (id, kind, title, config, created_at, updated_at, owner_email, org_id, visibility) VALUES ('google-analytics', 'sql', 'Shared edits', $1, '2026-10-01', '2026-10-19', 'alice@example.test', 'org-1', $2)`,
+        `INSERT INTO dashboards (id, kind, title, config, created_at, updated_at, owner_email, org_id, visibility) VALUES ('google-analytics', 'sql', 'Shared edits', $1, '2026-10-01', '2026-10-19', 'alice@example.test', NULL, $2)`,
         [JSON.stringify({ ...original, name: "Shared edits" }), visibility],
       );
       expect(await runBuiltinDashboardPass()).toMatchObject({
@@ -298,6 +298,61 @@ describe("legacy settings before the built-in dashboard deploy pass", () => {
       ).toEqual([{ id: "google-analytics", visibility }]);
     },
   );
+  it.each([
+    {
+      key: "u:alice@example.test:sql-dashboard-google-analytics",
+      rowOrg: "org-1",
+      expectedOrg: null,
+    },
+    {
+      key: "o:org-1:sql-dashboard-google-analytics",
+      rowOrg: null,
+      expectedOrg: "org-1",
+    },
+    {
+      key: "o:org-1:sql-dashboard-google-analytics",
+      rowOrg: "org-2",
+      expectedOrg: "org-1",
+    },
+  ])(
+    "preserves a distinct setting scope when the seed row belongs to $rowOrg",
+    async ({ key, rowOrg, expectedOrg }) => {
+      const original = buildBuiltinDashboard("google-analytics")!.config;
+      await client.query(
+        `INSERT INTO organizations (id, created_by) VALUES ('org-1', 'alice@example.test')`,
+      );
+      await setting(key, { ...original, name: "Distinct setting edits" });
+      await client.query(
+        `INSERT INTO dashboards (id, kind, title, config, created_at, updated_at, owner_email, org_id, visibility) VALUES ('google-analytics', 'sql', 'Existing row edits', $1, '2026-10-01', '2026-10-19', 'alice@example.test', $2, 'private')`,
+        [JSON.stringify({ ...original, name: "Existing row edits" }), rowOrg],
+      );
+      expect(await runBuiltinDashboardPass()).toMatchObject({
+        checked: 2,
+        kept: 2,
+        hidden: 0,
+        legacySettings: { scanned: 1, materialized: 1 },
+      });
+      expect(
+        (
+          await client.query(
+            `SELECT title, owner_email, org_id FROM dashboards ORDER BY title`,
+          )
+        ).rows,
+      ).toEqual([
+        {
+          title: "Distinct setting edits",
+          owner_email: "alice@example.test",
+          org_id: expectedOrg,
+        },
+        {
+          title: "Existing row edits",
+          owner_email: "alice@example.test",
+          org_id: rowOrg,
+        },
+      ]);
+    },
+  );
+
   it("does not resurrect stale settings when the same scope already migrated its seed", async () => {
     const original = buildBuiltinDashboard("google-analytics")!.config;
     await setting(

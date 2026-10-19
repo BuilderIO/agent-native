@@ -66,7 +66,7 @@ const builtin = {
 describe("native dashboard creative context builtin reads", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.openDashboard.mockResolvedValue({ builtin });
+    mocks.openDashboard.mockReset().mockResolvedValue({ builtin });
     mocks.loadBuiltinDashboard.mockResolvedValue(builtin);
     mocks.where.mockResolvedValue([]);
     mocks.isOrgMember.mockResolvedValue(false);
@@ -144,6 +144,109 @@ describe("native dashboard creative context builtin reads", () => {
       { includePublic: true },
     );
     expect(mocks.loadBuiltinDashboard).toHaveBeenCalledOnce();
+    expect(mocks.openDashboard).toHaveBeenCalledTimes(100);
+  });
+
+  it("keeps unresolved legacy custom versions with bounded scoped reads", async () => {
+    const ids = Array.from({ length: 13 }, (_, i) => `legacy-${i}`);
+    let active = 0;
+    let peak = 0;
+    mocks.openDashboard.mockImplementation(async (id) => {
+      active++;
+      peak = Math.max(peak, active);
+      await Promise.resolve();
+      active--;
+      return id === "missing"
+        ? null
+        : { saved: { updatedAt: `${id}-version` } };
+    });
+    expect(
+      await adapter.listResourceVersions!([...ids, ids[0], "missing"]),
+    ).toEqual(
+      [...ids, ids[0]].map((resourceId) => ({
+        resourceId,
+        sourceModifiedAt: `${resourceId}-version`,
+      })),
+    );
+    expect(mocks.openDashboard).toHaveBeenCalledTimes(14);
+    expect(peak).toBeGreaterThan(1);
+    expect(peak).toBeLessThanOrEqual(5);
+    for (const id of [...ids, "missing"]) {
+      expect(mocks.openDashboard).toHaveBeenCalledWith(id, {
+        email: "probe@example.test",
+        orgId: "org-test",
+      });
+    }
+  });
+
+  it("propagates a failed legacy dashboard read", async () => {
+    mocks.openDashboard.mockRejectedValueOnce(
+      new Error("legacy settings unavailable"),
+    );
+    await expect(
+      adapter.listResourceVersions!(["legacy-custom"]),
+    ).rejects.toThrow("legacy settings unavailable");
+  });
+
+  it("checks distinct memberships concurrently within a fixed bound", async () => {
+    const rows = Array.from({ length: 13 }, (_, i) => ({
+      id: `org-dashboard-${i}`,
+      updatedAt: `version-${i}`,
+      hiddenBy: null,
+      accessible: false,
+      orgId: `org-${i}`,
+    }));
+    mocks.where.mockResolvedValue([...rows, { ...rows[0], id: "same-org" }]);
+    let active = 0;
+    let peak = 0;
+    mocks.isOrgMember.mockImplementation(async (orgId) => {
+      active++;
+      peak = Math.max(peak, active);
+      await Promise.resolve();
+      active--;
+      return orgId !== "org-12";
+    });
+    mocks.openDashboard.mockResolvedValue(null);
+    expect(
+      await adapter.listResourceVersions!([
+        ...rows.map((row) => row.id),
+        "same-org",
+      ]),
+    ).toEqual([
+      ...rows
+        .slice(0, 12)
+        .map((row) => ({
+          resourceId: row.id,
+          sourceModifiedAt: row.updatedAt,
+        })),
+      { resourceId: "same-org", sourceModifiedAt: "version-0" },
+    ]);
+    expect(mocks.isOrgMember).toHaveBeenCalledTimes(13);
+    expect(peak).toBeGreaterThan(1);
+    expect(peak).toBeLessThanOrEqual(5);
+    for (const row of rows)
+      expect(mocks.isOrgMember).toHaveBeenCalledWith(
+        row.orgId,
+        "probe@example.test",
+      );
+  });
+
+  it("propagates membership failures instead of returning partial versions", async () => {
+    mocks.where.mockResolvedValue([
+      {
+        id: "foreign-dashboard",
+        updatedAt: "version",
+        hiddenBy: null,
+        accessible: false,
+        orgId: "foreign-org",
+      },
+    ]);
+    mocks.isOrgMember.mockRejectedValueOnce(
+      new Error("membership unavailable"),
+    );
+    await expect(
+      adapter.listResourceVersions!(["foreign-dashboard"]),
+    ).rejects.toThrow("membership unavailable");
     expect(mocks.openDashboard).not.toHaveBeenCalled();
   });
 

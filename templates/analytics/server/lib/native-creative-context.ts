@@ -18,6 +18,8 @@ import { getDb, schema } from "../db/index.js";
 import { loadBuiltinDashboard } from "./builtin-dashboards.js";
 import { openDashboard } from "./open-dashboard.js";
 
+const VERSION_READ_CONCURRENCY = 5;
+
 function syntheticPreview(config: Record<string, unknown>) {
   const panels = Array.isArray(config.panels) ? config.panels : [];
   return panels.slice(0, 24).map((panel: any, index) => ({
@@ -81,8 +83,13 @@ export const nativeDashboardCreativeContextAdapter: NativeResourceCaptureAdapter
         if (!row.accessible && row.orgId) memberOrgIds.add(row.orgId);
       }
       const validatedOrgIds = new Set<string>();
-      for (const orgId of memberOrgIds) {
-        if (await isOrgMember(orgId, email)) validatedOrgIds.add(orgId);
+      const orgIds = [...memberOrgIds];
+      for (let i = 0; i < orgIds.length; i += VERSION_READ_CONCURRENCY) {
+        await Promise.all(
+          orgIds.slice(i, i + VERSION_READ_CONCURRENCY).map(async (orgId) => {
+            if (await isOrgMember(orgId, email)) validatedOrgIds.add(orgId);
+          }),
+        );
       }
       const savedVersions = new Map(
         rows
@@ -94,6 +101,23 @@ export const nativeDashboardCreativeContextAdapter: NativeResourceCaptureAdapter
           )
           .map((row) => [row.id, row.updatedAt]),
       );
+      const unresolvedCustomIds = [...new Set(resourceIds)].filter(
+        (id) => !savedVersions.has(id) && builtinDashboardIdFor(id) === null,
+      );
+      for (
+        let i = 0;
+        i < unresolvedCustomIds.length;
+        i += VERSION_READ_CONCURRENCY
+      ) {
+        await Promise.all(
+          unresolvedCustomIds
+            .slice(i, i + VERSION_READ_CONCURRENCY)
+            .map(async (id) => {
+              const opened = await openDashboard(id, scope);
+              if (opened?.saved) savedVersions.set(id, opened.saved.updatedAt);
+            }),
+        );
+      }
       const builtinIds = new Set(
         resourceIds
           .filter((id) => !savedVersions.has(id))
