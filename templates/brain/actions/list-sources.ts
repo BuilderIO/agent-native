@@ -1,21 +1,33 @@
 import { defineAction } from "@agent-native/core/action";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, countDistinct, desc, eq, inArray, ne } from "drizzle-orm";
+import { and, countDistinct, desc, eq, inArray, ne, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { nextBrainSourceSyncAt } from "../server/jobs/sync-sources.js";
-import { listAccessibleAudienceIds } from "../server/lib/audiences.js";
+import { listAccessibleAudienceIdsBySource } from "../server/lib/audiences.js";
 import { sourceHealthState } from "../server/lib/brain-health.js";
 import { parseJson, serializeSource } from "../server/lib/brain.js";
 import { sourceProviderSchema } from "./_schemas.js";
 
-async function sourceRecordCount(sourceId: string): Promise<number> {
-  const audienceIds = await listAccessibleAudienceIds([sourceId]);
-  if (!audienceIds.length) return 0;
+async function sourceRecordCounts(sourceIds: string[]) {
+  if (!sourceIds.length) return new Map<string, number>();
+  const audiencesBySource = await listAccessibleAudienceIdsBySource(sourceIds);
+  const sourceAudienceFilters = Array.from(
+    audiencesBySource,
+    ([sourceId, audienceIds]) =>
+      and(
+        eq(schema.brainRawCaptures.sourceId, sourceId),
+        inArray(schema.brainCaptureAudiences.audienceId, audienceIds),
+      ),
+  );
+  if (!sourceAudienceFilters.length) return new Map<string, number>();
 
-  const [row] = await getDb()
-    .select({ value: countDistinct(schema.brainRawCaptures.id) })
+  const rows = await getDb()
+    .select({
+      sourceId: schema.brainRawCaptures.sourceId,
+      value: countDistinct(schema.brainRawCaptures.id),
+    })
     .from(schema.brainRawCaptures)
     .innerJoin(
       schema.brainCaptureAudiences,
@@ -23,31 +35,45 @@ async function sourceRecordCount(sourceId: string): Promise<number> {
     )
     .where(
       and(
-        eq(schema.brainRawCaptures.sourceId, sourceId),
         eq(schema.brainRawCaptures.sensitivityDisposition, "allowed"),
-        inArray(schema.brainCaptureAudiences.audienceId, audienceIds),
+        or(...sourceAudienceFilters),
       ),
-    );
-  return row?.value ?? 0;
+    )
+    .groupBy(schema.brainRawCaptures.sourceId);
+  return new Map(rows.map((row) => [row.sourceId, row.value]));
 }
 
-async function latestRun(sourceId: string) {
-  const [run] = await getDb()
-    .select()
+async function latestRunsBySource(sourceIds: string[]) {
+  if (!sourceIds.length) return new Map();
+  const rows = await getDb()
+    .selectDistinctOn([schema.brainSyncRuns.sourceId], {
+      sourceId: schema.brainSyncRuns.sourceId,
+      id: schema.brainSyncRuns.id,
+      status: schema.brainSyncRuns.status,
+      statsJson: schema.brainSyncRuns.statsJson,
+      error: schema.brainSyncRuns.error,
+      startedAt: schema.brainSyncRuns.startedAt,
+      completedAt: schema.brainSyncRuns.completedAt,
+    })
     .from(schema.brainSyncRuns)
-    .where(eq(schema.brainSyncRuns.sourceId, sourceId))
-    .orderBy(desc(schema.brainSyncRuns.startedAt))
-    .limit(1);
-  return run
-    ? {
+    .where(inArray(schema.brainSyncRuns.sourceId, sourceIds))
+    .orderBy(
+      schema.brainSyncRuns.sourceId,
+      desc(schema.brainSyncRuns.startedAt),
+    );
+  return new Map(
+    rows.map((run) => [
+      run.sourceId,
+      {
         id: run.id,
         status: run.status,
         stats: parseJson(run.statsJson, {}),
         error: run.error,
         startedAt: run.startedAt,
         completedAt: run.completedAt,
-      }
-    : null;
+      },
+    ]),
+  );
 }
 
 export default defineAction({
@@ -70,20 +96,23 @@ export default defineAction({
       .from(schema.brainSources)
       .where(and(...clauses))
       .orderBy(desc(schema.brainSources.updatedAt));
+    const sourceIds = rows.map((row) => row.id);
+    const [recordCounts, latestRuns] = await Promise.all([
+      sourceRecordCounts(sourceIds),
+      latestRunsBySource(sourceIds),
+    ]);
     const nowMs = Date.now();
-    const sources = await Promise.all(
-      rows.map(async (row) => {
-        const latest = await latestRun(row.id);
-        const nextSyncAt = nextBrainSourceSyncAt(row);
-        return {
-          ...serializeSource(row),
-          recordCount: await sourceRecordCount(row.id),
-          latestRun: latest,
-          nextSyncAt,
-          health: sourceHealthState(row, latest, nextSyncAt, nowMs),
-        };
-      }),
-    );
+    const sources = rows.map((row) => {
+      const latest = latestRuns.get(row.id) ?? null;
+      const nextSyncAt = nextBrainSourceSyncAt(row);
+      return {
+        ...serializeSource(row),
+        recordCount: recordCounts.get(row.id) ?? 0,
+        latestRun: latest,
+        nextSyncAt,
+        health: sourceHealthState(row, latest, nextSyncAt, nowMs),
+      };
+    });
     return {
       count: rows.length,
       sources,
