@@ -102,14 +102,22 @@ async function dragLayerToggle(
   page: Page,
   actionName: "Hide layer" | "Lock layer",
   targetArea: "icon" | "name",
+  openTooltip = false,
 ) {
   const sourceRow = layerRowButton(page, "Beta Button");
-  const targetRow = layerRowButton(page, "Gamma Button");
+  const targetRow = layerRowButton(
+    page,
+    openTooltip ? "Alpha Button" : "Gamma Button",
+  );
   await sourceRow.hover();
   const action = sourceRow
     .locator('xpath=ancestor::*[@role="treeitem"][1]')
     .getByRole("button", { name: actionName });
   await expect(action).toBeVisible();
+  if (openTooltip) {
+    await action.hover();
+    await expect(page.getByRole("tooltip")).toHaveText(actionName);
+  }
   const actionBounds = (await action.boundingBox())!;
   const targetBounds = (await targetRow.boundingBox())!;
   const start = {
@@ -394,6 +402,46 @@ test("dragging down the Layers panel's lock column locks every layer the drag cr
   await expect(app.node("gamma")).toBeVisible();
   await expect(app.node("beta")).toBeVisible();
   await expect(app.node("alpha")).toBeVisible();
+});
+
+test("dragging the eye column passes through its open tooltip", async ({
+  app,
+  page,
+}) => {
+  const id = await openSeeded(app, ROW_HTML);
+  await searchLayers(page, "Button");
+  const before = await app.savedNodes(id);
+
+  await dragLayerToggle(page, "Hide layer", "icon", true);
+  await app.settled();
+
+  const after = await app.savedNodes(id);
+  expect(after.get("beta")?.attrs["data-agent-native-hidden"]).toBe("true");
+  expect(after.get("alpha")?.attrs["data-agent-native-hidden"]).toBe("true");
+  expect(after.get("gamma")?.attrs["data-agent-native-hidden"]).toBe(
+    before.get("gamma")?.attrs["data-agent-native-hidden"],
+  );
+  expectOnlyChanged(before, after, ["alpha", "beta"]);
+});
+
+test("dragging the lock column passes through its open tooltip", async ({
+  app,
+  page,
+}) => {
+  const id = await openSeeded(app, ROW_HTML);
+  await searchLayers(page, "Button");
+  const before = await app.savedNodes(id);
+
+  await dragLayerToggle(page, "Lock layer", "icon", true);
+  await app.settled();
+
+  const after = await app.savedNodes(id);
+  expect(after.get("beta")?.attrs["data-agent-native-locked"]).toBe("true");
+  expect(after.get("alpha")?.attrs["data-agent-native-locked"]).toBe("true");
+  expect(after.get("gamma")?.attrs["data-agent-native-locked"]).toBe(
+    before.get("gamma")?.attrs["data-agent-native-locked"],
+  );
+  expectOnlyChanged(before, after, ["alpha", "beta"]);
 });
 
 test("dragging across layer names only toggles the source row", async ({

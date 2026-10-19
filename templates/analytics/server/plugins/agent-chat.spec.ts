@@ -1161,8 +1161,6 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
 });
 
 describe("realDataFinalGuard", () => {
-  const resultPageRunStartedAt = Date.UTC(2026, 9, 12, 12, 0);
-
   const today = new Date();
   const todayUtc = new Date(
     Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()),
@@ -2824,15 +2822,12 @@ describe("realDataFinalGuard", () => {
   );
 
   it("continues paginated dbt metric rows before accepting a complete answer", () => {
-    const resultPageRange = {
-      startDate: "2026-10-05",
-      endDate: "2026-10-11",
-    };
+    const resultPageRange = activationRateWeek;
     const result = realDataFinalGuard(
       guardContext({
         userText: "What was the activation rate last week?",
         draftText: "The activation rate was 42%.",
-        runStartedAt: resultPageRunStartedAt,
+        runStartedAt: todayUtc.getTime(),
         toolCalls: [dbtMetricCall(resultPageRange)],
         toolResults: [
           {
@@ -2860,15 +2855,12 @@ describe("realDataFinalGuard", () => {
   });
 
   it("requires partial disclosure when the dbt metric row cap has no cursor", () => {
-    const resultPageRange = {
-      startDate: "2026-10-05",
-      endDate: "2026-10-11",
-    };
+    const resultPageRange = activationRateWeek;
     const result = realDataFinalGuard(
       guardContext({
         userText: "What was the activation rate last week?",
         draftText: "The activation rate was 42%.",
-        runStartedAt: resultPageRunStartedAt,
+        runStartedAt: todayUtc.getTime(),
         toolCalls: [dbtMetricCall(resultPageRange)],
         toolResults: [
           {
@@ -2916,15 +2908,12 @@ describe("realDataFinalGuard", () => {
   });
 
   it("keeps cursor-bearing dbt failures on their status-specific recovery path", () => {
-    const resultPageRange = {
-      startDate: "2026-10-05",
-      endDate: "2026-10-11",
-    };
+    const resultPageRange = activationRateWeek;
     const result = realDataFinalGuard(
       guardContext({
         userText: "Find every account's activation rate for last week.",
         draftText: "All accounts had an activation rate of 42%.",
-        runStartedAt: resultPageRunStartedAt,
+        runStartedAt: todayUtc.getTime(),
         toolCalls: [dbtMetricCall(resultPageRange)],
         toolResults: [
           {
