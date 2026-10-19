@@ -193,6 +193,18 @@ export interface ActionContractErrorOptions {
   errorCode: string;
   details?: Record<string, unknown>;
   statusCode?: number;
+  /**
+   * The handler threw before any side effect could run, so the runner can
+   * treat the rejection as definitive: it does not stamp `outcomeUnknown`
+   * and the model may revise its arguments and retry the same tool in the
+   * same turn. Defaults to `true` for a 4xx `statusCode` whose `errorCode`
+   * is not `permanent_precondition` (that code keeps the historical "stop,
+   * outcome unknown" behavior), and to `false` otherwise. Set it
+   * explicitly only to override the default — `true` for a 5xx that is
+   * known to reject before any write, or `false` for a 4xx thrown after a
+   * side effect may have committed.
+   */
+  definitiveRejection?: boolean;
 }
 
 export class ActionContractError extends Error {
@@ -200,6 +212,7 @@ export class ActionContractError extends Error {
   readonly errorCode: string;
   readonly details?: Record<string, unknown>;
   readonly statusCode: number;
+  readonly definitiveRejection: boolean;
 
   constructor(message: string, options: ActionContractErrorOptions) {
     super(message);
@@ -207,6 +220,11 @@ export class ActionContractError extends Error {
     this.errorCode = options.errorCode;
     this.details = options.details;
     this.statusCode = options.statusCode ?? 409;
+    this.definitiveRejection =
+      options.definitiveRejection ??
+      (this.statusCode >= 400 &&
+        this.statusCode < 500 &&
+        options.errorCode !== "permanent_precondition");
   }
 }
 
@@ -223,10 +241,33 @@ export function isActionContractError(
   );
 }
 
+/**
+ * True when a thrown contract error proves the write never started. The
+ * runner then delivers the error to the model without stamping
+ * `outcomeUnknown`, so a later same-thread call is a retry rather than a
+ * dead-end. Duck-typed contract errors without the new field still follow
+ * the 4xx default.
+ */
+export function isDefinitiveActionRejection(error: unknown): boolean {
+  if (!isActionContractError(error)) return false;
+  const marked = (error as { definitiveRejection?: unknown })
+    .definitiveRejection;
+  if (typeof marked === "boolean") return marked;
+  const statusCode = (error as { statusCode?: unknown }).statusCode;
+  return (
+    typeof statusCode === "number" &&
+    statusCode >= 400 &&
+    statusCode < 500 &&
+    error.errorCode !== "permanent_precondition"
+  );
+}
+
 export interface FailOptions {
   errorCode?: string;
   statusCode?: number;
   details?: Record<string, unknown>;
+  /** See {@link ActionContractErrorOptions.definitiveRejection}. */
+  definitiveRejection?: boolean;
 }
 
 export function fail(message: string, options: FailOptions = {}): never {
@@ -234,6 +275,9 @@ export function fail(message: string, options: FailOptions = {}): never {
     errorCode: options.errorCode ?? "action_failed",
     statusCode: options.statusCode ?? 400,
     ...(options.details === undefined ? {} : { details: options.details }),
+    ...(options.definitiveRejection === undefined
+      ? {}
+      : { definitiveRejection: options.definitiveRejection }),
   });
 }
 
@@ -314,15 +358,17 @@ export function isActionOutputContractError(
 }
 
 /**
- * What a failed call had already done, when its failure came after `run`
- * returned: an output-contract error, or a stop or connection signal raised
- * while its result was checked. `undefined` when the failure carries no such
- * evidence, so the caller must not assume the call changed nothing.
+ * What a failed call had already done. An output-contract error or a
+ * post-run stop/connection signal carries its own `effect`. A definitive
+ * 4xx / `fail()` rejection means the write never started (`none`).
+ * `undefined` when the failure carries no such evidence, so the caller
+ * must not assume the call changed nothing.
  */
 export function actionFailureEffect(
   error: unknown,
 ): ActionOutputEffect | undefined {
   if (isActionOutputContractError(error)) return error.effect;
+  if (isDefinitiveActionRejection(error)) return "none";
   if (!isAgentActionStopError(error)) return undefined;
   const effect = (error as { effect?: unknown }).effect;
   return effect === "none" || effect === "committed" ? effect : undefined;
@@ -574,6 +620,10 @@ function postRunSignal(
  */
 function withCommittedEffect(error: unknown): unknown {
   if (actionFailureEffect(error) !== "none") return error;
+  // A definitive rejection still speaks for its own write, not a nested
+  // one; keep the same object so invocationEffect can see raised === error
+  // and the nested-write branch can still report unknown.
+  if (isDefinitiveActionRejection(error)) return error;
   if (isActionOutputContractError(error)) {
     return new ActionOutputContractError({
       actionName: error.actionName,

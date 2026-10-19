@@ -13312,6 +13312,255 @@ describe("runAgentLoop", () => {
     },
   );
 
+  it.each([
+    [
+      "fail() 4xx",
+      () => fail("Deck is locked", { errorCode: "locked", statusCode: 409 }),
+    ],
+    [
+      "explicit definitiveRejection on 5xx",
+      () =>
+        fail("Provider rejected the payload", {
+          errorCode: "provider_rejected",
+          statusCode: 502,
+          definitiveRejection: true,
+        }),
+    ],
+  ])(
+    "does not stamp outcomeUnknown for a definitive write rejection (%s)",
+    async (_label, reject) => {
+      const run = vi.fn(async () => {
+        reject();
+      });
+      const events = await runToolCallSequence(
+        [
+          { name: "write", input: { id: "first" } },
+          { name: "write", input: { id: "second" } },
+        ],
+        { write: { ...actionEntry({ readOnly: false }), run } },
+      );
+      expect(run).toHaveBeenCalledTimes(2);
+      const dones = events.filter(
+        (event) => event.type === "tool_done" && event.tool === "write",
+      );
+      expect(dones).toHaveLength(2);
+      for (const done of dones) {
+        expect(done).toMatchObject({
+          isError: true,
+          completedSideEffect: false,
+        });
+        expect(done).not.toHaveProperty("outcomeUnknown");
+      }
+      expect(events).not.toContainEqual(
+        expect.objectContaining({
+          type: "error",
+          errorCode: "write_tool_outcome_unknown",
+        }),
+      );
+      expect(events).toContainEqual(
+        expect.objectContaining({ type: "text", text: "Done." }),
+      );
+    },
+  );
+
+  it("lets the model retry the same write after a delivered 4xx error result", async () => {
+    let attempts = 0;
+    const run = vi.fn(async (input: { title?: string }) => {
+      attempts += 1;
+      if (input.title === "bad") {
+        fail("Title is reserved", {
+          errorCode: "invalid_title",
+          statusCode: 400,
+        });
+      }
+      return "saved";
+    });
+    let streamCalls = 0;
+    const events: AgentChatEvent[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "write-1",
+                name: "write",
+                input: { title: "bad" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        if (streamCalls === 2) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "write-2",
+                name: "write",
+                input: { title: "ok" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "Saved." }],
+        };
+        yield { type: "stop", reason: "stop" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: { write: { ...actionEntry({ readOnly: false }), run } },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      maxIterations: 3,
+    });
+
+    expect(run).toHaveBeenCalledTimes(2);
+    expect(attempts).toBe(2);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "write",
+        isError: true,
+        completedSideEffect: false,
+        result: expect.stringContaining("Title is reserved"),
+      }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ outcomeUnknown: true }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "write_tool_outcome_unknown",
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "text", text: "Saved." }),
+    );
+  });
+
+  it("stamps outcomeUnknown for a 5xx contract error that did not opt into a definitive rejection", async () => {
+    const run = vi.fn(async () => {
+      fail("Provider reset the connection", {
+        errorCode: "upstream",
+        statusCode: 502,
+      });
+    });
+    const events = await runToolCallSequence(
+      [
+        { name: "write", input: { id: "first" } },
+        { name: "write", input: { id: "second" } },
+      ],
+      { write: { ...actionEntry({ readOnly: false }), run } },
+    );
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "write",
+        outcomeUnknown: true,
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "write_tool_outcome_unknown",
+      }),
+    );
+  });
+
+  it("stamps outcomeUnknown when a write is aborted after the handler starts", async () => {
+    const controller = new AbortController();
+    const run = vi.fn(async () => {
+      controller.abort();
+      throw new Error("Run aborted");
+    });
+    const events: AgentChatEvent[] = [];
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: `write-abort-${streamCalls}`,
+              name: "write",
+              input: { id: streamCalls === 1 ? "first" : "second" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: { write: { ...actionEntry({ readOnly: false }), run } },
+      send: (event) => events.push(event),
+      signal: controller.signal,
+    });
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "write",
+        isError: true,
+        outcomeUnknown: true,
+      }),
+    );
+    // The run itself is aborted, so the loop never reaches a second call
+    // that would surface write_tool_outcome_unknown. The stamp is the
+    // durable signal a later continuation must honor.
+    expect(events.filter((event) => event.type === "tool_done")).toEqual([
+      expect.objectContaining({ outcomeUnknown: true }),
+    ]);
+  });
+
   it("lets the model revise arguments after a role mismatch", async () => {
     let streamCalls = 0;
     const authorize = vi.fn(async (input: { panelId: string }) => {

@@ -15,8 +15,11 @@ import {
   failedCallEmitsChange,
   ActionContractError,
   ActionOutputContractError,
+  actionFailureEffect,
+  fail,
   isActionContractError,
   isActionOutputContractError,
+  isDefinitiveActionRejection,
   runActionWithExecutionOutcome,
   invocationEffect,
   type ActionExecutionOutcome,
@@ -82,6 +85,109 @@ describe("ActionContractError", () => {
       errorCode: "SCHEMA_REVISION_CONFLICT",
       details: { expected: "before", actual: "after" },
     });
+  });
+
+  it("defaults a 4xx contract error to a definitive rejection", () => {
+    const error = new ActionContractError("Not found", {
+      errorCode: "not_found",
+      statusCode: 404,
+    });
+    expect(error.definitiveRejection).toBe(true);
+    expect(isDefinitiveActionRejection(error)).toBe(true);
+    expect(actionFailureEffect(error)).toBe("none");
+  });
+
+  it("defaults fail() to a definitive 400 rejection", () => {
+    expect(() => fail("Invalid title")).toThrow(ActionContractError);
+    try {
+      fail("Invalid title");
+    } catch (error) {
+      expect(isDefinitiveActionRejection(error)).toBe(true);
+      expect(actionFailureEffect(error)).toBe("none");
+      expect(error).toMatchObject({
+        statusCode: 400,
+        definitiveRejection: true,
+      });
+    }
+  });
+
+  it("does not treat permanent_precondition as a definitive rejection", () => {
+    const error = new ActionContractError("API key is not configured", {
+      errorCode: "permanent_precondition",
+    });
+    expect(error.definitiveRejection).toBe(false);
+    expect(isDefinitiveActionRejection(error)).toBe(false);
+    expect(actionFailureEffect(error)).toBeUndefined();
+  });
+
+  it("does not treat 5xx as definitive unless the handler opts in", () => {
+    const error = new ActionContractError("Provider reset the connection", {
+      errorCode: "upstream",
+      statusCode: 502,
+    });
+    expect(error.definitiveRejection).toBe(false);
+    expect(isDefinitiveActionRejection(error)).toBe(false);
+    const optedIn = new ActionContractError("Provider rejected the payload", {
+      errorCode: "upstream",
+      statusCode: 502,
+      definitiveRejection: true,
+    });
+    expect(isDefinitiveActionRejection(optedIn)).toBe(true);
+  });
+
+  it("honors an explicit false on a 4xx that may have written", () => {
+    const error = new ActionContractError("Conflict after write", {
+      errorCode: "conflict",
+      statusCode: 409,
+      definitiveRejection: false,
+    });
+    expect(isDefinitiveActionRejection(error)).toBe(false);
+  });
+
+  it("honors a 4xx statusCode on a duck-typed contract error", () => {
+    const error = Object.assign(new Error("missing"), {
+      actionContractError: true,
+      errorCode: "not_found",
+      statusCode: 404,
+    });
+    expect(isActionContractError(error)).toBe(true);
+    expect(isDefinitiveActionRejection(error)).toBe(true);
+    expect(actionFailureEffect(error)).toBe("none");
+  });
+
+  it("treats a definitive 4xx write rejection as no invocation effect", async () => {
+    const write = defineAction({
+      description: "Write",
+      schema: z.object({}),
+      run: async () =>
+        fail("Deck is locked", { errorCode: "locked", statusCode: 409 }),
+    });
+    const { outcome, error } = await dispatch(write, {}, { caller: "tool" });
+    expect(actionFailureEffect(error)).toBe("none");
+    expect(invocationEffect(write, outcome, { failed: { error } }).effect).toBe(
+      "none",
+    );
+  });
+
+  it("keeps a nested write unknown when the parent then fail()s", async () => {
+    const child = defineAction({
+      description: "Child write",
+      schema: z.object({}),
+      run: async () => "saved",
+    });
+    const write = defineAction({
+      description: "Write then reject",
+      schema: z.object({}),
+      run: async (_args, ctx) => {
+        await child.run({}, ctx);
+        fail("Locked after write", { errorCode: "locked", statusCode: 409 });
+      },
+    });
+    const { outcome, error } = await dispatch(write, {}, { caller: "tool" });
+    expect(isDefinitiveActionRejection(error)).toBe(true);
+    expect(invocationEffect(write, outcome, { failed: { error } }).effect).toBe(
+      "unknown",
+    );
   });
 });
 

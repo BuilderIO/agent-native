@@ -28,6 +28,7 @@ export {
   type FailOptions,
   ActionContractError,
   isActionContractError,
+  isDefinitiveActionRejection,
   type ActionContractErrorOptions,
   ActionOutputContractError,
   isActionOutputContractError,
