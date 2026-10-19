@@ -216,7 +216,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.why":
     "एंबेडिंग अर्थपूर्ण खोज को बेहतर बनाती हैं। इनके बिना भी कीवर्ड खोज काम करती है।",
   "onboarding.capability.webSearch.label": "वेब खोज",
-  "onboarding.capability.webSearch.keySummary": "Builder द्वारा प्रबंधित वेब खोज",
+  "onboarding.capability.webSearch.keySummary": "वेब खोज",
   "onboarding.capability.webSearch.why":
     "वेब पर मौजूदा सार्वजनिक स्रोत खोजें। Builder द्वारा प्रबंधित खोज शामिल Builder AI क्रेडिट का उपयोग करती है, इसलिए अलग खोज API कुंजी की ज़रूरत नहीं है।",
   "onboarding.capability.systemOne.why":
