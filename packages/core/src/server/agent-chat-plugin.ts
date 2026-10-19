@@ -8404,11 +8404,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               typeof message.text !== "string" ||
               !message.text.trim()
             ) {
-              await blockQueuedSubmissionReceipt(
+              const blocked = await blockQueuedSubmissionReceipt(
                 receipt.threadId,
                 receipt.messageId,
               );
-              result.blocked += 1;
+              if (blocked) result.blocked += 1;
+              else result.deferred += 1;
               continue;
             }
 
@@ -8419,11 +8420,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               { orgId: receipt.actor.orgId ?? undefined },
             );
             if (!thread) {
-              await blockQueuedSubmissionReceipt(
+              const blocked = await blockQueuedSubmissionReceipt(
                 receipt.threadId,
                 receipt.messageId,
               );
-              result.blocked += 1;
+              if (blocked) result.blocked += 1;
+              else result.deferred += 1;
               continue;
             }
 
@@ -8465,11 +8467,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               continue;
             }
             if (!claim?.claimedMessage) {
-              await blockQueuedSubmissionReceipt(
+              const blocked = await blockQueuedSubmissionReceipt(
                 receipt.threadId,
                 receipt.messageId,
+                { claimId },
               );
-              result.blocked += 1;
+              if (blocked) result.blocked += 1;
+              else result.deferred += 1;
               continue;
             }
             const claimedMessage = claim.claimedMessage;
@@ -8482,6 +8486,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   receipt.threadId,
                   receipt.messageId,
                   Date.now() + 10_000,
+                  { claimId },
                 );
                 await mutateThreadQueuedMessages(receipt.threadId, {
                   type: "release",
@@ -8499,6 +8504,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   receipt.threadId,
                   receipt.messageId,
                   Date.now() + 10_000,
+                  { claimId },
                 );
                 await mutateThreadQueuedMessages(receipt.threadId, {
                   type: "release",
@@ -8594,6 +8600,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 receipt.threadId,
                 receipt.messageId,
                 Date.now() + 10_000,
+                { claimId },
               );
               await mutateThreadQueuedMessages(receipt.threadId, {
                 type: "release",
@@ -8663,6 +8670,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 await blockQueuedSubmissionReceipt(
                   receipt.threadId,
                   receipt.messageId,
+                  { claimId },
                 );
                 result.failed += 1;
                 console.error(
@@ -8692,6 +8700,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 receipt.threadId,
                 receipt.messageId,
                 Date.now() + 10_000,
+                { claimId },
               );
               await mutateThreadQueuedMessages(receipt.threadId, {
                 type: "release",
@@ -8704,9 +8713,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               continue;
             }
 
-            await blockQueuedSubmissionReceipt(
+            const blocked = await blockQueuedSubmissionReceipt(
               receipt.threadId,
               receipt.messageId,
+              { claimId },
             );
             await mutateThreadQueuedMessages(receipt.threadId, {
               type: "release",
@@ -8714,7 +8724,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               claimId,
             });
             claimId = undefined;
-            result.blocked += 1;
+            if (blocked) result.blocked += 1;
+            else result.deferred += 1;
             await stream?.cancel().catch(() => {});
           } catch (error) {
             result.failed += 1;
@@ -8728,6 +8739,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   receipt.threadId,
                   receipt.messageId,
                   Date.now() + 10_000,
+                  { claimId },
                 );
                 await mutateThreadQueuedMessages(receipt.threadId, {
                   type: "release",

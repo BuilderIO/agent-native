@@ -46,6 +46,7 @@ import { RUN_NOT_STARTED_METADATA_KEY } from "../shared/agent-chat-run-not-start
 import { assertNoInlineImageBytes } from "../shared/inline-bytes.js";
 import {
   adoptThreadScopeIfUnscoped,
+  blockQueuedSubmissionReceipt,
   createThread,
   createThreadShareLink,
   forkThread,
@@ -58,6 +59,7 @@ import {
   markQueuedSubmissionSubmitted,
   QueuedSubmissionAdmissionError,
   renameThread,
+  retryQueuedSubmissionReceipt,
   resolveRunThreadScope,
   revokeThreadShareLink,
   searchThreads,
@@ -3207,6 +3209,168 @@ describe("chat thread store", () => {
       now.mockRestore();
     }
   });
+
+  it.each(["retry", "block"] as const)(
+    "does not let a stale queue receipt %s override its replacement claim",
+    async (operation) => {
+      const actor = { email: "user@example.com", anonymous: false };
+      const message = {
+        id: `queued-receipt-claim-${operation}`,
+        threadId: "thread-1",
+        text: "Promote once",
+      };
+      const now = vi.spyOn(Date, "now").mockReturnValue(10_000);
+
+      try {
+        await mutateThreadQueuedMessages(
+          "thread-1",
+          { type: "append", message },
+          { actor },
+        );
+        const firstClaim = await mutateThreadQueuedMessages("thread-1", {
+          type: "claim",
+          messageId: message.id,
+          claimId: "tab-stalled",
+        });
+        expect(firstClaim?.claimedMessage?.promotionClaim).toEqual({
+          id: "tab-stalled",
+          expiresAt: 70_000,
+        });
+
+        now.mockReturnValue(70_001);
+        const replacementClaim = await mutateThreadQueuedMessages("thread-1", {
+          type: "claim",
+          messageId: message.id,
+          claimId: "tab-replacement",
+        });
+        expect(replacementClaim?.claimedMessage?.promotionClaim).toEqual({
+          id: "tab-replacement",
+          expiresAt: 130_001,
+        });
+
+        const applyMutation = (claimId: string) =>
+          operation === "retry"
+            ? retryQueuedSubmissionReceipt("thread-1", message.id, 90_001, {
+                claimId,
+              })
+            : blockQueuedSubmissionReceipt("thread-1", message.id, {
+                claimId,
+              });
+
+        await expect(applyMutation("tab-stalled")).resolves.toBe(false);
+        expect(submissionRows[0]!.state).toBe("queued");
+        expect(submissionRows[0]!.retry_after).toBeNull();
+
+        await expect(applyMutation("tab-replacement")).resolves.toBe(true);
+        expect(submissionRows[0]!.state).toBe(
+          operation === "block" ? "blocked" : "queued",
+        );
+        expect(submissionRows[0]!.retry_after).toBe(
+          operation === "retry" ? 90_001 : null,
+        );
+      } finally {
+        now.mockRestore();
+      }
+    },
+  );
+
+  it("keeps pre-claim receipt updates from overriding an active promotion claim", async () => {
+    const actor = { email: "user@example.com", anonymous: false };
+    const message = {
+      id: "queued-preclaim-receipt-update",
+      threadId: "thread-1",
+      text: "Promote once",
+    };
+    await mutateThreadQueuedMessages(
+      "thread-1",
+      { type: "append", message },
+      { actor },
+    );
+    await mutateThreadQueuedMessages("thread-1", {
+      type: "claim",
+      messageId: message.id,
+      claimId: "tab-active",
+    });
+
+    await expect(
+      retryQueuedSubmissionReceipt("thread-1", message.id, Date.now() + 10_000),
+    ).resolves.toBe(false);
+    await expect(
+      blockQueuedSubmissionReceipt("thread-1", message.id),
+    ).resolves.toBe(false);
+    expect(submissionRows[0]!.state).toBe("queued");
+    expect(submissionRows[0]!.retry_after).toBeNull();
+  });
+
+  it.each(["retry", "block"] as const)(
+    "rechecks a receipt %s after a replacement claim wins the thread-data CAS",
+    async (operation) => {
+      const actor = { email: "user@example.com", anonymous: false };
+      const message = {
+        id: `queued-receipt-cas-${operation}`,
+        threadId: "thread-1",
+        text: "Promote once",
+      };
+      const now = vi.spyOn(Date, "now").mockReturnValue(10_000);
+
+      try {
+        await mutateThreadQueuedMessages(
+          "thread-1",
+          { type: "append", message },
+          { actor },
+        );
+        await mutateThreadQueuedMessages("thread-1", {
+          type: "claim",
+          messageId: message.id,
+          claimId: "tab-stalled",
+        });
+
+        now.mockReturnValue(69_999);
+        conflictOnce = () => {
+          now.mockReturnValue(70_001);
+          const threadData = JSON.parse(row!.thread_data);
+          threadData.queuedMessages = threadData.queuedMessages.map(
+            (queued: any) =>
+              queued.id === message.id
+                ? {
+                    ...queued,
+                    promotionClaim: {
+                      id: "tab-replacement",
+                      expiresAt: 130_001,
+                    },
+                  }
+                : queued,
+          );
+          row = {
+            ...row!,
+            thread_data: JSON.stringify(threadData),
+            updated_at: row!.updated_at + 1,
+          };
+        };
+
+        const result =
+          operation === "retry"
+            ? await retryQueuedSubmissionReceipt(
+                "thread-1",
+                message.id,
+                90_001,
+                { claimId: "tab-stalled" },
+              )
+            : await blockQueuedSubmissionReceipt("thread-1", message.id, {
+                claimId: "tab-stalled",
+              });
+
+        expect(result).toBe(false);
+        expect(submissionRows[0]!.state).toBe("queued");
+        expect(submissionRows[0]!.retry_after).toBeNull();
+        expect(
+          JSON.parse(row!.thread_data).queuedMessages[0].promotionClaim.id,
+        ).toBe("tab-replacement");
+      } finally {
+        now.mockRestore();
+      }
+    },
+  );
 
   it("deduplicates queued delivery when a stalled promotion returns after the 60-second claim", async () => {
     const actor = { email: "user@example.com", anonymous: false };
