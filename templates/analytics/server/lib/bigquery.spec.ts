@@ -1230,6 +1230,79 @@ describe("runQuery cancellation", () => {
     expect(second.cached).toBe(true);
   });
 
+  it.each([
+    [
+      "CONCAT('U', 'TC')",
+      "2026-09-08T23:59:00Z",
+      "2026-09-09T00:01:00Z",
+      "2026-09-08",
+      "2026-09-09",
+    ],
+    [
+      "CONCAT('America/', 'Los_Angeles')",
+      "2026-10-17T06:59:00Z",
+      "2026-10-17T07:01:00Z",
+      "2026-10-16",
+      "2026-10-17",
+    ],
+  ])(
+    "does not reuse an unresolved current-date query across midnight in %s",
+    async (zone, before, after, firstDay, secondDay) => {
+      const cache = useCacheDatabase();
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(before));
+      const response = (day: string) =>
+        jsonResponse({
+          jobComplete: true,
+          schema: { fields: [{ name: "day", type: "DATE" }] },
+          rows: [{ f: [{ v: day }] }],
+          totalBytesProcessed: "0",
+        });
+      const fetchMock = mockQueryJobs(response(firstDay), response(secondDay));
+      vi.stubGlobal("fetch", fetchMock);
+      const sql = `SELECT CURRENT_DATE(${zone}) AS day`;
+
+      await expect(runQuery(sql)).resolves.toMatchObject({
+        rows: [{ day: firstDay }],
+        cached: false,
+      });
+      vi.setSystemTime(new Date(after));
+      await expect(runQuery(sql)).resolves.toMatchObject({
+        rows: [{ day: secondDay }],
+        cached: false,
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+      for (const call of [0, 2]) {
+        expect(
+          JSON.parse(String(fetchMock.mock.calls[call]?.[1]?.body))
+            .configuration.query.query,
+        ).toBe(sql);
+      }
+      expect(execute).not.toHaveBeenCalled();
+      expect(cache.size).toBe(0);
+    },
+  );
+
+  it("caches current-date text in strings, comments and qualified identifiers", async () => {
+    useCacheDatabase();
+    const fetchMock = mockQueryJobs(
+      jsonResponse({
+        jobComplete: true,
+        schema: { fields: [] },
+        rows: [],
+        totalBytesProcessed: "0",
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const sql =
+      "SELECT 'CURRENT_DATE(zone)' AS label, t.current_date FROM t -- CURRENT_DATE(zone)";
+
+    await runQuery(sql);
+    await expect(runQuery(sql)).resolves.toMatchObject({ cached: true });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   describe("renderCurrentDateLiterals", () => {
     const now = new Date("2026-10-17T02:30:00Z");
 
