@@ -2138,7 +2138,6 @@ export default {
     fork: "Créer une branche",
     fullView: "Vue complète",
     preview: "Aperçu",
-    focusScreen: "Centrer l’écran",
     openAndDuplicate:
       "Sélectionner {{display}}. Utilisez Interagir pour le défilement ciblé.",
     openAndPreview:

@@ -2142,7 +2142,6 @@ export default {
     fork: "Abzweigen",
     fullView: "Vollansicht",
     preview: "Vorschau",
-    focusScreen: "Bildschirm fokussieren",
     openAndDuplicate:
       "{{display}} auswählen. Verwenden Sie Interagieren zum fokussierten Scrollen.",
     openAndPreview:

@@ -423,19 +423,6 @@ export function useEditorLayerActions({
     selectedElementLayerId ??
     activeFile?.id ??
     "";
-  const selectedElementFullViewScreenId =
-    viewMode === "overview" && selectedElement
-      ? selectedElementLayerId
-        ? (codeLayerOwnerByNodeId.get(selectedElementLayerId)?.fileId ??
-          activeFileId)
-        : activeFileId
-      : null;
-  const fullViewScreenIds = useMemo(
-    () =>
-      selectedElementFullViewScreenId ? [selectedElementFullViewScreenId] : [],
-    [selectedElementFullViewScreenId],
-  );
-
   const singleSelectedOverviewScreenId =
     viewMode === "overview" &&
     !selectedElement &&
@@ -1592,7 +1579,6 @@ export function useEditorLayerActions({
     handleJoinPublishWaitlist,
     activeLayerId,
     handleCopyLayerLink,
-    fullViewScreenIds,
     gradientEditTarget,
     inScreenGradientEditTarget,
     handleInScreenGradientEditChange,
