@@ -42,13 +42,14 @@ import {
 } from "@/components/ui/tooltip";
 import { formatBytes } from "@/lib/cost-tracker";
 import { useSqlQuery } from "@/lib/sql-query";
+import { TAB_ID } from "@/lib/tab-id";
 import { cn } from "@/lib/utils";
 
 import { interpolateDashboardPanelSql } from "./interpolate";
 import { serializePanelSql } from "./panel-sql";
 import type { SqlPanel, TableColumnConfig } from "./types";
 
-export const ROW_BREAKDOWN_STATE_KEY = "row-breakdown";
+export const ROW_BREAKDOWN_STATE_KEY = `row-breakdown:${TAB_ID}`;
 
 // A reload skips unmount cleanup, so a breakdown open before it would outlive
 // the page in app state. The first sheet to mount clears it once; writes to one
