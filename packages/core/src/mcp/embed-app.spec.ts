@@ -690,7 +690,7 @@ describe("embedApp", () => {
       expect(JSON.stringify(postBody)).not.toContain("demo-pass");
     });
 
-    it("falls back from ordinary mounted app URLs to the app error route", async () => {
+    it("uses the origin route when an ordinary mounted URL gives no known mount", async () => {
       const html = htmlFor("directory");
       const embedReportUrls = html.match(
         /    function embedReportUrls\(\) \{[\s\S]*?\n    \}\n/,
@@ -738,7 +738,7 @@ describe("embedApp", () => {
 
       await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
       expect(fetch).toHaveBeenCalledWith(
-        "https://app.example.com/crm/_agent-native/mcp/embed-error",
+        "https://app.example.com/_agent-native/mcp/embed-error",
         expect.objectContaining({ method: "POST", credentials: "omit" }),
       );
       const postBody = JSON.parse(fetch.mock.calls[0][1].body as string);
@@ -750,7 +750,7 @@ describe("embedApp", () => {
       expect(JSON.stringify(postBody)).not.toContain("demo-pass");
     });
 
-    it("keeps the root error route as a fallback for ordinary root app URLs", async () => {
+    it("does not retry fallback requests under private path prefixes", async () => {
       const html = htmlFor("directory");
       const embedReportUrls = html.match(
         /    function embedReportUrls\(\) \{[\s\S]*?\n    \}\n/,
@@ -761,11 +761,7 @@ describe("embedApp", () => {
       expect(embedReportUrls).toBeTruthy();
       expect(reportEmbedError).toBeTruthy();
 
-      const fetch = vi
-        .fn()
-        .mockResolvedValueOnce({ status: 404 })
-        .mockResolvedValueOnce({ status: 404 })
-        .mockResolvedValueOnce({ status: 204 });
+      const fetch = vi.fn().mockResolvedValueOnce({ status: 404 });
       const report = new Function(
         "openStartUrl",
         "openUrl",
@@ -783,7 +779,7 @@ describe("embedApp", () => {
         return reportEmbedError;`,
       )(
         "",
-        "https://app.example.com/records/123?secret=1#details",
+        "https://app.example.com/records/private-record-id-456/token-xyz?secret=1#details",
         "",
         {
           location: {
@@ -800,11 +796,15 @@ describe("embedApp", () => {
 
       report("frame-load", "request failed");
 
-      await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
-      expect(fetch).toHaveBeenLastCalledWith(
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+      expect(fetch).toHaveBeenCalledWith(
         "https://app.example.com/_agent-native/mcp/embed-error",
         expect.objectContaining({ method: "POST", credentials: "omit" }),
       );
+      expect(JSON.stringify(fetch.mock.calls)).not.toContain(
+        "private-record-id-456",
+      );
+      expect(JSON.stringify(fetch.mock.calls)).not.toContain("token-xyz");
     });
 
     it("keeps one fill rule across the shell and the app document", () => {

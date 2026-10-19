@@ -1339,21 +1339,10 @@ export function embedApp(
         return [url.href];
       }
 
-      const prefixes = url.pathname.split("/").filter(Boolean);
-      const reportUrls = [];
-      for (let index = 1; index <= prefixes.length; index += 1) {
-        const candidate = new URL(url.href);
-        candidate.pathname = "/" + prefixes.slice(0, index).join("/") + reportPath;
-        candidate.search = "";
-        candidate.hash = "";
-        reportUrls.push(candidate.href);
-      }
-      const root = new URL(url.href);
-      root.pathname = reportPath;
-      root.search = "";
-      root.hash = "";
-      reportUrls.push(root.href);
-      return [...new Set(reportUrls)];
+      url.pathname = reportPath;
+      url.search = "";
+      url.hash = "";
+      return [url.href];
     }
     function reportEmbedError(stage, message, detail, status) {
       try {
