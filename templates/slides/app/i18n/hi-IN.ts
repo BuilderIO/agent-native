@@ -257,7 +257,7 @@ const messages = {
     arrow: "एरो",
     square: "वर्ग",
     ellipse: "दीर्घवृत्त",
-    triangle: "बहुभुज",
+    triangle: "त्रिभुज",
     media: "इमेज/वीडियो…",
     mediaNeedsStorage: "इमेज और वीडियो अपलोड करने के लिए स्टोरेज कॉन्फ़िगर करें।",
     transitions: "ट्रांज़िशन",

@@ -259,7 +259,7 @@ const messages = {
     arrow: "화살표",
     square: "정사각형",
     ellipse: "타원",
-    triangle: "다각형",
+    triangle: "삼각형",
     media: "이미지/동영상…",
     mediaNeedsStorage: "이미지와 동영상을 업로드하려면 저장소를 설정하세요.",
     transitions: "전환",

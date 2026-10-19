@@ -263,7 +263,7 @@ const messages = {
     arrow: "Flèche",
     square: "Carré",
     ellipse: "Ellipse",
-    triangle: "Polygone",
+    triangle: "Triangle",
     media: "Image/vidéo…",
     mediaNeedsStorage:
       "Configurez le stockage pour importer des images et des vidéos.",

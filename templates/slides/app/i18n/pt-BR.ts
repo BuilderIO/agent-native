@@ -259,7 +259,7 @@ const messages = {
     arrow: "Seta",
     square: "Quadrado",
     ellipse: "Elipse",
-    triangle: "Polígono",
+    triangle: "Triângulo",
     media: "Imagem/vídeo…",
     mediaNeedsStorage:
       "Configure o armazenamento para enviar imagens e vídeos.",

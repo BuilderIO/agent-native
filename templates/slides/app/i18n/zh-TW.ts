@@ -250,7 +250,7 @@ const messages = {
     arrow: "箭頭",
     square: "正方形",
     ellipse: "橢圓",
-    triangle: "多邊形",
+    triangle: "三角形",
     media: "圖片/影片…",
     mediaNeedsStorage: "請先設定儲存空間，才能上傳圖片和影片。",
     transitions: "轉場",

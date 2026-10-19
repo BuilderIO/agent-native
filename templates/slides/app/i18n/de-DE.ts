@@ -263,7 +263,7 @@ const messages = {
     arrow: "Pfeil",
     square: "Quadrat",
     ellipse: "Ellipse",
-    triangle: "Polygon",
+    triangle: "Dreieck",
     media: "Bild/Video…",
     mediaNeedsStorage:
       "Richte den Speicher ein, um Bilder und Videos hochzuladen.",

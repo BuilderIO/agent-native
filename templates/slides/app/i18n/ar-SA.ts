@@ -256,7 +256,7 @@ const messages = {
     arrow: "سهم",
     square: "مربع",
     ellipse: "شكل بيضاوي",
-    triangle: "مضلع",
+    triangle: "مثلث",
     media: "صورة/فيديو…",
     mediaNeedsStorage: "قم بإعداد التخزين لرفع الصور ومقاطع الفيديو.",
     transitions: "الانتقالات",

@@ -259,7 +259,7 @@ const messages = {
     arrow: "Arrow",
     square: "Square",
     ellipse: "Ellipse",
-    triangle: "Polygon",
+    triangle: "Triangle",
     media: "Image/video…",
     mediaNeedsStorage: "Configure storage to upload images and videos.",
     transitions: "Transitions",

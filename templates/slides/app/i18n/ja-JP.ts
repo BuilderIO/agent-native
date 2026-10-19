@@ -260,7 +260,7 @@ const messages = {
     arrow: "矢印",
     square: "正方形",
     ellipse: "楕円",
-    triangle: "多角形",
+    triangle: "三角形",
     media: "画像/動画…",
     mediaNeedsStorage:
       "画像や動画をアップロードするには、ストレージを設定してください。",

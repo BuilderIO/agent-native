@@ -261,7 +261,7 @@ const messages = {
     arrow: "Flecha",
     square: "Cuadrado",
     ellipse: "Elipse",
-    triangle: "Polígono",
+    triangle: "Triángulo",
     media: "Imagen/vídeo…",
     mediaNeedsStorage:
       "Configura el almacenamiento para subir imágenes y vídeos.",

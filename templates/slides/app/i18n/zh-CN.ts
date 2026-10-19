@@ -251,7 +251,7 @@ const messages = {
     arrow: "箭头",
     square: "正方形",
     ellipse: "椭圆",
-    triangle: "多边形",
+    triangle: "三角形",
     media: "图片/视频…",
     mediaNeedsStorage: "请先配置存储，才能上传图片和视频。",
     transitions: "过渡",
