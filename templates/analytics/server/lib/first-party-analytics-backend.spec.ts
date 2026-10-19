@@ -48,7 +48,7 @@ import {
 
 describe("first-party BigQuery execution metadata", () => {
   it.each([false, true])(
-    "preserves runQuery metadata on app cache hit %s",
+    "forwards the byte cap and preserves runQuery metadata on app cache hit %s",
     async (cached) => {
       const result = {
         rows: [{ n: 1 }],
@@ -61,14 +61,22 @@ describe("first-party BigQuery execution metadata", () => {
       };
       runQuery.mockResolvedValue(result);
       await expect(
-        queryFirstPartyAnalyticsInBigQuery("SELECT 1 AS n", [], {
-          projectId: "example-project",
-          datasetId: "analytics",
-          tableId: "example_events",
-          fullyQualified: "example-project.analytics.example_events",
-        }),
+        queryFirstPartyAnalyticsInBigQuery(
+          "SELECT 1 AS n",
+          [],
+          {
+            projectId: "example-project",
+            datasetId: "analytics",
+            tableId: "example_events",
+            fullyQualified: "example-project.analytics.example_events",
+          },
+          { maxBytesBilled: 50_000_000_000 },
+        ),
       ).resolves.toEqual(result);
       expect(runQuery).toHaveBeenCalledTimes(1);
+      expect(runQuery).toHaveBeenCalledWith(expect.any(String), {
+        maxBytesBilled: 50_000_000_000,
+      });
       expect(fetchGoogleWithRetry).not.toHaveBeenCalled();
       expect(execute).not.toHaveBeenCalled();
     },
