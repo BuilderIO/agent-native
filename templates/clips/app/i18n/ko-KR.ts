@@ -678,6 +678,14 @@ const messages = {
     errorOutOfOrder: "{{line}}번째 줄: 이 시간이 바로 앞의 시간보다 이릅니다.",
     errorPastEnd: "{{line}}번째 줄: 이 시간이 동영상 끝보다 늦습니다.",
   },
+  transcriptHistory: {
+    title: "이전 스크립트",
+    automatic: "자동",
+    restore: "복원",
+    restored: "스크립트를 복원했습니다",
+    restoreFailed: "스크립트를 복원하지 못했습니다",
+    undo: "실행 취소",
+  },
   thumbnailPicker: {
     failedCapture: "프레임을 캡처하지 못했습니다.",
     failedGif: "GIF 생성 실패 — 더 짧은 범위를 시도해보세요",

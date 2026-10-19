@@ -16,8 +16,9 @@ import {
   ownerEmailMatches,
 } from "../server/lib/recordings.js";
 import { isS3ObjectUrlBoundToRecording } from "../server/lib/s3-upload-provider.js";
+import { TRANSCRIPT_VERSION_LIMIT } from "../server/lib/transcript-versions.js";
 import { CHAPTERS_BUSY } from "../shared/stored-chapters.js";
-import { parseTranscriptSegments } from "../shared/transcript-segments.js";
+import { readSegmentEntries } from "../shared/transcript-segments.js";
 import { assertNoDirectRecordingShares } from "./make-recording-private-for-rewind.js";
 import {
   rewindExtensionKey,
@@ -53,6 +54,24 @@ function shiftedJsonArray(
   } catch {
     return raw || "[]";
   }
+}
+
+/**
+ * Stored cues moved onto the extended timeline, every entry and field kept as
+ * stored, or null when they can't be read.
+ */
+function shiftedSegments(raw: string, addedMs: number): string | null {
+  const entries = readSegmentEntries(raw);
+  return (
+    entries &&
+    JSON.stringify(
+      entries.map((entry) => ({
+        ...entry,
+        startMs: entry.startMs + addedMs,
+        endMs: entry.endMs + addedMs,
+      })),
+    )
+  );
 }
 
 export default defineAction({
@@ -386,17 +405,22 @@ export default defineAction({
               .from(schema.recordingTranscripts)
               .where(
                 eq(schema.recordingTranscripts.recordingId, args.recordingId),
-              );
+              )
+              .for("update");
             if (transcript) {
-              const shiftedTranscript = JSON.stringify(
-                parseTranscriptSegments(transcript.segmentsJson).map(
-                  (segment) => ({
-                    ...segment,
-                    startMs: segment.startMs + args.addedMs,
-                    endMs: segment.endMs + args.addedMs,
-                  }),
-                ),
+              const shiftedTranscript = shiftedSegments(
+                transcript.segmentsJson,
+                args.addedMs,
               );
+              if (shiftedTranscript === null) {
+                fail(
+                  "The transcript has unreadable segments, so it can't move with the video. Nothing was changed.",
+                  {
+                    errorCode: "transcript_segments_unreadable",
+                    statusCode: 500,
+                  },
+                );
+              }
               const transcriptWritten = await tx
                 .update(schema.recordingTranscripts)
                 .set({ segmentsJson: shiftedTranscript, updatedAt: now })
@@ -414,6 +438,33 @@ export default defineAction({
                 )
                 .returning({ id: schema.recordingTranscripts.recordingId });
               if (transcriptWritten.length === 0) throw new RowChanged();
+            }
+            // Saved transcripts move with the video too, so one restored after the
+            // extension lines up with the longer timeline. One with unreadable cues
+            // stays exactly as stored: restore refuses it, so it can't come back on
+            // any timeline, and failing here would block every extension until it
+            // was pruned, with nothing the editor could do about it.
+            const versions = schema.recordingTranscriptVersions;
+            const saved = await tx
+              .select({ id: versions.id, segmentsJson: versions.segmentsJson })
+              .from(versions)
+              .where(eq(versions.recordingId, args.recordingId))
+              .limit(TRANSCRIPT_VERSION_LIMIT);
+            for (const version of saved) {
+              const segmentsJson = shiftedSegments(
+                version.segmentsJson,
+                args.addedMs,
+              );
+              if (segmentsJson === null) {
+                console.warn(
+                  `[clips] Rewind left saved transcript ${version.id} of ${args.recordingId} as stored: its segments are unreadable.`,
+                );
+                continue;
+              }
+              await tx
+                .update(versions)
+                .set({ segmentsJson })
+                .where(eq(versions.id, version.id));
             }
             await tx
               .update(schema.recordingComments)
