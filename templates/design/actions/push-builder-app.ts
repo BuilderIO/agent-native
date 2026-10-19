@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { pushFusionBranch } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
@@ -13,26 +13,35 @@ function asString(value: unknown): string | undefined {
 }
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
   description:
     "Push a fusion (full-app) design's branch code to its git remote. Use " +
     "when the user wants the current app code synced to git as a checkpoint " +
     "or before handing off elsewhere. Does not deploy or affect the live " +
-    "container preview — use deploy-fusion-app for a hosted deploy.",
+    "container preview — use deploy-builder-app for a hosted deploy.",
   schema: z.object({
     designId: z.string().describe("Design project ID backed by a fusion app."),
   }),
   run: async ({ designId }, ctx) => {
     if (!(await isFullAppBuildingEnabled(ctx))) {
-      throw new Error("Full app building is not enabled");
+      fail("Full app building is not enabled", {
+        errorCode: "full_app_building_disabled",
+        statusCode: 412,
+      });
     }
 
     const access = await assertAccess("design", designId, "editor");
     const design = access.resource as typeof schema.designs.$inferSelect;
     const fusionApp = readFusionApp(design.data);
     if (!fusionApp) {
-      throw new Error(
-        "This design has no fusion app linkage. Call create-fusion-app first.",
-      );
+      fail("This design has no Builder app. Call create-builder-app first.", {
+        errorCode: "builder_app_missing",
+        statusCode: 412,
+      });
     }
 
     const record = await pushFusionBranch({

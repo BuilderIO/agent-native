@@ -2045,8 +2045,8 @@ export default {
         title: "Rendered from a local development server",
       },
       fusion: {
-        label: "Fusion",
-        title: "Rendered from Fusion",
+        label: "Builder",
+        title: "Rendered from Builder",
       },
       inline: {
         label: "Inline",

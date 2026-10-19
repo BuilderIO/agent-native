@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   deployFusionProject,
   getFusionHostingUrl,
@@ -26,12 +26,17 @@ function defaultSlugFromTitle(title: string, designId: string): string {
 }
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: true,
+  },
   description:
     "Deploy a fusion (full-app) design to a public hosted URL. Reserves a " +
     "<slug>.builder.cloud hosting slug (derived from the design title if not " +
     "already reserved and no slug is given) and triggers a hosted deploy of " +
     "the branch. If the slug is already taken, the error will say so — retry " +
-    "with a different slug. Poll get-fusion-deploy-status for progress " +
+    "with a different slug. Poll get-builder-deploy-status for progress " +
     "(queued -> building -> uploading -> deploying -> live | failed).",
   schema: z.object({
     designId: z.string().describe("Design project ID backed by a fusion app."),
@@ -45,16 +50,20 @@ export default defineAction({
   }),
   run: async ({ designId, slug }, ctx) => {
     if (!(await isFullAppBuildingEnabled(ctx))) {
-      throw new Error("Full app building is not enabled");
+      fail("Full app building is not enabled", {
+        errorCode: "full_app_building_disabled",
+        statusCode: 412,
+      });
     }
 
     const access = await assertAccess("design", designId, "editor");
     const design = access.resource as typeof schema.designs.$inferSelect;
     const fusionApp = readFusionApp(design.data);
     if (!fusionApp) {
-      throw new Error(
-        "This design has no fusion app linkage. Call create-fusion-app first.",
-      );
+      fail("This design has no Builder app. Call create-builder-app first.", {
+        errorCode: "builder_app_missing",
+        statusCode: 412,
+      });
     }
 
     const requestedSlug =

@@ -1,5 +1,8 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { sendFusionBranchMessage } from "@agent-native/core/server";
+import {
+  createFusionAgentFeed,
+  sendFusionBranchMessage,
+} from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray } from "drizzle-orm";
@@ -42,10 +45,15 @@ function formatTargetContext(target: Record<string, unknown> | null): string {
 }
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: true,
+  },
   description:
     "Send all (or the given) pending queued fusion edits to the app's " +
     "in-container coding agent in a single batched prompt. Use after " +
-    "queue-fusion-edit has accumulated one or more edits the user wants " +
+    "queue-builder-edit has accumulated one or more edits the user wants " +
     "applied now. Marks sent edits with a shared batchId, or marks them " +
     "'error' if the send failed. Returns sentCount=0 with a message if there " +
     "were no pending edits to send. A dispatch failure is returned as an " +
@@ -71,10 +79,9 @@ export default defineAction({
     const design = access.resource as typeof schema.designs.$inferSelect;
     const fusionApp = readFusionApp(design.data);
     if (!fusionApp) {
-      fail(
-        "This design has no fusion app linkage. Call create-fusion-app first.",
-        { errorCode: "fusion_app_linkage_required" },
-      );
+      fail("This design has no Builder app. Call create-builder-app first.", {
+        errorCode: "fusion_app_linkage_required",
+      });
     }
 
     const db = getDb();
@@ -95,7 +102,7 @@ export default defineAction({
     if (pending.length === 0) {
       return {
         sentCount: 0,
-        message: "No pending fusion edits to apply.",
+        message: "No queued Builder edits to apply.",
       };
     }
 
@@ -110,26 +117,39 @@ export default defineAction({
     ].join("\n");
 
     const ownerEmail = getRequestUserEmail();
+    const feed = createFusionAgentFeed({
+      send: ctx?.send,
+      agent: "Builder",
+      agentCallId: `fusion-${nanoid(10)}`,
+    });
     const result = await sendFusionBranchMessage({
       projectId: fusionApp.projectId,
       branchName: fusionApp.branchName,
       prompt,
       userEmail: ownerEmail ?? undefined,
+      fireAndForget: false,
+      timeoutMs: 15 * 60_000,
+      onEvent: feed.onEvent,
     });
+    const summary = feed.finish(result);
 
     const now = new Date().toISOString();
     const ids = pending.map((edit) => edit.id);
 
-    if (!result.sent) {
+    // Only a run Builder finished applied the edits. Anything else (not
+    // sent, failed after dispatch, timed out, cut off) keeps them pending
+    // with the reason, so the next apply retries them.
+    if (!result.completed) {
+      const reason =
+        result.error ??
+        (result.sent
+          ? "Builder did not finish applying these edits"
+          : "Send failed");
       await db
         .update(schema.designFusionEdits)
-        .set({
-          status: "error",
-          error: result.error ?? "Send failed",
-          updatedAt: now,
-        })
+        .set({ status: "pending", error: reason, updatedAt: now })
         .where(inArray(schema.designFusionEdits.id, ids));
-      fail(result.error ?? "Failed to send edits to the app agent", {
+      fail(reason, {
         errorCode: "fusion_edit_dispatch_failed",
         statusCode: 502,
       });
@@ -138,15 +158,24 @@ export default defineAction({
     const batchId = nanoid();
     await db
       .update(schema.designFusionEdits)
-      .set({ status: "sent", batchId, sentAt: now, updatedAt: now })
+      .set({
+        status: "sent",
+        batchId,
+        sentAt: now,
+        error: null,
+        updatedAt: now,
+      })
       .where(inArray(schema.designFusionEdits.id, ids));
 
     return {
       sentCount: pending.length,
       batchId,
+      changedFiles: summary.changedFiles,
       message:
-        `Sent ${pending.length} queued edit(s) to the app agent as batch ` +
-        `"${batchId}".`,
+        summary.changedFiles.length > 0
+          ? `Builder applied ${pending.length} edit(s) and changed ${summary.changedFiles.length} file(s); the app's screens show the result now.`
+          : `Builder finished batch "${batchId}" without changing files.`,
+      agentReply: summary.text,
     };
   },
 });

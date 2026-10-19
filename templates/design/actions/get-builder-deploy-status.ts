@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { getFusionDeploys } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
@@ -15,7 +15,7 @@ export default defineAction({
   description:
     "Read-only: check the status of a fusion (full-app) design's last hosted " +
     "deploy (queued|building|migrating|uploading|deploying|live|failed|" +
-    "canceled). Call after deploy-fusion-app to poll for completion. Makes no " +
+    "canceled). Call after deploy-builder-app to poll for completion. Makes no " +
     "database writes.",
   schema: z.object({
     designId: z.string().describe("Design project ID backed by a fusion app."),
@@ -25,7 +25,10 @@ export default defineAction({
   http: { method: "GET" },
   run: async ({ designId }, ctx) => {
     if (!(await isFullAppBuildingEnabled(ctx))) {
-      throw new Error("Full app building is not enabled");
+      fail("Full app building is not enabled", {
+        errorCode: "full_app_building_disabled",
+        statusCode: 412,
+      });
     }
 
     const access = await assertAccess("design", designId, "editor");
@@ -33,13 +36,15 @@ export default defineAction({
       (access.resource as { data?: unknown }).data,
     );
     if (!fusionApp) {
-      throw new Error(
-        "This design has no fusion app linkage. Call create-fusion-app first.",
-      );
+      fail("This design has no Builder app. Call create-builder-app first.", {
+        errorCode: "builder_app_missing",
+        statusCode: 412,
+      });
     }
     if (!fusionApp.lastDeployId) {
-      throw new Error(
-        "This fusion app has not been deployed yet. Call deploy-fusion-app first.",
+      fail(
+        "This Builder app has not been deployed yet. Call deploy-builder-app first.",
+        { errorCode: "builder_app_not_deployed", statusCode: 404 },
       );
     }
 

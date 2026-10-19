@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { ensureFusionContainer } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, count, eq } from "drizzle-orm";
@@ -41,9 +41,14 @@ async function countPendingEdits(
 }
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
   description:
     "Poll the fusion app's container status and refresh its URL-backed " +
-    "screens once ready. Call this after create-fusion-app (or periodically " +
+    "screens once ready. Call this after create-builder-app (or periodically " +
     "while status is 'building') to pick up the live preview URL. When ready, " +
     "upserts screens for the given paths (or the design's existing fusion " +
     "screens, defaulting to '/') so the canvas iframes point at the live " +
@@ -61,7 +66,10 @@ export default defineAction({
   }),
   run: async ({ designId, paths }, ctx) => {
     if (!(await isFullAppBuildingEnabled(ctx))) {
-      throw new Error("Full app building is not enabled");
+      fail("Full app building is not enabled", {
+        errorCode: "full_app_building_disabled",
+        statusCode: 412,
+      });
     }
 
     const access = await assertAccess("design", designId, "editor");
@@ -69,9 +77,10 @@ export default defineAction({
     const data = parseDesignDataBlob(design.data);
     const fusionApp = readFusionApp(data);
     if (!fusionApp) {
-      throw new Error(
-        "This design has no fusion app linkage. Call create-fusion-app first.",
-      );
+      fail("This design has no Builder app. Call create-builder-app first.", {
+        errorCode: "builder_app_missing",
+        statusCode: 412,
+      });
     }
 
     const result = await ensureFusionContainer({
