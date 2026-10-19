@@ -1,3 +1,4 @@
+import { captureRouteError } from "@agent-native/core/server";
 import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "@agent-native/core/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -351,6 +352,68 @@ describe("/api/thumbnail/:recordingId route", () => {
 
     expect(await (result as Response).text()).toBe("public thumbnail");
     expect(mockIsBlockedExtensionUrlWithDns).toHaveBeenCalledWith(thumbnailUrl);
+    expect(captureRouteError).not.toHaveBeenCalled();
+  });
+
+  it("reports a bucket 5xx that the public fallback would hide", async () => {
+    mockGetDb.mockReturnValue(
+      createDbWithRow(
+        makeRow({
+          thumbnailUrl: "https://bucket.example.com/clips/rec-1/thumb.jpg",
+          storageMode: "own",
+        }),
+      ),
+    );
+    mockFetchS3ObjectByUrl.mockResolvedValue(
+      new Response("unavailable", { status: 503 }),
+    );
+    vi.mocked(fetch).mockResolvedValue(new Response("denied", { status: 403 }));
+
+    const result = await handler(makeEvent() as any);
+
+    expectDefaultSocialRedirect(result);
+    expect(captureRouteError).toHaveBeenCalledWith(
+      new Error("Storage provider returned 503 for thumbnail"),
+      expect.objectContaining({ tags: { upstreamStatus: "503" } }),
+    );
+  });
+
+  it("gives the public fallback only what the bucket read left of the budget", async () => {
+    vi.useFakeTimers();
+    try {
+      mockGetDb.mockReturnValue(
+        createDbWithRow(
+          makeRow({
+            thumbnailUrl: "https://bucket.example.com/clips/rec-1/thumb.jpg",
+            storageMode: "own",
+          }),
+        ),
+      );
+      mockFetchS3ObjectByUrl.mockImplementation(async () => {
+        vi.setSystemTime(Date.now() + 25_000);
+        throw new Error("bucket timed out");
+      });
+      vi.mocked(fetch).mockImplementation(
+        (_url, init) =>
+          new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () =>
+              reject(new Error("aborted")),
+            );
+          }),
+      );
+      let settled = false;
+      const pending = handler(makeEvent() as any).finally(() => {
+        settled = true;
+      });
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      expect(settled).toBe(true);
+      expectDefaultSocialRedirect(await pending);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("falls back to the public fetch when the own bucket read throws", async () => {

@@ -185,7 +185,10 @@ function defaultSocialImageResponse(): Response {
   });
 }
 
-async function fetchThumbnail(sourceUrl: string): Promise<Response> {
+async function fetchThumbnail(
+  sourceUrl: string,
+  deadline = Date.now() + FETCH_TIMEOUT_MS,
+): Promise<Response> {
   let currentUrl = sourceUrl;
   const dispatcher = (await createSsrfSafeDispatcher()) ?? undefined;
 
@@ -195,7 +198,7 @@ async function fetchThumbnail(sourceUrl: string): Promise<Response> {
     }
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    const timeout = setTimeout(() => controller.abort(), deadline - Date.now());
     let upstream: Response;
     try {
       const fetchOptions: RequestInit & { dispatcher?: unknown } = {
@@ -282,10 +285,26 @@ async function fetchOwnBucketThumbnail(
     return null;
   }
   if (!upstream?.ok) {
+    // A 5xx is the bucket failing, not a file it lacks, and the public
+    // fallback's answer would hide it.
+    if (upstream && upstream.status >= 500) {
+      captureStorageStatus(upstream.status, recordingId);
+    }
     await upstream?.body?.cancel().catch(() => {});
     return null;
   }
   return bucketImageResponse(upstream);
+}
+
+function captureStorageStatus(status: number, recordingId: string): void {
+  captureRouteError(
+    new Error(`Storage provider returned ${status} for thumbnail`),
+    {
+      route: "api/thumbnail",
+      tags: { upstreamStatus: String(status) },
+      extra: { recordingId },
+    },
+  );
 }
 
 async function bucketImageResponse(upstream: Response): Promise<Response> {
@@ -512,24 +531,18 @@ export default defineEventHandler(async (event: H3Event) => {
             ? await fetchHostedThumbnail(resolvedSourceUrl, recordingId)
             : await fetchThumbnail(resolvedSourceUrl);
         } else {
+          // Both reads share one budget: a bucket that hangs would otherwise
+          // make the public fallback wait out a second timeout.
+          const deadline = Date.now() + FETCH_TIMEOUT_MS;
           response =
             (await fetchOwnBucketThumbnail(
               resolvedSourceUrl,
               recordingId,
               recording,
-            )) ?? (await fetchThumbnail(resolvedSourceUrl));
+            )) ?? (await fetchThumbnail(resolvedSourceUrl, deadline));
         }
         if (response.status >= 500) {
-          captureRouteError(
-            new Error(
-              `Storage provider returned ${response.status} for thumbnail`,
-            ),
-            {
-              route: "api/thumbnail",
-              tags: { upstreamStatus: String(response.status) },
-              extra: { recordingId },
-            },
-          );
+          captureStorageStatus(response.status, recordingId);
         }
         const contentType = response.headers
           .get("content-type")
