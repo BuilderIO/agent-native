@@ -699,6 +699,283 @@ describe("private preview document drafts", () => {
     },
   );
 
+  describe("claims an earlier resolver left resolved without settling", () => {
+    // The state main leaves: the first request applied the choice and
+    // stopped, and a retry marked the claim resolved without settling. Claims
+    // written before the draft hash have no baseContentHash.
+    async function leaveUnsettledClaim(input: {
+      choice: "use_saved" | "keep_mine" | "save_separately";
+      userEmail: string;
+      shape: "main" | "r3";
+    }) {
+      const documentId = await createDocument();
+      const draft = {
+        ...payload("Local recovery"),
+        deferredReason: "conflict" as const,
+        editorSessionId: `tab:${documentId}:legacy-${input.choice}-${input.shape}`,
+        editGeneration: 5,
+      };
+      await asUser(input.userEmail, () =>
+        updateDraft.run({
+          operation: "upsert",
+          documentId,
+          expectedVersion: null,
+          draft,
+        }),
+      );
+      const journalBase = await authoredSaveBase(documentId, "Local recovery");
+      const settleSpy = stopSettlingEditor(draft.editorSessionId);
+      try {
+        await expect(
+          asUser(input.userEmail, () =>
+            resolveDraft.run({
+              choice: input.choice,
+              documentId,
+              expectedDraftVersion: 1,
+              expectedDraftTitle: "Builder row",
+              expectedDraftContent: "Local recovery",
+              expectedDocumentUpdatedAt: documentUpdatedAt(documentId),
+            }),
+          ),
+        ).rejects.toThrow("settlement stopped");
+      } finally {
+        settleSpy.mockRestore();
+      }
+      const claims = await getDb()
+        .select()
+        .from(schema.documentVersions)
+        .where(
+          and(
+            eq(schema.documentVersions.ownerEmail, input.userEmail),
+            eq(
+              schema.documentVersions.operation,
+              input.choice === "use_saved"
+                ? "use-saved-preview-draft"
+                : `claim-preview-draft-${input.choice}`,
+            ),
+          ),
+        );
+      const claim = claims.find(
+        (row: any) =>
+          JSON.parse(row.chatContext).editorSessionId === draft.editorSessionId,
+      );
+      expect(claim?.documentId).toBe(
+        input.userEmail === OWNER ? documentId : claim?.id,
+      );
+      expect(JSON.parse(claim!.chatContext).editorSessionId).toBe(
+        draft.editorSessionId,
+      );
+      const { baseContentHash, ...withoutHash } = JSON.parse(
+        claim!.chatContext,
+      );
+      await getDb()
+        .update(schema.documentVersions)
+        .set({
+          chatContext: JSON.stringify({
+            ...(input.shape === "main"
+              ? withoutHash
+              : { ...withoutHash, baseContentHash }),
+            status: "resolved",
+          }),
+        })
+        .where(eq(schema.documentVersions.id, claim!.id));
+      await getDb()
+        .delete(schema.documentPreviewDrafts)
+        .where(eq(schema.documentPreviewDrafts.documentId, documentId));
+      return { documentId, draft, journalBase };
+    }
+
+    async function settlementOf(editorSessionId: string) {
+      const rows = await getDb()
+        .select()
+        .from(schema.documentPreviewDraftSettlements)
+        .where(
+          eq(
+            schema.documentPreviewDraftSettlements.editorSessionId,
+            editorSessionId,
+          ),
+        );
+      return rows.map((row: any) => [
+        row.settledGeneration,
+        row.discardedGeneration,
+      ]);
+    }
+
+    // The save PageDraftRecovery sends when it replays a journal entry: the
+    // original editor session and edit generation, on the journal's base.
+    function replayJournal(input: {
+      userEmail: string;
+      documentId: string;
+      editorSessionId: string;
+      editGeneration: number;
+      content: string;
+      journalBase: Awaited<ReturnType<typeof authoredSaveBase>>;
+    }) {
+      return asUser(input.userEmail, () =>
+        updateDocument.run(
+          {
+            id: input.documentId,
+            browserSaveAttemptId: crypto.randomUUID(),
+            content: input.content,
+            baseUpdatedAt: documentUpdatedAt(input.documentId),
+            baseRevision: input.journalBase.baseRevision,
+            loadedUpdatedAt: documentUpdatedAt(input.documentId),
+            loadedContentWasEmpty: false,
+            editorSessionId: input.editorSessionId,
+            editorEditGeneration: input.editGeneration,
+            editorSnapshotTitle: "Builder row",
+            editorSnapshotContent: input.content,
+            authoredBaseRevision: input.journalBase.authoredBaseRevision,
+            authoredBaseContent: input.journalBase.authoredBaseContent,
+            authoredCandidateContent: input.content,
+            reuseLabels: [],
+          },
+          { caller: "frontend" } as any,
+        ),
+      );
+    }
+
+    it.each([
+      ["main", OWNER],
+      ["r3", OWNER],
+      ["main", COLLABORATOR],
+      ["r3", COLLABORATOR],
+    ] as const)(
+      "refuses a journal replay of a Use saved generation a %s resolver left unsettled for %s",
+      async (shape, userEmail) => {
+        const { documentId, draft, journalBase } = await leaveUnsettledClaim({
+          choice: "use_saved",
+          userEmail,
+          shape,
+        });
+        expect(await settlementOf(draft.editorSessionId)).toEqual([[-1, null]]);
+
+        const replay = () =>
+          replayJournal({
+            userEmail,
+            documentId,
+            editorSessionId: draft.editorSessionId,
+            editGeneration: draft.editGeneration,
+            content: "Local recovery",
+            journalBase,
+          });
+        await expect(replay()).resolves.toMatchObject({
+          superseded: true,
+          discardedGeneration: draft.editGeneration,
+        });
+        expect((await documentRowForDraftTest(documentId)).content).toBe(
+          "Server body",
+        );
+        expect(await settlementOf(draft.editorSessionId)).toEqual([
+          [draft.editGeneration, draft.editGeneration],
+        ]);
+        await expect(replay()).resolves.toMatchObject({ superseded: true });
+        expect((await documentRowForDraftTest(documentId)).content).toBe(
+          "Server body",
+        );
+      },
+    );
+
+    it("repairs a claim whose session has no settlement row yet", async () => {
+      const { documentId, draft, journalBase } = await leaveUnsettledClaim({
+        choice: "use_saved",
+        userEmail: OWNER,
+        shape: "main",
+      });
+      await getDb()
+        .delete(schema.documentPreviewDraftSettlements)
+        .where(
+          eq(
+            schema.documentPreviewDraftSettlements.editorSessionId,
+            draft.editorSessionId,
+          ),
+        );
+
+      await expect(
+        replayJournal({
+          userEmail: OWNER,
+          documentId,
+          editorSessionId: draft.editorSessionId,
+          editGeneration: draft.editGeneration,
+          content: "Local recovery",
+          journalBase,
+        }),
+      ).resolves.toMatchObject({
+        superseded: true,
+        discardedGeneration: draft.editGeneration,
+      });
+      expect((await documentRowForDraftTest(documentId)).content).toBe(
+        "Server body",
+      );
+    });
+
+    it.each(["keep_mine", "save_separately"] as const)(
+      "refuses a delayed draft from a %s generation an earlier resolver left unsettled",
+      async (choice) => {
+        const { documentId, draft } = await leaveUnsettledClaim({
+          choice,
+          userEmail: OWNER,
+          shape: "main",
+        });
+
+        await expect(
+          asUser(OWNER, () =>
+            updateDraft.run({
+              operation: "upsert",
+              documentId,
+              expectedVersion: null,
+              draft,
+            }),
+          ),
+        ).resolves.toEqual({ status: "superseded", draft: null });
+        expect(await settlementOf(draft.editorSessionId)).toEqual([
+          [draft.editGeneration, null],
+        ]);
+      },
+    );
+
+    it("keeps the session's later edits and other sessions' saves after a repair", async () => {
+      const { documentId, draft, journalBase } = await leaveUnsettledClaim({
+        choice: "use_saved",
+        userEmail: OWNER,
+        shape: "r3",
+      });
+      const otherSession = `tab:${documentId}:other`;
+      await expect(
+        asUser(OWNER, () =>
+          updateDraft.run({
+            operation: "upsert",
+            documentId,
+            expectedVersion: null,
+            draft: {
+              ...draft,
+              content: "Other tab",
+              editorSessionId: otherSession,
+              editGeneration: 1,
+            },
+          }),
+        ),
+      ).resolves.toMatchObject({ status: "saved" });
+      expect(await settlementOf(otherSession)).toEqual([[-1, null]]);
+
+      const later = await replayJournal({
+        userEmail: OWNER,
+        documentId,
+        editorSessionId: draft.editorSessionId,
+        editGeneration: draft.editGeneration + 1,
+        content: "Typed after the choice",
+        journalBase,
+      });
+      expect(later).not.toHaveProperty("superseded");
+      expect((await documentRowForDraftTest(documentId)).content).toBe(
+        "Typed after the choice",
+      );
+      expect(await settlementOf(draft.editorSessionId)).toEqual([
+        [draft.editGeneration + 1, draft.editGeneration],
+      ]);
+    });
+  });
+
   it("fences an expired worker when a retry completes the side effect first", async () => {
     const documentId = await createDocument();
     const [before] = await getDb()

@@ -157,6 +157,11 @@ export const documentVersions = table(
       version.documentId,
       version.bodyRevision,
     ),
+    index("document_versions_owner_recovery_claim_idx")
+      .on(version.ownerEmail)
+      .where(
+        sql`${version.operation} IN ('use-saved-preview-draft', 'claim-preview-draft-keep_mine', 'claim-preview-draft-save_separately')`,
+      ),
   ],
 );
 
