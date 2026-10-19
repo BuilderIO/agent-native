@@ -30,6 +30,11 @@ const targetSchema = z.object({
 });
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   description:
     "Queue a natural-language visual edit instruction for a fusion (full-app) " +
     "design. Use this when the user requests a change to a screen backed by a " +

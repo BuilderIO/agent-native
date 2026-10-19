@@ -41,6 +41,11 @@ async function countPendingEdits(
 }
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
   description:
     "Poll the fusion app's container status and refresh its URL-backed " +
     "screens once ready. Call this after create-builder-app (or periodically " +

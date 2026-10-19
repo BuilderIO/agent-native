@@ -14,6 +14,11 @@ import {
 import { readFusionApp } from "../shared/full-app.js";
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   description:
     "Add or refresh URL-backed screens on a fusion (full-app) design's " +
     "canvas, pointing at the container's live preview URL. Requires the " +

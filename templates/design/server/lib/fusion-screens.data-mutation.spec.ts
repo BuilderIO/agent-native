@@ -176,4 +176,34 @@ describe("fusion screen designs.data mutation", () => {
     );
     expect(state.insertChain.values).not.toHaveBeenCalled();
   });
+
+  it("never adopts a user's own file that shares a screen's name", async () => {
+    state.existingFiles = [
+      {
+        id: "user-home",
+        filename: "home.html",
+        content: "<!doctype html><h1>My page</h1>",
+      },
+    ];
+
+    const result = await upsertFusionScreens({
+      designId: "design-1",
+      previewUrl: "https://example.test",
+      paths: ["/"],
+      width: 800,
+      height: 600,
+      gap: 100,
+    });
+
+    expect(result.screens).toEqual([
+      expect.objectContaining({
+        fileId: "fusion-home",
+        filename: "home-2.html",
+      }),
+    ]);
+    expect(state.db.update).not.toHaveBeenCalled();
+    expect(state.insertChain.values).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "fusion-home", filename: "home-2.html" }),
+    );
+  });
 });

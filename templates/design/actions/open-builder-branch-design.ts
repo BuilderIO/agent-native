@@ -10,8 +10,9 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { mutateDesignData } from "../server/lib/design-data-mutation.js";
+import { canAccessBuilderProject } from "../server/lib/builder-identity.js";
 import "../server/db/index.js";
+import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import { upsertFusionScreens } from "../server/lib/fusion-screens.js";
 import { readFusionApp, writeFusionApp } from "../shared/full-app.js";
 
@@ -27,6 +28,11 @@ import { readFusionApp, writeFusionApp } from "../shared/full-app.js";
  * would a request from Builder.
  */
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
   description:
     "Open (or create) the design bound to a Builder project branch and point " +
     "its app screens at the branch's live container. Used by Builder when a " +
@@ -53,6 +59,19 @@ export default defineAction({
       fail("Sign in to open a Builder project in Design.", {
         errorCode: "unauthenticated",
         statusCode: 401,
+      });
+    }
+    // Builder decides who may open its project, before anything is bound
+    // to it: otherwise a non-member could create the branch's design that a
+    // real member later inherits. A local launch session has no Builder
+    // project to ask about.
+    if (
+      projectId !== "local" &&
+      (await canAccessBuilderProject(ownerEmail!, projectId)) === false
+    ) {
+      fail("You don't have access to this Builder project.", {
+        errorCode: "builder_project_forbidden",
+        statusCode: 403,
       });
     }
     const db = getDb();
@@ -108,7 +127,8 @@ export default defineAction({
         ),
         ownerEmail,
         orgId,
-        visibility: orgId ? "org" : "private",
+        // A local launch session is one person's machine: never org-shared.
+        visibility: orgId && projectId !== "local" ? "org" : "private",
         createdAt: now,
         updatedAt: now,
       });

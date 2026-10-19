@@ -15,6 +15,11 @@ import "../server/db/index.js";
 import { readFusionApp } from "../shared/full-app.js";
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: true,
+  },
   description:
     "Send a freeform natural-language prompt directly to a fusion (full-app) " +
     "design's in-container coding agent. Use this to relay user requests that " +
@@ -79,7 +84,7 @@ export default defineAction({
     // this is where their handoff is settled: the acknowledge action
     // is for external coding agents and is not an agent tool.
     const visualEditHandoff =
-      visualEditRevision !== undefined && result.sent && !result.error
+      visualEditRevision !== undefined && result.completed
         ? await settleVisualEditHandoff(designId, visualEditRevision)
         : undefined;
 

@@ -26,6 +26,11 @@ function defaultSlugFromTitle(title: string, designId: string): string {
 }
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: true,
+  },
   description:
     "Deploy a fusion (full-app) design to a public hosted URL. Reserves a " +
     "<slug>.builder.cloud hosting slug (derived from the design title if not " +

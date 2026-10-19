@@ -45,6 +45,11 @@ function formatTargetContext(target: Record<string, unknown> | null): string {
 }
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: true,
+  },
   description:
     "Send all (or the given) pending queued fusion edits to the app's " +
     "in-container coding agent in a single batched prompt. Use after " +
@@ -131,7 +136,9 @@ export default defineAction({
     const now = new Date().toISOString();
     const ids = pending.map((edit) => edit.id);
 
-    if (!result.sent) {
+    // A run that was dispatched but then failed did not apply the edits;
+    // they stay retryable instead of being marked sent.
+    if (!result.sent || result.error) {
       await db
         .update(schema.designFusionEdits)
         .set({

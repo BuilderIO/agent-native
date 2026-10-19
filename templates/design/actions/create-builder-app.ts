@@ -30,6 +30,11 @@ function buildConnectUrl(origin: string): string {
 }
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
   description:
     "Create a brand-new full-app (fusion) design: provisions a Builder Fusion " +
     "branch and hands the prompt to the Builder cloud agent to scaffold a real " +

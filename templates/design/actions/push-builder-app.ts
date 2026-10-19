@@ -13,6 +13,11 @@ function asString(value: unknown): string | undefined {
 }
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
   description:
     "Push a fusion (full-app) design's branch code to its git remote. Use " +
     "when the user wants the current app code synced to git as a checkpoint " +

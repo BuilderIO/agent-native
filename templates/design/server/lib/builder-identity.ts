@@ -140,7 +140,7 @@ function decodeIdentityCookie(value: string): BuilderIdentity | null {
  */
 const delegatedCredentials = new Map<
   string,
-  { token: string; spaceId?: string; expiresAtMs: number }
+  { token: string; uid: string; spaceId?: string; expiresAtMs: number }
 >();
 
 export function rememberDelegatedCredential(
@@ -150,6 +150,7 @@ export function rememberDelegatedCredential(
   const exp = decodeJwt(token).exp;
   delegatedCredentials.set(identity.email.toLowerCase(), {
     token,
+    uid: identity.uid,
     spaceId: identity.spaceId,
     expiresAtMs: typeof exp === "number" ? exp * 1000 : Date.now() + 5 * 60_000,
   });
@@ -179,19 +180,48 @@ if (isBuilderIdentityEnabled()) {
  * (`GET /projects/:id`, which Builder gates with `canUserAccessProject`).
  * A short cache keeps canvas polling from re-asking on every call.
  *
- * Spike scope: "can see the project" maps to editor. A production version
- * asks Builder for the user's project permissions (e.g. editCode) and maps
- * those, still without storing them here.
+ * See roleFromProject for what the read can and cannot tell. A production
+ * version asks Builder for the caller's project permissions (editCode), still
+ * without storing them here.
  */
 const BUILDER_API_HOST =
   process.env.BUILDER_API_HOST || "https://api.builder.io";
 const ACCESS_CACHE_MS = 60_000;
-const accessCache = new Map<string, { role: "editor" | null; at: number }>();
+type BuilderProjectRole = "editor" | "viewer" | null;
+const accessCache = new Map<string, { role: BuilderProjectRole; at: number }>();
+
+/**
+ * What Design can tell from Builder's project read. Builder's 200 means "can
+ * see", not "can edit", so only what the response itself shows is used:
+ * - a project owned by another space is visible only because it is public,
+ *   so it is read-only;
+ * - a private project that sets this user's own editCode to false is
+ *   read-only.
+ * Role-based edit permission is not in the response; until Builder reports
+ * the caller's project permissions, everyone else who can see it can edit.
+ */
+function roleFromProject(
+  project: unknown,
+  uid: string,
+  spaceId: string,
+): Exclude<BuilderProjectRole, null> {
+  const record = (project ?? {}) as {
+    ownerId?: unknown;
+    accessMode?: unknown;
+    projectAccess?: { users?: Record<string, { editCode?: unknown } | null> };
+  };
+  if (record.ownerId !== spaceId) return "viewer";
+  const own = record.projectAccess?.users?.[uid];
+  if (record.accessMode === "private" && own?.editCode === false) {
+    return "viewer";
+  }
+  return "editor";
+}
 
 async function builderProjectRole(
   email: string,
   projectId: string,
-): Promise<"editor" | null> {
+): Promise<BuilderProjectRole> {
   const entry = delegatedCredentials.get(email.toLowerCase());
   if (!entry || entry.expiresAtMs < Date.now() || !entry.spaceId) return null;
   const cacheKey = `${email.toLowerCase()}:${entry.spaceId}:${projectId}`;
@@ -203,18 +233,33 @@ async function builderProjectRole(
   );
   url.searchParams.set("includeBranches", "false");
   url.searchParams.set("apiKey", entry.spaceId);
-  let role: "editor" | null = null;
+  let role: BuilderProjectRole = null;
   try {
     const response = await fetch(url, {
       headers: { Authorization: `Bearer ${entry.token}` },
     });
-    role = response.ok ? "editor" : null;
+    role = response.ok
+      ? roleFromProject(await response.json(), entry.uid, entry.spaceId)
+      : null;
   } catch {
     // coercion-ok: fail closed; an unreachable Builder grants nothing.
     role = null;
   }
   accessCache.set(cacheKey, { role, at: Date.now() });
   return role;
+}
+
+/**
+ * Whether Builder lets this user into the project, asked before a design is
+ * bound to it. `undefined` when Builder identity is off (standalone Design),
+ * where there is no Builder session to ask.
+ */
+export async function canAccessBuilderProject(
+  email: string,
+  projectId: string,
+): Promise<boolean | undefined> {
+  if (!isBuilderIdentityEnabled()) return undefined;
+  return (await builderProjectRole(email, projectId)) !== null;
 }
 
 if (isBuilderIdentityEnabled()) {

@@ -682,6 +682,25 @@ export function registerHostAccessResolver(
   else hostAccessResolvers.delete(resourceType);
 }
 
+async function ownerOrAdminRole(
+  reg: ShareableResourceRegistration,
+  resource: any,
+  ctx: AccessContext,
+  normalizedUserEmail: string | null | undefined,
+): Promise<"owner" | "admin" | undefined> {
+  if (
+    normalizedUserEmail &&
+    normalizeEmailForAccess(resource.ownerEmail) === normalizedUserEmail &&
+    ownerMatchesActiveScope(reg, resource, ctx)
+  ) {
+    return "owner";
+  }
+  if (reg.canManageAccess && (await reg.canManageAccess(resource, ctx))) {
+    return "admin";
+  }
+  return undefined;
+}
+
 async function accessToResource(
   reg: ShareableResourceRegistration,
   resourceId: string,
@@ -691,22 +710,23 @@ async function accessToResource(
   const { userEmail } = ctx;
   const normalizedUserEmail = normalizeEmailForAccess(userEmail);
 
+  // A host can deny outright. When it grants access, the resource's owner
+  // and admins keep their own roles; the host's role covers everyone else.
   const hostResolver = hostAccessResolvers.get(reg.type);
-  if (hostResolver && normalizedUserEmail) {
-    const hosted = await hostResolver(resource, ctx);
-    if (hosted !== undefined) return hosted ? { role: hosted, resource } : null;
-  }
+  const hosted =
+    hostResolver && normalizedUserEmail
+      ? await hostResolver(resource, ctx)
+      : undefined;
+  if (hosted === null) return null;
 
-  if (
-    normalizedUserEmail &&
-    normalizeEmailForAccess(resource.ownerEmail) === normalizedUserEmail &&
-    ownerMatchesActiveScope(reg, resource, ctx)
-  ) {
-    return { role: "owner", resource };
-  }
-  if (reg.canManageAccess && (await reg.canManageAccess(resource, ctx))) {
-    return { role: "admin", resource };
-  }
+  const managingRole = await ownerOrAdminRole(
+    reg,
+    resource,
+    ctx,
+    normalizedUserEmail,
+  );
+  if (managingRole) return { role: managingRole, resource };
+  if (hosted !== undefined) return { role: hosted, resource };
   if (resource.visibility === "public" && reg.allowPublic !== false) {
     const publicRole = await publicAccessRoleForResource(reg, resource, ctx);
     const role = await highestShareRole(reg, resourceId, ctx, resource);

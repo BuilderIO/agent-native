@@ -52,6 +52,12 @@ export interface EnsureFusionContainerResult {
 
 export interface SendFusionMessageResult {
   sent: boolean;
+  /**
+   * True only when the app agent's run finished without an error. A message
+   * can be sent (dispatched) and still not complete: it timed out, failed
+   * afterwards, or was fire-and-forget.
+   */
+  completed?: boolean;
   response?: string;
   error?: string;
 }
@@ -421,7 +427,7 @@ export async function sendFusionBranchMessage(
   }
 
   if (errorMessage) return { sent: dispatched, error: errorMessage };
-  return { sent: true, response: finalText };
+  return { sent: true, completed: true, response: finalText };
 }
 
 async function fusionJsonRequest(

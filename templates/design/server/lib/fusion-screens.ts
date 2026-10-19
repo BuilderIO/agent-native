@@ -60,6 +60,15 @@ function legacyScreenFilename(path: string): string {
   return `fusion-${slugForPath(path)}.html`;
 }
 
+/**
+ * An app screen file holds only the screen's URL. A design can also have its
+ * own authored file with the same name (a user's "home.html"); sync must
+ * never adopt and overwrite that, so it gets a unique name instead.
+ */
+function isAppScreenFile(file: { content: string | null }): boolean {
+  return /^(?:https?:\/\/\S+|\/\S*)$/.test((file.content ?? "").trim());
+}
+
 function uniqueFilename(path: string, used: Set<string>): string {
   const base = screenFilename(path);
   const [stem, extension = "html"] = base.split(/\.(?=[^.]+$)/);
@@ -133,9 +142,9 @@ export async function upsertFusionScreens(args: {
       ? `${screenUrl.pathname}${screenUrl.search}`
       : screenUrl.toString();
     const preferredFilename = screenFilename(path);
-    let existing =
-      existingByFilename.get(preferredFilename) ??
-      existingByFilename.get(legacyScreenFilename(path));
+    let existing = [preferredFilename, legacyScreenFilename(path)]
+      .map((name) => existingByFilename.get(name))
+      .find((file) => file !== undefined && isAppScreenFile(file));
     const renameLegacy =
       existing !== undefined &&
       existing.filename !== preferredFilename &&
