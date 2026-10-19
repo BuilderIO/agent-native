@@ -6153,6 +6153,104 @@ export function distributeSlideObjectMembers(
 
 export interface CopiedSlideObjects {
   html: string[];
+  /**
+   * Per object: box in layout px relative to the slide root, so a paste keeps
+   * the group's arrangement and, on another slide, lands where it was.
+   */
+  layout?: Pick<DOMRect, "left" | "top" | "width" | "height">[];
+  /**
+   * Per object: the custom properties its markup references and the inherited
+   * text properties, resolved where it was copied. The target slide's root may
+   * not define them, so paste re-applies whatever differs there.
+   */
+  context?: Record<string, string>[];
+}
+
+export function slidePositioningLayerOf(fmdSlide: HTMLElement): HTMLElement {
+  return (
+    Array.from(fmdSlide.children).find(
+      (child): child is HTMLElement =>
+        child instanceof HTMLElement &&
+        child.hasAttribute("data-fmd-autofit-content"),
+    ) ?? fmdSlide
+  );
+}
+
+/** Layout px per viewport px for an element under the editor's zoom. */
+export function layoutScaleOf(
+  element: HTMLElement,
+  rect: Pick<DOMRect, "width" | "height"> = element.getBoundingClientRect(),
+): { x: number; y: number } {
+  return {
+    x:
+      element.offsetWidth > 0 && rect.width > 0
+        ? element.offsetWidth / rect.width
+        : 1,
+    y:
+      element.offsetHeight > 0 && rect.height > 0
+        ? element.offsetHeight / rect.height
+        : 1,
+  };
+}
+
+function layoutBoxWithin(
+  element: HTMLElement,
+  fmdSlide: HTMLElement,
+): Pick<DOMRect, "left" | "top" | "width" | "height"> {
+  const slideRect = fmdSlide.getBoundingClientRect();
+  const scale = layoutScaleOf(fmdSlide, slideRect);
+  const rect = element.getBoundingClientRect();
+  // `left`/`top` position the margin box, so back the margins out.
+  const computed = element.ownerDocument.defaultView?.getComputedStyle(element);
+  const marginLeft = Number.parseFloat(computed?.marginLeft ?? "") || 0;
+  const marginTop = Number.parseFloat(computed?.marginTop ?? "") || 0;
+  return {
+    left: (rect.left - slideRect.left) * scale.x - marginLeft,
+    top: (rect.top - slideRect.top) * scale.y - marginTop,
+    width: rect.width * scale.x,
+    height: rect.height * scale.y,
+  };
+}
+
+const SLIDE_OBJECT_INHERITED_PROPERTIES = ["font-family", "color"] as const;
+
+function captureSlideObjectContext(
+  element: HTMLElement,
+  html: string,
+): Record<string, string> {
+  const computed = element.ownerDocument.defaultView?.getComputedStyle(element);
+  const context: Record<string, string> = {};
+  if (!computed) return context;
+  for (const match of html.matchAll(/var\(\s*(--[\w-]+)/g)) {
+    const value = computed.getPropertyValue(match[1]).trim();
+    if (value) context[match[1]] = value;
+  }
+  for (const property of SLIDE_OBJECT_INHERITED_PROPERTIES) {
+    const value = computed.getPropertyValue(property).trim();
+    if (value) context[property] = value;
+  }
+  return context;
+}
+
+/** Pin what the target's containing block would not give the pasted object. */
+export function applySlideObjectContext(
+  element: HTMLElement,
+  context: Record<string, string> | undefined,
+  containingBlock: HTMLElement,
+): void {
+  if (!context) return;
+  // The pasted element still belongs to its template's inert document.
+  const target =
+    containingBlock.ownerDocument.defaultView?.getComputedStyle(
+      containingBlock,
+    );
+  if (!target) return;
+  for (const [property, value] of Object.entries(context)) {
+    if (target.getPropertyValue(property).trim() === value) continue;
+    if (!property.startsWith("--") && element.style.getPropertyValue(property))
+      continue;
+    element.style.setProperty(property, value);
+  }
 }
 
 const SLIDE_OBJECT_CLIPBOARD_MARKER =
@@ -6306,17 +6404,27 @@ export function copySlideObjects(
   elements: HTMLElement[],
   storedForm?: (copy: HTMLElement) => string | null,
 ): CopiedSlideObjects {
-  return {
-    html: normalizeSlideObjectRoots(elements)
-      .filter(isValidSlideClipboardRoot)
-      .map((element) => {
-        const clone = cloneSlideObject(element);
-        const html = storedForm?.(clone);
-        if (html != null) return html;
-        stripSourceStamps(clone);
-        return clone.outerHTML;
-      }),
-  };
+  const roots = normalizeSlideObjectRoots(elements).filter(
+    isValidSlideClipboardRoot,
+  );
+  const html = roots.map((element) => {
+    const clone = cloneSlideObject(element);
+    const stored = storedForm?.(clone);
+    if (stored != null) return stored;
+    stripSourceStamps(clone);
+    return clone.outerHTML;
+  });
+  const context = roots.map((element, index) =>
+    captureSlideObjectContext(element, html[index]),
+  );
+  // Boxes only mean something relative to one shared slide root.
+  const fmdSlide = roots[0]?.closest<HTMLElement>(".fmd-slide");
+  const layout =
+    fmdSlide &&
+    roots.every((element) => element.closest(".fmd-slide") === fmdSlide)
+      ? roots.map((element) => layoutBoxWithin(element, fmdSlide))
+      : undefined;
+  return { html, layout, context };
 }
 
 export const SLIDE_OBJECT_PASTE_OFFSET = 16;

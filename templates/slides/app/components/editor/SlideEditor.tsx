@@ -204,6 +204,9 @@ import {
   alignSlideObjectMembers,
   applySlideObjectMoveDelta,
   arrangeSlideLayerInParent,
+  applySlideObjectContext,
+  slidePositioningLayerOf,
+  layoutScaleOf,
   buildPastedSlideObjects,
   canDropSlideLayerAdjacent,
   canDropSlideLayerInside,
@@ -5080,12 +5083,7 @@ export default function SlideEditor({
     ) {
       return null;
     }
-    const positioningLayer =
-      Array.from(fmdSlide.children).find(
-        (child): child is HTMLElement =>
-          child instanceof HTMLElement &&
-          child.hasAttribute("data-fmd-autofit-content"),
-      ) ?? fmdSlide;
+    const positioningLayer = slidePositioningLayerOf(fmdSlide);
     const containingBlock = resolveSlideObjectContainingBlock(
       roots[0],
       positioningLayer,
@@ -5119,46 +5117,96 @@ export default function SlideEditor({
         ".fmd-slide",
       ) as HTMLElement | null;
       if (!fmdSlide) return;
-      const positioningLayer =
-        Array.from(fmdSlide.children).find(
-          (child): child is HTMLElement =>
-            child instanceof HTMLElement &&
-            child.hasAttribute("data-fmd-autofit-content"),
-        ) ?? fmdSlide;
+      const positioningLayer = slidePositioningLayerOf(fmdSlide);
       const containingBlock = anchorElement
         ? resolveSlideObjectContainingBlock(anchorElement, positioningLayer)
         : positioningLayer;
       const anchorRect =
         anchorElement?.getBoundingClientRect() ?? anchorRectOverride;
-      const containingRect = containingBlock.getBoundingClientRect();
-      const scaleX =
-        containingBlock.offsetWidth > 0 && containingRect.width > 0
-          ? containingBlock.offsetWidth / containingRect.width
-          : 1;
-      const scaleY =
-        containingBlock.offsetHeight > 0 && containingRect.height > 0
-          ? containingBlock.offsetHeight / containingRect.height
-          : 1;
 
-      const pasted = buildPastedSlideObjects(copied, document);
+      // With nothing to anchor beside (another slide), objects land exactly
+      // where they were copied from.
+      const exact = !anchorRect && Boolean(copied.layout);
+      const pasted = buildPastedSlideObjects(
+        copied,
+        document,
+        exact ? 0 : undefined,
+      );
       if (pasted.length === 0) return;
 
-      const objectIds: string[] = [];
-      for (const element of pasted) {
-        const promotedFromFlow =
-          window.getComputedStyle(element).position !== "absolute";
-        if (promotedFromFlow) {
-          element.style.position = "absolute";
-          if (anchorRect) {
-            element.style.left = `${Math.round((anchorRect.left - containingRect.left) * scaleX) + SLIDE_OBJECT_PASTE_OFFSET}px`;
-            element.style.top = `${Math.round((anchorRect.top - containingRect.top) * scaleY) + SLIDE_OBJECT_PASTE_OFFSET}px`;
-            if (!element.style.width && anchorRect.width > 0) {
-              element.style.width = `${Math.round(anchorRect.width * scaleX)}px`;
+      const slideRect = fmdSlide.getBoundingClientRect();
+      const slideScale = layoutScaleOf(fmdSlide, slideRect);
+      // Target box in slide layout px. Each object keeps its offset from the
+      // first copied one, so a multi-selection pastes as a group instead of
+      // stacking on one anchor.
+      const targetBox = (index: number) => {
+        const box = copied.layout?.[index];
+        if (exact) return box;
+        if (!anchorRect) return undefined;
+        const left =
+          (anchorRect.left - slideRect.left) * slideScale.x +
+          SLIDE_OBJECT_PASTE_OFFSET;
+        const top =
+          (anchorRect.top - slideRect.top) * slideScale.y +
+          SLIDE_OBJECT_PASTE_OFFSET;
+        const first = copied.layout?.[0];
+        return box && first
+          ? {
+              left: left + box.left - first.left,
+              top: top + box.top - first.top,
+              width: box.width,
+              height: box.height,
             }
+          : {
+              left,
+              top,
+              width: anchorRect.width * slideScale.x,
+              height: undefined,
+            };
+      };
+      const objectIds: string[] = [];
+      for (const [index, element] of pasted.entries()) {
+        // The pasted element is still detached, so its own insets are the
+        // only positioning it carries; computed style would read as static.
+        const box = targetBox(index);
+        element.style.position = "absolute";
+        if (box) {
+          // Unrounded: a text object one pixel narrower rewraps.
+          if (!element.style.width && box.width > 0) {
+            element.style.width = `${box.width}px`;
           }
+          // Insets came from the source containing block. `left`/`top` and the
+          // size now place the object, so a kept `right`/`bottom` would
+          // stretch it against its new parent.
+          if (
+            element.style.top &&
+            element.style.bottom &&
+            !element.style.height &&
+            box.height
+          ) {
+            element.style.height = `${box.height}px`;
+          }
+          element.style.removeProperty("right");
+          element.style.removeProperty("bottom");
         }
+        applySlideObjectContext(
+          element,
+          copied.context?.[index],
+          containingBlock,
+        );
         containingBlock.appendChild(element);
-        if (promotedFromFlow && anchorRect) {
+        if (box) {
+          // `left`/`top` resolve against the offset parent's padding box,
+          // which is not the positioning layer when that layer is static.
+          const parent = element.offsetParent ?? containingBlock;
+          const parentRect = parent.getBoundingClientRect();
+          const originLeft =
+            (parentRect.left - slideRect.left) * slideScale.x +
+            parent.clientLeft;
+          const originTop =
+            (parentRect.top - slideRect.top) * slideScale.y + parent.clientTop;
+          element.style.left = `${Math.round(box.left - originLeft)}px`;
+          element.style.top = `${Math.round(box.top - originTop)}px`;
           // Same sizing rule as promoting a flow object: text sizes itself,
           // a card keeps a minimum, anything else is pinned. The height comes
           // from the pasted element, not from the anchor it is placed beside.
@@ -5623,12 +5671,24 @@ export default function SlideEditor({
 
       const active = document.activeElement;
       if (!isSlideCanvasShortcutTarget(active, slideCanvasRef.current)) return;
-      const isTextSurface =
+      if (
         active instanceof HTMLInputElement ||
         active instanceof HTMLTextAreaElement ||
-        active instanceof HTMLSelectElement ||
+        active instanceof HTMLSelectElement
+      ) {
+        return;
+      }
+      // A clicked text box is focused for typing, so Cmd+C with only a caret
+      // has no text to copy: copy the box. A text range stays native.
+      const editingText =
+        Boolean(editingEl) ||
         (active instanceof HTMLElement && active.isContentEditable);
-      if (editingEl || isTextSurface) return;
+      if (editingText) {
+        const textSelection = window.getSelection();
+        if (key !== "c" || (textSelection && !textSelection.isCollapsed)) {
+          return;
+        }
+      }
 
       if (key === "v") {
         return;
@@ -5679,12 +5739,24 @@ export default function SlideEditor({
       if (e.defaultPrevented) return;
       if (onPasteSlideClipboard?.(e)) return;
       const active = document.activeElement;
-      if (!isSlideCanvasShortcutTarget(active, slideCanvasRef.current)) return;
+      let inCanvas = true;
+      if (!isSlideCanvasShortcutTarget(active, slideCanvasRef.current)) {
+        inCanvas = false;
+      }
       if (
         active instanceof HTMLInputElement ||
         active instanceof HTMLTextAreaElement ||
-        active instanceof HTMLSelectElement ||
-        (active instanceof HTMLElement && active.isContentEditable)
+        active instanceof HTMLSelectElement
+      ) {
+        return;
+      }
+      // Focus can sit on a slide thumbnail or toolbar button after a copy.
+      // Only this editor's own object marker claims a paste from there.
+      if (
+        !inCanvas &&
+        active instanceof HTMLElement &&
+        (active.isContentEditable ||
+          active.closest("[contenteditable='true'], [role='textbox']"))
       ) {
         return;
       }
@@ -5701,8 +5773,11 @@ export default function SlideEditor({
         e.clipboardData?.getData("text/html"),
         document,
       );
+      const isCopiedObject = nativeClipboardId === clipboard.clipboardId;
       const pasteLocalClipboard = () => {
         e.preventDefault();
+        // The text session listens on the box itself; keep it from inserting.
+        e.stopPropagation();
         const selection = getClipboardSelection();
         pasteSlideObjects(
           clipboard.copied,
@@ -5710,8 +5785,16 @@ export default function SlideEditor({
           clipboard.slideId === slide.id ? clipboard.sourceRect : undefined,
         );
       };
-      if (nativeClipboardId === clipboard.clipboardId) {
+      if (isCopiedObject) {
         pasteLocalClipboard();
+        return;
+      }
+      // Outside the canvas, or in a focused text box, other content pastes
+      // natively. A copied object's marker means the user copied the box.
+      if (
+        !inCanvas ||
+        (active instanceof HTMLElement && active.isContentEditable)
+      ) {
         return;
       }
       const hasNativeText = Array.from(e.clipboardData?.types ?? []).some(
@@ -5948,6 +6031,15 @@ export default function SlideEditor({
 
       const richHtml = e.clipboardData?.getData("text/html") ?? "";
       const text = e.clipboardData?.getData("text/plain") ?? "";
+      // A copied object's text flavor is a fallback for other apps, not a
+      // request for a text box.
+      const objectClipboardId = readSlideObjectClipboardId(richHtml, document);
+      if (
+        objectClipboardId &&
+        objectClipboardId === copiedObjectClipboardRef.current?.clipboardId
+      ) {
+        return;
+      }
       const normalizedRichHtml = richHtml
         ? normalizeSlideClipboardHtml(richHtml)
         : null;
