@@ -857,6 +857,41 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     expect(await rowsForTurn(turn)).toHaveLength(2);
   });
 
+  it("does not create a recovery successor after a newer lease generation takes ownership", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn, {
+      dispatchMode: "background",
+      dispatchPayload: JSON.stringify({ ok: true }),
+    });
+    const oldFence = await claimTurnExecutionLease(thread, turn, runId);
+    await setStaleLiveness(runId, Date.now() - STALE_PAST_MS);
+
+    const successorId = `${runId}-successor-owner`;
+    await insertRun(successorId, thread, turn, {
+      dispatchMode: "background",
+      dispatchPayload: JSON.stringify({ ok: true }),
+    });
+    await pglite
+      .prepare(
+        `UPDATE agent_execution_leases
+         SET lease_expires_at = clock_timestamp() - INTERVAL '1 millisecond'
+         WHERE thread_id = ? AND turn_id = ?`,
+      )
+      .run(thread, turn);
+    const newFence = await claimTurnExecutionLease(thread, turn, successorId);
+    expect(newFence.generation).not.toBe(oldFence.generation);
+
+    expect(await reapIfStale(runId)).toBe(true);
+
+    expect((await readRow(runId))?.status).toBe("errored");
+    expect((await readRow(runId))?.diag_stage).toContain(
+      "declined reason=execution_lease_changed",
+    );
+    expect(await rowsForTurn(turn)).toHaveLength(2);
+    expect((await readRow(successorId))?.status).toBe("running");
+  });
+
   it("does not recover into a turn that was cancelled before the stale insert", async () => {
     currentClient = makeRawClient(true);
     const { runId, thread, turn } = ids();

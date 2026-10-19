@@ -199,6 +199,14 @@ describe("tool approvals bound to the arguments that run", () => {
           WHERE thread_id = ? AND turn_id = ?`,
       [threadId, turnId],
     );
+    const replacementRunId = "approval-fence-replacement-run";
+    await insertRun(replacementRunId, threadId, turnId);
+    const replacementFence = await claimTurnExecutionLease(
+      threadId,
+      turnId,
+      replacementRunId,
+    );
+    expect(replacementFence.generation).not.toBe(fence.generation);
 
     await expect(
       withExecutionFence(fence, () => consumeAgentToolApproval(approval)),
@@ -213,6 +221,16 @@ describe("tool approvals bound to the arguments that run", () => {
       [approval.callId],
     );
     expect(status.rows[0]?.status).toBe("pending");
+    await expect(
+      withExecutionFence(replacementFence, () =>
+        consumeAgentToolApproval(approval),
+      ),
+    ).resolves.toBe(true);
+    const consumed = await pglite.query<{ status: string }>(
+      `SELECT status FROM agent_tool_approvals WHERE call_id = ?`,
+      [approval.callId],
+    );
+    expect(consumed.rows[0]?.status).toBe("consumed");
   });
 });
 
