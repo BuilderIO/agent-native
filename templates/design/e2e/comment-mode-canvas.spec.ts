@@ -34,6 +34,28 @@ test("comment mode keeps pan, hover and popover focus off the design below", asy
     .poll(async () => (await frame.boundingBox())!.y)
     .toBeLessThan(frameTopBefore);
 
+  // A middle-button drag starts on the click plane and pans until it is released.
+  const dragStartY = (await frame.boundingBox())!.y;
+  await page.mouse.move(
+    surface.x + surface.width * 0.5,
+    surface.y + surface.height * 0.92,
+  );
+  await page.mouse.down({ button: "middle" });
+  await page.mouse.move(
+    surface.x + surface.width * 0.5,
+    surface.y + surface.height * 0.92 + 60,
+    { steps: 6 },
+  );
+  await page.mouse.up({ button: "middle" });
+  const dragEndY = (await frame.boundingBox())!.y;
+  expect(dragEndY).toBeGreaterThan(dragStartY);
+  await page.mouse.move(
+    surface.x + surface.width * 0.5,
+    surface.y + surface.height * 0.92 + 120,
+    { steps: 4 },
+  );
+  expect((await frame.boundingBox())!.y).toBe(dragEndY);
+
   const button = await app.designRect("deep-button");
   const buttonPoint = await app.pagePoint(
     button.x + button.width / 2,

@@ -382,7 +382,9 @@ function nodeClientRect(
 
 /**
  * The overlay portals to body but is a React child of the design frame, so its
- * mouse events would bubble into the frame's select and hover handlers.
+ * mouse-down and click would bubble into the frame's select handlers. Only
+ * those two: stopping native propagation for mouse move or up would starve the
+ * window listeners that finish a canvas pan started over the plane.
  */
 function stopReviewOverlayEvent(event: { stopPropagation: () => void }) {
   event.stopPropagation();
@@ -997,6 +999,7 @@ export function ReviewCanvasPins({
   const [hoverNodeId, setHoverNodeId] = useState<string | null>(null);
   const hoverPointerRef = useRef<{ x: number; y: number } | null>(null);
   const hoverFrameRef = useRef<number | null>(null);
+  const hoverRequestRef = useRef(0);
   const lastFocusNonceRef = useRef<number | null>(null);
   const pendingFocusNonceRef = useRef<number | null>(null);
   const migratedBoardAnchorIdsRef = useRef<Set<string>>(new Set());
@@ -1886,6 +1889,15 @@ export function ReviewCanvasPins({
     [canvas],
   );
 
+  const clearHoverNode = useCallback(() => {
+    hoverRequestRef.current += 1;
+    if (hoverFrameRef.current !== null) {
+      window.cancelAnimationFrame(hoverFrameRef.current);
+      hoverFrameRef.current = null;
+    }
+    setHoverNodeId(null);
+  }, []);
+
   // The click plane covers the frame, so the frame never gets hover of its own;
   // ask the bridge which node is under the pointer instead.
   const scheduleHoverNode = useCallback(
@@ -1901,7 +1913,10 @@ export function ReviewCanvasPins({
         const iframeRect = iframe?.getBoundingClientRect();
         if (!point || !iframe?.contentWindow || !iframeRect?.width) return;
         const correlationId = crypto.randomUUID();
+        const request = ++hoverRequestRef.current;
         frameCallbacksRef.current.set(correlationId, (payload) => {
+          // A newer move or a leave has superseded this reply.
+          if (request !== hoverRequestRef.current) return;
           setHoverNodeId(
             typeof payload.nodeId === "string" ? payload.nodeId : null,
           );
@@ -2432,10 +2447,9 @@ export function ReviewCanvasPins({
 
   return createPortal(
     <div
+      data-review-overlay-root
       className="contents"
       onMouseDown={stopReviewOverlayEvent}
-      onMouseUp={stopReviewOverlayEvent}
-      onMouseMove={stopReviewOverlayEvent}
       onClick={stopReviewOverlayEvent}
     >
       {placementPlaneVisible ? (
@@ -2456,7 +2470,7 @@ export function ReviewCanvasPins({
             updateRegionPreview(event.clientX, event.clientY);
             scheduleHoverNode(event.clientX, event.clientY);
           }}
-          onPointerLeave={() => setHoverNodeId(null)}
+          onPointerLeave={clearHoverNode}
           onPointerUp={handlePlacementPointerUp}
           onPointerCancel={handlePlacementPointerUp}
           onClick={(event) => {

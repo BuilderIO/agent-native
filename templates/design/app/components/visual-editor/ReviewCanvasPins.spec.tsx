@@ -370,7 +370,9 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       "[data-review-popover]",
     );
     expect(reviewChrome).not.toBeNull();
-    expect(reviewChrome?.closest(".review-test-canvas")).toBeNull();
+    expect(
+      reviewChrome?.closest("[data-review-overlay-root]")?.parentElement,
+    ).toBe(document.body);
   });
 
   it("marks an unread thread as read when its pin opens", async () => {

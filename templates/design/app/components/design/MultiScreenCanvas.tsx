@@ -10091,6 +10091,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
+      // Popover mouse moves bubble here through React; they must not measure the design underneath.
+      if (isCanvasOverlayInteractionTarget(e.target)) {
+        setAltHoverMeasurement(null);
+        return;
+      }
       updateAltHoverMeasurement(e);
       const tool = normalizeCanvasTool(activeTool ?? localActiveTool);
       if (tool !== "pen" || dragState.current?.type === "pen-node") return;
