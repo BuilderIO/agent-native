@@ -1427,7 +1427,7 @@ export function FirstRunOnboarding({
                       aria-label={t("agentChat.onboarding.creditsAboutLabel")}
                       className="ml-0 inline-flex size-6 items-center justify-center rounded-full align-middle text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
-                      <IconHelpCircle size={13} aria-hidden />
+                      <IconHelpCircle size={12} aria-hidden />
                     </button>
                   </TooltipTrigger>
                   <TooltipContent side="top" className="max-w-xs text-xs">
