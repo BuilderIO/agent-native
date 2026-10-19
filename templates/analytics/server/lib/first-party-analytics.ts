@@ -45,6 +45,7 @@ import {
   planFirstPartyEventsSource,
   queryFirstPartyAnalyticsInBigQuery,
   renderFirstPartyAnalyticsBigQueryRequestSql,
+  settleFirstPartyEventsSource,
 } from "./first-party-analytics-backend.js";
 import {
   firstPartyCacheKey,
@@ -1666,15 +1667,11 @@ export async function validateFirstPartyAnalyticsSqlForScope(
 }
 
 /**
- * The exact BigQuery SQL a first-party panel query sends, for a dry-run cost
- * estimate. Mirrors the BigQuery branch of `queryFirstPartyAnalytics` with the
- * dashboard panel's default options; returns `sql-store` when the query would
- * not reach BigQuery at all.
- */
-/**
- * The BigQuery request a first-party query would send, for a dry run. SQL the
- * policy rejects comes back as `invalid`; a failure to load the backend
- * throws, since it says nothing about the query.
+ * The BigQuery request a first-party panel query would send, for a dry run.
+ * Mirrors the BigQuery branch of `queryFirstPartyAnalyticsWithBackend` with a
+ * dashboard panel's default options, including reading the events model when
+ * it covers the query. SQL the policy rejects comes back as `invalid`; a
+ * failure to load the backend throws, since it says nothing about the query.
  */
 export async function renderFirstPartyAnalyticsBigQueryEstimateSql(
   sql: string,
@@ -1705,6 +1702,13 @@ export async function renderFirstPartyAnalyticsBigQueryEstimateSql(
     return { target: "invalid", error };
   }
   const table = await getFirstPartyAnalyticsTable(backend.table, signal);
+  let planned: ReturnType<typeof planFirstPartyEventsSource>;
+  try {
+    planned = planFirstPartyEventsSource(sql, backend.modelTable);
+  } catch (error) {
+    return { target: "invalid", error };
+  }
+  const { eventsSource } = await settleFirstPartyEventsSource(planned, signal);
   try {
     return {
       target: "bigquery",
@@ -1712,6 +1716,9 @@ export async function renderFirstPartyAnalyticsBigQueryEstimateSql(
         scoped.sql,
         scoped.args,
         table,
+        eventsSource?.source === "model"
+          ? { eventsModelTable: eventsSource.table }
+          : {},
       ),
     };
   } catch (error) {
