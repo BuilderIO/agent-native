@@ -1165,11 +1165,14 @@ function parseLedgerArtifacts(
 export async function clearLedgerForThread(threadId: string): Promise<void> {
   try {
     await ensureRunTables();
-    const client = getDbExec();
-    await client.execute({
-      sql: `DELETE FROM agent_tool_ledger WHERE thread_id = ?`,
-      args: [threadId],
-    });
+    await withFencedExecutionWrite(
+      (tx) =>
+        tx.execute({
+          sql: `DELETE FROM agent_tool_ledger WHERE thread_id = ?`,
+          args: [threadId],
+        }),
+      { threadId },
+    );
   } catch {
     // Best-effort.
   }
@@ -3007,6 +3010,121 @@ export async function updateRunTerminalStateIfRunning(
     { runId },
   );
   return (rowsAffected ?? 0) > 0;
+}
+
+/** A setup failure can precede the run-manager fence, so serialize it with reaping. */
+export async function finalizeClaimedBackgroundRunFailure(
+  runId: string,
+  failure: {
+    errorCode: string;
+    errorDetail: string;
+    event: Extract<AgentChatEvent, { type: "error" }>;
+  },
+): Promise<boolean> {
+  await ensureRunTables();
+  const client = getDbExec();
+  if (!client.transaction) {
+    throw new Error(
+      "Background run failure finalization requires transaction support",
+    );
+  }
+  const owner = await client.execute({
+    sql: `SELECT thread_id, COALESCE(turn_id, id) AS turn_id, worker_generation
+          FROM agent_runs WHERE id = ?`,
+    args: [runId],
+  });
+  const scope = owner.rows[0] as
+    | {
+        thread_id?: unknown;
+        turn_id?: unknown;
+        worker_generation?: number | string | null;
+      }
+    | undefined;
+  if (
+    typeof scope?.thread_id !== "string" ||
+    typeof scope.turn_id !== "string"
+  ) {
+    return false;
+  }
+  const expectedGeneration =
+    scope.worker_generation == null ? null : String(scope.worker_generation);
+
+  return client.transaction(async (tx) => {
+    await tx.execute({
+      sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+      args: [`agent-native:run-slot:${scope.thread_id}`],
+    });
+    const lease = await lockTurnExecutionLease(
+      tx,
+      scope.thread_id as string,
+      scope.turn_id as string,
+    );
+    const selected = await tx.execute({
+      sql: `SELECT status, dispatch_mode, worker_generation
+            FROM agent_runs WHERE id = ? FOR UPDATE`,
+      args: [runId],
+    });
+    const run = selected.rows[0] as
+      | {
+          status?: unknown;
+          dispatch_mode?: unknown;
+          worker_generation?: number | string | null;
+        }
+      | undefined;
+    if (
+      run?.status !== "running" ||
+      run.dispatch_mode !== "background-processing" ||
+      (run.worker_generation == null ? null : String(run.worker_generation)) !==
+        expectedGeneration
+    ) {
+      return false;
+    }
+    const generationMatches =
+      run.worker_generation == null
+        ? lease === null || lease.ownerRunId === runId
+        : lease !== null &&
+          lease.ownerRunId === runId &&
+          String(run.worker_generation) === lease.generation;
+    if (!generationMatches) return false;
+
+    const updated = await tx.execute({
+      sql: `UPDATE agent_runs
+            SET status = 'errored', completed_at = ?, error_code = ?,
+                error_detail = ?, terminal_reason = ?, dispatch_payload = NULL
+            WHERE id = ? AND status = 'running'
+              AND dispatch_mode = 'background-processing'
+              AND ${terminalRunEventExclusionSql()}`,
+      args: [
+        Date.now(),
+        failure.errorCode,
+        failure.errorDetail.slice(0, 2000),
+        `error:${failure.errorCode}`.slice(0, 200),
+        runId,
+      ],
+    });
+    if ((updated.rowsAffected ?? 0) !== 1) return false;
+
+    const lastEvent = await tx.execute({
+      sql: `SELECT seq FROM agent_run_events WHERE run_id = ? ORDER BY seq DESC LIMIT 1`,
+      args: [runId],
+    });
+    const lastSeq = (lastEvent.rows[0] as { seq?: number | string } | undefined)
+      ?.seq;
+    const inserted = await tx.execute({
+      sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
+            VALUES (?, ?, ?, ?) ON CONFLICT (run_id, seq) DO NOTHING`,
+      args: [
+        runId,
+        lastSeq === undefined ? 0 : Number(lastSeq) + 1,
+        Date.now(),
+        persistedRunEventData(JSON.stringify(failure.event)),
+      ],
+    });
+    if ((inserted.rowsAffected ?? 0) !== 1) {
+      throw new Error(`Failed to persist failure event for run ${runId}`);
+    }
+    return true;
+  });
 }
 
 export async function failRunBeforeDispatch(

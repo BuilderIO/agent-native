@@ -861,6 +861,141 @@ describe("runBackgroundAutomation — confirmed work", () => {
     },
   );
 
+  it("does not resend after provider acceptance when the delivery receipt write is lost", async () => {
+    const runStore = await import("../agent/run-store.js");
+    const history = await import("./run-history.js");
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    const adapters = await import("../integrations/adapters/index.js");
+    const automation = precondition("delivery-receipt-write-lost", {
+      deliveryPlatform: "slack",
+      deliveryDestination: "example-channel",
+    });
+    const historyId = await history.startAutomationRun({
+      owner: automation.resource.owner,
+      automation: automation.name,
+      path: automation.resource.path,
+    });
+    const finish = vi
+      .spyOn(history, "finishAutomationRun")
+      .mockRejectedValueOnce(new Error("simulated process loss after send"));
+    const sendMessageToTarget = vi.fn(async () => {});
+    const adapter = vi.spyOn(adapters, "getDefaultAdapter").mockReturnValue({
+      formatAgentResponse: (text: string) => ({ text }),
+      sendMessageToTarget,
+    } as any);
+    const completeReceipt = vi
+      .spyOn(runStore, "completeAgentExecutionStep")
+      .mockRejectedValueOnce(new Error("simulated loss before receipt commit"));
+    const runLoop = vi.mocked(runAgentLoopDirectWithSoftTimeout);
+    const writeConfirmedReport = async (
+      opts: Parameters<typeof runLoop>[0],
+    ) => {
+      await opts.send?.({
+        type: "tool_done",
+        id: "report-action",
+        tool: "send-report",
+        result: "Report prepared",
+        completedSideEffect: true,
+      });
+      await opts.send?.({ type: "text", text: "Your weekly report." });
+      return usage;
+    };
+    runLoop.mockImplementationOnce(writeConfirmedReport as any);
+
+    try {
+      await expect(
+        runBackgroundAutomation(runOptions(automation, { historyId }), {
+          ...standardDeps,
+          getActions: () => ({
+            "send-report": { run: vi.fn(), confirmsAutomationWork: true },
+          }),
+        }),
+      ).rejects.toMatchObject({
+        errorCode: "background_automation_history_write_failed",
+      });
+      expect(sendMessageToTarget).toHaveBeenCalledOnce();
+
+      const previous = await history.getAutomationRun(historyId);
+      expect(previous).toMatchObject({
+        threadId: expect.any(String),
+        runId: expect.any(String),
+        status: "running",
+      });
+      finish.mockRestore();
+      const turnId = previous!.runId!;
+      const step = (await pglite
+        .prepare(
+          `SELECT status FROM agent_execution_steps
+           WHERE thread_id = ? AND turn_id = ?
+             AND step_id = 'background-automation-delivery'`,
+        )
+        .get(previous!.threadId, turnId)) as { status: string } | undefined;
+      expect(step).toEqual({ status: "dispatched" });
+
+      getThreadMock.mockResolvedValueOnce({
+        id: previous!.threadId!,
+        title: "Interrupted automation",
+        preview: "",
+        messageCount: 1,
+        threadData: JSON.stringify({
+          messages: [
+            {
+              role: "user",
+              content: [{ type: "text", text: "Send the reminders." }],
+              metadata: { custom: { submittedTurnId: turnId } },
+            },
+          ],
+        }),
+      });
+      runLoop.mockImplementationOnce(async (opts) => {
+        await opts.send?.({
+          type: "tool_done",
+          id: "report-action",
+          tool: "send-report",
+          result: "Report prepared",
+          completedSideEffect: true,
+        });
+        return usage;
+      });
+      await expect(
+        runBackgroundAutomation(
+          runOptions(automation, {
+            historyId,
+            resume: {
+              historyId,
+              threadId: previous!.threadId!,
+              turnId,
+              previousRunId: previous!.runId!,
+              hardDeadlineAt: Date.now() + 60_000,
+            },
+          }),
+          {
+            ...standardDeps,
+            getActions: () => ({
+              "send-report": { run: vi.fn(), confirmsAutomationWork: true },
+            }),
+          },
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "background_automation_delivery_unknown",
+      });
+      expect(sendMessageToTarget).toHaveBeenCalledOnce();
+      const replayedStep = (await pglite
+        .prepare(
+          `SELECT status FROM agent_execution_steps
+           WHERE thread_id = ? AND turn_id = ?
+             AND step_id = 'background-automation-delivery'`,
+        )
+        .get(previous!.threadId, turnId)) as { status: string } | undefined;
+      expect(replayedStep).toEqual({ status: "unknown" });
+    } finally {
+      finish.mockRestore();
+      completeReceipt.mockRestore();
+      adapter.mockRestore();
+    }
+  });
+
   it.each([false, true])(
     "rejects an undelivered digest (successful read: %s)",
     async (readSucceeded) => {

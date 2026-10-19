@@ -2477,11 +2477,14 @@ export function createAgentChatPlugin(
           }
           return a2aActionResult(result);
         },
-        executeApproval: async (approval) => {
+        executeApproval: async (approval, { signal, threadId, turnId }) => {
           const result = await executeAgentToolCall({
             actions: externalFullActions ?? externalActions,
             name: approval.tool,
             input: approval.input,
+            signal,
+            threadId,
+            turnId,
             callId: approval.callId,
             ownerEmail: approval.ownerEmail,
             orgId: approval.orgId ?? null,

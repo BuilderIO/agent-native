@@ -33,7 +33,12 @@ import {
   subscribeToRun,
   type ActiveRun,
 } from "../agent/run-manager.js";
-import { getRunEventsSince } from "../agent/run-store.js";
+import {
+  ensureRunTables,
+  getRunEventsSince,
+  lockTaskExecutionLease,
+  revokeTaskExecutionLease,
+} from "../agent/run-store.js";
 import { resolveMaxSubagentDelegationDepth } from "../agent/runtime-context.js";
 import {
   buildAssistantMessage,
@@ -66,7 +71,7 @@ import type {
   BackgroundAgentFollowUpInput,
   ListBackgroundAgentRunsOptions,
 } from "../code-agents/index.js";
-import { describeDbError, withDbExec } from "../db/client.js";
+import { describeDbError, getDbExec, withDbExec } from "../db/client.js";
 import { resolveOrgIdForEmail } from "../org/context.js";
 import {
   completeRun as completeProgressRun,
@@ -262,6 +267,8 @@ const THREAD_PREFIX = "agent-task-thread:";
 const TASK_MESSAGE_PREFIX = "task-message:";
 
 const PARENT_COMPLETION_PREFIX = "parent-completion:";
+
+const RETRY_TASK_ERROR_TRANSITION = Symbol("retry-task-error-transition");
 
 const PARENT_COMPLETION_INLINE_MAX = 2_000;
 
@@ -3340,18 +3347,168 @@ export async function markTaskErrored(
   taskId: string,
   error: string,
 ): Promise<void> {
-  const task = await loadTask(taskId);
-  if (task) {
-    task.status = "errored";
-    task.summary = error;
-    task.error = error;
-    task.currentStep = "";
-    task.completedAt = Date.now();
-    await saveTask(task);
+  const ownerScope = resolveOwnerScope();
+  if (!ownerScope) return;
+  await ensureRunTables();
+
+  const client = getDbExec();
+  if (!client.transaction) {
+    throw new Error("Agent task failure requires transaction support.");
+  }
+
+  for (let retry = 0; retry < 3; retry += 1) {
+    const task = await loadTask(taskId);
+    if (!task || !taskMatchesOwnerScope(task, ownerScope)) return;
+    if (task.status !== "running") return;
+
+    const dispatch = await getAgentTeamRunDispatchState(taskId);
+    if (!dispatch) {
+      throw new Error("The agent task run state is unavailable.");
+    }
+    if (
+      dispatch.ownerEmail !== ownerScope.ownerEmail ||
+      (ownerScope.orgId !== undefined &&
+        (dispatch.orgId ?? null) !== ownerScope.orgId)
+    ) {
+      return;
+    }
+    if (dispatch.status === "done") return;
+
+    let result:
+      | { kind: "saved"; task: AgentTask }
+      | { kind: "skip" }
+      | { kind: "retry" }
+      | { kind: "missing" };
+    try {
+      result = await client.transaction((tx) =>
+        withDbExec(tx, async () => {
+          const { rows } = await tx.execute({
+            sql: `SELECT status, attempts, updated_at, thread_id, payload, owner_email, org_id
+                  FROM agent_team_run_queue
+                  WHERE task_id = ?
+                  FOR UPDATE`,
+            args: [taskId],
+          });
+          const queue = rows[0] as
+            | {
+                status?: string;
+                attempts?: number | string;
+                thread_id?: string;
+                payload?: string;
+                owner_email?: string | null;
+                org_id?: string | null;
+              }
+            | undefined;
+          if (!queue) return { kind: "missing" as const };
+          if (Number(queue.attempts) !== dispatch.attempts) {
+            return { kind: "retry" as const };
+          }
+          if (queue.status === "done") return { kind: "skip" as const };
+          if (
+            queue.status !== "queued" &&
+            queue.status !== "running" &&
+            queue.status !== "failed"
+          ) {
+            return { kind: "retry" as const };
+          }
+          if (
+            queue.owner_email !== ownerScope.ownerEmail ||
+            (ownerScope.orgId !== undefined &&
+              (queue.org_id ?? null) !== ownerScope.orgId)
+          ) {
+            return { kind: "skip" as const };
+          }
+
+          let payload: unknown;
+          try {
+            payload = JSON.parse(String(queue.payload));
+          } catch (cause) {
+            throw new Error("The agent task run payload is unreadable.", {
+              cause,
+            });
+          }
+          const turnId = (payload as { turnId?: unknown } | null)?.turnId;
+          if (typeof turnId !== "string" || !turnId) {
+            throw new Error("The agent task run turn is unreadable.");
+          }
+          if (typeof queue.thread_id !== "string" || !queue.thread_id) {
+            throw new Error("The agent task run thread is unreadable.");
+          }
+
+          const currentTask = await loadTask(taskId);
+          if (
+            !currentTask ||
+            !taskMatchesOwnerScope(currentTask, ownerScope) ||
+            currentTask.status !== "running"
+          ) {
+            return { kind: "skip" as const };
+          }
+
+          await lockTaskExecutionLease(tx, queue.thread_id, turnId);
+          await revokeTaskExecutionLease(tx, queue.thread_id, turnId);
+
+          const expectedTask = structuredClone(currentTask);
+          currentTask.status = "errored";
+          currentTask.summary = error;
+          currentTask.error = error;
+          currentTask.currentStep = "";
+          currentTask.completedAt = Date.now();
+          currentTask.terminalEffectsVersion = 1;
+          currentTask.terminalEffectsReconciled = false;
+          currentTask.terminalProgressStatus = "failed";
+          currentTask.parentCompletionEnqueued = !currentTask.parentThreadId;
+          currentTask.updatedAt = Date.now();
+
+          if (
+            !(await compareAndSetAppState(
+              `${TASK_PREFIX}${taskId}`,
+              expectedTask as any,
+              currentTask as any,
+            ))
+          ) {
+            throw RETRY_TASK_ERROR_TRANSITION;
+          }
+          await writeAppState(`${THREAD_PREFIX}${currentTask.threadId}`, {
+            taskId,
+          });
+
+          if (
+            queue.status !== "failed" &&
+            !(await completeAgentTeamRun(taskId, "failed", dispatch.attempts))
+          ) {
+            throw RETRY_TASK_ERROR_TRANSITION;
+          }
+          return { kind: "saved" as const, task: currentTask };
+        }),
+      );
+    } catch (cause) {
+      if (cause === RETRY_TASK_ERROR_TRANSITION) continue;
+      throw cause;
+    }
+    if (result.kind === "missing") {
+      throw new Error("The agent task run state is unavailable.");
+    }
+    if (result.kind === "retry") continue;
+    if (result.kind === "skip") return;
+
+    const activeRunId = activeTaskRunIds.get(taskId);
+    if (activeRunId) {
+      abortRun(activeRunId, "superseded");
+    }
+
     const ownerEmail = getRequestUserEmail();
     if (ownerEmail) {
-      await completeTaskProgressRun(task, ownerEmail, "failed", error);
+      await completeTaskProgressRun(result.task, ownerEmail, "failed", error);
     }
+    const terminalDispatch = await getAgentTeamRunDispatchState(taskId);
+    if (terminalDispatch?.status === "failed") {
+      await reconcileTerminalTaskEffects(
+        result.task,
+        terminalDispatch,
+        ownerEmail ?? null,
+      );
+    }
+    return;
   }
 }
 

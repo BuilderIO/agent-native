@@ -173,18 +173,13 @@ export async function claimAgentTeamRun(
   const now = Date.now();
   const stuckCutoff =
     now - (options.stuckAfterMs ?? RUN_DISPATCH_STUCK_AFTER_MS);
-  const result = await client.execute({
+  const { rows } = await client.execute({
     sql: `UPDATE agent_team_run_queue
             SET status = 'running', attempts = attempts + 1, updated_at = ?
           WHERE task_id = ?
-            AND (status = 'queued' OR (status = 'running' AND updated_at < ?))`,
+            AND (status = 'queued' OR (status = 'running' AND updated_at < ?))
+          RETURNING *`,
     args: [now, taskId, stuckCutoff],
-  });
-  if (getAffectedRowCount(result) === 0) return null;
-
-  const { rows } = await client.execute({
-    sql: `SELECT * FROM agent_team_run_queue WHERE task_id = ?`,
-    args: [taskId],
   });
   if (rows.length === 0) return null;
   return rowToQueueRow(rows[0]);

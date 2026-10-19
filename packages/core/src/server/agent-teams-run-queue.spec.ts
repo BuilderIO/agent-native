@@ -4,6 +4,7 @@ import { withExecutionFence } from "../agent/execution-fence.js";
 
 let rows: Record<string, any>[] = [];
 let persistedEvents: Record<string, unknown>[] = [];
+let reclaimAfterClaimUpdate = false;
 let executionLease:
   | {
       threadId: string;
@@ -132,7 +133,16 @@ const mockDb = {
         r.status = "running";
         r.attempts += 1;
         r.updated_at = updatedAt;
-        return affected(1);
+        const claimedRow = { ...r };
+        if (reclaimAfterClaimUpdate) {
+          reclaimAfterClaimUpdate = false;
+          r.attempts += 1;
+          r.updated_at = Date.now();
+        }
+        return {
+          rows: s.includes("RETURNING *") ? [claimedRow] : [],
+          rowsAffected: 1,
+        };
       }
       return affected(0);
     }
@@ -341,6 +351,7 @@ describe("agent_team_run_queue", () => {
   beforeEach(() => {
     rows = [];
     persistedEvents = [];
+    reclaimAfterClaimUpdate = false;
     executionLease = undefined;
     queue._agentTeamRunQueueForTests.resetInit();
     vi.clearAllMocks();
@@ -355,6 +366,20 @@ describe("agent_team_run_queue", () => {
 
     const second = await queue.claimAgentTeamRun("t1");
     expect(second).toBeNull();
+  });
+
+  it("returns the attempt from its atomic claim when another claimant reclaims immediately", async () => {
+    await enqueue("claim-snapshot");
+    reclaimAfterClaimUpdate = true;
+
+    const claimed = await queue.claimAgentTeamRun("claim-snapshot", {
+      stuckAfterMs: -1,
+    });
+
+    expect(claimed?.attempts).toBe(1);
+    expect(rows.find((row) => row.task_id === "claim-snapshot")?.attempts).toBe(
+      2,
+    );
   });
 
   it("returns null when claiming a missing run", async () => {

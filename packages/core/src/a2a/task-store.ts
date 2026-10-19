@@ -1,6 +1,9 @@
 import crypto from "crypto";
 
-import { withFencedExecutionWrite } from "../agent/execution-fence.js";
+import {
+  currentExecutionFence,
+  withFencedExecutionWrite,
+} from "../agent/execution-fence.js";
 import { getDbExec } from "../db/client.js";
 import {
   ensureTableExists,
@@ -232,40 +235,50 @@ export async function claimA2AApproval(
   orgId?: string | null,
 ): Promise<A2AApprovalRecord | null> {
   await ensureTable();
-  const client = getDbExec();
+  const current = await getA2AApprovalForOwner(id, ownerEmail, orgId);
+  if (!current) return null;
+  if (current.status === "pending" && current.expiresAt <= Date.now()) {
+    return null;
+  }
+  const taskId = current.taskId;
+  assertA2AApprovalFence(taskId);
   const now = Date.now();
   class ClaimRejected extends Error {}
   try {
-    return await withDbTransaction(client, async (tx) => {
-      const approvalUpdate = await tx.execute({
-        sql: `UPDATE a2a_approvals SET status = 'processing', updated_at = ? WHERE id = ? AND owner_email = ? AND status = 'pending' AND expires_at > ? AND (org_id IS NULL OR org_id = ?)`,
-        args: [now, id, ownerEmail, now, orgId ?? null],
-      });
-      if (getAffectedRowCount(approvalUpdate) === 0) throw new ClaimRejected();
-      const { rows } = await tx.execute({
-        sql: `SELECT * FROM a2a_approvals WHERE id = ? AND owner_email = ? AND status = 'processing'`,
-        args: [id, ownerEmail],
-      });
-      if (!rows[0]) throw new ClaimRejected();
-      const approval = approvalFromRow(rows[0]);
-      const timestamp = new Date(now).toISOString();
-      const runningMessage: Message = {
-        role: "agent",
-        parts: [{ type: "text", text: "Approved action is running." }],
-      };
-      const taskUpdate = await tx.execute({
-        sql: `UPDATE a2a_tasks SET status_state = 'working', status_message = ?, status_timestamp = ?, updated_at = ? WHERE id = ? AND owner_email = ? AND status_state = 'input-required'`,
-        args: [
-          JSON.stringify(runningMessage),
-          timestamp,
-          now,
-          approval.taskId,
-          ownerEmail,
-        ],
-      });
-      if (getAffectedRowCount(taskUpdate) === 0) throw new ClaimRejected();
-      return approval;
-    });
+    return await withFencedExecutionWrite(
+      async (tx) => {
+        const approvalUpdate = await tx.execute({
+          sql: `UPDATE a2a_approvals SET status = 'processing', updated_at = ? WHERE id = ? AND owner_email = ? AND ((status = 'pending' AND expires_at > ?) OR status = 'processing') AND (org_id IS NULL OR org_id = ?)`,
+          args: [now, id, ownerEmail, now, orgId ?? null],
+        });
+        if (getAffectedRowCount(approvalUpdate) === 0)
+          throw new ClaimRejected();
+        const { rows } = await tx.execute({
+          sql: `SELECT * FROM a2a_approvals WHERE id = ? AND owner_email = ? AND status = 'processing'`,
+          args: [id, ownerEmail],
+        });
+        if (!rows[0]) throw new ClaimRejected();
+        const approval = approvalFromRow(rows[0]);
+        const timestamp = new Date(now).toISOString();
+        const runningMessage: Message = {
+          role: "agent",
+          parts: [{ type: "text", text: "Approved action is running." }],
+        };
+        const taskUpdate = await tx.execute({
+          sql: `UPDATE a2a_tasks SET status_state = 'working', status_message = ?, status_timestamp = ?, updated_at = ? WHERE id = ? AND owner_email = ? AND status_state IN ('input-required', 'working')`,
+          args: [
+            JSON.stringify(runningMessage),
+            timestamp,
+            now,
+            approval.taskId,
+            ownerEmail,
+          ],
+        });
+        if (getAffectedRowCount(taskUpdate) === 0) throw new ClaimRejected();
+        return approval;
+      },
+      { threadId: a2aTaskLeaseThreadId(taskId), turnId: taskId },
+    );
   } catch (error) {
     if (error instanceof ClaimRejected) return null;
     throw error;
@@ -288,51 +301,74 @@ export async function settleA2AApproval(
   }
   await ensureTable();
   const client = getDbExec();
+  const { rows: approvalRows } = await client.execute({
+    sql: `SELECT task_id FROM a2a_approvals WHERE id = ? AND status = 'processing'`,
+    args: [id],
+  });
+  if (!approvalRows[0]) throw new Error("Approval is not processing");
+  const taskId = String((approvalRows[0] as any).task_id);
+  assertA2AApprovalFence(taskId);
   const now = Date.now();
   const message: Message = {
     role: "agent",
     parts: [{ type: "text", text: settledText }],
   };
-  await withDbTransaction(client, async (tx) => {
-    const { rows } = await tx.execute({
-      sql: `SELECT task_id FROM a2a_approvals WHERE id = ? AND status = 'processing'`,
-      args: [id],
-    });
-    if (!rows[0]) throw new Error("Approval is not processing");
-    const taskId = String((rows[0] as any).task_id);
-    const { rows: taskRows } = await tx.execute({
-      sql: `SELECT history FROM a2a_tasks WHERE id = ? AND status_state = 'working'`,
-      args: [taskId],
-    });
-    if (!taskRows[0]) {
-      throw new Error("Approval task is no longer awaiting settlement");
-    }
-    const history = JSON.parse(String((taskRows[0] as any).history));
-    history.push(message);
-    assertA2APersistablePayload(history, "A2A task history");
-    const timestamp = new Date(now).toISOString();
-    const taskUpdate = await tx.execute({
-      sql: `UPDATE a2a_tasks SET status_state = ?, status_message = ?, status_timestamp = ?, history = ?, updated_at = ? WHERE id = ? AND status_state = 'working'`,
-      args: [
-        settledStatus,
-        JSON.stringify(message),
-        timestamp,
-        JSON.stringify(history),
-        now,
-        taskId,
-      ],
-    });
-    if (getAffectedRowCount(taskUpdate) === 0) {
-      throw new Error("Approval task settlement lost its state claim");
-    }
-    const approvalUpdate = await tx.execute({
-      sql: `UPDATE a2a_approvals SET status = ?, result = ?, updated_at = ? WHERE id = ? AND status = 'processing'`,
-      args: [settledStatus, settledText, now, id],
-    });
-    if (getAffectedRowCount(approvalUpdate) === 0) {
-      throw new Error("Approval settlement lost its state claim");
-    }
-  });
+  await withFencedExecutionWrite(
+    async (tx) => {
+      const { rows } = await tx.execute({
+        sql: `SELECT task_id FROM a2a_approvals WHERE id = ? AND status = 'processing'`,
+        args: [id],
+      });
+      if (!rows[0]) throw new Error("Approval is not processing");
+      const taskId = String((rows[0] as any).task_id);
+      const { rows: taskRows } = await tx.execute({
+        sql: `SELECT history FROM a2a_tasks WHERE id = ? AND status_state = 'working'`,
+        args: [taskId],
+      });
+      if (!taskRows[0]) {
+        throw new Error("Approval task is no longer awaiting settlement");
+      }
+      const history = JSON.parse(String((taskRows[0] as any).history));
+      history.push(message);
+      assertA2APersistablePayload(history, "A2A task history");
+      const timestamp = new Date(now).toISOString();
+      const taskUpdate = await tx.execute({
+        sql: `UPDATE a2a_tasks SET status_state = ?, status_message = ?, status_timestamp = ?, history = ?, updated_at = ? WHERE id = ? AND status_state = 'working'`,
+        args: [
+          settledStatus,
+          JSON.stringify(message),
+          timestamp,
+          JSON.stringify(history),
+          now,
+          taskId,
+        ],
+      });
+      if (getAffectedRowCount(taskUpdate) === 0) {
+        throw new Error("Approval task settlement lost its state claim");
+      }
+      const approvalUpdate = await tx.execute({
+        sql: `UPDATE a2a_approvals SET status = ?, result = ?, updated_at = ? WHERE id = ? AND status = 'processing'`,
+        args: [settledStatus, settledText, now, id],
+      });
+      if (getAffectedRowCount(approvalUpdate) === 0) {
+        throw new Error("Approval settlement lost its state claim");
+      }
+    },
+    { threadId: a2aTaskLeaseThreadId(taskId), turnId: taskId },
+  );
+}
+
+function assertA2AApprovalFence(taskId: string): void {
+  const fence = currentExecutionFence();
+  if (
+    !fence ||
+    fence.threadId !== a2aTaskLeaseThreadId(taskId) ||
+    fence.turnId !== taskId
+  ) {
+    throw new Error(
+      "A2A approval transitions require the task execution fence",
+    );
+  }
 }
 
 export async function pauseProcessingA2ATask(

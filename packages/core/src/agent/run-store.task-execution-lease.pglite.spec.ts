@@ -36,14 +36,21 @@ vi.mock("../db/ddl-guard.js", () => ({
 
 const {
   beginAgentExecutionStep,
+  claimBackgroundRun,
   claimTaskExecutionLease,
   claimTurnExecutionLease,
+  clearLedgerForThread,
+  finalizeClaimedBackgroundRunFailure,
+  getLastTerminalRunEvent,
   markAgentExecutionStepDispatched,
   recordLateAgentExecutionStepOutcome,
   ensureRunTables,
   insertRun,
+  readBackgroundRunClaim,
+  reapIfStale,
   renewTaskExecutionLease,
   updateRunTerminalStateIfRunning,
+  writeLedgerEntry,
 } = await import("./run-store.js");
 
 beforeAll(async () => {
@@ -280,5 +287,101 @@ describe("task execution leases", () => {
       status: "truncated",
       terminal_reason: "no_progress",
     });
+  });
+
+  it("does not let a late process failure overwrite the reaper's terminal result", async () => {
+    const threadId = "thread-reaper-before-process-failure";
+    const turnId = "reaper-before-process-failure";
+    const runId = "run-reaper-before-process-failure";
+    await insertRun(runId, threadId, turnId, { dispatchMode: "background" });
+    expect(await claimBackgroundRun(runId)).toBe(true);
+    const fence = await claimTurnExecutionLease(threadId, turnId, runId);
+    const oldTimestamp = Date.now() - 60_000;
+    await pglite.query(
+      `UPDATE agent_runs
+          SET started_at = ?, heartbeat_at = ?, last_progress_at = ?
+          WHERE id = ?`,
+      [oldTimestamp, oldTimestamp, oldTimestamp, runId],
+    );
+    await pglite.query(
+      `UPDATE agent_execution_leases
+          SET lease_expires_at = clock_timestamp() - INTERVAL '1 millisecond'
+          WHERE thread_id = ? AND turn_id = ? AND generation = CAST(? AS BIGINT)`,
+      [threadId, turnId, fence.generation],
+    );
+
+    const claimObservedByOldProcess = await readBackgroundRunClaim(runId);
+    expect(claimObservedByOldProcess).toMatchObject({
+      status: "running",
+      dispatchMode: "background-processing",
+    });
+    expect(await reapIfStale(runId, 0)).toBe(true);
+
+    await expect(
+      finalizeClaimedBackgroundRunFailure(runId, {
+        errorCode: "background_worker_failed",
+        errorDetail: "late process failure",
+        event: {
+          type: "error",
+          errorCode: "background_worker_failed",
+          error: "late process failure",
+        },
+      }),
+    ).resolves.toBe(false);
+
+    const run = await pglite.query(
+      `SELECT status, error_code, terminal_reason FROM agent_runs WHERE id = ?`,
+      [runId],
+    );
+    expect(run.rows[0]).toMatchObject({
+      status: "errored",
+      error_code: "stale_run",
+      terminal_reason: "error:stale_run",
+    });
+    await expect(getLastTerminalRunEvent(runId)).resolves.toMatchObject({
+      event: { type: "error", errorCode: "stale_run" },
+    });
+  });
+
+  it("does not let a stale worker clear a newer tool ledger receipt", async () => {
+    const threadId = "a2a-task:ledger-clear-fence";
+    const turnId = "ledger-clear-fence";
+    const staleFence = await claimTaskExecutionLease(
+      threadId,
+      turnId,
+      "a2a:ledger-worker-a",
+    );
+
+    await pglite.query(
+      `UPDATE agent_execution_leases
+          SET lease_expires_at = clock_timestamp() - INTERVAL '1 millisecond'
+          WHERE thread_id = ? AND turn_id = ?`,
+      [threadId, turnId],
+    );
+    const currentFence = await claimTaskExecutionLease(
+      threadId,
+      turnId,
+      "a2a:ledger-worker-b",
+    );
+    await withExecutionFence(currentFence, () =>
+      writeLedgerEntry(threadId, "tool:step", "durable result"),
+    );
+
+    await withExecutionFence(staleFence, () => clearLedgerForThread(threadId));
+
+    const retained = await pglite.query(
+      `SELECT result_summary FROM agent_tool_ledger WHERE thread_id = ?`,
+      [threadId],
+    );
+    expect(retained.rows).toEqual([{ result_summary: "durable result" }]);
+
+    await withExecutionFence(currentFence, () =>
+      clearLedgerForThread(threadId),
+    );
+    const cleared = await pglite.query(
+      `SELECT result_summary FROM agent_tool_ledger WHERE thread_id = ?`,
+      [threadId],
+    );
+    expect(cleared.rows).toHaveLength(0);
   });
 });

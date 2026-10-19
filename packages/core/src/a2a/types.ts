@@ -243,6 +243,7 @@ export interface A2AConfig {
   durableBackgroundRuns?: boolean;
   executeApproval?: (
     approval: A2AApprovalExecution,
+    options: { signal: AbortSignal; threadId: string; turnId: string },
   ) => Promise<A2AActionExecutionResult>;
   executeReadOnlyAction?: (
     invocation: A2AReadOnlyActionInvocation,

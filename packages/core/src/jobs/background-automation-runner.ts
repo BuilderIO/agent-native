@@ -40,9 +40,13 @@ import {
 } from "../agent/run-manager.js";
 import {
   claimBackgroundRun,
+  beginAgentExecutionStep,
+  completeAgentExecutionStep,
+  markAgentExecutionStepDispatched,
   insertRun,
   tryClaimRunSlot,
   releaseBackgroundRunBeforeStart,
+  type AgentExecutionStepIntent,
 } from "../agent/run-store.js";
 import {
   buildCurrentTimeUserContext,
@@ -60,6 +64,7 @@ import {
 import {
   classifyToolCallJournal,
   buildResumeJournalNote,
+  toolCallInputFingerprint,
 } from "../agent/tool-call-journal.js";
 import { attachToolSearch } from "../agent/tool-search.js";
 import type { AgentChatEvent } from "../agent/types.js";
@@ -948,11 +953,16 @@ async function confirmAutomationWork(
   );
   if (evidence.status === "skipped") return evidence;
   const { deliveryPlatform, deliveryDestination } = automation.meta;
+  const deliveryResponseText =
+    responseText.trim() ||
+    collectFinalResponseTextFromAgentEvents(priorEvents, {
+      fallbackToPreToolText: false,
+    });
   if (
     (evidence.status === "success" || !evidence.noOpDeclared) &&
     deliveryPlatform &&
     deliveryDestination &&
-    responseText.trim()
+    deliveryResponseText.trim()
   ) {
     const { getDefaultAdapter } =
       await import("../integrations/adapters/index.js");
@@ -963,13 +973,76 @@ async function confirmAutomationWork(
         CONFIG_INVALID_ERROR_CODE,
       );
     }
-    await adapter.sendMessageToTarget(
-      adapter.formatAgentResponse(responseText),
-      {
-        destination: deliveryDestination,
-        threadRef: automation.meta.deliveryThreadRef ?? null,
-        tenantId: automation.meta.deliveryTenantId,
-      },
+    const outgoing = adapter.formatAgentResponse(deliveryResponseText);
+    const target = {
+      destination: deliveryDestination,
+      threadRef: automation.meta.deliveryThreadRef ?? null,
+      tenantId: automation.meta.deliveryTenantId,
+    };
+    const fence = currentExecutionFence();
+    if (
+      !fence ||
+      fence.threadId !== run.threadId ||
+      fence.turnId !== run.turnId ||
+      fence.runId !== run.runId
+    ) {
+      throw new BackgroundAutomationRunError(
+        automationRecoveryMessagesForLocale().unreadable,
+        "background_automation_delivery_journal_unavailable",
+      );
+    }
+    const deliveryIntent: AgentExecutionStepIntent = {
+      ...fence,
+      stepId: "background-automation-delivery",
+      operationId: "background-automation-delivery",
+      toolName: "background-automation-delivery",
+      inputJson: JSON.stringify({
+        platform: deliveryPlatform,
+        target,
+        outgoingFingerprint: toolCallInputFingerprint(outgoing),
+      }),
+      replayPolicy: "never",
+    };
+    const admission = await beginAgentExecutionStep(deliveryIntent);
+    if (admission.status === "completed") {
+      let receipt: unknown;
+      try {
+        receipt = admission.resultJson
+          ? JSON.parse(admission.resultJson)
+          : undefined;
+      } catch {
+        receipt = undefined;
+      }
+      if (
+        !receipt ||
+        typeof receipt !== "object" ||
+        (receipt as { receipt?: { accepted?: unknown } }).receipt?.accepted !==
+          true
+      ) {
+        throw new BackgroundAutomationRunError(
+          automationRecoveryMessagesForLocale().unreadable,
+          "background_automation_delivery_journal_unreadable",
+        );
+      }
+      return { status: "success" };
+    }
+    if (admission.status === "unknown") {
+      throw new BackgroundAutomationRunError(
+        automationRecoveryMessagesForLocale().deliveryUnknown,
+        "background_automation_delivery_unknown",
+      );
+    }
+
+    await markAgentExecutionStepDispatched(deliveryIntent);
+    await adapter.sendMessageToTarget(outgoing, target);
+    await completeAgentExecutionStep(
+      deliveryIntent,
+      JSON.stringify({
+        result: "Automation response delivered.",
+        isError: false,
+        completedSideEffect: true,
+        receipt: { accepted: true },
+      }),
     );
     return { status: "success" };
   }

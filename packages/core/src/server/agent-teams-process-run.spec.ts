@@ -7,11 +7,13 @@ const {
   getProgressRunMock,
   hasNotificationWithMetadataMock,
   insertNotificationMock,
+  revokeTaskExecutionLeaseMock,
 } = vi.hoisted(() => ({
   completeProgressRunMock: vi.fn(),
   getProgressRunMock: vi.fn(),
   hasNotificationWithMetadataMock: vi.fn(),
   insertNotificationMock: vi.fn(),
+  revokeTaskExecutionLeaseMock: vi.fn(),
 }));
 
 let queueRows: Record<string, any>[] = [];
@@ -110,7 +112,10 @@ const queueDb = {
         r.status = "running";
         r.attempts += 1;
         r.updated_at = updatedAt;
-        return affected(1);
+        return {
+          rows: s.includes("RETURNING *") ? [{ ...r }] : [],
+          rowsAffected: 1,
+        };
       }
       return affected(0);
     }
@@ -241,6 +246,8 @@ const queueDb = {
                 updated_at: r.updated_at,
                 thread_id: r.thread_id,
                 payload: r.payload,
+                owner_email: r.owner_email,
+                org_id: r.org_id,
               },
             ]
           : [],
@@ -627,7 +634,7 @@ vi.mock("../agent/run-store.js", () => ({
   ensureRunTables: vi.fn(async () => undefined),
   getRunEventsSince: getRunEventsSinceMock,
   lockTaskExecutionLease: vi.fn(async () => undefined),
-  revokeTaskExecutionLease: vi.fn(async () => undefined),
+  revokeTaskExecutionLease: revokeTaskExecutionLeaseMock,
 }));
 
 const actionsToEngineToolsMock = vi.fn(() => [] as Array<{ name: string }>);
@@ -757,6 +764,7 @@ const {
   listAgentTeamBackgroundTranscriptEvents,
   getTask,
   listTasks,
+  markTaskErrored,
   processAgentTeamRun,
   reconcileStaleAgentTeamRuns,
   reconcileAgentTeamRunsForOwner,
@@ -854,6 +862,8 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     subscribeToRunMock.mockReset();
     getRunEventsSinceMock.mockReset();
     getRunEventsSinceMock.mockResolvedValue([]);
+    revokeTaskExecutionLeaseMock.mockReset();
+    revokeTaskExecutionLeaseMock.mockResolvedValue(undefined);
     completeProgressRunMock.mockReset();
     completeProgressRunMock.mockResolvedValue({ status: "succeeded" });
     getProgressRunMock.mockReset();
@@ -896,6 +906,82 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     );
     expect(threadData.get("thread-1")).toContain("the result");
   }, 20_000);
+
+  it("fails a public task error atomically and fences the active worker", async () => {
+    await seedTask("public-error");
+
+    let releaseLoop!: () => void;
+    let resolveLoopStarted!: () => void;
+    const loopStarted = new Promise<void>((resolve) => {
+      resolveLoopStarted = resolve;
+    });
+    const loopGate = new Promise<void>((resolve) => {
+      releaseLoop = resolve;
+    });
+    runAgentLoopMock.mockImplementation(async (opts: any) => {
+      resolveLoopStarted();
+      await loopGate;
+      opts.send({ type: "text", text: "late worker write" });
+    });
+
+    const processing = processAgentTeamRun({
+      taskId: "public-error",
+      mode: "start",
+      resolveConfig: async () => resolveConfig(),
+    });
+
+    try {
+      await loopStarted;
+      await runWithRequestContext({ userEmail: OWNER }, () =>
+        markTaskErrored("public-error", "Parent reported a failure."),
+      );
+
+      expect(appState.get("agent-task:public-error")).toMatchObject({
+        status: "errored",
+        summary: "Parent reported a failure.",
+        error: "Parent reported a failure.",
+        terminalProgressStatus: "failed",
+      });
+      expect(
+        (await queue.getAgentTeamRunDispatchState("public-error"))?.status,
+      ).toBe("failed");
+      expect(revokeTaskExecutionLeaseMock).toHaveBeenCalledWith(
+        queueDb,
+        "thread-1",
+        "run-task-public-error",
+      );
+      expect(abortRunMock).toHaveBeenCalledWith(
+        expect.stringContaining("run-task-public-error"),
+        "superseded",
+      );
+      await expect(queue.claimAgentTeamRun("public-error")).resolves.toBeNull();
+
+      releaseLoop();
+      await processing;
+      expect(appState.get("agent-task:public-error")).toMatchObject({
+        status: "errored",
+        summary: "Parent reported a failure.",
+      });
+    } finally {
+      releaseLoop();
+    }
+  }, 20_000);
+
+  it("keeps markTaskErrored inside the requesting owner's scope", async () => {
+    await seedTask("public-error-owner");
+
+    await runWithRequestContext({ userEmail: "other@example.com" }, () =>
+      markTaskErrored("public-error-owner", "outside owner scope"),
+    );
+
+    expect(appState.get("agent-task:public-error-owner")).toMatchObject({
+      status: "running",
+    });
+    expect(
+      (await queue.getAgentTeamRunDispatchState("public-error-owner"))?.status,
+    ).toBe("queued");
+    expect(revokeTaskExecutionLeaseMock).not.toHaveBeenCalled();
+  });
 
   it("requeues a team attempt when its execution lease claim is busy", async () => {
     failNextExecutionLeaseClaim = true;
