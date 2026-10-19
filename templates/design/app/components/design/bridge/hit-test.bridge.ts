@@ -1,3 +1,9 @@
+import {
+  alpineGeneratedChildrenOf,
+  buildSourceEquivalentSelector,
+  isEditorInjectedElement,
+  resolveSourceEquivalentSelector,
+} from "../../../../shared/source-equivalent-selector";
 /**
  * Lightweight hit-test bridge — injected into every inline Edit canvas iframe so the
  * parent editor can resolve drop-anchor positions via postMessage without a full
@@ -1191,117 +1197,6 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
   // pending node id onto the WRONG source element. When bumping Alpine,
   // re-verify these fields and the clone-vs-source guard tests in
   // bridge.guard.spec.ts.
-  function alpineGeneratedChildrenOf(parent: Element): Element[] {
-    var generated: Element[] = [];
-    var children = parent.children;
-    for (var i = 0; i < children.length; i += 1) {
-      var child = children[i] as Element & {
-        _x_lookup?: Map<unknown, Element> | Record<string, Element>;
-        _x_currentIfEl?: Element;
-      };
-      if (!child.tagName || child.tagName.toLowerCase() !== "template") {
-        continue;
-      }
-      try {
-        if (child._x_currentIfEl) generated.push(child._x_currentIfEl);
-        var lookup = child._x_lookup;
-        if (lookup) {
-          var map = lookup as Map<unknown, Element>;
-          if (
-            typeof map.forEach === "function" &&
-            typeof map.get === "function"
-          ) {
-            map.forEach(function (item) {
-              if (item) generated.push(item);
-            });
-          } else {
-            var record = lookup as Record<string, Element>;
-            for (var key in record) {
-              if (Object.prototype.hasOwnProperty.call(record, key)) {
-                var item = record[key];
-                if (item) generated.push(item);
-              }
-            }
-          }
-        }
-      } catch (_err) {}
-    }
-    return generated;
-  }
-
-  function isEditorInjectedElement(el: Element): boolean {
-    return !!(
-      el.getAttribute &&
-      (el.getAttribute("data-agent-native-edit-overlay") !== null ||
-        el.getAttribute("data-agent-native-hit-test-preview") !== null)
-    );
-  }
-
-  function buildSourceEquivalentSelector(el: Element | null): string {
-    if (!el || el === document.documentElement || el === document.body) {
-      return "";
-    }
-    var parts: string[] = [];
-    var node: Element | null = el;
-    while (node && node !== document.body) {
-      var parent: Element | null = node.parentElement;
-      if (!parent) return "";
-      var generated = alpineGeneratedChildrenOf(parent);
-      if (generated.indexOf(node) !== -1) return "";
-      if (isEditorInjectedElement(node)) return "";
-      var tag = node.tagName ? node.tagName.toLowerCase() : "";
-      if (!tag || tag === "template") return "";
-      var nth = 0;
-      var siblings = parent.children;
-      for (var i = 0; i < siblings.length; i += 1) {
-        var sib = siblings[i];
-        if (!sib.tagName || sib.tagName.toLowerCase() !== tag) continue;
-        if (generated.indexOf(sib) !== -1) continue;
-        if (isEditorInjectedElement(sib)) continue;
-        nth += 1;
-        if (sib === node) break;
-      }
-      if (nth === 0) return "";
-      parts.unshift(tag + ":nth-of-type(" + nth + ")");
-      node = parent;
-    }
-    if (!node) return "";
-    parts.unshift("body");
-    return parts.join(" > ");
-  }
-
-  // Walks the selector the way buildSourceEquivalentSelector counted it. querySelector
-  // would count the generated and injected siblings that the builder skips.
-  function resolveSourceEquivalentSelector(selector: string): Element | null {
-    var parts = selector.split(" > ");
-    if (parts[0] !== "body") return null;
-    var current: Element | null = document.body;
-    for (var partIndex = 1; partIndex < parts.length; partIndex += 1) {
-      var match = /^([a-z][a-z0-9-]*):nth-of-type\((\d+)\)$/.exec(
-        parts[partIndex],
-      );
-      if (!match || !current) return null;
-      var tag = match[1];
-      var wanted = Number(match[2]);
-      var generated = alpineGeneratedChildrenOf(current);
-      var seen = 0;
-      var found: Element | null = null;
-      for (var i = 0; i < current.children.length; i += 1) {
-        var sib: Element = current.children[i];
-        if (sib.tagName.toLowerCase() !== tag) continue;
-        if (generated.indexOf(sib) !== -1) continue;
-        if (isEditorInjectedElement(sib)) continue;
-        seen += 1;
-        if (seen === wanted) {
-          found = sib;
-          break;
-        }
-      }
-      current = found;
-    }
-    return current;
-  }
-
   function isMultiTrackGrid(container: Element) {
     var styles = window.getComputedStyle(container);
     return (
@@ -2028,8 +1923,10 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
       if (!reviewSelectorCorrelationId || typeof reviewSelector !== "string") {
         return;
       }
-      var reviewSelectorElement =
-        resolveSourceEquivalentSelector(reviewSelector);
+      var reviewSelectorElement = resolveSourceEquivalentSelector(
+        document,
+        reviewSelector,
+      );
       if (reviewSelectorElement === document.body) reviewSelectorElement = null;
       var reviewSelectorBox = reviewSelectorElement
         ? reviewSelectorElement.getBoundingClientRect()

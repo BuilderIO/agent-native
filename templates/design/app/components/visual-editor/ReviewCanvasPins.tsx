@@ -27,6 +27,7 @@ import {
 import { ReviewCommentComposer } from "@agent-native/toolkit/app/review";
 import { canvasToScreenPoint, screenToCanvasPoint } from "@shared/canvas-math";
 import type { NodeRewriteTarget } from "@shared/node-rewrite";
+import { resolveSourceEquivalentSelector } from "@shared/source-equivalent-selector";
 import {
   IconChevronDown,
   IconCircleCheck,
@@ -486,18 +487,24 @@ function stopReviewOverlayEvent(event: { stopPropagation: () => void }) {
   event.stopPropagation();
 }
 
+/** The element a saved source-equivalent selector names, resolved the way the bridge built it. */
+function selectorElement(
+  canvas: HTMLElement,
+  selector: string,
+): Element | null {
+  const iframe = canvas.querySelector<HTMLIFrameElement>(
+    "iframe[data-design-preview-iframe]",
+  );
+  const doc = iframe?.contentDocument;
+  return doc ? resolveSourceEquivalentSelector(doc, selector) : null;
+}
+
 function selectorPoint(
   canvas: HTMLElement,
   selector: string,
 ): ReviewAnchorPoint | null {
-  const iframe = canvas.querySelector<HTMLIFrameElement>(
-    "iframe[data-design-preview-iframe]",
-  );
   try {
-    return elementPoint(
-      canvas,
-      iframe?.contentDocument?.querySelector(selector) ?? null,
-    );
+    return elementPoint(canvas, selectorElement(canvas, selector));
   } catch {
     return null;
   }
@@ -1099,6 +1106,7 @@ export function ReviewCanvasPins({
   const hoverPointerRef = useRef<{ x: number; y: number } | null>(null);
   const hoverFrameRef = useRef<number | null>(null);
   const hoverRequestRef = useRef(0);
+  const selectorRequestRef = useRef(0);
   const lastFocusNonceRef = useRef<number | null>(null);
   const pendingFocusNonceRef = useRef<number | null>(null);
   const migratedBoardAnchorIdsRef = useRef<Set<string>>(new Set());
@@ -1171,34 +1179,22 @@ export function ReviewCanvasPins({
           ? materializeBoardReviewAnchor(effectiveAnchor, boardGeometry)
           : parseReviewAnchor(effectiveAnchor);
       if (parsed?.relativePoint && canvas) {
-        const element = parsed.nodeId
-          ? findNodeElement(canvas, parsed.nodeId)
-          : parsed.selector
-            ? (() => {
-                const iframe = canvas.querySelector<HTMLIFrameElement>(
-                  "iframe[data-design-preview-iframe]",
-                );
-                try {
-                  return (
-                    iframe?.contentDocument?.querySelector(parsed.selector) ??
-                    null
-                  );
-                  // coercion-ok: cross-origin preview frames make selector lookup unavailable.
-                } catch {
-                  return null;
-                }
-              })()
-            : null;
+        const nodeId = parsed.nodeId;
+        const nodeElement = nodeId ? findNodeElement(canvas, nodeId) : null;
+        // A repeated data-loc resolves to no node element; the saved selector names this instance.
+        const element =
+          nodeElement ??
+          (parsed.selector ? selectorElement(canvas, parsed.selector) : null);
         const point = relativeElementCanvasPoint(
           canvas,
           element,
           parsed.relativePoint,
-          parsed.nodeId ? frameNodeGeometry[parsed.nodeId] : undefined,
+          nodeElement && nodeId ? frameNodeGeometry[nodeId] : undefined,
         );
         if (point) {
           return {
             point,
-            source: parsed.nodeId ? ("node" as const) : ("selector" as const),
+            source: nodeElement ? ("node" as const) : ("selector" as const),
           };
         }
       }
@@ -1556,6 +1552,7 @@ export function ReviewCanvasPins({
       : popoverSnapshot
     : hoverTarget;
   const highlightNodeId = highlightTarget?.nodeId ?? null;
+  const highlightHasBox = Boolean(highlightTarget?.box);
 
   const anchoredNodeIds = useMemo(() => {
     const nodeIds = new Set<string>();
@@ -1567,9 +1564,10 @@ export function ReviewCanvasPins({
       ? resolveReviewAnchor(draftPin.anchor, () => null)
       : null;
     if (draft?.anchor.nodeId) nodeIds.add(draft.anchor.nodeId);
-    if (highlightNodeId) nodeIds.add(highlightNodeId);
+    // A box already measured for the highlight needs no node rect, and asking for one re-renders on every hover.
+    if (highlightNodeId && !highlightHasBox) nodeIds.add(highlightNodeId);
     return [...nodeIds].sort();
-  }, [draftPin, highlightNodeId, threads]);
+  }, [draftPin, highlightHasBox, highlightNodeId, threads]);
 
   useEffect(() => {
     if (!canvas || anchoredNodeIds.length === 0) {
@@ -2124,9 +2122,12 @@ export function ReviewCanvasPins({
       );
       if (!iframe?.contentWindow) return;
       const correlationId = crypto.randomUUID();
-      frameCallbacksRef.current.set(correlationId, (payload) =>
-        onBox(frameBoxFromPayload(payload)),
-      );
+      const request = ++selectorRequestRef.current;
+      frameCallbacksRef.current.set(correlationId, (payload) => {
+        // A newer layout change has re-measured since this request went out.
+        if (request !== selectorRequestRef.current) return;
+        onBox(frameBoxFromPayload(payload));
+      });
       window.setTimeout(
         () => frameCallbacksRef.current.delete(correlationId),
         2_000,

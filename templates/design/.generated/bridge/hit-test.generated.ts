@@ -4,6 +4,101 @@
 /** Compiled IIFE string for hit-test.bridge.ts — inject into an iframe via srcdoc or a <script> tag. */
 export const hitTestBridgeScript: string = `"use strict";
 (() => {
+  // shared/source-equivalent-selector.ts
+  function alpineGeneratedChildrenOf(parent) {
+    const generated = [];
+    const children = parent.children;
+    for (let i = 0; i < children.length; i += 1) {
+      const child = children[i];
+      if (!child.tagName || child.tagName.toLowerCase() !== "template") {
+        continue;
+      }
+      if (child._x_currentIfEl) generated.push(child._x_currentIfEl);
+      const lookup = child._x_lookup;
+      if (lookup) {
+        const map = lookup;
+        if (typeof map.forEach === "function" && typeof map.get === "function") {
+          map.forEach((item) => {
+            if (item) generated.push(item);
+          });
+        } else {
+          const record = lookup;
+          for (const key in record) {
+            if (Object.prototype.hasOwnProperty.call(record, key)) {
+              const item = record[key];
+              if (item) generated.push(item);
+            }
+          }
+        }
+      }
+    }
+    return generated;
+  }
+  function isEditorInjectedElement(el) {
+    return !!(el.getAttribute && (el.getAttribute("data-agent-native-edit-overlay") !== null || el.getAttribute("data-agent-native-hit-test-preview") !== null));
+  }
+  function buildSourceEquivalentSelector(el) {
+    if (!el || !el.ownerDocument) return "";
+    const doc = el.ownerDocument;
+    if (el === doc.documentElement || el === doc.body) return "";
+    const parts = [];
+    let node = el;
+    while (node && node !== doc.body) {
+      const parent = node.parentElement;
+      if (!parent) return "";
+      const generated = alpineGeneratedChildrenOf(parent);
+      if (generated.indexOf(node) !== -1) return "";
+      if (isEditorInjectedElement(node)) return "";
+      const tag = node.tagName ? node.tagName.toLowerCase() : "";
+      if (!tag || tag === "template") return "";
+      let nth = 0;
+      const siblings = parent.children;
+      for (let i = 0; i < siblings.length; i += 1) {
+        const sib = siblings[i];
+        if (!sib.tagName || sib.tagName.toLowerCase() !== tag) continue;
+        if (generated.indexOf(sib) !== -1) continue;
+        if (isEditorInjectedElement(sib)) continue;
+        nth += 1;
+        if (sib === node) break;
+      }
+      if (nth === 0) return "";
+      parts.unshift(\`\${tag}:nth-of-type(\${nth})\`);
+      node = parent;
+    }
+    if (!node) return "";
+    parts.unshift("body");
+    return parts.join(" > ");
+  }
+  function resolveSourceEquivalentSelector(doc, selector) {
+    const parts = selector.split(" > ");
+    if (parts[0] !== "body") return null;
+    let current = doc.body;
+    for (let partIndex = 1; partIndex < parts.length; partIndex += 1) {
+      const match = /^([a-z][a-z0-9-]*)(?::nth-of-type\\((\\d+)\\))?$/.exec(
+        parts[partIndex] ?? ""
+      );
+      if (!match || !current) return null;
+      const tag = match[1] ?? "";
+      const wanted = match[2] === void 0 ? 1 : Number(match[2]);
+      const generated = alpineGeneratedChildrenOf(current);
+      let seen = 0;
+      let found = null;
+      for (let i = 0; i < current.children.length; i += 1) {
+        const sib = current.children[i];
+        if (!sib || sib.tagName.toLowerCase() !== tag) continue;
+        if (generated.indexOf(sib) !== -1) continue;
+        if (isEditorInjectedElement(sib)) continue;
+        seen += 1;
+        if (seen === wanted) {
+          found = sib;
+          break;
+        }
+      }
+      current = found;
+    }
+    return current === doc.body ? null : current;
+  }
+
   // shared/text-layer-rule.ts
   var INLINE_TEXT_TAGS = /* @__PURE__ */ new Set([
     "a",
@@ -794,102 +889,6 @@ export const hitTestBridgeScript: string = `"use strict";
       }
       return minted;
     }
-    function alpineGeneratedChildrenOf(parent) {
-      var generated = [];
-      var children = parent.children;
-      for (var i = 0; i < children.length; i += 1) {
-        var child = children[i];
-        if (!child.tagName || child.tagName.toLowerCase() !== "template") {
-          continue;
-        }
-        try {
-          if (child._x_currentIfEl) generated.push(child._x_currentIfEl);
-          var lookup = child._x_lookup;
-          if (lookup) {
-            var map = lookup;
-            if (typeof map.forEach === "function" && typeof map.get === "function") {
-              map.forEach(function(item2) {
-                if (item2) generated.push(item2);
-              });
-            } else {
-              var record = lookup;
-              for (var key in record) {
-                if (Object.prototype.hasOwnProperty.call(record, key)) {
-                  var item = record[key];
-                  if (item) generated.push(item);
-                }
-              }
-            }
-          }
-        } catch (_err) {
-        }
-      }
-      return generated;
-    }
-    function isEditorInjectedElement(el) {
-      return !!(el.getAttribute && (el.getAttribute("data-agent-native-edit-overlay") !== null || el.getAttribute("data-agent-native-hit-test-preview") !== null));
-    }
-    function buildSourceEquivalentSelector(el) {
-      if (!el || el === document.documentElement || el === document.body) {
-        return "";
-      }
-      var parts = [];
-      var node = el;
-      while (node && node !== document.body) {
-        var parent = node.parentElement;
-        if (!parent) return "";
-        var generated = alpineGeneratedChildrenOf(parent);
-        if (generated.indexOf(node) !== -1) return "";
-        if (isEditorInjectedElement(node)) return "";
-        var tag = node.tagName ? node.tagName.toLowerCase() : "";
-        if (!tag || tag === "template") return "";
-        var nth = 0;
-        var siblings = parent.children;
-        for (var i = 0; i < siblings.length; i += 1) {
-          var sib = siblings[i];
-          if (!sib.tagName || sib.tagName.toLowerCase() !== tag) continue;
-          if (generated.indexOf(sib) !== -1) continue;
-          if (isEditorInjectedElement(sib)) continue;
-          nth += 1;
-          if (sib === node) break;
-        }
-        if (nth === 0) return "";
-        parts.unshift(tag + ":nth-of-type(" + nth + ")");
-        node = parent;
-      }
-      if (!node) return "";
-      parts.unshift("body");
-      return parts.join(" > ");
-    }
-    function resolveSourceEquivalentSelector(selector) {
-      var parts = selector.split(" > ");
-      if (parts[0] !== "body") return null;
-      var current = document.body;
-      for (var partIndex = 1; partIndex < parts.length; partIndex += 1) {
-        var match = /^([a-z][a-z0-9-]*):nth-of-type\\((\\d+)\\)$/.exec(
-          parts[partIndex]
-        );
-        if (!match || !current) return null;
-        var tag = match[1];
-        var wanted = Number(match[2]);
-        var generated = alpineGeneratedChildrenOf(current);
-        var seen = 0;
-        var found = null;
-        for (var i = 0; i < current.children.length; i += 1) {
-          var sib = current.children[i];
-          if (sib.tagName.toLowerCase() !== tag) continue;
-          if (generated.indexOf(sib) !== -1) continue;
-          if (isEditorInjectedElement(sib)) continue;
-          seen += 1;
-          if (seen === wanted) {
-            found = sib;
-            break;
-          }
-        }
-        current = found;
-      }
-      return current;
-    }
     function isMultiTrackGrid(container) {
       var styles = window.getComputedStyle(container);
       return (styles.display === "grid" || styles.display === "inline-grid") && (styles.gridTemplateColumns || "").split(" ").filter(Boolean).length > 1;
@@ -1421,7 +1420,10 @@ export const hitTestBridgeScript: string = `"use strict";
         if (!reviewSelectorCorrelationId || typeof reviewSelector !== "string") {
           return;
         }
-        var reviewSelectorElement = resolveSourceEquivalentSelector(reviewSelector);
+        var reviewSelectorElement = resolveSourceEquivalentSelector(
+          document,
+          reviewSelector
+        );
         if (reviewSelectorElement === document.body) reviewSelectorElement = null;
         var reviewSelectorBox = reviewSelectorElement ? reviewSelectorElement.getBoundingClientRect() : null;
         window.parent.postMessage(

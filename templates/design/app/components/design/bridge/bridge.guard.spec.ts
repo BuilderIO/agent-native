@@ -600,7 +600,12 @@ const BRIDGE_SAFE_IMPORTS: Readonly<Record<string, readonly string[]>> = {
     "../../../../shared/text-layer-rule",
     "../../../../shared/relative-position-containing-block",
   ],
-  "hit-test.bridge.ts": ["../../../../shared/text-layer-rule"],
+  // The source-equivalent selector walker is shared with the parent canvas, which resolves
+  // the selectors the bridge builds, so both sides skip the same siblings.
+  "hit-test.bridge.ts": [
+    "../../../../shared/text-layer-rule",
+    "../../../../shared/source-equivalent-selector",
+  ],
   // A pure, dependency-free module shared with the editor, so the media-query
   // rewrite and the dark-style scan have one definition and one unit test.
   "preview-theme.bridge.ts": ["../../../../shared/preview-color-scheme"],
