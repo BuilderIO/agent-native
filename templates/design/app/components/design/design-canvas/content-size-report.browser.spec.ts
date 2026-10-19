@@ -103,3 +103,69 @@ describe("content size reporter cost", () => {
     }
   });
 });
+
+describe("content size reporter during a layer move", () => {
+  it("holds the frame height while a layer is moved below it and reports once the move ends", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 800, height: 600 },
+      });
+      await page.setContent(
+        appendContentSizeReporter(
+          `<!doctype html><html><body style="margin:0"><div id="layer" style="position:absolute;left:0;top:40px;width:80px;height:80px"></div></body></html>`,
+        ),
+      );
+      await page.waitForTimeout(1_200);
+      await page.evaluate(() => {
+        const reports: number[] = [];
+        (window as Window & { __heights?: number[] }).__heights = reports;
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "agent-native:content-size") {
+            reports.push(event.data.height);
+          }
+        });
+      });
+      const heights = () =>
+        page.evaluate(
+          () => (window as Window & { __heights?: number[] }).__heights ?? [],
+        );
+      const moveEnds = () =>
+        page.evaluate(() => {
+          (
+            window as Window & { __agentNativeLayerMoveActive?: boolean }
+          ).__agentNativeLayerMoveActive = false;
+          window.dispatchEvent(new Event("agent-native:layer-move-change"));
+        });
+
+      await page.evaluate(() => {
+        (
+          window as Window & { __agentNativeLayerMoveActive?: boolean }
+        ).__agentNativeLayerMoveActive = true;
+        window.dispatchEvent(new Event("agent-native:layer-move-change"));
+        document.getElementById("layer")!.style.top = "1100px";
+      });
+      await page.waitForTimeout(150);
+      expect(await heights()).toEqual([]);
+
+      await page.evaluate(() => {
+        document.getElementById("layer")!.style.top = "40px";
+      });
+      await moveEnds();
+      await page.waitForTimeout(150);
+      expect(await heights()).toEqual([]);
+
+      await page.evaluate(() => {
+        (
+          window as Window & { __agentNativeLayerMoveActive?: boolean }
+        ).__agentNativeLayerMoveActive = true;
+        document.getElementById("layer")!.style.top = "900px";
+      });
+      await moveEnds();
+      await page.waitForTimeout(150);
+      expect(await heights()).toEqual([980]);
+    } finally {
+      await browser.close();
+    }
+  });
+});

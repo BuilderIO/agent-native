@@ -48,7 +48,7 @@ An unregistered flag always evaluates to `false`, no matter what an operator lat
 This is the check that actually matters, since every caller, whether that's the agent, the frontend, or a script, has to go through it:
 
 ```ts
-// actions/create-fusion-app.ts
+// actions/create-builder-app.ts
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 
 run: async (args, ctx) => {

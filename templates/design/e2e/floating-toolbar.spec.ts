@@ -44,7 +44,6 @@ async function agentContext(page: Page) {
 }
 
 test.describe("floating toolbar", () => {
-  // oracle: none — verifies which tools exist and what they do, not parity with a design reference.
   test("offers Move, Frame, Shapes, Text, Pen and Comment, each with the menu it needs, and no Agent", async ({
     page,
   }) => {
@@ -86,7 +85,6 @@ test.describe("floating toolbar", () => {
     }
   });
 
-  // oracle: none — verifies which tools exist and what they do, not parity with a design reference.
   test("Text is a button of its own and follows the tool", async ({ page }) => {
     await gotoEditor(page, await readSeedDesignId());
     const toolbar = page.locator(TOOLBAR);
@@ -105,7 +103,6 @@ test.describe("floating toolbar", () => {
     await expect(text).toHaveAttribute("aria-pressed", "true");
   });
 
-  // oracle: none — verifies which tools exist and what they do, not parity with a design reference.
   test("the Shapes button shows the tool in use, and keeps the last one unarmed when the pointer is back on Move", async ({
     page,
   }) => {
@@ -150,7 +147,6 @@ test.describe("floating toolbar", () => {
     await expect(shapesButton).toHaveAttribute("aria-pressed", "false");
   });
 
-  // oracle: none — verifies which tools exist and what they do, not parity with a design reference.
   test("C pins comments and opens the Threads panel, and its rows are in the shortcuts dialog", async ({
     page,
   }) => {
@@ -191,7 +187,6 @@ test.describe("floating toolbar", () => {
     );
   });
 
-  // oracle: none — verifies which tools exist and what they do, not parity with a design reference.
   test("Interact has no bottom toolbar, and tool shortcuts arm nothing there", async ({
     page,
   }) => {
@@ -215,7 +210,6 @@ test.describe("floating toolbar", () => {
       .toMatchObject({ mode: "interact", activeTool: "move" });
   });
 
-  // oracle: none — verifies which tools exist and what they do, not parity with a design reference.
   test("a stale ?tool=agent link lands on Move", async ({ page }) => {
     const designId = await readSeedDesignId();
     await resetPersistedCanvasState(page);

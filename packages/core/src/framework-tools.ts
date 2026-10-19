@@ -196,6 +196,8 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "list-sign-in-methods": "orgAdministration",
   "explain-access": "orgAdministration",
   "offboard-member": "orgAdministration",
+  "list-organization-members": "orgAdministration",
+  "invite-organization-member": "orgAdministration",
   "get-file-storage": "orgAdministration",
   "manage-file-storage": "orgAdministration",
   "manage-service-providers": "orgAdministration",

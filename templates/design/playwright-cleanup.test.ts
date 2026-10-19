@@ -1,11 +1,17 @@
-import type { ChildProcess } from "node:child_process";
+import { spawnSync, type ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 
-import type { TestCase, TestResult } from "@playwright/test/reporter";
+import type {
+  FullResult,
+  TestCase,
+  TestResult,
+} from "@playwright/test/reporter";
 import { describe, expect, it, vi } from "vitest";
 
 import { startLoopbackProvider } from "./e2e/global-setup";
@@ -22,6 +28,40 @@ const testCase = (expectedStatus: TestCase["expectedStatus"]): TestCase =>
   ({ expectedStatus }) as TestCase;
 const testResult = (status: TestResult["status"]): TestResult =>
   ({ status }) as TestResult;
+const pinFile = path.resolve(
+  import.meta.dirname,
+  "e2e",
+  "retry-failure-reporter.fixture.spec.ts",
+);
+const pinSelector = "e2e/retry-failure-reporter.fixture.spec.ts:42";
+const pinTitle = "the pinned behavior runs";
+const pinIdentity = { selector: pinSelector, title: pinTitle };
+const require = createRequire(import.meta.url);
+const PLAYWRIGHT_CLI = require.resolve("@playwright/test/cli");
+const REPORTER_PATH = path.join(
+  import.meta.dirname,
+  "e2e",
+  "retry-failure-reporter.ts",
+);
+const pinTestCase = (
+  expectedStatus: TestCase["expectedStatus"],
+  id: string,
+  line = 42,
+  title = pinTitle,
+): TestCase =>
+  ({
+    id,
+    title,
+    expectedStatus,
+    location: { file: pinFile, line },
+  }) as TestCase;
+const reporterWithPinAttestation = (
+  requiredPinIdentities = [pinIdentity],
+): RetryFailureReporter =>
+  new RetryFailureReporter({
+    markerPath: path.join(os.tmpdir(), "unused-design-retry-marker"),
+    requiredPinIdentities: JSON.stringify(requiredPinIdentities),
+  });
 
 async function waitForPidFile(pidPath: string): Promise<number> {
   const deadline = Date.now() + 1_000;
@@ -262,6 +302,277 @@ describe("Design Playwright artifact cleanup", () => {
       reporter.onTestEnd(testCase("passed"), testResult("timedOut"));
       expect(existsSync(markerPath)).toBe(true);
     } finally {
+      await rm(outputDir, { recursive: true, force: true });
+    }
+  });
+
+  it("attests a passed required pin from its absolute Playwright location", async () => {
+    const reporter = reporterWithPinAttestation();
+    reporter.onTestEnd(
+      pinTestCase("passed", "passed-pin"),
+      testResult("passed"),
+    );
+
+    await expect(reporter.onEnd()).resolves.toBeUndefined();
+  });
+
+  it("ignores unrelated test locations but still fails for a missing required pin", async () => {
+    const reportError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      const reporter = reporterWithPinAttestation();
+      reporter.onTestEnd(
+        {
+          id: "unrelated-test",
+          expectedStatus: "passed",
+          location: {
+            file: path.resolve(
+              import.meta.dirname,
+              "../../packages/core/unrelated.spec.ts",
+            ),
+            line: 42,
+          },
+        } as TestCase,
+        testResult("passed"),
+      );
+
+      await expect(reporter.onEnd()).resolves.toEqual({ status: "failed" });
+      expect(reportError).toHaveBeenCalledWith(
+        expect.stringContaining(`(0/1): ${pinSelector}`),
+      );
+
+      const invalidSelectorReporter = new RetryFailureReporter({
+        markerPath: path.join(os.tmpdir(), "unused-design-retry-marker"),
+        requiredPinIdentities: JSON.stringify([
+          {
+            selector: "../../packages/core/unrelated.spec.ts:42",
+            title: pinTitle,
+          },
+        ]),
+      });
+      await expect(invalidSelectorReporter.onEnd()).resolves.toEqual({
+        status: "failed",
+      });
+      expect(reportError).toHaveBeenCalledWith(
+        expect.stringContaining("path is outside templates/design"),
+      );
+    } finally {
+      reportError.mockRestore();
+    }
+  });
+
+  it("does not let a different test on the selected line satisfy a required pin", async () => {
+    const reportError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      const reporter = reporterWithPinAttestation();
+      reporter.onTestEnd(
+        pinTestCase("passed", "same-line-neighbor", 42, "an adjacent test"),
+        testResult("passed"),
+      );
+
+      await expect(reporter.onEnd()).resolves.toEqual({ status: "failed" });
+      expect(reportError).toHaveBeenCalledWith(
+        expect.stringContaining(
+          `(0/1): ${pinSelector} / ${JSON.stringify(pinTitle)}`,
+        ),
+      );
+    } finally {
+      reportError.mockRestore();
+    }
+  });
+
+  it("passes the required pin identity from the environment to the reporter", async () => {
+    const runId = randomUUID();
+    const requiredPinIdentities = JSON.stringify([pinIdentity]);
+    const configUrl = new URL("./playwright.config.ts", import.meta.url).href;
+    const script = [
+      `const { default: config } = await import(${JSON.stringify(configUrl)});`,
+      `const reporter = config.reporter.find((entry) => Array.isArray(entry) && entry[0] === ${JSON.stringify(REPORTER_PATH)});`,
+      'if (!reporter) throw new Error("required reporter is missing");',
+      "process.stdout.write(String(reporter[1].requiredPinIdentities));",
+    ].join("\n");
+    const result = spawnSync(
+      process.execPath,
+      ["--experimental-strip-types", "--input-type=module", "--eval", script],
+      {
+        cwd: import.meta.dirname,
+        encoding: "utf8",
+        timeout: 15_000,
+        env: {
+          ...process.env,
+          E2E_REQUIRED_PIN_IDENTITIES: requiredPinIdentities,
+          E2E_RUN_ID: `reporter-config-${runId}`,
+          E2E_RUN_ROOT: path.join(os.tmpdir(), `reporter-config-${runId}`),
+          E2E_AUTH_DIR: path.join(os.tmpdir(), `reporter-auth-${runId}`),
+          E2E_DATABASE_URL: `pglite:${path.join(os.tmpdir(), `reporter-db-${runId}`)}`,
+          E2E_RUN_RESULTS_DIR: path.join(
+            os.tmpdir(),
+            `reporter-results-${runId}`,
+          ),
+          E2E_AI_SIDEBAR_LOOPBACK: "0",
+          E2E_DISABLE_AUTO_DEV_ACCOUNT: "0",
+        },
+      },
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe(requiredPinIdentities);
+  });
+
+  it("fails a real Playwright run when only a same-line neighbor passes", async () => {
+    const fixtureDirectory = await mkdtemp(
+      path.join(import.meta.dirname, "e2e", ".required-pin-runner-"),
+    );
+    const specPath = path.join(fixtureDirectory, "same-line-neighbor.spec.ts");
+    const configPath = path.join(fixtureDirectory, "playwright.config.mjs");
+    const markerPath = path.join(fixtureDirectory, RETRY_FAILURE_MARKER);
+    const source = [
+      'import { test } from "@playwright/test";',
+      'test("same-line neighbor passes", () => {});',
+      "",
+    ].join("\n");
+    const relativeFile = path
+      .relative(import.meta.dirname, specPath)
+      .split(path.sep)
+      .join("/");
+    const config = {
+      testDir: fixtureDirectory,
+      testMatch: "same-line-neighbor.spec.ts",
+      outputDir: path.join(fixtureDirectory, "results"),
+      reporter: [
+        ["list"],
+        [
+          REPORTER_PATH,
+          {
+            markerPath,
+            requiredPinIdentities: JSON.stringify([
+              { selector: `${relativeFile}:2`, title: "the pinned behavior" },
+            ]),
+          },
+        ],
+      ],
+    };
+
+    try {
+      await writeFile(specPath, source);
+      await writeFile(
+        configPath,
+        `export default ${JSON.stringify(config)};\n`,
+      );
+      const result = spawnSync(
+        process.execPath,
+        [PLAYWRIGHT_CLI, "test", "--config", configPath, "--workers=1"],
+        { cwd: import.meta.dirname, encoding: "utf8", timeout: 15_000 },
+      );
+
+      expect(result.error).toBeUndefined();
+      expect(result.status).toBe(1);
+      expect(result.stdout).toContain("1 passed");
+      expect(result.stderr).toContain(
+        "required Design pin did not produce a result (0/1)",
+      );
+      expect(result.stderr).toContain(
+        `${relativeFile}:2 / "the pinned behavior"`,
+      );
+    } finally {
+      await rm(fixtureDirectory, { recursive: true, force: true });
+    }
+  });
+
+  it("fails a required pin skipped at runtime through a TestInfo alias", async () => {
+    const reportError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      const reporter = reporterWithPinAttestation();
+      reporter.onTestEnd(
+        pinTestCase("passed", "runtime-skip-pin"),
+        testResult("skipped"),
+      );
+
+      await expect(reporter.onEnd()).resolves.toEqual({ status: "failed" });
+      expect(reportError).toHaveBeenCalledWith(
+        expect.stringContaining("status=skipped, expectedStatus=passed"),
+      );
+    } finally {
+      reportError.mockRestore();
+    }
+  });
+
+  it("fails a required pin that was statically marked fixme", async () => {
+    const reportError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      const reporter = reporterWithPinAttestation();
+      reporter.onTestEnd(
+        pinTestCase("skipped", "fixme-pin"),
+        testResult("skipped"),
+      );
+
+      await expect(reporter.onEnd()).resolves.toEqual({ status: "failed" });
+      expect(reportError).toHaveBeenCalledWith(
+        expect.stringContaining("status=skipped, expectedStatus=skipped"),
+      );
+    } finally {
+      reportError.mockRestore();
+    }
+  });
+
+  it("fails when a required pin did not produce a result at its selected line", async () => {
+    const reportError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      const reporter = reporterWithPinAttestation();
+      reporter.onTestEnd(
+        pinTestCase("passed", "wrong-line-pin", 43),
+        testResult("passed"),
+      );
+
+      await expect(reporter.onEnd()).resolves.toEqual({ status: "failed" });
+      expect(reportError).toHaveBeenCalledWith(
+        expect.stringContaining(`(0/1): ${pinSelector}`),
+      );
+    } finally {
+      reportError.mockRestore();
+    }
+  });
+
+  it("uses the final retry outcome and fails an interrupted attested run", async () => {
+    const outputDir = await mkdtemp(
+      path.join(os.tmpdir(), "design-playwright-required-pin-retry-"),
+    );
+    const markerPath = path.join(outputDir, RETRY_FAILURE_MARKER);
+    const reportError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      const reporter = new RetryFailureReporter({
+        markerPath,
+        requiredPinIdentities: JSON.stringify([pinIdentity]),
+      });
+      reporter.onTestEnd(
+        pinTestCase("passed", "retry-pin"),
+        testResult("failed"),
+      );
+      reporter.onTestEnd(
+        pinTestCase("passed", "retry-pin"),
+        testResult("passed"),
+      );
+      expect(existsSync(markerPath)).toBe(true);
+      await expect(reporter.onEnd()).resolves.toBeUndefined();
+
+      const interruptedReporter = reporterWithPinAttestation();
+      interruptedReporter.onTestEnd(
+        pinTestCase("passed", "interrupted-pin"),
+        testResult("passed"),
+      );
+      await expect(
+        interruptedReporter.onEnd({ status: "interrupted" } as FullResult),
+      ).resolves.toEqual({ status: "failed" });
+      expect(reportError).toHaveBeenCalledWith(
+        expect.stringContaining("run ended with status interrupted"),
+      );
+    } finally {
+      reportError.mockRestore();
       await rm(outputDir, { recursive: true, force: true });
     }
   });

@@ -494,6 +494,8 @@ describe("multi-select dashboard filter", () => {
         values: ["free", "enterprise"],
       });
       expect(() => groupNameInput()).toThrow("not rendered");
+      act(() => popoverButton("Save as group…").click());
+      expect(groupNameInput().value).toBe("");
     });
 
     it("moves focus to the group it saved, since the name form unmounts", () => {
@@ -565,6 +567,7 @@ describe("multi-select dashboard filter", () => {
       });
       act(() => trigger().click());
       act(() => popoverButton("Save as group…").click());
+      typeInto(groupNameInput(), "Discard me");
       act(() => {
         groupNameInput().dispatchEvent(
           new KeyboardEvent("keydown", {
@@ -578,6 +581,21 @@ describe("multi-select dashboard filter", () => {
       expect(popover()).toBeTruthy();
       expect(() => groupNameInput()).toThrow("not rendered");
       expect(document.activeElement).toBe(popoverButton("Save as group…"));
+      act(() => popoverButton("Save as group…").click());
+      expect(groupNameInput().value).toBe("");
+    });
+
+    it("clears a nonempty preset name when the popover is explicitly dismissed", () => {
+      render("/dashboards/test?f_plan=enterprise,free", withPreset, {
+        onSavePreset: vi.fn(),
+      });
+      act(() => trigger().click());
+      act(() => popoverButton("Save as group…").click());
+      typeInto(groupNameInput(), "Discard me");
+      act(() => trigger().click());
+      act(() => trigger().click());
+      act(() => popoverButton("Save as group…").click());
+      expect(groupNameInput().value).toBe("");
     });
   });
 });

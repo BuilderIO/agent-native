@@ -289,6 +289,22 @@ describe("unknownPanelConfigKeys", () => {
     expect(issues[2].message).toContain("config.colors");
   });
 
+  it("rejects breakdowns on a pivoted table", () => {
+    const breakdowns = [{ column: "app" }];
+    const pivot = { xKey: "day", seriesKey: "app", valueKey: "n" };
+
+    expect(
+      unknownPanelConfigKeys(
+        panel({ breakdowns, pivot }, { chartType: "table" }),
+      ),
+    ).toEqual([
+      expect.objectContaining({ kind: "invalid-value", key: "breakdowns" }),
+    ]);
+    expect(
+      unknownPanelConfigKeys(panel({ breakdowns }, { chartType: "table" })),
+    ).toEqual([]);
+  });
+
   it("accepts every registered chart type, legacy aliases, and unset keys", () => {
     for (const chartType of [...PANEL_CHART_TYPES, "stacked-bar"]) {
       expect(
@@ -683,6 +699,7 @@ describe("PANEL_TOP_LEVEL_KEYS", () => {
       "source",
       "chartType",
       "width",
+      "height",
       "columns",
       "config",
       "tab",

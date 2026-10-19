@@ -329,10 +329,11 @@ export function findSourceWorkspaceFile(
     ? files.find((candidate) => candidate.id === target.fileId)
     : files.find((candidate) => candidate.filename === normalizedPath);
   if (!file) {
-    throw new Error(
+    fail(
       target.fileId
         ? `Source file id "${target.fileId}" not found.`
         : `Source file "${normalizedPath}" not found.`,
+      { statusCode: 404, errorCode: "source_file_not_found" },
     );
   }
   return file;
@@ -382,8 +383,9 @@ export async function readLiveSourceFile(file: SourceWorkspaceFile): Promise<{
  * and the live document is either the persisted base it was derived from or
  * the working copy itself (for callers that already published it to Yjs).
  * Any third live value is a genuine concurrent edit and fails closed. The
- * returned live hash must be passed to `writeInlineSourceFile`, whose
- * read-check-write lock closes the race after this preparation step.
+ * returned live hash must be passed to `writeInlineSourceFile`. A caller may
+ * also supply the working-copy hash, accepted only when live source now
+ * exactly matches that copy.
  */
 export class SourceWorkspaceEditConflictError extends Error {
   readonly statusCode = 409;
@@ -476,12 +478,17 @@ export async function prepareInlineSourceEdit(args: {
       "A source revision is required with current editor content.",
     );
   }
-  if (!args.file.updatedAt || args.revision !== args.file.updatedAt) {
+  if (!args.file.updatedAt) {
     throw new SourceWorkspaceEditConflictError();
   }
 
+  const revisionMatches = args.revision === args.file.updatedAt;
   const persistedVersionHash = sourceContentHash(args.file.content ?? "");
   const workingVersionHash = sourceContentHash(args.currentContent);
+  // A lagging editor timestamp is safe only when it already holds the live bytes.
+  if (!revisionMatches && workingVersionHash !== live.versionHash) {
+    throw new SourceWorkspaceEditConflictError();
+  }
   if (
     live.versionHash !== persistedVersionHash &&
     live.versionHash !== workingVersionHash
@@ -500,6 +507,7 @@ export async function writeInlineSourceFile(args: {
   file: SourceWorkspaceFile;
   content: string;
   expectedVersionHash?: string;
+  expectedWorkingCopyHash?: string;
   identityOnly?: boolean;
   operationSource?: string;
   operationRevision?: number;
@@ -572,11 +580,17 @@ export async function writeInlineSourceFile(args: {
       let identityOnlyOperationSource: string | undefined;
       let identityOnlyOperationRevision: number | undefined;
       const liveBaseHash = current.versionHash;
+      const liveMatchesPreparedWorkingCopy =
+        !identityOnly &&
+        args.expectedVersionHash !== undefined &&
+        args.expectedWorkingCopyHash !== undefined &&
+        args.expectedWorkingCopyHash === current.versionHash;
 
       if (
-        args.expectedVersionHash &&
+        args.expectedVersionHash !== undefined &&
         !identityOnly &&
-        args.expectedVersionHash !== current.versionHash
+        args.expectedVersionHash !== current.versionHash &&
+        !liveMatchesPreparedWorkingCopy
       ) {
         throw new SourceWorkspaceEditConflictError(
           "Source file changed since it was read. Re-read the file and retry.",
@@ -707,9 +721,10 @@ export async function writeInlineSourceFile(args: {
       assertCandidateIntegrity(args.content);
 
       const liveBeforeApply = readPreparedSourceText(lease);
-      const expectedLiveHash = identityOnly
-        ? liveBaseHash
-        : args.expectedVersionHash;
+      const expectedLiveHash =
+        identityOnly || liveMatchesPreparedWorkingCopy
+          ? liveBaseHash
+          : args.expectedVersionHash;
       if (
         expectedLiveHash &&
         expectedLiveHash !== sourceContentHash(liveBeforeApply)

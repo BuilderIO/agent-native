@@ -166,6 +166,16 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "隱私權政策",
   "onboarding.builderConsentAnd": "和",
   "onboarding.builderExistingAccount": "我有 Builder.io 帳戶",
+  "onboarding.creditsTitle": "每月免費試用 60 個 Agent Credits",
+  "onboarding.creditsTitleClips":
+    "免費試用視訊儲存空間，並每月獲得 60 個 Agent Credits",
+  "onboarding.creditsActivate": "啟用免費額度",
+  "onboarding.creditsFinePrint":
+    "這將建立一個免費的 Builder.io 帳戶。繼續表示您同意我們的",
+  "onboarding.creditsConnectExisting": "連線至現有 Builder.io 帳戶",
+  "onboarding.creditsMoreInfo": "更多資訊",
+  "onboarding.creditsSkipBody":
+    "如果您跳過，您將需要連線自己的密鑰才能使用 AI 和儲存空間。",
   "onboarding.builderConnect": "連線至 Builder.io",
   "onboarding.builderActivating": "正在啟用 Builder.io 免費額度",
   "onboarding.builderConnecting": "正在設定 Builder.io 免費額度",
@@ -199,6 +209,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "嵌入向量",
   "onboarding.capability.embeddings.why":
     "嵌入向量可改善語意搜尋。沒有嵌入向量時，關鍵字搜尋仍可運作。",
+  "onboarding.capability.webSearch.label": "網頁搜尋",
+  "onboarding.capability.webSearch.keySummary": "網頁搜尋",
+  "onboarding.capability.webSearch.why":
+    "搜尋網頁上的最新公開資訊。Builder 管理的搜尋使用隨附的 Builder AI 點數，因此不需要另外設定搜尋 API 金鑰。",
   "onboarding.capability.systemOne.why":
     "Jev 是一個選用的決策模型，可在代理首次要求模型前協助選擇相關工具與技能。",
   "onboarding.capability.assetsImageGeneration.label": "影像生成",
@@ -1720,6 +1734,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.agentVia": "透過 {{protocol}} 的代理",
   "settings.audit.allApps": "所有應用程式",
   "settings.audit.app": "應用程式",
+  "settings.audit.approval": "核准",
+  "settings.audit.approvalAgentChat": "已在代理聊天中核准",
+  "settings.audit.approvalA2AReview": "已在代理操作審查頁面核准",
+  "settings.audit.approvalMcpClient": "由 MCP 用戶端接受（未驗證）",
   "settings.audit.changedBy": "變更者",
   "settings.audit.close": "關閉",
   "settings.audit.empty": "此期間沒有變更。",
@@ -1732,9 +1750,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.last90Days": "過去 90 天",
   "settings.audit.loadFailed": "無法載入稽核記錄。",
   "settings.audit.loading": "正在載入稽核記錄",
+  "settings.audit.oauthClient": "OAuth 用戶端",
   "settings.audit.onBehalfOf": "代表",
   "settings.audit.range": "時間範圍",
   "settings.audit.refused": "已拒絕",
+  "settings.audit.reportedClient": "自行回報的用戶端",
   "settings.audit.result": "結果",
   "settings.audit.showMore": "再顯示 {{count}} 筆",
   "settings.audit.succeeded": "成功",
@@ -2416,6 +2436,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.search.appDefaultModel": "應用程式預設模型",
   "settingsShell.search.backgroundAgents": "背景代理",
   "settingsShell.search.browserAutomation": "瀏覽器自動化",
+  "settingsShell.search.webSearch": "網頁搜尋",
   "settingsShell.search.connectedAgents": "已連線的代理",
   "settingsShell.search.database": "資料庫",
   "settingsShell.search.defaultModel": "預設模型",
@@ -2539,6 +2560,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyDesignSystem": "讓生成的簡報和設計符合品牌規範。",
   "settingsInfra.whyBackground": "在正式環境中修改程式碼。",
   "settingsInfra.whyBrowser": "讓代理程式在正式環境中使用瀏覽器。",
+  "settingsInfra.whyWebSearch": "尋找最新的公開資訊與官方文件。",
   "settingsInfra.provider": "供應商",
   "settingsInfra.keyOrg": "使用組織的 {{provider}} 金鑰。",
   "settingsInfra.manageKey": "管理金鑰",
@@ -2689,6 +2711,10 @@ const messages: ToolkitAgentChatTranslation = {
     "已在此處中斷連線。在 ChatGPT 中，存取權可能仍然有效。",
   "settingsModel.chatgptLocalOnly":
     "開源應用在本機使用 loopback callback 執行時，無須申請合作夥伴資格即可使用 ChatGPT 方案。託管於 *.agent-native.com 的應用需要營運方核准，並設定託管 callback。",
+  "settingsModel.chatgptPersonalScopeOnly":
+    "使用個人帳戶存取 ChatGPT 方案。在本機開發時，請在登入前將 access.autoCreateDefaultOrg 設為 false。",
+  "settingsModel.chatgptScopeUnresolved":
+    "應用程式無法確認你的帳戶範圍。請完成本機設定，然後重新載入設定頁面。",
   "settingsModel.chatgptNoDirectUse":
     "重新連線並允許模型直接存取，才能使用此 ChatGPT 帳戶。",
   "settingsModel.chatgptReconnect": "重新連線",

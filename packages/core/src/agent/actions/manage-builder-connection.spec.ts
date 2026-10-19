@@ -110,6 +110,7 @@ describe("manage-builder-connection", () => {
       orgId: ORG,
       role: "member",
       scope: "org",
+      attribution: expect.objectContaining({ caller: "tool" }),
     });
   });
 
@@ -142,6 +143,7 @@ describe("manage-builder-connection", () => {
       orgId: null,
       role: null,
       scope: "personal",
+      attribution: expect.objectContaining({ caller: "tool" }),
     });
   });
 

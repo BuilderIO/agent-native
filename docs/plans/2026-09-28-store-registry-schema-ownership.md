@@ -383,15 +383,15 @@ stateDiagram-v2
 
 ### Readiness modes
 
-`store.ready()` is memoized per process and per mode. The mode is decided by
+`store.ready()` is memoized per mode: per database executor where it writes
+the ledger, per process otherwise. The mode is decided by
 who owns the schema, not by which platform we think we are on:
 
 | Mode              | When                                                                                                       | What `ready()` does                                                                                                                                                   |
 | ----------------- | ---------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **apply**         | Inside `withMigrationRuntime()` outside a hosted function: the release step                                | Creates the ledger once, skips the store if the shared ledger snapshot lists every migration, otherwise applies pending migrations and records each. The only writer. |
+| **apply**         | The release step, and any runtime that is not a hosted function: local dev, tests, self-hosted Node         | Creates the ledger once, skips the store if the ledger snapshot lists every migration, otherwise applies pending migrations and records each. Each migration runs once per database. |
 | **trust**         | A hosted function of an app that migrates at release (`appMigratesAtRelease()`)                            | Nothing. No DDL, no probe, no ledger read; the release step applied and verified the schema before this function was published.                                         |
 | **hosted-replay** | A hosted function of an app that does **not** migrate at release (the default)                            | `replay`, inside `withMigrationExecutionRuntime()`, exactly what `ddl-guard` already does for these apps on main. Never writes the ledger.                              |
-| **replay**        | Everything else: local dev (including against a remote database), tests, self-hosted Node                  | Runs every migration in order, as the old ensure body did. Idempotent. Never writes the ledger.                                                                        |
 | **skip**          | `AGENT_NATIVE_SKIP_ENSURE_TABLES` is set and the runtime is not the release step                           | Nothing, the operator opt-out `ddl-guard` already honors.                                                                                                              |
 
 ```mermaid
@@ -402,7 +402,7 @@ flowchart TD
   C -->|yes| TRUST["trust<br/>0 schema queries"]
   C -->|no| H{"Hosted function?"}
   H -->|yes| HREPLAY["hosted-replay<br/>as main does today,<br/>no ledger writes"]
-  H -->|no| REPLAY["replay<br/>no ledger writes"]
+  H -->|no| APPLY
   APPLY --> V{"After every store:<br/>ledger covers the registry?"}
   V -->|yes| OK["publish functions"]
   V -->|no| ERR["release fails:<br/>SchemaNotMigratedError"]
@@ -412,7 +412,7 @@ flowchart TD
   classDef gap fill:#fdecec,stroke:#c33,color:#600
   class APPLY release
   class TRUST,OK hosted
-  class REPLAY,HREPLAY local
+  class HREPLAY local
   class ERR gap
 ```
 
@@ -757,9 +757,8 @@ migrates at release, and `resources` runs its learn-shared content migration
 once per process.
 
 Local development is where a new user meets this first: `agent-native create`,
-then `pnpm dev` on a fresh `pglite:` database. There, Phase 1 keeps `replay`, so
-every store migration runs on first use in **every** process, not once per
-database.
+then `pnpm dev` on a fresh `pglite:` database. Phase 1 replayed every store
+migration in every process there; step 1 below made it once per database.
 
 ### Approach: a squashed schema snapshot
 
@@ -793,30 +792,84 @@ them; marking them applied would leave fresh installs without default rows.
 
 ### Steps, in order
 
-1. **Ledger in local dev (Q1).** `replay` becomes `apply` for local databases,
-   so each migration runs once per database instead of once per process. A
-   warm dev boot becomes the shared ledger read. Unit tests that mock
-   `getDbExec` need a ledger stub. *Exit:* a warm `pnpm dev` boot issues no
-   per-migration statements.
+1. **Ledger in local dev (Q1). Done.** Every runtime that is not a hosted
+   function applies through the ledger, so each migration runs once per
+   database instead of once per process; a warm dev boot reads the ledger once
+   per store executor. Hosted requests still never write it. Ledger state and
+   store readiness are keyed by database executor, so a transaction
+   (`withDbExec(tx, …)`) that rolls back cannot leave the process believing its
+   migrations happened, and a test that hands each case a fresh database gets
+   a fresh ledger view. Specs that mock `getDbExec` answer ledger statements
+   with `db/store-ledger.test-helpers.ts`. This had to come before step 2:
+   versioned entries are not idempotent, so they cannot move into stores
+   while any runtime still replays them.
 2. **One ledger (Q6).** Move the 112 versioned entries (`ORG_MIGRATIONS`,
    `AGENT_RUN_MIGRATIONS` and the rest) into store migrations, so one runner and
    one ledger cover all framework schema. Without this, a snapshot has to fill
    eight different bookkeeping tables in sync. Existing databases need their
    rows copied from those tables into `_an_store_migrations` first, or the
    moved entries re-run. *Exit:* `release-migrations.ts` calls one runner.
+   Split in three PRs:
+   - **2a, done:** runner support and the twelve release-only lists. Each
+     list is appended, whole, to the store that owns its tables
+     (`fromMigrationEntries`), so a fresh database runs it once after the
+     store's own migrations, as main did. Every entry carries a `legacy`
+     reference; a database whose old bookkeeping records it gets a ledger row
+     with `source = 'legacy'` instead of running it again, using the old
+     gating exactly (named entries by name, unnamed by `MAX(version)`).
+     Upgrading the pre-registry fixture imports all 57 entries. List-origin
+     migrations run only in the release step, where they ran on main: local
+     runtimes keep getting those tables from the stores' own migrations, and
+     hosted requests run neither list-origin nor `kind: "data"` migrations. `after:` orders the release
+     pass where a migration reads another store's tables (observability
+     after chat threads).
+   - **2b, done:** org (new `org` store), context-xray (new `context_xray`
+     store), observational memory (appended to its store) and the
+     trigger-event queue (its ad hoc ensure became the
+     `automation_trigger_events` store). The first three also ran at plugin
+     boot on main, so their entries are marked `ranAtBoot`: local runtimes
+     import their history from the old tables once (an old database imports
+     all 34 org and 3 context-xray entries and re-runs none), and hosted apps
+     without release migrations keep running them through `runMigrations` and
+     the old table, exactly as before. The org and auth plugins now call
+     `orgStore.ready()`. `release-migrations.ts` runs only the store pass,
+     Better Auth and the sharing indexes.
+   - **2c, done:** Better Auth is the `better_auth` store (`after:
+     ["auth_sessions"]`), its list marked `ranAtBoot`. Its v4 expires every
+     signing key, so it is a data migration that runs at most once per
+     database: an old database imports it with the rest of the list, and a key
+     created after the first release is never expired by a later release or
+     boot. `runBetterAuthMigrations()` stays as a wrapper over the store.
+   - **Result:** step 2's exit criterion is met. `runFrameworkReleaseMigrations`
+     runs one runner (the store pass) plus database identity and the sharing
+     indexes; every framework schema change is a store migration in one
+     ledger. Old bookkeeping tables are read only to import history, and
+     hosted apps without release migrations keep using them for the
+     boot-time lists until they adopt release migrations.
 3. **Upgrade convergence test (Q9). Done in Phase 1.**
    `release-schema.upgrade.spec.ts` replays a dumped pre-registry schema and
    upgrades it; `db/schema-catalog.ts` is the dump and fingerprint code step 4
    reuses. Step 4 adds a second comparison: snapshot-fresh against
    step-by-step-fresh.
-4. **Framework snapshot.** `pnpm gen:schema-snapshot` runs the release step on
-   an empty PGlite database and writes two checked-in files: the resulting
-   schema as SQL, and the ledger rows it implies. The generator backs a
-   staleness guard, as `store-registry.generated.ts` does, so adding a
-   migration without regenerating fails CI. The runner applies the snapshot as
-   in the diagram above. *Exit:* a fresh framework release runs a handful of
-   statements instead of ~2,400 calls, and the convergence test also compares
-   snapshot-fresh against step-by-step-fresh.
+4. **Framework snapshot. Done.** `pnpm gen:schema-snapshot` runs the release
+   step step by step on an empty PGlite database and writes
+   `db/schema-snapshot.generated.ts`: the schema as an ordered list of
+   statements (function bodies contain semicolons, so it is not one script),
+   the framework tables it created, and the schema migrations it recorded.
+   When the store runner prepares the ledger on a database with no ledger and
+   none of those tables, it runs the snapshot in one transaction and records
+   the covered migrations with `source = 'snapshot'`; data migrations and
+   anything added since run step by step after it. This applies to the release
+   step and to a first local boot; hosted requests never use it, and a
+   database any older core touched upgrades step by step. The module is
+   imported only when a database is actually fresh.
+   *Measured:* a fresh release drops from 2,490 statements to 681, of which
+   589 are the snapshot's own statements in one transaction (no catalog
+   probes, no replay); the rest are data migrations, ledger and lock
+   bookkeeping and the sharing indexes. `release-schema.snapshot.spec.ts`
+   proves snapshot-fresh equals step-by-step-fresh (schema and ledger) and
+   fails when the snapshot no longer covers every schema migration the stores
+   declare, which is the "regenerate" signal.
 5. **Templates (Q7).** Generate the same snapshot for each template's own
    tables once templates declare them with `defineStore`. Generated apps
    already use managed Drizzle migrations (`db/drizzle-migrations.ts`); this
@@ -884,8 +937,7 @@ flowchart LR
   class P2,P3 next
 ```
 
-1. **Should replay mode use the ledger too?** *(Phase 2, step 1. Recommended
-   yes.)* Today replay re-runs every
+1. **Should replay mode use the ledger too?** *(Done: Phase 2, step 1.)* Today replay re-runs every
    migration once per process, which matches the old behavior, keeps tests that
    mock `getDbExec` unchanged, and avoids a ledger table in unit-test fakes. Using
    the ledger locally would make backfills run once per database everywhere, at

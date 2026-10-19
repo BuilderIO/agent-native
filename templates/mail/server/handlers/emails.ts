@@ -652,7 +652,9 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
         pageTokens,
         threadFormat:
           view === "drafts" || hasAttachmentSavedFilter ? "full" : "metadata",
-        threadCandidateLimit: q ? 80 : undefined,
+        threadCandidateLimit: q
+          ? Math.min(500, Math.max(40, pageLimit + 1))
+          : undefined,
         accountTokens,
         labelMap,
       });

@@ -23,6 +23,17 @@ export interface ThreadSummary {
   labelIds: string[];
 }
 
+export function matchesThreadAccount(
+  email: Pick<EmailMessage, "accountEmail">,
+  accountEmail?: string,
+): boolean {
+  return (
+    !accountEmail ||
+    email.accountEmail?.trim().toLowerCase() ===
+      accountEmail.trim().toLowerCase()
+  );
+}
+
 export function groupIntoThreads(emails: EmailMessage[]): ThreadSummary[] {
   const threadMap = new Map<string, EmailMessage[]>();
 

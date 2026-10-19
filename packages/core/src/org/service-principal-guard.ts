@@ -1,3 +1,5 @@
+import { runOutsideActionInvocation } from "../action-frame.js";
+import type { ActionRunContext } from "../action.js";
 import type { DbExec } from "../db/client.js";
 import { parseServiceIdentityEmail } from "./service-identity.js";
 import {
@@ -131,22 +133,37 @@ export function assertServicePrincipalMayCall(
 }
 
 /**
+ * Whose call was refused. `defineAction`'s own grant check passes the refused
+ * call's run context as `ownInvocation`: the call is the invocation running
+ * now, so its row keeps that call's attribution and its frame's approval.
+ * Every other refusal is about another call, so it passes only the source it
+ * knows and its row takes nothing from the invocation running now.
+ */
+export type ServicePrincipalDenialSource =
+  | { ownInvocation: ActionRunContext; caller?: never }
+  | { caller: string; ownInvocation?: never };
+
+/**
  * Writes a `denied` audit row when a refused service-principal call has a
  * verified org scope. Visible to org admins only; the recorder is best-effort.
  */
-export async function recordServicePrincipalDenial(input: {
-  email: string | null | undefined;
-  orgId?: string | null;
-  actionName: string;
-  caller: string;
-  error: ServicePrincipalRefusedError;
-}): Promise<void> {
+export async function recordServicePrincipalDenial(
+  input: {
+    email: string | null | undefined;
+    orgId?: string | null;
+    actionName: string;
+    error: ServicePrincipalRefusedError;
+  } & ServicePrincipalDenialSource,
+): Promise<void> {
   if (input.error.statusCode !== 403) return;
   const orgId = input.orgId?.trim();
   if (!orgId) return;
   const identity = parseServiceIdentityEmail(input.email);
   if (!identity || identity.orgId !== orgId) return;
-  const { recordActionAudit } = await import("../audit/record.js");
+  const [{ recordActionAudit }, { auditAttribution }] = await Promise.all([
+    import("../audit/record.js"),
+    import("../audit/attribution.js"),
+  ]);
   await recordActionAudit({
     config: {
       enabled: true,
@@ -166,10 +183,14 @@ export async function recordServicePrincipalDenial(input: {
     args: {},
     ctx: {
       actionName: input.actionName,
-      caller: input.caller,
       userEmail: input.email ?? undefined,
       orgId,
     },
+    attribution: input.ownInvocation
+      ? auditAttribution(input.ownInvocation)
+      : runOutsideActionInvocation(() =>
+          auditAttribution({ caller: input.caller }),
+        ),
     status: "error",
     error: input.error,
   });
@@ -182,12 +203,13 @@ export async function recordServicePrincipalDenial(input: {
  * or re-scope takes effect on the next action of a run already in flight.
  * Non-service callers return without touching the database.
  */
-export async function enforceServicePrincipalActionGrant(input: {
-  email: string | null | undefined;
-  orgId?: string | null;
-  actionName: string;
-  caller: string;
-}): Promise<void> {
+export async function enforceServicePrincipalActionGrant(
+  input: {
+    email: string | null | undefined;
+    orgId?: string | null;
+    actionName: string;
+  } & ServicePrincipalDenialSource,
+): Promise<void> {
   try {
     const { allowedActions } = await assertServicePrincipalMayRun(
       input.email,

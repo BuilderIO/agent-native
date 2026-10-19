@@ -1,3 +1,9 @@
+## 0.167.4
+
+### Patch Changes
+
+- 8b73951: Isolate workspace app chat history and keep short chat-tab titles clear of the close target.
+
 ## 0.167.3
 
 ### Patch Changes

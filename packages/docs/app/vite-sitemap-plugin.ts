@@ -15,6 +15,15 @@ import {
   normalizeLocaleCode,
 } from "../../core/src/localization/shared";
 import { createAgentWebVitePlugin } from "../../core/src/vite/agent-web-plugin";
+import { getArticleTopics } from "../lib/article-topics";
+import {
+  ARTICLES_BASE,
+  ARTICLES_PAGE_SIZE,
+  USE_CASES_BASE,
+  articleMarkdown,
+  type CampaignContent,
+} from "../lib/campaign-content";
+import { loadCampaignContentFromDisk } from "../lib/campaign-content-node";
 import { docsBodyToMarkdownMirror } from "../lib/docs-markdown-export";
 import {
   docSourceSlugFromFilename,
@@ -182,6 +191,87 @@ export function buildAgentWebPages(rootDir: string): AgentWebPage[] {
   return buildDocsSitePages(rootDir)
     .filter((page) => !isRedirectedDocsPath(page.path))
     .map(({ docSlug: _docSlug, draft: _draft, ...page }) => page);
+}
+
+export function buildCampaignPages(content: CampaignContent): AgentWebPage[] {
+  const { useCases, articles } = content;
+  const latestDate = (dates: string[]): Date | undefined => {
+    const latest = dates.sort().at(-1);
+    return latest ? new Date(`${latest}T00:00:00Z`) : undefined;
+  };
+  const articleIndex = (
+    base: string,
+    title: string,
+    items: typeof articles,
+  ): AgentWebPage[] =>
+    Array.from(
+      { length: Math.max(1, Math.ceil(items.length / ARTICLES_PAGE_SIZE)) },
+      (_, index) => ({
+        path: index === 0 ? `${base}/` : `${base}/page/${index + 1}/`,
+        title,
+        markdown: `# ${title}\n\n${items
+          .slice(index * ARTICLES_PAGE_SIZE, (index + 1) * ARTICLES_PAGE_SIZE)
+          .map(
+            (article) =>
+              `- [${article.title}](${ARTICLES_BASE}/${article.slug}/)`,
+          )
+          .join("\n")}\n`,
+        lastmod: latestDate(
+          items.map((article) => article.updated ?? article.published),
+        ),
+      }),
+    );
+  const pages: AgentWebPage[] = [
+    {
+      path: `${USE_CASES_BASE}/`,
+      title: "Use cases",
+      markdown: `# Use cases\n\n${useCases.map((item) => `- [${item.title}](${USE_CASES_BASE}/${item.slug}/)`).join("\n")}\n`,
+      lastmod: latestDate(useCases.map((item) => item.updated)),
+    },
+    ...useCases.map((item) => ({
+      path: `${USE_CASES_BASE}/${item.slug}/`,
+      title: item.title,
+      description: item.meta_description,
+      lastmod: new Date(`${item.updated}T00:00:00Z`),
+      markdown:
+        [
+          `# ${item.title}`,
+          item.subhead,
+          `## ${item.old_way.heading}`,
+          item.old_way.body,
+          `## ${item.new_way.heading}`,
+          ...item.new_way.steps.map((step) => `- ${step}`),
+          ...item.faqs.flatMap((faq) => [`## ${faq.q}`, faq.a]),
+        ].join("\n\n") + "\n",
+    })),
+    ...articleIndex(ARTICLES_BASE, "Articles", articles),
+    ...getArticleTopics(articles).map((topic) => {
+      const items = articles.filter((article) => article.topic === topic.slug);
+      return {
+        path: `${ARTICLES_BASE}/topic/${topic.slug}/`,
+        title: topic.name,
+        description: topic.description,
+        markdown: `# ${topic.name}\n\n${topic.description}\n\n${items
+          .map(
+            (article) =>
+              `- [${article.title}](${ARTICLES_BASE}/${article.slug}/)`,
+          )
+          .join("\n")}\n`,
+        lastmod: latestDate(
+          items.map((article) => article.updated ?? article.published),
+        ),
+      };
+    }),
+    ...articles.map((article) => ({
+      path: `${ARTICLES_BASE}/${article.slug}/`,
+      title: article.title,
+      description: article.meta_description,
+      lastmod: new Date(`${article.updated ?? article.published}T00:00:00Z`),
+      markdown: articleMarkdown(article),
+      markdownPath: `${ARTICLES_BASE}/${article.slug}.md`,
+    })),
+  ];
+  return pages;
 }
 
 type DocsSitePage = AgentWebPage & { docSlug?: string; draft?: boolean };
@@ -487,6 +577,7 @@ Agent-Native is an open source framework for building apps where AI agents and U
         "# Agent Skills\n\nInstall app-backed skills your coding agent runs as slash commands. `/visual-plan` opens structured visual plans before you build; `/visual-recap` turns a PR diff into a high-altitude review. Install with `npx @agent-native/core@latest skills add visual-plan`.\n",
       lastmod: gitLastmod(path.resolve(rootDir, "app/routes/skills.tsx")),
     },
+    ...buildCampaignPages(loadCampaignContentFromDisk(rootDir)),
     ...docsPages,
     ...localizedDocsPages,
     ...templatePages,

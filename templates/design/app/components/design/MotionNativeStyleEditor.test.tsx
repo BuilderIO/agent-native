@@ -124,13 +124,19 @@ describe("MotionNativeStyleEditor", () => {
     ).find((element) => element.textContent?.trim() === optionText);
     if (!option) throw new Error(`Missing select option ${optionText}`);
     await act(async () => option.click());
+    await vi.waitFor(() => {
+      expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    });
   }
 
   async function clickButtonWithText(text: string) {
-    const button = Array.from(
-      document.body.querySelectorAll<HTMLButtonElement>("button"),
-    ).find((candidate) => candidate.textContent?.trim() === text);
-    if (!button) throw new Error(`Missing button ${text}`);
+    const button = await vi.waitFor(() => {
+      const found = Array.from(
+        document.body.querySelectorAll<HTMLButtonElement>("button"),
+      ).find((candidate) => candidate.textContent?.trim() === text);
+      if (!found) throw new Error(`Missing button ${text}`);
+      return found;
+    });
     await act(async () => button.click());
   }
 
@@ -205,11 +211,30 @@ describe("MotionNativeStyleEditor", () => {
     );
     if (!trigger) throw new Error("Missing easing picker trigger");
     await act(async () => trigger.click());
+    await vi.waitFor(() => {
+      expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    });
   }
 
-  it("orders easing presets like Figma, with Hold first", async () => {
+  it("orders easing presets with Hold first", async () => {
     await renderPicker();
     await openEasingPicker();
+
+    expect(
+      document.body.querySelector(
+        'input[aria-label="designEditor.motion.animationStyles.easingPicker.searchPlaceholder"]',
+      ),
+    ).toBeNull();
+    expect(
+      document.body.querySelector(
+        'button[aria-label="designEditor.motion.animationStyles.easingPicker.newVariable"]',
+      ),
+    ).not.toBeNull();
+    expect(
+      document.body.querySelector(
+        'button[aria-label="designEditor.motion.animationStyles.close"]',
+      ),
+    ).not.toBeNull();
 
     const presetLabels = Array.from(
       document.body.querySelectorAll<HTMLButtonElement>("button[aria-pressed]"),
@@ -354,7 +379,7 @@ describe("MotionNativeStyleEditor", () => {
     });
     const style = {
       ...base,
-      sourceInstanceId: "figma-text-instance",
+      sourceInstanceId: "native-text-instance",
       props: { ...base.props, futureTextProp: { keep: true } },
     };
     const onChange = vi.fn();
@@ -371,6 +396,10 @@ describe("MotionNativeStyleEditor", () => {
         'button[aria-label="designEditor.motion.nativeTextStagger.grouping"]',
       ),
     ).not.toBeNull();
+    const ignoreSpaces = document.body.querySelector<HTMLButtonElement>(
+      '[role="checkbox"][aria-label="designEditor.motion.nativeTextStagger.ignoreSpaces"]',
+    );
+    expect(ignoreSpaces?.getAttribute("aria-checked")).toBe("false");
 
     const positionSwitch = document.body.querySelector<HTMLButtonElement>(
       '[role="switch"][aria-label="designEditor.motion.nativeTextStagger.effects.position"]',
@@ -379,7 +408,7 @@ describe("MotionNativeStyleEditor", () => {
     await act(async () => positionSwitch!.click());
     expect(onChange).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        sourceInstanceId: "figma-text-instance",
+        sourceInstanceId: "native-text-instance",
         props: expect.objectContaining({
           positionEnabled: false,
           futureTextProp: { keep: true },
@@ -401,7 +430,7 @@ describe("MotionNativeStyleEditor", () => {
     );
     expect(onChange).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        sourceInstanceId: "figma-text-instance",
+        sourceInstanceId: "native-text-instance",
         props: expect.objectContaining({
           textDelayGrouping: "WORD",
           futureTextProp: { keep: true },
@@ -409,7 +438,316 @@ describe("MotionNativeStyleEditor", () => {
       }),
       expect.objectContaining({ styleKey: "TextStagger", index: 0 }),
     );
+
+    await act(async () => ignoreSpaces!.click());
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        sourceInstanceId: "native-text-instance",
+        props: expect.objectContaining({ ignoreSpaces: true }),
+      }),
+      expect.objectContaining({ styleKey: "TextStagger", index: 0 }),
+    );
+
+    const orderTrigger = document.body.querySelector<HTMLButtonElement>(
+      'button[aria-label="designEditor.motion.nativeTextStagger.order"]',
+    )!;
+    await selectOption(
+      orderTrigger,
+      "designEditor.motion.nativeTextStagger.orderOptions.random",
+    );
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        sourceInstanceId: "native-text-instance",
+        props: expect.objectContaining({ textDelayOrder: "RANDOM" }),
+      }),
+      expect.objectContaining({ styleKey: "TextStagger", index: 0 }),
+    );
   });
+
+  it("steps a decimal overlap value by one without snapping to an integer", async () => {
+    const style = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "target-1",
+    });
+    let currentStyle = style;
+    const onChange = vi.fn((next: MotionNativeStyleInstance) => {
+      currentStyle = next;
+    });
+    await render({ styles: [style], onChange });
+    await openStyleDetails();
+
+    const overlap = document.body.querySelector<HTMLInputElement>(
+      'input[type="number"][min="0"][max="100"]',
+    );
+    if (!overlap) throw new Error("Missing TextStagger overlap input");
+    await setInputValue(overlap, "50.5");
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        props: expect.objectContaining({ presetStaggerOverlap: 50.5 }),
+      }),
+      expect.objectContaining({ styleKey: "TextStagger", index: 0 }),
+    );
+
+    await render({ styles: [currentStyle], onChange });
+    const updatedOverlap = document.body.querySelector<HTMLInputElement>(
+      'input[type="number"][min="0"][max="100"]',
+    );
+    if (!updatedOverlap)
+      throw new Error("Missing updated TextStagger overlap input");
+    await act(async () => {
+      updatedOverlap.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }),
+      );
+    });
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        props: expect.objectContaining({ presetStaggerOverlap: 51.5 }),
+      }),
+      expect.objectContaining({ styleKey: "TextStagger", index: 0 }),
+    );
+  });
+
+  it("shows the legacy whitespace default for TextStagger styles", async () => {
+    const base = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "target-1",
+    });
+    const {
+      ignoreSpaces: _ignoreSpaces,
+      textDelayTimingMode: _textDelayTimingMode,
+      ...legacyProps
+    } = base.props;
+    const style = { ...base, props: legacyProps };
+    const onChange = vi.fn();
+    await render({ styles: [style], onChange });
+    await openStyleDetails();
+
+    const ignoreSpaces = document.body.querySelector<HTMLButtonElement>(
+      '[role="checkbox"][aria-label="designEditor.motion.nativeTextStagger.ignoreSpaces"]',
+    );
+    expect(ignoreSpaces?.getAttribute("aria-checked")).toBe("true");
+    await act(async () => ignoreSpaces!.click());
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        props: expect.objectContaining({
+          ignoreSpaces: false,
+          textDelayTimingMode: "fixed-stagger",
+        }),
+      }),
+      expect.objectContaining({ styleKey: "TextStagger", index: 0 }),
+    );
+  });
+
+  it.each(["WORD", "LINE", "PARAGRAPH"] as const)(
+    "hides Ignore spaces for %s TextStagger grouping",
+    async (grouping) => {
+      const base = createMotionNativeStyleInstance({
+        styleKey: "TextStagger",
+        targetNodeId: "target-1",
+      });
+      await render({
+        styles: [
+          {
+            ...base,
+            props: { ...base.props, textDelayGrouping: grouping },
+          },
+        ],
+      });
+      await openStyleDetails();
+
+      expect(
+        document.body.querySelector(
+          '[role="checkbox"][aria-label="designEditor.motion.nativeTextStagger.ignoreSpaces"]',
+        ),
+      ).toBeNull();
+    },
+  );
+
+  it.each(["CHARACTER", "WORD", "LINE", "PARAGRAPH"] as const)(
+    "offers only horizontal TextStagger order for %s grouping",
+    async (grouping) => {
+      const base = createMotionNativeStyleInstance({
+        styleKey: "TextStagger",
+        targetNodeId: "target-1",
+      });
+      const style = {
+        ...base,
+        props: {
+          ...base.props,
+          textDelayGrouping: grouping,
+          textDelayOrder: "LEFT_RIGHT",
+        },
+      };
+      await render({ styles: [style] });
+      await openStyleDetails();
+      await act(async () =>
+        document
+          .querySelector<HTMLButtonElement>(
+            'button[aria-label="designEditor.motion.nativeTextStagger.order"]',
+          )!
+          .click(),
+      );
+
+      expect(document.body.textContent).not.toContain(
+        "designEditor.motion.nativeTextStagger.orderOptions.topToBottom",
+      );
+      expect(document.body.textContent).not.toContain(
+        "designEditor.motion.nativeTextStagger.orderOptions.bottomToTop",
+      );
+      await selectOption(
+        document.querySelector<HTMLButtonElement>(
+          'button[aria-label="designEditor.motion.nativeTextStagger.order"]',
+        )!,
+        "designEditor.motion.nativeTextStagger.orderOptions.leftToRight",
+      );
+    },
+  );
+
+  it.each(["CHARACTER", "WORD", "LINE", "PARAGRAPH"] as const)(
+    "keeps a stored vertical TextStagger order selectable for %s grouping",
+    async (grouping) => {
+      const base = createMotionNativeStyleInstance({
+        styleKey: "TextStagger",
+        targetNodeId: "target-1",
+      });
+      const style = {
+        ...base,
+        props: {
+          ...base.props,
+          textDelayGrouping: grouping,
+          textDelayOrder: "TOP_BOTTOM",
+        },
+      };
+      await render({ styles: [style] });
+      await openStyleDetails();
+      await act(async () =>
+        document
+          .querySelector<HTMLButtonElement>(
+            'button[aria-label="designEditor.motion.nativeTextStagger.order"]',
+          )!
+          .click(),
+      );
+
+      expect(document.body.textContent).toContain(
+        "designEditor.motion.nativeTextStagger.orderOptions.topToBottom",
+      );
+      expect(document.body.textContent).not.toContain(
+        "designEditor.motion.nativeTextStagger.orderOptions.bottomToTop",
+      );
+    },
+  );
+
+  it("resets vertical TextStagger order when grouping changes to word", async () => {
+    const base = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "target-1",
+    });
+    const style = {
+      ...base,
+      props: {
+        ...base.props,
+        textDelayGrouping: "LINE",
+        textDelayOrder: "TOP_BOTTOM",
+      },
+    };
+    const onChange = vi.fn();
+    await render({ styles: [style], onChange });
+    await openStyleDetails();
+    await selectOption(
+      document.querySelector<HTMLButtonElement>(
+        'button[aria-label="designEditor.motion.nativeTextStagger.grouping"]',
+      )!,
+      "designEditor.motion.textAnimation.units.word",
+    );
+
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        props: expect.objectContaining({
+          textDelayGrouping: "WORD",
+          textDelayOrder: "LEFT_RIGHT",
+        }),
+      }),
+      expect.objectContaining({ styleKey: "TextStagger", index: 0 }),
+    );
+  });
+
+  it("clears Ignore spaces when TextStagger grouping changes", async () => {
+    const base = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "target-1",
+    });
+    const style = {
+      ...base,
+      props: {
+        ...base.props,
+        ignoreSpaces: true,
+      },
+    };
+    const onChange = vi.fn();
+    await render({ styles: [style], onChange });
+    await openStyleDetails();
+    await selectOption(
+      document.querySelector<HTMLButtonElement>(
+        'button[aria-label="designEditor.motion.nativeTextStagger.grouping"]',
+      )!,
+      "designEditor.motion.textAnimation.units.word",
+    );
+
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        props: expect.objectContaining({
+          textDelayGrouping: "WORD",
+          ignoreSpaces: false,
+        }),
+      }),
+      expect.objectContaining({ styleKey: "TextStagger", index: 0 }),
+    );
+  });
+
+  it.each([
+    ["fixed-stagger", undefined],
+    ["duration-fitted", false],
+  ] as const)(
+    "preserves marker-less %s timing when TextStagger grouping changes",
+    async (timingMode, ignoreSpaces) => {
+      const base = createMotionNativeStyleInstance({
+        styleKey: "TextStagger",
+        targetNodeId: "target-1",
+      });
+      const {
+        ignoreSpaces: _ignoreSpaces,
+        textDelayTimingMode: _textDelayTimingMode,
+        ...legacyProps
+      } = base.props;
+      const style = {
+        ...base,
+        props: {
+          ...legacyProps,
+          ...(ignoreSpaces === undefined ? {} : { ignoreSpaces }),
+        },
+      };
+      const onChange = vi.fn();
+      await render({ styles: [style], onChange });
+      await openStyleDetails();
+      await selectOption(
+        document.querySelector<HTMLButtonElement>(
+          'button[aria-label="designEditor.motion.nativeTextStagger.grouping"]',
+        )!,
+        "designEditor.motion.textAnimation.units.word",
+      );
+
+      expect(onChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          props: expect.objectContaining({
+            textDelayGrouping: "WORD",
+            ignoreSpaces: false,
+            textDelayTimingMode: timingMode,
+          }),
+        }),
+        expect.objectContaining({ styleKey: "TextStagger", index: 0 }),
+      );
+    },
+  );
 
   it("keeps unknown native properties while editing known fields", async () => {
     const onChange = vi.fn();
@@ -452,11 +790,19 @@ describe("MotionNativeStyleEditor", () => {
       expect.objectContaining({ index: 0, styleKey: "Position" }),
     );
 
+    // Radix refocuses the Select trigger a macrotask after closing; a popover
+    // opened before then reads that focus as outside and dismisses itself.
+    await vi.waitFor(() =>
+      expect(document.activeElement).toBe(styleNameSelect),
+    );
     const easingSelect = document.body.querySelector<HTMLButtonElement>(
       'button[aria-label="designEditor.motion.animationStyles.easingPresets.easeOut"]',
     )!;
     await act(async () => easingSelect.click());
-    await clickButtonWithText(
+    await vi.waitFor(() => {
+      expect(easingSelect.getAttribute("aria-expanded")).toBe("true");
+    });
+    await clickButtonWithLabel(
       "designEditor.motion.animationStyles.easingPresets.easeIn",
     );
     expect(onChange).toHaveBeenLastCalledWith(
@@ -471,7 +817,7 @@ describe("MotionNativeStyleEditor", () => {
     );
   });
 
-  it("orders easing choices like Figma's curve and spring controls", async () => {
+  it("orders easing choices across curve and spring controls", async () => {
     await render();
     await openStyleDetails();
 
@@ -574,7 +920,7 @@ describe("MotionNativeStyleEditor", () => {
       onEasingVariablesChange,
     });
     await openEasingPicker();
-    await clickButtonWithText(
+    await clickButtonWithLabel(
       "designEditor.motion.animationStyles.easingPicker.newVariable",
     );
 
@@ -613,7 +959,7 @@ describe("MotionNativeStyleEditor", () => {
     const onEasingVariablesChange = vi.fn();
     await renderPicker({ onChange, onEasingVariablesChange });
     await openEasingPicker();
-    await clickButtonWithText(
+    await clickButtonWithLabel(
       "designEditor.motion.animationStyles.easingPicker.newVariable",
     );
     await focusButtonWithText("designEditor.motion.springTab");
@@ -654,7 +1000,7 @@ describe("MotionNativeStyleEditor", () => {
       onEasingVariablesChange,
     });
     await openEasingPicker();
-    await clickButtonWithText(
+    await clickButtonWithLabel(
       "designEditor.motion.animationStyles.easingPicker.newVariable",
     );
 

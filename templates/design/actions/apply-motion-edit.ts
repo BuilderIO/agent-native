@@ -55,7 +55,7 @@ import {
   readMotionHtmlSource,
 } from "../shared/motion-html-source.js";
 import {
-  motionNativeStyleEndTimeMs,
+  motionNativeStyleWithMatchingAuthoredTextWhitespace,
   motionTextDocumentWithNativeStyles,
   motionTextDocumentWithoutNativeStyles,
   MotionNativeStyleRuntimeError,
@@ -77,8 +77,10 @@ import {
 import {
   injectMotionTextRuntime,
   MOTION_TEXT_PROPERTIES,
+  MOTION_TEXT_ORDERS,
   MOTION_TEXT_UNITS,
   MOTION_TEXT_SOURCE_VERSION,
+  MAX_MOTION_TEXT_STAGGER_MS,
   encodeMotionTextDocument,
   MotionTextSourceError,
   readMotionTextDocument,
@@ -91,14 +93,20 @@ import type {
   MotionTrack,
 } from "../shared/motion-timeline.js";
 import {
+  isMotionTrackId,
   readTimelinePlaybackMode,
   motionTimelineDurationForContent,
+  motionTimelineDurationForTracks,
   MOTION_PATH_MAX_CONTROL_OFFSET_PX,
   MOTION_TIMELINE_DEFAULT_DURATION_MS,
   MOTION_TIMELINE_MAX_DURATION_MS,
+  MOTION_TIMELINE_MAX_CONTENT_END_MS,
+  isAdditiveMotionPositionTrack,
   parseMotionPosition,
+  withMotionTrackIdsFromExisting,
   withTimelinePlaybackMode,
 } from "../shared/motion-timeline.js";
+import { sourceContentHash } from "../shared/source-workspace.js";
 import {
   isBridgeSha256VersionHash,
   MotionLocalSourceError,
@@ -126,7 +134,7 @@ const motionTextKeyframeSchema = z
 
 const motionTextDocumentSchema = z
   .object({
-    version: z.literal(MOTION_TEXT_SOURCE_VERSION),
+    version: z.union([z.literal(1), z.literal(MOTION_TEXT_SOURCE_VERSION)]),
     animations: z
       .array(
         z
@@ -134,13 +142,29 @@ const motionTextDocumentSchema = z
             targetNodeId: z.string(),
             unit: z.enum(MOTION_TEXT_UNITS),
             direction: z.enum(["forward", "reverse"]),
-            staggerMs: z.number().min(0).max(5000),
+            staggerMs: z.number().min(0).max(MAX_MOTION_DURATION_MS),
+            animationDirection: z.enum(["in", "out"]).optional(),
+            order: z.enum(MOTION_TEXT_ORDERS).optional(),
+            overlapPercent: z.number().min(0).max(100).optional(),
+            ignoreSpaces: z.boolean().optional(),
             delayMs: z.number().min(0).max(MAX_MOTION_DURATION_MS).optional(),
             property: z.enum(MOTION_TEXT_PROPERTIES),
             durationMs: z.number().positive().max(MAX_MOTION_DURATION_MS),
             keyframes: z.array(motionTextKeyframeSchema).min(2).max(128),
           })
-          .strict(),
+          .strict()
+          .superRefine((animation, context) => {
+            if (
+              animation.overlapPercent === undefined &&
+              animation.staggerMs > MAX_MOTION_TEXT_STAGGER_MS
+            ) {
+              context.addIssue({
+                code: "custom",
+                path: ["staggerMs"],
+                message: `staggerMs must be at most ${MAX_MOTION_TEXT_STAGGER_MS} when overlapPercent is absent.`,
+              });
+            }
+          }),
       )
       .min(1)
       .max(64),
@@ -382,6 +406,12 @@ const motionAnimationStylesSchema = z
 
 const trackSchema = z
   .object({
+    id: z
+      .string()
+      .min(1)
+      .max(128)
+      .regex(/^[A-Za-z0-9_-]+$/)
+      .optional(),
     targetNodeId: z
       .string()
       .describe(
@@ -399,6 +429,7 @@ const trackSchema = z
           "rotate are individual CSS transform properties, so they compose " +
           "freely on one node as separate tracks.",
       ),
+    composition: z.enum(["replace", "add"]).optional(),
     keyframes: z
       .array(keyframeSchema)
       .min(1)
@@ -434,6 +465,17 @@ const trackSchema = z
       ),
   })
   .superRefine((track, context) => {
+    if (
+      track.composition === "add" &&
+      !isAdditiveMotionPositionTrack(track as MotionTrack)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["composition"],
+        message:
+          "Additive composition requires finite px Position values without cubic motion paths.",
+      });
+    }
     for (const [index, keyframe] of track.keyframes.entries()) {
       if (!keyframe.motionPath) continue;
       if (track.property !== "translate") {
@@ -463,6 +505,41 @@ const trackSchema = z
           path: ["keyframes", index, "value"],
           message:
             "Spatial motion paths require finite 2D px Position values or unitless zero.",
+        });
+      }
+    }
+  });
+
+const motionTracksSchema = z
+  .array(trackSchema)
+  .superRefine((tracks, context) => {
+    const tracksByKey = new Map<
+      string,
+      Array<{ index: number; track: MotionTrack }>
+    >();
+    for (const [index, track] of tracks.entries()) {
+      const key = motionTrackKey(track.targetNodeId, track.property);
+      const group = tracksByKey.get(key) ?? [];
+      group.push({ index, track: track as MotionTrack });
+      tracksByKey.set(key, group);
+    }
+
+    for (const group of tracksByKey.values()) {
+      if (group.length < 2 || group[0]!.track.property !== "translate") {
+        continue;
+      }
+      for (const { index, track } of group) {
+        if (
+          isAdditiveMotionPositionTrack(track) &&
+          track.composition !== "replace"
+        ) {
+          continue;
+        }
+        context.addIssue({
+          code: "custom",
+          path: [index],
+          message:
+            "Repeated Position tracks require finite px values or unitless zero and cannot use cubic motion paths.",
         });
       }
     }
@@ -527,6 +604,7 @@ async function persistFileContent(
   },
   content: string,
   expectedVersionHash: string,
+  expectedWorkingCopyHash: string,
 ): Promise<string> {
   agentEnterDocument(file.id);
   try {
@@ -544,6 +622,7 @@ async function persistFileContent(
       file: workspaceFile,
       content,
       expectedVersionHash,
+      expectedWorkingCopyHash,
     });
     return result.updatedAt;
   } finally {
@@ -611,7 +690,7 @@ export default defineAction({
     tracks: z
       .preprocess(
         (v) => (typeof v === "string" ? JSON.parse(v) : v),
-        z.array(trackSchema),
+        motionTracksSchema,
       )
       .describe(
         "CSS animation tracks; an empty array clears CSS tracks and supports " +
@@ -661,7 +740,7 @@ export default defineAction({
       )
       .optional()
       .describe(
-        "Lossless native Figma Motion style instances stored in the versioned " +
+        "Lossless imported Motion style instances stored in the versioned " +
           "source metadata. Omit to preserve existing instances; provide an " +
           "array to replace them or [] to clear them.",
       ),
@@ -1116,7 +1195,7 @@ export default defineAction({
         { errorCode: "motion_easing_variables_invalid", statusCode: 422 },
       );
     }
-    const nativeStyles: MotionNativeStyleInstance[] =
+    let nativeStyles: MotionNativeStyleInstance[] =
       nativeStylesInput === undefined
         ? existingNativeStyles
         : (nativeStylesInput as MotionNativeStyleInstance[]);
@@ -1126,7 +1205,7 @@ export default defineAction({
       fail(
         error instanceof MotionNativeStyleInstanceError
           ? `${error.message}${error.path ? ` (${error.path})` : ""}`
-          : "Invalid native Figma Motion styles.",
+          : "Invalid imported Motion styles.",
         {
           errorCode: "motion_native_style_invalid",
           statusCode: 422,
@@ -1135,6 +1214,31 @@ export default defineAction({
     }
     let runtimeTextDocument: MotionTextDocument | null;
     try {
+      if (nativeStylesInput !== undefined && textDocument) {
+        // A new style inherits authored whitespace only when that is its sole
+        // profile difference; an existing style keeps its explicit choice.
+        nativeStyles = nativeStyles.map((style) => {
+          if (
+            style.styleKey !== "TextStagger" ||
+            existingNativeStyles.some(
+              (existing) =>
+                existing.styleKey === "TextStagger" &&
+                existing.targetNodeId === style.targetNodeId,
+            )
+          ) {
+            return style;
+          }
+          const authoredAnimation = textDocument.animations.find(
+            (animation) => animation.targetNodeId === style.targetNodeId,
+          );
+          return authoredAnimation
+            ? motionNativeStyleWithMatchingAuthoredTextWhitespace(
+                style,
+                authoredAnimation,
+              )
+            : style;
+        });
+      }
       runtimeTextDocument = motionTextDocumentWithNativeStyles(
         textDocument,
         nativeStyles,
@@ -1195,15 +1299,18 @@ export default defineAction({
         ),
       );
     }
-    const inputTracks = [
-      ...requestedTracks,
-      ...legacyAuthoredTracks.filter(
-        (track) =>
-          !requestedTrackKeys.has(
-            motionTrackKey(track.targetNodeId, track.property),
-          ),
-      ),
-    ];
+    const inputTracks = withMotionTrackIdsFromExisting(
+      [
+        ...requestedTracks,
+        ...legacyAuthoredTracks.filter(
+          (track) =>
+            !requestedTrackKeys.has(
+              motionTrackKey(track.targetNodeId, track.property),
+            ),
+        ),
+      ],
+      existingMotionDocument?.tracks ?? [],
+    );
 
     if (
       inputTracks.length === 0 &&
@@ -1238,14 +1345,23 @@ export default defineAction({
       }
     }
 
+    const trackContentEndMs = Math.ceil(
+      motionTimelineDurationForTracks(requestedDurationMs, inputTracks),
+    );
+    if (trackContentEndMs > MOTION_TIMELINE_MAX_CONTENT_END_MS) {
+      fail(
+        `Motion tracks end at ${trackContentEndMs}ms, which exceeds the ${MOTION_TIMELINE_MAX_CONTENT_END_MS}ms content limit. Reduce a track delay or duration.`,
+        { errorCode: "motion_timeline_duration_exceeded", statusCode: 422 },
+      );
+    }
+
     const durationMs = Math.ceil(
       Math.max(
         motionTimelineDurationForContent(
           requestedDurationMs,
-          inputTracks,
+          [],
           textDocument?.animations ?? [],
         ),
-        ...nativeStyles.map(motionNativeStyleEndTimeMs),
         audioEndMs,
       ),
     );
@@ -1256,23 +1372,51 @@ export default defineAction({
       );
     }
 
-    const seenTrackKeys = new Set<string>();
+    const seenTrackIds = new Set<string>();
+    const tracksByKey = new Map<string, MotionTrack[]>();
     for (const track of inputTracks) {
       assertSafeMotionCssProperty(track.property, "track.property");
-      const trackKey = motionTrackKey(track.targetNodeId, track.property);
-      if (seenTrackKeys.has(trackKey)) {
-        throw new Error(
-          `Duplicate motion track for targetNodeId "${track.targetNodeId}" ` +
-            `and property "${track.property}". Each (targetNodeId, property) ` +
-            "pair may appear at most once — merge the keyframes into a single track.",
-        );
+      if (!isMotionTrackId(track.id)) {
+        fail("Motion track ids must be stable CSS-safe identifiers.", {
+          errorCode: "motion_invalid_track_id",
+          statusCode: 422,
+        });
       }
-      seenTrackKeys.add(trackKey);
+      if (seenTrackIds.has(track.id)) {
+        fail(`Duplicate motion track id "${track.id}".`, {
+          errorCode: "motion_duplicate_track_id",
+          statusCode: 422,
+        });
+      }
+      seenTrackIds.add(track.id);
+      const trackKey = motionTrackKey(track.targetNodeId, track.property);
+      const tracksForKey = tracksByKey.get(trackKey) ?? [];
+      tracksForKey.push(track);
+      tracksByKey.set(trackKey, tracksForKey);
       for (const kf of track.keyframes) {
         assertSafeMotionCssToken(kf.value, "keyframe value");
         if (kf.ease !== undefined) {
           assertValidMotionEase(kf.ease, "keyframe ease");
         }
+      }
+    }
+    for (const tracksForKey of tracksByKey.values()) {
+      if (
+        tracksForKey.length > 1 &&
+        tracksForKey[0]!.property === "translate" &&
+        tracksForKey.some(
+          (track) =>
+            !isAdditiveMotionPositionTrack(track) ||
+            track.composition === "replace",
+        )
+      ) {
+        fail(
+          "Repeated Position tracks require finite px values or unitless zero and cannot use cubic motion paths.",
+          {
+            errorCode: "motion_position_composition_unsupported",
+            statusCode: 422,
+          },
+        );
       }
     }
     assertValidMotionEase(defaultEase, "defaultEase");
@@ -1598,6 +1742,7 @@ export default defineAction({
         },
         patchedContent,
         baseVersionHash,
+        sourceContentHash(currentContent),
       );
     }
 

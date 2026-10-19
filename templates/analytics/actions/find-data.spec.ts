@@ -79,6 +79,12 @@ describe("find-data scan coverage", () => {
     expect(result.guidance).toContain(
       "exclude aggregates and snapshots as member sources",
     );
+    expect(result.guidance).toContain(
+      "A related metric is a lead, not a substitute",
+    );
+    expect(result.guidance).toContain(
+      "report the gap instead of using a nearby metric's value",
+    );
   });
 
   it("keeps missing legacy scan counts unavailable instead of reporting zero", async () => {
@@ -158,6 +164,68 @@ describe("find-data scan coverage", () => {
     expect(result.guidance).toContain(
       "Treat missing source-index matches as incomplete",
     );
+  });
+
+  it("bounds long dashboard SQL previews so the result stays parseable", async () => {
+    const candidates = [
+      ...Array.from({ length: 11 }, (_, index) => ({
+        kind: "dashboard-panel",
+        origin: "dashboard-template",
+        score: 100 - index,
+        matchedTerms: ["users"],
+        dashboardId: `dashboard-${index}`,
+        dashboardTitle: `Dashboard ${index}`,
+        panelId: `panel-${index}`,
+        panelTitle: `Panel ${index}`,
+        query: `SELECT user_id FROM analytics_events ${"AND event_name = 'app_entered' ".repeat(500)}`,
+        dashboardCertified: false,
+      })),
+      {
+        kind: "dashboard-panel",
+        origin: "dashboard-template",
+        score: 1,
+        matchedTerms: ["users"],
+        dashboardId: "short-dashboard",
+        dashboardTitle: "Short dashboard",
+        panelId: "short-panel",
+        panelTitle: "Short panel",
+        query: "SELECT COUNT(*) FROM analytics_events",
+        dashboardCertified: false,
+      },
+    ];
+    mocks.searchAnalyticsQueryCatalog.mockResolvedValueOnce({
+      candidates,
+      searched: candidates.length,
+      of: candidates.length,
+      truncated: false,
+      nextPage: null,
+      sourceIndexStatus: "available",
+      sourceIndexScanCoverage: null,
+      sourceIndexFreshness: null,
+      sourceIndexSourcesFreshness: null,
+    });
+
+    const result = await action.run({ question: "workspace users" });
+    const returnedCandidates = result.results as Array<Record<string, unknown>>;
+
+    expect(result.dashboardQueryPreviewsTruncated).toBe(true);
+    expect(returnedCandidates.slice(0, 11)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          queryPreviewTruncated: true,
+          queryPreview: expect.any(String),
+        }),
+      ]),
+    );
+    expect(returnedCandidates[0]?.queryPreview).toHaveLength(1_200);
+    expect(returnedCandidates[0]).not.toHaveProperty("query");
+    expect(returnedCandidates[11]?.query).toBe(
+      "SELECT COUNT(*) FROM analytics_events",
+    );
+    expect(result.guidance).toContain("get-sql-dashboard");
+    expect(result.guidance).toContain("dashboardId");
+    expect(result.guidance).toContain("panelIds");
+    expect(JSON.stringify(result).length).toBeLessThan(50_000);
   });
 
   it("warns when generated source-index references have aged past the refresh window", async () => {

@@ -19,9 +19,34 @@ The analytics app connects to multiple data sources. This skill covers general p
 5. **Write ad-hoc scripts** — if no existing script covers the question, create one in `actions/`
 6. **Present data in chat** — don't just say "check the dashboard" — actually query, get the data, and present it. Only present numbers you actually retrieved; never report a value you did not query.
 
-For a question naming a dbt metric, call `query-dbt-semantic-metric` with its exact dbt name. Use dbt as the metric-definition and grain source; Sigma and Amplitude are examples or cross-checks. If the metric is not defined or its deployment is not ready, report that state and use a verified warehouse path only when it answers the same definition.
+For a question naming a dbt metric, use `tool-search` to load
+`query-dbt-semantic-metric` and pass its exact dbt name. Use dbt as the metric-
+definition and grain source; Sigma and Amplitude are examples or cross-checks.
 
-For events recorded by the analytics template itself via its `/track` endpoint, use `pnpm action query-agent-native-analytics --sql "SELECT ... FROM analytics_events ..."`. This includes pageviews, site/app traffic, template usage, app usage, and event counts collected by this analytics app. Pageviews and traffic can also live in GA4, BigQuery/warehouse tables, Mixpanel, PostHog, Amplitude, or another configured provider, so choose the source from the user's wording, connected-source status, existing dashboards, data dictionary, and user/org resources. Ask one concise clarification if multiple configured sources are plausible. Do not use `db-query` for data-source analysis; `db-query` is only for internal app tables and will confuse analytics questions. The shipped `agent-native-templates-first-party` SQL dashboard is the template engagement dashboard for the first-party collector source.
+If no dbt connection is available, use the source-selection path below.
+If the metric is not defined or its deployment is not ready, report that state
+and use a verified warehouse path only when it answers the same definition.
+
+Use the metric's returned dimensions and `queryableGranularities` for a
+breakdown. Pass exact dimension names in `groupBy`; grouped MetricFlow queries
+require an inclusive `timeRange` no longer than 366 days. Use `metric_time` and
+an explicit grain for a time series. The action validates dimensions and grains
+against dbt metadata, and returns the executed `querySpec`; preserve it when
+interpreting rows or continuing with the returned `queryId` and `nextPage`.
+MetricFlow names grouped time columns `metric_time__<GRAIN>` in the returned
+rows; preserve that key when presenting the result.
+When activity could mean Builder product events or Agent-Native app opens, keep
+the populations separate and ask which one the user intends if the source is
+ambiguous.
+
+## Metric semantics and source status
+
+- Keep event families separate unless the dbt metric or exact saved query defines their union. A UI click and a submitted message are different events even if a dashboard labels both as activity.
+- Verify population filters and exclusions from model/metric SQL or tests. Similar aggregate totals do not prove that a model excludes staff, internal users, or any other group.
+- A bounded date or partition scan supports conclusions only for the scanned range. State that range and any bytes or query limit; an empty result in those partitions does not establish absence elsewhere.
+- For a source inventory, call `data-source-status` and distinguish configured credentials from a healthy workspace connection. A provider appearing in the tool catalog is not evidence that this workspace has connected it.
+
+For events recorded by the analytics template itself via its `/track` endpoint, use `pnpm action query-agent-native-analytics --sql "SELECT ... FROM analytics_events ..."`. This includes pageviews, site/app traffic, template usage, app usage, and event counts collected by this analytics app. Pageviews and traffic can also live in GA4, BigQuery/warehouse tables, Mixpanel, PostHog, Amplitude, or another configured provider, so choose the source from the user's wording, connected-source status, existing dashboards, data dictionary, and user/org resources. Ask one concise clarification only when multiple configured sources are plausible and the choice would change the numbers; otherwise name the source you used. Do not use `db-query` for data-source analysis; `db-query` is only for internal app tables and will confuse analytics questions. The shipped `agent-native-templates-first-party` SQL dashboard is the template engagement dashboard for the first-party collector source.
 
 For first-party counts, active-user, and retention questions, prefer the compact
 tenant-scoped daily event and user-day rollups. Use `analytics_events` only for a
@@ -29,6 +54,20 @@ bounded recent drill-down with an explicit date/time range. For the Builder.io
 production organization after the BigQuery cutover, these logical tables are
 served by partitioned BigQuery data and views; the source still does not require
 an end user's separate warehouse connection.
+
+The Builder.io BigQuery path translates a restricted PostgreSQL-compatible SQL
+subset. Extract an event property with `properties::jsonb ->> 'key'`; bare JSON
+operators are not translated. Avoid `LATERAL`, `unnest`, `generate_series`,
+`FILTER (WHERE ...)`, `DISTINCT ON`, and `ILIKE`, which the BigQuery path rejects.
+Use `||` explicitly for string concatenation. Rewrite `FILTER (WHERE ...)` as a
+conditional aggregate such as `SUM(CASE WHEN ... THEN value ELSE 0 END)`,
+`ILIKE` as `LOWER(left) LIKE LOWER(right)`, and `DISTINCT ON` as `ROW_NUMBER()`
+in a CTE with an outer `WHERE` filter. After an unsupported-syntax error, make
+one corrected attempt and do not repeat unchanged SQL. Follow the first-party
+query's typed recovery instruction: schema errors call for `find-data` or
+`search-bigquery-schema`; permission failures stop; billed-byte failures need a
+narrower scan; only timeout, rate-limit, and temporary backend failures permit
+one unchanged retry. Use the separate BigQuery action for GoogleSQL-only SQL.
 
 First-party reads exclude test identities (QA/E2E accounts): ingest never
 stores their events or replays, and the read scope filters `user_id` (events,
@@ -40,7 +79,14 @@ exception is the legacy `@app_events` table, which keeps a test identity's
 `$exception` rows marked `JSON_VALUE(data, '$.test_identity') = 'true'`;
 exclude those from any metric over it.
 
-Before a large or historical first-party query, call
+When the user rules out BigQuery, skip the health check below, which queries
+BigQuery on a BigQuery-backed scope. Call `get-first-party-analytics-backend`
+to see which tables Postgres serves, then pass `backend: "postgres"` to
+`query-agent-native-analytics`. If it fails with
+`first_party_backend_not_postgres`, this scope reads those tables only from
+BigQuery: say so and let the user decide.
+
+Otherwise, before a large or historical first-party query, call
 `get-first-party-analytics-health`. Keep Neon as the default while its status is
 `healthy` or `monitor`; a `recommend_bigquery` result means the app has observed
 1M+ events, repeated slow queries, or a timeout/30-second query. Treat that
@@ -50,8 +96,10 @@ a requirement to use BigQuery. The health result lists the supported options:
 - BigQuery for warehouse SQL and complete historical analysis.
 - Amplitude for product analytics, funnels, and retention.
 
-If a suitable backend is not configured, use its returned setup link or
-`data-source-status --key <provider>` to guide the user through the existing
+A `recommend_bigquery` result is advice, not a stop: answer the bounded question
+first. Use the setup link only for a historical or high-volume request with no
+suitable backend configured, via its returned link or
+`data-source-status --key <provider>`, to guide the user through the existing
 Data Sources walkthrough. Connecting a query backend alone does not move the
 collector or copy existing Neon events. For the Builder.io production
 organization, the hidden `migrate-first-party-analytics-to-bigquery` action is

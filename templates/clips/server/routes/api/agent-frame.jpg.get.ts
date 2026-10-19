@@ -9,33 +9,29 @@ import {
   getForwardedRequestURL,
   runWithRequestContext,
 } from "@agent-native/core/server";
-import { getAgentClipReadiness } from "@shared/agent-context";
-import { isLoomEmbedBackedRecording } from "@shared/loom";
 import { isImageRecording } from "@shared/recording-kind";
 import {
   defineEventHandler,
   getQuery,
   setResponseHeader,
-  setResponseStatus,
   type H3Event,
 } from "h3";
 
+import {
+  describeFrameFailure,
+  frameFailureStatus,
+  loadAgentFrameAccess,
+  sendFrameJson,
+} from "../../lib/agent-frame-request.js";
 import {
   ensureRecordingThumbnail,
   RECORDING_THUMBNAIL_AT_MS,
 } from "../../lib/ensure-recording-thumbnail.js";
 import {
-  isHeldForRedaction,
-  REDACTION_HOLD_MESSAGE,
-} from "../../lib/pending-redactions.js";
-import {
   CLIPS_AGENT_ACCESS_PARAM,
-  describeAgentAccessFailure,
-  loadPublicAgentAccess,
   loadRecordingMediaFile,
   loadScreenshotImage,
   queryString,
-  RecordingMediaFetchError,
   type PublicAgentAccess,
 } from "../../lib/public-agent-context.js";
 import {
@@ -106,76 +102,6 @@ function applyFrameHeaders(event: H3Event) {
   setResponseHeader(event, "X-Content-Type-Options", "nosniff");
   setResponseHeader(event, "Referrer-Policy", "no-referrer");
   setResponseHeader(event, "Cache-Control", cacheControlForAccess());
-}
-
-function describeFrameFailure(error: unknown, status: number) {
-  const message = error instanceof Error ? error.message : String(error);
-  if (
-    error instanceof VideoFrameExtractionError &&
-    error.code === "NO_VIDEO_TRACK"
-  ) {
-    return {
-      failureKind: "unsupported",
-      error: message,
-      nextStep:
-        "This recording has no video track, so Clips cannot provide video frames. Do not retry with another timestamp. Continue with the transcript if available, and ask the owner to provide a video recording if visual inspection is needed.",
-    };
-  }
-
-  if (
-    error instanceof VideoFrameExtractionError &&
-    error.code === "EMPTY_MEDIA"
-  ) {
-    return {
-      failureKind: "processing",
-      error: message,
-      nextStep:
-        "The stored recording is empty and has no frames to inspect. Do not retry with another timestamp. Ask the owner to replace or reupload the clip's video; the transcript may still be available.",
-    };
-  }
-
-  if (
-    error instanceof VideoFrameExtractionError &&
-    error.code === "NO_FRAME_AT_TIMESTAMP"
-  ) {
-    return {
-      failureKind: "processing",
-      error: message,
-      nextStep:
-        "No frame was available at the requested timestamp. Try a different timestamp; if the failure continues, report the frame error. Do not treat it as an access failure or missing media.",
-    };
-  }
-
-  if (
-    error instanceof RecordingMediaFetchError &&
-    (error.statusCode === 404 || error.statusCode === 410)
-  ) {
-    return {
-      failureKind: "media",
-      error: message,
-      nextStep:
-        "The stored media could not be retrieved. The agent link is valid; another Share with agents link will not restore it. Ask the owner to restore or replace the clip's media.",
-    };
-  }
-
-  if (
-    error instanceof RecordingMediaFetchError &&
-    [401, 403].includes(error.statusCode)
-  ) {
-    return {
-      failureKind: "media",
-      error: message,
-      nextStep:
-        "The frame request passed the clip's share-access check, but Clips was denied access to the stored media. This is a media-storage issue, not a missing agent link. Ask the owner to check storage access or replace the clip's media; another Share with agents link will not help.",
-    };
-  }
-
-  const nextStep =
-    status === 413
-      ? "The stored media is too large for frame inspection. The share link may still be valid; report that frames cannot be inspected at this size."
-      : "Frame extraction or media storage failed after clip access was granted. Retry once; if it continues, report the returned error. Do not request another share link unless a context or transcript response has failureKind=access.";
-
-  return { failureKind: "processing", error: message, nextStep };
 }
 
 async function persistDefaultThumbnailIfMissing(
@@ -282,80 +208,9 @@ async function extractFrameWithStaleDurationRecovery({
 
 export default defineEventHandler(async (event: H3Event) => {
   const query = getQuery(event);
-  const id = queryString(query.id);
-  const accessResult = await loadPublicAgentAccess(event, id, {
-    password: queryString(query.password),
-    token: queryString(query[CLIPS_AGENT_ACCESS_PARAM]),
-  });
-
-  if (!accessResult.ok) {
-    const failure = describeAgentAccessFailure(accessResult.failure);
-    setResponseStatus(event, failure.status);
-    setResponseHeader(event, "Content-Type", "application/json; charset=utf-8");
-    setResponseHeader(event, "X-Content-Type-Options", "nosniff");
-    return failure.body;
-  }
-
+  const accessResult = await loadAgentFrameAccess(event);
+  if (!accessResult.ok) return accessResult.body;
   const recording = accessResult.access.recording;
-
-  if (
-    isHeldForRedaction(
-      recording.editsJson,
-      accessResult.access.viewerIsOwner ? "owner" : null,
-    )
-  ) {
-    setResponseStatus(event, 409);
-    setResponseHeader(event, "Content-Type", "application/json; charset=utf-8");
-    setResponseHeader(event, "X-Content-Type-Options", "nosniff");
-    return {
-      failureKind: "processing",
-      error: REDACTION_HOLD_MESSAGE,
-      nextStep:
-        "Frames are temporarily withheld while the owner is editing or applying redactions. Wait for the owner to finish and save the clip, then fetch agentContextUrl again before requesting frames.",
-      redactionPending: true,
-    };
-  }
-
-  const readiness = getAgentClipReadiness(recording.status);
-  if (readiness.state === "preparing") {
-    const retryAfterSeconds = readiness.retryAfterSeconds ?? 15;
-    setResponseStatus(event, 409);
-    setResponseHeader(event, "Content-Type", "application/json; charset=utf-8");
-    setResponseHeader(event, "Retry-After", String(retryAfterSeconds));
-    setResponseHeader(event, "X-Content-Type-Options", "nosniff");
-    return {
-      failureKind: "processing",
-      error: `This clip is still ${recording.status} and its frames are not ready.`,
-      nextStep:
-        readiness.instruction ??
-        "Wait 15 seconds, then fetch agentContextUrl again before requesting frames.",
-      retryAfterSeconds,
-    };
-  }
-  if (readiness.state === "failed") {
-    setResponseStatus(event, 409);
-    setResponseHeader(event, "Content-Type", "application/json; charset=utf-8");
-    setResponseHeader(event, "X-Content-Type-Options", "nosniff");
-    return {
-      failureKind: "processing",
-      error: "This clip's recording failed, so its frames are unavailable.",
-      nextStep:
-        readiness.instruction ??
-        "Do not retry this frame request. Ask the owner to retry or replace the clip.",
-    };
-  }
-
-  if (isLoomEmbedBackedRecording(recording)) {
-    setResponseStatus(event, 422);
-    setResponseHeader(event, "Content-Type", "application/json; charset=utf-8");
-    setResponseHeader(event, "X-Content-Type-Options", "nosniff");
-    return {
-      failureKind: "unsupported",
-      error: "Frame extraction is not available for legacy Loom embed imports.",
-      nextStep:
-        "This clip has an embedded Loom player instead of a Clips-hosted video file. Open the embedded player for visual review, or reimport the video into Clips before requesting frames.",
-    };
-  }
 
   // A still image has one frame, the picture itself; there is no video to
   // cut one from.
@@ -369,19 +224,8 @@ export default defineEventHandler(async (event: H3Event) => {
     } catch (err) {
       // Pass the storage outcome on, as the video path does: a timeout or a
       // missing object is not the same failure to retry as a bad gateway.
-      const status =
-        err instanceof RecordingMediaFetchError
-          ? err.statusCode
-          : err instanceof Error && /too large/i.test(err.message)
-            ? 413
-            : 502;
-      setResponseStatus(event, status);
-      setResponseHeader(
-        event,
-        "Content-Type",
-        "application/json; charset=utf-8",
-      );
-      return describeFrameFailure(err, status);
+      const status = frameFailureStatus(err);
+      return sendFrameJson(event, status, describeFrameFailure(err, status));
     }
   }
   const durationMs =
@@ -443,24 +287,7 @@ export default defineEventHandler(async (event: H3Event) => {
       await media.cleanup().catch(() => {});
     }
   } catch (err) {
-    const isFrameError = err instanceof VideoFrameExtractionError;
-    const status =
-      err instanceof RecordingMediaFetchError
-        ? err.statusCode
-        : isFrameError
-          ? err.code === "FFMPEG_UNAVAILABLE"
-            ? 503
-            : err.code === "NO_VIDEO_TRACK" ||
-                err.code === "EMPTY_MEDIA" ||
-                err.code === "NO_FRAME_AT_TIMESTAMP"
-              ? 422
-              : 502
-          : err instanceof Error && /too large/i.test(err.message)
-            ? 413
-            : 502;
-    setResponseStatus(event, status);
-    setResponseHeader(event, "Content-Type", "application/json; charset=utf-8");
-    setResponseHeader(event, "X-Content-Type-Options", "nosniff");
-    return describeFrameFailure(err, status);
+    const status = frameFailureStatus(err);
+    return sendFrameJson(event, status, describeFrameFailure(err, status));
   }
 });

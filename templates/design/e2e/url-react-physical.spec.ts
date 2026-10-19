@@ -110,8 +110,7 @@ test.afterAll(async ({ playwright }, testInfo) => {
   await api.dispose();
 });
 
-// fixme: product bug: (1) After a drag on V2 is cancelled with Escape, V2 returns to its slot but the selection (Layers row and canvas box) moves to V3
-test.fixme("React URL-backed drag/drop emits semantic handoff and survives coding-agent HMR", async ({
+test("React URL-backed drag/drop emits semantic handoff and survives coding-agent HMR", async ({
   app,
   page,
   request,
