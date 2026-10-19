@@ -65,6 +65,9 @@ describe("configure-first-party-events-model", () => {
     });
     expect(mocks.dryRun).toHaveBeenCalledTimes(2);
     expect(mocks.dryRun.mock.calls[0]![0]).toContain(`\`${MODEL}\``);
+    for (const [sql] of mocks.dryRun.mock.calls) {
+      expect(sql).toMatch(/^SELECT \* FROM /);
+    }
     expect(mocks.admin).not.toHaveBeenCalled();
     expect(mocks.save).not.toHaveBeenCalled();
   });

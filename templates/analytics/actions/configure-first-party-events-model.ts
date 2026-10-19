@@ -33,7 +33,9 @@ function utcDateDaysAgo(days: number): string {
 }
 
 // Dry runs only: BigQuery plans the query and reports the bytes it would
-// scan, but runs and bills nothing.
+// scan, but runs and bills nothing. Both read every projected column: BigQuery
+// bills only the columns a query reads, so COUNT(*) would report almost nothing
+// while a chart can read any of them.
 async function checkModel(
   table: string,
   signal?: AbortSignal,
@@ -47,7 +49,7 @@ async function checkModel(
   }
   const projection = `(${firstPartyEventsModelProjection(table)}) AS analytics_events`;
   const recent = await dryRunQuerySchema(
-    `SELECT COUNT(*) AS events FROM ${projection} WHERE event_date >= DATE '${utcDateDaysAgo(1)}'`,
+    `SELECT * FROM ${projection} WHERE event_date >= DATE '${utcDateDaysAgo(1)}'`,
     { signal },
   );
   if (recent.error) {
@@ -60,10 +62,9 @@ async function checkModel(
   }
   // Eligible chart SQL need not bound event_date, so a model that refuses an
   // unbounded read (a required partition filter, say) would fail those charts.
-  const full = await dryRunQuerySchema(
-    `SELECT COUNT(*) AS events FROM ${projection}`,
-    { signal },
-  );
+  const full = await dryRunQuerySchema(`SELECT * FROM ${projection}`, {
+    signal,
+  });
   if (full.error) {
     return {
       status: "unavailable",
@@ -91,7 +92,7 @@ export default defineAction({
     openWorldHint: true,
   },
   description:
-    "Check or set the warehouse events model that first-party Analytics charts read instead of the raw event table. `check` (any org member) reads the model's table metadata and dry-runs the chart projection against it as the app, reporting whether the app can query it and the bytes a one-day and a full read would scan; it runs and bills no query. `set` (org admin, needs approval) runs the same check and saves the model only if it passes. `clear` (org admin, needs approval) sends charts back to the raw table. Charts that read columns or events the model lacks, alerts, and onboarding journeys keep reading the raw table either way.",
+    "Check or set the warehouse events model that first-party Analytics charts read instead of the raw event table. `check` (any org member) reads the model's table metadata and dry-runs the chart projection against it as the app, reporting whether the app can query it and the most bytes a chart reading one day or all of it could scan (every column); it runs and bills no query. `set` (org admin, needs approval) runs the same check and saves the model only if it passes. `clear` (org admin, needs approval) sends charts back to the raw table. Charts that read columns or events the model lacks, alerts, and onboarding journeys keep reading the raw table either way.",
   schema: z.object({
     mode: z.enum(["check", "set", "clear"]),
     table: z
