@@ -1633,6 +1633,7 @@ function assistantContent() {
 
 describe("runBackgroundAutomation — thread transcript", () => {
   it("persists the prompt and tool-call turn, keeping the Job title", async () => {
+    const { getRunEventsSince } = await import("../agent/run-store.js");
     const { runAgentLoopDirectWithSoftTimeout } =
       await import("../agent/run-loop-with-resume.js");
     vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
@@ -1644,6 +1645,15 @@ describe("runBackgroundAutomation — thread transcript", () => {
           tool: "poll-slack-channel",
           input: { channel: "C123" },
         });
+        expect(opts.beforeWrite).toEqual(expect.any(Function));
+        await opts.beforeWrite?.();
+        const persistedEvents = await getRunEventsSince(opts.runId!, 0);
+        expect(
+          persistedEvents.some(({ eventData }) => {
+            const event = JSON.parse(eventData) as { type?: string };
+            return event.type === "tool_start";
+          }),
+        ).toBe(true);
         await opts.send?.({
           type: "tool_done",
           id: "tc_1",

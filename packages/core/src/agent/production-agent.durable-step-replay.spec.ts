@@ -47,6 +47,7 @@ vi.mock("./run-store.js", async (importOriginal) => {
         : { status: "execute" as const, wasDispatched: false };
     }),
     markAgentExecutionStepDispatched: vi.fn(async () => {}),
+    markAgentExecutionStepUnknown: vi.fn(async () => {}),
     completeAgentExecutionStep: vi.fn(
       async (intent: AgentExecutionStepIntent, resultJson: string) => {
         durableStep.resultJson = resultJson;
@@ -135,6 +136,74 @@ beforeEach(() => {
 });
 
 describe("durable execution step replay", () => {
+  it("does not dispatch a write if cancellation arrives during the dispatch marker", async () => {
+    const actionRun = vi.fn(async () => "Deck saved");
+    const action = {
+      tool: {
+        description: "Create a deck",
+        parameters: { type: "object" as const, properties: {} },
+      },
+      readOnly: false,
+      run: actionRun,
+    };
+    let enterMarker!: () => void;
+    let releaseMarker!: () => void;
+    const markerEntered = new Promise<void>((resolve) => {
+      enterMarker = resolve;
+    });
+    const markerGate = new Promise<void>((resolve) => {
+      releaseMarker = resolve;
+    });
+    const {
+      claimTurnExecutionLease,
+      insertRun,
+      markAgentExecutionStepDispatched,
+      markAgentExecutionStepUnknown,
+    } = await import("./run-store.js");
+    const runId = `durable-marker-cancel-${Date.now()}`;
+    const threadId = `thread-${runId}`;
+    const turnId = runId;
+    await insertRun(runId, threadId, turnId);
+    const executionFence = await claimTurnExecutionLease(
+      threadId,
+      turnId,
+      runId,
+    );
+    vi.mocked(markAgentExecutionStepDispatched).mockImplementationOnce(
+      async () => {
+        enterMarker();
+        await markerGate;
+      },
+    );
+    vi.mocked(markAgentExecutionStepUnknown).mockImplementationOnce(
+      async () => {},
+    );
+    const controller = new AbortController();
+    const pending = withExecutionFence(executionFence, () =>
+      runAgentLoop({
+        engine: engineFor([[toolCall()]], []),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Create a deck." }] },
+        ],
+        actions: { "create-deck": action },
+        threadId,
+        turnId,
+        send: () => {},
+        signal: controller.signal,
+      }),
+    );
+
+    await markerEntered;
+    controller.abort();
+    releaseMarker();
+    await pending;
+
+    expect(actionRun).not.toHaveBeenCalled();
+  });
+
   it("bounds an oversized replay projection without losing the committed result", async () => {
     const actionRun = vi.fn(async () => ({
       [MCP_ACTION_RESULT_MARKER]: true as const,

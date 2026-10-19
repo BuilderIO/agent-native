@@ -1506,6 +1506,7 @@ async function executeBackgroundAutomation(
               messages: engineMessages,
               actions,
               send,
+              beforeWrite: control.flushEvents,
               signal,
               threadId: thread.id,
               ownerEmail,
