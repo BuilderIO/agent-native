@@ -2904,12 +2904,11 @@ export async function createMCPServerForRequest(
     config,
     flatCatalog ? withoutToolSearch(mergedActions) : mergedActions,
   );
-  // `ask-agent` runs `ask_app` outside the action map, so a deny on either
-  // name has to switch it off here.
-  const askAgentDenied = ["ask-agent", "ask_app"].some((name) =>
-    externalAgentDenySet(config).has(name),
-  );
-  const askAgent = askAgentDenied ? undefined : config.askAgent;
+  // Tools built outside the action map (`ask-agent`, `create_embed_session`)
+  // never pass through the filter above, so tools/list and tools/call refuse a
+  // denied name too. `ask-agent` runs `ask_app`, so denying either removes it.
+  const deniedToolNames = externalAgentDenySet(config);
+  if (deniedToolNames.has("ask_app")) deniedToolNames.add("ask-agent");
   const {
     isAdvertisable,
     advertisable,
@@ -3320,7 +3319,7 @@ export async function createMCPServerForRequest(
 
       if (
         fullCatalogRequested &&
-        askAgent &&
+        config.askAgent &&
         isActionGranted(allowedActions, "ask-agent") &&
         hasMcpOAuthScope(effectiveIdentity?.oauthScopes, "mcp:write")
       ) {
@@ -3361,7 +3360,7 @@ export async function createMCPServerForRequest(
       }
 
       tools.sort((a, b) => compareMcpCatalogValues(a.name, b.name));
-      return { tools };
+      return { tools: tools.filter((tool) => !deniedToolNames.has(tool.name)) };
     });
     trackMcpToolsList(analyticsContext(request, ctx), {
       toolNames: result.tools.map((tool) => tool.name),
@@ -3410,6 +3409,17 @@ export async function createMCPServerForRequest(
       const result = await withCallerContext(async () => {
         const { name, arguments: args } = request.params;
 
+        if (deniedToolNames.has(name)) {
+          failure = {
+            errorType: "unknown_tool",
+            errorMessage: `Unknown tool: ${name}`,
+          };
+          return {
+            content: [{ type: "text", text: `Unknown tool: ${name}` }],
+            isError: true,
+          };
+        }
+
         try {
           const { allowedActions } = await resolveServiceGrant();
           assertServicePrincipalMayCall(allowedActions, name);
@@ -3433,7 +3443,7 @@ export async function createMCPServerForRequest(
           };
         }
 
-        if (name === "ask-agent" && askAgent) {
+        if (name === "ask-agent" && config.askAgent) {
           if (!fullCatalogRequested) {
             failure = {
               errorType: "unknown_tool",
