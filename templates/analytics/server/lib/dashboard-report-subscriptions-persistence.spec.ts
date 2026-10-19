@@ -15,7 +15,10 @@ vi.mock("./open-dashboard", () => ({ openDashboard: mocks.openDashboard }));
 vi.mock("@agent-native/core/server", () => ({ recordChange: vi.fn() }));
 
 import { BUILTIN_DASHBOARD_HIDDEN_BY } from "../../shared/builtin-dashboard-ids.js";
-import { saveDashboardReportSubscription } from "./dashboard-report-subscriptions";
+import {
+  countEnabledDashboardReportSubscriptions,
+  saveDashboardReportSubscription,
+} from "./dashboard-report-subscriptions";
 
 const ctx = { email: "owner@example.test", orgId: null };
 const input = {
@@ -149,5 +152,65 @@ describe("report subscription dashboard locking", () => {
     const saved = await saveDashboardReportSubscription(input, ctx);
     expect(saved.dashboardId).toBe(input.dashboardId);
     expect(saved.name).toBe("Demo daily email");
+  });
+});
+
+describe("enabled report schedule count", () => {
+  type Client = Awaited<ReturnType<typeof PGlite.create>>;
+  let client: Client;
+
+  beforeEach(async () => {
+    client = await PGlite.create();
+    await client.exec(`
+      CREATE TABLE dashboard_report_subscriptions (
+        id TEXT PRIMARY KEY, dashboard_id TEXT NOT NULL, name TEXT NOT NULL,
+        recipients TEXT NOT NULL, slack_webhook_url TEXT, filters TEXT NOT NULL,
+        frequency TEXT NOT NULL, time_of_day TEXT NOT NULL, timezone TEXT NOT NULL,
+        enabled BOOLEAN NOT NULL, next_run_at TEXT, last_run_at TEXT, last_status TEXT,
+        last_error TEXT, last_capture_at TEXT, last_capture_mode TEXT, last_capture_error TEXT,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL, owner_email TEXT NOT NULL, org_id TEXT
+      );
+    `);
+    const schedules: Array<[string, string, boolean, string, string | null]> = [
+      ["s1", "shared-copy", true, "Owner@example.test", null],
+      ["s2", "shared-copy", true, "viewer@example.test", null],
+      ["s3", "shared-copy", true, "member@example.test", "org-x"],
+      ["s4", "shared-copy", false, "viewer@example.test", null],
+      ["s5", "other", true, "viewer@example.test", null],
+    ];
+    for (const [id, dashboardId, enabled, ownerEmail, orgId] of schedules) {
+      await client.query(
+        `INSERT INTO dashboard_report_subscriptions (id, dashboard_id, name, recipients, filters, frequency, time_of_day, timezone, enabled, created_at, updated_at, owner_email, org_id)
+         VALUES ($1, $2, 'Daily', '[]', '{}', 'daily', '09:00', 'UTC', $3, 'now', 'now', $4, $5)`,
+        [id, dashboardId, enabled, ownerEmail, orgId],
+      );
+    }
+    mocks.getDb.mockReturnValue(drizzle(client));
+  });
+
+  afterEach(async () => {
+    await client.close();
+  });
+
+  it("counts only the caller's tenant: their org, or their own without one", async () => {
+    // Other tenants' reports run on their own BigQuery connection.
+    await expect(
+      countEnabledDashboardReportSubscriptions("shared-copy", {
+        email: "owner@example.test",
+        orgId: null,
+      }),
+    ).resolves.toBe(1);
+    await expect(
+      countEnabledDashboardReportSubscriptions("shared-copy", {
+        email: "viewer@example.test",
+        orgId: null,
+      }),
+    ).resolves.toBe(1);
+    await expect(
+      countEnabledDashboardReportSubscriptions("shared-copy", {
+        email: "someone@example.test",
+        orgId: "org-x",
+      }),
+    ).resolves.toBe(1);
   });
 });
