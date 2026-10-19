@@ -92,8 +92,25 @@ vi.mock("../server/lib/ical-fetcher.js", () => ({
   fetchICalEvents: fetchICalEventsMock,
 }));
 
+import {
+  actionCallIntent,
+  preparedCallArguments,
+} from "@agent-native/core/action";
+
 import { createGoogleAccountEventId } from "../shared/google-calendar-sources";
 import action from "./delete-events";
+
+// Every caller's gate judges the call as prepared: validated, defaults
+// applied.
+async function gate(args: Record<string, unknown>) {
+  const needsApproval = action.needsApproval;
+  if (typeof needsApproval !== "function") {
+    throw new Error("expected a predicate");
+  }
+  const intent = await actionCallIntent(action, args);
+  if (!intent.valid) throw intent.error;
+  return needsApproval(preparedCallArguments(intent) as never);
+}
 
 const OWNER = "owner@example.com";
 
@@ -1134,9 +1151,6 @@ describe("delete-events", () => {
   });
 
   it("gates a committed bulk delete and leaves a dry run unblocked", async () => {
-    const gate = action.needsApproval;
-    if (typeof gate !== "function") throw new Error("expected a predicate");
-
     expect(await gate({} as never)).toBe(true);
     expect(await gate({ dryRun: true } as never)).toBe(false);
     expect(await gate({ dryRun: false } as never)).toBe(true);

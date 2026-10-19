@@ -90,6 +90,12 @@ describe("provider-api-request approval gate", () => {
     },
   );
 
+  it("reads a request without a method as the schema's default GET", async () => {
+    await expect(
+      gate({ provider: "gmail", path: "/users/me/messages/send" }, "tool"),
+    ).resolves.toBe(false);
+  });
+
   it.each([
     ["POST", "/users/me/messages/send"],
     ["POST", "/gmail/v1/users/me/messages/send"],
