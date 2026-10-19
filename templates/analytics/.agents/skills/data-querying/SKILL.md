@@ -114,8 +114,10 @@ After cutover, an org admin can point charts at a scheduled warehouse events
 model with `configure-first-party-events-model`; run `check` first, which
 dry-runs as the app and saves nothing. With a model set, a first-party query
 reads `analytics_events` from the model only when its WHERE filters
-`event_name` to named events (`= 'x'` or `IN (...)`, ANDed, no OR or NOT),
-because the model has no `http.response` rows; its result carries
+`event_name` to named events (`= 'x'` or `IN (...)`) in a top-level AND
+conjunct, or in a parenthesized OR whose every branch does, because the model
+has no `http.response` rows. Other parenthesized conditions may use OR and
+NOT; an OR, NOT, or CASE at the WHERE's own level keeps the query raw; its result carries
 `eventsSource` and `sourceGeneration` (the model build it read). Unfiltered
 queries, `SELECT *`, and queries that name `public_key_id` or `context`, read
 `http.response`, or read `properties` other than through `JSON_VALUE`,
