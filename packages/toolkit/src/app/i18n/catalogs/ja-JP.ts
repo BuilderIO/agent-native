@@ -2961,6 +2961,10 @@ const messages: ToolkitAgentChatTranslation = {
     "ここでは接続を解除しました。ChatGPT ではアクセスが有効なままの場合があります。",
   "settingsModel.chatgptLocalOnly":
     "オープンソースアプリは、loopback callback を使ってローカルで実行すれば申請なしで利用できます。パートナー申請は不要です。*.agent-native.com 上のホスト型アプリには、運営者の承認とホスト型 callback が必要です。",
+  "settingsModel.chatgptPersonalScopeOnly":
+    "ChatGPT プランへのアクセスには個人アカウントを使用してください。ローカル開発では、サインイン前に access.autoCreateDefaultOrg を false に設定してください。",
+  "settingsModel.chatgptScopeUnresolved":
+    "アプリでアカウントのスコープを確認できませんでした。ローカル設定を完了してから、設定を再読み込みしてください。",
   "settingsModel.chatgptNoDirectUse":
     "このChatGPTアカウントを使用するには、再接続してモデルへの直接アクセスを許可してください。",
   "settingsModel.chatgptReconnect": "再接続",

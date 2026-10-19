@@ -2915,6 +2915,10 @@ const messages: ToolkitAgentChatTranslation = {
     "여기서는 연결을 해제했습니다. ChatGPT에서는 액세스가 계속 유지될 수 있습니다.",
   "settingsModel.chatgptLocalOnly":
     "오픈 소스 앱은 loopback callback을 사용해 로컬에서 실행하면 신청 없이 이용할 수 있으며, 파트너 신청은 필요하지 않습니다. *.agent-native.com에서 호스팅되는 앱에는 운영자 승인과 호스팅 callback이 필요합니다.",
+  "settingsModel.chatgptPersonalScopeOnly":
+    "ChatGPT 플랜 액세스에는 개인 계정을 사용하세요. 로컬 개발에서는 로그인하기 전에 access.autoCreateDefaultOrg를 false로 설정하세요.",
+  "settingsModel.chatgptScopeUnresolved":
+    "앱에서 계정 범위를 확인할 수 없습니다. 로컬 설정을 완료한 다음 설정을 새로고침하세요.",
   "settingsModel.chatgptNoDirectUse":
     "이 ChatGPT 계정을 사용하려면 다시 연결하고 모델 직접 액세스를 허용하세요.",
   "settingsModel.chatgptReconnect": "다시 연결",

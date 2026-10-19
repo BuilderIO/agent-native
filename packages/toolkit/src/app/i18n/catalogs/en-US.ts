@@ -2966,6 +2966,10 @@ const messages = {
     "Disconnected here. Access may remain active in ChatGPT.",
   "settingsModel.chatgptLocalOnly":
     "Open-source apps are self-serve when run locally with a loopback callback; no partner application is needed. Hosted apps on *.agent-native.com need operator approval and a hosted callback.",
+  "settingsModel.chatgptPersonalScopeOnly":
+    "Use ChatGPT plan access from a personal account. In local development, set access.autoCreateDefaultOrg to false before signing in.",
+  "settingsModel.chatgptScopeUnresolved":
+    "The app couldn't confirm your account scope. Finish local setup, then reload settings.",
   "settingsModel.chatgptNoDirectUse":
     "Reconnect and allow direct model access to use this ChatGPT account.",
   "settingsModel.chatgptReconnect": "Reconnect",

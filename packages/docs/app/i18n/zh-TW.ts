@@ -704,6 +704,9 @@ const messages = {
     submitError: "無法加入等候名單。請再試一次。",
     waitlistUnavailable: "此環境目前無法加入等候名單。請改用託管的文件網站。",
     launchBuilder: "啟動 Builder",
+    newAppPrompt: "建立新的 Agent-Native 應用程式。",
+    customizeTemplatePrompt:
+      "根據我的工作流程自訂 Agent-Native {{template}} 範本。",
   },
   templateCard: {
     pasteIntoTerminal: "貼上到您的終端中。",
