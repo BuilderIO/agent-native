@@ -3296,6 +3296,49 @@ export default function SlideEditor({
     [onArmShape, onArmTextBox],
   );
 
+  // Mirrors the shortcut hints in the floating toolbar menus. Text editing and
+  // form controls keep their keystrokes, so only canvas/body focus triggers.
+  useEffect(() => {
+    if (readOnly) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.repeat || e.altKey) return;
+      const active = document.activeElement;
+      if (!isSlideCanvasShortcutTarget(active, slideCanvasRef.current)) return;
+      if (
+        editingEl ||
+        active instanceof HTMLInputElement ||
+        active instanceof HTMLTextAreaElement ||
+        active instanceof HTMLSelectElement ||
+        (active instanceof HTMLElement && active.isContentEditable)
+      ) {
+        return;
+      }
+      const primary = e.metaKey || e.ctrlKey;
+      if (primary) {
+        if (e.shiftKey && e.code === "KeyK") {
+          e.preventDefault();
+          insertFloatingTool("media");
+        }
+        return;
+      }
+      let handled = true;
+      if (e.shiftKey) {
+        if (e.code === "KeyL") insertFloatingTool("arrow");
+        else handled = false;
+      } else if (e.code === "KeyV") selectFloatingMoveTool("move");
+      else if (e.code === "KeyH") selectFloatingMoveTool("hand");
+      else if (e.code === "KeyK") selectFloatingMoveTool("scale");
+      else if (e.code === "KeyT") insertFloatingTool("text");
+      else if (e.code === "KeyL") insertFloatingTool("line");
+      else if (e.code === "KeyR") insertFloatingTool("square");
+      else if (e.code === "KeyO") insertFloatingTool("ellipse");
+      else handled = false;
+      if (handled) e.preventDefault();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [editingEl, insertFloatingTool, readOnly, selectFloatingMoveTool]);
+
   const handleMediaInputChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];

@@ -232,7 +232,7 @@ const messages = {
     arrow: "Arrow",
     square: "Square",
     ellipse: "Ellipse",
-    triangle: "Triangle",
+    triangle: "Polygon",
     media: "Image/video…",
     mediaNeedsStorage: "Configure storage to upload images and videos.",
     transitions: "Transitions",
