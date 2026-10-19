@@ -185,6 +185,24 @@ function defaultSocialImageResponse(): Response {
   });
 }
 
+/** `work`'s result, or null when `deadline` passes first. */
+async function settleBy<T>(
+  work: Promise<T>,
+  deadline: number,
+): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), deadline - Date.now());
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function fetchThumbnail(
   sourceUrl: string,
   deadline = Date.now() + FETCH_TIMEOUT_MS,
@@ -193,9 +211,14 @@ async function fetchThumbnail(
   const dispatcher = (await createSsrfSafeDispatcher()) ?? undefined;
 
   for (let redirects = 0; redirects <= 4; redirects++) {
-    if (await isBlockedExtensionUrlWithDns(currentUrl)) {
-      return imageResponse(null, "text/plain", 403);
-    }
+    // A DNS lookup cannot be cancelled, so the check gets only the budget
+    // left; a host it could not clear in time is refused, not fetched.
+    const blocked = await settleBy(
+      isBlockedExtensionUrlWithDns(currentUrl),
+      deadline,
+    );
+    if (blocked === null) return imageResponse(null, "text/plain", 504);
+    if (blocked) return imageResponse(null, "text/plain", 403);
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), deadline - Date.now());

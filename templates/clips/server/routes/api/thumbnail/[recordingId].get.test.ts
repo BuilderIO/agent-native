@@ -378,6 +378,44 @@ describe("/api/thumbnail/:recordingId route", () => {
     );
   });
 
+  it("refuses the public fallback when its DNS check outlasts the budget", async () => {
+    vi.useFakeTimers();
+    try {
+      mockGetDb.mockReturnValue(
+        createDbWithRow(
+          makeRow({
+            thumbnailUrl: "https://bucket.example.com/clips/rec-1/thumb.jpg",
+            storageMode: "own",
+          }),
+        ),
+      );
+      mockFetchS3ObjectByUrl.mockImplementation(async () => {
+        vi.setSystemTime(Date.now() + 25_000);
+        throw new Error("bucket timed out");
+      });
+      mockIsBlockedExtensionUrlWithDns.mockReturnValue(new Promise(() => {}));
+      let settled = false;
+      const pending = handler(makeEvent() as any).finally(() => {
+        settled = true;
+      });
+      await vi.waitFor(() =>
+        expect(mockIsBlockedExtensionUrlWithDns).toHaveBeenCalled(),
+      );
+
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      expect(settled).toBe(true);
+      expectDefaultSocialRedirect(await pending);
+      expect(fetch).not.toHaveBeenCalled();
+      expect(captureRouteError).toHaveBeenCalledWith(
+        new Error("Storage provider returned 504 for thumbnail"),
+        expect.anything(),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("gives the public fallback only what the bucket read left of the budget", async () => {
     vi.useFakeTimers();
     try {
