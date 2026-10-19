@@ -245,7 +245,12 @@ export default defineAction({
         .from(schema.recordings)
         .where(eq(schema.recordings.id, args.id))
         .for("update");
-      if (!locked) throw new Error(`Recording not found: ${args.id}`);
+      if (!locked) {
+        fail(`Recording not found: ${args.id}`, {
+          errorCode: "recording_not_found",
+          statusCode: 404,
+        });
+      }
       await tx
         .delete(schema.recordingComments)
         .where(eq(schema.recordingComments.recordingId, args.id));
