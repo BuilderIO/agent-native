@@ -81,6 +81,13 @@ vi.mock("../org/context.js", () => ({
   getA2ASecretByDomain: vi.fn(async () => null),
 }));
 
+vi.mock("../server/better-auth-instance.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../server/better-auth-instance.js")
+  >()),
+  findBetterAuthUserIdForEmail: vi.fn(async () => undefined),
+}));
+
 vi.mock("./connect-store.js", () => ({
   MCP_CONNECT_SCOPE: "mcp-connect",
   MCP_CONNECT_OAUTH_CLIENT_ID: "agent-native-connect",

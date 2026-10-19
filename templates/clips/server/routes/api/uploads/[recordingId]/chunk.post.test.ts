@@ -227,7 +227,7 @@ vi.mock("../../../../lib/video-storage.js", () => ({
   VideoStorageStatusUnavailableError: MockVideoStorageStatusUnavailableError,
 }));
 
-import handler from "./chunk.post";
+import handler, { handleRecordingChunk } from "./chunk.post";
 
 const UPLOAD_KEY = "recording-upload-rec-1";
 const VERIFICATION_KEY = "recording-media-verification-rec-1";
@@ -1131,6 +1131,30 @@ describe("/api/uploads/:recordingId/chunk route", () => {
 
     await handler({} as any);
 
+    expect(mockRunWithRequestContext).toHaveBeenCalledWith(
+      {
+        userEmail: "owner@example.com",
+        orgId: "org-1",
+        authUserId: "better-auth-user-1",
+      },
+      expect.any(Function),
+    );
+  });
+
+  it("runs a ticketed upload under the auth user id its ticket carries", async () => {
+    setRequest({
+      query: { index: "0", total: "4", mimeType: "video/webm" },
+      body: new Uint8Array([1, 2, 3, 4, 5]),
+    });
+
+    await handleRecordingChunk({} as any, {
+      recordingId: "rec-1",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+      authUserId: "better-auth-user-1",
+    });
+
+    expect(mockGetEventOwnerContext).not.toHaveBeenCalled();
     expect(mockRunWithRequestContext).toHaveBeenCalledWith(
       {
         userEmail: "owner@example.com",

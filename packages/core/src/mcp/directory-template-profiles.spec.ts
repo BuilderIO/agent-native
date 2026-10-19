@@ -48,6 +48,13 @@ import {
 } from "./build-server.js";
 import { mcpToolInputSchema } from "./tool-input-schema.js";
 
+vi.mock("../server/better-auth-instance.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../server/better-auth-instance.js")
+  >()),
+  findBetterAuthUserIdForEmail: vi.fn(async () => undefined),
+}));
+
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../../../../",

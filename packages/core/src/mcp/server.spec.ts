@@ -324,6 +324,13 @@ vi.mock("./oauth-store.js", () => ({
   }),
 }));
 
+vi.mock("../server/better-auth-instance.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../server/better-auth-instance.js")
+  >()),
+  findBetterAuthUserIdForEmail: vi.fn(async () => undefined),
+}));
+
 // The real membership check, with a switch to force its answer.
 const membershipOverride = vi.hoisted(() => ({
   answer: null as null | "not-member" | "unavailable",

@@ -82,7 +82,11 @@ export default defineAction({
     // The ticket comes first: if it is refused or fails to save, no recording
     // is left stranded in "uploading" with nothing able to finish it.
     const recordingId = nanoid();
-    const ticket = await createRecordingUploadTicket(ownerEmail, recordingId);
+    const ticket = await createRecordingUploadTicket(
+      ownerEmail,
+      recordingId,
+      getRequestContext()?.authUserId,
+    );
     let created: Awaited<ReturnType<typeof createRecording.run>>;
     try {
       created = await createRecording.run(

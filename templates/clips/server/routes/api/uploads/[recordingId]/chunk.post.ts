@@ -510,6 +510,7 @@ export async function handleRecordingChunk(
     recordingId?: string;
     ownerEmail?: string;
     orgId?: string;
+    authUserId?: string;
   },
 ) {
   const recordingId =
@@ -579,6 +580,7 @@ export async function handleRecordingChunk(
   if (override?.ownerEmail) {
     ownerEmail = override.ownerEmail;
     orgId = override.orgId;
+    authUserId = override.authUserId;
   } else {
     try {
       const context = await getEventOwnerContext(event);

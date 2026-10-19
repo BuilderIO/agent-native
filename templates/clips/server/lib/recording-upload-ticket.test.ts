@@ -145,6 +145,25 @@ describe("recording upload tickets", () => {
     });
   });
 
+  it("hands the chunk upload the auth user id the ticket was created under", async () => {
+    const { createRecordingUploadTicket, requireRecordingUploadTicketOwner } =
+      await import("./recording-upload-ticket.js");
+    const { token } = await createRecordingUploadTicket(
+      "owner@example.com",
+      "rec-1",
+      "user-1",
+    );
+
+    await expect(
+      requireRecordingUploadTicketOwner(ticketEvent(token), "rec-1"),
+    ).resolves.toEqual({
+      recordingId: "rec-1",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+      authUserId: "user-1",
+    });
+  });
+
   it("refuses a request without an upload ticket before reading anything", async () => {
     const { requireRecordingUploadTicketOwner } =
       await import("./recording-upload-ticket.js");

@@ -224,16 +224,27 @@ export async function hasBetterAuthUserEmail(email: string): Promise<boolean> {
   return !!existing?.user?.email;
 }
 
+/**
+ * The Better Auth user id for a verified email, or `undefined` when no
+ * account has that email. A failed lookup throws: a caller that treated it as
+ * "no account" would tell a signed-in user to sign in.
+ */
+export async function findBetterAuthUserIdForEmail(
+  email: string,
+): Promise<string | undefined> {
+  const adapter = await internalAdapterFromContext(await getBetterAuth());
+  if (!adapter) return undefined;
+  const existing = await adapter.findUserByEmail(email.trim().toLowerCase(), {
+    includeAccounts: false,
+  });
+  return existing?.user?.id || undefined;
+}
+
 export async function getBetterAuthUserIdForEmail(
   email: string,
 ): Promise<string | undefined> {
   try {
-    const adapter = await getBetterAuthInternalAdapter();
-    if (!adapter) return undefined;
-    const existing = await adapter.findUserByEmail(email.trim().toLowerCase(), {
-      includeAccounts: false,
-    });
-    return existing?.user?.id || undefined;
+    return await findBetterAuthUserIdForEmail(email);
   } catch (error) {
     // coercion-ok: this is analytics enrichment on the sign-in path. Failing
     // the sign-in over it would be worse, and the only consequence is one
@@ -1586,19 +1597,25 @@ export async function replaceUnverifiedCredentialWithGoogle(input: {
 export async function getBetterAuthInternalAdapter(
   config?: BetterAuthConfig,
 ): Promise<BetterAuthInternalAdapter | undefined> {
-  const auth = (await getBetterAuth(config)) as unknown as {
-    $context?: Promise<{
-      internalAdapter?: BetterAuthContextAdapter;
-    }>;
-  };
+  const auth = await getBetterAuth(config);
   try {
-    const ctx = await auth.$context;
-    const ia = ctx?.internalAdapter;
-    if (ia) return normalizeBetterAuthInternalAdapter(ia);
+    return await internalAdapterFromContext(auth);
   } catch {
     // Context resolution failed — caller falls back to the signup path.
   }
   return undefined;
+}
+
+async function internalAdapterFromContext(
+  auth: BetterAuthInstance,
+): Promise<BetterAuthInternalAdapter | undefined> {
+  const ctx = await (
+    auth as unknown as {
+      $context?: Promise<{ internalAdapter?: BetterAuthContextAdapter }>;
+    }
+  ).$context;
+  const ia = ctx?.internalAdapter;
+  return ia ? normalizeBetterAuthInternalAdapter(ia) : undefined;
 }
 
 type BetterAuthActionSessionOverrides = {
