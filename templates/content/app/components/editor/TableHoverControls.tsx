@@ -363,7 +363,7 @@ function getCellFromEditorSelection(editor: Editor) {
 
 function isTableUiTarget(target: Element) {
   return !!target.closest(
-    "table, [data-table-edge-control], .notion-table-axis-trigger, [role='menu']",
+    "table, [data-table-edge-control], .content-table-axis-trigger, [role='menu']",
   );
 }
 
@@ -831,8 +831,8 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     current.didResize = true;
     document.documentElement.classList.add(
       current.kind === "column"
-        ? "notion-table-resizing-column"
-        : "notion-table-resizing-row",
+        ? "content-table-resizing-column"
+        : "content-table-resizing-row",
     );
 
     if (current.kind === "column") {
@@ -860,8 +860,8 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     const current = pointerResizeRef.current;
     pointerResizeRef.current = null;
     document.documentElement.classList.remove(
-      "notion-table-resizing-column",
-      "notion-table-resizing-row",
+      "content-table-resizing-column",
+      "content-table-resizing-row",
     );
     window.removeEventListener("pointermove", handlePointerMove);
     window.removeEventListener("pointerup", handlePointerUp);
@@ -1128,7 +1128,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     : ROW_OPTIONS_MENU_ALIGN_OFFSET;
 
   const lineButtonClass =
-    "notion-table-axis-trigger group absolute z-40 flex items-center justify-center rounded-md bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
+    "content-table-axis-trigger group absolute z-40 flex items-center justify-center rounded-md bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
   const axisMarkerClass =
     "block rounded-full bg-muted-foreground/55 transition-colors group-hover:bg-primary group-focus-visible:bg-primary";
   const handleClass =

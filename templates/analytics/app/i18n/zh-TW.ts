@@ -773,6 +773,7 @@ export default {
     bigQueryHealthUnavailable:
       "現在無法檢查第一方 Analytics 壓力。請重新載入後再嘗試更換後端。",
     analyticsEventCount: "觀察到的事件",
+    analyticsRecentEventCount: "觀察到的事件（最近30天）",
     slowQueries24h: "慢查詢（24 小時）",
     maxQueryDuration: "最長查詢時間",
     defaultKeyName: "託管範本",
@@ -1333,6 +1334,10 @@ export default {
     dashboardActions: "儀表板詳細資訊和操作",
     certifyForAi: "核准 AI 查詢使用",
     certifiedForAi: "已核准 AI 查詢使用",
+    duplicateToCustomize: "複製以自訂",
+    duplicateToCustomizeHint:
+      "內建儀表板會隨 Analytics 發布而更新。若要變更此儀表板，請建立你自己的副本。",
+    duplicateFailed: "無法複製此儀表板。",
     certificationSaved: "已核准此儀表板供 AI 查詢使用",
     certificationFailed: "無法核准儀表板：{{message}}",
     details: "Details",
@@ -2014,10 +2019,6 @@ export default {
     noMatches: "沒有符合搜尋的定義。",
     searchPlaceholder: "搜尋定義",
     sourceIndex: "來源索引",
-    statusApproved: "已核准",
-    statusSuggested: "建議",
-    statusUnreviewed: "未審核",
-    unsourced: "無來源",
   },
   indexPanel: {
     presetDaily: "每天 06:00",

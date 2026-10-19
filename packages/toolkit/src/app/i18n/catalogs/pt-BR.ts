@@ -229,8 +229,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.why":
     "Vetores semânticos melhoram a busca semântica. A busca por palavras-chave continua funcionando sem eles.",
   "onboarding.capability.webSearch.label": "Pesquisa na Web",
-  "onboarding.capability.webSearch.keySummary":
-    "Pesquisa na Web gerenciada pelo Builder",
+  "onboarding.capability.webSearch.keySummary": "Pesquisa na Web",
   "onboarding.capability.webSearch.why":
     "Pesquise em fontes públicas atuais na Web. A pesquisa gerenciada pelo Builder usa os créditos de IA incluídos, sem exigir uma chave de pesquisa separada.",
   "onboarding.capability.systemOne.why":
@@ -1975,6 +1974,12 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.agentVia": "Agente via {{protocol}}",
   "settings.audit.allApps": "Todos os apps",
   "settings.audit.app": "App",
+  "settings.audit.approval": "Aprovação",
+  "settings.audit.approvalAgentChat": "Aprovado no chat do agente",
+  "settings.audit.approvalA2AReview":
+    "Aprovado na página de revisão de ações do agente",
+  "settings.audit.approvalMcpClient":
+    "Aceito pelo cliente MCP (não verificado)",
   "settings.audit.changedBy": "Alterado por",
   "settings.audit.close": "Fechar",
   "settings.audit.empty": "Nenhuma alteração neste período.",
@@ -1988,9 +1993,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.last90Days": "Últimos 90 dias",
   "settings.audit.loadFailed": "Não foi possível carregar o log de auditoria.",
   "settings.audit.loading": "Carregando log de auditoria",
+  "settings.audit.oauthClient": "Cliente OAuth",
   "settings.audit.onBehalfOf": "Em nome de",
   "settings.audit.range": "Período",
   "settings.audit.refused": "Recusado",
+  "settings.audit.reportedClient": "Cliente autodeclarado",
   "settings.audit.result": "Resultado",
   "settings.audit.showMore": "Mostrar mais {{count}}",
   "settings.audit.succeeded": "Concluído",
@@ -3108,6 +3115,10 @@ const messages: ToolkitAgentChatTranslation = {
     "Desconectado aqui. O acesso pode continuar ativo no ChatGPT.",
   "settingsModel.chatgptLocalOnly":
     "Apps de código aberto podem ser usados sem solicitação quando executados localmente com um callback de loopback; não é necessário solicitar acesso de parceiro. Apps hospedados em *.agent-native.com precisam da aprovação do operador e de um callback hospedado.",
+  "settingsModel.chatgptPersonalScopeOnly":
+    "Use o acesso ao plano do ChatGPT com uma conta pessoal. No desenvolvimento local, defina access.autoCreateDefaultOrg como false antes de entrar.",
+  "settingsModel.chatgptScopeUnresolved":
+    "O app não conseguiu confirmar o escopo da sua conta. Conclua a configuração local e recarregue as configurações.",
   "settingsModel.chatgptNoDirectUse":
     "Reconecte e permita o acesso direto aos modelos para usar esta conta do ChatGPT.",
   "settingsModel.chatgptReconnect": "Reconectar",

@@ -83,12 +83,72 @@ minimum useful addition is `target: () => ({ type, id })`.
   `reportedClientVersion` are the MCP client's self-reported `clientInfo` for
   that individual `tools/call`; `initialize`-only values are not carried
   forward. `oauthClientId` is the OAuth client its credential was issued to.
-  `approval` (`agent-chat` or `mcp-client-accepted`) records the authorization
-  signal for that call. `agent-chat` is a person's approval in agent chat;
-  `mcp-client-accepted` means the MCP client accepted its elicitation, and the
-  server cannot verify who responded. The recorder reads these from
-  `ctx.approvedToolCallKey` or `ctx.mcpClientAccepted`. Never infer approval
-  from the email, and never backfill these fields on older rows.
+  `approval` (`agent-chat`, `a2a-review` or `mcp-client-accepted`) records the
+  authorization signal for that call. `agent-chat` is a person's approval in
+  agent chat; `a2a-review` is the owner's approval of a paused A2A call on its
+  review page; `mcp-client-accepted` means the MCP client accepted its
+  elicitation, and the server cannot verify who responded. The recorder reads
+  approval from the invocation's execution frame, never from its context.
+  Never infer approval from the email, and never backfill these fields on
+  older rows.
+- **Attribution comes from one helper** — `recordActionAudit` and
+  `recordOrgAdminAuditEvent` require an `attribution` (source, reported
+  client, OAuth client, approval, run and network ids), and only
+  `auditAttribution(ctx)` makes one; a Nitro route outside any action uses
+  `routeAuditAttribution(event)`. Never copy `caller`, `threadId` or the client
+  fields into a hand-built context: a field the copy forgets is stored as null.
+  A call without one throws `AuditAttributionError` instead of losing its row.
+- **Approval and an audit override belong to one invocation** — the
+  dispatcher that runs a call opens its execution frame and puts the evidence
+  there: the agent loop's approval key for a call a person approved, the MCP
+  handler's accepted elicitation, and an approved A2A replay's task ids and
+  `a2a-review`, which must not become its `threadId` or `runId` because those
+  load the task's journal and ledger. `auditAttribution(ctx)` reads only the
+  current frame, so the action's own row and a row its body records carry
+  them. Every `defineAction` call and every `runActionInvocation` opens a new
+  frame, so another action it calls, a recursive call, or a later call with a
+  kept context records none, whatever context it is given. A frame's evidence
+  belongs only to rows about its own call, written before the promise `run`
+  returned settles: a timer, unawaited promise or job write it leaves
+  running records none, and neither does work done later while consuming a
+  stream or iterator it returned. The attribution `auditAttribution` returns
+  is a snapshot: passing one made during the call to a later write records
+  that write as part of the approved call, so call `auditAttribution` at write
+  time for work that is not.
+  `recordServicePrincipalDenial` records only the source its caller knows,
+  outside the running frame, unless the caller passes the refused call's run
+  context as `ownInvocation`. Only `defineAction`'s own grant check does: its
+  row keeps that call's client, network and run ids and its frame's approval,
+  while a refused child or agent run borrows none of the enclosing call's. A
+  dispatcher that pauses another call records that row inside
+  `runOutsideActionInvocation`, and `recordInvalidActionCall` records a call
+  refused for invalid arguments there too. A dispatcher vouches for the call
+  it runs with `vouchedOutcome(outcome, evidence)`, and the frame that call
+  opens holds it. The frame and its evidence live in `action-frame.ts`, and
+  `runActionInvocation` in `action-invocation.ts`, both outside the package
+  exports: the action entry exposes no frame-evidence helpers, and request
+  input or `ActionRunContext` fields never become evidence. Trusted server
+  dispatcher APIs (`executeAgentToolCall`, `runAgentLoop`) can still supply
+  approval and attribution.
+  `ctx.approvedToolCallKey` stays on the context only for approval gates. Two
+  limits: a raw entry called straight from an action's body shares that
+  frame, so define it with `defineAction` (a framework dispatcher runs it
+  through `runActionInvocation`); and a wrapper around `run`
+  must spread the entry to keep `ACTION_EXECUTION_KEY`, or the action runs as
+  the wrapper's child and records no approval. Without async-local storage no
+  approval or override is recorded. Never add a context field that changes
+  what a row records.
+- **Source is verified, not claimed** — on an action route, a request that
+  authenticated with an MCP OAuth or connect token records as `mcp` with that
+  token's `oauthClientId`, whatever headers it sends. `getMcpOAuthBearerSession`
+  marks the event after verifying the token, and the route reads that mark; a
+  self-reported value (the `x-agent-native-frontend` header, `clientInfo`) never
+  sets `caller`, `actorKind` or the principal.
+- **A row is never silently lost** — the recorder replaces control characters
+  in the self-reported labels, and the store replaces NUL in every text value,
+  because PostgreSQL rejects NUL and the insert would drop the row. A write
+  that still fails is logged and sent to `captureError`; it never fails the
+  action. Don't wrap `recordActionAudit` in a `catch` that discards the error.
 - **App** — every event records the app that wrote it (`app.id`, else
   `app.name`, the same key usage uses).
 
@@ -115,7 +175,11 @@ Use the helpers in `@agent-native/core/audit` instead of hand-setting
 `visibility`, so every org setting lands in the organization trail the same way:
 
 ```ts
-import { orgAdminAudit, recordOrgAdminAuditEvent } from "@agent-native/core/audit";
+import {
+  orgAdminAudit,
+  recordOrgAdminAuditEvent,
+  routeAuditAttribution,
+} from "@agent-native/core/audit";
 
 defineAction({
   // ...
@@ -133,12 +197,13 @@ await recordOrgAdminAuditEvent({
   summary: "Connected Builder.io for the organization",
   userEmail,
   orgId,
+  attribution: routeAuditAttribution(event),
 });
 ```
 
 Pass `personal: true` to `recordOrgAdminAuditEvent` when the change affects
-only the actor. New settings actions (restrict personal keys, service
-providers) use `orgAdminAudit`.
+only the actor. An action that records by hand instead of through
+`orgAdminAudit` passes `attribution: auditAttribution(ctx)`.
 
 ## Reading the log
 
@@ -176,7 +241,7 @@ Call them from the UI with `useActionQuery` to build an activity feed or a
 
 Settings › Organization › Audit log (`/settings/audit`, owners and admins) is
 that trail's page, in
-`packages/core/src/client/settings/shell/pages/audit.tsx`. Its range and app
+`packages/toolkit/src/app/settings/shell/pages/audit.tsx`. Its range and app
 filters are `sinceMs` and `app`; "Show N more" is the next `offset` page; a
 row opens `get-audit-event`. When a user asks what changed in the org, call
 `list-audit-events` with `scope: "organization"` instead of reading the page.

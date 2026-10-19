@@ -831,6 +831,7 @@ export default {
     bigQueryHealthUnavailable:
       "ファーストパーティ Analytics の負荷を確認できませんでした。バックエンドを変更する前に再読み込みしてください。",
     analyticsEventCount: "観測イベント",
+    analyticsRecentEventCount: "観測イベント（過去30日間）",
     slowQueries24h: "遅いクエリ（24 時間）",
     maxQueryDuration: "最大クエリ時間",
     defaultKeyName: "ホストされたテンプレート",
@@ -1324,6 +1325,10 @@ export default {
     dashboardActions: "ダッシュボードの詳細とアクション",
     certifyForAi: "AI クエリ用に認定",
     certifiedForAi: "AI クエリ用に認定済み",
+    duplicateToCustomize: "複製してカスタマイズ",
+    duplicateToCustomizeHint:
+      "組み込みダッシュボードは Analytics のリリースごとに更新されます。変更するには自分用のコピーを作成してください。",
+    duplicateFailed: "このダッシュボードを複製できませんでした。",
     certificationSaved: "ダッシュボードを AI クエリ用に認定しました",
     certificationFailed: "ダッシュボードを認定できませんでした: {{message}}",
     details: "Details",
@@ -2161,10 +2166,6 @@ export default {
     noMatches: "検索に一致する定義はありません。",
     searchPlaceholder: "定義を検索",
     sourceIndex: "ソースインデックス",
-    statusApproved: "承認済み",
-    statusSuggested: "提案",
-    statusUnreviewed: "未確認",
-    unsourced: "ソースなし",
   },
   indexPanel: {
     presetDaily: "毎日 06:00",

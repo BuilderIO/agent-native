@@ -1298,6 +1298,40 @@ describe("ShareButton", () => {
     expect(container.textContent).toContain("second@builder.io");
   });
 
+  it("keeps links placed at the bottom after the people and access sections in the tabbed layout", async () => {
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <QueryClientProvider client={queryClient}>
+            <ShareButton
+              resourceType="deck"
+              resourceId="deck-1"
+              defaultOpen
+              shareUrl="https://slides.agent-native.com/deck/deck-1"
+              shareUrlLabel="Editor link"
+              secondaryShareUrl="https://slides.agent-native.com/p/deck-1"
+              secondaryShareUrlLabel="Presentation link"
+              shareUrlPlacement="bottom"
+              peopleTabLabel="People"
+              agentsTabLabel="Agents"
+              agentTabContent={<button type="button">Copy agent prompt</button>}
+            />
+          </QueryClientProvider>
+        </TooltipProvider>,
+      );
+    });
+
+    const links = Array.from(
+      document.body.querySelectorAll<HTMLElement>("div.order-3"),
+    ).find((el) => el.textContent?.includes("Editor link"));
+    expect(links).toBeDefined();
+    expect(links!.textContent).toContain("Presentation link");
+    // The sections the links must follow carry lower orders in the same column.
+    const column = links!.parentElement!;
+    expect(column.querySelector(":scope > .order-1")).not.toBeNull();
+    expect(column.querySelector(":scope > .order-2")).not.toBeNull();
+  });
+
   it("keeps quick copy separate from People and Agents tabs", async () => {
     const onCopy = vi.fn(async () => true);
     await act(async () => {

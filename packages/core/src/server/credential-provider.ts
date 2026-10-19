@@ -458,6 +458,36 @@ const NOT_FOUND: ScopedCredentialResult = {
   lookupFailed: false,
 };
 
+/**
+ * Host hook: an app hosted inside Builder, with Builder as its identity
+ * provider, already holds the caller's own Builder credential. When a
+ * provider answers for the request's user, every Builder-backed feature (the
+ * AI gateway engine, Fusion containers, credits, deploys) uses that
+ * credential instead of a stored per-app Builder connection, so Builder sees
+ * and authorizes the real user in the real space.
+ */
+export interface DelegatedBuilderCredentials {
+  /** The user's own bearer (e.g. a Builder Firebase ID token). */
+  token: string;
+  /** The Builder space the user is acting in. */
+  spaceId: string;
+  userId?: string;
+}
+
+let delegatedBuilderCredentials:
+  | ((email: string) => DelegatedBuilderCredentials | null)
+  | null = null;
+
+export function registerDelegatedBuilderCredentials(
+  provider: ((email: string) => DelegatedBuilderCredentials | null) | null,
+): void {
+  delegatedBuilderCredentials = provider;
+}
+
+function delegatedFor(email: string): DelegatedBuilderCredentials | null {
+  return delegatedBuilderCredentials?.(email) ?? null;
+}
+
 async function resolveScopedBuilderCredential(
   key: string,
   identity?: BuilderCredentialLookupIdentity,
@@ -465,6 +495,15 @@ async function resolveScopedBuilderCredential(
   const email =
     identity === undefined ? getRequestUserEmail() : identity.userEmail?.trim();
   if (!email) return NOT_FOUND;
+  const delegated = delegatedFor(email);
+  if (delegated) {
+    if (key === "BUILDER_PRIVATE_KEY") {
+      return { value: delegated.token, source: "user", lookupFailed: false };
+    }
+    if (key === "BUILDER_PUBLIC_KEY") {
+      return { value: delegated.spaceId, source: "user", lookupFailed: false };
+    }
+  }
 
   const traceLookup = shouldTraceCredentialResolve();
   let scopeAttempted = "user";
@@ -666,6 +705,25 @@ async function resolveScopedBuilderCredentials(
   const email =
     identity === undefined ? getRequestUserEmail() : identity.userEmail?.trim();
   if (!email) return { creds: null, lookupFailed: false };
+  const delegated = delegatedFor(email);
+  if (delegated) {
+    return {
+      creds: {
+        privateKey: delegated.token,
+        publicKey: delegated.spaceId,
+        userId: delegated.userId ?? null,
+        orgName: null,
+        orgKind: null,
+        subscription: null,
+        subscriptionLevel: null,
+        subscriptionName: null,
+        isEnterprise: null,
+        isFreeAccount: null,
+        source: "user",
+      },
+      lookupFailed: false,
+    };
+  }
 
   const traceLookup = shouldTraceCredentialResolve();
   let scopeAttempted = "user";

@@ -2,6 +2,7 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 import type { AgentEngine, EngineEvent } from "../agent/engine/types.js";
+import { auditAttribution } from "../audit/attribution.js";
 
 const pglite = await createTestPglite();
 
@@ -1144,7 +1145,10 @@ describe("default selection reaches new chats and background runs", () => {
               model: "claude-sonnet-5-5",
               appId: "calendar",
             },
-            { actionName: "manage-agent-engine", caller: "tool" },
+            {
+              actionName: "manage-agent-engine",
+              attribution: auditAttribution({ caller: "tool" }),
+            },
           ),
         ).toMatchObject({
           status: "selected",

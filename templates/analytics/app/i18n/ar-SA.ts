@@ -813,6 +813,7 @@ export default {
     bigQueryHealthUnavailable:
       "تعذّر التحقق من ضغط Analytics للطرف الأول. أعد التحميل وحاول مجدداً قبل تغيير الخلفية.",
     analyticsEventCount: "الأحداث الملحوظة",
+    analyticsRecentEventCount: "الأحداث الملحوظة (آخر 30 يومًا)",
     slowQueries24h: "الاستعلامات البطيئة (24 ساعة)",
     maxQueryDuration: "أقصى زمن للاستعلام",
     defaultKeyName: "القوالب المستضافة",
@@ -1299,6 +1300,10 @@ export default {
     dashboardActions: "تفاصيل وإجراءات لوحة التحكم",
     certifyForAi: "اعتماد لاستعلامات الذكاء الاصطناعي",
     certifiedForAi: "معتمد لاستعلامات الذكاء الاصطناعي",
+    duplicateToCustomize: "تكرار للتخصيص",
+    duplicateToCustomizeHint:
+      "تتحدّث لوحات المعلومات المضمّنة مع كل إصدار من Analytics. أنشئ نسختك الخاصة لتغيير هذه اللوحة.",
+    duplicateFailed: "تعذّر تكرار لوحة المعلومات هذه.",
     certificationSaved: "تم اعتماد لوحة المعلومات لاستعلامات الذكاء الاصطناعي",
     certificationFailed: "تعذر اعتماد لوحة المعلومات: {{message}}",
     details: "Details",
@@ -2101,10 +2106,6 @@ export default {
     noMatches: "لا توجد تعريفات تطابق بحثك.",
     searchPlaceholder: "ابحث في التعريفات",
     sourceIndex: "فهرس المصادر",
-    statusApproved: "معتمد",
-    statusSuggested: "مقترح",
-    statusUnreviewed: "غير مُراجَع",
-    unsourced: "بلا مصدر",
   },
   indexPanel: {
     presetDaily: "يوميًا في 06:00",

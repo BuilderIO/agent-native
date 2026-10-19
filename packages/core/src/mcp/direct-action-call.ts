@@ -224,13 +224,11 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       args,
       // A tool the request leaves out is unknown here, as it is to tools/list.
       callable: isAdvertisable(name) ? callableActions : {},
-      actionRunContext: (clientAccepted) =>
-        mcpCallAttribution({
-          request,
-          envelope: ctx.mcpReq.envelope,
-          oauthClientId: effectiveIdentity?.oauthClientId,
-          clientAccepted,
-        }),
+      actionRunContext: mcpCallAttribution({
+        request,
+        envelope: ctx.mcpReq.envelope,
+        oauthClientId: effectiveIdentity?.oauthClientId,
+      }),
       approval: {
         state: () =>
           ctx.mcpReq.requestState<McpActionApprovalState>() ?? undefined,

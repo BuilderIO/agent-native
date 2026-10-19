@@ -70,7 +70,7 @@ function fixture() {
 
 function editor(container: HTMLElement, right = 736) {
   const column = document.createElement("div");
-  column.className = "notion-editor";
+  column.className = "content-editor";
   vi.spyOn(column, "getBoundingClientRect").mockReturnValue(
     new DOMRect(100, 0, right - 100, 800),
   );
