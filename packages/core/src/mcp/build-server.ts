@@ -601,6 +601,22 @@ export function validateMcpDirectoryProfile(
   }
 
   const profile = config.directoryProfile;
+  // Widget grants can name actions hidden from the agent surface, which the
+  // filter above never sees.
+  const denyNames = externalAgentDenySet(config);
+  const deniedWidgetAction = [
+    ...(profile?.widgetReadOnlyActions ?? []),
+    ...(profile?.widgetReadPublicActions ?? []),
+    ...(profile?.widgetReadPrivateActions ?? []),
+    ...(profile?.widgetReadAuthenticatedActions ?? []),
+    ...Object.keys(profile?.widgetReadActionArguments ?? {}),
+    ...Object.keys(profile?.widgetWriteActionArguments ?? {}),
+  ].find((name) => denyNames.has(name));
+  if (deniedWidgetAction) {
+    throw new McpDirectoryProfileValidationError(
+      `[agent-native] MCP directory widget action "${deniedWidgetAction}" is listed in externalAgents.denyActions.`,
+    );
+  }
   const widgetActionNames = names.filter((name) =>
     Boolean(actions[name]?.mcpApp?.resource),
   );
@@ -2888,6 +2904,12 @@ export async function createMCPServerForRequest(
     config,
     flatCatalog ? withoutToolSearch(mergedActions) : mergedActions,
   );
+  // `ask-agent` runs `ask_app` outside the action map, so a deny on either
+  // name has to switch it off here.
+  const askAgentDenied = ["ask-agent", "ask_app"].some((name) =>
+    externalAgentDenySet(config).has(name),
+  );
+  const askAgent = askAgentDenied ? undefined : config.askAgent;
   const {
     isAdvertisable,
     advertisable,
@@ -3298,7 +3320,7 @@ export async function createMCPServerForRequest(
 
       if (
         fullCatalogRequested &&
-        config.askAgent &&
+        askAgent &&
         isActionGranted(allowedActions, "ask-agent") &&
         hasMcpOAuthScope(effectiveIdentity?.oauthScopes, "mcp:write")
       ) {
@@ -3411,7 +3433,7 @@ export async function createMCPServerForRequest(
           };
         }
 
-        if (name === "ask-agent" && config.askAgent) {
+        if (name === "ask-agent" && askAgent) {
           if (!fullCatalogRequested) {
             failure = {
               errorType: "unknown_tool",

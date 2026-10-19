@@ -1154,13 +1154,17 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
       externalAgents: { denyActions: ["compact-widget", "db-exec"] },
     };
 
-    async function listAndCall(name: string, args = {}) {
+    async function listAndCall(
+      name: string,
+      args = {},
+      mcpConfig: Record<string, unknown> = denyConfig,
+    ) {
       const token = await signA2AToken("alice@example.com");
       const listed = await call(
         { jsonrpc: "2.0", id: 70, method: "tools/list", params: {} },
         {
           headers: { authorization: `Bearer ${token}` },
-          mcpConfig: denyConfig,
+          mcpConfig,
         },
       );
       const called = await call(
@@ -1172,7 +1176,7 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
         },
         {
           headers: { authorization: `Bearer ${token}` },
-          mcpConfig: denyConfig,
+          mcpConfig,
         },
       );
       return {
@@ -1203,10 +1207,27 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
       process.env.AGENT_NATIVE_MCP_FULL_CATALOG = "1";
       const { names, called } = await listAndCall("db-exec");
       expect(names).toContain("seed-kitchen-sink");
+      expect(names).toContain("ask-agent");
       expect(names).not.toContain("db-exec");
       expect(called.isError).toBe(true);
       expect(called.content[0].text).toContain("Unknown tool");
     });
+
+    it.each(["ask-agent", "ask_app"])(
+      "keeps ask-agent out of the full catalog and its calls when %s is denied",
+      async (denied) => {
+        process.env.AGENT_NATIVE_MCP_FULL_CATALOG = "1";
+        const { names, called } = await listAndCall(
+          "ask-agent",
+          { message: "hello" },
+          { ...denyConfig, externalAgents: { denyActions: [denied] } },
+        );
+        expect(names).toContain("seed-kitchen-sink");
+        expect(names).not.toContain("ask-agent");
+        expect(called.isError).toBe(true);
+        expect(called.content[0].text).toContain("Unknown tool");
+      },
+    );
   });
 
   it("keeps explicitly cataloged writes behind ask_app in auto-read mode", async () => {

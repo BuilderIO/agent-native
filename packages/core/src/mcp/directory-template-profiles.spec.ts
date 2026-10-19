@@ -2161,6 +2161,14 @@ describe("Slides widget share grant", () => {
           },
         }),
       ).toThrow(/exact resource ID binding/);
+      for (const denied of ["list-resource-shares", "unshare-resource"]) {
+        expect(() =>
+          validateMcpDirectoryProfile({
+            ...config,
+            externalAgents: { denyActions: [denied] },
+          }),
+        ).toThrow(/listed in externalAgents\.denyActions/);
+      }
     },
     ACTION_REGISTRY_TEST_TIMEOUT_MS,
   );
