@@ -842,6 +842,7 @@ export default {
     bigQueryHealthUnavailable:
       "No se pudo comprobar la presión de Analytics propio. Recarga e inténtalo de nuevo antes de cambiar de backend.",
     analyticsEventCount: "Eventos observados",
+    analyticsRecentEventCount: "Eventos observados (últimos 30 días)",
     slowQueries24h: "Consultas lentas (24 h)",
     maxQueryDuration: "Tiempo máximo de consulta",
     defaultKeyName: "Plantillas alojadas",
@@ -1473,6 +1474,25 @@ export default {
     columnShowHidden: "Mostrar columnas ocultas",
     columnName: "Nombre de la columna",
     columnResize: "Cambiar tamaño de la columna",
+    rowBreakdownBy: "Desglosar por",
+    rowBreakdownAll: "Todos",
+    rowBreakdownOther: "Otros",
+    rowBreakdownOtherHint:
+      "Grupos más pequeños y quienes el SQL de este panel deja fuera",
+    rowBreakdownSmallGroup:
+      "Menos de {{count}}: interpreta las tasas con cautela",
+    rowBreakdownNoValue: "(ninguno)",
+    rowBreakdownEmpty: "No hay filas para este desglose.",
+    rowBreakdownUnavailable:
+      "El SQL de este panel no tiene desglose por {{column}}.",
+    rowBreakdownFromPanel: "De las filas de este panel. No se leyó nada.",
+    rowBreakdownFromCache: "De la caché. No se leyó nada.",
+    rowBreakdownAlreadyLoaded: "Ya cargado. No se leyó nada.",
+    rowBreakdownBytesRead: "Se leyeron {{bytes}}",
+    rowBreakdownOverByteCap:
+      "Este desglose leería más de {{gib}} GiB, así que no se ejecutó. Acota los filtros o el intervalo de fechas del panel y vuelve a intentarlo.",
+    rowBreakdownTruncated:
+      "El resultado se cortó, así que faltan algunos grupos o se cuentan en Otros.",
     deleteSectionTitle: "¿Eliminar sección?",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "¿Eliminar panel?",

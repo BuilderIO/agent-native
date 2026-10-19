@@ -3906,6 +3906,465 @@ describe("autoLayout", () => {
     expect(patch.content).not.toMatch(/position:\s*absolute/);
     expect(patch.content).not.toMatch(/left:\s*40px/);
     expect(patch.content).not.toMatch(/class="absolute"/);
+    expect(patch.content).not.toContain("align-items: flex-start");
+  });
+
+  it("defaults flex containerStyles to start alignment", () => {
+    const patch = applyVisualEdit(
+      `<div data-agent-native-node-id="box"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+        containerStyles: {
+          display: "flex",
+          flexDirection: "row",
+          gap: "20px",
+        },
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("align-items: flex-start");
+    expect(patch.content).toContain(
+      'data-agent-native-generated-flex-align-items="flex-start"',
+    );
+  });
+
+  it("removes generated flex alignment when switching to grid", () => {
+    const flex = applyVisualEdit(
+      `<div data-agent-native-node-id="box"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+        containerStyles: { display: "flex", flexDirection: "row" },
+      },
+    );
+    expect(flex.result.status).toBe("applied");
+
+    const grid = applyVisualEdit(flex.content, {
+      kind: "autoLayout",
+      targetId: "box",
+      enabled: true,
+      containerStyles: {
+        display: "grid",
+        gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+      },
+    });
+
+    expect(grid.result.status).toBe("applied");
+    expect(grid.content).toContain("display: grid");
+    expect(grid.content).not.toContain("align-items: flex-start");
+    expect(grid.content).not.toContain(
+      "data-agent-native-generated-flex-align-items",
+    );
+  });
+
+  it("preserves authored alignment when switching a flex container to grid", () => {
+    const patch = applyVisualEdit(
+      `<div data-agent-native-node-id="box" style="display:flex; align-items:flex-start"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+        containerStyles: { display: "grid" },
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toMatch(/align-items:\s*flex-start/);
+    expect(patch.content).not.toContain(
+      "data-agent-native-generated-flex-align-items",
+    );
+  });
+
+  it("keeps an explicit alignment from containerStyles when replacing a generated default", () => {
+    const flex = applyVisualEdit(
+      `<div data-agent-native-node-id="box"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+        containerStyles: { display: "flex" },
+      },
+    );
+    const aligned = applyVisualEdit(flex.content, {
+      kind: "autoLayout",
+      targetId: "box",
+      enabled: true,
+      containerStyles: { display: "grid", alignItems: "center" },
+    });
+
+    expect(aligned.result.status).toBe("applied");
+    expect(aligned.content).toContain("align-items: center");
+    expect(aligned.content).not.toContain(
+      "data-agent-native-generated-flex-align-items",
+    );
+  });
+
+  it("does not treat an inspector alignment edit as a generated default", () => {
+    const flex = applyVisualEdit(
+      `<div data-agent-native-node-id="box"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+        containerStyles: { display: "flex" },
+      },
+    );
+    const aligned = applyVisualEdit(flex.content, {
+      kind: "style",
+      target: { nodeId: "box" },
+      property: "alignItems",
+      value: "center",
+    });
+    const grid = applyVisualEdit(aligned.content, {
+      kind: "autoLayout",
+      targetId: "box",
+      enabled: true,
+      containerStyles: { display: "grid" },
+    });
+
+    expect(aligned.result.status).toBe("applied");
+    expect(grid.result.status).toBe("applied");
+    expect(grid.content).toMatch(/align-items:\s*center/);
+    expect(grid.content).not.toContain(
+      "data-agent-native-generated-flex-align-items",
+    );
+  });
+
+  it("keeps generated flex alignment for place-items removal", () => {
+    const flex = applyVisualEdit(
+      `<div data-agent-native-node-id="box"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+        containerStyles: { display: "flex" },
+      },
+    );
+    const aligned = applyVisualEdit(flex.content, {
+      kind: "style",
+      target: { nodeId: "box" },
+      property: "place-items",
+      value: "center",
+    });
+
+    expect(aligned.result.status).toBe("applied");
+    expect(aligned.content).toContain("place-items: center");
+    expect(aligned.content).not.toMatch(/align-items:\s*flex-start/);
+    expect(aligned.content).toContain(
+      "data-agent-native-generated-flex-align-items",
+    );
+  });
+
+  it("restores generated flex alignment when place-items is removed", () => {
+    const flex = applyVisualEdit(
+      `<div data-agent-native-node-id="box"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+        containerStyles: { display: "flex" },
+      },
+    );
+    const aligned = applyVisualEdit(flex.content, {
+      kind: "style",
+      target: { nodeId: "box" },
+      property: "place-items",
+      value: "center",
+    });
+    const removed = applyVisualEdit(aligned.content, {
+      kind: "style",
+      operation: "remove",
+      target: { nodeId: "box" },
+      property: "place-items",
+    });
+
+    expect(removed.result.status).toBe("applied");
+    expect(removed.content).not.toContain("place-items:");
+    expect(removed.content).toMatch(/align-items:\s*flex-start/);
+    expect(removed.content).toContain(
+      "data-agent-native-generated-flex-align-items",
+    );
+  });
+
+  it("restores generated alignment when flex display comes from a class", () => {
+    const flex = applyVisualEdit(
+      `<div data-agent-native-node-id="box" class="flex"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+        containerStyles: { display: "flex" },
+      },
+    );
+    const withoutInlineDisplay = applyVisualEdit(flex.content, {
+      kind: "style",
+      operation: "remove",
+      target: { nodeId: "box" },
+      property: "display",
+    });
+    const aligned = applyVisualEdit(withoutInlineDisplay.content, {
+      kind: "style",
+      target: { nodeId: "box" },
+      property: "place-items",
+      value: "center",
+    });
+    const removed = applyVisualEdit(aligned.content, {
+      kind: "style",
+      operation: "remove",
+      target: { nodeId: "box" },
+      property: "place-items",
+    });
+
+    expect(withoutInlineDisplay.content.match(/<div[^>]*>/)?.[0]).not.toMatch(
+      /\bdisplay\s*:/,
+    );
+    expect(removed.content).toMatch(/align-items:\s*flex-start/);
+    expect(removed.content).toContain(
+      "data-agent-native-generated-flex-align-items",
+    );
+  });
+
+  it("restores generated alignment when flex display comes from a stylesheet", () => {
+    const flex = applyVisualEdit(
+      `<style>.stack { display: flex; }</style><div data-agent-native-node-id="box" class="stack"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+        containerStyles: { display: "flex" },
+      },
+    );
+    const withoutInlineDisplay = applyVisualEdit(flex.content, {
+      kind: "style",
+      operation: "remove",
+      target: { nodeId: "box" },
+      property: "display",
+    });
+    const aligned = applyVisualEdit(withoutInlineDisplay.content, {
+      kind: "style",
+      target: { nodeId: "box" },
+      property: "place-items",
+      value: "center",
+    });
+    const removed = applyVisualEdit(aligned.content, {
+      kind: "style",
+      operation: "remove",
+      target: { nodeId: "box" },
+      property: "place-items",
+    });
+
+    expect(withoutInlineDisplay.content.match(/<div[^>]*>/)?.[0]).not.toMatch(
+      /\bdisplay\s*:/,
+    );
+    expect(removed.content).toMatch(/align-items:\s*flex-start/);
+    expect(removed.content).toContain(
+      "data-agent-native-generated-flex-align-items",
+    );
+  });
+
+  it("does not restore flex alignment when grid display comes from a class or stylesheet", () => {
+    for (const html of [
+      `<div data-agent-native-node-id="box" class="grid"><span>A</span></div>`,
+      `<style>.stack { display: grid; }</style><div data-agent-native-node-id="box" class="stack"><span>A</span></div>`,
+    ]) {
+      const flex = applyVisualEdit(html, {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+        containerStyles: { display: "flex" },
+      });
+      const withoutInlineDisplay = applyVisualEdit(flex.content, {
+        kind: "style",
+        operation: "remove",
+        target: { nodeId: "box" },
+        property: "display",
+      });
+      const aligned = applyVisualEdit(withoutInlineDisplay.content, {
+        kind: "style",
+        target: { nodeId: "box" },
+        property: "place-items",
+        value: "center",
+      });
+      const removed = applyVisualEdit(aligned.content, {
+        kind: "style",
+        operation: "remove",
+        target: { nodeId: "box" },
+        property: "place-items",
+      });
+      const targetTag = removed.content.match(/<div[^>]*>/)?.[0] ?? "";
+
+      expect(targetTag).not.toMatch(/\balign-items\s*:/);
+      expect(removed.content).not.toContain(
+        "data-agent-native-generated-flex-align-items",
+      );
+    }
+  });
+
+  function removePlaceItemsAfterGeneratedAlignment(html: string): string {
+    const flex = applyVisualEdit(html, {
+      kind: "autoLayout",
+      targetId: "box",
+      enabled: true,
+      containerStyles: { display: "flex" },
+    });
+    const withoutInlineDisplay = applyVisualEdit(flex.content, {
+      kind: "style",
+      operation: "remove",
+      target: { nodeId: "box" },
+      property: "display",
+    });
+    const aligned = applyVisualEdit(withoutInlineDisplay.content, {
+      kind: "style",
+      target: { nodeId: "box" },
+      property: "place-items",
+      value: "center",
+    });
+    return applyVisualEdit(aligned.content, {
+      kind: "style",
+      operation: "remove",
+      target: { nodeId: "box" },
+      property: "place-items",
+    }).content;
+  }
+
+  it("restores generated alignment when the more specific display rule wins", () => {
+    const removed = removePlaceItemsAfterGeneratedAlignment(
+      `<style>.stack { display: grid; } #box { display: flex; }</style><div id="box" class="stack" data-agent-native-node-id="box"><span>A</span></div>`,
+    );
+
+    expect(removed).toMatch(/align-items:\s*flex-start/);
+    expect(removed).toContain("data-agent-native-generated-flex-align-items");
+  });
+
+  it("does not restore generated alignment when the more specific grid rule wins", () => {
+    const removed = removePlaceItemsAfterGeneratedAlignment(
+      `<style>#box { display: grid; } .stack { display: flex; }</style><div id="box" class="stack" data-agent-native-node-id="box"><span>A</span></div>`,
+    );
+
+    expect(removed).not.toMatch(/align-items:\s*flex-start/);
+    expect(removed).not.toContain(
+      "data-agent-native-generated-flex-align-items",
+    );
+  });
+
+  it("uses source order when matching display rules have equal specificity", () => {
+    const flexWins = removePlaceItemsAfterGeneratedAlignment(
+      `<style>.stack { display: grid; } .stack { display: flex; }</style><div id="box" class="stack" data-agent-native-node-id="box"><span>A</span></div>`,
+    );
+    const gridWins = removePlaceItemsAfterGeneratedAlignment(
+      `<style>.stack { display: flex; } .stack { display: grid; }</style><div id="box" class="stack" data-agent-native-node-id="box"><span>A</span></div>`,
+    );
+
+    expect(flexWins).toMatch(/align-items:\s*flex-start/);
+    expect(gridWins).not.toMatch(/align-items:\s*flex-start/);
+  });
+
+  it("honors stylesheet important display over a normal inline display", () => {
+    const html = `<style>.stack { display: flex !important; }</style><div id="box" class="stack" data-agent-native-node-id="box" data-agent-native-generated-flex-align-items="flex-start" style="display: grid; place-items: center"><span>A</span></div>`;
+    const removed = applyVisualEdit(html, {
+      kind: "style",
+      operation: "remove",
+      target: { nodeId: "box" },
+      property: "place-items",
+    });
+
+    expect(removed.content).toMatch(/align-items:\s*flex-start/);
+    expect(removed.content).toContain(
+      "data-agent-native-generated-flex-align-items",
+    );
+  });
+
+  it("keeps generated-alignment ownership when the display cascade is unknown", () => {
+    const html = `<link rel="stylesheet" href="/styles.css"><div data-agent-native-node-id="box" data-agent-native-generated-flex-align-items="flex-start" style="place-items: center"><span>A</span></div>`;
+    const removed = applyVisualEdit(html, {
+      kind: "style",
+      operation: "remove",
+      target: { nodeId: "box" },
+      property: "place-items",
+    });
+
+    expect(removed.content).not.toMatch(/align-items:\s*flex-start/);
+    expect(removed.content).toContain(
+      "data-agent-native-generated-flex-align-items",
+    );
+  });
+
+  it("keeps generated-alignment ownership for state-dependent display utilities", () => {
+    for (const className of ["flex hover:grid", "flex dark:grid"]) {
+      const html = `<div class="${className}" data-agent-native-node-id="box" data-agent-native-generated-flex-align-items="flex-start" style="place-items: center"><span>A</span></div>`;
+      const removed = applyVisualEdit(html, {
+        kind: "style",
+        operation: "remove",
+        target: { nodeId: "box" },
+        property: "place-items",
+      });
+
+      expect(removed.content).not.toMatch(/align-items:\s*flex-start/);
+      expect(removed.content).toContain(
+        "data-agent-native-generated-flex-align-items",
+      );
+    }
+  });
+
+  it("keeps generated-alignment ownership for media-qualified display rules", () => {
+    for (const media of [
+      "screen and (min-width: 600px)",
+      "not screen and (min-width: 600px)",
+    ]) {
+      const html = `<style media="${media}">.stack { display: flex; }</style><div class="stack" data-agent-native-node-id="box" data-agent-native-generated-flex-align-items="flex-start" style="place-items: center"><span>A</span></div>`;
+      const removed = applyVisualEdit(html, {
+        kind: "style",
+        operation: "remove",
+        target: { nodeId: "box" },
+        property: "place-items",
+      });
+
+      expect(removed.content).not.toMatch(/align-items:\s*flex-start/);
+      expect(removed.content).toContain(
+        "data-agent-native-generated-flex-align-items",
+      );
+    }
+  });
+
+  it("preserves authored alignment when removing a generated declaration", () => {
+    const html = `<div data-agent-native-node-id="box" data-agent-native-generated-flex-align-items="flex-start" style="display:flex; align-items:center; align-items:flex-start; place-items:center"><span>A</span></div>`;
+    const removed = applyVisualEdit(html, {
+      kind: "style",
+      operation: "remove",
+      target: { nodeId: "box" },
+      property: "place-items",
+    });
+
+    expect(removed.result.status).toBe("applied");
+    expect(removed.content).toContain("align-items:center");
+    expect(removed.content).not.toContain("align-items:flex-start");
+    expect(removed.content).not.toContain("place-items:");
+    expect(removed.content).not.toContain(
+      "data-agent-native-generated-flex-align-items",
+    );
+  });
+
+  it("preserves stylesheet alignment with flex containerStyles", () => {
+    const patch = applyVisualEdit(
+      `<style>@media (min-width: 600px) { .stack { align-items: center; } }</style><div data-agent-native-node-id="box" class="stack"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+        containerStyles: {
+          display: "flex",
+          flexDirection: "row",
+          gap: "20px",
+        },
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).not.toContain("align-items: flex-start");
   });
 
   it("rejects containerStyles that carry no writable declaration", () => {
@@ -4729,6 +5188,16 @@ describe("stripEditorOnlyAttributes", () => {
     expect(result).not.toContain("data-agent-native-node-id");
     expect(result).toContain('class="foo"');
     expect(result).toContain("hello");
+  });
+
+  it("removes generated flex alignment metadata from exported markup", () => {
+    const html = `<div data-agent-native-generated-flex-align-items="flex-start" style="align-items: flex-start">hello</div>`;
+    const result = stripEditorOnlyAttributes(html);
+
+    expect(result).not.toContain(
+      "data-agent-native-generated-flex-align-items",
+    );
+    expect(result).toContain('style="align-items: flex-start"');
   });
 
   it("removes data-agent-native-node-id with single-quoted value", () => {

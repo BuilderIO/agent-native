@@ -84,7 +84,6 @@ async function enterInteractOnHome(page: Page) {
   return { screen, frame, inner };
 }
 
-// oracle: none — drives real clicks on the running prototype.
 test("a link to another screen switches the preview, and nothing else is taken over", async ({
   page,
 }) => {

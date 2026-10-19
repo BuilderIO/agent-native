@@ -853,6 +853,7 @@ export default {
     bigQueryHealthUnavailable:
       "Der Druck der First-Party-Analytics konnte nicht geprüft werden. Lade die Seite neu, bevor du das Backend wechselst.",
     analyticsEventCount: "Beobachtete Ereignisse",
+    analyticsRecentEventCount: "Beobachtete Ereignisse (letzte 30 Tage)",
     slowQueries24h: "Langsame Abfragen (24 h)",
     maxQueryDuration: "Maximale Abfragezeit",
     defaultKeyName: "Gehostete Vorlagen",
@@ -1486,6 +1487,25 @@ export default {
     columnShowHidden: "Ausgeblendete Spalten einblenden",
     columnName: "Spaltenname",
     columnResize: "Spaltenbreite ändern",
+    rowBreakdownBy: "Aufschlüsseln nach",
+    rowBreakdownAll: "Alle",
+    rowBreakdownOther: "Andere",
+    rowBreakdownOtherHint:
+      "Kleinere Gruppen und alle, die das SQL dieses Panels auslässt",
+    rowBreakdownSmallGroup: "Weniger als {{count}}: Raten mit Vorsicht lesen",
+    rowBreakdownNoValue: "(keine)",
+    rowBreakdownEmpty: "Keine Zeilen für diese Aufschlüsselung.",
+    rowBreakdownUnavailable:
+      "Das SQL dieses Panels hat keine Aufschlüsselung nach {{column}}.",
+    rowBreakdownFromPanel:
+      "Aus den Zeilen dieses Panels. Es wurde nichts gelesen.",
+    rowBreakdownFromCache: "Aus dem Cache. Es wurde nichts gelesen.",
+    rowBreakdownAlreadyLoaded: "Bereits geladen. Es wurde nichts gelesen.",
+    rowBreakdownBytesRead: "{{bytes}} gelesen",
+    rowBreakdownOverByteCap:
+      "Diese Aufschlüsselung würde mehr als {{gib}} GiB lesen und wurde deshalb nicht ausgeführt. Grenze die Filter oder den Zeitraum des Dashboards ein und versuche es erneut.",
+    rowBreakdownTruncated:
+      "Das Ergebnis wurde abgeschnitten, daher fehlen einige Gruppen oder sind unter „Andere“ gezählt.",
     deleteSectionTitle: "Abschnitt löschen?",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "Panel löschen?",

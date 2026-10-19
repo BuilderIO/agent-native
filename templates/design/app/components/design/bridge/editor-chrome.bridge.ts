@@ -3994,11 +3994,37 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     ) {
       return null;
     }
+    // The parent echoes an auto-layout selection back through select-element.
+    // After that echo, the next plain click inside the row should select its
+    // child instead of keeping the row selected indefinitely.
+    if (
+      selectionContainerScope === selectedEl &&
+      selectedEl.getAttribute("data-an-primitive") !== "frame" &&
+      selectedEl.getAttribute("data-agent-native-group") !== "true" &&
+      isAutoLayoutElement(selectedEl) &&
+      canOpenSelectionContainer(selectedEl)
+    ) {
+      return null;
+    }
     if (!hasSelectableLayerChildren(selectedEl)) return null;
     var target = selectionTargetForHit(hit, true);
     return target && target !== selectedEl && selectedEl.contains(target)
       ? selectedEl
       : null;
+  }
+
+  function rememberAutoLayoutContainerScopeForSelection(
+    target: Element | null,
+  ): void {
+    if (
+      target &&
+      target.getAttribute("data-an-primitive") !== "frame" &&
+      target.getAttribute("data-agent-native-group") !== "true" &&
+      isAutoLayoutElement(target) &&
+      canOpenSelectionContainer(target)
+    ) {
+      selectionContainerScope = target;
+    }
   }
 
   function clickThroughSelectionTarget(
@@ -9722,7 +9748,23 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     if (!nextDoc || !nextDoc.body) return;
 
     var persistentNodes = Array.prototype.slice.call(
-      document.querySelectorAll("[data-agent-native-edit-overlay]"),
+      document.querySelectorAll(
+        [
+          "[data-agent-native-edit-overlay]",
+          "script[data-agent-native-motion-preview-bridge]",
+          "script[data-agent-native-shader-runtime]",
+          "script[data-agent-native-shader-fill-preview-bridge]",
+          "script[data-agent-native-tweak-bridge]",
+          "script[data-agent-native-zoom-bridge]",
+          "script[data-agent-native-nav-bridge]",
+          "script[data-agent-native-preview-theme-bridge]",
+          "script[data-agent-native-hit-test-bridge]",
+          "script[data-agent-native-embedded-wheel-bridge]",
+          "script[data-agent-native-editor-theme]",
+          "script[data-agent-native-editor-chrome-bridge]",
+          "script[data-agent-native-content-size-bridge]",
+        ].join(","),
+      ),
     );
     var activeSelector =
       preferredSelector || (selectedEl ? getSelector(selectedEl) : "");
@@ -14455,6 +14497,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       !selectionContainerScope.contains(selectedEl)
     )
       selectionContainerScope = null;
+    rememberAutoLayoutContainerScopeForSelection(selectedEl);
     if (!selectedEl || isLayerInteractionBlocked(selectedEl)) {
       selectedEl = null;
       hideSelectionOverlay();
@@ -27379,6 +27422,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         !selectionContainerScope.contains(selectedEl)
       )
         selectionContainerScope = null;
+      rememberAutoLayoutContainerScopeForSelection(selectedEl);
       positionOverlay(selectionOverlay, selectedEl);
       if (!ev?.shiftKey && passiveSelectionEls.length) {
         setPassiveSelectionElements([]);

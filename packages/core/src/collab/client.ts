@@ -279,10 +279,10 @@ class CollabDocConnection {
 
   private syncActive = false;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
-  // A poll asked for while one is in flight runs once after it, so focus,
-  // visibility and a sync restart never start a second polling chain.
-  private pollInFlight = false;
-  private pollRequested = false;
+  private pollGeneration = 0;
+  // An older generation can stay on the network after sync restarts.
+  private readonly pollInFlight = new Set<number>();
+  private readonly pollRequested = new Set<number>();
   private consecutiveErrors = 0;
   private pollCycleCount = 0;
   private pollVersion = 0;
@@ -344,6 +344,11 @@ class CollabDocConnection {
     if (!this.started) {
       this.started = true;
       this.start();
+    } else if (
+      !this.syncActive &&
+      this.snapshot.initialization.status === "ready"
+    ) {
+      this.startTransport();
     } else {
       this.resubscribeCollabEventsIfPauseChanged();
       if (this.snapshot.initialization.status === "ready") this.startSync();
@@ -570,9 +575,11 @@ class CollabDocConnection {
   }
 
   private startTransport(): void {
+    if (this.disposed || this.subscribers.size === 0) return;
     this.attachUpdateHandler();
     this.startSync();
 
+    if (this.unsubscribeAwarenessEvents) return;
     this.unsubscribeAwarenessEvents = subscribeSyncEvents({
       onEvents: (events) => {
         if (this.disposed) return;
@@ -841,11 +848,12 @@ class CollabDocConnection {
       return;
     }
     this.syncActive = true;
+    const pollGeneration = ++this.pollGeneration;
 
     this.subscribeCollabEvents();
 
     if (!this.effectivePauseWhenHidden || !isDocumentHidden()) {
-      void this.poll();
+      void this.poll(pollGeneration);
     }
     window.addEventListener("focus", this.handleFocus);
     document.addEventListener("visibilitychange", this.handleVisibilityChange);
@@ -854,13 +862,20 @@ class CollabDocConnection {
   private stopSync(): void {
     if (!this.syncActive) return;
     this.syncActive = false;
+    this.pollGeneration++;
+    this.pollRequested.clear();
     this.setCollabPollBoost(false);
+    this.sseActive = false;
+    this.sseAwarenessCovered = false;
+    this.ssePollLive = false;
     if (this.pollTimer) {
       clearTimeout(this.pollTimer);
       this.pollTimer = null;
     }
     this.unsubscribeCollabEvents?.();
     this.unsubscribeCollabEvents = null;
+    this.unsubscribeAwarenessEvents?.();
+    this.unsubscribeAwarenessEvents = null;
     this.sseSubscribedWithPause = null;
     window.removeEventListener("focus", this.handleFocus);
     document.removeEventListener(
@@ -935,20 +950,35 @@ class CollabDocConnection {
       : this.effectivePollInterval;
   }
 
-  private schedulePoll(): void {
-    if (!this.syncActive || this.disposed) return;
+  private isPollCurrent(generation: number): boolean {
+    return (
+      generation === this.pollGeneration &&
+      this.syncActive &&
+      !this.disposed &&
+      this.subscribers.size > 0
+    );
+  }
+
+  private schedulePoll(
+    generation: number,
+    delay = this.getActivePollInterval(),
+  ): void {
+    if (!this.isPollCurrent(generation)) return;
     if (this.effectivePauseWhenHidden && isDocumentHidden()) return;
-    this.pollTimer = setTimeout(() => {
-      this.pollTimer = null;
-      void this.poll();
-    }, this.getActivePollInterval());
+    if (this.pollTimer) clearTimeout(this.pollTimer);
+    const timer = setTimeout(() => {
+      if (this.pollTimer === timer) this.pollTimer = null;
+      if (!this.isPollCurrent(generation)) return;
+      void this.poll(generation);
+    }, delay);
+    this.pollTimer = timer;
   }
 
   private reschedulePoll(): void {
     if (this.pollTimer === null) return;
     clearTimeout(this.pollTimer);
     this.pollTimer = null;
-    this.schedulePoll();
+    this.schedulePoll(this.pollGeneration);
   }
 
   private fetchStateVector(): Promise<CollaborativeDocSyncResult> {
@@ -1033,25 +1063,25 @@ class CollabDocConnection {
     }
   }
 
-  private async poll(): Promise<void> {
-    if (this.pollInFlight) {
-      this.pollRequested = true;
+  private async poll(generation: number): Promise<void> {
+    if (!this.isPollCurrent(generation)) return;
+    if (this.pollInFlight.has(generation)) {
+      this.pollRequested.add(generation);
       return;
     }
-    this.pollInFlight = true;
+    this.pollInFlight.add(generation);
     try {
-      await this.pollOnce();
+      await this.pollOnce(generation);
     } finally {
-      this.pollInFlight = false;
+      this.pollInFlight.delete(generation);
     }
-    if (this.pollRequested) {
-      this.pollRequested = false;
-      this.pollNow();
+    if (this.pollRequested.delete(generation)) {
+      if (this.isPollCurrent(generation)) this.pollNow();
     }
   }
 
-  private async pollOnce(): Promise<void> {
-    if (!this.syncActive || this.disposed) return;
+  private async pollOnce(generation: number): Promise<void> {
+    if (!this.isPollCurrent(generation)) return;
 
     this.flushPendingUpdates();
 
@@ -1067,10 +1097,11 @@ class CollabDocConnection {
       const res = await fetch(agentNativePath(pollUrl), {
         signal: pollAbort.signal,
       });
+      if (!this.isPollCurrent(generation)) return;
       if (!res.ok) throw new Error("HTTP " + res.status);
 
       const data = await res.json();
-      if (!this.syncActive || this.disposed) return;
+      if (!this.isPollCurrent(generation)) return;
       const hadActivityBaseline = this.pollActivityBaselineReady;
       const { version, events } = data as {
         version: number;
@@ -1098,6 +1129,7 @@ class CollabDocConnection {
             Y.applyUpdate(this.ydoc, base64ToUint8Array(evt.update), "remote");
           } catch {
             await this.fetchStateVector();
+            if (!this.isPollCurrent(generation)) return;
           }
 
           if (evt.requestSource === "agent") {
@@ -1110,6 +1142,7 @@ class CollabDocConnection {
         noteCollabPollActivity(events);
       } else {
         const reconciliation = await this.fetchStateVector();
+        if (!this.isPollCurrent(generation)) return;
         if (reconciliation.status !== "synced") {
           throw reconciliation.status === "failed"
             ? reconciliation.error
@@ -1130,10 +1163,12 @@ class CollabDocConnection {
 
       if (shouldFetchStateVector) {
         await this.fetchStateVector();
+        if (!this.isPollCurrent(generation)) return;
       }
 
+      if (!this.isPollCurrent(generation)) return;
       const localState = this.awareness.getLocalState();
-      if (localState && this.syncActive && !this.disposed) {
+      if (localState && this.isPollCurrent(generation)) {
         try {
           const awarenessRes = await fetch(
             `${this.baseUrl}/${this.docId}/awareness`,
@@ -1146,8 +1181,10 @@ class CollabDocConnection {
               }),
             },
           );
-          if (awarenessRes.ok && !this.disposed) {
+          if (!this.isPollCurrent(generation)) return;
+          if (awarenessRes.ok) {
             const awarenessData = await awarenessRes.json();
+            if (!this.isPollCurrent(generation)) return;
             const remoteStates: RemoteAwarenessSnapshot[] = [];
             for (const remote of awarenessData.states || []) {
               try {
@@ -1160,7 +1197,7 @@ class CollabDocConnection {
                 // Invalid state — skip
               }
             }
-            if (this.disposed) return;
+            if (!this.isPollCurrent(generation)) return;
             const changes = reconcileRemoteAwarenessStates(
               this.awareness.getStates() as Map<number, unknown>,
               this.ydoc.clientID,
@@ -1179,20 +1216,16 @@ class CollabDocConnection {
         }
       }
     } catch {
+      if (!this.isPollCurrent(generation)) return;
       this.consecutiveErrors++;
       const backoff = calcBackoff(this.consecutiveErrors);
-      if (this.syncActive && !this.disposed) {
-        this.pollTimer = setTimeout(() => {
-          this.pollTimer = null;
-          void this.poll();
-        }, backoff);
-      }
+      this.schedulePoll(generation, backoff);
       return;
     } finally {
       clearTimeout(pollTimeout);
     }
 
-    this.schedulePoll();
+    this.schedulePoll(generation);
   }
 
   private pollNow(): void {
@@ -1202,7 +1235,7 @@ class CollabDocConnection {
       clearTimeout(this.pollTimer);
       this.pollTimer = null;
     }
-    void this.poll();
+    void this.poll(this.pollGeneration);
   }
 
   private publishVisibility(visible: boolean): void {

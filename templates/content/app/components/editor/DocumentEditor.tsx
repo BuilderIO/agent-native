@@ -36,8 +36,10 @@ import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import type {
   ContentNavigationPathEntry,
   Document,
+  DocumentProperty,
   DocumentSyncStatus,
 } from "@shared/api";
+import { commentPropertyTarget } from "@shared/comment-property-target";
 import {
   editorSaveState,
   publishesEditorSaveState,
@@ -122,6 +124,10 @@ import {
   type ContentSpaceSummary,
 } from "@/hooks/use-content-spaces";
 import { isPrivateDocumentEditorPath } from "@/hooks/use-db-sync";
+import {
+  documentPropertiesResponseMatchesScope,
+  useDocumentProperties,
+} from "@/hooks/use-document-properties";
 import {
   mergeDocumentIntoDocumentCache,
   isDocumentUpdateConflict,
@@ -271,6 +277,12 @@ import {
   type PageSaveResult as DocumentSaveResult,
 } from "./pageSession";
 import { trackPendingDocumentPersistence } from "./pending-document-persistence";
+import {
+  bodyCommentThreads,
+  openThreadsByProperty,
+  PropertyCommentsContext,
+  type PropertyCommentsValue,
+} from "./property-comments";
 import {
   createSuggestionAutosave,
   markSuggestionAutosaveSaved,
@@ -432,12 +444,23 @@ export interface PageEditorSession {
   focusTitle: () => void;
 }
 
+/**
+ * Opens the Page with its Comments showing: one thread when `threadId` is
+ * set, otherwise the list. A new `key` asks again.
+ */
+export interface PageCommentIntent {
+  key: number;
+  documentId: string;
+  threadId?: string | null;
+}
+
 export interface PageEditorSurfaceProps extends DocumentEditorProps {
   host: "page" | "preview";
   onSessionChange?: (session: PageEditorSession | null) => void;
   onDelete?: () => Promise<void>;
   focusTitle?: boolean;
   onTitleFocused?: () => void;
+  commentIntent?: PageCommentIntent | null;
 }
 
 type FieldSaveWatermark = { title: string; updatedAt: string | null };
@@ -1321,6 +1344,7 @@ export function PageEditorSurface({
   onDelete,
   focusTitle = false,
   onTitleFocused,
+  commentIntent,
 }: PageEditorSurfaceProps) {
   const t = useT();
   const widgetBridgeActive = isEmbedMcpChatBridgeActive();
@@ -1563,6 +1587,7 @@ export function PageEditorSurface({
         onDelete={onDelete}
         focusTitle={focusTitle}
         onTitleFocused={onTitleFocused}
+        commentIntent={commentIntent}
       />
     </DocumentCommentDraftProvider>
   );
@@ -1901,6 +1926,7 @@ interface DocumentEditorBodyProps {
   onDelete?: () => Promise<void>;
   focusTitle: boolean;
   onTitleFocused?: () => void;
+  commentIntent?: PageCommentIntent | null;
   foreground?: boolean;
   documentFresh?: boolean;
   creationStarted?: boolean;
@@ -1947,6 +1973,7 @@ type DocumentSaveOptions = {
   saveAttemptId?: string;
   equivalentSaveAttemptIds?: string[];
   editorSnapshotTitle?: string;
+  editorSnapshotTitleBase?: string;
   editorSnapshotContent?: string;
 };
 
@@ -2442,6 +2469,7 @@ function PageEditorSessionBody({
   onDelete,
   focusTitle,
   onTitleFocused,
+  commentIntent,
   foreground = false,
   documentFresh = false,
   creationStarted = false,
@@ -3753,6 +3781,7 @@ function PageEditorSessionBody({
                   }
                 : {}),
               editorSnapshotTitle: options.editorSnapshotTitle,
+              editorSnapshotTitleBase: options.editorSnapshotTitleBase,
               editorSnapshotContent: options.editorSnapshotContent,
               ...(baseUpdatedAt !== undefined ? { baseUpdatedAt } : {}),
               ...(baseRevision !== undefined ? { baseRevision } : {}),
@@ -4012,6 +4041,8 @@ function PageEditorSessionBody({
       options = {
         ...options,
         editorSnapshotTitle: title,
+        editorSnapshotTitleBase:
+          options.titleBase ?? lastSavedTitleRef.current.title,
         editorSnapshotContent: content,
       };
       if (options.requireActiveEditorSession && !editorSessionActiveRef.current)
@@ -5259,6 +5290,7 @@ function PageEditorSessionBody({
                 }
               : {}),
             editorSnapshotTitle: pending.title,
+            editorSnapshotTitleBase: pending.titleBase,
             editorSnapshotContent: pending.content,
             ...updates,
             ...(loadedContentWasEmpty !== undefined
@@ -7323,7 +7355,10 @@ function PageEditorSessionBody({
   const [pendingCommentTargetValid, setPendingCommentTargetValid] =
     useState(true);
   const pendingCommentTargetId = pendingComment?.id ?? null;
-  const pendingCommentQuotedText = pendingComment?.quotedText ?? null;
+  // A comment on a Property has no text to keep selected.
+  const pendingCommentQuotedText = pendingComment?.property
+    ? null
+    : (pendingComment?.quotedText ?? null);
   useLayoutEffect(() => {
     if (!pendingCommentTargetId || pendingCommentQuotedText === null) {
       setPendingCommentTargetValid(true);
@@ -7385,10 +7420,11 @@ function PageEditorSessionBody({
   };
   // While AI's result is on screen, a thread it just resolved highlights the
   // text it wrote, so the card sits beside the change it describes.
+  const bodyThreads = useMemo(() => bodyCommentThreads(threads), [threads]);
   const editorCommentThreads = useMemo(() => {
     const fresh = commentAi.freshResolutions;
-    if (!threads || fresh.size === 0) return threads ?? [];
-    return threads.map((thread) => {
+    if (!bodyThreads || fresh.size === 0) return bodyThreads ?? [];
+    return bodyThreads.map((thread) => {
       const change = fresh.get(thread.threadId)?.result?.changes?.[0];
       if (!thread.resolved || !change?.after || change.truncated) return thread;
       return {
@@ -7400,7 +7436,21 @@ function PageEditorSessionBody({
         startOffset: null,
       };
     });
-  }, [commentAi.freshResolutions, threads]);
+  }, [bodyThreads, commentAi.freshResolutions]);
+  const pagePropertiesDatabaseId =
+    databaseId ?? document.databaseMembership?.databaseId ?? null;
+  // The same read the Page's Properties make, so it costs no request.
+  const pagePropertiesQuery = useDocumentProperties(
+    document.databaseMembership && !isLocalFileDocument ? documentId : null,
+    pagePropertiesDatabaseId,
+  );
+  const pageProperties = documentPropertiesResponseMatchesScope(
+    documentId,
+    pagePropertiesDatabaseId,
+    pagePropertiesQuery.data,
+  )
+    ? pagePropertiesQuery.data.properties
+    : undefined;
   const documentLayoutRef = useRef<HTMLDivElement>(null);
   const commentLaneRef = useRef<HTMLElement>(null);
   const anchoredCommentRef = useRef<HTMLElement>(null);
@@ -7785,6 +7835,44 @@ function PageEditorSessionBody({
   );
   const handledCommentDeepLinkRef = useRef<string | null>(null);
 
+  const startPropertyComment = useCallback(
+    (property: DocumentProperty) => {
+      setPendingComment({
+        quotedText: "",
+        // Beside the Property in a peek; on a full page the Properties sit
+        // in Info, which Comments replaces, so the card opens in view.
+        offsetTop:
+          host === "preview" ? 0 : (scrollContainerRef.current?.scrollTop ?? 0),
+        property: commentPropertyTarget(property),
+        databaseId: pagePropertiesDatabaseId,
+      });
+      setSelectedSuggestionId(null);
+      setCommentsBrowseOpen(false);
+      setUtilityPanel("comments");
+      setSelectedThreadId(null);
+      setHoveredThreadId(null);
+    },
+    [host, pagePropertiesDatabaseId, setPendingComment],
+  );
+  const propertyComments = useMemo<PropertyCommentsValue>(
+    () => ({
+      canComment,
+      openThreadsByProperty: openThreadsByProperty(threads),
+      pendingPropertyId: pendingComment?.property?.propertyId ?? null,
+      activeThreadId,
+      startComment: startPropertyComment,
+      openThread: activateCommentThread,
+    }),
+    [
+      activateCommentThread,
+      activeThreadId,
+      canComment,
+      pendingComment?.property?.propertyId,
+      startPropertyComment,
+      threads,
+    ],
+  );
+
   const handleUtilityPanelChange = useCallback(
     (nextPanel: DocumentUtilityPanel) => {
       ++utilityPanelFocusGenerationRef.current;
@@ -7881,6 +7969,33 @@ function PageEditorSessionBody({
     handledCommentDeepLinkRef.current = deepLinkKey;
     activateCommentThread(threadId, true);
   }, [activateCommentThread, documentId, location.search, threads]);
+
+  const handledCommentIntentRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (
+      commentIntent?.documentId !== documentId ||
+      handledCommentIntentRef.current === commentIntent.key
+    )
+      return;
+    const threadId = commentIntent.threadId;
+    if (threadId) {
+      // Wait for the thread; a thread that is gone opens the list instead.
+      if (!threads) return;
+      handledCommentIntentRef.current = commentIntent.key;
+      if (threads.some((thread) => thread.threadId === threadId)) {
+        activateCommentThread(threadId);
+        return;
+      }
+    }
+    handledCommentIntentRef.current = commentIntent.key;
+    handleUtilityPanelChange("comments");
+  }, [
+    activateCommentThread,
+    commentIntent,
+    documentId,
+    handleUtilityPanelChange,
+    threads,
+  ]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -8256,6 +8371,7 @@ function PageEditorSessionBody({
       replyDrafts={replyDrafts}
       documentId={documentId}
       threads={documentEditorCommentThreads(threads)}
+      documentProperties={pageProperties}
       isLoading={commentsLoading}
       pendingComment={pendingComment}
       pendingTargetValid={pendingCommentTargetValid}
@@ -8700,18 +8816,20 @@ function PageEditorSessionBody({
           </button>
         </div>
         {panel === "info" ? (
-          <DocumentInfoPanel
-            document={document}
-            documentContent={exportContent}
-            additionalBlockContents={additionalBlockContents}
-            databaseId={databaseId}
-            databaseDocumentId={databaseDocumentId}
-            canEdit={editorCanEdit}
-            popoverContainer={popoverContainer}
-            onSaveDescription={(description) =>
-              persistDocumentUpdates({ description })
-            }
-          />
+          <PropertyCommentsContext.Provider value={propertyComments}>
+            <DocumentInfoPanel
+              document={document}
+              documentContent={exportContent}
+              additionalBlockContents={additionalBlockContents}
+              databaseId={databaseId}
+              databaseDocumentId={databaseDocumentId}
+              canEdit={editorCanEdit}
+              popoverContainer={popoverContainer}
+              onSaveDescription={(description) =>
+                persistDocumentUpdates({ description })
+              }
+            />
+          </PropertyCommentsContext.Provider>
         ) : (
           renderCommentsSidebar(undefined, false, "history")
         )}
@@ -9130,21 +9248,23 @@ function PageEditorSessionBody({
                 document.databaseMembership &&
                 !isLocalFileDocument ? (
                   <div className="mx-auto w-full max-w-3xl px-4 pb-3 sm:px-6">
-                    <DocumentProperties
-                      documentId={documentId}
-                      databaseId={
-                        databaseId ??
-                        document.databaseMembership.databaseId ??
-                        null
-                      }
-                      databaseDocumentId={
-                        databaseDocumentId ??
-                        document.databaseMembership.databaseDocumentId ??
-                        null
-                      }
-                      canEdit={editorCanEdit}
-                      popoversPortalled={false}
-                    />
+                    <PropertyCommentsContext.Provider value={propertyComments}>
+                      <DocumentProperties
+                        documentId={documentId}
+                        databaseId={
+                          databaseId ??
+                          document.databaseMembership.databaseId ??
+                          null
+                        }
+                        databaseDocumentId={
+                          databaseDocumentId ??
+                          document.databaseMembership.databaseDocumentId ??
+                          null
+                        }
+                        canEdit={editorCanEdit}
+                        popoversPortalled={false}
+                      />
+                    </PropertyCommentsContext.Provider>
                   </div>
                 ) : null}
                 {document.database ? (

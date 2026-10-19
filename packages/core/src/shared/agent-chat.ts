@@ -43,6 +43,7 @@ export interface AgentChatCallOptions {
   context?: string;
   timeout?: number;
   framePort?: number;
+  signal?: AbortSignal;
 }
 
 export interface AgentChatResponse {
@@ -68,6 +69,12 @@ async function call(
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
+  const abortFromCaller = () => controller.abort(options?.signal?.reason);
+  if (options?.signal?.aborted) {
+    abortFromCaller();
+  } else {
+    options?.signal?.addEventListener("abort", abortFromCaller, { once: true });
+  }
 
   try {
     const res = await fetch(`http://localhost:${port}/api/chat`, {
@@ -85,6 +92,7 @@ async function call(
     return (await res.json()) as AgentChatResponse;
   } finally {
     clearTimeout(timer);
+    options?.signal?.removeEventListener("abort", abortFromCaller);
   }
 }
 

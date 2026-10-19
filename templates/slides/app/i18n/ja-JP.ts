@@ -753,6 +753,10 @@ const messages = {
     duplicateCurrentSlide: "复制当前幻灯片",
     promptPlaceholder: "描述你想要的幻灯片...",
     newSlide: "新しいスライド",
+    slidesHeading: "スライド",
+    emptyTitle: "スライドはまだありません",
+    emptyDescription:
+      "新しいスライドを追加またはインポートするか、エージェントに生成を依頼してください。",
     closeAddSlides: "閉じる",
     describeThisSlide: "このスライドを説明してください",
     cut: "切り取り",

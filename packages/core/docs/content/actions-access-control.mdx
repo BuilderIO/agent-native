@@ -166,6 +166,8 @@ When `needsApproval` is omitted, behavior is byte-for-byte unchanged. There is n
 
 This works the same way for legacy `parameters`-style actions and for schema-based actions. It also works the same way for the in-app agent, sub-agents, A2A, and MCP callers, because every agent surface routes through the same loop.
 
+Calls made over the [HTTP API](/docs/http-api) with a bearer token or API key skip the approval card: the route runs the action directly, as it does for the app's own UI. To have an agent's calls approved, connect it over [MCP](/docs/external-agents) instead of calling the HTTP routes.
+
 ### How the loop pauses {#loop}
 
 When the agent calls a gated action and this specific call has **not** already been approved, the loop does **not** execute `run()`. Instead it:
