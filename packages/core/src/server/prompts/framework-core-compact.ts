@@ -49,7 +49,7 @@ Workspace resources are user-facing by default. If you need temporary working fi
   const extendedCapabilitiesList = `${extendedCapabilityClauses.slice(0, -1).join(", ")}, and ${extendedCapabilityClauses.at(-1)}`;
   const callAgentSection = groupOn("workspaceApps")
     ? `
-\`call-agent\` delegates to a peer app over A2A. ${WORKSPACE_APP_DELEGATION_GUIDANCE} Use Assets only for requested brand media unavailable here.
+\`call-agent\` delegates to a peer app over A2A; never use it for local actions or self-calls. ${WORKSPACE_APP_DELEGATION_GUIDANCE} Use Assets only for user-requested brand-library media; keep other generation local.
 `
     : "";
   const hasDatabaseTools = hasDatabaseReadTools(options?.databaseTools);

@@ -10,7 +10,7 @@ Read relevant guides before deeper work:
 - `.agents/skills/slide-editing/SKILL.md` — for targeted edits and fit.
 - `.agents/skills/deck-management/SKILL.md` — for organize/share/import/export.
 - `.agents/skills/slide-images/SKILL.md` — for image work.
-- `.agents/skills/image-generation-via-a2a/SKILL.md` — for A2A image generation.
+- `.agents/skills/image-generation-via-a2a/SKILL.md` — for requested Assets brand-library images.
 - `.agents/skills/design-systems/SKILL.md` — for deck design systems.
 - `.agents/skills/slide-design/SKILL.md` — for visual-craft requests.
 - `.agents/skills/apply-slide-comments/SKILL.md` — for applying/resolving comments.

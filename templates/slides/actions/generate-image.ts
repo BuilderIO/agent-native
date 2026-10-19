@@ -115,6 +115,7 @@ Options:
   --model                 Provider: 'gemini', 'openai', or 'auto' (default: auto)
   --reference-image-urls  Comma-separated URLs of extra reference images
   --count                 Number of variations (default: 1)
+  --use-brand-library     Use Assets for a user-requested brand-library generation
   --output                Output file path prefix (files: {prefix}-v1.png, etc.)
   --help                  Show this help`);
     return;
@@ -144,54 +145,62 @@ Options:
     console.log(`Loaded deck context: ${deckCtx.deckText.length} chars`);
   }
 
-  const delegation = await delegateImageGenerationToAssets({
-    prompt,
-    count,
-    deckId: opts["deck-id"],
-    slideId: opts["slide-id"],
-    slideContent,
-    ...(extraReferenceUrls.length
-      ? { referenceImageUrls: extraReferenceUrls }
-      : {}),
-  });
-  if (delegation.status === "delegated") {
-    console.log(delegation.reply);
-    const previewUrl = extractAssetUrl(delegation.reply, {
-      baseUrl: delegation.target,
+  if (opts["use-brand-library"] === "true") {
+    const delegation = await delegateImageGenerationToAssets({
+      prompt,
+      count,
+      deckId: opts["deck-id"],
+      slideId: opts["slide-id"],
+      slideContent,
+      ...(extraReferenceUrls.length
+        ? { referenceImageUrls: extraReferenceUrls }
+        : {}),
     });
-    if (previewUrl) {
-      console.log(
-        `\nShow this to the user verbatim so the image renders inline:\n` +
-          imagePreviewMarkdown(prompt, previewUrl),
-      );
+    if (delegation.status === "delegated") {
+      console.log(delegation.reply);
+      const previewUrl = extractAssetUrl(delegation.reply, {
+        baseUrl: delegation.target,
+      });
+      if (previewUrl) {
+        console.log(
+          `\nShow this to the user verbatim so the image renders inline:\n` +
+            imagePreviewMarkdown(prompt, previewUrl),
+        );
+      }
+      if (outputPrefix) {
+        await saveDelegatedImages(
+          delegation.reply,
+          outputPrefix,
+          delegation.target,
+        );
+      }
+      return;
     }
-    if (outputPrefix) {
-      await saveDelegatedImages(
-        delegation.reply,
-        outputPrefix,
-        delegation.target,
+    if (delegation.status === "pending") {
+      console.error(
+        `Assets is still generating (task ${delegation.taskId}, last state ` +
+          `"${delegation.lastState}"). It was not cancelled — check the Assets ` +
+          `app rather than generating a duplicate.`,
       );
+      process.exitCode = 1;
+      return;
     }
-    return;
-  }
-  if (delegation.status === "pending") {
-    console.error(
-      `Assets is still generating (task ${delegation.taskId}, last state ` +
-        `"${delegation.lastState}"). It was not cancelled — check the Assets ` +
-        `app rather than generating a duplicate.`,
+    if (delegation.status === "rejected") {
+      console.error(
+        `Assets could not generate this image (${delegation.state}): ${delegation.reason}`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+    console.warn(
+      `[slides/generate-image] Assets unavailable (${delegation.reason}); ` +
+        `using the local provider — output will not be brand-grounded.`,
     );
-    throw new Error("Script failed");
-  }
-  if (delegation.status === "rejected") {
-    console.error(
-      `Assets could not generate this image (${delegation.state}): ${delegation.reason}`,
+  } else {
+    console.log(
+      "Using the local image provider. Pass --use-brand-library only when Assets' brand library or an Assets-exclusive capability is requested.",
     );
-    throw new Error("Script failed");
   }
-  console.warn(
-    `[slides/generate-image] Assets unavailable (${delegation.reason}); ` +
-      `using the local fallback provider — output will not be brand-grounded.`,
-  );
 
   const { getProvider } =
     await import("../server/handlers/image-providers/index.js");

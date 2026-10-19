@@ -81,6 +81,27 @@ describe("generate-image-api", () => {
     };
   }
 
+  it("uses local image generation by default without contacting Assets", async () => {
+    mockProviderGenerate.mockResolvedValue({
+      imageData: Buffer.from("local-image"),
+      mimeType: "image/png",
+      model: "gemini",
+    });
+    mockGetProvider.mockResolvedValue({ generate: mockProviderGenerate });
+    mockUploadFile.mockResolvedValue({
+      url: "https://cdn.example.com/local.png",
+    });
+
+    const result = await action.run({ prompt: "a sunset" });
+
+    expect(mockDelegateImageGenerationToAssets).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      source: "slides-local",
+      prompt: "a sunset",
+      url: "https://cdn.example.com/local.png",
+    });
+  });
+
   it("forwards referenceImageUrls to Assets delegation", async () => {
     mockDelegateImageGenerationToAssets.mockResolvedValue({
       status: "delegated",
@@ -90,6 +111,7 @@ describe("generate-image-api", () => {
 
     const result = await action.run({
       prompt: "a brand hero image",
+      useBrandLibrary: true,
       referenceImageUrls: [
         " https://cdn.example.com/style-1.png ",
         "",
@@ -156,6 +178,7 @@ describe("generate-image-api", () => {
 
     const result = await action.run({
       prompt: "a brand hero image",
+      useBrandLibrary: true,
       referenceImageUrls: [
         " https://cdn.example.com/style-1.png ",
         "",
@@ -210,6 +233,7 @@ describe("generate-image-api", () => {
       deckId: "deck-1",
       slideId: "slide-1",
       insertIntoSlide: true,
+      useBrandLibrary: true,
     });
 
     expect(mockUpdateSlideRun).toHaveBeenCalledWith(
@@ -244,6 +268,7 @@ describe("generate-image-api", () => {
         deckId: "deck-1",
         slideId: "missing-slide",
         insertIntoSlide: true,
+        useBrandLibrary: true,
       }),
     ).rejects.toThrow("was not found");
     expect(mockUpdateSlideRun).not.toHaveBeenCalled();
@@ -263,6 +288,7 @@ describe("generate-image-api", () => {
         deckId: "deck-1",
         slideId: "slide-1",
         insertIntoSlide: true,
+        useBrandLibrary: true,
       }),
     ).rejects.toThrow("did not return a parseable image URL");
     expect(mockGetDeckRun).not.toHaveBeenCalled();
@@ -286,6 +312,7 @@ describe("generate-image-api", () => {
         deckId: "deck-1",
         slideId: "slide-1",
         insertIntoSlide: true,
+        useBrandLibrary: true,
       }),
     ).rejects.toThrow("was not applied");
 
@@ -296,6 +323,7 @@ describe("generate-image-api", () => {
         deckId: "deck-1",
         slideId: "slide-1",
         insertIntoSlide: true,
+        useBrandLibrary: true,
       }),
     ).rejects.toThrow("could not be verified");
   });

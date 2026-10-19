@@ -8,7 +8,7 @@ describe("shared framework prompt rules", () => {
   it("uses Assets only for requested media that needs its peer-owned capability", () => {
     for (const prompt of [buildFrameworkCore(), buildFrameworkCoreCompact()]) {
       expect(prompt).toContain(
-        "Use Assets only for requested brand media unavailable here.",
+        "Use Assets only for user-requested brand-library media; keep other generation local.",
       );
     }
   });
@@ -22,6 +22,7 @@ describe("shared framework prompt rules", () => {
         "availability or enrichment alone is insufficient.",
       );
       expect(prompt).toContain("Keep artifact authorship here.");
+      expect(prompt).toContain("never use it for local actions or self-calls");
     }
   });
 

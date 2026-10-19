@@ -30,7 +30,7 @@ describe("buildImageGenerationContext", () => {
       'Target: Slide 1 (id: slide-1) in deck "Brand deck" (id: deck-1).',
     );
     expect(context).toContain(
-      "Pass deckId, slideId, slideContent, and referenceImageUrls to the action so Assets can ground the generation in this slide.",
+      "Pass deckId, slideId, slideContent, and referenceImageUrls to the action for this slide. Do not set useBrandLibrary unless the user requests Assets' brand library or an Assets-exclusive capability.",
     );
     expect(context).toContain(
       "call `import-from-url` for each URL before generating",

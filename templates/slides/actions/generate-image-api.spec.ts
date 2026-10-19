@@ -70,6 +70,7 @@ describe("generate-image-api reference image SSRF safety", () => {
       referenceImageUrls: ["https://example.com/style.png"],
     });
 
+    expect(mocks.delegateImageGenerationToAssets).not.toHaveBeenCalled();
     expect(mocks.ssrfSafeFetch).toHaveBeenCalledWith(
       "https://example.com/style.png",
       expect.objectContaining({ signal: expect.any(AbortSignal) }),

@@ -3259,13 +3259,18 @@ const FEEDBACK_ATTACHMENT_COVERAGE_REGEX_CASES = [
   [false, "Please inspect the image before reproducing the bug."],
 ];
 const A2A_OVERDELEGATION_RE =
-  /\b(?:way too|too|so|overly)\s+(?:eager|quick|frequent|often|ready|inclined)\b[^.!?\n]{0,80}\b(?:a2a|delegat\w*|handoff\w*)\b|\b(?:a2a|delegat\w*|handoff\w*)\b[^.!?\n]{0,80}\b(?:irrelevant|unnecessary|not relevant|too eager|too much)\b|\b(?:don['’]?t|do not|shouldn['’]?t|should not)\s+(?:delegate|call|use)\b[^.!?\n]{0,80}\b(?:a2a|call-agent|peer|another app|design(?: app)?)\b/i;
+  /\b(?:way too|too|so|overly)\s+(?:eager|quick|frequent|often|ready|inclined)\b[^.!?\n]{0,80}\b(?:a2a|call-agent|(?:delegat\w*|handoff\w*)\s+(?:to\s+)?(?:another|different|peer)\s+(?:app|agent))\b|\b(?:a2a|call-agent)\b[^.!?\n]{0,80}\b(?:irrelevant|unnecessary|not relevant|too eager|too much)\b|\b(?:don['’]?t|do not|shouldn['’]?t|should not)\s+(?:delegate|call|use)\b[^.!?\n]{0,80}\b(?:a2a|call-agent|(?:another|different|peer|design|assets|analytics|slides|content)\s+app)\b/i;
 const A2A_OVERDELEGATION_REGEX_CASES = [
   [true, "We are being way too eager to use A2A when it is not relevant."],
-  [true, "Slides should not delegate to Design for slide generation."],
+  [true, "Slides should not delegate to the Design app for slide generation."],
   [true, "A2A delegation is unnecessary for work this app can do."],
   [false, "Call a peer when it owns the credentials required for the task."],
   [false, "The Design app is available in this workspace."],
+  [false, "Design system corrections are unrelated to app handoffs."],
+  [
+    false,
+    "Delegate coding tasks to sub-agents when the user asks for parallel work.",
+  ],
 ];
 
 if (process.argv.includes("--self-test")) {

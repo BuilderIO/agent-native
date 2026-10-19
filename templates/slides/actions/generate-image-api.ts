@@ -139,14 +139,20 @@ async function insertGeneratedImage({
 
 export default defineAction({
   description:
-    "Generate a slide image. Delegates to the Assets app over A2A so generations use the brand library, presets, and audit log; falls back to a local Gemini/OpenAI key only when Assets is unreachable. Show the returned `url` to the user as an inline markdown image (![alt](url)) so it renders in chat, never as a bare link.",
+    "Generate a slide image locally by default. Set `useBrandLibrary: true` only when the user asks for Assets' brand library or an asset/capability exclusive to Assets is required; this delegates through A2A and falls back locally only when Assets is unreachable. Show the returned `url` as inline markdown (![alt](url)), never as a bare link.",
   schema: z.object({
     prompt: z.string().optional().describe("Image description (required)"),
+    useBrandLibrary: z
+      .boolean()
+      .optional()
+      .describe(
+        "Set true only for a user-requested Assets brand-library generation or an Assets-exclusive asset/capability; defaults to local image generation",
+      ),
     model: z
       .string()
       .optional()
       .describe(
-        "Fallback provider used only when Assets is unreachable: 'gemini', 'openai', or 'auto' (default: auto)",
+        "Local provider: 'gemini', 'openai', or 'auto' (default: auto)",
       ),
     deckId: z.string().optional().describe("Deck the image is destined for"),
     slideId: z.string().optional().describe("Slide the image is destined for"),
@@ -164,7 +170,9 @@ export default defineAction({
     referenceImageUrls: z
       .array(z.string())
       .optional()
-      .describe("Style reference URLs to forward to Assets"),
+      .describe(
+        "Style reference URLs for local generation; forwarded to Assets only when useBrandLibrary is true",
+      ),
   }),
   run: async (args) => {
     const prompt = args.prompt;
@@ -177,46 +185,55 @@ export default defineAction({
       );
     }
 
-    const delegation = await delegateImageGenerationToAssets({
-      prompt,
-      deckId: args.deckId,
-      slideId: args.slideId,
-      slideContent: args.slideContent,
-      referenceImageUrls: normalizeReferenceUrls(args.referenceImageUrls),
-    });
-
-    if (delegation.status === "delegated") {
-      const url = extractAssetUrl(delegation.reply, {
-        baseUrl: delegation.target,
-      });
-      const insertion = args.insertIntoSlide
-        ? await insertGeneratedImage({
-            deckId: args.deckId,
-            slideId: args.slideId,
-            prompt,
-            url: url ?? undefined,
-          })
-        : {};
-      return {
-        source: "assets-a2a" as const,
+    let assetsUnavailableReason: string | undefined;
+    if (args.useBrandLibrary) {
+      const delegation = await delegateImageGenerationToAssets({
         prompt,
-        reply: delegation.reply,
-        ...(url ? { url, showToUser: imagePreviewMarkdown(prompt, url) } : {}),
-        ...insertion,
-      };
-    }
+        deckId: args.deckId,
+        slideId: args.slideId,
+        slideContent: args.slideContent,
+        referenceImageUrls: normalizeReferenceUrls(args.referenceImageUrls),
+      });
 
-    if (delegation.status === "pending") {
-      throw new Error(
-        `Assets is still generating (task ${delegation.taskId}, state "${delegation.lastState}"). ` +
-          `It was not cancelled - check the Assets app for the result instead of generating again.`,
-      );
-    }
+      if (delegation.status === "delegated") {
+        const url = extractAssetUrl(delegation.reply, {
+          baseUrl: delegation.target,
+        });
+        const insertion = args.insertIntoSlide
+          ? await insertGeneratedImage({
+              deckId: args.deckId,
+              slideId: args.slideId,
+              prompt,
+              url: url ?? undefined,
+            })
+          : {};
+        return {
+          source: "assets-a2a" as const,
+          prompt,
+          reply: delegation.reply,
+          ...(url
+            ? { url, showToUser: imagePreviewMarkdown(prompt, url) }
+            : {}),
+          ...insertion,
+        };
+      }
 
-    if (delegation.status === "rejected") {
-      throw new Error(
-        `Assets could not generate this image (${delegation.state}): ${delegation.reason}`,
-      );
+      if (delegation.status === "pending") {
+        fail(
+          `Assets is still generating (task ${delegation.taskId}, state "${delegation.lastState}"). ` +
+            `It was not cancelled - check the Assets app for the result instead of generating again.`,
+          { errorCode: "assets_generation_pending", statusCode: 409 },
+        );
+      }
+
+      if (delegation.status === "rejected") {
+        fail(
+          `Assets could not generate this image (${delegation.state}): ${delegation.reason}`,
+          { errorCode: "assets_generation_rejected", statusCode: 424 },
+        );
+      }
+
+      assetsUnavailableReason = delegation.reason;
     }
 
     const { getProvider } =
@@ -259,8 +276,10 @@ export default defineAction({
       : {};
 
     return {
-      source: "slides-fallback" as const,
-      fallbackReason: delegation.reason,
+      source: assetsUnavailableReason ? "slides-fallback" : "slides-local",
+      ...(assetsUnavailableReason
+        ? { fallbackReason: assetsUnavailableReason }
+        : {}),
       showToUser: imagePreviewMarkdown(prompt, uploaded.url),
       url: uploaded.url,
       model: result.model,

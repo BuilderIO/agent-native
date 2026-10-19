@@ -48,7 +48,7 @@ export function buildImageGenerationContext({
   const contextParts: string[] = [];
 
   contextParts.push(
-    "Generate 3 image variations by calling the registered `generate-image-api` action three times with the same prompt. That action delegates to the Assets app so the images come from the brand library; never call an image-generation API directly from slides.",
+    "Generate 3 image variations by calling the registered `generate-image-api` action three times with the same prompt. It uses Slides' local image provider by default. Set useBrandLibrary: true only when the user asks for Assets' brand library or a capability only Assets provides; do not hand off because Assets is available.",
   );
   contextParts.push(
     "The deliverables must be actual generated image assets from the action. Do not create placeholder HTML/CSS, oversized icon compositions, inline SVGs, or text-only mockups.",
@@ -85,7 +85,7 @@ export function buildImageGenerationContext({
       `Current slide content:\n\`\`\`\n${slideContext.slideContent}\n\`\`\``,
     );
     contextParts.push(
-      `Pass deckId, slideId, slideContent, and referenceImageUrls to the action so Assets can ground the generation in this slide.`,
+      `Pass deckId, slideId, slideContent, and referenceImageUrls to the action for this slide. Do not set useBrandLibrary unless the user requests Assets' brand library or an Assets-exclusive capability.`,
     );
   }
 
