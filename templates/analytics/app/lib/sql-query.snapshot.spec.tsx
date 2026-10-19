@@ -695,16 +695,31 @@ describe("useSqlQuery saved results", () => {
 
   it("does not save a result for the previous account after a switch", async () => {
     const request = deferred<SqlQueryResult>();
-    mocks.callAction.mockReturnValue(request.promise);
+    const nextRequest = deferred<SqlQueryResult>();
+    mocks.callAction
+      .mockReturnValueOnce(request.promise)
+      .mockReturnValueOnce(nextRequest.promise)
+      .mockImplementation(pendingAction);
     await act(async () => render({ sql: "SELECT 1" }));
+    await vi.waitFor(() => expect(mocks.callAction).toHaveBeenCalledTimes(1));
 
     signIn(USER_B);
+    await act(async () => render({ sql: "SELECT 1" }));
+    await vi.waitFor(() => expect(mocks.callAction).toHaveBeenCalledTimes(2));
     await act(async () => {
       request.resolve({ rows: [{ n: 1 }], fetchedAt: minutesAgo(0) });
     });
 
     expect(savedFetchedAt("SELECT 1", SCOPE_A)).toBe("miss");
     expect(savedFetchedAt("SELECT 1", SCOPE_B)).toBe("miss");
+
+    const nextFetchedAt = minutesAgo(0);
+    await act(async () => {
+      nextRequest.resolve({ rows: [{ n: 2 }], fetchedAt: nextFetchedAt });
+    });
+    await vi.waitFor(() => expect(state().rows).toEqual([{ n: 2 }]));
+    expect(savedFetchedAt("SELECT 1", SCOPE_A)).toBe("miss");
+    expect(savedFetchedAt("SELECT 1", SCOPE_B)).toBe(nextFetchedAt);
   });
 
   it("does not save a result that completes after its query was cancelled", async () => {
