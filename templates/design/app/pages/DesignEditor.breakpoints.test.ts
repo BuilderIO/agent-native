@@ -596,7 +596,7 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     );
   });
 
-  it("item 8b: overview breakpoint frame '…' menu and full-view callbacks are wired to MultiScreenCanvas", () => {
+  it("item 8b: overview breakpoint frame menu and edit callbacks are wired to MultiScreenCanvas", () => {
     expect(canvasBreakpointGroup).toContain("onRemoveBreakpoint:");
     expect(canvasBreakpointGroup).toContain("onChangeBreakpointWidth:");
     expect(canvasBreakpointGroup).toContain(

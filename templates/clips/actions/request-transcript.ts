@@ -58,7 +58,10 @@ import {
   fetchLoomTranscript,
   loomTranscriptUnavailableMessage,
 } from "./lib/loom-transcript.js";
-import { isLoomRecording } from "./lib/native-media.js";
+import {
+  assertTranscribableRecordingMedia,
+  isLoomRecording,
+} from "./lib/native-media.js";
 import { isLikelyMismatchedTranscriptLanguage } from "./lib/provider-transcript.js";
 import { prepareRecordingTranscriptionAudio } from "./lib/recording-audio-source.js";
 import regenerateSummary from "./regenerate-summary.js";
@@ -1030,11 +1033,12 @@ const requestTranscriptAction = defineAction({
       ),
   }),
   run: async (args, context?: ActionRunContext) => {
-    await assertAccess("recording", args.recordingId, "editor");
+    const access = await assertAccess("recording", args.recordingId, "editor");
 
     const db = getDb();
 
     if (context?.caller === "tool" || context?.caller === "frontend") {
+      assertTranscribableRecordingMedia(access.resource);
       const [existingTranscript] = await db
         .select({
           status: schema.recordingTranscripts.status,
@@ -1198,6 +1202,11 @@ const requestTranscriptAction = defineAction({
         });
       }
     }
+
+    // Past here the transcript comes from the recording's audio. A ready
+    // transcript, such as an imported one on a YouTube clip, was kept above,
+    // so the follow-up job import-transcript queues still fills its summary.
+    assertTranscribableRecordingMedia(access.resource);
 
     if (
       !args.force &&

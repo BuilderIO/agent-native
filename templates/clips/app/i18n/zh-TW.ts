@@ -1324,6 +1324,14 @@ const messages = {
     playClip: "播放剪輯",
     unsupportedFormat:
       "此瀏覽器無法播放此影片。請嘗試在 Chrome、Edge 或 Firefox 中開啟連結。",
+    youtubeLoading: "正在載入 YouTube 播放器",
+    youtubeUnavailable: "這部 YouTube 影片是私人影片或已遭移除。",
+    youtubeEmbedBlocked: "這部影片的擁有者不允許在 YouTube 以外播放。",
+    youtubeInvalid: "這個 YouTube 連結並未指向可播放的影片。",
+    youtubePlaybackFailed: "YouTube 無法在這裡播放這部影片。",
+    youtubeApiUnavailable:
+      "YouTube 播放器未能載入。請檢查網路連線或內容封鎖工具，然後重新載入。",
+    watchOnYouTube: "在 YouTube 上觀看",
   },
   searchBar: {
     placeholder: "搜尋錄製…",
@@ -1867,6 +1875,8 @@ const messages = {
     storageNeededToFinishLoomImport: "需要儲存才能完成 Loom 匯入",
     loomImported: "Loom 已匯入",
     couldNotImportLoom: "無法匯入該 Loom。",
+    youtubeImported: "已新增 YouTube 影片",
+    couldNotImportVideo: "無法匯入這部影片。",
     recordingReadyToUpload: "錄製已準備好上傳",
     recordingSaved: "錄製已儲存",
     linkCopied: "已複製連結",
@@ -1960,7 +1970,7 @@ const messages = {
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "匯入",
     helperText:
-      "與 Loom 搭配使用效果極佳。你也可以貼上其他螢幕錄製或影片檔案的連結。",
+      "與 Loom 和 YouTube 搭配使用效果極佳。你也可以貼上其他螢幕錄製或影片檔案的連結。",
     stageFetching: "正在擷取你的影片…",
     stageUploading: "正在上傳原始素材…",
     stageTranscript: "讓語音與螢幕畫面都能被代理程式讀取…",

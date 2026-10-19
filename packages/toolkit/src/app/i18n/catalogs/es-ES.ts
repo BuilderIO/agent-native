@@ -186,11 +186,21 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.creditsActivate": "Activar créditos gratuitos",
   "onboarding.creditsFinePrint":
     "Esto creará una cuenta de Builder.io gratuita. Al continuar, aceptas nuestros",
-  "onboarding.creditsConnectExisting":
-    "Conectar una cuenta de Builder.io existente",
   "onboarding.creditsMoreInfo": "Más información",
-  "onboarding.creditsSkipBody":
-    "Si omites, tendrás que conectar tus propias claves para usar IA y almacenamiento.",
+  "onboarding.creditsSubtitle":
+    "Obtén créditos gratuitos para LLMs, Jev, almacenamiento y más para esta app con un solo clic de Builder.io.",
+  "onboarding.creditsLearnMore": "Saber más",
+  "onboarding.creditsSkip": "Omitir",
+  "onboarding.creditsSkipConfirmTitle": "¿Estás seguro?",
+  "onboarding.creditsSkipConfirmBody":
+    "Las apps de Agent-Native necesitan un LLM conectado para usar la mayoría de las funciones. La mayoría no funcionará sin uno.",
+  "onboarding.creditsSkipGoBack": "Volver",
+  "onboarding.creditsSkipAnyway": "Omitir de todas formas",
+  "onboarding.creditsUseCustomKeys": "Usar claves personalizadas",
+  "onboarding.creditsAboutLabel": "Acerca de los créditos gratuitos",
+  "onboarding.creditsActivating": "Activando créditos gratuitos",
+  "onboarding.creditsActivatingTooltip":
+    "Builder ofrece créditos gratuitos para LLMs, Jev, almacenamiento y más, para que puedas usar las funciones de IA de esta app sin tus propias claves.",
   "onboarding.builderConnect": "Conectar Builder.io",
   "onboarding.builderActivating":
     "Activando los créditos gratuitos de Builder.io",
