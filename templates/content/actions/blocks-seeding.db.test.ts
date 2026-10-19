@@ -39,6 +39,7 @@ let updateDocumentAction: typeof import("./update-document.js").default;
 let editDocumentAction: typeof import("./edit-document.js").default;
 let documentRevisionToken: typeof import("./_document-edit-mutation.js").documentRevisionToken;
 let setDocumentPropertyAction: typeof import("./set-document-property.js").default;
+let updateDatabaseItemsAction: typeof import("./update-database-items.js").default;
 let createContentDatabaseAction: typeof import("./create-content-database.js").default;
 let createContentDatabaseModule: typeof import("./create-content-database.js");
 let getContentDatabaseAction: typeof import("./get-content-database.js").default;
@@ -69,6 +70,8 @@ beforeAll(async () => {
   editDocumentAction = (await import("./edit-document.js")).default;
   ({ documentRevisionToken } = await import("./_document-edit-mutation.js"));
   setDocumentPropertyAction = (await import("./set-document-property.js"))
+    .default;
+  updateDatabaseItemsAction = (await import("./update-database-items.js"))
     .default;
   createContentDatabaseModule = await import("./create-content-database.js");
   createContentDatabaseAction = createContentDatabaseModule.default;
@@ -1470,15 +1473,29 @@ describe("primary Blocks value reflects the body, never the title (finding: word
       )!.definition.id;
       const agent = { caller: "mcp", userEmail: OWNER } as const;
 
-      await expect(
-        setDocumentPropertyAction.run(
-          { documentId, databaseId, propertyId, value: "Unguarded" },
-          agent,
-        ),
-      ).rejects.toMatchObject({
-        errorCode: "BLOCKS_FIELD_REVISION_REQUIRED",
-        statusCode: 400,
-      });
+      for (const caller of ["mcp", "http"] as const) {
+        await expect(
+          setDocumentPropertyAction.run(
+            { documentId, databaseId, propertyId, value: "Unguarded" },
+            { caller, userEmail: OWNER },
+          ),
+        ).rejects.toMatchObject({
+          errorCode: "BLOCKS_FIELD_REVISION_REQUIRED",
+          statusCode: 400,
+        });
+      }
+      // A bulk write has no per-row revision, so it can't bypass the guard.
+      const bulk = await updateDatabaseItemsAction.run(
+        { databaseId, documentIds: [documentId], propertyId, value: "Bulk" },
+        agent,
+      );
+      expect(bulk.results).toEqual([
+        expect.objectContaining({
+          documentId,
+          success: false,
+          error: expect.stringContaining("expectedBlocksFieldRevision"),
+        }),
+      ]);
       const [unchanged] = await getDb()
         .select()
         .from(schema.documentBlockFieldContents)

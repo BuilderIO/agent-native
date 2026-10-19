@@ -28,7 +28,7 @@ export default defineAction({
     "Set one Content collection property to the same value on multiple selected rows in one action call. Returns a result for every requested row; use this instead of looping set-document-property from the UI or agent. To give rows different values, use patch-database-items.",
   mcpTool: true,
   schema: actionSchema,
-  run: async (args) => {
+  run: async (args, ctx) => {
     const { database, rows } = await resolveDatabaseRowsForBatch(args);
     await assertAccess("document", database.documentId, "editor");
 
@@ -58,12 +58,17 @@ export default defineAction({
       8,
       async ({ row, index }) => {
         try {
-          await setDocumentProperty.run({
-            documentId: row.document.id,
-            databaseId: database.id,
-            propertyId: args.propertyId,
-            value: args.value,
-          });
+          // Passing the caller on keeps set-document-property's Blocks
+          // revision guard: a bulk write has no per-row revision to name.
+          await setDocumentProperty.run(
+            {
+              documentId: row.document.id,
+              databaseId: database.id,
+              propertyId: args.propertyId,
+              value: args.value,
+            },
+            ctx,
+          );
           results[index] = {
             itemId: row.item.id,
             documentId: row.document.id,

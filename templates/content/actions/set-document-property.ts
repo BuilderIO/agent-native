@@ -101,7 +101,7 @@ export default defineAction({
       .nonnegative()
       .optional()
       .describe(
-        "Expected Blocks field revision from list-content-database-blocks; required when an agent writes a Blocks field",
+        "Expected Blocks field revision from list-content-database-blocks; required when an agent or a direct HTTP request writes a Blocks field",
       ),
   }),
   changeResource: (input) => documentChangeResource(input.documentId),
@@ -148,16 +148,18 @@ export default defineAction({
     const now = new Date().toISOString();
 
     if (isBlocksPropertyType(type)) {
-      // Like external body updates, an agent's whole-field write must name the
-      // revision it read, so a stale copy can't replace newer text.
+      // Like external body updates, a whole-field write from an agent or a
+      // direct HTTP request must name the revision it read, so a stale copy
+      // can't replace newer text. The app's own UI calls as "frontend".
       const isExternalCaller =
         ctx?.caller === "tool" ||
         ctx?.caller === "mcp" ||
         ctx?.caller === "webmcp" ||
-        ctx?.caller === "a2a";
+        ctx?.caller === "a2a" ||
+        ctx?.caller === "http";
       if (isExternalCaller && expectedBlocksFieldRevision === undefined) {
         throw new ActionContractError(
-          "Agent Blocks field writes require expectedBlocksFieldRevision from list-content-database-blocks.",
+          "Blocks field writes from agents and HTTP requests require expectedBlocksFieldRevision from list-content-database-blocks.",
           {
             errorCode: "BLOCKS_FIELD_REVISION_REQUIRED",
             details: { propertyId },
