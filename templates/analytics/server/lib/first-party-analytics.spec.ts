@@ -27,6 +27,7 @@ const backendMocks = vi.hoisted(() => ({
   table: vi.fn(),
   insert: vi.fn(),
   insertWithResults: vi.fn(),
+  plan: vi.fn(),
   query: vi.fn(),
 }));
 const exceptionMocks = vi.hoisted(() => ({
@@ -137,6 +138,7 @@ vi.mock("./first-party-analytics-backend.js", () => ({
   getFirstPartyAnalyticsTable: backendMocks.table,
   insertFirstPartyAnalyticsRows: backendMocks.insert,
   insertFirstPartyAnalyticsRowsWithResults: backendMocks.insertWithResults,
+  planFirstPartyEventsSource: backendMocks.plan,
   queryFirstPartyAnalyticsInBigQuery: backendMocks.query,
 }));
 
@@ -1815,6 +1817,39 @@ describe("queryFirstPartyAnalytics", () => {
       expect.objectContaining({ maxBytesBilled: undefined }),
     );
     expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("plans the events source from the caller's SQL and the configured model", async () => {
+    const plan = {
+      source: "model",
+      table: "example-project.dbt_mart.fact_events",
+    };
+    backendMocks.plan.mockReturnValueOnce(plan);
+    backendMocks.get.mockResolvedValueOnce({
+      sink: "bigquery",
+      table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      modelTable: "example-project.dbt_mart.fact_events",
+    });
+    const sql = "SELECT COUNT(*) AS count FROM analytics_events";
+
+    await queryFirstPartyAnalytics(
+      sql,
+      { userEmail: "alice@example.com", orgId: "org_123" },
+      { eventsSource: "raw" },
+    );
+
+    // The scoped SQL adds the tenant filter; eligibility reads the caller's.
+    expect(backendMocks.plan).toHaveBeenCalledWith(
+      sql,
+      "example-project.dbt_mart.fact_events",
+      expect.objectContaining({ eventsSource: "raw" }),
+    );
+    expect(backendMocks.query).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Array),
+      expect.any(Object),
+      expect.objectContaining({ eventsSource: plan }),
+    );
   });
 
   it("forwards the frozen onboarding range and records BigQuery read failures", async () => {
