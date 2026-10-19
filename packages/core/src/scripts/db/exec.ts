@@ -5,7 +5,7 @@ import { getDatabaseUrl } from "../../db/client.js";
 import { parseArgs, fail } from "../utils.js";
 import {
   createPostgresScriptClient,
-  setRawDbStatementTimeout,
+  withPostgresStatementDeadline,
 } from "./postgres-client.js";
 import {
   finalRawDbSql,
@@ -200,9 +200,9 @@ Options:
   try {
     const results: DbExecResult[] = [];
     await client.begin(async (tx) => {
-      await setRawDbStatementTimeout(tx);
-      const scoping = await buildScopingPostgres(tx);
-      for (const statement of scoping.setup) await tx.unsafe(statement);
+      const timedTx = withPostgresStatementDeadline(tx);
+      const scoping = await buildScopingPostgres(timedTx);
+      for (const statement of scoping.setup) await timedTx.unsafe(statement);
       try {
         for (let index = 0; index < statements.length; index++) {
           const statement = statements[index];
@@ -215,13 +215,13 @@ Options:
             "write",
             label,
           );
-          await verifyRawDbStatement(tx, executed.statement, {
+          await verifyRawDbStatement(timedTx, executed.statement, {
             columnsByTable: scoping.columnsByTable,
             label,
           });
           const sql = executed.sql;
           try {
-            const result = await tx.unsafe(sql, statement.args, {
+            const result = await timedTx.unsafe(sql, statement.args, {
               singleStatement: true,
             });
             results.push({
@@ -243,7 +243,7 @@ Options:
         }
       } finally {
         for (const statement of scoping.teardown) {
-          await tx.unsafe(statement).catch(() => {});
+          await timedTx.unsafe(statement).catch(() => {});
         }
       }
     });

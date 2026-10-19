@@ -123,11 +123,10 @@ async function getPersistedChatThread(
   page: Page,
   threadId: string,
 ): Promise<PersistedChatThread> {
-  const routeUrl = new URL(
+  const routeUrl = appPath(
     `/_agent-native/agent-chat/threads/${encodeURIComponent(threadId)}`,
-    page.url(),
   );
-  const response = await page.request.get(routeUrl.toString());
+  const response = await page.request.get(routeUrl);
   const body = (await response.json()) as Partial<PersistedChatThread> & {
     error?: string;
   };
@@ -149,7 +148,7 @@ async function findPersistedChatThread(
   page: Page,
   prompt: string,
 ): Promise<PersistedChatThread> {
-  const routeUrl = new URL("/_agent-native/agent-chat/threads", page.url());
+  const routeUrl = new URL(appPath("/_agent-native/agent-chat/threads"));
   routeUrl.searchParams.set("q", prompt);
   routeUrl.searchParams.set("limit", "200");
   const response = await page.request.get(routeUrl.toString());
@@ -204,11 +203,10 @@ async function assertNoInlineImageDataPersisted(
       data: inlineImageProbe,
     },
   });
-  const routeUrl = new URL(
+  const routeUrl = appPath(
     `/_agent-native/agent-chat/threads/${encodeURIComponent(currentThread.id)}`,
-    page.url(),
   );
-  const saveResponse = await page.request.put(routeUrl.toString(), {
+  const saveResponse = await page.request.put(routeUrl, {
     headers: { "content-type": "application/json" },
     data: JSON.stringify({
       threadData: unsafeThreadData,

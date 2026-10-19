@@ -36,6 +36,25 @@ export async function setRawDbStatementTimeout(
   );
 }
 
+export function withPostgresStatementDeadline(
+  client: Pick<PostgresScriptClient, "unsafe">,
+  timeoutMs = dbOpTimeoutMs(),
+): Pick<PostgresScriptClient, "unsafe"> {
+  const deadline = Date.now() + timeoutMs;
+  return {
+    async unsafe(sql, args, options) {
+      const remainingMs = Math.floor(deadline - Date.now());
+      if (remainingMs <= 0) {
+        throw new Error(`Database transaction timed out after ${timeoutMs}ms.`);
+      }
+      await client.unsafe(
+        `SET LOCAL statement_timeout = ${postgresStatementTimeoutMs(remainingMs)}`,
+      );
+      return client.unsafe(sql, args, options);
+    },
+  };
+}
+
 function rowsResult(
   rows: unknown[] | undefined,
   affectedRows: number | undefined,
