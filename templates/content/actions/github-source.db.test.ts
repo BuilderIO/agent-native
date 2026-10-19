@@ -1546,6 +1546,27 @@ describe("GitHub folder freshness", () => {
     expect(await faqContent()).not.toContain("forum");
   });
 
+  it("keeps a failed link failed when the next run only runs out of time", async () => {
+    const { database } = await linkBaseFolder();
+    const id = await sourceId(database.id);
+    github.state.failure = new Error("socket hang up");
+    await as(() => syncGitHubSource({ sourceId: id, budgetMs: 30_000 }));
+    github.state.failure = null;
+    const failed = await as(() => getSource.run({ databaseId: database.id }));
+    expect(failed.source?.syncState).toBe("error");
+    const lastError = failed.source?.lastError;
+    expect(lastError).toBeTruthy();
+
+    github.state.hangHead = true;
+    await as(() => syncGitHubSource({ sourceId: id, budgetMs: 500 }));
+    github.state.hangHead = false;
+    const status = await as(() => getSource.run({ databaseId: database.id }));
+    expect(status.source).toMatchObject({ syncState: "error", lastError });
+    expect(status.source?.metadata.github?.problem).toMatchObject({
+      code: "unavailable",
+    });
+  });
+
   it("syncs every stale link in the background as the person who linked it", async () => {
     const stale = await linkBaseFolder();
     const recent = await linkBaseFolder();
