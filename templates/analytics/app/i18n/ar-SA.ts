@@ -813,6 +813,7 @@ export default {
     bigQueryHealthUnavailable:
       "تعذّر التحقق من ضغط Analytics للطرف الأول. أعد التحميل وحاول مجدداً قبل تغيير الخلفية.",
     analyticsEventCount: "الأحداث الملحوظة",
+    analyticsRecentEventCount: "الأحداث الملحوظة (آخر 30 يومًا)",
     slowQueries24h: "الاستعلامات البطيئة (24 ساعة)",
     maxQueryDuration: "أقصى زمن للاستعلام",
     defaultKeyName: "القوالب المستضافة",
