@@ -4034,7 +4034,7 @@ describe("autoLayout", () => {
     );
   });
 
-  it("removes generated flex alignment when place-items is edited", () => {
+  it("keeps generated flex alignment for place-items removal", () => {
     const flex = applyVisualEdit(
       `<div data-agent-native-node-id="box"><span>A</span></div>`,
       {
@@ -4054,14 +4054,28 @@ describe("autoLayout", () => {
     expect(aligned.result.status).toBe("applied");
     expect(aligned.content).toContain("place-items: center");
     expect(aligned.content).not.toMatch(/align-items:\s*flex-start/);
-    expect(aligned.content).not.toContain(
+    expect(aligned.content).toContain(
       "data-agent-native-generated-flex-align-items",
     );
   });
 
-  it("removes generated flex alignment when place-items is removed", () => {
-    const html = `<div data-agent-native-node-id="box" data-agent-native-generated-flex-align-items="flex-start" style="display:flex; align-items:flex-start; place-items:center"><span>A</span></div>`;
-    const removed = applyVisualEdit(html, {
+  it("restores generated flex alignment when place-items is removed", () => {
+    const flex = applyVisualEdit(
+      `<div data-agent-native-node-id="box"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+        containerStyles: { display: "flex" },
+      },
+    );
+    const aligned = applyVisualEdit(flex.content, {
+      kind: "style",
+      target: { nodeId: "box" },
+      property: "place-items",
+      value: "center",
+    });
+    const removed = applyVisualEdit(aligned.content, {
       kind: "style",
       operation: "remove",
       target: { nodeId: "box" },
@@ -4070,8 +4084,8 @@ describe("autoLayout", () => {
 
     expect(removed.result.status).toBe("applied");
     expect(removed.content).not.toContain("place-items:");
-    expect(removed.content).not.toMatch(/align-items:\s*flex-start/);
-    expect(removed.content).not.toContain(
+    expect(removed.content).toMatch(/align-items:\s*flex-start/);
+    expect(removed.content).toContain(
       "data-agent-native-generated-flex-align-items",
     );
   });
