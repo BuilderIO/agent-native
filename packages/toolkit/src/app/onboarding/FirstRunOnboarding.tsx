@@ -1138,14 +1138,6 @@ export function FirstRunOnboarding({
                 className="mt-3 flex w-full max-w-3xl flex-col gap-6 text-left"
               >
                 {setupCards}
-                {setupSkippable && (
-                  <div className="flex flex-col items-center gap-1 text-center">
-                    <p className="text-xs text-muted-foreground">
-                      {t("agentChat.onboarding.creditsSkipBody")}
-                    </p>
-                    {setupSkipButton}
-                  </div>
-                )}
               </div>
             )}
             <div className="fixed bottom-6 right-6 z-10">

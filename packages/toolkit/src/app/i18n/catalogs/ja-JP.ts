@@ -200,8 +200,6 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.creditsActivating": "無料クレジットを有効化しています",
   "onboarding.creditsActivatingTooltip":
     "Builder は、LLM、Jev、ストレージなどの無料クレジットを提供します。自分のキーがなくても、このアプリの AI 機能を使えます。",
-  "onboarding.creditsSkipBody":
-    "スキップする場合は、AI とストレージを使用するために独自のキーを接続する必要があります。",
   "onboarding.builderConnect": "Builder.io に接続",
   "onboarding.builderActivating": "Builder.io 無料クレジットを有効化しています",
   "onboarding.builderConnecting": "Builder.io の無料クレジットを設定しています",

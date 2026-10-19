@@ -195,8 +195,6 @@ const messages = {
   "onboarding.creditsActivating": "Activating free credits",
   "onboarding.creditsActivatingTooltip":
     "Builder provides free credits for LLMs, Jev, storage, and more, so you can use this app’s AI features without bringing your own keys.",
-  "onboarding.creditsSkipBody":
-    "If you skip, you'll need to connect your own keys to use AI and storage.",
   "onboarding.builderActivating": "Activating Builder.io free credits",
   "onboarding.builderConnecting": "Setting up Builder.io credits",
   "onboarding.builderProvisioningDescription":

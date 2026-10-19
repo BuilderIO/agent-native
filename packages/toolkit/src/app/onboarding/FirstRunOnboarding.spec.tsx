@@ -2965,18 +2965,20 @@ describe("FirstRunOnboarding", () => {
       expect(q("first-run-setup-skip")).toBeNull();
     });
 
-    it("shows the cards, a skip warning and a working skip under More info in Clips", () => {
+    it("keeps skip out of More info and confirms it from the corner in Clips", () => {
       openClipsChoice();
       click("first-run-credits-more-info");
       expect(q("first-run-open-key-settings")).not.toBeNull();
-      expect(q("first-run-credits-details")?.textContent).toContain(
+      expect(q("first-run-setup-skip")).toBeNull();
+      expect(q("first-run-credits-details")?.textContent).not.toContain(
         "If you skip, you'll need to connect your own keys to use AI and storage.",
       );
       expect(mocks.trackOnboardingEvent).not.toHaveBeenCalledWith(
         "onboarding_step_skipped",
         expect.objectContaining({ step_id: "choice" }),
       );
-      click("first-run-setup-skip");
+      click("first-run-credits-skip");
+      click("first-run-credits-skip-confirm");
       expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
         "onboarding_step_skipped",
         expect.objectContaining({ step_id: "choice" }),

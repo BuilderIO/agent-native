@@ -193,8 +193,6 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.creditsActivating": "무료 크레딧 활성화 중",
   "onboarding.creditsActivatingTooltip":
     "Builder는 LLM, Jev, 스토리지 등을 위한 무료 크레딧을 제공하므로, 직접 키를 준비하지 않고도 이 앱의 AI 기능을 사용할 수 있습니다.",
-  "onboarding.creditsSkipBody":
-    "건너뛰면 AI와 저장소를 사용하기 위해 자신의 키를 연결해야 합니다.",
   "onboarding.builderConnect": "Builder.io 연결",
   "onboarding.builderActivating": "Builder.io 무료 크레딧 활성화 중",
   "onboarding.builderConnecting": "Builder.io 무료 크레딧 설정 중",

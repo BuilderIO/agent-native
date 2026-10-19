@@ -192,8 +192,6 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.creditsActivating": "جارٍ تفعيل الأرصدة المجانية",
   "onboarding.creditsActivatingTooltip":
     "توفر Builder أرصدة مجانية لنماذج LLM وJev والتخزين والمزيد، لتتمكن من استخدام ميزات الذكاء الاصطناعي في هذا التطبيق دون الحاجة إلى مفاتيحك الخاصة.",
-  "onboarding.creditsSkipBody":
-    "إذا تخطيت، ستحتاج إلى توصيل مفاتيحك الخاصة لاستخدام الذكاء الاصطناعي والتخزين.",
   "onboarding.builderConnect": "الاتصال بـ Builder.io",
   "onboarding.builderActivating": "جارٍ تفعيل أرصدة Builder.io المجانية",
   "onboarding.builderConnecting": "جارٍ إعداد أرصدة Builder.io المجانية",

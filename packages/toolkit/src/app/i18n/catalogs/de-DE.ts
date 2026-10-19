@@ -204,8 +204,6 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.creditsActivating": "Gratis-Credits werden aktiviert",
   "onboarding.creditsActivatingTooltip":
     "Builder stellt kostenlose Credits für LLMs, Jev, Speicher und mehr bereit, damit du die KI-Funktionen dieser App ohne eigene Schlüssel nutzen kannst.",
-  "onboarding.creditsSkipBody":
-    "Falls du auslässt, musst du deine eigenen Schlüssel verbinden, um KI und Speicher zu verwenden.",
   "onboarding.builderConnect": "Builder.io verbinden",
   "onboarding.builderActivating": "Builder.io-Gratiscredits werden aktiviert",
   "onboarding.builderConnecting": "Builder.io-Credits werden eingerichtet",

@@ -187,8 +187,6 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.creditsActivating": "正在啟用免費額度",
   "onboarding.creditsActivatingTooltip":
     "Builder 提供 LLM、Jev、儲存空間等免費額度，無需自備金鑰即可使用此應用程式的 AI 功能。",
-  "onboarding.creditsSkipBody":
-    "如果您跳過，您將需要連線自己的密鑰才能使用 AI 和儲存空間。",
   "onboarding.builderConnect": "連線至 Builder.io",
   "onboarding.builderActivating": "正在啟用 Builder.io 免費額度",
   "onboarding.builderConnecting": "正在設定 Builder.io 免費額度",
