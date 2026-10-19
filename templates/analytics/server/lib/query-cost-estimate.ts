@@ -168,13 +168,15 @@ export async function estimateBigQuerySql(
 
 /**
  * Dry-run first-party analytics SQL (the `analytics_events` dialect) after
- * rendering it exactly as the panel would send it to BigQuery.
+ * rendering it exactly as the panel would send it to BigQuery. `eventsSource:
+ * "raw"` prices the raw events table, as alerts read it.
  */
 export async function estimateFirstPartySql(
   sql: string,
   scope: AnalyticsScope,
   runsPerMonth: number | null,
   signal?: AbortSignal,
+  options: { eventsSource?: "raw" } = {},
 ): Promise<QueryCostEstimate> {
   let rendered: Awaited<
     ReturnType<typeof renderFirstPartyAnalyticsBigQueryEstimateSql>
@@ -184,6 +186,7 @@ export async function estimateFirstPartySql(
       sql,
       scope,
       signal,
+      options,
     );
   } catch (error) {
     if (isAbort(error, signal)) throw error;

@@ -215,6 +215,7 @@ describe("estimateFirstPartySql", () => {
       "SELECT count(*) FROM analytics_events",
       scope,
       undefined,
+      {},
     );
     expect(mocks.dryRun.mock.calls[0][0]).toBe("SELECT rendered");
     expect(estimate).toMatchObject({

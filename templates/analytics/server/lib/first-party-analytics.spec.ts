@@ -3083,13 +3083,40 @@ describe("renderFirstPartyAnalyticsBigQueryEstimateSql", () => {
       renderFirstPartyAnalyticsBigQueryEstimateSql(sql, scope),
     ).resolves.toEqual({ target: "bigquery", sql: "SELECT 1" });
 
-    expect(backendMocks.plan).toHaveBeenCalledWith(sql, model);
+    expect(backendMocks.plan).toHaveBeenCalledWith(sql, model, {
+      eventsSource: undefined,
+    });
     expect(backendMocks.settle).toHaveBeenCalledWith(plan, undefined);
     expect(backendMocks.render).toHaveBeenCalledWith(
       expect.any(String),
       expect.any(Array),
       expect.objectContaining({ tableId: "first_party_analytics_events_raw" }),
       { eventsModelTable: model },
+    );
+  });
+
+  it("passes a raw-table request to the plan, as alerts make", async () => {
+    backendMocks.plan.mockReturnValueOnce({
+      source: "raw",
+      modelSkipped: "raw_requested",
+    });
+    backendMocks.settle.mockImplementationOnce(async (eventsSource) => ({
+      eventsSource,
+      sourceGeneration: undefined,
+    }));
+
+    await renderFirstPartyAnalyticsBigQueryEstimateSql(sql, scope, undefined, {
+      eventsSource: "raw",
+    });
+
+    expect(backendMocks.plan).toHaveBeenCalledWith(sql, model, {
+      eventsSource: "raw",
+    });
+    expect(backendMocks.render).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Array),
+      expect.any(Object),
+      {},
     );
   });
 

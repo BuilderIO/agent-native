@@ -1670,13 +1670,15 @@ export async function validateFirstPartyAnalyticsSqlForScope(
  * The BigQuery request a first-party panel query would send, for a dry run.
  * Mirrors the BigQuery branch of `queryFirstPartyAnalyticsWithBackend` with a
  * dashboard panel's default options, including reading the events model when
- * it covers the query. SQL the policy rejects comes back as `invalid`; a
- * failure to load the backend throws, since it says nothing about the query.
+ * it covers the query; `eventsSource: "raw"` keeps it on the raw table, as
+ * alerts do. SQL the policy rejects comes back as `invalid`; a failure to load
+ * the backend throws, since it says nothing about the query.
  */
 export async function renderFirstPartyAnalyticsBigQueryEstimateSql(
   sql: string,
   scope: AnalyticsScope,
   signal?: AbortSignal,
+  options: Pick<AnalyticsQueryOptions, "eventsSource"> = {},
 ): Promise<
   | { target: "bigquery"; sql: string }
   | { target: "sql-store" }
@@ -1704,7 +1706,9 @@ export async function renderFirstPartyAnalyticsBigQueryEstimateSql(
   const table = await getFirstPartyAnalyticsTable(backend.table, signal);
   let planned: ReturnType<typeof planFirstPartyEventsSource>;
   try {
-    planned = planFirstPartyEventsSource(sql, backend.modelTable);
+    planned = planFirstPartyEventsSource(sql, backend.modelTable, {
+      eventsSource: options.eventsSource,
+    });
   } catch (error) {
     return { target: "invalid", error };
   }

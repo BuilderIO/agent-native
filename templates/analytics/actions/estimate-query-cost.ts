@@ -166,6 +166,12 @@ export default defineAction({
       .describe(
         "Dialect of `sql`: 'bigquery' (standard SQL against the warehouse, the default) or 'first-party' (Analytics' analytics_events SQL, rendered the way first-party panels send it).",
       ),
+    eventsSource: z
+      .enum(["raw"])
+      .optional()
+      .describe(
+        "First-party sql only: 'raw' prices the raw events table even when the events model covers the query. Alerts read the raw table, so pass it when estimating an alert.",
+      ),
     dashboardId: z
       .string()
       .min(1)
@@ -213,6 +219,12 @@ export default defineAction({
         statusCode: 400,
       });
     }
+    if (args.eventsSource && !(args.sql && args.source === "first-party")) {
+      fail("eventsSource applies only to first-party sql.", {
+        errorCode: "invalid_target",
+        statusCode: 400,
+      });
+    }
     const userEmail = getRequestUserEmail();
     if (!userEmail) {
       fail("Sign in to use this action.", {
@@ -240,7 +252,9 @@ export default defineAction({
       const runsPerMonth = args.runsPerMonth ?? null;
       const estimate =
         args.source === "first-party"
-          ? await estimateFirstPartySql(args.sql, scope, runsPerMonth, signal)
+          ? await estimateFirstPartySql(args.sql, scope, runsPerMonth, signal, {
+              eventsSource: args.eventsSource,
+            })
           : await estimateBigQuerySql(args.sql, runsPerMonth, signal);
       return {
         target: "sql",

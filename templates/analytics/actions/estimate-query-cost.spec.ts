@@ -165,7 +165,37 @@ describe("estimate-query-cost action", () => {
       },
       null,
       signal,
+      { eventsSource: undefined },
     );
+  });
+
+  it("prices an alert's first-party SQL on the raw events table", async () => {
+    mocks.estimateFirstPartySql.mockResolvedValueOnce(costFromBytes(GIB, 8640));
+
+    await run({
+      sql: "SELECT 1 FROM analytics_events",
+      source: "first-party",
+      eventsSource: "raw",
+      runsPerMonth: 8640,
+    });
+
+    expect(mocks.estimateFirstPartySql).toHaveBeenCalledWith(
+      "SELECT 1 FROM analytics_events",
+      expect.any(Object),
+      8640,
+      signal,
+      { eventsSource: "raw" },
+    );
+  });
+
+  it("takes eventsSource only with first-party sql", async () => {
+    await expect(
+      run({ sql: "SELECT 1", eventsSource: "raw" }),
+    ).rejects.toMatchObject({ errorCode: "invalid_target", statusCode: 400 });
+    await expect(
+      run({ dashboardId: "d1", eventsSource: "raw" }),
+    ).rejects.toMatchObject({ errorCode: "invalid_target", statusCode: 400 });
+    expect(mocks.estimateBigQuerySql).not.toHaveBeenCalled();
   });
 
   it("refuses unsafe or missing dashboards", async () => {
