@@ -148,7 +148,7 @@ export function DatabaseListView({
             className={cn(
               "ml-auto flex h-7 items-center gap-1.5 rounded-md px-2 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               editing
-                ? "bg-database-blue text-white"
+                ? "bg-database-blue text-database-blue-foreground"
                 : "text-muted-foreground hover:bg-muted hover:text-foreground",
             )}
             onClick={() => onEditingRowsChange(!editing)}

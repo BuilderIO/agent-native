@@ -43,7 +43,7 @@ export interface ListItemRowLayout {
 }
 
 const STATUS_DOT_CLASSES: Record<DocumentPropertyOptionColor, string> = {
-  gray: "border-zinc-400 bg-zinc-400/20",
+  gray: "border-muted-foreground/50 bg-muted-foreground/10",
   brown: "border-amber-700 bg-amber-700/25",
   orange: "border-orange-500 bg-orange-500/25",
   yellow: "border-yellow-500 bg-yellow-500/30",
@@ -198,7 +198,7 @@ export function DatabaseLayoutListRow({
         className={cn(
           "flex size-4 items-center justify-center rounded border-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default",
           checked
-            ? "border-database-blue bg-database-blue text-white"
+            ? "border-database-blue bg-database-blue text-database-blue-foreground"
             : "border-muted-foreground/60 enabled:hover:border-foreground",
         )}
         onClick={() => row.onToggleCheckbox(item, leadingProperty)}

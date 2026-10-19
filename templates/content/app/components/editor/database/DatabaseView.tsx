@@ -6779,7 +6779,7 @@ function DatabaseInlineSortControl({
           size="sm"
           variant="ghost"
           className={cn(
-            "relative h-7 max-w-[16rem] rounded border border-database-blue/30 bg-database-blue/10 px-2 text-xs font-normal text-[#0f5ea8] shadow-none hover:bg-database-blue/15 focus-visible:border-database-blue/40 focus-visible:ring-database-blue/25 dark:border-[#529cca]/35 dark:bg-[#529cca]/15 dark:text-[#8ec7ff] dark:hover:bg-[#529cca]/20",
+            "relative h-7 max-w-[16rem] rounded border border-database-chip/30 bg-database-chip/10 px-2 text-xs font-normal text-database-chip-foreground shadow-none hover:bg-database-chip/15 focus-visible:border-database-blue/40 focus-visible:ring-database-blue/25 dark:border-database-chip/35 dark:bg-database-chip/15 dark:hover:bg-database-chip/20",
             open && "border-database-blue/40 bg-database-blue/15",
           )}
         >
@@ -7118,7 +7118,7 @@ function DatabaseAdvancedFilterGroupControl({
           size="sm"
           variant="ghost"
           className={cn(
-            "relative h-7 rounded border border-database-blue/30 bg-database-blue/10 px-2 text-xs font-normal text-[#0f5ea8] shadow-none hover:bg-database-blue/15 focus-visible:border-database-blue/40 focus-visible:ring-database-blue/25 dark:border-[#529cca]/35 dark:bg-[#529cca]/15 dark:text-[#8ec7ff] dark:hover:bg-[#529cca]/20",
+            "relative h-7 rounded border border-database-chip/30 bg-database-chip/10 px-2 text-xs font-normal text-database-chip-foreground shadow-none hover:bg-database-chip/15 focus-visible:border-database-blue/40 focus-visible:ring-database-blue/25 dark:border-database-chip/35 dark:bg-database-chip/15 dark:hover:bg-database-chip/20",
             open && "border-database-blue/40 bg-database-blue/15",
           )}
         >
@@ -7636,7 +7636,7 @@ function DatabaseInlineFilterControl({
           className={cn(
             "relative h-7 max-w-[16rem] rounded border border-border/70 bg-background px-2 text-xs font-normal text-foreground shadow-none hover:bg-muted focus-visible:border-database-blue/40 focus-visible:ring-database-blue/25",
             filterIsComplete &&
-              "border-database-blue/30 bg-database-blue/10 text-[#0f5ea8] hover:bg-database-blue/15 dark:border-[#529cca]/35 dark:bg-[#529cca]/15 dark:text-[#8ec7ff] dark:hover:bg-[#529cca]/20",
+              "border-database-chip/30 bg-database-chip/10 text-database-chip-foreground hover:bg-database-chip/15 dark:border-database-chip/35 dark:bg-database-chip/15 dark:hover:bg-database-chip/20",
             open && "border-database-blue/40 bg-database-blue/15",
             !filterIsComplete && "text-muted-foreground",
           )}
@@ -9061,7 +9061,7 @@ function DatabaseSettingsSourcePanel({
                     className={cn(
                       "min-w-0 rounded px-2 py-1.5 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-60",
                       selected
-                        ? "bg-database-blue text-white shadow-sm"
+                        ? "bg-database-blue text-database-blue-foreground shadow-sm"
                         : "text-muted-foreground hover:bg-background hover:text-foreground",
                     )}
                     onClick={() =>
@@ -9102,7 +9102,7 @@ function DatabaseSettingsSourcePanel({
                   className={cn(
                     "mt-0.5 inline-flex size-4 shrink-0 items-center justify-center rounded border",
                     liveWriteControl.allowPublicationTransitions
-                      ? "border-database-blue bg-database-blue text-white"
+                      ? "border-database-blue bg-database-blue text-database-blue-foreground"
                       : "border-muted-foreground/40 bg-background text-transparent",
                   )}
                 >
@@ -10458,7 +10458,7 @@ function SourceDetailsFieldPicker({
                   className={cn(
                     "flex size-4 shrink-0 items-center justify-center rounded border",
                     selected.has(field.id)
-                      ? "border-database-blue bg-database-blue text-white"
+                      ? "border-database-blue bg-database-blue text-database-blue-foreground"
                       : "border-muted-foreground/40 text-transparent",
                   )}
                 >

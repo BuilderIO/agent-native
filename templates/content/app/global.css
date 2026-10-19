@@ -70,6 +70,10 @@
   --block-bg-purple: #ad46ff19;
   --block-bg-pink: #f6339a19;
   --block-bg-red: #fb2c3619;
+
+  /* Active filter and sort chips in collection views. */
+  --database-chip: #2383e2;
+  --database-chip-foreground: #0f5ea8;
 }
 
 @theme {
@@ -77,6 +81,9 @@
   /* Checked, selected, and focused controls in collection views, the same in
      light and dark mode. */
   --color-database-blue: #2383e2;
+  --color-database-blue-foreground: #fff;
+  --color-database-chip: var(--database-chip);
+  --color-database-chip-foreground: var(--database-chip-foreground);
   /* Comment cards: resting in the margin, floating as a popover, and the
      lifted state for the hovered, focused, or selected thread. */
   --shadow-comment-card:
@@ -146,6 +153,9 @@
   --block-bg-purple: #ad46ff26;
   --block-bg-pink: #f6339a26;
   --block-bg-red: #fb2c3626;
+
+  --database-chip: #529cca;
+  --database-chip-foreground: #8ec7ff;
 }
 
 @layer base {

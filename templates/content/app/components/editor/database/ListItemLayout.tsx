@@ -323,7 +323,7 @@ export function ListItemLayoutPresets({
             className={cn(
               "h-7 rounded-full border px-3 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40",
               active === preset.id
-                ? "border-database-blue bg-database-blue text-white"
+                ? "border-database-blue bg-database-blue text-database-blue-foreground"
                 : "border-border text-foreground hover:bg-muted",
             )}
             onClick={() => onChange(preset.layout)}
