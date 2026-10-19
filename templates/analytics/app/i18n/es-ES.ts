@@ -1346,6 +1346,10 @@ export default {
     dashboardActions: "Detalles y acciones del panel",
     certifyForAi: "Certificar para consultas de IA",
     certifiedForAi: "Certificado para consultas de IA",
+    duplicateToCustomize: "Duplicar para personalizar",
+    duplicateToCustomizeHint:
+      "Los paneles integrados se actualizan con cada versión de Analytics. Crea tu propia copia para cambiar este.",
+    duplicateFailed: "No se pudo duplicar este panel.",
     certificationSaved: "Panel certificado para consultas de IA",
     certificationFailed: "No se pudo certificar el panel: {{message}}",
     details: "Details",

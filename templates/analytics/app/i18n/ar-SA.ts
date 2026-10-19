@@ -1300,6 +1300,10 @@ export default {
     dashboardActions: "تفاصيل وإجراءات لوحة التحكم",
     certifyForAi: "اعتماد لاستعلامات الذكاء الاصطناعي",
     certifiedForAi: "معتمد لاستعلامات الذكاء الاصطناعي",
+    duplicateToCustomize: "تكرار للتخصيص",
+    duplicateToCustomizeHint:
+      "تتحدّث لوحات المعلومات المضمّنة مع كل إصدار من Analytics. أنشئ نسختك الخاصة لتغيير هذه اللوحة.",
+    duplicateFailed: "تعذّر تكرار لوحة المعلومات هذه.",
     certificationSaved: "تم اعتماد لوحة المعلومات لاستعلامات الذكاء الاصطناعي",
     certificationFailed: "تعذر اعتماد لوحة المعلومات: {{message}}",
     details: "Details",

@@ -33,6 +33,32 @@ export const dashboards = table("dashboards", {
   ...ownableColumns(),
 });
 
+/**
+ * The deploy pass that moved pre-built-in copies onto built-in dashboards
+ * records each copy it checked here, so a hidden copy can be listed and
+ * restored and no copy is decided twice.
+ */
+export const analyticsBuiltinDashboardChecks = table(
+  "analytics_builtin_dashboard_checks",
+  {
+    dashboardId: text("dashboard_id").primaryKey(),
+    builtinId: text("builtin_id").notNull(),
+    outcome: varchar("outcome", { length: 8 }).notNull(),
+    /** JSON array of reasons a copy was kept. */
+    reasons: text("reasons").notNull().default("[]"),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    rowUpdatedAt: text("row_updated_at").notNull(),
+    checkedAt: text("checked_at").notNull().default(now()),
+    restoredAt: text("restored_at"),
+  },
+  (t) => ({
+    outcomeIdx: index("analytics_builtin_dashboard_checks_outcome_idx").on(
+      t.outcome,
+    ),
+  }),
+);
+
 export const dashboardNameLocks = table("dashboard_name_locks", {
   nameKey: text("name_key").primaryKey(),
   createdAt: text("created_at").notNull().default(now()),

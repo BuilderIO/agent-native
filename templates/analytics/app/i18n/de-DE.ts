@@ -1357,6 +1357,10 @@ export default {
     dashboardActions: "Dashboard-Details und Aktionen",
     certifyForAi: "Für KI-Abfragen zertifizieren",
     certifiedForAi: "Für KI-Abfragen zertifiziert",
+    duplicateToCustomize: "Zum Anpassen duplizieren",
+    duplicateToCustomizeHint:
+      "Integrierte Dashboards werden mit jedem Analytics-Release aktualisiert. Erstelle eine eigene Kopie, um dieses zu ändern.",
+    duplicateFailed: "Dieses Dashboard konnte nicht dupliziert werden.",
     certificationSaved: "Dashboard für KI-Abfragen zertifiziert",
     certificationFailed:
       "Dashboard konnte nicht zertifiziert werden: {{message}}",
