@@ -116,6 +116,22 @@ test.describe("inline table controls", () => {
     expect(await caretCell(page)).toBe("First");
   });
 
+  test("opening the column menu closes the row menu", async ({ page }) => {
+    await openTablePage(page, "Table two menus");
+    await cell(page, "Ready").hover();
+    await page.getByRole("button", { name: "Row options" }).click();
+    await expect(
+      page.getByRole("menuitem", { name: "Delete row" }),
+    ).toBeVisible();
+
+    await page.getByRole("button", { name: "Column options" }).click();
+    await expect(
+      page.getByRole("menuitem", { name: "Delete column" }),
+    ).toBeVisible();
+    await expect(page.getByRole("menu")).toHaveCount(1);
+    await expect.poll(() => focusIsInMenu(page)).toBe(true);
+  });
+
   test("table and block menu edits survive a reload", async ({ page }) => {
     const id = await openTablePage(page, "Table persistence");
     expect(await savedTableRows(page, id)).toBe(3);
