@@ -31,7 +31,6 @@ import {
   type PanelCostEstimate,
   type QueryCostEstimate,
 } from "../server/lib/query-cost-estimate";
-import { isBuiltinDashboardId } from "../shared/builtin-dashboard-ids";
 import { clipHead } from "../shared/panel-render-contract";
 
 const MAX_PANELS = 60;
@@ -313,16 +312,9 @@ export default defineAction({
       );
     }
 
-    // Every tenant's reports on a built-in or seed share its id, even when the
-    // caller's copy at that id is stored.
     const reportSchedules = await countEnabledDashboardReportSubscriptions(
       dashboardId,
       { email: userEmail, orgId },
-      {
-        sharedId:
-          isBuiltinDashboardId(dashboardId) ||
-          (seed ?? loadDashboardSeed(dashboardId)) !== null,
-      },
     );
     const runsPerMonth =
       args.runsPerMonth ??
@@ -391,7 +383,7 @@ export default defineAction({
         args.runsPerMonth !== undefined
           ? "caller"
           : reportSchedules > 0
-            ? `${reportSchedules} enabled daily email report${reportSchedules === 1 ? "" : "s"}`
+            ? `${reportSchedules} enabled daily email report${reportSchedules === 1 ? "" : "s"} ${orgId ? "in your org" : "of yours"}`
             : "none",
       total: {
         ...total,

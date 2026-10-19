@@ -24,7 +24,7 @@ const GIB = 1024 ** 3;
 export const QUERY_COST_CAVEATS = [
   "Prices use BigQuery on-demand list price, $6.25 per TiB (US and EU multi-region), with the 10 MiB per-query minimum. BigQuery also bills at least 10 MiB per table referenced, and the first 1 TiB each month is free; neither is counted. Projects on editions or reservations don't pay per byte.",
   "A dry run counts partition and column pruning but not clustering, so a query filtered on a clustered column (such as event_name) usually bills less than this.",
-  "Per-month figures count only scheduled runs: runsPerMonth when given, otherwise one run a day for each enabled email report on the dashboard (on a built-in dashboard, only reports in your org), priced at the filters you passed (or the defaults), not each report's own saved filters. Reports that share filters can hit the 24-hour result cache, so that figure is an upper bound. People opening the dashboard add more runs; each viewer's results are cached for up to 24 hours.",
+  "Per-month figures count only scheduled runs: runsPerMonth when given, otherwise one run a day for each enabled email report on the dashboard in your org (your own without an org; other people's reports run on their own BigQuery connection), priced at the filters you passed (or the defaults), not each report's own saved filters. Reports that share filters can hit the 24-hour result cache, so that figure is an upper bound. People opening the dashboard add more runs; each viewer's results are cached for up to 24 hours.",
 ];
 
 export type QueryCostFailure =
@@ -93,6 +93,9 @@ function isAbort(error: unknown, signal?: AbortSignal): boolean {
   );
 }
 
+/** BigQuery's 404 for a table or dataset the query names that doesn't exist. */
+const MISSING_QUERY_RESOURCE = /\bNot found: (Table|Dataset)\b/i;
+
 /** Dry-run BigQuery SQL. Free: BigQuery reads and bills nothing. */
 export async function estimateBigQuerySql(
   sql: string,
@@ -138,9 +141,12 @@ export async function estimateBigQuerySql(
         error: describeError(dryRun.error),
       };
     }
-    // Only a 400 means BigQuery rejected the SQL; auth, quota, and server
-    // errors say nothing about the query.
-    return dryRun.status === undefined || dryRun.status === 400
+    // A 400, or a 404 naming a table or dataset the query reads, means
+    // BigQuery rejected the SQL; auth, quota, and server errors say nothing
+    // about the query.
+    return dryRun.status === undefined ||
+      dryRun.status === 400 ||
+      (dryRun.status === 404 && MISSING_QUERY_RESOURCE.test(dryRun.error))
       ? {
           status: "failed",
           failure: "invalid_sql",

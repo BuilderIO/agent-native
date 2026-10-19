@@ -152,6 +152,29 @@ describe("estimateBigQuerySql", () => {
     }
   });
 
+  it("reports a missing table or dataset as invalid SQL", async () => {
+    for (const kind of ["Table", "Dataset"]) {
+      mocks.dryRun.mockResolvedValueOnce({
+        error: `Not found: ${kind} example-project:analytics.missing was not found in location US`,
+        status: 404,
+      });
+      await expect(
+        estimateBigQuerySql("SELECT 1 FROM analytics.missing", null),
+      ).resolves.toMatchObject({
+        failure: "invalid_sql",
+        error: expect.stringContaining(`Not found: ${kind}`),
+      });
+    }
+    // A missing project is the connection's problem, not the query's.
+    mocks.dryRun.mockResolvedValueOnce({
+      error: "Not found: Project example-project",
+      status: 404,
+    });
+    await expect(estimateBigQuerySql("SELECT 1", null)).resolves.toMatchObject({
+      failure: "no_estimate",
+    });
+  });
+
   it("treats a missing byte count as no estimate, never as free", async () => {
     mocks.dryRun.mockResolvedValueOnce({ error: null });
     await expect(estimateBigQuerySql("SELECT 1", null)).resolves.toMatchObject({

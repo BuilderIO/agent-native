@@ -435,25 +435,17 @@ export async function listDashboardReportSubscriptions(
 }
 
 /**
- * Enabled daily report schedules on a dashboard. A stored dashboard's id
- * names that one dashboard, so every owner's schedule on it counts. A
- * built-in's id is shared by every tenant (`sharedId`), so only schedules in
- * the caller's org count, or only the caller's own without an org. Each one
- * re-runs the dashboard's panels once a day, so cost estimates count them;
- * only the number is returned, never the subscriptions themselves.
+ * Enabled daily report schedules on a dashboard in the caller's tenant: every
+ * owner's in the caller's org, or only the caller's own without an org. Each
+ * one re-runs the dashboard's panels once a day on its owner's BigQuery
+ * connection, so other tenants' schedules bill other tenants and never count.
+ * Only the number is returned, never the subscriptions themselves.
  */
 export async function countEnabledDashboardReportSubscriptions(
   dashboardId: string,
   ctx: AccessCtx,
-  { sharedId }: { sharedId: boolean },
 ): Promise<number> {
   const db = getDb() as any;
-  const tenant = ctx.orgId
-    ? eq(schema.dashboardReportSubscriptions.orgId, ctx.orgId)
-    : and(
-        isNull(schema.dashboardReportSubscriptions.orgId),
-        sql`lower(${schema.dashboardReportSubscriptions.ownerEmail}) = ${ctx.email.toLowerCase()}`,
-      );
   const [row] = await db
     .select({ count: sql<number>`count(*)` })
     .from(schema.dashboardReportSubscriptions)
@@ -461,7 +453,12 @@ export async function countEnabledDashboardReportSubscriptions(
       and(
         eq(schema.dashboardReportSubscriptions.dashboardId, dashboardId),
         eq(schema.dashboardReportSubscriptions.enabled, true),
-        ...(sharedId ? [tenant] : []),
+        ctx.orgId
+          ? eq(schema.dashboardReportSubscriptions.orgId, ctx.orgId)
+          : and(
+              isNull(schema.dashboardReportSubscriptions.orgId),
+              sql`lower(${schema.dashboardReportSubscriptions.ownerEmail}) = ${ctx.email.toLowerCase()}`,
+            ),
       ),
     );
   return Number(row?.count ?? 0);

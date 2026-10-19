@@ -228,14 +228,14 @@ describe("estimate-query-cost action", () => {
       email: "caller@example.test",
       orgId: "org-1",
     });
-    // A stored dashboard's id is its own, so every owner's reports count.
-    expect(mocks.countReports).toHaveBeenCalledWith(
-      "d1",
-      { email: "caller@example.test", orgId: "org-1" },
-      { sharedId: false },
-    );
+    expect(mocks.countReports).toHaveBeenCalledWith("d1", {
+      email: "caller@example.test",
+      orgId: "org-1",
+    });
     expect(result.runsPerMonth).toBe(60);
-    expect(result.runsPerMonthBasis).toBe("2 enabled daily email reports");
+    expect(result.runsPerMonthBasis).toBe(
+      "2 enabled daily email reports in your org",
+    );
     expect(result.panels).toHaveLength(2);
     expect(result.total.estimatedBytes).toBe(191 * GIB);
     expect(result.summary).toContain("2 panels (2 priced)");
@@ -263,24 +263,27 @@ describe("estimate-query-cost action", () => {
 
     const result = await run({ dashboardId: "seed-dashboard" });
 
-    expect(mocks.countReports).toHaveBeenCalledWith(
-      "seed-dashboard",
-      { email: "caller@example.test", orgId: "org-1" },
-      { sharedId: true },
-    );
+    expect(mocks.countReports).toHaveBeenCalledWith("seed-dashboard", {
+      email: "caller@example.test",
+      orgId: "org-1",
+    });
     expect(result.runsPerMonth).toBe(30);
   });
 
-  it("counts a stored copy at a built-in id like the built-in", async () => {
+  it("names whose reports it counted for a caller without an org", async () => {
+    mocks.getRequestOrgId.mockReturnValueOnce(null);
     mocks.getDashboard.mockResolvedValueOnce({ kind: "sql", config: {} });
+    mocks.countReports.mockResolvedValueOnce(1);
     mocks.resolvePanels.mockReturnValueOnce([]);
 
-    await run({ dashboardId: "skills-cli-funnel" });
+    const result = await run({ dashboardId: "d1" });
 
-    expect(mocks.countReports).toHaveBeenCalledWith(
-      "skills-cli-funnel",
-      expect.any(Object),
-      { sharedId: true },
+    expect(mocks.countReports).toHaveBeenCalledWith("d1", {
+      email: "caller@example.test",
+      orgId: null,
+    });
+    expect(result.runsPerMonthBasis).toBe(
+      "1 enabled daily email report of yours",
     );
   });
 
@@ -391,7 +394,9 @@ describe("estimate-query-cost action", () => {
     for (const runsPerMonth of [null, ""]) {
       const result = await run({ dashboardId: "d1", runsPerMonth });
       expect(result.runsPerMonth).toBe(30);
-      expect(result.runsPerMonthBasis).toBe("1 enabled daily email report");
+      expect(result.runsPerMonthBasis).toBe(
+        "1 enabled daily email report in your org",
+      );
     }
   });
 

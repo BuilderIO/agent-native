@@ -192,30 +192,25 @@ describe("enabled report schedule count", () => {
     await client.close();
   });
 
-  it("counts every owner's schedule on a stored dashboard", async () => {
+  it("counts only the caller's tenant: their org, or their own without one", async () => {
+    // Other tenants' reports run on their own BigQuery connection.
     await expect(
-      countEnabledDashboardReportSubscriptions(
-        "shared-copy",
-        { email: "viewer@example.test", orgId: null },
-        { sharedId: false },
-      ),
-    ).resolves.toBe(3);
-  });
-
-  it("counts only the caller's tenant on a shared built-in id", async () => {
-    await expect(
-      countEnabledDashboardReportSubscriptions(
-        "shared-copy",
-        { email: "owner@example.test", orgId: null },
-        { sharedId: true },
-      ),
+      countEnabledDashboardReportSubscriptions("shared-copy", {
+        email: "owner@example.test",
+        orgId: null,
+      }),
     ).resolves.toBe(1);
     await expect(
-      countEnabledDashboardReportSubscriptions(
-        "shared-copy",
-        { email: "someone@example.test", orgId: "org-x" },
-        { sharedId: true },
-      ),
+      countEnabledDashboardReportSubscriptions("shared-copy", {
+        email: "viewer@example.test",
+        orgId: null,
+      }),
+    ).resolves.toBe(1);
+    await expect(
+      countEnabledDashboardReportSubscriptions("shared-copy", {
+        email: "someone@example.test",
+        orgId: "org-x",
+      }),
     ).resolves.toBe(1);
   });
 });
