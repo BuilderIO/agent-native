@@ -189,6 +189,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.creditsSkipGoBack": "돌아가기",
   "onboarding.creditsSkipAnyway": "그래도 건너뛰기",
   "onboarding.creditsUseCustomKeys": "사용자 지정 키 사용",
+  "onboarding.creditsAboutLabel": "무료 크레딧 정보",
   "onboarding.creditsActivating": "무료 크레딧 활성화 중",
   "onboarding.creditsActivatingTooltip":
     "Builder는 LLM, Jev, 스토리지 등을 위한 무료 크레딧을 제공하므로, 직접 키를 준비하지 않고도 이 앱의 AI 기능을 사용할 수 있습니다.",

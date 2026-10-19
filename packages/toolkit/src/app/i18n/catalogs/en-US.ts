@@ -191,6 +191,7 @@ const messages = {
   "onboarding.creditsSkipGoBack": "Go back",
   "onboarding.creditsSkipAnyway": "Skip anyway",
   "onboarding.creditsUseCustomKeys": "Use custom keys",
+  "onboarding.creditsAboutLabel": "About free credits",
   "onboarding.creditsActivating": "Activating free credits",
   "onboarding.creditsActivatingTooltip":
     "Builder provides free credits for LLMs, Jev, storage, and more, so you can use this app’s AI features without bringing your own keys.",

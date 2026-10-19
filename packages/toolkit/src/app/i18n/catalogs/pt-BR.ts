@@ -193,6 +193,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.creditsSkipGoBack": "Voltar",
   "onboarding.creditsSkipAnyway": "Pular mesmo assim",
   "onboarding.creditsUseCustomKeys": "Usar chaves personalizadas",
+  "onboarding.creditsAboutLabel": "Sobre os créditos gratuitos",
   "onboarding.creditsActivating": "Ativando créditos gratuitos",
   "onboarding.creditsActivatingTooltip":
     "A Builder oferece créditos gratuitos para LLMs, Jev, armazenamento e muito mais, para você usar os recursos de IA deste app sem suas próprias chaves.",

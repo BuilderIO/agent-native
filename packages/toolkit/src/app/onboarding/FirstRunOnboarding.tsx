@@ -437,13 +437,11 @@ export function FirstRunOnboarding({
       trackOnboardingEvent("onboarding_started", { flow: "first_run" });
     }
   }, [canTrackOnboardingScreen, firstRun, previewMode]);
-  // The credits arm's skip exists only once its experiment decision is known,
-  // so the choice view waits for that decision and is sent once, with its
-  // resolved optional flag.
+  // Both arms render a skeleton until the experiment decision is known, and the
+  // credits arm's skip depends on it, so the choice view waits for the decision
+  // and is sent once with its resolved optional flag.
   const choiceStepKnown =
-    screen !== "choice" ||
-    setupVariant !== "credits" ||
-    setupExperimentDecision !== null;
+    screen !== "choice" || setupExperimentDecision !== null;
   useEffect(() => {
     if (
       previewMode ||
@@ -1419,9 +1417,7 @@ export function FirstRunOnboarding({
                   <TooltipTrigger asChild>
                     <button
                       type="button"
-                      aria-label={t(
-                        "agentChat.onboarding.creditsActivatingTooltip",
-                      )}
+                      aria-label={t("agentChat.onboarding.creditsAboutLabel")}
                       className="ml-1 inline-flex size-4 items-center justify-center rounded-full align-middle text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
                       <IconHelpCircle size={13} aria-hidden />
