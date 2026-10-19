@@ -184,6 +184,7 @@ async function fetchLoomOembed(shareUrl: string) {
 }
 
 export default defineAction({
+  mcpApp: { compactCatalog: true },
   description:
     "Import a public Loom share URL, a YouTube video URL, or a direct link to a video file, into Clips as a playable recording. YouTube links (watch, Shorts, youtu.be) create a ready clip that plays in YouTube's embedded player: nothing is downloaded, so frames, editing and transcription aren't available, and its transcript has to come from import-transcript. Loom links create the recording immediately and download/reupload Loom's public MP4 when available, or keep a playable Loom embed when Loom allows playback but not MP4 export; public transcripts are imported in the background. Other direct video links (e.g. an MP4/WebM/MOV hosted by another screen recorder) are downloaded and reuploaded synchronously without transcript metadata — use request-transcript afterward. If storage is not connected, creates a waiting recording that can be retried after storage setup.",
   schema: ImportLoomRecordingSchema,

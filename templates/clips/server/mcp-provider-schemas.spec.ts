@@ -17,12 +17,16 @@ describe("Clips MCP catalogs", () => {
     template = await loadTemplateMcpConformance(projectRoot);
   }, 180_000);
 
-  it("offers chapter editing and comment replies in the compact catalog", async () => {
+  it("offers chapter editing, comment replies and video imports in the compact catalog", async () => {
     const names = (await template.listCatalog("default")).map(
       (tool) => tool.name,
     );
     expect(names).toEqual(
-      expect.arrayContaining(["set-chapters", "reply-to-comment"]),
+      expect.arrayContaining([
+        "set-chapters",
+        "reply-to-comment",
+        "import-loom-recording",
+      ]),
     );
   }, 60_000);
 
