@@ -1267,21 +1267,23 @@ export function startRun(
   ) => {
     if (getCurrentRequestDbPoolScope()?.closing) return;
     void retainRequestDbPoolScope(
-      recordRunDiagnostic(
-        runId,
-        RUN_DIAG_STAGE.runBoundaryReached,
-        JSON.stringify({
-          reason,
-          disposition,
-          silentForMs: diagnostic.silentForMs,
-          lastEventType: diagnostic.lastEventType,
-          inFlightWorkCount,
-          eventCount: run.events.length,
-          elapsedMs: Date.now() - run.startedAt,
-        }),
-        // coercion-ok: recordRunDiagnostic already swallows its own failures;
-        // this guards only against an unhandled rejection.
-      ).catch(() => {}),
+      withWorkerFence(() =>
+        recordRunDiagnostic(
+          runId,
+          RUN_DIAG_STAGE.runBoundaryReached,
+          JSON.stringify({
+            reason,
+            disposition,
+            silentForMs: diagnostic.silentForMs,
+            lastEventType: diagnostic.lastEventType,
+            inFlightWorkCount,
+            eventCount: run.events.length,
+            elapsedMs: Date.now() - run.startedAt,
+          }),
+          // coercion-ok: recordRunDiagnostic already swallows its own failures;
+          // this guards only against an unhandled rejection.
+        ).catch(() => {}),
+      ),
     ).catch(() => {});
   };
 
@@ -1671,9 +1673,10 @@ export function startRun(
   const startDriver = async (): Promise<void> => {
     if (options?.executionLease) {
       if (executionLeaseClaimFailed || abort.signal.aborted) return;
-      await withWorkerFence(() =>
-        runFn(send, runControl.chunkSignal, runControl),
-      );
+      await withWorkerFence(async () => {
+        if (executionLeaseClaimFailed || abort.signal.aborted) return;
+        await runFn(send, runControl.chunkSignal, runControl);
+      });
       return;
     }
     if (servicePrincipalRunStart) {

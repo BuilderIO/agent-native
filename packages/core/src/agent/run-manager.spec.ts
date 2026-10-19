@@ -535,6 +535,38 @@ describe("run manager soft timeout", () => {
     );
   });
 
+  it("does not start a leased run when abort wins during lease acquisition", async () => {
+    const fence = {
+      threadId: "thread-lease-abort-race",
+      turnId: "run-lease-abort-race",
+      runId: "run-lease-abort-race",
+      generation: "2",
+    };
+    let resolveClaim!: (value: typeof fence) => void;
+    const claim = new Promise<typeof fence>((resolve) => {
+      resolveClaim = resolve;
+    });
+    vi.mocked(claimTurnExecutionLease).mockImplementationOnce(
+      async () => claim,
+    );
+    const runBody = vi.fn(async () => {});
+    const run = startRun(fence.runId, fence.threadId, runBody, undefined, {
+      softTimeoutMs: 0,
+      noProgressTimeoutMs: 0,
+      executionLease: true,
+    });
+
+    await vi.waitFor(() =>
+      expect(claimTurnExecutionLease).toHaveBeenCalledOnce(),
+    );
+    abortRun(run.runId, "user");
+    resolveClaim(fence);
+    await run.finalized;
+
+    expect(runBody).not.toHaveBeenCalled();
+    expect(run.status).toBe("aborted");
+  });
+
   it("cleans up in-memory state when run insertion fails during lease claim", async () => {
     vi.mocked(insertRun).mockRejectedValueOnce(new Error("insert failed"));
     const run = startRun(
@@ -779,6 +811,49 @@ describe("run manager soft timeout", () => {
       { type: "auto_continue", reason: "run_timeout" },
       "run_timeout",
     );
+    expect(observedFence).toEqual(fence);
+    await run.finalized;
+  });
+
+  it("persists timer-originated boundary diagnostics under the run fence", async () => {
+    const fence = {
+      threadId: "thread-timeout-fenced-diagnostic",
+      turnId: "run-timeout-fenced-diagnostic",
+      runId: "run-timeout-fenced-diagnostic",
+      generation: "9",
+    };
+    let resolveClaim!: () => void;
+    const claimAcquired = new Promise<void>((resolve) => {
+      resolveClaim = resolve;
+    });
+    const diagnosticWritten = Promise.withResolvers<void>();
+    vi.mocked(claimTurnExecutionLease).mockImplementationOnce(async () => {
+      resolveClaim();
+      return fence;
+    });
+    vi.mocked(recordRunDiagnostic).mockClear();
+    let observedFence: ReturnType<typeof currentExecutionFence>;
+    vi.mocked(recordRunDiagnostic).mockImplementationOnce(async () => {
+      observedFence = currentExecutionFence();
+      diagnosticWritten.resolve();
+    });
+
+    const run = startRun(
+      fence.runId,
+      fence.threadId,
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", resolve, { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 10, executionLease: true },
+    );
+
+    await claimAcquired;
+    await vi.advanceTimersByTimeAsync(11);
+    await diagnosticWritten.promise;
+
     expect(observedFence).toEqual(fence);
     await run.finalized;
   });
