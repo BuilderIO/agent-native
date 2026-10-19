@@ -1292,7 +1292,7 @@ export const hitTestBridgeScript: string = `"use strict";
         if (nodeId) wanted[nodeId] = true;
       }
       var candidates = document.querySelectorAll(
-        "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[id]"
+        "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[data-loc],[id]"
       );
       for (var candidateIndex = 0; candidateIndex < candidates.length; candidateIndex += 1) {
         var candidate = candidates[candidateIndex];

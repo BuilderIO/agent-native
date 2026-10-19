@@ -1859,7 +1859,7 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
       if (nodeId) wanted[nodeId] = true;
     }
     var candidates = document.querySelectorAll(
-      "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[id]",
+      "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[data-loc],[id]",
     );
     for (
       var candidateIndex = 0;

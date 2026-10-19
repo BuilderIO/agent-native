@@ -282,13 +282,14 @@ function findNodeElement(canvas: HTMLElement, nodeId: string): Element | null {
         `[data-agent-native-node-id="${escape(nodeId)}"],` +
           `[data-code-layer-id="${escape(nodeId)}"],` +
           `[data-layer-id="${escape(nodeId)}"],` +
-          `[data-builder-id="${escape(nodeId)}"],#${escape(nodeId)}`,
+          `[data-builder-id="${escape(nodeId)}"],` +
+          `[data-loc="${escape(nodeId)}"],#${escape(nodeId)}`,
       );
     }
     return (
       Array.from(
         document.querySelectorAll(
-          "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[id]",
+          "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[data-loc],[id]",
         ),
       ).find((element) =>
         [
@@ -296,6 +297,7 @@ function findNodeElement(canvas: HTMLElement, nodeId: string): Element | null {
           "data-code-layer-id",
           "data-layer-id",
           "data-builder-id",
+          "data-loc",
           "id",
         ].some((attribute) => element.getAttribute(attribute) === nodeId),
       ) ?? null
@@ -452,23 +454,23 @@ function nodeClientRect(
 }
 
 /**
- * Where a hover target is drawn. A node id may not resolve in the parent (data-loc
- * and similar ids are not looked up), so the box the bridge reported is the fallback.
+ * Where a hover target is drawn. The box is the element the bridge actually hit, so it
+ * wins: a node-id lookup returns the first of any repeated clones. The node lookup covers
+ * a target that has no box.
  */
 function hoverTargetClientRect(
   canvas: HTMLElement,
   target: ReviewHoverTarget,
   nodeGeometry: Record<string, ReviewFrameNodeGeometry>,
 ): ReviewClientRect | null {
-  const nodeRect = target.nodeId
+  if (target.box) {
+    return frameRectToClient(canvas, target.box.rect, {
+      width: target.box.viewportWidth,
+      height: target.box.viewportHeight,
+    });
+  }
+  return target.nodeId
     ? nodeClientRect(canvas, target.nodeId, nodeGeometry[target.nodeId])
-    : null;
-  if (nodeRect) return nodeRect;
-  return target.box
-    ? frameRectToClient(canvas, target.box.rect, {
-        width: target.box.viewportWidth,
-        height: target.box.viewportHeight,
-      })
     : null;
 }
 
