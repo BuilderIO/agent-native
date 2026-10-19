@@ -1,3 +1,4 @@
+import { fail } from "@agent-native/core/action";
 import { getDbExec } from "@agent-native/core/db";
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import {
@@ -17,6 +18,10 @@ import { getRequestContext } from "@agent-native/core/server/request-context";
 import { and, desc, eq } from "drizzle-orm";
 
 import { CLIPS_HOSTED_FREE_CLIPS_FLAG } from "../../shared/feature-flags.js";
+import {
+  formatUploadBytes,
+  MAX_UPLOAD_BYTES,
+} from "../../shared/upload-limits.js";
 import { getDb, schema } from "../db/index.js";
 import {
   accountHostedClipAdditionalBytes,
@@ -209,6 +214,8 @@ export async function resolveClipsVideoStorage(input: {
   recordingId: string;
   email?: string | null;
   userId?: string | null;
+  /** A whole file's size, when known, so an oversized one is refused before a hosted grant is reserved. */
+  sizeBytes?: number;
   requestHeaders?: Headers;
 }): Promise<ClipsVideoStorageResolution> {
   const config = getAppConfig().clips.hostedStorage;
@@ -300,6 +307,23 @@ export async function resolveClipsVideoStorage(input: {
       ...limits,
       denyReason: "disabled",
     };
+  }
+
+  // Refuse before reserving: releasing a grant for a file that cannot fit can
+  // itself fail, and a grant with no recording row is never reclaimed.
+  if (input.sizeBytes !== undefined && input.sizeBytes > config.maxClipBytes) {
+    fail(
+      `This video is ${formatUploadBytes(input.sizeBytes, "up")}, and Clips' free hosted storage takes clips up to ${formatUploadBytes(config.maxClipBytes, "down")}. Connect Builder.io or S3-compatible video storage in Clips settings to upload files up to ${formatUploadBytes(MAX_UPLOAD_BYTES, "down")}, or trim the video and try again.`,
+      {
+        errorCode: "upload_too_large",
+        statusCode: 413,
+        details: {
+          sizeBytes: input.sizeBytes,
+          maxUploadBytes: config.maxClipBytes,
+          storageMode: "hosted",
+        },
+      },
+    );
   }
 
   const emailVerified = await readEmailVerified(
