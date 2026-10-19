@@ -163,9 +163,15 @@ vi.mock("@agent-native/core/file-upload", () => ({
 
 // The change events background syncs and stale reads send to open pages.
 const changes = vi.hoisted(() => [] as Array<Record<string, unknown>>);
+/** Makes the next change event fail, as a broken event bus would. */
+const changeFails = vi.hoisted(() => ({ next: false }));
 vi.mock("@agent-native/core/server", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/server")>()),
   recordChange: (event: Record<string, unknown>) => {
+    if (changeFails.next) {
+      changeFails.next = false;
+      throw new Error("Change events are down.");
+    }
     changes.push(event);
   },
 }));
@@ -184,6 +190,7 @@ let createDatabase: typeof import("./create-content-database.js").default;
 let linkFolder: typeof import("./link-github-folder.js").default;
 let syncFolder: typeof import("./sync-github-folder.js").default;
 let getSource: typeof import("./get-content-database-source.js").default;
+let refreshSource: typeof import("./refresh-content-database-source.js").default;
 let editDocument: typeof import("./edit-document.js").default;
 let updateDocument: typeof import("./update-document.js").default;
 let duplicateItem: typeof import("./duplicate-database-item.js").default;
@@ -199,6 +206,7 @@ let documentRevisionToken: typeof import("./_document-edit-mutation.js").documen
 let syncGitHubSource: typeof import("./_github-source.js").syncGitHubSource;
 let getDocument: typeof import("./get-document.js").default;
 let runGitHubSourceSweep: typeof import("./_github-source-freshness.js").runGitHubSourceSweep;
+let refreshBeforeRead: typeof import("./_github-source-freshness.js").refreshGitHubSourceBeforeRead;
 let spaceId: string;
 
 const as = async <T>(run: () => T | Promise<T>): Promise<Awaited<T>> =>
@@ -214,6 +222,8 @@ beforeAll(async () => {
   linkFolder = (await import("./link-github-folder.js")).default;
   syncFolder = (await import("./sync-github-folder.js")).default;
   getSource = (await import("./get-content-database-source.js")).default;
+  refreshSource = (await import("./refresh-content-database-source.js"))
+    .default;
   editDocument = (await import("./edit-document.js")).default;
   updateDocument = (await import("./update-document.js")).default;
   duplicateItem = (await import("./duplicate-database-item.js")).default;
@@ -230,7 +240,8 @@ beforeAll(async () => {
   ({ mutateDocumentBody, documentRevisionToken } =
     await import("./_document-edit-mutation.js"));
   getDocument = (await import("./get-document.js")).default;
-  ({ runGitHubSourceSweep } = await import("./_github-source-freshness.js"));
+  ({ runGitHubSourceSweep, refreshGitHubSourceBeforeRead: refreshBeforeRead } =
+    await import("./_github-source-freshness.js"));
   await as(() =>
     import("./_content-spaces.js").then((m) =>
       m.provisionContentSpaces(getDb(), owner),
@@ -249,6 +260,7 @@ afterAll(() => {
 beforeEach(() => {
   github.reset();
   changes.length = 0;
+  changeFails.next = false;
 });
 
 let collectionCount = 0;
@@ -1345,6 +1357,28 @@ describe("GitHub folder freshness", () => {
     changes.length = 0;
     await runGitHubSourceSweep({ deadlineAt: Date.now() + 60_000 });
     expect(changes).toHaveLength(0);
+  });
+
+  it("rereads after a check before a read changes rows, even when telling open pages fails", async () => {
+    const { database } = await linkBaseFolder();
+    github.commit({ ...BASE_FILES, "docs/faq.md": EDITED_FAQ });
+    await checkedAgo(database.id, 2 * 60_000);
+    changeFails.next = true;
+    expect(await as(() => refreshBeforeRead(database.id))).toBe(true);
+    expect(changeFails.next).toBe(false);
+  });
+
+  it("fails a refresh that hits a failure it can't name, and still shows it on the link", async () => {
+    const { database } = await linkBaseFolder();
+    github.commit({ ...BASE_FILES, "docs/faq.md": EDITED_FAQ });
+    github.state.failure = new Error("socket hang up");
+    await expect(
+      as(() => refreshSource.run({ databaseId: database.id })),
+    ).rejects.toThrow("socket hang up");
+    const status = await as(() => getSource.run({ databaseId: database.id }));
+    expect(status.source?.metadata.github?.problem).toMatchObject({
+      code: "unavailable",
+    });
   });
 
   it("tells readers when a background sync finds or clears a problem", async () => {

@@ -75,6 +75,7 @@ export default defineAction({
         sourceId: source.id,
         budgetMs: args.fullRefresh === true ? 25_000 : 6_000,
         throwConnectionErrors: true,
+        throwUnexpectedErrors: true,
       });
       githubSummary = githubSyncSummary(source.sourceName, result);
     } else if (source.sourceType === "mock-local") {

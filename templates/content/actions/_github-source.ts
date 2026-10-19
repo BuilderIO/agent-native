@@ -1579,6 +1579,11 @@ export interface SyncGitHubSourceOptions {
   force?: boolean;
   /** Rethrow a missing GitHub connection so an interactive caller can offer to connect. */
   throwConnectionErrors?: boolean;
+  /**
+   * Rethrow a failure the sync can't name, like a dropped socket, once it's
+   * on the link, for a caller that reports failures as errors.
+   */
+  throwUnexpectedErrors?: boolean;
 }
 
 /**
@@ -1968,6 +1973,7 @@ export async function syncGitHubSource(
     if (problem.code === "connection" && options.throwConnectionErrors) {
       throw error;
     }
+    if (!named && options.throwUnexpectedErrors) throw error;
     return emptyResult("error", state.pendingCommitSha, problem);
   } finally {
     clearTimeout(budgetTimer);

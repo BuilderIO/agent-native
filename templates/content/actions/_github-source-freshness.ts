@@ -136,13 +136,12 @@ async function syncBeforeRead(link: GitHubLink | undefined) {
   if (!link || checkedWithin(link.lastRefreshedAt, GITHUB_SOURCE_STALE_MS)) {
     return false;
   }
+  let result: GitHubSyncResult;
   try {
-    const result = await syncGitHubSource({
+    result = await syncGitHubSource({
       sourceId: link.sourceId,
       budgetMs: READ_SYNC_BUDGET_MS,
     });
-    await announceSync(link, linkedBy(link), result);
-    return githubSyncChangedRows(result);
   } catch (error) {
     // coercion-ok: the read goes on with the rows Content has; the next read or background sync tries GitHub again.
     console.warn(
@@ -151,6 +150,15 @@ async function syncBeforeRead(link: GitHubLink | undefined) {
     );
     return false;
   }
+  // The rows changed either way, so the read rereads them even when telling
+  // open pages fails.
+  await announceSync(link, linkedBy(link), result).catch((error: unknown) => {
+    console.warn(
+      "[github-source] change event failed:",
+      error instanceof Error ? error.message : String(error),
+    );
+  });
+  return githubSyncChangedRows(result);
 }
 
 /**
