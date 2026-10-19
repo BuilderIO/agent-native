@@ -38,10 +38,15 @@ import type { VideoPlayerHandle, VideoPlayerProps } from "./video-player";
 // its cue without re-rendering the whole page on every read.
 const CLOCK_POLL_MS = 100;
 const CLOCK_PUBLISH_MS = 250;
-// How far from a seek's target, and for how long, the reported time is
-// treated as the pre-seek clock.
-const SEEK_SETTLE_TOLERANCE_MS = 1000;
+// A seek settles once YouTube's clock reads its target, or reads past it by no
+// more than playback at YouTube's fastest rate could have carried it. Until
+// then, for at most the timeout, the reported time is the pre-seek clock.
+const SEEK_SETTLE_TOLERANCE_MS = 250;
 const SEEK_SETTLE_TIMEOUT_MS = 1000;
+const YOUTUBE_MAX_PLAYBACK_RATE = 2;
+// A scrubber drag seeks on every pointer move and cueing reloads YouTube's
+// video, so a seek before the first play is cued once the drag pauses.
+const CUE_SETTLE_MS = 150;
 const YOUTUBE_PLAYER_HOST = "https://www.youtube-nocookie.com";
 const STARTED_STATES = new Set<number>([
   YOUTUBE_PLAYER_STATE.PLAYING,
@@ -137,10 +142,14 @@ export const YouTubeEmbedPlayer = forwardRef<
   const cuedStartMsRef = useRef<number | null>(
     startMs && startMs > 0 ? startMs : null,
   );
+  const cueTimerRef = useRef<number | null>(null);
   const playWhenReadyRef = useRef(false);
   const pendingSeekRef = useRef<{ ms: number; at: number } | null>(null);
 
-  const resolvedDurationMs = durationMs > 0 ? durationMs : playerDurationMs;
+  // The stored duration is the first one measured, which for a live stream is
+  // only its length so far.
+  const resolvedDurationMs =
+    playerDurationMs > 0 ? playerDurationMs : durationMs;
   const resolvedDurationMsRef = useRef(resolvedDurationMs);
   resolvedDurationMsRef.current = resolvedDurationMs;
 
@@ -194,12 +203,14 @@ export const YouTubeEmbedPlayer = forwardRef<
       const ms = Math.floor(seconds * 1000);
       const seek = pendingSeekRef.current;
       if (seek) {
-        if (
-          Math.abs(ms - seek.ms) > SEEK_SETTLE_TOLERANCE_MS &&
-          performance.now() - seek.at < SEEK_SETTLE_TIMEOUT_MS
-        ) {
-          return seek.ms;
-        }
+        const elapsedMs = performance.now() - seek.at;
+        const settled =
+          ms >= seek.ms - SEEK_SETTLE_TOLERANCE_MS &&
+          ms <=
+            seek.ms +
+              elapsedMs * YOUTUBE_MAX_PLAYBACK_RATE +
+              SEEK_SETTLE_TOLERANCE_MS;
+        if (!settled && elapsedMs < SEEK_SETTLE_TIMEOUT_MS) return seek.ms;
         pendingSeekRef.current = null;
       }
       return ms;
@@ -226,7 +237,7 @@ export const YouTubeEmbedPlayer = forwardRef<
     if (ms === null) return;
     const lastMs = currentMsRef.current;
     const crossedCue = cueBoundariesRef.current.some(
-      (boundaryMs) => boundaryMs > lastMs && boundaryMs <= ms,
+      (boundaryMs) => lastMs < boundaryMs && boundaryMs <= ms,
     );
     if (ms >= lastMs && ms - lastMs < CLOCK_PUBLISH_MS && !crossedCue) return;
     publishTime(ms);
@@ -241,8 +252,8 @@ export const YouTubeEmbedPlayer = forwardRef<
     const mount = document.createElement("div");
     host.replaceChildren(mount);
 
-    loadYouTubeIframeApi().then(
-      (YT) => {
+    loadYouTubeIframeApi()
+      .then((YT) => {
         if (cancelled) return;
         const initialSpeed = readPlaybackSpeedPreference(defaultSpeed);
         const cuedStartMs = cuedStartMsRef.current;
@@ -326,14 +337,17 @@ export const YouTubeEmbedPlayer = forwardRef<
           },
         });
         setIsPlayerMounted(true);
-      },
-      () => {
+      })
+      .catch(() => {
         if (!cancelled) setError("api_unavailable");
-      },
-    );
+      });
 
     return () => {
       cancelled = true;
+      if (cueTimerRef.current !== null) {
+        window.clearTimeout(cueTimerRef.current);
+        cueTimerRef.current = null;
+      }
       playerRef.current = null;
       setIsPlayerMounted(false);
       try {
@@ -366,6 +380,13 @@ export const YouTubeEmbedPlayer = forwardRef<
       playWhenReadyRef.current = true;
       return;
     }
+    const cuedStartMs = cuedStartMsRef.current;
+    if (cueTimerRef.current !== null && cuedStartMs !== null) {
+      // Start from the latest seek, which isn't cued yet.
+      window.clearTimeout(cueTimerRef.current);
+      cueTimerRef.current = null;
+      player.seekTo(cuedStartMs / 1000, true);
+    }
     player.playVideo();
   }, []);
 
@@ -392,9 +413,17 @@ export const YouTubeEmbedPlayer = forwardRef<
         player.seekTo(clamped / 1000, true);
       } else {
         cuedStartMsRef.current = clamped;
-        if (player && videoId) {
-          player.cueVideoById({ videoId, startSeconds: clamped / 1000 });
+        if (cueTimerRef.current !== null) {
+          window.clearTimeout(cueTimerRef.current);
         }
+        cueTimerRef.current = window.setTimeout(() => {
+          cueTimerRef.current = null;
+          const current = playerRef.current;
+          const cueMs = cuedStartMsRef.current;
+          if (current && videoId && cueMs !== null && !hasStarted(current)) {
+            current.cueVideoById({ videoId, startSeconds: cueMs / 1000 });
+          }
+        }, CUE_SETTLE_MS);
       }
       publishTime(clamped);
       onSeek?.(clamped);

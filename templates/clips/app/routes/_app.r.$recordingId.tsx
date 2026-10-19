@@ -2141,6 +2141,7 @@ export default function RecordingPage() {
     videoEl: trackedVideoEl,
     durationMs: recording?.durationMs ?? 0,
     disabled: role === "owner", // Skip tracking for the owner: they shouldn't inflate their own views.
+    trackOpenWithoutVideo: isEmbedBacked,
   });
   const writeReaction = useCallback(
     async (

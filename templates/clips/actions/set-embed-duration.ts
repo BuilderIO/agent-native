@@ -9,6 +9,11 @@ import { getDb, schema } from "../server/db/index.js";
 const MAX_EMBED_DURATION_MS = 24 * 60 * 60 * 1000;
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   description:
     "Record the duration YouTube's embedded player measured for a YouTube-backed clip. YouTube's metadata has no duration, so the player reports it once; a stored duration is never overwritten.",
   schema: z.object({

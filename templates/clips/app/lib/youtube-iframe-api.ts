@@ -92,11 +92,13 @@ export function loadYouTubeIframeApi(): Promise<YouTubeNamespace> {
       reject(error);
     };
     const previousReady = window.onYouTubeIframeAPIReady;
+    // Settles before handing on, so another page script's ready hook throwing
+    // can't leave this load pending.
     window.onYouTubeIframeAPIReady = () => {
-      previousReady?.();
       window.clearTimeout(timeout);
       if (window.YT?.Player) resolve(window.YT);
       else fail(new Error("YouTube's player loaded without its API."));
+      previousReady?.();
     };
 
     const script = document.createElement("script");
