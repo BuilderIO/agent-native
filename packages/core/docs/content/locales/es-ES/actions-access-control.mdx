@@ -168,7 +168,7 @@ Cuando se omite `needsApproval`, el comportamiento no cambia ni un solo byte. No
 
 Esto funciona igual para las acciones heredadas de estilo `parameters` y para las acciones basadas en esquema. También funciona igual para el agente dentro de la app, los subagentes, A2A y los invocadores de MCP, porque todas las superficies del agente pasan por el mismo bucle.
 
-Las llamadas hechas a través de la [API HTTP](/docs/http-api) con un bearer token o una clave de API omiten la tarjeta de aprobación: la ruta ejecuta la acción directamente, igual que para la propia interfaz de la app. Para que las llamadas de un agente requieran aprobación, conéctalo por [MCP](/docs/external-agents) en lugar de llamar a las rutas HTTP.
+Las llamadas a través de la [API HTTP](/docs/http-api) no pueden dar la aprobación. Cuando una llamada la necesita, la ruta la rechaza con un `409` y `errorCode: "approval_required"`, tanto si el llamador usa un bearer token, una clave de API, un token OAuth de MCP, un token de servicio de la organización o una identidad A2A. Una identidad de servicio nunca puede aprobar. Solo la propia interfaz de la app con sesión iniciada ejecuta esa llamada directamente, porque la persona que la usa es quien aprueba. Una llamada del navegador demuestra que viene de esa interfaz con una capacidad de UI de corta duración. Una llamada que dice ser la app sin ella recibe un `403` con `errorCode: "ui_capability_required"`, y el cliente de la app obtiene la capacidad y reintenta una vez. Para que las llamadas de un agente se aprueben, conéctalo por [MCP](/docs/external-agents) o haz que lo pida en el chat del agente de la app.
 
 ### Cómo se pausa el bucle {#loop}
 
@@ -410,7 +410,7 @@ Los cuatro mecanismos no son intercambiables:
 | --------------------------------- | ------------------------------------------------------------ | ------------------------------------------ |
 | `access`                          | ¿Tiene el invocador el rol o la membresía declarados?        | Los seis puntos de despacho                |
 | `authorize`                       | ¿Puede este invocador realizar la operación?                 | Los seis puntos de despacho                |
-| `needsApproval`                   | ¿Debe un humano aprobar esta llamada permitida en concreto?  | Solo el bucle del agente                   |
+| `needsApproval`                   | ¿Debe un humano aprobar esta llamada permitida en concreto?  | Todas las superficies                      |
 | `accessFilter()`/`assertAccess()` | ¿Qué filas puede ver o escribir este invocador ya permitido? | Dentro de `run()`, por consulta o por fila |
 
 Una acción de escritura restringida normalmente necesita tanto `authorize` como una comprobación de fila. La primera mantiene fuera de la operación a quien no sea coach. La segunda mantiene a un coach fuera del plan de otra organización. La comprobación de fila es `assertAccess()`, o `access` cuando el id de la fila es un campo de entrada. `needsApproval` es un eje aparte. Nunca restringe quién puede llamar, solo si el agente puede proceder sin supervisión.

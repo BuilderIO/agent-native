@@ -12,6 +12,10 @@ export default defineAction({
     email: z.string(),
     role: z.enum(["owner", "admin", "member"]).default("member"),
   }),
+  // It changes who may use an app or what they may do in it: every call
+  // needs the user's approval, and "always allow" is not offered.
+  needsApproval: true,
+  allowPersistentApproval: false,
   run: async (args) => {
     await assertTeamAdmin(args.teamId);
     const { getDb, schema } = getSchedulingContext();

@@ -21,6 +21,7 @@ import {
   ACTION_CHANGE_MARKER_FAILED,
   ACTION_CHANGE_MARKER_HEADER,
 } from "../shared/action-change-marker-header.js";
+import { UI_CAPABILITY_REQUIRED_ERROR_CODE } from "../shared/action-error-codes.js";
 import { SLOW_ACTION_RESPONSE_MS } from "../shared/analytics-events.js";
 import { ANALYTICS_CLIENT_PLATFORM_HEADER } from "../shared/analytics-platform.js";
 import {
@@ -490,7 +491,7 @@ async function performActionFetch<T>(
   if (!res.ok) {
     if (
       res.status === 403 &&
-      data?.errorCode === "ui_capability_required" &&
+      data?.errorCode === UI_CAPABILITY_REQUIRED_ERROR_CODE &&
       !options?.uiCapabilityRetry &&
       typeof window !== "undefined"
     ) {
