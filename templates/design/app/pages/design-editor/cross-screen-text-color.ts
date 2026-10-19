@@ -177,23 +177,29 @@ function collectDestinationBackgroundSignals(
     const inline = (cursor as HTMLElement).style;
     const inlineColor = inline?.backgroundColor || inline?.background || null;
     if (inlineColor) chain.push({ color: inlineColor });
-    const classHint = elementBackgroundClassHint(cursor);
-    if (classHint === "dark") chain.push({ darkClassHint: true });
-    if (classHint === "light") chain.push({ lightClassHint: true });
+    else {
+      const classHint = elementBackgroundClassHint(cursor);
+      if (classHint === "dark") chain.push({ darkClassHint: true });
+      if (classHint === "light") chain.push({ lightClassHint: true });
+    }
     cursor = cursor.parentElement;
   }
   if (liveElement) {
     const liveView = liveElement.ownerDocument?.defaultView;
     cursor = liveElement;
     while (cursor && cursor !== liveElement.ownerDocument.documentElement) {
-      if (liveView) {
-        chain.push({
-          color: liveView.getComputedStyle(cursor).backgroundColor,
-        });
+      const inline = (cursor as HTMLElement).style;
+      const inlineColor = inline?.backgroundColor || inline?.background || null;
+      const computedColor = liveView
+        ? liveView.getComputedStyle(cursor).backgroundColor
+        : null;
+      const observedColor = computedColor || inlineColor;
+      if (observedColor) chain.push({ color: observedColor });
+      else {
+        const classHint = elementBackgroundClassHint(cursor);
+        if (classHint === "dark") chain.push({ darkClassHint: true });
+        if (classHint === "light") chain.push({ lightClassHint: true });
       }
-      const classHint = elementBackgroundClassHint(cursor);
-      if (classHint === "dark") chain.push({ darkClassHint: true });
-      if (classHint === "light") chain.push({ lightClassHint: true });
       cursor = cursor.parentElement;
     }
     return chain;
@@ -263,33 +269,50 @@ export function adaptAutoTextColorForCrossScreenNode(
       moved.getAttribute("data-agent-native-primitive") ||
       ""
     ).toLowerCase();
-    if (kind !== "text") return content;
-    const el = moved as HTMLElement;
-    const hasAutoMarker = moved.hasAttribute(BOARD_TEXT_AUTO_COLOR_MARKER);
-    let markerStripped = false;
-    if (
-      isStaleAutoTextColorMarker({
+    const textNodes = new Set<Element>();
+    if (kind === "text") textNodes.add(moved);
+    for (const descendant of Array.from(moved.querySelectorAll("*"))) {
+      const descendantKind = (
+        descendant.getAttribute("data-an-primitive") ||
+        descendant.getAttribute("data-agent-native-primitive") ||
+        ""
+      ).toLowerCase();
+      if (
+        descendantKind === "text" &&
+        descendant.hasAttribute(BOARD_TEXT_AUTO_COLOR_MARKER)
+      ) {
+        textNodes.add(descendant);
+      }
+    }
+    if (textNodes.size === 0) return content;
+
+    let changed = false;
+    for (const textNode of textNodes) {
+      const el = textNode as HTMLElement;
+      const hasAutoMarker = textNode.hasAttribute(BOARD_TEXT_AUTO_COLOR_MARKER);
+      const markerStripped = isStaleAutoTextColorMarker({
         inlineColor: el.style.color,
         hasAutoMarker,
-      })
-    ) {
-      moved.removeAttribute(BOARD_TEXT_AUTO_COLOR_MARKER);
-      markerStripped = true;
-    }
-    const destinationIsLight = destinationBackgroundIsLightForNode(
-      moved,
-      liveDestDoc,
-    );
-    const shouldAdapt = shouldAdaptAutoTextColorForCrossScreenMove({
-      inlineColor: el.style.color,
-      hasAutoMarker: hasAutoMarker && !markerStripped,
-      destinationBackgroundIsLight: destinationIsLight,
-    });
-    if (!shouldAdapt && !markerStripped) return content;
-    if (shouldAdapt) {
+      });
+      if (markerStripped) {
+        textNode.removeAttribute(BOARD_TEXT_AUTO_COLOR_MARKER);
+        changed = true;
+      }
+      const destinationIsLight = destinationBackgroundIsLightForNode(
+        textNode,
+        liveDestDoc,
+      );
+      const shouldAdapt = shouldAdaptAutoTextColorForCrossScreenMove({
+        inlineColor: el.style.color,
+        hasAutoMarker: hasAutoMarker && !markerStripped,
+        destinationBackgroundIsLight: destinationIsLight,
+      });
+      if (!shouldAdapt) continue;
       // guard:allow-raw-color — This is authored document text, not editor chrome.
       el.style.color = destinationIsLight ? "#000000" : "#ffffff";
+      changed = true;
     }
+    if (!changed) return content;
     return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
   } catch {
     return content;

@@ -215,6 +215,79 @@ it("adapts auto text color when a layer moves to another screen", () => {
   expect(moved?.style.color).toBe("#ffffff");
 });
 
+it("adapts auto text color descendants when a container moves to another screen", () => {
+  const sourceContent = `<html><body><section data-agent-native-node-id="moving" data-an-primitive="group"><span data-agent-native-node-id="text" data-an-primitive="text" ${BOARD_TEXT_AUTO_COLOR_MARKER} style="color:#000000">Move</span></section></body></html>`;
+  const targetContent = `<html><head><style>.dark-surface { background: #111111; }</style></head><body class="dark-surface"><main data-agent-native-node-id="target"></main></body></html>`;
+  const sourceFile = file(SOURCE_ID, sourceContent);
+  const targetFile = file(TARGET_ID, targetContent);
+  const sourceProjection = buildCodeLayerProjection(sourceContent, {
+    source: { kind: "design-file", fileId: SOURCE_ID },
+  });
+  const targetProjection = buildCodeLayerProjection(targetContent, {
+    source: { kind: "design-file", fileId: TARGET_ID },
+  });
+  const sourceTree = buildCodeLayerTree(sourceProjection);
+  const moving = sourceProjection.nodes.find(
+    (node) => node.dataAttributes["data-agent-native-node-id"] === "moving",
+  )!;
+  const updates = new Map<string, string>();
+  mountPreview(sourceContent, SOURCE_ID);
+  mountPreview(targetContent, TARGET_ID);
+
+  runLayerMoveToScreen(
+    {
+      activeFile: sourceFile,
+      applyFileContentUpdate: (id, content) => {
+        const publication = acceptFixture(id, content);
+        updates.set(id, publication.content);
+        return publication;
+      },
+      boardFileId: undefined,
+      canvasFrameGeometryById: {},
+      codeLayerOwnerByNodeId: new Map([
+        [
+          moving.id,
+          {
+            fileId: SOURCE_ID,
+            node: moving,
+            sourceProjection,
+            tree: sourceTree,
+            runtimeOnly: false,
+          },
+        ],
+      ]),
+      effectiveCodeLayerState: { lockedIds: new Set(), hiddenIds: new Set() },
+      files: [sourceFile, targetFile],
+      getFreshActiveContent: () => sourceContent,
+      getScreenContent: (id) =>
+        id === SOURCE_ID ? sourceContent : targetContent,
+      recordContentHistoryEntry: () => {},
+      recordLocalContentHistoryEntry: () => {},
+      runtimeStructureInsertRevisionRef: { current: 0 },
+      setExpandedLayerIds: () => {},
+      setRuntimeStructureInsertRequest: () => {},
+      setSelectedElement: () => {},
+      setSelectedLayerIdsState: () => {},
+      t: (key) => key,
+      viewModeRef: { current: "overview" },
+    },
+    {
+      draggedIds: [moving.id],
+      targetId: targetProjection.nodes[0]!.id,
+      placement: "inside",
+    },
+    TARGET_ID,
+  );
+
+  const nextTarget = updates.get(TARGET_ID);
+  expect(nextTarget).toBeTruthy();
+  const movedText = new DOMParser()
+    .parseFromString(nextTarget!, "text/html")
+    .querySelector<HTMLElement>('[data-agent-native-node-id="text"]');
+  expect(movedText?.style.color).toBe("#ffffff");
+  expect(movedText?.hasAttribute(BOARD_TEXT_AUTO_COLOR_MARKER)).toBe(true);
+});
+
 function moveBoardLayerIntoLiveScreenBody(
   sourceContent: string,
   liveScreenHtml: string,

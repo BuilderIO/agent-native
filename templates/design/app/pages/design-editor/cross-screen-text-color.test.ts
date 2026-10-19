@@ -62,4 +62,51 @@ describe("adaptAutoTextColorForCrossScreenNode", () => {
         ?.style.color,
     ).toBe("#ffffff");
   });
+
+  it("inherits through a transparent inline background instead of using its class hint", () => {
+    const content = `<!doctype html><html><body style="background:#111111">
+      <main class="bg-white" style="background:transparent">
+        <span data-agent-native-node-id="text" data-an-primitive="text" ${BOARD_TEXT_AUTO_COLOR_MARKER} style="color:#000000">Text</span>
+      </main>
+    </body></html>`;
+
+    const adapted = adaptAutoTextColorForCrossScreenNode(content, "text");
+    const doc = new DOMParser().parseFromString(adapted, "text/html");
+
+    expect(
+      doc.querySelector<HTMLElement>('[data-agent-native-node-id="text"]')
+        ?.style.color,
+    ).toBe("#ffffff");
+  });
+
+  it("inherits through a transparent computed background instead of using its class hint", () => {
+    const content = `<!doctype html><html><body>
+      <main data-agent-native-node-id="target" class="bg-white" style="background:transparent">
+        <span data-agent-native-node-id="text" data-an-primitive="text" ${BOARD_TEXT_AUTO_COLOR_MARKER} style="color:#000000">Text</span>
+      </main>
+    </body></html>`;
+    const liveDestDoc = new DOMParser().parseFromString(
+      `<!doctype html><html><body style="background:#111111">
+        <main data-agent-native-node-id="target" class="bg-white" style="background:transparent"></main>
+      </body></html>`,
+      "text/html",
+    );
+
+    const adapted = adaptAutoTextColorForCrossScreenNode(
+      content,
+      "text",
+      liveDestDoc,
+    );
+    const doc = new DOMParser().parseFromString(adapted, "text/html");
+
+    expect(
+      liveDestDoc.defaultView?.getComputedStyle(
+        liveDestDoc.querySelector('[data-agent-native-node-id="target"]')!,
+      ).backgroundColor,
+    ).toBe("transparent");
+    expect(
+      doc.querySelector<HTMLElement>('[data-agent-native-node-id="text"]')
+        ?.style.color,
+    ).toBe("#ffffff");
+  });
 });
