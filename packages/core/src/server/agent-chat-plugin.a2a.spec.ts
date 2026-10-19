@@ -469,6 +469,50 @@ describe("A2A shared run lifecycle", () => {
     ).toBe(true);
   });
 
+  it("handles durable abort rejection before the A2A run finalizes", async () => {
+    const taskController = new AbortController();
+    const persistenceError = new Error("abort persistence unavailable");
+    let releaseRunner!: () => void;
+    let finishRun!: () => void;
+    const finalizationBarrier = new Promise<void>((resolve) => {
+      finishRun = resolve;
+    });
+    const runner = vi.fn(async (options: any) => {
+      await new Promise<void>((resolve) => {
+        releaseRunner = resolve;
+        options.signal.addEventListener("abort", resolve, { once: true });
+      });
+      await finalizationBarrier;
+      return usage;
+    });
+    vi.mocked(markRunAborted).mockRejectedValueOnce(persistenceError);
+    const unhandled: unknown[] = [];
+    const recordUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", recordUnhandled);
+
+    const pending = runA2AAgentLoopWithRunManager(
+      runOptions("task-cancel-persistence-failure", () => {}),
+      {},
+      { backgroundFunction: false },
+      { runner: runner as any },
+      taskController.signal,
+    );
+    try {
+      await vi.waitFor(() => expect(runner).toHaveBeenCalledOnce());
+      taskController.abort("canceled-by-task-claim");
+      await vi.waitFor(() => expect(markRunAborted).toHaveBeenCalledOnce());
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      expect(unhandled).toEqual([]);
+
+      finishRun();
+      await expect(pending).rejects.toBe(persistenceError);
+    } finally {
+      finishRun();
+      releaseRunner?.();
+      process.off("unhandledRejection", recordUnhandled);
+    }
+  });
+
   it("does not durably abort a replacement run after losing the task lease", async () => {
     vi.mocked(markRunAborted).mockClear();
     const taskController = new AbortController();

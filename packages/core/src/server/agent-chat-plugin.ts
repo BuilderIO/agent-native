@@ -853,7 +853,10 @@ export async function runA2AAgentLoopWithRunManager(
     },
   );
 
-  let cancellation: Promise<boolean> = Promise.resolve(false);
+  let cancellation: Promise<
+    | { status: "fulfilled"; aborted: boolean }
+    | { status: "rejected"; error: unknown }
+  > = Promise.resolve({ status: "fulfilled", aborted: false });
   const abortFromTask = () => {
     const reason = taskSignal?.reason;
     const reasonCode =
@@ -867,7 +870,10 @@ export async function runA2AAgentLoopWithRunManager(
       run.abort.abort("execution_lease_lost");
       return;
     }
-    cancellation = abortRunDurably(runId, clientAbortReason(reason));
+    cancellation = abortRunDurably(runId, clientAbortReason(reason)).then(
+      (aborted) => ({ status: "fulfilled", aborted }),
+      (error) => ({ status: "rejected", error }),
+    );
   };
   if (taskSignal?.aborted) {
     abortFromTask();
@@ -877,7 +883,10 @@ export async function runA2AAgentLoopWithRunManager(
 
   try {
     await run.finalized;
-    await cancellation;
+    const cancellationResult = await cancellation;
+    if (cancellationResult.status === "rejected") {
+      throw cancellationResult.error;
+    }
   } finally {
     taskSignal?.removeEventListener("abort", abortFromTask);
   }

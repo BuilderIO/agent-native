@@ -188,6 +188,7 @@ export interface AgentTask {
   terminalEffectsVersion?: 1;
   terminalEffectsReconciled?: boolean;
   terminalProgressStatus?: TerminalProgressStatus;
+  stopRequestedAt?: number;
 }
 
 export interface AgentTeamOwnerScope {
@@ -3227,6 +3228,7 @@ export async function stopAgentTeamBackgroundRun(
   const ownerScope = resolveOwnerScope(scope);
 
   const markStopped = (currentTask: AgentTask) => {
+    delete currentTask.stopRequestedAt;
     currentTask.status = "errored";
     currentTask.summary =
       reason === "user" ? "Task stopped." : `Task stopped: ${reason}`;
@@ -3240,9 +3242,6 @@ export async function stopAgentTeamBackgroundRun(
   };
 
   let stoppedTask: AgentTask | null = null;
-  let stoppedDispatch: Awaited<
-    ReturnType<typeof getAgentTeamRunDispatchState>
-  > = null;
   for (let retry = 0; retry < 3 && !stoppedTask; retry += 1) {
     const task = await loadTask(taskId);
     if (!task || !taskMatchesOwnerScope(task, ownerScope)) {
@@ -3261,6 +3260,29 @@ export async function stopAgentTeamBackgroundRun(
     }
 
     if (dispatch) {
+      const runId = taskRunChunkId(
+        taskId,
+        dispatch.continuationCount,
+        dispatch.attempts,
+      );
+      const current = await withCurrentAgentTeamRunAttempt(
+        taskId,
+        dispatch.attempts,
+        async () => {
+          const currentTask = await loadTask(taskId);
+          return Boolean(
+            currentTask &&
+            taskMatchesOwnerScope(currentTask, ownerScope) &&
+            currentTask.status === "running",
+          );
+        },
+        { statuses: ["queued", "running"] },
+      );
+      if (!current.current || !current.value) continue;
+
+      // Each queue attempt has its own run id, so this abort cannot stop its successor.
+      await abortRunDurably(runId, reason);
+
       const result = await withCurrentAgentTeamRunAttempt(
         taskId,
         dispatch.attempts,
@@ -3287,15 +3309,33 @@ export async function stopAgentTeamBackgroundRun(
       );
       if (result.current && result.value) {
         stoppedTask = result.value;
-        stoppedDispatch = dispatch;
       }
       continue;
     }
 
     const expectedTask = structuredClone(task);
-    markStopped(task);
-    if (await saveTaskIfCurrent(task, expectedTask)) {
-      stoppedTask = task;
+    const stopRequestedTask = {
+      ...task,
+      stopRequestedAt: task.stopRequestedAt ?? Date.now(),
+    };
+    if (!(await saveTaskIfCurrent(stopRequestedTask, expectedTask))) continue;
+
+    await abortRunDurably(runningInMemoryTaskRunId(taskId), reason);
+
+    const currentTask = await loadTask(taskId);
+    if (
+      !currentTask ||
+      !taskMatchesOwnerScope(currentTask, ownerScope) ||
+      currentTask.status !== "running" ||
+      currentTask.stopRequestedAt !== stopRequestedTask.stopRequestedAt
+    ) {
+      return { ok: false, error: "Task is not running" };
+    }
+
+    const expectedStopRequestedTask = structuredClone(currentTask);
+    markStopped(currentTask);
+    if (await saveTaskIfCurrent(currentTask, expectedStopRequestedTask)) {
+      stoppedTask = currentTask;
     }
   }
 
@@ -3303,16 +3343,6 @@ export async function stopAgentTeamBackgroundRun(
     return { ok: false, error: "Task is not running" };
   }
 
-  await abortRunDurably(
-    stoppedDispatch
-      ? taskRunChunkId(
-          taskId,
-          stoppedDispatch.continuationCount,
-          stoppedDispatch.attempts,
-        )
-      : runningInMemoryTaskRunId(taskId),
-    reason,
-  );
   const ownerEmail = getRequestUserEmail();
   if (ownerEmail) {
     await completeTaskProgressRun(

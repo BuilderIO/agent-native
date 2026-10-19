@@ -1332,6 +1332,51 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     expect(completeProgressRunMock).not.toHaveBeenCalled();
   });
 
+  it("keeps a legacy Stop retryable when run abort persistence fails", async () => {
+    const taskId = "legacy-stop-abort-persistence-failure";
+    appState.set(`agent-task:${taskId}`, {
+      taskId,
+      threadId: "thread-1",
+      runId: `run-task-${taskId}`,
+      parentThreadId: "parent-thread",
+      ownerEmail: OWNER,
+      description: "legacy task",
+      status: "running",
+      preview: "",
+      summary: "",
+      currentStep: "Working",
+      createdAt: Date.now(),
+    });
+    abortRunDurablyMock.mockRejectedValueOnce(
+      new Error("run abort persistence failed"),
+    );
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        stopAgentTeamBackgroundRun(`run-task-${taskId}`),
+      ),
+    ).rejects.toThrow("run abort persistence failed");
+
+    expect(appState.get(`agent-task:${taskId}`)).toMatchObject({
+      status: "running",
+      stopRequestedAt: expect.any(Number),
+    });
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        stopAgentTeamBackgroundRun(`run-task-${taskId}`),
+      ),
+    ).resolves.toEqual({ ok: true });
+    expect(abortRunDurablyMock).toHaveBeenCalledTimes(2);
+    expect(appState.get(`agent-task:${taskId}`)).toMatchObject({
+      status: "errored",
+      terminalProgressStatus: "cancelled",
+    });
+    expect(appState.get(`agent-task:${taskId}`)).not.toHaveProperty(
+      "stopRequestedAt",
+    );
+  });
+
   it("does not let a legacy completion overwrite a concurrent stop", async () => {
     const taskId = "legacy-completion-after-stop";
     appState.set(`agent-task:${taskId}`, {
@@ -2867,7 +2912,7 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     );
   });
 
-  it("does not report Stop successful when run abort persistence fails", async () => {
+  it("keeps Stop retryable when run abort persistence fails", async () => {
     await seedTask("stop-abort-persistence-failure");
     abortRunDurablyMock.mockRejectedValueOnce(
       new Error("run abort persistence failed"),
@@ -2883,6 +2928,20 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
       "run-task-stop-abort-persistence-failure-a0-c0",
       "user",
     );
+    expect(
+      (
+        await queue.getAgentTeamRunDispatchState(
+          "stop-abort-persistence-failure",
+        )
+      )?.status,
+    ).toBe("queued");
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        stopAgentTeamBackgroundRun("run-task-stop-abort-persistence-failure"),
+      ),
+    ).resolves.toEqual({ ok: true });
+    expect(abortRunDurablyMock).toHaveBeenCalledTimes(2);
     expect(
       (
         await queue.getAgentTeamRunDispatchState(
