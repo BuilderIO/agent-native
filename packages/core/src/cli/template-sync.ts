@@ -278,13 +278,16 @@ export function mergeTemplateTrees(
     manual: [],
     keptLocal: [],
   };
-  const paths = new Set<string>([
-    ...listMergeableFiles(baseDir),
-    ...listMergeableFiles(theirsDir),
-    ...listMergeableFiles(appDir),
-  ]);
+  const paths = Array.from(
+    new Set<string>([
+      ...listMergeableFiles(baseDir),
+      ...listMergeableFiles(theirsDir),
+      ...listMergeableFiles(appDir),
+    ]),
+  ).sort();
+  const normalized = crlfNormalizedPaths(appDir, paths);
 
-  for (const rel of Array.from(paths).sort()) {
+  for (const rel of paths) {
     const oursPath = path.join(appDir, rel);
     if (isLocalSymlink(oursPath)) {
       result.manual.push(`${rel} (local symlink)`);
@@ -292,7 +295,10 @@ export function mergeTemplateTrees(
     }
     const base = readFileOrNull(path.join(baseDir, rel));
     const theirs = readFileOrNull(path.join(theirsDir, rel));
-    const app = readAppFile(oursPath, base ?? theirs);
+    const app = readAppFile(
+      oursPath,
+      normalized.has(rel) ? (base ?? theirs) : null,
+    );
     const ours = app.content;
     const writeOurs = (content: Buffer) =>
       writeFile(oursPath, app.crlf ? withCrlf(content) : content);
@@ -665,18 +671,20 @@ async function statusCommand(
     try {
       const local = countLocallyModified(target.appDir, baseDir);
       lines.push(`  locally modified files: ${local}`);
-      const targetRef = flags.to ?? target.provenance.templateRef ?? latest;
-      const theirs = await materializeForTarget(target, flags, targetRef);
       try {
-        const changed = countUpstreamChanged(baseDir, theirs.dir);
-        lines.push(`  upstream-changed files: ${changed} (at ${theirs.ref})`);
-      } finally {
-        fs.rmSync(theirs.dir, { recursive: true, force: true });
+        const targetRef = flags.to ?? target.provenance.templateRef ?? latest;
+        const theirs = await materializeForTarget(target, flags, targetRef);
+        try {
+          const changed = countUpstreamChanged(baseDir, theirs.dir);
+          lines.push(`  upstream-changed files: ${changed} (at ${theirs.ref})`);
+        } finally {
+          fs.rmSync(theirs.dir, { recursive: true, force: true });
+        }
+      } catch (err) {
+        lines.push(
+          `  upstream-changed files: unavailable (${err instanceof Error ? err.message.split("\n")[0] : String(err)})`,
+        );
       }
-    } catch (err) {
-      lines.push(
-        `  upstream-changed files: unavailable (${err instanceof Error ? err.message.split("\n")[0] : String(err)})`,
-      );
     } finally {
       fs.rmSync(baseDir, { recursive: true, force: true });
     }
@@ -891,9 +899,14 @@ function backfillProvenance(
 
 function countLocallyModified(appDir: string, baseDir: string): number {
   let count = 0;
-  for (const rel of listMergeableFiles(baseDir)) {
+  const paths = Array.from(listMergeableFiles(baseDir));
+  const normalized = crlfNormalizedPaths(appDir, paths);
+  for (const rel of paths) {
     const base = readFileOrNull(path.join(baseDir, rel));
-    const ours = readAppFile(path.join(appDir, rel), base).content;
+    const ours = readAppFile(
+      path.join(appDir, rel),
+      normalized.has(rel) ? base : null,
+    ).content;
     if (!equalBuffers(base, ours)) count++;
   }
   return count;
@@ -1060,7 +1073,7 @@ function equalBuffers(a: Buffer | null, b: Buffer | null): boolean {
   return a.equals(b);
 }
 
-// CRLF from a core.autocrlf=true checkout is not a local edit.
+// CRLF that git normalizes on add is not a local edit.
 function readAppFile(
   file: string,
   template: Buffer | null,
@@ -1083,6 +1096,61 @@ function readAppFile(
     content: Buffer.from(text.replace(/\r\n/g, "\n")),
     crlf: !/(^|[^\r])\n/.test(text),
   };
+}
+
+// Paths whose CRLF git turns into LF on add; anywhere else a CR is content.
+function crlfNormalizedPaths(appDir: string, rels: string[]): Set<string> {
+  const normalized = new Set<string>();
+  if (!resolveBaselineStore(appDir).gitDir) return normalized;
+  const res = spawnSync(
+    "git",
+    ["check-attr", "-z", "--stdin", "text", "crlf", "eol"],
+    {
+      cwd: appDir,
+      input: rels.join("\0"),
+      encoding: "utf-8",
+      maxBuffer: 64 * 1024 * 1024,
+    },
+  );
+  if (res.status !== 0) {
+    throw new Error(
+      `git check-attr failed in ${appDir}: ${res.stderr || res.error?.message}`,
+    );
+  }
+  const config = spawnSync("git", ["config", "--get", "core.autocrlf"], {
+    cwd: appDir,
+    encoding: "utf-8",
+  });
+  if (config.status !== 0 && config.status !== 1) {
+    throw new Error(
+      `git config core.autocrlf failed in ${appDir}: ${config.stderr || config.error?.message}`,
+    );
+  }
+  const byConfig = ["true", "yes", "on", "1", "input"].includes(
+    config.stdout.trim().toLowerCase(),
+  );
+  const attrs = new Map<string, Record<string, string>>();
+  const fields = res.stdout.split("\0");
+  for (let i = 0; i + 2 < fields.length; i += 3) {
+    attrs.set(fields[i], {
+      ...attrs.get(fields[i]),
+      [fields[i + 1]]: fields[i + 2],
+    });
+  }
+  for (const [rel, { text, crlf, eol }] of attrs) {
+    const byAttrs =
+      conversion(text) ??
+      conversion(crlf) ??
+      (eol === "lf" || eol === "crlf" ? true : null);
+    if (byAttrs ?? byConfig) normalized.add(rel);
+  }
+  return normalized;
+}
+
+// A text or crlf attribute as git reads it: convert, keep bytes, or no say.
+function conversion(value: string | undefined): boolean | null {
+  if (value === "set" || value === "auto" || value === "input") return true;
+  return value === "unset" ? false : null;
 }
 
 function withCrlf(content: Buffer): Buffer {
