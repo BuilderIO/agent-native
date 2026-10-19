@@ -1726,6 +1726,22 @@ export function parseQueueMessageResult(
 ): QueueMessageResult {
   const result = record(value, path);
   parseAgentQueuedMessage(result.message, `${path}.message`);
+  if (result.alreadySubmitted === true) {
+    string(result.submittedRunId, `${path}.submittedRunId`);
+  } else if (
+    result.alreadySubmitted !== undefined &&
+    result.alreadySubmitted !== false
+  ) {
+    throw new AgentProtocolValidationError(
+      `${path}.alreadySubmitted`,
+      "must be true when provided",
+    );
+  } else if (result.submittedRunId !== undefined) {
+    throw new AgentProtocolValidationError(
+      `${path}.submittedRunId`,
+      "requires alreadySubmitted to be true",
+    );
+  }
   return value as QueueMessageResult;
 }
 

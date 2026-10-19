@@ -16,6 +16,7 @@ import {
   parseAgentProtocolEnvelope,
   parseAgentQueuedMessage,
   parseInvokeActionInput,
+  parseQueueMessageResult,
   parseQueueMessageInput,
   parseSteerQueuedMessageResult,
   parseSubmitFeedbackInput,
@@ -73,6 +74,28 @@ describe("AgentKit protocol validation", () => {
     expect(() =>
       parseSteerQueuedMessageResult({ alreadyRemoved: true, runId: "run-1" }),
     ).toThrow("alreadyRemoved");
+  });
+
+  it("validates queued-message submission receipts", () => {
+    const message = {
+      id: "queued-1",
+      threadId: "thread-1",
+      text: "Run once",
+      createdAt: "2026-10-01T00:00:00.000Z",
+    };
+    expect(
+      parseQueueMessageResult({
+        message,
+        alreadySubmitted: true,
+        submittedRunId: "run-1",
+      }),
+    ).toMatchObject({ alreadySubmitted: true, submittedRunId: "run-1" });
+    expect(() =>
+      parseQueueMessageResult({ message, alreadySubmitted: true }),
+    ).toThrow("queueMessageResult.submittedRunId");
+    expect(() =>
+      parseQueueMessageResult({ message, submittedRunId: "run-1" }),
+    ).toThrow("queueMessageResult.submittedRunId");
   });
 
   it("keeps custom choice responses distinct from predefined option ids", () => {

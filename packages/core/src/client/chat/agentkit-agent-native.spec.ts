@@ -2839,6 +2839,98 @@ describe("createAgentNativeAgentKitTransport", () => {
     await Promise.all([first.dispose(), second.dispose()]);
   });
 
+  it("preserves the submitted-run receipt returned by a queue append", async () => {
+    const message = {
+      id: "queued-already-submitted",
+      threadId: "thread-queue-receipt",
+      text: "Run once",
+      createdAt: "2026-10-01T00:00:00.000Z",
+    };
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: vi.fn(async () =>
+        json({
+          queuedMessages: [],
+          message,
+          alreadySubmitted: true,
+          submittedRunId: "run-submitted",
+        }),
+      ) as typeof fetch,
+    });
+
+    await expect(
+      transport.queueMessage?.({
+        threadId: message.threadId,
+        id: message.id,
+        text: message.text,
+      }),
+    ).resolves.toEqual({
+      message,
+      alreadySubmitted: true,
+      submittedRunId: "run-submitted",
+    });
+
+    await transport.dispose();
+  });
+
+  it("rejects an already-submitted queue response without a run receipt", async () => {
+    const message = {
+      id: "queued-receipt-missing-run",
+      threadId: "thread-queue-receipt",
+      text: "Run once",
+      createdAt: "2026-10-01T00:00:00.000Z",
+    };
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: vi.fn(async () =>
+        json({ queuedMessages: [], message, alreadySubmitted: true }),
+      ) as typeof fetch,
+    });
+
+    await expect(
+      transport.queueMessage?.({
+        threadId: message.threadId,
+        id: message.id,
+        text: message.text,
+      }),
+    ).rejects.toThrow("must include submittedRunId");
+
+    await transport.dispose();
+  });
+
+  it("preserves the submitted-run receipt from a queue append busy response", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: vi.fn(async () =>
+        json(
+          {
+            code: "run_slot_busy",
+            activeRunId: "run-active",
+            submittedRunId: "run-submitted",
+            retryable: true,
+          },
+          409,
+        ),
+      ) as typeof fetch,
+    });
+
+    await expect(
+      transport.queueMessage?.({
+        threadId: "thread-queue-busy",
+        id: "queued-busy",
+        text: "Run once",
+      }),
+    ).rejects.toMatchObject({
+      code: "run_slot_busy",
+      activeRunId: "run-active",
+      submittedRunId: "run-submitted",
+      status: 409,
+      retryable: true,
+    });
+
+    await transport.dispose();
+  });
+
   it("restores action widgets from durable assistant tool results", async () => {
     const transport = createAgentNativeAgentKitTransport({
       fetch: vi.fn(async () =>

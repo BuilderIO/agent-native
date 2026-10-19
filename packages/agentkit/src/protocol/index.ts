@@ -1174,9 +1174,17 @@ export interface AgentSubmissionPayload {
   interruptActiveRun?: boolean;
 }
 
-export interface QueueMessageResult {
-  message: AgentQueuedMessage;
-}
+export type QueueMessageResult =
+  | {
+      message: AgentQueuedMessage;
+      alreadySubmitted?: false;
+      submittedRunId?: never;
+    }
+  | {
+      message: AgentQueuedMessage;
+      alreadySubmitted: true;
+      submittedRunId: RunId;
+    };
 
 export type SteerQueuedMessageResult =
   | (StartRunResult & { alreadySubmitted?: true })

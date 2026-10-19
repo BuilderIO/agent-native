@@ -3716,6 +3716,8 @@ export function createAgentNativeAgentKitTransport(
     queuedMessages: AgentQueuedMessage[];
     message?: AgentQueuedMessage;
     claimedMessage?: AgentQueuedMessage;
+    alreadySubmitted?: true;
+    submittedRunId?: string;
     submissionExpired?: boolean;
   }> {
     if (mutation.type === "append") {
@@ -3753,10 +3755,37 @@ export function createAgentNativeAgentKitTransport(
     const claimedMessage = value.claimedMessage
       ? storedQueue([value.claimedMessage], threadId, now())[0]
       : undefined;
+    if (
+      value.alreadySubmitted !== undefined &&
+      value.alreadySubmitted !== true &&
+      value.alreadySubmitted !== false
+    ) {
+      throw new TypeError(
+        "Agent chat queue mutation alreadySubmitted must be a boolean.",
+      );
+    }
+    const submittedRunId =
+      typeof value.submittedRunId === "string" &&
+      value.submittedRunId.length > 0
+        ? value.submittedRunId
+        : undefined;
+    if (value.alreadySubmitted === true && !submittedRunId) {
+      throw new TypeError(
+        "Agent chat queue submission receipt must include submittedRunId.",
+      );
+    }
+    if (value.alreadySubmitted !== true && value.submittedRunId !== undefined) {
+      throw new TypeError(
+        "Agent chat queue submittedRunId requires alreadySubmitted.",
+      );
+    }
     return {
       queuedMessages: storedQueue(value.queuedMessages, threadId, now()),
       ...(message ? { message } : {}),
       ...(claimedMessage ? { claimedMessage } : {}),
+      ...(value.alreadySubmitted === true && submittedRunId
+        ? { alreadySubmitted: true as const, submittedRunId }
+        : {}),
       ...(value.submissionExpired === true ? { submissionExpired: true } : {}),
     };
   }
@@ -3955,6 +3984,18 @@ export function createAgentNativeAgentKitTransport(
         }
         if (!result.message) {
           throw new TypeError("Agent chat queue mutation omitted its message.");
+        }
+        if (result.alreadySubmitted) {
+          if (!result.submittedRunId) {
+            throw new TypeError(
+              "Agent chat queue submission receipt must include submittedRunId.",
+            );
+          }
+          return {
+            message: result.message,
+            alreadySubmitted: true,
+            submittedRunId: result.submittedRunId,
+          };
         }
         return { message: result.message };
       },
