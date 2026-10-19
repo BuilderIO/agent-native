@@ -2,6 +2,7 @@
 
 import type {
   ContentDatabaseItem,
+  ContentDatabaseItemLayout,
   ContentDatabaseSource,
   ContentDatabaseSourceChangeSet,
   ContentDatabaseSourceExecution,
@@ -1809,6 +1810,33 @@ describe("database item preview", () => {
       databasePreviewDocumentId: row.document.id,
       databasePreviewTitle: "Launch brief",
     });
+  });
+
+  it("reports a list view's row layout, and null for default rows", () => {
+    const itemLayout: ContentDatabaseItemLayout = {
+      leading: { kind: "checkbox", propertyId: "done" },
+      titleWeight: "bold",
+      line2: { propertyId: null, lines: 1 },
+      line3: [],
+      trailing: [],
+    };
+    const state = (
+      activeView: Parameters<typeof databaseNavigationState>[0]["activeView"],
+    ) =>
+      databaseNavigationState({
+        document: { id: "database-doc", title: "Content calendar" },
+        databaseId: "database",
+        activeView,
+        previewItem: null,
+      }).databaseItemLayout;
+
+    expect(
+      state({ id: "list", name: "List", type: "list", itemLayout }),
+    ).toEqual(itemLayout);
+    expect(state({ id: "list", name: "List", type: "list" })).toBeNull();
+    expect(
+      state({ id: "table", name: "Table", type: "table", itemLayout }),
+    ).toBeUndefined();
   });
 
   it("includes source status in navigation state when a database is source-backed", () => {

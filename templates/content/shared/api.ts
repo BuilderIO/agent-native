@@ -441,6 +441,22 @@ export interface ContentDatabaseFormQuestion {
   required: boolean;
 }
 
+export type ContentDatabaseItemLeadingKind =
+  | "none"
+  | "page_icon"
+  | "checkbox"
+  | "status";
+export type ContentDatabaseItemTitleWeight = "regular" | "medium" | "bold";
+
+/** Which property fills each part of a list row. */
+export interface ContentDatabaseItemLayout {
+  leading: { kind: ContentDatabaseItemLeadingKind; propertyId: string | null };
+  titleWeight: ContentDatabaseItemTitleWeight;
+  line2: { propertyId: string | null; lines: 1 | 2 | 3 };
+  line3: string[];
+  trailing: string[];
+}
+
 export interface ContentDatabaseView {
   id: string;
   name: string;
@@ -465,6 +481,8 @@ export interface ContentDatabaseView {
   rowDensity?: ContentDatabaseRowDensity;
   openPagesIn?: ContentDatabaseOpenPagesIn;
   formQuestions?: ContentDatabaseFormQuestion[];
+  /** List rows only. Null or absent keeps the default rows. */
+  itemLayout?: ContentDatabaseItemLayout | null;
 }
 
 export interface ContentDatabaseViewConfig {

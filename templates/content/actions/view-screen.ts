@@ -24,6 +24,7 @@ import type {
   ContentDatabaseViewType,
   DocumentProperty,
 } from "../shared/api.js";
+import { normalizeContentDatabaseItemLayout } from "../shared/database-item-layout.js";
 import {
   databaseColumnWraps,
   databaseFrozenColumnIds,
@@ -782,6 +783,17 @@ export function databaseCurrentViewSnapshot(
       "preview",
     formQuestions:
       arrayValue(nav.databaseFormQuestions) ?? activeView?.formQuestions ?? [],
+    ...(viewType === "list"
+      ? {
+          // An explicit null is a reset to default rows that may not be saved yet.
+          itemLayout:
+            nav.databaseItemLayout === null
+              ? null
+              : (normalizeContentDatabaseItemLayout(nav.databaseItemLayout) ??
+                activeView?.itemLayout ??
+                null),
+        }
+      : {}),
     visibleItemCount:
       numberValue(nav.databaseVisibleItemCount) ??
       response.pagination?.returnedItems ??

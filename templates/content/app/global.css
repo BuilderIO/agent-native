@@ -74,6 +74,9 @@
 
 @theme {
   --color-sidebar-muted: hsl(var(--sidebar-muted));
+  /* Checked, selected, and focused controls in collection views, the same in
+     light and dark mode. */
+  --color-database-blue: #2383e2;
   /* Comment cards: resting in the margin, floating as a popover, and the
      lifted state for the hovered, focused, or selected thread. */
   --shadow-comment-card:

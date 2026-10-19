@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 
 import type {
   ContentDatabaseItem,
+  ContentDatabaseItemLayout,
   ContentDatabaseResponse,
   ContentDatabaseSource,
   ContentDatabaseSourceReviewPayload,
@@ -74,6 +75,7 @@ import {
   preparedBuilderReviewMatches,
   requestedDatabaseViewId,
   exactRequestedDatabaseViewUnavailable,
+  updateDatabaseViewType,
 } from "./DatabaseView";
 
 describe("database view icons", () => {
@@ -90,6 +92,70 @@ describe("database view icons", () => {
     expect(
       updateDatabaseViewIcon(changed, changed.activeViewId, null).views[0].icon,
     ).toBeNull();
+  });
+});
+
+describe("list view item layouts", () => {
+  const itemLayout: ContentDatabaseItemLayout = {
+    leading: { kind: "checkbox", propertyId: "done" },
+    titleWeight: "bold",
+    line2: { propertyId: "pitch", lines: 2 },
+    line3: ["due"],
+    trailing: [],
+  };
+
+  it("keeps a row layout through normalization, type changes, and duplication", () => {
+    const config = normalizeClientDatabaseViewConfig({
+      activeViewId: "ideas",
+      views: [
+        {
+          id: "ideas",
+          name: "Ideas",
+          type: "list",
+          sorts: [],
+          filters: [],
+          columnWidths: {},
+          itemLayout,
+        },
+      ],
+      sorts: [],
+      filters: [],
+      columnWidths: {},
+    });
+    expect(config.views[0].itemLayout).toEqual(itemLayout);
+    expect(duplicateDatabaseView(config, "ideas").views[1].itemLayout).toEqual(
+      itemLayout,
+    );
+    expect(
+      updateDatabaseViewType(config, "ideas", "table").views[0].itemLayout,
+    ).toEqual(itemLayout);
+  });
+
+  it("keeps a cleared layout as null so the reset reaches the server", () => {
+    const config = normalizeClientDatabaseViewConfig({
+      activeViewId: "ideas",
+      views: [
+        {
+          id: "ideas",
+          name: "Ideas",
+          type: "list",
+          sorts: [],
+          filters: [],
+          columnWidths: {},
+          itemLayout: null,
+        },
+      ],
+      sorts: [],
+      filters: [],
+      columnWidths: {},
+    });
+    expect(config.views[0]).toHaveProperty("itemLayout", null);
+    expect(
+      normalizeClientDatabaseViewConfig({
+        ...config,
+        views: [{ ...config.views[0], itemLayout: undefined }],
+      }).views[0],
+    ).not.toHaveProperty("itemLayout");
   });
 });
 

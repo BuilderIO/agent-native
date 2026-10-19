@@ -30,6 +30,7 @@ import type {
   DocumentProperty,
 } from "../shared/api.js";
 import { blocksFieldId } from "../shared/blocks-field-identity.js";
+import { contentDatabaseItemLayoutField } from "../shared/database-item-layout.js";
 import {
   DEFAULT_BLOCKS_FIELD_NAME,
   defaultPropertyOptions,
@@ -398,6 +399,7 @@ function defaultDatabaseView(
     rowDensity: normalizeDatabaseRowDensity(values.rowDensity),
     openPagesIn: normalizeDatabaseOpenPagesIn(values.openPagesIn),
     formQuestions: normalizeDatabaseFormQuestions(values.formQuestions),
+    ...contentDatabaseItemLayoutField(values.itemLayout),
   };
 }
 
@@ -460,6 +462,7 @@ function normalizeDatabaseView(value: unknown): ContentDatabaseView | null {
     rowDensity: normalizeDatabaseRowDensity(view.rowDensity),
     openPagesIn: normalizeDatabaseOpenPagesIn(view.openPagesIn),
     formQuestions: normalizeDatabaseFormQuestions(view.formQuestions),
+    ...contentDatabaseItemLayoutField(view.itemLayout),
   };
 }
 

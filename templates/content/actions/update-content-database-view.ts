@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { syncPrivateViewIconReferences } from "../server/lib/private-icon-references.js";
+import { withSavedContentDatabaseItemLayout } from "../shared/database-item-layout.js";
 import { withSavedTableColumnPresentation } from "../shared/database-table-columns.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import {
@@ -18,6 +19,7 @@ import {
 } from "./_database-setup-mutation.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
 import {
+  contentDatabaseItemLayoutSchema,
   runReplaceContentDatabaseViews,
   runUpdateContentDatabaseView,
   updateContentDatabaseViewAgentSchema,
@@ -126,6 +128,7 @@ const viewSchema = z
       .default("default"),
     openPagesIn: z.enum(["preview", "full_page"]).default("preview"),
     formQuestions: z.array(formQuestionSchema).default([]),
+    itemLayout: contentDatabaseItemLayoutSchema.nullable().optional(),
   })
   .strict();
 
@@ -155,7 +158,7 @@ const guardedViewReplacementSchema = setupGuardSchema
 
 export default defineAction({
   description:
-    "Create one named ordinary table view or sparsely update one exact saved table view using stable property IDs, fresh schema and configuration revisions, and an idempotency key.",
+    "Create one named ordinary table view, or sparsely update one exact saved table view or a list view's name, icon, and row layout (itemLayout, itemLayoutPreset), using stable property IDs, fresh schema and configuration revisions, and an idempotency key.",
   mcpTool: true,
   mcpApp: { structuredContent: true },
   agentInputSchema: updateContentDatabaseViewAgentSchema,
@@ -228,7 +231,10 @@ export default defineAction({
       const nextViewConfig = {
         ...viewConfig,
         views: viewConfig.views?.map((view) =>
-          withSavedTableColumnPresentation(view, currentViewConfig.views),
+          withSavedContentDatabaseItemLayout(
+            withSavedTableColumnPresentation(view, currentViewConfig.views),
+            currentViewConfig.views,
+          ),
         ),
       };
       const nextViewConfigJson = serializeDatabaseViewConfig(nextViewConfig);

@@ -172,6 +172,7 @@ export function databaseNavigationState({
     | "rowDensity"
     | "openPagesIn"
     | "formQuestions"
+    | "itemLayout"
   >;
   searchQuery?: string;
   sorts?: DatabaseSort[];
@@ -286,6 +287,8 @@ export function databaseNavigationState({
         : undefined,
     databaseFormQuestions:
       activeView.type === "form" ? activeView.formQuestions : undefined,
+    databaseItemLayout:
+      activeView.type === "list" ? (activeView.itemLayout ?? null) : undefined,
     databaseVisibleItemCount: visibleItemCount,
     databaseTotalItemCount: totalItemCount,
     databaseVisibleItems: databaseVisibleItemSummaries(

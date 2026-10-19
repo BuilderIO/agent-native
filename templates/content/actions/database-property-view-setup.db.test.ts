@@ -354,4 +354,191 @@ describe("ordinary property and table-view setup", () => {
         : null,
     ).toBe(latest.configurationRevision);
   });
+
+  it("sets a list view's row layout from a preset and slot patches", async () => {
+    const created = await asOwner(() =>
+      createDatabase.run({
+        spaceId,
+        title: "List rows",
+        idempotencyKey: "list-rows-database",
+      }),
+    );
+    const target = {
+      spaceId,
+      databaseId: created.database.id,
+      databaseDocumentId: created.database.documentId,
+    };
+    const revisions = async () => {
+      const fresh = await asOwner(() =>
+        readDatabase.run({ databaseId: created.database.id }),
+      );
+      if (
+        !("mutationContract" in fresh) ||
+        !fresh.mutationContract ||
+        !("configurationRevision" in fresh)
+      ) {
+        throw new Error("Expected setup revisions");
+      }
+      return {
+        expectedSchemaRevision: fresh.mutationContract.schemaRevision,
+        expectedConfigurationRevision: fresh.configurationRevision,
+      };
+    };
+    const propertyIds: Record<string, string> = {};
+    for (const [name, type] of [
+      ["Done", "checkbox"],
+      ["Pitch", "text"],
+      ["Due", "date"],
+    ] as const) {
+      const { expectedSchemaRevision } = await revisions();
+      const result = await asOwner(() =>
+        configureProperty.run({
+          operation: "create",
+          target,
+          expectedSchemaRevision,
+          idempotencyKey: `create-${name}`,
+          definition: { name, type },
+        }),
+      );
+      propertyIds[name] = result.value.id;
+    }
+    await getDb()
+      .update(schema.contentDatabases)
+      .set({
+        viewConfigJson: JSON.stringify({
+          activeViewId: "ideas",
+          views: [
+            { id: "ideas", name: "Ideas", type: "list" },
+            { id: "default", name: "Table", type: "table" },
+          ],
+        }),
+      })
+      .where(eq(schema.contentDatabases.id, created.database.id));
+    const update = async (
+      idempotencyKey: string,
+      viewId: string,
+      patch: Record<string, unknown>,
+    ) =>
+      asOwner(async () =>
+        updateView.run({
+          operation: "update",
+          target,
+          ...(await revisions()),
+          idempotencyKey,
+          viewId,
+          patch,
+        } as never),
+      );
+
+    const checklist = await update("checklist", "ideas", {
+      itemLayoutPreset: "checklist",
+    });
+    expect(checklist.value.itemLayout).toEqual({
+      leading: { kind: "checkbox", propertyId: propertyIds.Done },
+      titleWeight: "bold",
+      line2: { propertyId: propertyIds.Pitch, lines: 2 },
+      line3: [],
+      trailing: [],
+    });
+
+    const tweaked = await update("tweak", "ideas", {
+      itemLayout: { titleWeight: "regular", trailing: [propertyIds.Due] },
+    });
+    expect(tweaked.value.itemLayout).toEqual({
+      leading: { kind: "checkbox", propertyId: propertyIds.Done },
+      titleWeight: "regular",
+      line2: { propertyId: propertyIds.Pitch, lines: 2 },
+      line3: [],
+      trailing: [propertyIds.Due],
+    });
+    const listed = await asOwner(() =>
+      readDatabase.run({ databaseId: created.database.id }),
+    );
+    expect(
+      listed.database.viewConfig.views.find((view) => view.id === "ideas")
+        ?.itemLayout,
+    ).toEqual(tweaked.value.itemLayout);
+
+    await expect(
+      update("date-line2", "ideas", {
+        itemLayout: { line2: { propertyId: propertyIds.Due } },
+      }),
+    ).rejects.toMatchObject({ errorCode: "INVALID_VIEW_REFERENCE" });
+    await expect(
+      update("list-wrap", "ideas", { wrapCells: true }),
+    ).rejects.toMatchObject({ errorCode: "UNSUPPORTED_SCHEMA_CHANGE" });
+    await expect(
+      update("table-layout", "default", { itemLayoutPreset: "digest" }),
+    ).rejects.toMatchObject({ errorCode: "UNSUPPORTED_SCHEMA_CHANGE" });
+
+    type SavedView = Record<string, unknown> & { id: string };
+    const saved = async () => {
+      const read = await asOwner(() =>
+        readDatabase.run({ databaseId: created.database.id }),
+      );
+      const viewConfig = read.database.viewConfig;
+      return {
+        viewConfig,
+        layout: viewConfig.views.find((view) => view.id === "ideas")
+          ?.itemLayout,
+      };
+    };
+    const changeIdeas = async (change: (view: SavedView) => SavedView) => {
+      const { viewConfig } = await saved();
+      return {
+        ...viewConfig,
+        views: viewConfig.views.map((view) =>
+          view.id === "ideas" ? change(view as SavedView) : view,
+        ),
+      };
+    };
+    const replace = async (
+      idempotencyKey: string,
+      change: (view: SavedView) => SavedView,
+    ) => {
+      const viewConfig = await changeIdeas(change);
+      return asOwner(async () =>
+        updateView.run({
+          operation: "replace",
+          target,
+          ...(await revisions()),
+          idempotencyKey,
+          viewConfig,
+        } as never),
+      );
+    };
+    const legacySave = async (change: (view: SavedView) => SavedView) => {
+      const viewConfig = await changeIdeas(change);
+      return asOwner(() =>
+        updateView.run({
+          databaseId: created.database.id,
+          viewConfig,
+        } as never),
+      );
+    };
+    const withoutLayout = ({ itemLayout: _layout, ...view }: SavedView) =>
+      view as SavedView;
+
+    // Saves from clients that don't know about layouts keep the saved one.
+    await replace("replace-without-layout", (view) => ({
+      ...withoutLayout(view),
+      name: "Ideas list",
+    }));
+    expect((await saved()).layout).toEqual(tweaked.value.itemLayout);
+    await legacySave(withoutLayout);
+    expect((await saved()).layout).toEqual(tweaked.value.itemLayout);
+
+    // Picking Default sends an explicit null, which clears the layout.
+    await legacySave((view) => ({ ...view, itemLayout: null }));
+    expect((await saved()).layout).toBeNull();
+
+    await update("checklist-again", "ideas", { itemLayoutPreset: "checklist" });
+    const reset = await update("reset", "ideas", { itemLayout: null });
+    expect(reset.value).toHaveProperty("itemLayout", null);
+
+    await update("checklist-third", "ideas", { itemLayoutPreset: "checklist" });
+    expect((await saved()).layout).toEqual(checklist.value.itemLayout);
+    await replace("replace-default", (view) => ({ ...view, itemLayout: null }));
+    expect((await saved()).layout).toBeNull();
+  });
 });
