@@ -245,16 +245,18 @@ export function adaptAutoTextColorForCrossScreenNode(
       moved.removeAttribute(BOARD_TEXT_AUTO_COLOR_MARKER);
       markerStripped = true;
     }
+    const destinationIsLight = destinationBackgroundIsLightForNode(
+      moved,
+      liveDestDoc,
+    );
     const shouldAdapt = shouldAdaptAutoTextColorForCrossScreenMove({
       inlineColor: el.style.color,
       hasAutoMarker: hasAutoMarker && !markerStripped,
-      destinationBackgroundIsLight: destinationBackgroundIsLightForNode(
-        moved,
-        liveDestDoc,
-      ),
+      destinationBackgroundIsLight: destinationIsLight,
     });
     if (!shouldAdapt && !markerStripped) return content;
-    if (shouldAdapt) el.style.color = "inherit";
+    if (shouldAdapt)
+      el.style.color = destinationIsLight ? "#000000" : "#ffffff";
     return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
   } catch {
     return content;

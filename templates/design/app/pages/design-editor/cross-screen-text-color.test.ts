@@ -21,7 +21,10 @@ describe("adaptAutoTextColorForCrossScreenNode", () => {
       '[data-agent-native-node-id="text"]',
     );
 
-    expect(text?.style.color).toBe("inherit");
+    expect(text?.style.color).toBe("#ffffff");
+    expect(text?.ownerDocument.defaultView?.getComputedStyle(text).color).toBe(
+      "#ffffff",
+    );
     expect(text?.hasAttribute(BOARD_TEXT_AUTO_COLOR_MARKER)).toBe(true);
   });
 });
