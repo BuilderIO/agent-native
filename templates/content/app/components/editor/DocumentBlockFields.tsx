@@ -78,6 +78,7 @@ import {
 import {
   acquireBlockFieldSaveController,
   blockFieldSaveImplRef,
+  forgetBlockFieldSaveController,
   peekBlockFieldSaveController,
   releaseBlockFieldSaveController,
 } from "./blockFieldSaveRegistry";
@@ -684,11 +685,17 @@ function MultiBlockFields({
   }, [onPrimaryFieldTabChange, primaryId, primaryOpen]);
 
   // The first tab is the one without `?field=`. When a reorder (or a deep
-  // link) leaves the URL naming the first tab, drop the parameter.
+  // link) leaves the URL naming the first tab, or a field this row doesn't
+  // have, drop the parameter so the URL names the tab that's open.
   useEffect(() => {
     if (!syncsUrl) return;
     const requested = requestedIdRef.current;
-    if (requested !== null && requested === fieldIds[0]) writeSelection(null);
+    if (
+      requested !== null &&
+      (requested === fieldIds[0] || !fieldIds.includes(requested))
+    ) {
+      writeSelection(null);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fieldOrderKey, syncsUrl]);
 
@@ -914,6 +921,9 @@ function MultiBlockFields({
       id === selectedId && next ? next : (selectedId ?? id);
     try {
       await remove.mutateAsync({ documentId, propertyId: id });
+      // Unsaved typing in the deleted field can't save anywhere now; don't let
+      // its failed save block leaving the page or suggesting.
+      forgetBlockFieldSaveController(`${documentId}:${id}`);
     } catch (error) {
       toast.error(t("editor.deleteBlockFieldFailed"), {
         description: error instanceof Error ? error.message : undefined,

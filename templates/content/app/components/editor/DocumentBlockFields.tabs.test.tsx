@@ -435,6 +435,20 @@ describe("DocumentBlockFields tabs", () => {
 
       expect(selectedTabId()).toBe("content");
       expect(panel("content").hidden).toBe(false);
+      // The URL stops naming a field that isn't open.
+      expect(location.href).toBe("/page/doc-1");
+    });
+
+    it("drops the open tab from the URL when its field is deleted", async () => {
+      entry = "/page/doc-1?field=notes";
+      setFields([content(), notes(), field("draft", { position: 2 })]);
+      await render();
+      expect(selectedTabId()).toBe("notes");
+
+      setFields([content(), field("draft", { position: 2 })]);
+      await render();
+      expect(selectedTabId()).toBe("content");
+      expect(location.href).toBe("/page/doc-1");
     });
 
     it("drops a deep link to the first tab", async () => {
@@ -968,6 +982,25 @@ describe("DocumentBlockFields tabs", () => {
       expect(dialog()).toBeNull();
       expect(mocks.remove).not.toHaveBeenCalled();
       expect(tabs()).toHaveLength(2);
+    });
+
+    it("doesn't let a deleted field's unsaved text block leaving the page", async () => {
+      await render();
+      await click(tab("notes"));
+      await type("Notes text", "Typed just before deleting");
+      mocks.save.mockRejectedValue(new Error("Property not found"));
+
+      await rightClick(tab("notes"));
+      await choose("[data-block-field-delete]");
+      await confirmDelete();
+      setFields([content()]);
+      await render();
+
+      await act(async () => {
+        await expect(
+          flushAllBlockFieldSaveControllersForDocument("doc-1"),
+        ).resolves.toBeUndefined();
+      });
     });
 
     it("reports a failed delete", async () => {
