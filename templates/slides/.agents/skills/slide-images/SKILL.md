@@ -43,7 +43,9 @@ legacy image action directly:
    returns them.
 5. For direct insertion, call `generate-image-api` with `insertIntoSlide: true`,
    `deckId`, and `slideId`. Only say the image was added when it returns
-   `inserted: true`; a preview URL is not proof of a slide write.
+   `inserted: true`; a preview URL is not proof of a slide write. If it returns
+   `inserted: false`, report the insertion error and keep using the returned
+   image URL; do not regenerate solely because insertion failed.
 6. For preview-only variations, place the chosen URL with `update-slide`, then
    re-read the deck with `get-deck` using `compact=false` and confirm the
    persisted HTML contains the image source before reporting success.

@@ -64,7 +64,7 @@ async function insertGeneratedImage({
   slideId: string | undefined;
   prompt: string;
   url: string | undefined;
-}): Promise<{ inserted: true; url: string }> {
+}): Promise<void> {
   if (!deckId || !slideId) {
     throw new Error(
       "deckId and slideId are required when insertIntoSlide is true",
@@ -113,13 +113,31 @@ async function insertGeneratedImage({
       `Image insertion could not be verified on slide ${slideId}`,
     );
   }
+}
 
-  return { inserted: true, url: imageUrl };
+async function insertGeneratedImageWithStatus(args: {
+  deckId: string | undefined;
+  slideId: string | undefined;
+  prompt: string;
+  url: string | undefined;
+}): Promise<{ inserted: true } | { inserted: false; insertionError: string }> {
+  try {
+    await insertGeneratedImage(args);
+    return { inserted: true };
+  } catch (error) {
+    return {
+      inserted: false,
+      insertionError:
+        error instanceof Error
+          ? error.message
+          : "Image insertion failed for an unknown reason",
+    };
+  }
 }
 
 export default defineAction({
   description:
-    "Generate a slide image locally by default. Set `useBrandLibrary: true` only when the user asks for Assets' brand library or an asset/capability exclusive to Assets is required; this delegates through A2A and falls back locally only when Assets is unreachable. Show the returned `url` as inline markdown (![alt](url)), never as a bare link.",
+    "Generate a slide image locally by default. Set `useBrandLibrary: true` only when the user asks for Assets' brand library or an asset/capability exclusive to Assets is required; this delegates through A2A and falls back locally only when Assets is unreachable. Show the returned `url` as inline markdown (![alt](url)), never as a bare link. If `insertIntoSlide` returns `inserted: false`, the generated URL is still available; report the insertion error and reuse that URL instead of generating again.",
   schema: z.object({
     prompt: z.string().optional().describe("Image description (required)"),
     useBrandLibrary: z
@@ -141,7 +159,7 @@ export default defineAction({
       .optional()
       .default(false)
       .describe(
-        "Insert the generated image into deckId/slideId and verify it persisted",
+        "Insert the generated image into deckId/slideId and verify it persisted; if insertion fails, still return the generated URL with inserted: false and insertionError",
       ),
     slideContent: z
       .string()
@@ -181,7 +199,7 @@ export default defineAction({
           baseUrl: delegation.target,
         });
         const insertion = args.insertIntoSlide
-          ? await insertGeneratedImage({
+          ? await insertGeneratedImageWithStatus({
               deckId: args.deckId,
               slideId: args.slideId,
               prompt,
@@ -259,7 +277,7 @@ export default defineAction({
     }
 
     const insertion = args.insertIntoSlide
-      ? await insertGeneratedImage({
+      ? await insertGeneratedImageWithStatus({
           deckId: args.deckId,
           slideId: args.slideId,
           prompt,

@@ -427,7 +427,7 @@ describe("generate-image-api", () => {
     });
   });
 
-  it("rejects insertion when the target slide is missing", async () => {
+  it("returns the generated Assets URL when the target slide is missing", async () => {
     mockDelegateImageGenerationToAssets.mockResolvedValue({
       status: "delegated",
       reply: "previewUrl: https://cdn.example.com/generated.png",
@@ -435,19 +435,24 @@ describe("generate-image-api", () => {
     });
     mockGetDeckRun.mockResolvedValue({ slides: [] });
 
-    await expect(
-      action.run({
-        prompt: "a brand hero image",
-        deckId: "deck-1",
-        slideId: "missing-slide",
-        insertIntoSlide: true,
-        useBrandLibrary: true,
-      }),
-    ).rejects.toThrow("was not found");
+    const result = await action.run({
+      prompt: "a brand hero image",
+      deckId: "deck-1",
+      slideId: "missing-slide",
+      insertIntoSlide: true,
+      useBrandLibrary: true,
+    });
+    expect(result).toMatchObject({
+      url: "https://cdn.example.com/generated.png",
+      showToUser:
+        "![a brand hero image](https://cdn.example.com/generated.png)",
+      inserted: false,
+      insertionError: expect.stringContaining("was not found"),
+    });
     expect(mockUpdateSlideRun).not.toHaveBeenCalled();
   });
 
-  it("rejects insertion when Assets returns no parseable image URL", async () => {
+  it("reports insertion failure when Assets returns no parseable image URL", async () => {
     mockDelegateImageGenerationToAssets.mockResolvedValue({
       status: "delegated",
       reply: "The image is ready.",
@@ -455,20 +460,25 @@ describe("generate-image-api", () => {
     });
     mockExtractAssetUrl.mockReturnValue(null);
 
-    await expect(
-      action.run({
-        prompt: "a brand hero image",
-        deckId: "deck-1",
-        slideId: "slide-1",
-        insertIntoSlide: true,
-        useBrandLibrary: true,
-      }),
-    ).rejects.toThrow("did not return a parseable image URL");
+    const result = await action.run({
+      prompt: "a brand hero image",
+      deckId: "deck-1",
+      slideId: "slide-1",
+      insertIntoSlide: true,
+      useBrandLibrary: true,
+    });
+    expect(result).toMatchObject({
+      source: "assets-a2a",
+      inserted: false,
+      insertionError: expect.stringContaining(
+        "did not return a parseable image URL",
+      ),
+    });
     expect(mockGetDeckRun).not.toHaveBeenCalled();
     expect(mockUpdateSlideRun).not.toHaveBeenCalled();
   });
 
-  it("rejects insertion when the write fails or cannot be verified", async () => {
+  it("returns the generated Assets URL when insertion fails or cannot be verified", async () => {
     mockDelegateImageGenerationToAssets.mockResolvedValue({
       status: "delegated",
       reply: "previewUrl: https://cdn.example.com/generated.png",
@@ -479,25 +489,63 @@ describe("generate-image-api", () => {
     );
     mockUpdateSlideRun.mockResolvedValue({ ok: true, applied: false });
 
-    await expect(
-      action.run({
-        prompt: "a brand hero image",
-        deckId: "deck-1",
-        slideId: "slide-1",
-        insertIntoSlide: true,
-        useBrandLibrary: true,
-      }),
-    ).rejects.toThrow("was not applied");
+    const failedWrite = await action.run({
+      prompt: "a brand hero image",
+      deckId: "deck-1",
+      slideId: "slide-1",
+      insertIntoSlide: true,
+      useBrandLibrary: true,
+    });
+    expect(failedWrite).toMatchObject({
+      url: "https://cdn.example.com/generated.png",
+      inserted: false,
+      insertionError: expect.stringContaining("was not applied"),
+    });
 
     mockUpdateSlideRun.mockResolvedValue({ ok: true, applied: true });
-    await expect(
-      action.run({
-        prompt: "a brand hero image",
-        deckId: "deck-1",
-        slideId: "slide-1",
-        insertIntoSlide: true,
-        useBrandLibrary: true,
-      }),
-    ).rejects.toThrow("could not be verified");
+    const unverified = await action.run({
+      prompt: "a brand hero image",
+      deckId: "deck-1",
+      slideId: "slide-1",
+      insertIntoSlide: true,
+      useBrandLibrary: true,
+    });
+    expect(unverified).toMatchObject({
+      url: "https://cdn.example.com/generated.png",
+      inserted: false,
+      insertionError: expect.stringContaining("could not be verified"),
+    });
+  });
+
+  it("preserves a locally uploaded image URL when slide insertion fails", async () => {
+    mockProviderGenerate.mockResolvedValue({
+      imageData: Buffer.from("local-image"),
+      mimeType: "image/png",
+      model: "gemini",
+      provider: "gemini",
+    });
+    mockGetProvider.mockResolvedValue({ generate: mockProviderGenerate });
+    mockUploadFile.mockResolvedValue({
+      url: "https://cdn.example.com/local.png",
+    });
+    mockGetDeckRun.mockResolvedValue(
+      deckWithSlide('<div class="fmd-slide">Original</div>'),
+    );
+    mockUpdateSlideRun.mockResolvedValue({ ok: true, applied: false });
+
+    const result = await action.run({
+      prompt: "a local hero image",
+      deckId: "deck-1",
+      slideId: "slide-1",
+      insertIntoSlide: true,
+    });
+
+    expect(result).toMatchObject({
+      source: "slides-local",
+      url: "https://cdn.example.com/local.png",
+      showToUser: "![a local hero image](https://cdn.example.com/local.png)",
+      inserted: false,
+      insertionError: expect.stringContaining("was not applied"),
+    });
   });
 });
