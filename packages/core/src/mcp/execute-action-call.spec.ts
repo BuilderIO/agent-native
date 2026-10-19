@@ -16,9 +16,11 @@ import { runWithRequestContext } from "../server/request-context.js";
 import {
   type McpActionCallContext,
   type McpActionCallOutcome,
+  embedCredentialGuard,
   executeMcpActionCall,
-  purgeEmbedStartUrls,
+  redactEmbedCredentials,
   runMcpActionCallUnredacted,
+  UnreadableResultError,
 } from "./execute-action-call.js";
 
 const grants = vi.hoisted(() => new Map<string, any>());
@@ -158,6 +160,38 @@ describe("executeMcpActionCall", () => {
       status: "completed",
       reportedError: true,
       value: { isError: true, detail: "nope" },
+    });
+  });
+
+  it("hides a ticket a proxied result echoes away from its start URL", async () => {
+    const echoed = "Sign in with code secret-ticket.";
+    const outcome = await execute(
+      {
+        proxy: entry({
+          run: async () => ({
+            [MCP_ACTION_RESULT_MARKER]: true,
+            text: echoed,
+            raw: {
+              content: [{ type: "text", text: echoed }],
+              _meta: { "agent-native/embedStart": { startUrl: EMBED_START } },
+            },
+            serverId: "upstream",
+            toolName: "upstream__session",
+            originalToolName: "session",
+            input: {},
+          }),
+        }),
+      },
+      "proxy",
+    );
+
+    expect(outcome).toEqual({
+      status: "completed",
+      reportedError: false,
+      value: {
+        content: [{ type: "text", text: "[hidden embed ticket]" }],
+        _meta: {},
+      },
     });
   });
 
@@ -761,6 +795,11 @@ describe("executeMcpActionCall sanitizing", () => {
   it("redacts a deeply nested result in work linear in its depth", async () => {
     const listed = vi.spyOn(Object, "entries");
     try {
+      const flat = entry({ readOnly: true, run: async () => "ordinary" });
+      listed.mockClear();
+      await execute({ read: flat }, "read");
+      // What the call lists whatever it returns, such as its arguments.
+      const baseline = listed.mock.calls.length;
       for (const depth of [100, 200, 400, 800, 1600]) {
         let nested: unknown = "ordinary";
         for (let level = 0; level < depth; level += 1) {
@@ -775,10 +814,12 @@ describe("executeMcpActionCall sanitizing", () => {
           value: nested,
           reportedError: false,
         });
-        // Each object is listed once for its embed signal and once to copy it.
-        // Rescanning every subtree from every level lists the chain's objects
-        // depth * (depth + 3) / 2 times.
-        expect(listings, `depth ${depth}`).toBeLessThanOrEqual(3 * depth);
+        // Each object is listed once for the value's embed context and once
+        // to copy it redacted. Rescanning every subtree from every level lists
+        // the chain's objects depth * (depth + 3) / 2 times.
+        expect(listings - baseline, `depth ${depth}`).toBeLessThanOrEqual(
+          2 * depth,
+        );
       }
     } finally {
       listed.mockRestore();
@@ -805,10 +846,235 @@ describe("executeMcpActionCall sanitizing", () => {
         Object.getOwnPropertyDescriptor(value.nested, "__proto__")!.value,
       ),
     ).toBe(true);
-    // The direct wire path keeps dropping such keys, as it always has.
+  });
+
+  it("redacts a value that holds itself, as the direct path can be handed one", () => {
+    const value: Record<string, unknown> = {
+      next: nestedEmbedStarts[0],
+      ticket: "secret-ticket",
+      keep: "me",
+    };
+    value.items = [value, { ticket: "secret-ticket" }];
+
+    expect(redactEmbedCredentials(value)).toEqual({
+      keep: "me",
+      items: ["[circular result]", {}],
+    });
+  });
+
+  it("hides an echoed credential whatever characters it holds", () => {
     expect(
-      Object.keys(purgeEmbedStartUrls(JSON.parse(json)) as object),
-    ).toEqual(["nested"]);
+      redactEmbedCredentials({
+        next: EMBED_START,
+        ticket: "a.b+c(d)[e]$f",
+        note: "Use a.b+c(d)[e]$f or secret-ticket-2.",
+      }),
+    ).toEqual({
+      note: "[hidden embed ticket]",
+    });
+  });
+
+  it("hides many credentials across a large result with one pattern", () => {
+    const tickets = Array.from(
+      { length: 500 },
+      (_, index) => `ticket-${String(index).padStart(8, "0")}`,
+    );
+    const value = {
+      next: EMBED_START,
+      sessions: tickets.map((ticket) => ({ ticket })),
+      notes: Array.from(
+        { length: 5000 },
+        (_, index) => `Row ${index} echoes ${tickets[index % tickets.length]}.`,
+      ),
+    };
+    let patterns = 0;
+    vi.stubGlobal(
+      "RegExp",
+      new Proxy(RegExp, {
+        construct(target, args) {
+          patterns += 1;
+          return new target(...(args as [string, string?]));
+        },
+      }),
+    );
+    let redacted: unknown;
+    try {
+      redacted = redactEmbedCredentials(value);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(patterns).toBe(1);
+    expect(redacted).toEqual({
+      sessions: tickets.map(() => ({})),
+      notes: value.notes.map(() => "[hidden embed ticket]"),
+    });
+  });
+
+  describe("echoes of a minted ticket", () => {
+    const ticket = "Abcdefghijklmnopqrstuvwxyz0123456789_-ABCDE";
+    const start = `https://mail.agent-native.com/_agent-native/embed/start?ticket=${ticket}`;
+    const encoded = (text: string, times: number) => {
+      let out = text;
+      for (let layer = 0; layer < times; layer += 1) {
+        out = encodeURIComponent(out);
+      }
+      return out;
+    };
+
+    it("learns nothing from image bytes, but reads the rest of an image", () => {
+      // Base64 whose letters run "embedstart", which the loose route match
+      // reads as naming the route, so reading it would put the call in embed
+      // context.
+      const bytes = `${"QUJD".repeat(500_000)}embedstart`;
+      const image = (fields: Record<string, unknown>) => ({
+        _agentImages: [{ mediaType: "image/png", ...fields }],
+      });
+      expect(embedCredentialGuard({ note: bytes }).embedContext).toBe(true);
+      expect(embedCredentialGuard(image({ data: bytes })).embedContext).toBe(
+        false,
+      );
+      expect(
+        embedCredentialGuard(image({ data: `data:image/png;base64,${bytes}` }))
+          .embedContext,
+      ).toBe(false);
+      expect(
+        embedCredentialGuard(image({ data: "aGVsbG8=", label: "embedstart" }))
+          .embedContext,
+      ).toBe(true);
+      expect(embedCredentialGuard(image({ url: start })).credentials).toEqual([
+        ticket,
+      ]);
+      // Data that is not image bytes is read, so a start URL in it is learned.
+      expect(embedCredentialGuard(image({ data: start })).credentials).toEqual([
+        ticket,
+      ]);
+    });
+
+    it("reads a ticket without the punctuation that ends its sentence", () => {
+      for (const prose of [`Open ${start}.`, `${start}.`, `(see ${start})`]) {
+        expect(embedCredentialGuard(prose).credentials, prose).toEqual([
+          ticket,
+        ]);
+        expect(
+          redactEmbedCredentials([prose, `Your code is ${ticket}.`]),
+          prose,
+        ).toEqual(["[hidden embed URL]", "[hidden embed ticket]"]);
+      }
+    });
+
+    it("hides a string that echoes a ticket under any escaping it decodes", () => {
+      const characters = [...ticket];
+      const hex = (character: string) =>
+        character.charCodeAt(0).toString(16).padStart(2, "0");
+      const percent = characters.map((c) => `%${hex(c)}`).join("");
+      const html = characters.map((c) => `&#${c.charCodeAt(0)};`).join("");
+      const script = characters
+        .map((c) => `${String.fromCharCode(92)}x${hex(c)}`)
+        .join("");
+
+      expect(
+        redactEmbedCredentials([
+          start,
+          `https://elsewhere.example/?code=${percent}`,
+          `Code: ${html}`,
+          `Code: ${script}`,
+        ]),
+      ).toEqual([
+        "[hidden embed URL]",
+        "[hidden embed ticket]",
+        "[hidden embed ticket]",
+        "[hidden embed ticket]",
+      ]);
+      expect(
+        redactEmbedCredentials({ next: start, [ticket]: "x", keep: "me" }),
+      ).toEqual({ keep: "me" });
+    });
+
+    it("reads a ticket field in any escaping it decodes", () => {
+      const code = (character: string) => character.charCodeAt(0);
+      const spellings = [
+        [...ticket].map((c) => `%${code(c).toString(16)}`).join(""),
+        [...ticket].map((c) => `&#${code(c)};`).join(""),
+        [...ticket]
+          .map(
+            (c) =>
+              `${String.fromCharCode(92)}u${code(c).toString(16).padStart(4, "0")}`,
+          )
+          .join(""),
+      ];
+      for (const spelling of spellings) {
+        expect(
+          embedCredentialGuard({ embedTargetPath: "/inbox", ticket: spelling })
+            .credentials,
+          spelling,
+        ).toContain(ticket);
+        expect(
+          redactEmbedCredentials({
+            embedTargetPath: "/inbox",
+            ticket: spelling,
+            note: `Code ${ticket}`,
+          }),
+          spelling,
+        ).toEqual({ note: "[hidden embed ticket]" });
+      }
+    });
+
+    it("reads every layer to the cap and withholds a result escaped deeper", async () => {
+      // Escaped exactly as many times as it reads (MAX_DECODE_ROUNDS, 8).
+      const atCap = `https://redirect.example/?next=${encoded(start, 8)}`;
+      expect(redactEmbedCredentials([atCap, `Code: ${ticket}`])).toEqual([
+        "[hidden embed URL]",
+        "[hidden embed ticket]",
+      ]);
+
+      // Deliberate: one layer deeper, credential or not, and no part of the
+      // result is shown.
+      const overCap = `https://redirect.example/?next=${encoded("https://example.com/plain", 9)}`;
+      expect(() => redactEmbedCredentials([overCap, "plain"])).toThrow(
+        UnreadableResultError,
+      );
+      expect(() =>
+        redactEmbedCredentials("plain", embedCredentialGuard({ overCap })),
+      ).toThrow(UnreadableResultError);
+      expect(() => redactEmbedCredentials({ [overCap]: "plain" })).toThrow(
+        UnreadableResultError,
+      );
+      await expect(
+        execute(
+          { deep: entry({ run: async () => ({ next: overCap, keep: "me" }) }) },
+          "deep",
+        ),
+      ).resolves.toEqual({
+        status: "failed",
+        stage: "result",
+        message: "The result could not be checked for embed credentials.",
+        errorCode: undefined,
+      });
+      // An error message is the whole output, so it is hidden instead.
+      await expect(
+        execute(
+          {
+            fails: entry({
+              run: async () => {
+                throw new Error(overCap);
+              },
+            }),
+          },
+          "fails",
+        ),
+      ).resolves.toMatchObject({
+        stage: "action",
+        message: "[hidden embed URL]",
+      });
+
+      const once = `https://redirect.example/?next=${encoded("https://mail.agent-native.com/inbox", 1)}`;
+      expect(redactEmbedCredentials([once])).toEqual([once]);
+      expect(redactEmbedCredentials([start, once])).toEqual([
+        "[hidden embed URL]",
+        once,
+      ]);
+    });
   });
 
   it("keeps the failure stage when the error itself cannot be read", async () => {
