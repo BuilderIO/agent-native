@@ -1427,6 +1427,82 @@ describe("primary Blocks value reflects the body, never the title (finding: word
     });
   });
 
+  it("refuses an agent's Blocks field write without the field revision", async () => {
+    const { databaseId, documentId: databaseDocumentId } =
+      await createDatabaseRow();
+    const now = new Date().toISOString();
+    await propertyUtils.seedDefaultBlocksField({
+      databaseId,
+      ownerEmail: OWNER,
+      orgId: null,
+      now,
+    });
+    const documentId = `agent_write_${databaseId}`;
+    await getDb().insert(schema.documents).values({
+      id: documentId,
+      ownerEmail: OWNER,
+      parentId: databaseDocumentId,
+      title: "Poem",
+      content: "",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb()
+      .insert(schema.contentDatabaseItems)
+      .values({
+        id: `item_${documentId}`,
+        ownerEmail: OWNER,
+        databaseId,
+        documentId,
+        position: 0,
+        createdAt: now,
+        updatedAt: now,
+      });
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      const notes = await configureDocumentPropertyAction.run({
+        documentId,
+        databaseId,
+        name: "Notes",
+        type: "blocks",
+      });
+      const propertyId = notes.properties.find(
+        (property: any) => property.definition.name === "Notes",
+      )!.definition.id;
+      const agent = { caller: "mcp", userEmail: OWNER } as const;
+
+      await expect(
+        setDocumentPropertyAction.run(
+          { documentId, databaseId, propertyId, value: "Unguarded" },
+          agent,
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "BLOCKS_FIELD_REVISION_REQUIRED",
+        statusCode: 400,
+      });
+      const [unchanged] = await getDb()
+        .select()
+        .from(schema.documentBlockFieldContents)
+        .where(eq(schema.documentBlockFieldContents.documentId, documentId));
+      expect(unchanged).toBeUndefined();
+
+      await setDocumentPropertyAction.run(
+        {
+          documentId,
+          databaseId,
+          propertyId,
+          value: "Guarded",
+          expectedBlocksFieldRevision: 0,
+        },
+        agent,
+      );
+      const [saved] = await getDb()
+        .select()
+        .from(schema.documentBlockFieldContents)
+        .where(eq(schema.documentBlockFieldContents.documentId, documentId));
+      expect(saved?.content).toBe("Guarded");
+    });
+  });
+
   it("a row with a title but empty body resolves the primary Blocks value to '' (0 words / Empty)", async () => {
     const { databaseId } = await createDatabaseRow();
     const now = new Date().toISOString();

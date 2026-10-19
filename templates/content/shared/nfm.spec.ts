@@ -889,6 +889,50 @@ describe("bug fixes — reliability sweep", () => {
       expect(serialized).toBe(nfm);
       expect(canonicalizeNfm(serialized)).toBe(serialized);
     });
+
+    it.each([
+      ["a leading tab", "\tactual-tab text"],
+      ["only spaces", "  "],
+      ["only a tab", "\t"],
+    ])("keeps unmarked text with %s", (_label, text) => {
+      const doc = {
+        type: "doc",
+        content: [
+          { type: "paragraph", content: [{ type: "text", text: "before" }] },
+          { type: "paragraph", content: [{ type: "text", text }] },
+          { type: "paragraph", content: [{ type: "text", text: "after" }] },
+        ],
+      } as any;
+      const serialized = docToNfm(doc);
+      const paragraphs = nfmToDoc(serialized).content ?? [];
+
+      expect(serialized).toBe(`before\n<span>${text}</span>\nafter`);
+      expect(
+        paragraphs.map((node) =>
+          (node.content ?? []).map((child) => child.text).join(""),
+        ),
+      ).toEqual(["before", text, "after"]);
+      expect(docToNfm(nfmToDoc(serialized))).toBe(serialized);
+    });
+
+    it("leaves whitespace inside a line unwrapped", () => {
+      const doc = {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [
+              { type: "text", text: "One", marks: [{ type: "bold" }] },
+              { type: "text", text: " " },
+              { type: "text", text: "\tTwo" },
+              { type: "text", text: "\n", marks: [{ type: "code" }] },
+            ],
+          },
+        ],
+      } as any;
+
+      expect(docToNfm(doc)).toBe("**One** \tTwo`<br>`");
+    });
   });
 
   describe("dual inline colors", () => {

@@ -101,17 +101,14 @@ export default defineAction({
       .nonnegative()
       .optional()
       .describe(
-        "Expected Blocks field revision from list-content-database-blocks; omit for an unguarded write",
+        "Expected Blocks field revision from list-content-database-blocks; required when an agent writes a Blocks field",
       ),
   }),
   changeResource: (input) => documentChangeResource(input.documentId),
-  run: async ({
-    documentId,
-    databaseId,
-    propertyId,
-    value,
-    expectedBlocksFieldRevision,
-  }) => {
+  run: async (
+    { documentId, databaseId, propertyId, value, expectedBlocksFieldRevision },
+    ctx,
+  ) => {
     const db = getDb();
     const [definition] = await db
       .select()
@@ -151,6 +148,23 @@ export default defineAction({
     const now = new Date().toISOString();
 
     if (isBlocksPropertyType(type)) {
+      // Like external body updates, an agent's whole-field write must name the
+      // revision it read, so a stale copy can't replace newer text.
+      const isExternalCaller =
+        ctx?.caller === "tool" ||
+        ctx?.caller === "mcp" ||
+        ctx?.caller === "webmcp" ||
+        ctx?.caller === "a2a";
+      if (isExternalCaller && expectedBlocksFieldRevision === undefined) {
+        throw new ActionContractError(
+          "Agent Blocks field writes require expectedBlocksFieldRevision from list-content-database-blocks.",
+          {
+            errorCode: "BLOCKS_FIELD_REVISION_REQUIRED",
+            details: { propertyId },
+            statusCode: 400,
+          },
+        );
+      }
       await assertAccess("document", documentId, "editor");
       const normalized = normalizePropertyValue(type, value);
       const content = typeof normalized === "string" ? normalized : "";

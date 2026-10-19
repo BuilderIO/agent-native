@@ -204,12 +204,15 @@ function serializeInlineAtom(node: PMNode): string {
 
 function serializeInline(nodes: PMNode[] | undefined): string {
   if (!nodes || !nodes.length) return "";
-  return nodes.map(serializeInlineNode).join("");
+  return nodes
+    .map((node, index) => serializeInlineNode(node, index === 0))
+    .join("");
 }
 
 function serializeInlineTextNode(
   node: PMNode,
   collectOffsets: boolean,
+  startsLine: boolean,
 ): {
   source: string;
   textOffsets: number[] | null;
@@ -254,6 +257,9 @@ function serializeInlineTextNode(
       }
     }
   }
+  // Code text is fenced in backticks, so only plain text can start with
+  // whitespace NFM would read as indentation or a blank line.
+  const leadingWhitespace = out.startsWith("\t") || /^\s+$/.test(out);
 
   const wrap = (prefix: string, suffix: string) => {
     out = prefix + out + suffix;
@@ -279,7 +285,11 @@ function serializeInlineTextNode(
 
   const span = markOf(node, "notionSpan");
   const plainUnderline = !!markOf(node, "underline");
-  if (span || plainUnderline) {
+  // Neutral spans keep literal whitespace out of NFM's indentation/blank-line
+  // grammar. Plain text needs one only where that grammar applies: at the
+  // start of a line.
+  const protectsWhitespace = (!!span || startsLine) && leadingWhitespace;
+  if (span || plainUnderline || protectsWhitespace) {
     const a = span?.attrs || {};
     const underlined =
       a.underline === "true" || a.underline === true || plainUnderline;
@@ -292,8 +302,6 @@ function serializeInlineTextNode(
       ["bg_color", foregroundColor ? backgroundColor : null],
       ["underline", underlined ? "true" : null],
     ]);
-    // Neutral spans keep literal whitespace out of NFM's indentation/blank-line grammar.
-    const protectsWhitespace = raw.startsWith("\t") || /^\s+$/.test(raw);
     if (attrStr || protectsWhitespace) wrap(`<span${attrStr}>`, "</span>");
   }
 
@@ -304,20 +312,23 @@ function serializeInlineTextNode(
   return { source: out, textOffsets };
 }
 
-export function serializeInlineTextNodeWithOffsets(node: PMNode): {
+export function serializeInlineTextNodeWithOffsets(
+  node: PMNode,
+  startsLine = false,
+): {
   source: string;
   textOffsets: number[];
 } | null {
-  const serialized = serializeInlineTextNode(node, true);
+  const serialized = serializeInlineTextNode(node, true, startsLine);
   return serialized?.textOffsets
     ? { source: serialized.source, textOffsets: serialized.textOffsets }
     : null;
 }
 
-export function serializeInlineNode(node: PMNode): string {
+export function serializeInlineNode(node: PMNode, startsLine = false): string {
   if (node.type === "hardBreak") return "<br>";
   if (node.type === "notionInlineAtom") return serializeInlineAtom(node);
-  const textNode = serializeInlineTextNode(node, false);
+  const textNode = serializeInlineTextNode(node, false, startsLine);
   if (textNode) return textNode.source;
   return node.text ? escapeInlineText(node.text) : "";
 }
