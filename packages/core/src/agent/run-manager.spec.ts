@@ -5466,13 +5466,29 @@ describe("run manager soft timeout", () => {
         onComplete,
         { softTimeoutMs: 0 },
       );
+      const liveEvents: AgentChatEvent[] = [];
+      run.subscribers.add((runEvent) => liveEvents.push(runEvent.event));
 
       await expect(run.finalized).rejects.toThrow(
         "permanent event persistence failure",
       );
-
       expect(attempts).toEqual([0, 0]);
       expect(durableOrder).toEqual([]);
+      expect(liveEvents).toEqual([
+        expect.objectContaining({
+          type: "error",
+          errorCode: "run_event_persistence_failed",
+        }),
+      ]);
+      expect(run.events).toEqual([
+        expect.objectContaining({
+          seq: 0,
+          event: expect.objectContaining({
+            type: "error",
+            errorCode: "run_event_persistence_failed",
+          }),
+        }),
+      ]);
       expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
         "run-persist-permanent-gap",
         "completed",

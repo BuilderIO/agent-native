@@ -1562,6 +1562,22 @@ export function startRun(
     );
   };
 
+  const publishRunEvent = (runEvent: RunEvent) => {
+    run.events.push(runEvent);
+    for (const subscriber of run.subscribers) {
+      try {
+        subscriber(runEvent);
+      } catch {
+        run.subscribers.delete(subscriber);
+      }
+    }
+    trackInFlightWork(runEvent.event);
+    if (shouldBumpProgressForEvent(runEvent.event)) {
+      lastRealProgressAt = Date.now();
+      bumpProgressIfDue();
+    }
+  };
+
   const emitRunEvent = (
     runEvent: RunEvent,
     options?: { surfacePersistenceError?: boolean },
@@ -1615,21 +1631,7 @@ export function startRun(
       persistence.catch(() => {});
     }
 
-    const publication = persistence.then(() => {
-      run.events.push(runEvent);
-      for (const subscriber of run.subscribers) {
-        try {
-          subscriber(runEvent);
-        } catch {
-          run.subscribers.delete(subscriber);
-        }
-      }
-      trackInFlightWork(runEvent.event);
-      if (shouldBumpProgressForEvent(runEvent.event)) {
-        lastRealProgressAt = Date.now();
-        bumpProgressIfDue();
-      }
-    });
+    const publication = persistence.then(() => publishRunEvent(runEvent));
     if (!options?.surfacePersistenceError) publication.catch(() => {});
 
     checkSqlAbort();
@@ -1742,7 +1744,11 @@ export function startRun(
       }
       const resolveTerminalEventForCompletion = () => {
         if (run.status === "aborted") return null;
-        if (eventPersistenceError) return pendingTerminalEvent;
+        if (eventPersistenceError) {
+          return pendingTerminalEvent
+            ? { ...pendingTerminalEvent, seq: run.events.length }
+            : null;
+        }
         const continuationTerminalEvent = run.continuationTerminalEvent
           ? {
               seq: peekRunEventSeq(run),
@@ -1831,6 +1837,7 @@ export function startRun(
         isContinuationTerminalReason(terminalReason)
           ? "truncated"
           : finalStatus;
+      let volatileTerminalEvent: RunEvent | null = null;
       const persistTerminalStatus = () =>
         completionError
           ? updateRunStatusIfRunning(runId, persistedStatus, {
@@ -1872,16 +1879,18 @@ export function startRun(
             seq: terminalEventForCompletion?.seq ?? allocateRunEventSeq(run),
             event: terminalEventToEmit,
           };
-          try {
-            await emitRunEvent(terminal, { surfacePersistenceError: true });
-          } catch (err) {
-            terminalPersistenceError = err;
-            captureRunError(err, "completion");
-            console.error(
-              "[run-manager] terminal event persistence error:",
-              err instanceof Error ? err.message : err,
-            );
-            if (!eventPersistenceError) {
+          if (eventPersistenceError) {
+            volatileTerminalEvent = terminal;
+          } else {
+            try {
+              await emitRunEvent(terminal, { surfacePersistenceError: true });
+            } catch (err) {
+              terminalPersistenceError = err;
+              captureRunError(err, "completion");
+              console.error(
+                "[run-manager] terminal event persistence error:",
+                err instanceof Error ? err.message : err,
+              );
               try {
                 await persistRunEvent(
                   terminal,
@@ -1901,8 +1910,10 @@ export function startRun(
           }
         }
       }
-      for (const subscriber of run.subscribers) {
-        run.subscribers.delete(subscriber);
+      if (!volatileTerminalEvent) {
+        for (const subscriber of run.subscribers) {
+          run.subscribers.delete(subscriber);
+        }
       }
 
       if (inFlightWorkCount > 0 || inFlightMarkerSince !== null) {
@@ -1997,6 +2008,15 @@ export function startRun(
         );
       }
 
+      if (volatileTerminalEvent) {
+        // The errored run row can reproduce this terminal on replay. Do not
+        // publish later sequence numbers across the missing durable prefix.
+        publishRunEvent({ ...volatileTerminalEvent, seq: run.events.length });
+        for (const subscriber of run.subscribers) {
+          run.subscribers.delete(subscriber);
+        }
+      }
+
       if (terminalPersistenceError) {
         const reconciled = eventPersistenceError
           ? false
@@ -2029,6 +2049,9 @@ export function startRun(
           userId: options?.userId,
           attemptCount: options?.attemptCount,
         });
+      }
+      if (eventPersistenceError && finalStatus !== "aborted") {
+        throw eventPersistenceError;
       }
     })
     .finally(async () => {
