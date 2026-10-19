@@ -270,6 +270,7 @@ export function FirstRunOnboarding({
   const redesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
   const [moreInfoOpen, setMoreInfoOpen] = useState(false);
   const [skipConfirmOpen, setSkipConfirmOpen] = useState(false);
+  const skipGoBackRef = useRef<HTMLButtonElement>(null);
   const [setupExperimentDecision, setSetupExperimentDecision] = useState<
     boolean | null
   >(null);
@@ -1132,6 +1133,10 @@ export function FirstRunOnboarding({
                   side="top"
                   align="end"
                   className="w-96 space-y-3 p-4 text-left"
+                  onOpenAutoFocus={(event) => {
+                    event.preventDefault();
+                    skipGoBackRef.current?.focus();
+                  }}
                 >
                   <div className="space-y-1">
                     <p className="text-sm font-semibold text-foreground">
@@ -1164,6 +1169,7 @@ export function FirstRunOnboarding({
                       <Button
                         type="button"
                         size="sm"
+                        ref={skipGoBackRef}
                         onClick={() => setSkipConfirmOpen(false)}
                       >
                         {t("agentChat.onboarding.creditsSkipGoBack")}
