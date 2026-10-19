@@ -1988,7 +1988,15 @@ export function ReviewCanvasPins({
           typeof payload.hitSelector === "string"
             ? payload.hitSelector
             : undefined;
-        const anchorSelector = hitSelector ?? targetSelector;
+        // A uniquely identified node is found by its id; a structural path saved next to it would
+        // attach the comment to an unrelated element if the node were later removed. The path is
+        // kept only for a node the id cannot find again, or when there is no node id at all.
+        const nodeFoundById = Boolean(
+          canvas && nodeId && findNodeElement(canvas, nodeId),
+        );
+        const anchorSelector = nodeFoundById
+          ? undefined
+          : (hitSelector ?? targetSelector);
         if (!nodeId && !anchorSelector && !layerName && !tagName) return;
         setDraftPin((current) => {
           if (

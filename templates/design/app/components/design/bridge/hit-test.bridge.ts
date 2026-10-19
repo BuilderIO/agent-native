@@ -1926,10 +1926,20 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
       if (!reviewSelectorCorrelationId || typeof reviewSelector !== "string") {
         return;
       }
-      var reviewSelectorElement = resolveSourceEquivalentSelector(
-        document,
-        reviewSelector,
-      );
+      // Mirrors the parent's selectorElement: body paths use the source walk, any other selector is native.
+      var reviewSelectorElement: Element | null = null;
+      if (reviewSelector.indexOf("body > ") === 0) {
+        reviewSelectorElement = resolveSourceEquivalentSelector(
+          document,
+          reviewSelector,
+        );
+      } else {
+        try {
+          reviewSelectorElement = document.querySelector(reviewSelector);
+        } catch (_err) {
+          reviewSelectorElement = null;
+        }
+      }
       if (reviewSelectorElement === document.body) reviewSelectorElement = null;
       var reviewSelectorBox = reviewSelectorElement
         ? reviewSelectorElement.getBoundingClientRect()

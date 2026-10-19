@@ -1434,10 +1434,19 @@ export const hitTestBridgeScript: string = `"use strict";
         if (!reviewSelectorCorrelationId || typeof reviewSelector !== "string") {
           return;
         }
-        var reviewSelectorElement = resolveSourceEquivalentSelector(
-          document,
-          reviewSelector
-        );
+        var reviewSelectorElement = null;
+        if (reviewSelector.indexOf("body > ") === 0) {
+          reviewSelectorElement = resolveSourceEquivalentSelector(
+            document,
+            reviewSelector
+          );
+        } else {
+          try {
+            reviewSelectorElement = document.querySelector(reviewSelector);
+          } catch (_err) {
+            reviewSelectorElement = null;
+          }
+        }
         if (reviewSelectorElement === document.body) reviewSelectorElement = null;
         var reviewSelectorBox = reviewSelectorElement ? reviewSelectorElement.getBoundingClientRect() : null;
         window.parent.postMessage(
