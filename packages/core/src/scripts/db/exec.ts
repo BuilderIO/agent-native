@@ -243,7 +243,7 @@ Options:
         }
       } finally {
         for (const statement of scoping.teardown) {
-          await timedTx.unsafe(statement).catch(() => {});
+          await timedTx.unsafe(statement);
         }
       }
     });

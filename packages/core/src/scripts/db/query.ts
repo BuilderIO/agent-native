@@ -12,7 +12,7 @@ import { parseArgs, fail } from "../utils.js";
 import { tryForwardDbQueryToDevServer } from "./dev-query-proxy.js";
 import {
   createPostgresScriptClient,
-  setRawDbStatementTimeout,
+  withPostgresStatementDeadline,
 } from "./postgres-client.js";
 import {
   finalRawDbSql,
@@ -116,14 +116,14 @@ export async function runDbQuery(
     let rows: Record<string, unknown>[] = [];
     try {
       await client.begin(async (tx) => {
-        await setRawDbStatementTimeout(tx);
-        const scoping = await buildScopingPostgres(tx);
-        for (const setup of scoping.setup) await tx.unsafe(setup);
+        const timedTx = withPostgresStatementDeadline(tx);
+        const scoping = await buildScopingPostgres(timedTx);
+        for (const setup of scoping.setup) await timedTx.unsafe(setup);
         // From here on the transaction cannot write, so a data-modifying CTE,
         // SELECT INTO, or EXPLAIN ANALYZE of a write fails instead of running.
-        await tx.unsafe("SET TRANSACTION READ ONLY");
-        await verifyRawDbStatement(tx, executed.statement);
-        const result = await tx.unsafe(executed.sql, sqlArgs, {
+        await timedTx.unsafe("SET TRANSACTION READ ONLY");
+        await verifyRawDbStatement(timedTx, executed.statement);
+        const result = await timedTx.unsafe(executed.sql, sqlArgs, {
           singleStatement: true,
         });
         rows = Array.from(result);

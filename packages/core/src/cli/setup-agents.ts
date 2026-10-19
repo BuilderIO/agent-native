@@ -16,30 +16,52 @@ export function prepareAgentSymlink(
   target: string,
   type: "file" | "dir",
 ): SymlinkState {
+  let stat: fs.Stats;
   try {
-    const stat = fs.lstatSync(linkPath);
-    if (!stat.isSymbolicLink()) return "occupied";
+    stat = fs.lstatSync(linkPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return "create";
+    throw error;
+  }
+  if (!stat.isSymbolicLink()) return "occupied";
 
-    const existingTarget = fs.readlinkSync(linkPath);
-    const resolvedExistingTarget = path.resolve(
-      path.dirname(linkPath),
-      existingTarget,
-    );
-    const resolvedTarget = path.resolve(path.dirname(linkPath), target);
-    const sameTarget =
-      process.platform === "win32"
-        ? resolvedExistingTarget.toLowerCase() === resolvedTarget.toLowerCase()
-        : resolvedExistingTarget === resolvedTarget;
-    if (sameTarget) {
-      return "matches";
-    }
+  let existingTarget: string;
+  try {
+    existingTarget = fs.readlinkSync(linkPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return "create";
+    throw error;
+  }
+  const resolvedExistingTarget = path.resolve(
+    path.dirname(linkPath),
+    existingTarget,
+  );
+  const resolvedTarget = path.resolve(path.dirname(linkPath), target);
+  const sameTarget =
+    process.platform === "win32"
+      ? resolvedExistingTarget.toLowerCase() === resolvedTarget.toLowerCase()
+      : resolvedExistingTarget === resolvedTarget;
+  if (sameTarget) {
+    return "matches";
+  }
+
+  try {
     if (process.platform === "win32" && type === "dir") {
       fs.rmdirSync(linkPath);
     } else {
       fs.unlinkSync(linkPath);
     }
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    const code = (error as NodeJS.ErrnoException).code;
+    if (
+      code !== "ENOENT" &&
+      code !== "EPERM" &&
+      code !== "EACCES" &&
+      code !== "EBUSY"
+    ) {
+      throw error;
+    }
+    // Let the caller try link creation so its existing copy fallback can run.
   }
   return "create";
 }

@@ -41,6 +41,63 @@ describe("setupAgentSymlinks", () => {
     expect(fs.readlinkSync(linkPath)).toBe(linkTarget);
   });
 
+  it("copies skills when removing a stale link is denied", () => {
+    const root = tempDir();
+    const skillsDir = path.join(root, ".agents", "skills");
+    const linkPath = path.join(root, ".claude", "skills");
+    const oldSkillsDir = path.join(root, "old-skills");
+    fs.mkdirSync(path.join(skillsDir, "example"), { recursive: true });
+    fs.writeFileSync(path.join(skillsDir, "example", "SKILL.md"), "skill");
+    fs.mkdirSync(oldSkillsDir);
+    fs.mkdirSync(path.dirname(linkPath), { recursive: true });
+    fs.symlinkSync(oldSkillsDir, linkPath, "dir");
+
+    const platform = Object.getOwnPropertyDescriptor(process, "platform");
+    Object.defineProperty(process, "platform", {
+      ...platform,
+      value: "linux",
+    });
+    const removeLink = vi.spyOn(fs, "unlinkSync").mockImplementation(() => {
+      throw Object.assign(new Error("Permission denied"), { code: "EPERM" });
+    });
+
+    try {
+      expect(() => setupAgentSymlinks(root)).not.toThrow();
+      expect(fs.readlinkSync(linkPath)).toBe(oldSkillsDir);
+      expect(
+        fs.readFileSync(path.join(oldSkillsDir, "example", "SKILL.md"), "utf8"),
+      ).toBe("skill");
+    } finally {
+      removeLink.mockRestore();
+      if (platform) Object.defineProperty(process, "platform", platform);
+    }
+  });
+
+  it("surfaces unexpected stale-link removal errors", () => {
+    const root = tempDir();
+    const linkPath = path.join(root, "skills");
+    fs.symlinkSync("old-skills", linkPath, "dir");
+    const failure = Object.assign(new Error("I/O failure"), { code: "EIO" });
+
+    const platform = Object.getOwnPropertyDescriptor(process, "platform");
+    Object.defineProperty(process, "platform", {
+      ...platform,
+      value: "linux",
+    });
+    const removeLink = vi.spyOn(fs, "unlinkSync").mockImplementation(() => {
+      throw failure;
+    });
+
+    try {
+      expect(() => prepareAgentSymlink(linkPath, "new-skills", "dir")).toThrow(
+        failure,
+      );
+    } finally {
+      removeLink.mockRestore();
+      if (platform) Object.defineProperty(process, "platform", platform);
+    }
+  });
+
   it("removes stale Windows directory links with rmdir", () => {
     const root = tempDir();
     const linkPath = path.join(root, "skills");

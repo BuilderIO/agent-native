@@ -39,9 +39,18 @@ describe("db scripts parameterized SQL", () => {
     };
   }
 
-  function mockPostgresClient(unsafe: ReturnType<typeof vi.fn>) {
+  function mockPostgresClient(
+    unsafe: ReturnType<typeof vi.fn>,
+    onTransactionStatement?: (sql: string) => void,
+  ) {
     const end = vi.fn(async () => {});
-    const tx = { unsafe: answerAgentSqlChecks(unsafe) };
+    const answer = answerAgentSqlChecks(unsafe);
+    const tx = {
+      unsafe: async (sql: string, args?: unknown[]) => {
+        onTransactionStatement?.(sql);
+        return answer(sql, args);
+      },
+    };
     const begin = vi.fn(async (fn: (tx: typeof tx) => Promise<unknown>) =>
       fn(tx),
     );
@@ -80,14 +89,79 @@ describe("db scripts parameterized SQL", () => {
     ]);
 
     expect(unsafe).toHaveBeenCalledWith("SELECT $1 AS name", ["ada"]);
-    const timeoutIndex = unsafe.mock.calls.findIndex(
-      ([sql]) => sql === "SET LOCAL statement_timeout = 9750",
+    const timeoutIndex = unsafe.mock.calls.findIndex(([sql]) =>
+      /^SET LOCAL statement_timeout = \d+$/.test(sql),
+    );
+    const statementTimeout = Number(
+      unsafe.mock.calls[timeoutIndex]?.[0]?.match(/= (\d+)$/)?.[1],
     );
     const queryIndex = unsafe.mock.calls.findIndex(
       ([sql]) => sql === "SELECT $1 AS name",
     );
     expect(timeoutIndex).toBeGreaterThanOrEqual(0);
     expect(timeoutIndex).toBeLessThan(queryIndex);
+    expect(statementTimeout).toBeGreaterThan(0);
+    expect(statementTimeout).toBeLessThanOrEqual(9750);
+  });
+
+  it("uses one shrinking deadline across db-query setup, verification, and query", async () => {
+    vi.stubEnv("AGENT_USER_EMAIL", "params+qa@test.com");
+    vi.stubEnv("DB_OP_TIMEOUT_MS", "160");
+    let now = 0;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const transactionStatements: string[] = [];
+    const unsafe = vi.fn(async (sql: string) => {
+      if (sql.includes("information_schema.columns")) {
+        return [{ table_name: "notes", column_name: "owner_email" }];
+      }
+      return [{ result: 1 }];
+    });
+    mockPostgresClient(unsafe, (sql) => {
+      transactionStatements.push(sql);
+      now += 10;
+    });
+
+    const { default: dbQuery } = await import("./query.js");
+    await dbQuery(["--sql", "SELECT title FROM notes", "--format", "json"]);
+
+    const timeouts = transactionStatements
+      .filter((sql) => sql.startsWith("SET LOCAL statement_timeout = "))
+      .map((sql) => Number(sql.match(/= (\d+)$/)?.[1]));
+    const statementCount = transactionStatements.filter(
+      (sql) => !sql.startsWith("SET LOCAL statement_timeout = "),
+    ).length;
+    const queryIndex = transactionStatements.indexOf("SELECT title FROM notes");
+
+    expect(
+      transactionStatements.some((sql) =>
+        sql.includes("information_schema.columns"),
+      ),
+    ).toBe(true);
+    expect(
+      transactionStatements.some((sql) =>
+        sql.includes('CREATE OR REPLACE TEMPORARY VIEW "notes"'),
+      ),
+    ).toBe(true);
+    expect(transactionStatements).toContain("SET TRANSACTION READ ONLY");
+    expect(
+      transactionStatements.some((sql) =>
+        sql.includes("current_setting('standard_conforming_strings')"),
+      ),
+    ).toBe(true);
+    expect(
+      transactionStatements.some((sql) => sql.includes("pg_catalog.pg_proc")),
+    ).toBe(true);
+    expect(
+      transactionStatements.some((sql) => sql.includes("pg_catalog.pg_class")),
+    ).toBe(true);
+    expect(queryIndex).toBeGreaterThan(0);
+    expect(transactionStatements[queryIndex - 1]).toMatch(
+      /^SET LOCAL statement_timeout = \d+$/,
+    );
+    expect(timeouts).toHaveLength(statementCount);
+    expect(timeouts[0]).toBeGreaterThan(timeouts.at(-1)!);
+    expect(timeouts.at(-1)).toBeGreaterThan(0);
+    expect(unsafe).toHaveBeenCalledWith("SELECT title FROM notes", []);
   });
 
   it("bounds db-exec statements with the configured transaction timeout", async () => {
