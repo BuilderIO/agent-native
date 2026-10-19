@@ -171,13 +171,33 @@ function candidateFilter() {
   );
 }
 
-async function referencedIds(ids: string[]): Promise<{
+interface DashboardReferences {
   shared: Set<string>;
   views: Set<string>;
   subscriptions: Set<string>;
   notes: Set<string>;
-}> {
-  const db = getDb() as any;
+}
+
+function addReferenceReasons(
+  reasons: KeepReason[],
+  refs: DashboardReferences,
+  id: string,
+): void {
+  const references = [
+    [refs.shared, "shared"],
+    [refs.views, "saved_views"],
+    [refs.subscriptions, "report_subscriptions"],
+    [refs.notes, "data_notes"],
+  ] as const;
+  for (const [ids, reason] of references) {
+    if (ids.has(id) && !reasons.includes(reason)) reasons.push(reason);
+  }
+}
+
+async function referencedIds(
+  ids: string[],
+  db = getDb() as any,
+): Promise<DashboardReferences> {
   const [shares, views, subscriptions] = await Promise.all([
     db
       .select({ id: schema.dashboardShares.resourceId })
@@ -290,20 +310,36 @@ export async function runBuiltinDashboardPass(
       if (row.hiddenAt) reasons.push("hidden");
       if (row.certification) reasons.push("certified");
       if (row.folderId) reasons.push("in_folder");
-      if (
-        !defaultVisibilities(builtinId).includes(row.visibility) ||
-        refs.shared.has(row.id)
-      ) {
+      if (!defaultVisibilities(builtinId).includes(row.visibility)) {
         reasons.push("shared");
       }
-      if (refs.views.has(row.id)) reasons.push("saved_views");
-      if (refs.subscriptions.has(row.id)) reasons.push("report_subscriptions");
-      if (refs.notes.has(row.id)) reasons.push("data_notes");
+      addReferenceReasons(reasons, refs, row.id);
 
-      const outcome = reasons.length === 0 ? "hidden" : "kept";
+      let outcome: "hidden" | "kept" = reasons.length === 0 ? "hidden" : "kept";
       const persisted =
         dryRun ||
         (await db.transaction(async (tx: any) => {
+          if (outcome === "hidden") {
+            // Saved-view writes lock the parent without changing its version.
+            const [locked] = await tx
+              .select({ id: schema.dashboards.id })
+              .from(schema.dashboards)
+              .where(
+                and(
+                  eq(schema.dashboards.id, row.id),
+                  eq(schema.dashboards.updatedAt, row.updatedAt),
+                  isNull(schema.dashboards.hiddenAt),
+                ),
+              )
+              .for("update");
+            if (!locked) return false;
+            addReferenceReasons(
+              reasons,
+              await referencedIds([row.id], tx),
+              row.id,
+            );
+            if (reasons.length > 0) outcome = "kept";
+          }
           if (outcome === "hidden") {
             const hidden = await tx
               .update(schema.dashboards)

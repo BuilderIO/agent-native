@@ -38,6 +38,11 @@ export default defineAction({
       .describe('Name for the copy. Defaults to "<name> (copy)".'),
   }),
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (args) => {
     const email = getRequestUserEmail();
     if (!email) {

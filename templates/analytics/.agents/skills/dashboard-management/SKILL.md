@@ -821,7 +821,7 @@ The deploy pass in `server/lib/builtin-dashboard-pass.ts` (run by
 ships and nobody has shared, viewed-and-saved, subscribed to, noted,
 certified, filed, archived or hidden it, and records every copy it checks in
 `analytics_builtin_dashboard_checks`. A hidden copy's id opens the built-in;
-every other copy stays an ordinary dashboard. `scripts/builtin-dashboards.ts`
+every other copy stays an ordinary dashboard. `scripts/_builtin-dashboards.ts`
 takes `--dry-run` for counts and `--restore` to unhide everything it hid.
 
 ## Building Large First-Party Dashboards (compose-dashboard)

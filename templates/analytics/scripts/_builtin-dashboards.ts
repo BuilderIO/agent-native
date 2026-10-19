@@ -4,9 +4,9 @@
  * The deploy pass that moves pre-built-in dashboard copies onto built-ins
  * (it also runs from migrate-production on every deploy).
  *
- *   pnpm --filter analytics exec tsx scripts/builtin-dashboards.ts --dry-run   # counts only
- *   pnpm --filter analytics exec tsx scripts/builtin-dashboards.ts             # hide untouched copies
- *   pnpm --filter analytics exec tsx scripts/builtin-dashboards.ts --restore   # unhide every copy it hid
+ *   pnpm --filter analytics exec tsx scripts/_builtin-dashboards.ts --dry-run   # counts only
+ *   pnpm --filter analytics exec tsx scripts/_builtin-dashboards.ts             # hide untouched copies
+ *   pnpm --filter analytics exec tsx scripts/_builtin-dashboards.ts --restore   # unhide every copy it hid
  */
 
 import { closeDbExec, withMigrationRuntime } from "@agent-native/core/db";
