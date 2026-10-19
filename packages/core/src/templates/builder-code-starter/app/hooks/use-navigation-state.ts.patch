@@ -1,14 +1,7 @@
 ===================================================================
 --- a/app/hooks/use-navigation-state.ts
 +++ b/app/hooks/use-navigation-state.ts
-@@ -1,83 +1,51 @@
--import { appPathFromLocalRoute } from "@agent-native/core/client/api-path";
-+import {
-+  appBasePath,
-+  appPathFromLocalRoute,
-+} from "@agent-native/core/client/api-path";
- import { useAgentRouteState } from "@agent-native/core/client/navigation";
- 
+@@ -7,7 +6,0 @@
 -import {
 -  chatThreadPath,
 -  HOME_PATH,
@@ -16,31 +9,19 @@
 -  NEW_CHAT_PATH,
 -  threadIdFromPath,
 -} from "@/lib/chat-paths";
- import { TAB_ID } from "@/lib/tab-id";
- 
- export interface NavigationState {
-   view: string;
-   path?: string;
-   publicPath?: string;
+@@ -20,1 +12,0 @@
 -  threadId?: string;
- }
- 
- export function useNavigationState() {
-   useAgentRouteState<NavigationState>({
-     browserTabId: TAB_ID,
-     requestSource: TAB_ID,
+@@ -27,1 +19,5 @@
 -    getNavigationState: ({ pathname }) => navigationStateForPath(pathname),
--    getCommandPath: (command) => command.path || pathForCommand(command),
 +    getNavigationState: ({ pathname }) => ({
 +      view: viewForPath(pathname),
 +      path: pathname,
 +      publicPath: appPathFromLocalRoute(pathname),
 +    }),
-+    getCommandPath: (command) =>
-+      routerPath(command.path || pathForView(command.view)),
-   });
- }
- 
+@@ -33,1 +29,1 @@
+-  const fallbackPath = pathForCommand(command);
++  const fallbackPath = pathForView(command?.view);
+@@ -52,10 +47,0 @@
 -export function navigationStateForPath(pathname: string): NavigationState {
 -  const threadId = threadIdFromPath(pathname);
 -  return {
@@ -51,7 +32,7 @@
 -  };
 -}
 -
- function viewForPath(pathname: string): string {
+@@ -63,11 +49,2 @@
 -  if (isChatPathname(pathname)) return "chat";
 -  if (pathname === HOME_PATH) return "home";
 -  if (pathname.startsWith("/database")) return "database";
@@ -65,14 +46,11 @@
 -  return "chat";
 +  if (pathname === "/") return "home";
 +  return "home";
- }
- 
- function pathForView(view?: string): string {
-   switch (view) {
+@@ -78,3 +54,0 @@
 -    case "chat":
 -    case "ask":
 -      return NEW_CHAT_PATH;
-     case "home":
+@@ -82,13 +56,1 @@
 -      return HOME_PATH;
 -    case "database":
 -      return "/database";
@@ -87,24 +65,15 @@
 -    case "team":
 -      return "/settings/organization";
 +      return "/";
-     default:
+@@ -96,1 +58,1 @@
 -      return HOME_PATH;
 +      return "/";
-   }
- }
- 
+@@ -99,8 +60,0 @@
+-
 -export function pathForCommand(command: any): string {
 -  const path = pathForView(command?.view);
 -  if (command?.view !== "chat" && command?.view !== "ask") return path;
 -  const threadId =
 -    typeof command?.threadId === "string" ? command.threadId.trim() : "";
 -  return threadId ? chatThreadPath(threadId) : path;
-+function routerPath(path: string): string {
-+  const basePath = appBasePath();
-+  if (!basePath) return path;
-+  if (path === basePath) return "/";
-+  if (path.startsWith(`${basePath}/`)) {
-+    return path.slice(basePath.length) || "/";
-+  }
-+  return path;
- }
+-}

@@ -1373,6 +1373,8 @@ export function embedApp(
           userAgent: navigator.userAgent || ""
         });
         void (async () => {
+          let lastFetchError;
+          let lastResponseStatus;
           for (const reportUrl of reportUrls) {
             try {
               const response = await fetch(reportUrl, {
@@ -1383,7 +1385,16 @@ export function embedApp(
                 body: body
               });
               if (response.status === 204) return;
-            } catch {}
+              lastResponseStatus = response.status;
+            } catch (error) {
+              lastFetchError = error;
+            }
+          }
+          if (lastFetchError || lastResponseStatus !== undefined) {
+            console.warn("[agent-native] MCP embed error report was not accepted", {
+              status: lastResponseStatus,
+              error: lastFetchError
+            });
           }
         })();
       } catch {}
