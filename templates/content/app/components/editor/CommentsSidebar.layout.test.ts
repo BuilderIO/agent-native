@@ -58,7 +58,7 @@ describe("comments sidebar layout", () => {
     ).toBeLessThan(
       history.indexOf('if (historyStatus === "open" && thread.resolved)'),
     );
-    expect(history).toContain("threads, selectedThreadId]");
+    expect(history).toMatch(/threads,\s+selectedThreadId,?\s*\]/);
     expect(source).toContain(
       '(presentation === "inline" &&\n            (thread.threadId === selectedThreadId ||',
     );

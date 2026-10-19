@@ -41,6 +41,13 @@ export interface Comment {
   /** The Property's name and value when the thread started. */
   property_name?: string | null;
   property_value?: string | null;
+  /**
+   * The Blocks field tab the thread sits in; null or absent is the page body.
+   * Replies carry their root's field.
+   */
+  field_id?: string | null;
+  /** The field's name when the thread started. */
+  field_name?: string | null;
   mentions: CommentMention[];
   author_email: string;
   author_name: string | null;
@@ -68,6 +75,13 @@ export interface CommentThreadProperty {
   propertyValue: string | null;
 }
 
+/** The Blocks field tab a thread sits in, when it isn't the page body. */
+export interface CommentThreadField {
+  fieldId: string;
+  /** The field's name when the thread started; null until the save lands. */
+  fieldName: string | null;
+}
+
 export interface CommentThread {
   threadId: string;
   quotedText: string | null;
@@ -76,6 +90,8 @@ export interface CommentThread {
   startOffset: number | null;
   /** Set when the thread is about one Property value, not body text. */
   property?: CommentThreadProperty | null;
+  /** Set when the thread is in a Blocks field tab other than the body. */
+  field?: CommentThreadField | null;
   resolved: boolean;
   comments: Comment[];
 }
@@ -114,6 +130,8 @@ export interface CreateCommentVariables {
   propertyId?: string;
   /** The Collection that owns propertyId. */
   databaseId?: string;
+  /** Starts a thread in this Blocks field's tab instead of the body. */
+  fieldId?: string;
   mentions?: string;
 }
 
@@ -430,6 +448,12 @@ function groupCommentThreads(data: unknown): CommentThread[] {
               propertyValue: comment.property_value ?? null,
             }
           : null,
+        field: comment.field_id
+          ? {
+              fieldId: comment.field_id,
+              fieldName: comment.field_name ?? null,
+            }
+          : null,
         resolved: !!comment.resolved,
         comments: [],
       });
@@ -488,6 +512,8 @@ export function useCreateComment(author: CommentAuthor = {}) {
         property_id: variables.propertyId ?? null,
         property_name: null,
         property_value: null,
+        field_id: variables.fieldId ?? null,
+        field_name: null,
         mentions:
           variables.mentions === undefined
             ? []

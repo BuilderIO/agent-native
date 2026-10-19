@@ -14,6 +14,7 @@ import {
 } from "@shared/properties";
 import {
   IconGripVertical,
+  IconMessage,
   IconPencil,
   IconPlus,
   IconTrash,
@@ -71,6 +72,14 @@ import {
 } from "@/hooks/use-document-properties";
 import { cn } from "@/lib/utils";
 
+import {
+  BODY_BLOCK_FIELD_TABS,
+  LOADING_BLOCK_FIELD_TABS,
+  soloBlockFieldTabs,
+  useBlockFieldEditorComments,
+  useBlockFieldOpenCounts,
+  type BlockFieldTabs,
+} from "./block-field-comments";
 import {
   createBlockFieldSaveController,
   type BlockFieldSaveController,
@@ -136,13 +145,11 @@ interface DocumentBlockFieldsProps {
     content: string | null,
   ) => void;
   /**
-   * Whether the primary field's tab is open, and a way to open it. Page
-   * comments anchor in that field, so they step aside while another shows.
+   * Which field's tab is open and a way to open another, for comments, which
+   * sit in the field they quote. `null` once the fields are gone.
    */
-  onPrimaryFieldTabChange?: (tab: PrimaryBlockFieldTab) => void;
+  onFieldTabChange?: (tabs: BlockFieldTabs | null) => void;
 }
-
-export type PrimaryBlockFieldTab = { open: boolean; show: () => void };
 
 function isBlocksFieldRevisionConflict(error: unknown): boolean {
   if (error instanceof Error) {
@@ -365,7 +372,7 @@ export function DocumentBlockFields({
   primaryContent,
   pageProperties,
   onAdditionalContentChange,
-  onPrimaryFieldTabChange,
+  onFieldTabChange,
 }: DocumentBlockFieldsProps) {
   const t = useT();
   const placeholder = useMemo(
@@ -404,6 +411,28 @@ export function DocumentBlockFields({
   useLayoutEffect(() => {
     onPrimaryFieldAvailabilityChange?.(scope, primaryAvailable);
   }, [onPrimaryFieldAvailabilityChange, primaryAvailable, scope]);
+
+  // The tabs report themselves; every other layout shows one editor or none.
+  const soloFieldId =
+    state.kind === "solo" && state.target === "block_field_store"
+      ? state.field.definition.id
+      : null;
+  const reportsTabs = hasQueryError || state.kind !== "multi";
+  useLayoutEffect(() => {
+    if (!onFieldTabChange || !reportsTabs) return;
+    onFieldTabChange(
+      hasQueryError
+        ? BODY_BLOCK_FIELD_TABS
+        : state.kind === "loading"
+          ? LOADING_BLOCK_FIELD_TABS
+          : soloFieldId
+            ? soloBlockFieldTabs(soloFieldId)
+            : BODY_BLOCK_FIELD_TABS,
+    );
+  }, [hasQueryError, onFieldTabChange, reportsTabs, soloFieldId, state.kind]);
+  const onFieldTabChangeRef = useRef(onFieldTabChange);
+  onFieldTabChangeRef.current = onFieldTabChange;
+  useLayoutEffect(() => () => onFieldTabChangeRef.current?.(null), []);
 
   // Deleting down to one field removes the tab row, and the focused tab with
   // it. Put focus in the editor that's left instead of dropping it on the page.
@@ -473,6 +502,7 @@ export function DocumentBlockFields({
             className={cn(BLOCK_FIELDS_GRID, "gap-1")}
             ref={soloRef}
             data-block-fields-state="solo"
+            data-block-field-id={state.field.definition.id}
           >
             <AdditionalBlockEditor
               key={`${documentId}:${state.field.definition.id}`}
@@ -508,7 +538,7 @@ export function DocumentBlockFields({
           primaryEditor={primaryEditor}
           primaryContent={primaryContent}
           onAdditionalContentChange={onAdditionalContentChange}
-          onPrimaryFieldTabChange={onPrimaryFieldTabChange}
+          onFieldTabChange={onFieldTabChange}
           t={t}
         />
       );
@@ -571,7 +601,7 @@ function MultiBlockFields({
   primaryEditor,
   primaryContent,
   onAdditionalContentChange,
-  onPrimaryFieldTabChange,
+  onFieldTabChange,
   t,
 }: {
   documentId: string;
@@ -588,7 +618,7 @@ function MultiBlockFields({
     propertyId: string,
     content: string | null,
   ) => void;
-  onPrimaryFieldTabChange?: (tab: PrimaryBlockFieldTab) => void;
+  onFieldTabChange?: (tabs: BlockFieldTabs | null) => void;
   t: ReturnType<typeof useT>;
 }) {
   const reorder = useReorderDocumentProperty(
@@ -672,17 +702,33 @@ function MultiBlockFields({
     blockFields.find((property) =>
       isPrimaryBlocksField(property.definition.options),
     )?.definition.id ?? null;
-  const primaryOpen = primaryId === null || primaryId === selectedId;
+  // The primary field is the page body, which comments call `null`.
+  const openFieldId = selectedId === primaryId ? null : selectedId;
   const selectFieldRef = useRef(selectField);
   selectFieldRef.current = selectField;
-  useLayoutEffect(() => {
-    if (!onPrimaryFieldTabChange) return;
-    const show = () => {
-      if (primaryId !== null) selectFieldRef.current(primaryId);
+  const tabs = useMemo<BlockFieldTabs>(() => {
+    const ids = fieldOrderKey.split("\n");
+    const has = (fieldId: string | null) =>
+      fieldId === null
+        ? primaryId !== null
+        : fieldId !== primaryId && ids.includes(fieldId);
+    return {
+      ready: true,
+      openFieldId,
+      hasField: has,
+      showField: (fieldId) => {
+        const id = fieldId ?? primaryId;
+        if (id !== null && has(fieldId)) selectFieldRef.current(id);
+      },
     };
-    onPrimaryFieldTabChange({ open: primaryOpen, show });
-    return () => onPrimaryFieldTabChange({ open: true, show: () => {} });
-  }, [onPrimaryFieldTabChange, primaryId, primaryOpen]);
+  }, [fieldOrderKey, openFieldId, primaryId]);
+  useLayoutEffect(() => {
+    onFieldTabChange?.(tabs);
+  }, [onFieldTabChange, tabs]);
+  const onFieldTabChangeRef = useRef(onFieldTabChange);
+  onFieldTabChangeRef.current = onFieldTabChange;
+  useLayoutEffect(() => () => onFieldTabChangeRef.current?.(null), []);
+  const openComments = useBlockFieldOpenCounts();
 
   // The first tab is the one without `?field=`. When a reorder (or a deep
   // link) leaves the URL naming the first tab, or a field this row doesn't
@@ -1243,6 +1289,11 @@ function MultiBlockFields({
                       content={liveContent(property)}
                       selected={propertyId === selectedId}
                       changed={changedIds.has(propertyId)}
+                      openComments={
+                        openComments?.get(
+                          propertyId === primaryId ? null : propertyId,
+                        ) ?? 0
+                      }
                       dragging={drag?.propertyId === propertyId}
                       menu={
                         manageable && propertyId === selectedId
@@ -1561,6 +1612,7 @@ function BlockFieldTab({
   content,
   selected,
   changed,
+  openComments,
   dragging,
   menu,
   dropIndicator,
@@ -1577,6 +1629,8 @@ function BlockFieldTab({
   content: string;
   selected: boolean;
   changed: boolean;
+  /** Open comment threads in the field (and suggestions, on the body). */
+  openComments: number;
   dragging: boolean;
   /** Set when a click on this tab opens its menu. */
   menu: { open: boolean } | null;
@@ -1629,6 +1683,18 @@ function BlockFieldTab({
       {words > 0 ? (
         <span className="text-xs font-normal text-muted-foreground">
           {t("editor.properties.wordCount", { count: words })}
+        </span>
+      ) : null}
+      {openComments > 0 ? (
+        <span
+          className="inline-flex items-center gap-0.5 text-xs font-normal text-muted-foreground"
+          data-block-field-comment-count={openComments}
+        >
+          <IconMessage aria-hidden="true" className="size-3.5" />
+          <span aria-hidden="true">{openComments}</span>
+          <span className="sr-only">
+            {t("editor.blockFieldOpenComments", { count: openComments })}
+          </span>
         </span>
       ) : null}
       {changed ? (
@@ -1867,6 +1933,7 @@ function AdditionalBlockEditor({
   useEffect(() => {
     onContentChange?.(documentId, propertyId, content);
   }, [content, documentId, onContentChange, propertyId]);
+  const comments = useBlockFieldEditorComments(propertyId);
 
   return (
     <VisualEditor
@@ -1883,6 +1950,13 @@ function AdditionalBlockEditor({
       }}
       editable={canEdit}
       localFileMode
+      onComment={comments?.onComment}
+      commentThreads={comments?.commentThreads}
+      activeThreadId={comments?.activeThreadId}
+      hoveredThreadId={comments?.hoveredThreadId}
+      pendingHighlight={comments?.pendingHighlight}
+      onActivateThread={comments?.onActivateThread}
+      showCommentIndicators={comments?.showCommentIndicators}
     />
   );
 }

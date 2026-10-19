@@ -48,12 +48,15 @@ export function openThreadsByProperty(
   return byProperty;
 }
 
-/** Threads anchored in body text, which the editor highlights. */
+/**
+ * Threads anchored in the page body's text, which its editor highlights: not
+ * those on a Property value or in another Blocks field tab.
+ */
 export function bodyCommentThreads(
   threads: CommentThread[] | undefined,
 ): CommentThread[] | undefined {
-  return threads?.some((thread) => thread.property)
-    ? threads.filter((thread) => !thread.property)
+  return threads?.some((thread) => thread.property || thread.field)
+    ? threads.filter((thread) => !thread.property && !thread.field)
     : threads;
 }
 

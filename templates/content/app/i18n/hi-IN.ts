@@ -989,6 +989,10 @@ const comments = {
   accepted: "स्वीकृत",
   rejected: "अस्वीकृत",
   noFilteredComments: "कोई मेल खाती टिप्पणी नहीं।",
+  tabFilter: "टैब",
+  allTabs: "सभी टैब",
+  fieldRemoved: "{{name}} (हटाया गया)",
+  pageBody: "पेज का मुख्य भाग",
 };
 
 const reviewDiscussions = {
@@ -1389,6 +1393,8 @@ const overrides = {
     addBlockField: "फ़ील्ड जोड़ें",
     blockFieldChanged: "पिछली बार देखने के बाद से बदला गया",
     blockFieldTabs: "फ़ील्ड",
+    blockFieldOpenComments_one: "{{count}} खुली टिप्पणी",
+    blockFieldOpenComments_other: "{{count}} खुली टिप्पणियाँ",
     blockFieldMenu: "{{name}} के विकल्प",
     blockFieldMenuScope: "इस संग्रह की हर पंक्ति में साझा",
     blockFieldName: "फ़ील्ड का नाम",

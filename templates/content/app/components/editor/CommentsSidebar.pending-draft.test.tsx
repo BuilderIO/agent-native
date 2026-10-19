@@ -586,7 +586,10 @@ describe("new comment responsive draft", () => {
       "utf8",
     );
     expect(source).toContain("usePendingCommentDraft(documentId)");
-    expect(source).toContain("pendingComment={pendingComment}");
+    // The rail shows a new comment only while its Blocks field tab is open.
+    expect(source).toMatch(
+      /pendingComment=\{\s*presentation === "history" \|\| blockFieldComments\.pendingVisible\s*\? pendingComment\s*: null\s*\}/,
+    );
     expect(source).toContain("onPendingChange={changePendingComment}");
     expect(source).toContain("if (!completePendingComment(id)) return;");
     expect(source).not.toMatch(

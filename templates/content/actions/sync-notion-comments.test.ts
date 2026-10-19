@@ -12,6 +12,7 @@ type Row = {
   notionCommentId: string | null;
   notionDiscussionId: string | null;
   resolved: number;
+  fieldId?: string | null;
 };
 
 const state = vi.hoisted(() => ({
@@ -75,6 +76,7 @@ vi.mock("../server/db/index.js", () => {
       notionCommentId: col("documentComments", "notionCommentId"),
       notionDiscussionId: col("documentComments", "notionDiscussionId"),
       resolved: col("documentComments", "resolved"),
+      fieldId: col("documentComments", "fieldId"),
     },
   };
 
@@ -383,6 +385,44 @@ describe("sync-notion-comments", () => {
     );
     const reply = state.rows.find((r) => r.id === "local-reply");
     expect(reply!.notionDiscussionId).toBe("nc-new-root");
+  });
+
+  it("pushes only the page body's threads, not those in another Blocks field tab", async () => {
+    const comment = (id: string, content: string, fieldId: string | null) => ({
+      id,
+      ownerEmail: "owner-a@example.com",
+      documentId: "doc-1",
+      threadId: id,
+      parentId: null,
+      content,
+      authorEmail: "alice@example.com",
+      authorName: "Alice",
+      notionCommentId: null,
+      notionDiscussionId: null,
+      resolved: 0,
+      fieldId,
+    });
+    state.rows.push(comment("body-root", "on the body", null));
+    state.rows.push(comment("notes-root", "on the Notes tab", "field-notes"));
+
+    notionLibMocks.listNotionComments.mockResolvedValue([]);
+    notionLibMocks.addNotionComment.mockResolvedValue({
+      id: "nc-body",
+      discussionId: "nc-body",
+    });
+
+    const result = await run("doc-1");
+
+    expect(result).toEqual({ pulled: 0, pushed: 1 });
+    expect(notionLibMocks.addNotionComment).toHaveBeenCalledTimes(1);
+    expect(notionLibMocks.addNotionComment).toHaveBeenCalledWith(
+      "notion-page-1",
+      "on the body",
+      "token",
+      null,
+    );
+    const notes = state.rows.find((r) => r.id === "notes-root");
+    expect(notes!.notionCommentId).toBeNull();
   });
 
   it("re-syncing does not duplicate an already-pulled threaded reply (n-D)", async () => {

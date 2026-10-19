@@ -1007,6 +1007,10 @@ const comments = {
   accepted: "مقبولة",
   rejected: "مرفوضة",
   noFilteredComments: "لا توجد تعليقات مطابقة.",
+  tabFilter: "علامة التبويب",
+  allTabs: "كل علامات التبويب",
+  fieldRemoved: "{{name}} (محذوف)",
+  pageBody: "متن الصفحة",
 };
 
 const reviewDiscussions = {
@@ -1410,6 +1414,12 @@ const overrides = {
     addBlockField: "إضافة حقل",
     blockFieldChanged: "تغيّر منذ آخر مرة عرضته فيها",
     blockFieldTabs: "الحقول",
+    blockFieldOpenComments_zero: "{{count}} تعليق مفتوح",
+    blockFieldOpenComments_one: "{{count}} تعليق مفتوح",
+    blockFieldOpenComments_two: "{{count}} تعليقان مفتوحان",
+    blockFieldOpenComments_few: "{{count}} تعليقات مفتوحة",
+    blockFieldOpenComments_many: "{{count}} تعليقًا مفتوحًا",
+    blockFieldOpenComments_other: "{{count}} تعليق مفتوح",
     blockFieldMenu: "خيارات {{name}}",
     blockFieldMenuScope: "مشترك بين كل صفوف هذه المجموعة",
     blockFieldName: "اسم الحقل",

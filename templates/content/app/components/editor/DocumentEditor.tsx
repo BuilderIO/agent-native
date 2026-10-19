@@ -184,6 +184,10 @@ import { cn } from "@/lib/utils";
 import { ContentIcon } from "../icons/ContentIcon";
 import { createAuthoredContentBase } from "./authored-content-base";
 import {
+  BlockFieldCommentsProvider,
+  useBlockFieldComments,
+} from "./block-field-comments";
+import {
   flushAllBlockFieldSaveControllersForDocument,
   flushBlockFieldSaveController,
 } from "./blockFieldSaveRegistry";
@@ -237,10 +241,7 @@ import {
   pendingSaveRetrySnapshot,
 } from "./document-save-retry";
 import { DocumentAccessScreen } from "./DocumentAccessScreen";
-import {
-  DocumentBlockFields,
-  type PrimaryBlockFieldTab,
-} from "./DocumentBlockFields";
+import { DocumentBlockFields } from "./DocumentBlockFields";
 import { DocumentDatabase } from "./DocumentDatabase";
 import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
 import { DocumentInfoPanel } from "./DocumentInfoPanel";
@@ -399,6 +400,9 @@ export function restoreCapturedEditorSelection(
   if (!controller || !snapshot) return false;
   return controller.restoreSelection(snapshot);
 }
+
+const NO_SUGGESTIONS: ResourceSuggestion[] = [];
+const NO_DRAFT_SUGGESTIONS: DraftSuggestion[] = [];
 
 export function documentEditorCommentThreads(
   threads: CommentThread[] | null | undefined,
@@ -2785,17 +2789,6 @@ function PageEditorSessionBody({
           ? current
           : { scope, available },
       );
-    },
-    [],
-  );
-  // Page comments anchor in the primary field, so they wait while another
-  // field's tab is open and opening one brings that tab back.
-  const [primaryBlockFieldHidden, setPrimaryBlockFieldHidden] = useState(false);
-  const showPrimaryBlockFieldRef = useRef<() => void>(() => {});
-  const handlePrimaryFieldTabChange = useCallback(
-    (tab: PrimaryBlockFieldTab) => {
-      setPrimaryBlockFieldHidden(!tab.open);
-      showPrimaryBlockFieldRef.current = tab.show;
     },
     [],
   );
@@ -7509,14 +7502,47 @@ function PageEditorSessionBody({
     commentsFetching,
     commentsError,
   ]);
+  // Text in another Blocks field's tab is commented in that tab.
+  const handleFieldComment = useCallback(
+    (
+      fieldId: string,
+      quotedText: string,
+      offsetTop: number,
+      anchor?: CommentTextAnchor,
+      range?: { from: number; to: number },
+    ) => {
+      setPendingComment({ quotedText, offsetTop, anchor, range, fieldId });
+      setCommentsBrowseOpen(false);
+      setUtilityPanel("comments");
+      setSelectedThreadId(null);
+      setHoveredThreadId(null);
+    },
+    [setPendingComment],
+  );
+  const blockFieldComments = useBlockFieldComments({
+    expectsBlockFields: !!document.databaseMembership && !isLocalFileDocument,
+    threads,
+    suggestions: sidebarSuggestions,
+    draftSuggestions,
+    anchoredSuggestionIds,
+    selectedThreadId,
+    selectedSuggestionId,
+    focusSuggestionId,
+    hoveredThreadId,
+    pendingComment,
+    showCommentIndicators,
+    onComment: canComment ? handleFieldComment : undefined,
+    scrollContainerRef,
+  });
   const showDesktopInfoPanel = utilityPanel === "info" && hasUtilityRailSpace;
   const showDesktopRightRail = showInlineComments || showDesktopInfoPanel;
   const showAnchoredCommentPopover =
     !showCommentsHistoryDrawer &&
     utilityPanel === "comments" &&
     !hasInlineCommentSpace &&
-    !primaryBlockFieldHidden &&
-    (!!pendingComment || !!selectedThreadId);
+    !blockFieldComments.tabSwitchPending &&
+    ((!!pendingComment && blockFieldComments.pendingVisible) ||
+      !!selectedThreadId);
   // A panel without a docked rail opens over the page. Only a phone gets
   // the modal Sheet: wider, the Sheet would cover a docked agent panel.
   const showUtilityPanelOffColumn = documentEditorShowsUtilityPanelSheet({
@@ -7955,12 +7981,6 @@ function PageEditorSessionBody({
   ]);
 
   useEffect(() => {
-    if (selectedThreadId || selectedSuggestionId || focusSuggestionId) {
-      showPrimaryBlockFieldRef.current();
-    }
-  }, [focusSuggestionId, selectedSuggestionId, selectedThreadId]);
-
-  useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
       const path = event.composedPath();
@@ -8333,10 +8353,18 @@ function PageEditorSessionBody({
       compact={!hasInlineCommentSpace}
       replyDrafts={replyDrafts}
       documentId={documentId}
-      threads={documentEditorCommentThreads(threads)}
+      threads={
+        presentation === "history"
+          ? documentEditorCommentThreads(threads)
+          : blockFieldComments.railThreads
+      }
       documentProperties={pageProperties}
       isLoading={commentsLoading}
-      pendingComment={pendingComment}
+      pendingComment={
+        presentation === "history" || blockFieldComments.pendingVisible
+          ? pendingComment
+          : null
+      }
       pendingTargetValid={pendingCommentTargetValid}
       onPendingChange={changePendingComment}
       onPendingDone={(id, threadId) => {
@@ -8368,8 +8396,16 @@ function PageEditorSessionBody({
       canResolve={canEdit}
       alignToAnchors={alignToAnchors}
       forceVisible
-      suggestions={sidebarSuggestions}
-      draftSuggestions={draftSuggestions}
+      suggestions={
+        presentation === "history" || blockFieldComments.railShowsSuggestions
+          ? sidebarSuggestions
+          : NO_SUGGESTIONS
+      }
+      draftSuggestions={
+        presentation === "history" || blockFieldComments.railShowsSuggestions
+          ? draftSuggestions
+          : NO_DRAFT_SUGGESTIONS
+      }
       onMaterializeDraft={async (draft) => {
         const persisted = await flushSuggestionDraft({ keepMode: true });
         if (!persisted) return null;
@@ -9551,7 +9587,9 @@ function PageEditorSessionBody({
                               commentThreads={editorCommentThreads}
                               activeThreadId={selectedThreadId}
                               hoveredThreadId={hoveredThreadId}
-                              pendingHighlight={pendingComment?.range ?? null}
+                              pendingHighlight={
+                                blockFieldComments.bodyPendingHighlight
+                              }
                               onActivateThread={
                                 !isLocalFileDocument
                                   ? activateCommentThread
@@ -9597,35 +9635,39 @@ function PageEditorSessionBody({
                       );
                       if (document.databaseMembership && !isLocalFileDocument) {
                         return (
-                          <DocumentBlockFields
-                            documentId={documentId}
-                            databaseId={
-                              databaseId ??
-                              document.databaseMembership.databaseId
-                            }
-                            databaseDocumentId={
-                              databaseDocumentId ??
-                              document.databaseMembership.databaseDocumentId
-                            }
-                            canEdit={
-                              editorCanEdit && !mcpDirectoryWidgetReadOnly
-                            }
-                            usePagePropertiesOnly={mcpDirectoryWidgetReadOnly}
-                            suggesting={isSuggesting || isStartingSuggestion}
-                            enteringSuggestion={isStartingSuggestion}
-                            onPrimaryFieldAvailabilityChange={
-                              handlePrimaryFieldAvailabilityChange
-                            }
-                            primaryEditor={primaryEditor}
-                            primaryContent={exportContent}
-                            onPrimaryFieldTabChange={
-                              handlePrimaryFieldTabChange
-                            }
-                            pageProperties={document.properties}
-                            onAdditionalContentChange={
-                              handleAdditionalBlockContentChange
-                            }
-                          />
+                          <BlockFieldCommentsProvider
+                            value={blockFieldComments.provider}
+                          >
+                            <DocumentBlockFields
+                              documentId={documentId}
+                              databaseId={
+                                databaseId ??
+                                document.databaseMembership.databaseId
+                              }
+                              databaseDocumentId={
+                                databaseDocumentId ??
+                                document.databaseMembership.databaseDocumentId
+                              }
+                              canEdit={
+                                editorCanEdit && !mcpDirectoryWidgetReadOnly
+                              }
+                              usePagePropertiesOnly={mcpDirectoryWidgetReadOnly}
+                              suggesting={isSuggesting || isStartingSuggestion}
+                              enteringSuggestion={isStartingSuggestion}
+                              onPrimaryFieldAvailabilityChange={
+                                handlePrimaryFieldAvailabilityChange
+                              }
+                              primaryEditor={primaryEditor}
+                              primaryContent={exportContent}
+                              onFieldTabChange={
+                                blockFieldComments.onFieldTabChange
+                              }
+                              pageProperties={document.properties}
+                              onAdditionalContentChange={
+                                handleAdditionalBlockContentChange
+                              }
+                            />
+                          </BlockFieldCommentsProvider>
                         );
                       }
 
@@ -9650,7 +9692,7 @@ function PageEditorSessionBody({
 
               {showDesktopRightRail ? (
                 showInlineComments ? (
-                  primaryBlockFieldHidden ? null : (
+                  blockFieldComments.tabSwitchPending ? null : (
                     <aside
                       ref={commentLaneRef}
                       className="absolute right-0 top-0 w-80"
@@ -9695,7 +9737,9 @@ function PageEditorSessionBody({
                 >
                   <div className="pointer-events-auto">
                     {renderCommentsSidebar(
-                      pendingComment ? "__pending-only__" : selectedThreadId,
+                      pendingComment && blockFieldComments.pendingVisible
+                        ? "__pending-only__"
+                        : selectedThreadId,
                       false,
                       "inline",
                       "popover",

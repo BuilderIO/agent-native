@@ -269,6 +269,15 @@ export const documentComments = table(
     propertyId: text("property_id"),
     propertyName: text("property_name"),
     propertyValue: text("property_value"),
+    /**
+     * The Blocks field tab a thread sits in, when it isn't the page body. Null
+     * means the body, so comments written before tabs had comments stay there.
+     * Set on every comment in the thread (replies copy the root's); the name is
+     * what the field was called when the thread started, so a deleted tab's
+     * threads still read as that tab.
+     */
+    fieldId: text("field_id"),
+    fieldName: text("field_name"),
     mentionsJson: text("mentions_json"),
     authorEmail: text("author_email").notNull(),
     authorName: text("author_name"),

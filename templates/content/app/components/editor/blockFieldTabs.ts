@@ -99,6 +99,44 @@ export function primaryBlockFieldEditor(
   );
 }
 
+function cssEscape(value: string) {
+  return globalThis.CSS?.escape
+    ? globalThis.CSS.escape(value)
+    : value.replace(/["\\]/g, "\\$&");
+}
+
+/**
+ * One Blocks field's editor, where `null` is the page body. A field with no
+ * editor on the page, such as a deleted one, has none.
+ */
+export function blockFieldEditor(
+  root: ParentNode | null | undefined,
+  fieldId: string | null,
+): HTMLElement | null {
+  if (!root) return null;
+  if (fieldId !== null) {
+    return root.querySelector<HTMLElement>(
+      `[data-block-field-id="${cssEscape(fieldId)}"]:not([data-block-field-tab]) .ProseMirror`,
+    );
+  }
+  const primary = root.querySelector<HTMLElement>(
+    "[data-primary-block-field-panel] .ProseMirror",
+  );
+  if (primary) return primary;
+  // Without tabs the body is the page's own editor, outside any field.
+  for (const editor of root.querySelectorAll<HTMLElement>(".ProseMirror")) {
+    if (!editor.closest("[data-block-field-id], [data-comments-sidebar]")) {
+      return editor;
+    }
+  }
+  return null;
+}
+
+/** Whether an element sits in a tab panel that isn't open. */
+export function inHiddenBlockFieldPanel(element: Element): boolean {
+  return element.closest("[hidden]") !== null;
+}
+
 export function blockFieldTabIndexForKey(
   key: string,
   index: number,

@@ -1034,6 +1034,10 @@ const comments = {
   accepted: "Acceptés",
   rejected: "Refusés",
   noFilteredComments: "Aucun commentaire correspondant.",
+  tabFilter: "Onglet",
+  allTabs: "Tous les onglets",
+  fieldRemoved: "{{name}} (supprimé)",
+  pageBody: "Corps de la page",
 };
 
 const reviewDiscussions = {
@@ -1456,6 +1460,9 @@ const overrides = {
     addBlockField: "Ajouter un champ",
     blockFieldChanged: "Modifié depuis votre dernière consultation",
     blockFieldTabs: "Champs",
+    blockFieldOpenComments_one: "{{count}} commentaire ouvert",
+    blockFieldOpenComments_many: "{{count}} commentaires ouverts",
+    blockFieldOpenComments_other: "{{count}} commentaires ouverts",
     blockFieldMenu: "Options de {{name}}",
     blockFieldMenuScope: "Partagé par toutes les lignes de cette collection",
     blockFieldName: "Nom du champ",

@@ -29,7 +29,7 @@ export type ContentDatabaseCommentTarget =
 
 export default defineAction({
   description:
-    "List Comment threads across every row of one Collection in a single call, newest first. Each thread names its row, what it targets (quoted text, a Property, or the whole Page), and its comments in order. A Property target carries the value it had when the thread started, except for relation, rollup, and formula Properties. Only rows the caller can read are included. Defaults to open threads.",
+    "List Comment threads across every row of one Collection in a single call, newest first. Each thread names its row, what it targets (quoted text, a Property, or the whole Page), the Blocks field tab it sits in (fieldId and fieldName; null for the page body), and its comments in order. A Property target carries the value it had when the thread started, except for relation, rollup, and formula Properties. Only rows the caller can read are included. Defaults to open threads.",
   mcpTool: true,
   schema: z.object({
     databaseId: z.string().optional().describe("Collection ID"),
@@ -84,6 +84,8 @@ export default defineAction({
         propertyId: schema.documentComments.propertyId,
         propertyName: schema.documentComments.propertyName,
         propertyValue: schema.documentComments.propertyValue,
+        fieldId: schema.documentComments.fieldId,
+        fieldName: schema.documentComments.fieldName,
       })
       .from(schema.documentComments)
       .innerJoin(
@@ -176,6 +178,8 @@ export default defineAction({
           path: `/page/${root.documentId}?comment=${encodeURIComponent(root.threadId)}`,
           resolved: Boolean(root.resolved),
           target,
+          fieldId: root.fieldId,
+          fieldName: root.fieldName,
           comments: (commentsByThread.get(root.threadId) ?? [])
             .filter((comment) => comment.documentId === root.documentId)
             .map((comment) => ({

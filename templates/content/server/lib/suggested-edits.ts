@@ -555,7 +555,7 @@ async function reanchorSourceComment(
     return;
   const root = (
     await tx.execute({
-      sql: "SELECT id,quoted_text,anchor_prefix,anchor_suffix,anchor_start_offset FROM document_comments WHERE document_id = ? AND thread_id = ? AND parent_id IS NULL ORDER BY created_at ASC LIMIT 1",
+      sql: "SELECT id,quoted_text,anchor_prefix,anchor_suffix,anchor_start_offset FROM document_comments WHERE document_id = ? AND thread_id = ? AND parent_id IS NULL AND field_id IS NULL ORDER BY created_at ASC LIMIT 1",
       args: [documentId, threadId],
     })
   ).rows[0];

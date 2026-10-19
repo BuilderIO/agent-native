@@ -994,6 +994,10 @@ const comments = {
   accepted: "수락됨",
   rejected: "거부됨",
   noFilteredComments: "일치하는 댓글이 없습니다.",
+  tabFilter: "탭",
+  allTabs: "모든 탭",
+  fieldRemoved: "{{name}} (삭제됨)",
+  pageBody: "페이지 본문",
 };
 
 const reviewDiscussions = {
@@ -1399,6 +1403,7 @@ const overrides = {
     addBlockField: "필드 추가",
     blockFieldChanged: "마지막으로 본 이후 변경됨",
     blockFieldTabs: "필드",
+    blockFieldOpenComments_other: "열린 댓글 {{count}}개",
     blockFieldMenu: "{{name}} 옵션",
     blockFieldMenuScope: "이 컬렉션의 모든 행에 공통",
     blockFieldName: "필드 이름",

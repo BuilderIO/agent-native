@@ -65,19 +65,23 @@ vi.mock("./VisualEditor", async () => {
 });
 
 import { TooltipProvider } from "@/components/ui/tooltip";
+import type { CommentThread } from "@/hooks/use-comments";
 
+import {
+  BlockFieldCommentsProvider,
+  type BlockFieldCommentsProviderValue,
+  type BlockFieldTabs,
+} from "./block-field-comments";
 import {
   __resetBlockFieldSaveRegistry,
   flushAllBlockFieldSaveControllersForDocument,
 } from "./blockFieldSaveRegistry";
 import {
+  blockFieldEditor,
   primaryBlockFieldEditor,
   visibleBlockFieldEditor,
 } from "./blockFieldTabs";
-import {
-  DocumentBlockFields,
-  type PrimaryBlockFieldTab,
-} from "./DocumentBlockFields";
+import { DocumentBlockFields } from "./DocumentBlockFields";
 
 const primaryLifecycle = { mounts: 0, unmounts: 0 };
 
@@ -208,22 +212,33 @@ describe("DocumentBlockFields tabs", () => {
       primaryContent?: string;
       primaryEditor?: ReactNode;
       usePagePropertiesOnly?: boolean;
-      onPrimaryFieldTabChange?: (tab: PrimaryBlockFieldTab) => void;
+      onFieldTabChange?: (tabs: BlockFieldTabs | null) => void;
+      comments?: BlockFieldCommentsProviderValue;
     } = {},
   ): ReactNode {
+    const { comments, ...fieldProps } = props;
+    const fields = (
+      <DocumentBlockFields
+        documentId="doc-1"
+        databaseId="db-1"
+        databaseDocumentId="db-page"
+        canEdit
+        primaryEditor={<PrimaryEditorProbe />}
+        onAdditionalContentChange={onAdditionalContentChange}
+        {...fieldProps}
+      />
+    );
     return (
       <MemoryRouter initialEntries={["/home", entry]} initialIndex={1}>
         <TooltipProvider>
           <LocationProbe />
-          <DocumentBlockFields
-            documentId="doc-1"
-            databaseId="db-1"
-            databaseDocumentId="db-page"
-            canEdit
-            primaryEditor={<PrimaryEditorProbe />}
-            onAdditionalContentChange={onAdditionalContentChange}
-            {...props}
-          />
+          {comments ? (
+            <BlockFieldCommentsProvider value={comments}>
+              {fields}
+            </BlockFieldCommentsProvider>
+          ) : (
+            fields
+          )}
         </TooltipProvider>
       </MemoryRouter>
     );
@@ -472,35 +487,74 @@ describe("DocumentBlockFields tabs", () => {
   });
 
   describe("page comments", () => {
-    function lastTab(onChange: ReturnType<typeof vi.fn>) {
-      return onChange.mock.lastCall?.[0] as PrimaryBlockFieldTab | undefined;
+    function lastTabs(onChange: ReturnType<typeof vi.fn>) {
+      return onChange.mock.lastCall?.[0] as BlockFieldTabs | null | undefined;
     }
 
-    it("reports when another tab hides the primary field, and brings it back", async () => {
-      const onPrimaryFieldTabChange = vi.fn();
-      await render({ onPrimaryFieldTabChange });
-      expect(lastTab(onPrimaryFieldTabChange)?.open).toBe(true);
+    it("reports the open tab, with the body as null, and opens any tab (CMT-5)", async () => {
+      const onFieldTabChange = vi.fn();
+      await render({ onFieldTabChange });
+      expect(lastTabs(onFieldTabChange)).toMatchObject({
+        ready: true,
+        openFieldId: null,
+      });
+      const reported = lastTabs(onFieldTabChange)!;
+      expect(reported.hasField(null)).toBe(true);
+      expect(reported.hasField("notes")).toBe(true);
+      // The primary field is only ever the body.
+      expect(reported.hasField("content")).toBe(false);
+      expect(reported.hasField("deleted-field")).toBe(false);
 
       await click(tab("notes"));
-      expect(lastTab(onPrimaryFieldTabChange)?.open).toBe(false);
+      expect(lastTabs(onFieldTabChange)?.openFieldId).toBe("notes");
 
-      await act(async () => lastTab(onPrimaryFieldTabChange)?.show());
+      await act(async () => lastTabs(onFieldTabChange)?.showField(null));
       expect(selectedTabId()).toBe("content");
       expect(panel("content").hidden).toBe(false);
       expect(location.href).toBe("/page/doc-1");
-      expect(lastTab(onPrimaryFieldTabChange)?.open).toBe(true);
+      expect(lastTabs(onFieldTabChange)?.openFieldId).toBeNull();
+
+      await act(async () => lastTabs(onFieldTabChange)?.showField("notes"));
+      expect(selectedTabId()).toBe("notes");
+      expect(location.href).toBe("/page/doc-1?field=notes");
+      expect(location.state).toMatchObject({ blockFieldTabSwitch: true });
     });
 
-    it("reports the primary field open again once the tabs go away", async () => {
-      const onPrimaryFieldTabChange = vi.fn();
-      await render({ onPrimaryFieldTabChange });
+    it("reports the body again once the tabs go away, and nothing once unmounted", async () => {
+      const onFieldTabChange = vi.fn();
+      await render({ onFieldTabChange });
       await click(tab("notes"));
-      expect(lastTab(onPrimaryFieldTabChange)?.open).toBe(false);
+      expect(lastTabs(onFieldTabChange)?.openFieldId).toBe("notes");
 
       setFields([content()]);
-      await render({ onPrimaryFieldTabChange });
+      await render({ onFieldTabChange });
       expect(tabs()).toHaveLength(0);
-      expect(lastTab(onPrimaryFieldTabChange)?.open).toBe(true);
+      expect(lastTabs(onFieldTabChange)?.openFieldId).toBeNull();
+      expect(lastTabs(onFieldTabChange)?.hasField(null)).toBe(true);
+
+      await act(async () => root.unmount());
+      expect(lastTabs(onFieldTabChange)).toBeNull();
+      root = createRoot(container);
+    });
+
+    it("reports a lone non-body field as open, and loading as not ready", async () => {
+      const onFieldTabChange = vi.fn();
+      setFields([notes({ position: 0 })]);
+      await render({ onFieldTabChange });
+      expect(lastTabs(onFieldTabChange)).toMatchObject({
+        ready: true,
+        openFieldId: "notes",
+      });
+      expect(lastTabs(onFieldTabChange)?.hasField(null)).toBe(false);
+      expect(
+        container
+          .querySelector('[data-block-fields-state="solo"]')
+          ?.getAttribute("data-block-field-id"),
+      ).toBe("notes");
+
+      mocks.query = { data: undefined, isError: false, isRefetching: false };
+      await remount({ onFieldTabChange });
+      expect(lastTabs(onFieldTabChange)?.ready).toBe(false);
     });
 
     it("marks the primary field's panel wherever its tab sits", async () => {
@@ -537,6 +591,32 @@ describe("DocumentBlockFields tabs", () => {
       expect(visibleBlockFieldEditor(null)).toBeNull();
     });
 
+    it("finds each field's own editor, with null as the body", () => {
+      const layout = document.createElement("div");
+      layout.innerHTML = `
+        <button data-block-field-tab data-block-field-id="notes"></button>
+        <div data-block-field-panel data-block-field-id="notes" hidden>
+          <div class="ProseMirror" id="notes-editor"></div>
+        </div>
+        <div data-block-field-panel data-block-field-id="content" data-primary-block-field-panel>
+          <div class="ProseMirror" id="body-editor"></div>
+        </div>`;
+      expect(blockFieldEditor(layout, "notes")?.id).toBe("notes-editor");
+      expect(blockFieldEditor(layout, null)?.id).toBe("body-editor");
+      expect(blockFieldEditor(layout, "deleted-field")).toBeNull();
+
+      // A lone non-body field isn't the body.
+      layout.innerHTML = `
+        <div data-block-fields-state="solo" data-block-field-id="notes">
+          <div class="ProseMirror" id="notes-editor"></div>
+        </div>`;
+      expect(blockFieldEditor(layout, "notes")?.id).toBe("notes-editor");
+      expect(blockFieldEditor(layout, null)).toBeNull();
+
+      layout.innerHTML = `<div class="ProseMirror" id="page-editor"></div>`;
+      expect(blockFieldEditor(layout, null)?.id).toBe("page-editor");
+    });
+
     it("marks a tab switch in history state, so page links don't reopen", async () => {
       await render();
       await click(tab("notes"));
@@ -544,6 +624,157 @@ describe("DocumentBlockFields tabs", () => {
 
       await click(tab("content"));
       expect(location.state).toMatchObject({ blockFieldTabSwitch: true });
+    });
+  });
+
+  describe("comments in tabs", () => {
+    function commentThread(
+      id: string,
+      fieldId: string | null,
+      extra: Partial<CommentThread> = {},
+    ): CommentThread {
+      return {
+        threadId: id,
+        quotedText: "filler text",
+        prefix: null,
+        suffix: null,
+        startOffset: 0,
+        field: fieldId ? { fieldId, fieldName: "Notes" } : null,
+        resolved: false,
+        comments: [],
+        ...extra,
+      };
+    }
+
+    function comments(
+      overrides: Partial<BlockFieldCommentsProviderValue["editors"]> = {},
+      counts: [string | null, number][] = [],
+    ): BlockFieldCommentsProviderValue {
+      return {
+        counts: new Map(counts),
+        editors: {
+          threads: [],
+          activeThreadId: null,
+          hoveredThreadId: null,
+          pending: null,
+          showCommentIndicators: true,
+          ...overrides,
+        },
+      };
+    }
+
+    it("shows each tab's open comment count (CMT-3)", async () => {
+      setFields([
+        content(),
+        notes(),
+        field("empty", { name: "Empty field", position: 2 }),
+      ]);
+      await render({
+        comments: comments({}, [
+          [null, 3],
+          ["notes", 1],
+        ]),
+      });
+
+      const count = (id: string) =>
+        tab(id).querySelector<HTMLElement>("[data-block-field-comment-count]");
+      expect(count("content")?.dataset.blockFieldCommentCount).toBe("3");
+      expect(count("content")?.textContent).toBe(
+        "3editor.blockFieldOpenComments:3",
+      );
+      expect(count("notes")?.dataset.blockFieldCommentCount).toBe("1");
+      expect(count("empty")).toBeNull();
+    });
+
+    it("gives a field's editor its own threads and highlight, and comments name the field (CMT-1)", async () => {
+      const onComment = vi.fn();
+      const range = { from: 2, to: 8 };
+      const threads = [
+        commentThread("body-thread", null),
+        commentThread("notes-thread", "notes"),
+        commentThread("other-thread", "other"),
+        commentThread("property-thread", null, {
+          property: {
+            propertyId: "status",
+            propertyName: "Status",
+            propertyValue: null,
+          },
+        }),
+      ];
+      await render({
+        comments: comments({
+          threads,
+          activeThreadId: "notes-thread",
+          hoveredThreadId: "body-thread",
+          pending: { fieldId: "notes", range },
+          onComment,
+        }),
+      });
+
+      const editor = mocks.editors.get("Notes text")!;
+      expect(
+        (editor.commentThreads as CommentThread[]).map(
+          (thread) => thread.threadId,
+        ),
+      ).toEqual(["notes-thread"]);
+      expect(editor.activeThreadId).toBe("notes-thread");
+      expect(editor.hoveredThreadId).toBe("body-thread");
+      expect(editor.pendingHighlight).toBe(range);
+      expect(editor.showCommentIndicators).toBe(true);
+
+      const anchor = {
+        quotedText: "Notes",
+        prefix: "",
+        suffix: " text",
+        startOffset: 0,
+      };
+      (editor.onComment as (...args: unknown[]) => void)(
+        "Notes",
+        40,
+        anchor,
+        range,
+      );
+      expect(onComment).toHaveBeenCalledWith(
+        "notes",
+        "Notes",
+        40,
+        anchor,
+        range,
+      );
+
+      // A new handler from the page keeps the editor's own, so the editor
+      // doesn't rebuild its extensions.
+      const nextOnComment = vi.fn();
+      const handler = editor.onComment;
+      await render({
+        comments: comments({ threads, onComment: nextOnComment }),
+      });
+      const updated = mocks.editors.get("Notes text")!;
+      expect(updated.onComment).toBe(handler);
+      expect(updated.pendingHighlight).toBeNull();
+      (updated.onComment as (...args: unknown[]) => void)("Notes", 0);
+      expect(nextOnComment).toHaveBeenCalledWith(
+        "notes",
+        "Notes",
+        0,
+        undefined,
+        undefined,
+      );
+    });
+
+    it("offers no comments in a field without the page's comment wiring", async () => {
+      await render();
+      const editor = mocks.editors.get("Notes text")!;
+      expect(editor.onComment).toBeUndefined();
+      expect(editor.commentThreads).toBeUndefined();
+      expect(
+        container.querySelector("[data-block-field-comment-count]"),
+      ).toBeNull();
+    });
+
+    it("leaves comments out for someone who can only read", async () => {
+      await render({ comments: comments({ onComment: undefined }) });
+      expect(mocks.editors.get("Notes text")?.onComment).toBeUndefined();
     });
   });
 

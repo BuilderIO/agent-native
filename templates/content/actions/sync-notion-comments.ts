@@ -169,6 +169,9 @@ export default defineAction({
           eq(schema.documentComments.ownerEmail, ownerEmail),
           isNull(schema.documentComments.notionCommentId),
           eq(schema.documentComments.resolved, 0),
+          // Notion has one body; a thread in another Blocks field tab (its
+          // replies carry the same field) stays in Content.
+          isNull(schema.documentComments.fieldId),
         ),
       );
     const localComments = [

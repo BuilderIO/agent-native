@@ -79,6 +79,10 @@ const comments = {
   accepted: "已接受",
   rejected: "已拒絕",
   noFilteredComments: "沒有相符的留言。",
+  tabFilter: "分頁",
+  allTabs: "所有分頁",
+  fieldRemoved: "{{name}}（已移除）",
+  pageBody: "頁面內文",
 };
 
 const reviewDiscussions = {
@@ -446,6 +450,7 @@ const overrides = {
     addBlockField: "新增欄位",
     blockFieldChanged: "自你上次檢視後已變更",
     blockFieldTabs: "欄位",
+    blockFieldOpenComments_other: "{{count}} 則未解決的留言",
     blockFieldMenu: "{{name}} 選項",
     blockFieldMenuScope: "此集合中的每一列共用",
     blockFieldName: "欄位名稱",

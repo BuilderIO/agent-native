@@ -16,6 +16,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { resolveCommentBlocksField } from "../server/lib/comment-blocks-field.js";
 import {
   assertMentionsInText,
   submittedCommentMentions,
@@ -93,6 +94,13 @@ const commentSchema = z.object({
     .describe(
       "Collection ID that owns propertyId; omit to use the Page's Collection",
     ),
+  fieldId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "Blocks field ID, to start a thread in that field's tab; quotedText and the anchor fields then come from that field's text. Omit for the page body (the primary Blocks field's ID also means the body). Field IDs are the Blocks-type properties get-document returns. Replies stay in their thread's tab, so omit it when replying. Not used with propertyId.",
+    ),
   mentions: z
     .union([z.string(), z.array(z.unknown())])
     .optional()
@@ -126,6 +134,7 @@ const RETRY_VARIABLE_KEYS = new Set([
   "authorEffort",
   "propertyName",
   "propertyValue",
+  "fieldName",
 ]);
 
 type CommentTransaction = Parameters<
@@ -150,6 +159,43 @@ async function resolveCommentPropertyTarget(
   return commentPropertyTarget(property);
 }
 
+/**
+ * A reply sits in its thread's tab. A `fieldId` that names another tab is
+ * refused rather than moving the reply away from the thread it answers.
+ */
+async function replyBlocksField(
+  documentId: string,
+  threadId: string,
+  fieldId: string | undefined,
+) {
+  const [root] = await getDb()
+    .select({
+      fieldId: schema.documentComments.fieldId,
+      fieldName: schema.documentComments.fieldName,
+    })
+    .from(schema.documentComments)
+    .where(
+      and(
+        eq(schema.documentComments.id, threadId),
+        eq(schema.documentComments.documentId, documentId),
+      ),
+    )
+    .limit(1);
+  const inherited = {
+    fieldId: root?.fieldId ?? null,
+    fieldName: root?.fieldName ?? null,
+  };
+  if (!fieldId || fieldId === inherited.fieldId) return inherited;
+  const requested = await resolveCommentBlocksField(documentId, fieldId);
+  if (requested.fieldId !== inherited.fieldId) {
+    fail("A reply stays in its thread's tab; omit fieldId when replying", {
+      statusCode: 400,
+      errorCode: "comment_field_reply_mismatch",
+    });
+  }
+  return inherited;
+}
+
 export async function addCommentWithGuard(
   args: z.infer<typeof commentSchema>,
   ctx?: ActionRunContext,
@@ -165,6 +211,12 @@ export async function addCommentWithGuard(
     fail(
       "A Property comment starts its own thread and has no quoted text; omit threadId, parentId, and quotedText",
       { statusCode: 400, errorCode: "comment_property_target_conflict" },
+    );
+  }
+  if (args.propertyId && args.fieldId) {
+    fail(
+      "A comment targets either a Property value or a Blocks field tab; pass propertyId or fieldId, not both",
+      { statusCode: 400, errorCode: "comment_field_property_conflict" },
     );
   }
 
@@ -221,6 +273,10 @@ export async function addCommentWithGuard(
         args.databaseId,
       )
     : null;
+  const fieldTarget =
+    args.threadId && args.parentId
+      ? await replyBlocksField(documentId, args.threadId, args.fieldId)
+      : await resolveCommentBlocksField(documentId, args.fieldId);
 
   const values = {
     id,
@@ -236,6 +292,8 @@ export async function addCommentWithGuard(
     propertyId: propertyTarget?.propertyId ?? null,
     propertyName: propertyTarget?.propertyName ?? null,
     propertyValue: propertyTarget?.propertyValue ?? null,
+    fieldId: fieldTarget.fieldId,
+    fieldName: fieldTarget.fieldName,
     mentionsJson,
     authorEmail: email,
     authorName: name,
@@ -371,7 +429,7 @@ export async function addCommentWithGuard(
 
 export default defineAction({
   description:
-    "Add a comment to a document. Comment text supports inline Markdown for emphasis, inline code, links, and line breaks; headings are flattened. To reply, provide both threadId and parentId; omit both to start a thread.",
+    "Add a comment to a document. Comment text supports inline Markdown for emphasis, inline code, links, and line breaks; headings are flattened. To reply, provide both threadId and parentId; omit both to start a thread. Pass fieldId to start a thread in a Blocks field tab other than the page body.",
   deferLoading: false,
   mcpTool: true,
   schema: commentSchema,
