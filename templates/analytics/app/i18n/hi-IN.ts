@@ -1280,6 +1280,13 @@ export default {
     viewOnly: "आपके पास इस डैशबोर्ड तक केवल देखने की पहुंच है।",
     saveFailed: "डैशबोर्ड सहेजा नहीं जा सका",
     saveFailedWithMessage: "Couldn't save dashboard: {{message}}",
+    panelCostTitle: '"{{title}}" की BigQuery लागत',
+    panelCostOverTitle: '"{{title}}" को रीफ़्रेश करना महंगा है',
+    panelCostScheduled:
+      "~{{size}} स्कैन · हर रीफ़्रेश पर {{perRun}} · ईमेल रिपोर्ट में ~{{perMonth}}/महीना",
+    panelCostUnscheduled:
+      "~{{size}} स्कैन · हर रीफ़्रेश पर {{perRun}} · कोई ईमेल रिपोर्ट नहीं",
+    panelCostOverHint: "छोटी तारीख सीमा या कम कॉलम कम डेटा स्कैन करते हैं।",
     archived: "“{{name}}” संग्रहीत किया गया",
     unhid: 'Unhid "{{name}}"',
     archiveFailed: "डैशबोर्ड संग्रहीत नहीं किया जा सका",

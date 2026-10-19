@@ -4,6 +4,7 @@ import {
 } from "./bigquery.js";
 import { describeError } from "./dashboard-panel-runner.js";
 import type { ResolvedDashboardPanelQuery } from "./dashboard-panel-verification.js";
+import { countEnabledDashboardReportSubscriptions } from "./dashboard-report-subscriptions.js";
 import {
   renderFirstPartyAnalyticsBigQueryEstimateSql,
   type AnalyticsScope,
@@ -276,10 +277,157 @@ export async function estimateResolvedPanel(
   };
 }
 
+function timedOutPanel(
+  panel: { panelId: string; title: string; source: string },
+  error: string,
+): PanelCostEstimate {
+  return {
+    panelId: panel.panelId,
+    title: panel.title,
+    source: panel.source,
+    status: "failed",
+    failure: "timeout",
+    error,
+  };
+}
+
+/**
+ * Estimate one panel, but give up when the deadline passes, even mid-way
+ * through credential, table, or backend lookups, so finished panels still
+ * come back before the caller's own timeout.
+ */
+async function estimatePanelBefore(
+  deadline: number,
+  panel: ResolvedDashboardPanelQuery,
+  scope: AnalyticsScope,
+  runsPerMonth: number | null,
+  signal?: AbortSignal,
+): Promise<PanelCostEstimate> {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) {
+    return timedOutPanel(
+      panel,
+      "Skipped: this request ran out of time. Estimate this panel on its own with panelId.",
+    );
+  }
+  const controller = new AbortController();
+  const forwardAbort = () => controller.abort(signal?.reason);
+  if (signal?.aborted) forwardAbort();
+  signal?.addEventListener("abort", forwardAbort, { once: true });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<PanelCostEstimate>((resolve) => {
+    timer = setTimeout(() => {
+      resolve(
+        timedOutPanel(
+          panel,
+          "Stopped: this panel's dry run didn't finish in time. Estimate it on its own with panelId.",
+        ),
+      );
+      controller.abort();
+    }, remaining);
+  });
+  try {
+    return await Promise.race([
+      estimateResolvedPanel(panel, scope, runsPerMonth, controller.signal),
+      timedOut,
+    ]);
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", forwardAbort);
+  }
+}
+
+async function mapPool<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const index = next++;
+      results[index] = await fn(items[index]);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, worker),
+  );
+  return results;
+}
+
+const DRY_RUN_CONCURRENCY = 6;
+
+/** Dry-run resolved panels a few at a time; none starts after `deadline`. */
+export function estimateResolvedPanels(
+  panels: readonly ResolvedDashboardPanelQuery[],
+  scope: AnalyticsScope,
+  runsPerMonth: number | null,
+  deadline: number,
+  signal?: AbortSignal,
+): Promise<PanelCostEstimate[]> {
+  return mapPool(panels, DRY_RUN_CONCURRENCY, (panel) =>
+    estimatePanelBefore(deadline, panel, scope, runsPerMonth, signal),
+  );
+}
+
+/**
+ * One run a day for each enabled email report on the dashboard in the
+ * caller's tenant; other tenants' reports run on their own BigQuery
+ * connection.
+ */
+export async function scheduledDashboardRuns(
+  dashboardId: string,
+  scope: AnalyticsScope,
+): Promise<{ reportSchedules: number; runsPerMonth: number | null }> {
+  const reportSchedules = await countEnabledDashboardReportSubscriptions(
+    dashboardId,
+    { email: scope.userEmail, orgId: scope.orgId },
+  );
+  return {
+    reportSchedules,
+    runsPerMonth: reportSchedules > 0 ? reportSchedules * DAYS_PER_MONTH : null,
+  };
+}
+
+export function describeReportSchedules(
+  reportSchedules: number,
+  orgId: string | null,
+): string {
+  return `${reportSchedules} enabled daily email report${reportSchedules === 1 ? "" : "s"} ${orgId ? "in your org" : "of yours"}`;
+}
+
+export function describeEstimate(estimate: QueryCostEstimate): string {
+  if (
+    estimate.status === "not_bigquery" ||
+    estimate.status === "not_estimated"
+  ) {
+    return estimate.reason;
+  }
+  if (estimate.status === "failed") {
+    return `no estimate (${estimate.failure}): ${estimate.error}`;
+  }
+  const monthly =
+    estimate.usdPerMonth === null
+      ? "not scheduled"
+      : `~${formatUsd(estimate.usdPerMonth)}/month over ${estimate.runsPerMonth} scheduled runs`;
+  const flags = [
+    estimate.overPerRunThreshold
+      ? `over the ${formatUsd(QUERY_COST_THRESHOLDS.perRunUsd)}/run threshold`
+      : null,
+    estimate.overPerMonthThreshold
+      ? `over the ${formatUsd(QUERY_COST_THRESHOLDS.perMonthUsd)}/month threshold`
+      : null,
+  ].filter(Boolean);
+  return `~${formatBytes(estimate.estimatedBytes)}, ${formatUsd(estimate.usdPerRun)} per run, ${monthly}${flags.length ? ` (${flags.join("; ")})` : ""}`;
+}
+
 export function totalCost(estimates: readonly QueryCostEstimate[]): {
   estimatedBytes: number;
   usdPerRun: number;
   usdPerMonth: number | null;
+  overPerRunThreshold: boolean;
+  overPerMonthThreshold: boolean;
 } {
   const estimated = estimates.filter(
     (
@@ -288,13 +436,20 @@ export function totalCost(estimates: readonly QueryCostEstimate[]): {
       estimate.status === "estimated",
   );
   const monthly = estimated.filter((estimate) => estimate.usdPerMonth !== null);
+  const usdPerRun = roundUsd(
+    estimated.reduce((sum, e) => sum + e.usdPerRun, 0),
+  );
+  const usdPerMonth =
+    monthly.length === 0
+      ? null
+      : roundUsd(monthly.reduce((sum, e) => sum + (e.usdPerMonth ?? 0), 0));
   return {
     estimatedBytes: estimated.reduce((sum, e) => sum + e.estimatedBytes, 0),
-    usdPerRun: roundUsd(estimated.reduce((sum, e) => sum + e.usdPerRun, 0)),
-    usdPerMonth:
-      monthly.length === 0
-        ? null
-        : roundUsd(monthly.reduce((sum, e) => sum + (e.usdPerMonth ?? 0), 0)),
+    usdPerRun,
+    usdPerMonth,
+    overPerRunThreshold: usdPerRun > QUERY_COST_THRESHOLDS.perRunUsd,
+    overPerMonthThreshold:
+      usdPerMonth !== null && usdPerMonth > QUERY_COST_THRESHOLDS.perMonthUsd,
   };
 }
 

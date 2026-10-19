@@ -938,6 +938,13 @@ export default {
     viewOnly: "You have view-only access to this dashboard.",
     saveFailed: "Couldn't save dashboard",
     saveFailedWithMessage: "Couldn't save dashboard: {{message}}",
+    panelCostTitle: 'BigQuery cost of "{{title}}"',
+    panelCostOverTitle: '"{{title}}" is expensive to refresh',
+    panelCostScheduled:
+      "~{{size}} scanned · {{perRun}} per refresh · ~{{perMonth}}/month in email reports",
+    panelCostUnscheduled:
+      "~{{size}} scanned · {{perRun}} per refresh · no email reports",
+    panelCostOverHint: "A narrower date range or fewer columns scans less.",
     archived: 'Archived "{{name}}"',
     unhid: 'Unhid "{{name}}"',
     archiveFailed: "Couldn't archive dashboard",

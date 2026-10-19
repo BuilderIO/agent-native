@@ -1345,6 +1345,14 @@ export default {
     viewOnly: "Vous disposez d'un accès en lecture seule à ce tableau de bord.",
     saveFailed: "Impossible d'enregistrer le tableau de bord",
     saveFailedWithMessage: "Couldn't save dashboard: {{message}}",
+    panelCostTitle: "Coût BigQuery de « {{title}} »",
+    panelCostOverTitle: "« {{title}} » coûte cher à actualiser",
+    panelCostScheduled:
+      "~{{size}} analysés · {{perRun}} par actualisation · ~{{perMonth}}/mois en rapports par e-mail",
+    panelCostUnscheduled:
+      "~{{size}} analysés · {{perRun}} par actualisation · aucun rapport par e-mail",
+    panelCostOverHint:
+      "Une période plus courte ou moins de colonnes réduit les données analysées.",
     archived: 'Tableau de bord "{{name}}" archivé',
     unhid: 'Unhid "{{name}}"',
     archiveFailed: "Impossible d'archiver le tableau de bord",

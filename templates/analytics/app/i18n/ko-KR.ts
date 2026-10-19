@@ -1295,6 +1295,13 @@ export default {
     viewOnly: "이 대시보드에 대한 보기 전용 액세스 권한이 있습니다.",
     saveFailed: "대시보드를 저장할 수 없습니다.",
     saveFailedWithMessage: "Couldn't save dashboard: {{message}}",
+    panelCostTitle: '"{{title}}"의 BigQuery 비용',
+    panelCostOverTitle: '"{{title}}"은(는) 새로 고침 비용이 큽니다',
+    panelCostScheduled:
+      "약 {{size}} 스캔 · 새로 고침당 {{perRun}} · 이메일 보고서로 월 약 {{perMonth}}",
+    panelCostUnscheduled:
+      "약 {{size}} 스캔 · 새로 고침당 {{perRun}} · 이메일 보고서 없음",
+    panelCostOverHint: "날짜 범위를 줄이거나 열을 줄이면 스캔량이 줄어듭니다.",
     archived: '"{{name}}" 대시보드를 보관처리했습니다.',
     unhid: 'Unhid "{{name}}"',
     archiveFailed: "대시보드를 보관처리할 수 없습니다.",

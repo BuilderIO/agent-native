@@ -1349,6 +1349,14 @@ export default {
     viewOnly: "Sie haben nur Lesezugriff auf dieses Dashboard.",
     saveFailed: "Das Dashboard konnte nicht gespeichert werden",
     saveFailedWithMessage: "Couldn't save dashboard: {{message}}",
+    panelCostTitle: "BigQuery-Kosten für „{{title}}“",
+    panelCostOverTitle: "„{{title}}“ ist teuer zu aktualisieren",
+    panelCostScheduled:
+      "~{{size}} gescannt · {{perRun}} pro Aktualisierung · ~{{perMonth}}/Monat für E-Mail-Berichte",
+    panelCostUnscheduled:
+      "~{{size}} gescannt · {{perRun}} pro Aktualisierung · keine E-Mail-Berichte",
+    panelCostOverHint:
+      "Ein kürzerer Zeitraum oder weniger Spalten scannen weniger Daten.",
     archived: "Dashboard „{{name}}“ archiviert",
     unhid: 'Unhid "{{name}}"',
     archiveFailed: "Das Dashboard konnte nicht archiviert werden",
