@@ -65,6 +65,7 @@ import {
 } from "./embed-auth.js";
 import { recordActionStart } from "./recorder.js";
 import { currentRouteTemplate } from "./route-template.js";
+import { currentSessionIdentity } from "./session-identity.js";
 import { recheckSessionAfterUnauthorized } from "./use-session.js";
 
 function actionPrefix(): string {
@@ -247,11 +248,32 @@ type InternalActionFetchOptions = ActionFetchOptions & {
   batch?: boolean;
 };
 
+// The server's capability lives 10 minutes; re-mint a minute early so a call
+// never leaves with a capability that expires in flight.
+const UI_CAPABILITY_REUSE_MS = 9 * 60_000;
+
 let uiCapabilityRequest: Promise<void> | undefined;
+let uiCapability: { identity: string | null | undefined; at: number } | null =
+  null;
+
+function hasFreshUiCapability(): boolean {
+  return (
+    uiCapability !== null &&
+    uiCapability.identity === currentSessionIdentity() &&
+    Date.now() - uiCapability.at < UI_CAPABILITY_REUSE_MS
+  );
+}
+
+/** Drop the remembered capability so the next call that needs one mints it. */
+export function forgetUiActionCapability(): void {
+  uiCapability = null;
+}
 
 // The mint is shared by concurrent callers, so one caller's abort rejects only
 // its own wait and never cancels the request the others are waiting on.
 function ensureUiActionCapability(signal?: AbortSignal): Promise<void> {
+  if (hasFreshUiCapability()) return Promise.resolve();
+  const identity = currentSessionIdentity();
   const request =
     uiCapabilityRequest ??
     (uiCapabilityRequest = fetch(
@@ -262,6 +284,7 @@ function ensureUiActionCapability(signal?: AbortSignal): Promise<void> {
         if (!response.ok) {
           throw new Error("Could not establish the browser UI capability.");
         }
+        uiCapability = { identity, at: Date.now() };
       })
       .finally(() => {
         uiCapabilityRequest = undefined;
@@ -274,6 +297,32 @@ function ensureUiActionCapability(signal?: AbortSignal): Promise<void> {
     request
       .then(resolve, reject)
       .finally(() => signal.removeEventListener("abort", onAbort));
+  });
+}
+
+/**
+ * Every write from the signed-in app carries the UI capability, so an action
+ * that needs approval runs on its first request instead of failing once and
+ * retrying. The mint waits for a known signed-in session: a public page or an
+ * embed has none to mint from, and its writes go out as they are. A failed
+ * mint never holds a write back; the server decides what the write may do.
+ */
+function presentUiCapability(
+  method: string,
+  options: InternalActionFetchOptions | undefined,
+  signal: AbortSignal | undefined,
+): Promise<void> | undefined {
+  if (options?.uiOnly) return ensureUiActionCapability(signal);
+  if (
+    method === "GET" ||
+    typeof window === "undefined" ||
+    isEmbedAuthActive() ||
+    typeof currentSessionIdentity() !== "string"
+  ) {
+    return undefined;
+  }
+  return ensureUiActionCapability(signal).catch((error) => {
+    if (signal?.aborted) throw error;
   });
 }
 
@@ -416,9 +465,12 @@ async function performActionFetch<T>(
               batchUrl: `${actionPrefix()}/${ACTION_BATCH_ACTION_NAME}`,
             })
           : fetch(url, init);
-      const request = options?.uiOnly
-        ? ensureUiActionCapability(controller?.signal).then(send)
-        : send();
+      const capability = presentUiCapability(
+        method,
+        options,
+        controller?.signal,
+      );
+      const request = capability ? capability.then(send) : send();
       res = await Promise.race([request, timedOutSignal]);
       throwIfAborted(outerSignal);
       options?.onResponse?.(res);
@@ -495,6 +547,7 @@ async function performActionFetch<T>(
       !options?.uiCapabilityRetry &&
       typeof window !== "undefined"
     ) {
+      forgetUiActionCapability();
       return performActionFetch<T>(name, method, params, {
         ...options,
         uiOnly: true,
