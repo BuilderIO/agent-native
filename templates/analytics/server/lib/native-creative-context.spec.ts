@@ -213,12 +213,10 @@ describe("native dashboard creative context builtin reads", () => {
         "same-org",
       ]),
     ).toEqual([
-      ...rows
-        .slice(0, 12)
-        .map((row) => ({
-          resourceId: row.id,
-          sourceModifiedAt: row.updatedAt,
-        })),
+      ...rows.slice(0, 12).map((row) => ({
+        resourceId: row.id,
+        sourceModifiedAt: row.updatedAt,
+      })),
       { resourceId: "same-org", sourceModifiedAt: "version-0" },
     ]);
     expect(mocks.isOrgMember).toHaveBeenCalledTimes(13);
