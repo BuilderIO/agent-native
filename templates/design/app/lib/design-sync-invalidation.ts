@@ -64,22 +64,32 @@ function mayCreateVersion(event: SyncEventLike): boolean {
 }
 
 /**
- * Narrows the refetch for a batch that only carries collaborators' design
- * content (file saves and the Yjs updates beside them), so unrelated reads do
- * not refetch on every peer edit. Any other event in the batch refetches
- * everything, as before.
+ * Content edits and export-capability heartbeats only refresh their affected
+ * reads. Unknown data changes retain the broad refetch.
  */
 export function shouldInvalidateDesignQueryForSync(
   query: { queryKey: readonly unknown[] },
   events: readonly SyncEventLike[],
 ): boolean {
   if (query.queryKey[0] !== "action") return false;
-  const relevant = events.filter(
-    (event) => event.source !== "app-state" && event.source !== "awareness",
-  );
-  if (relevant.length === 0 || !relevant.every(isContentEvent)) return true;
   const name = query.queryKey[1];
   if (typeof name !== "string") return true;
+  const changes = events.filter(
+    (event) => event.source !== "app-state" && event.source !== "awareness",
+  );
+  const contextChanged = changes.some(
+    (event) =>
+      event.source === "action" &&
+      event.key === "register-native-render-context",
+  );
+  if (contextChanged && name === "get-native-render-contexts") return true;
+  const relevant = changes.filter(
+    (event) =>
+      event.source !== "action" ||
+      event.key !== "register-native-render-context",
+  );
+  if (contextChanged && relevant.length === 0) return false;
+  if (relevant.length === 0 || !relevant.every(isContentEvent)) return true;
   if (isContentIndependentDesignQuery(name)) return false;
   if (name === "list-design-versions") return relevant.some(mayCreateVersion);
   return true;

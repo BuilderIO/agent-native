@@ -73,9 +73,10 @@ const CONFIGURE_ARGS = [
   // Containers we read (native mp4/mov, plus webm from browser recordings)
   // and write.
   "--enable-demuxer=mov,matroska,wav,mp3,aac,ogg",
-  "--enable-muxer=mp4,mov,null,wav",
+  // The configure component is pcm_f32le; the runtime muxer is named f32le.
+  "--enable-muxer=mp4,mov,null,wav,pcm_f32le",
   "--enable-decoder=h264,hevc,aac,aac_at,pcm_s16le,pcm_s16be,pcm_f32le,mp3,opus,vorbis,vp8,vp9",
-  "--enable-encoder=aac,aac_at,h264_videotoolbox,hevc_videotoolbox,pcm_s16le",
+  "--enable-encoder=aac,aac_at,h264_videotoolbox,hevc_videotoolbox,pcm_s16le,pcm_f32le",
   "--enable-parser=h264,hevc,aac,opus,vp8,vp9,mpegaudio",
   // The audio pass, plus the video filters the compression path uses.
   "--enable-filter=aformat,anull,aresample,volume,volumedetect,loudnorm,afftdn,pan,aselect,atrim,format,scale,fps,null,copy,trim,amix,apad",
@@ -99,8 +100,24 @@ const REQUIRED_FILTERS = [
   "amix",
   "apad",
 ];
-const REQUIRED_ENCODERS = ["aac", "h264_videotoolbox"];
-const REQUIRED_MUXERS = ["mp4"];
+const REQUIRED_ENCODERS = ["aac", "h264_videotoolbox", "pcm_f32le"];
+const REQUIRED_MUXERS = ["mp4", "f32le"];
+const REQUIRED_CROSS_BUILD_SYMBOLS = [
+  "ff_af_loudnorm",
+  "ff_af_afftdn",
+  "ff_af_volume",
+  "ff_af_volumedetect",
+  "ff_af_pan",
+  "ff_af_aformat",
+  "ff_vf_scale",
+  "ff_af_amix",
+  "ff_af_apad",
+  "ff_aac_encoder",
+  "ff_h264_videotoolbox_encoder",
+  "ff_pcm_f32le_encoder",
+  "ff_mp4_muxer",
+  "ff_pcm_f32le_muxer",
+];
 
 function log(message) {
   console.log(`[ffmpeg-sidecar] ${message}`);
@@ -185,16 +202,20 @@ function verifyBinary(binary, triple) {
       fail(`${binary} does not run on this machine`);
     }
 
-    const strings = run("strings", [binary], { quiet: true });
-    const missing = [
-      ...REQUIRED_FILTERS,
-      ...REQUIRED_ENCODERS,
-      ...REQUIRED_MUXERS,
-    ].filter((name) => !strings.includes(name));
+    const symbols = new Set(
+      run("nm", ["-gU", binary], { quiet: true })
+        .split(/\r?\n/)
+        .map((line) => line.trim().split(/\s+/).at(-1)?.replace(/^_/, ""))
+        .filter(Boolean),
+    );
+    const missing = REQUIRED_CROSS_BUILD_SYMBOLS.filter(
+      (name) => !symbols.has(name),
+    );
     if (missing.length > 0) {
-      fail(`${binary} is missing required features: ${missing.join(", ")}`);
+      fail(`${binary} is missing required components: ${missing.join(", ")}`);
     }
 
+    const strings = run("strings", [binary], { quiet: true });
     if (strings.includes("--enable-nonfree")) {
       fail(
         `${binary} was configured --enable-nonfree, which may not be redistributed`,

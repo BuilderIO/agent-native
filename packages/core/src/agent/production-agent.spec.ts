@@ -210,6 +210,9 @@ const mockGetSlotHoldingRunId = vi.hoisted(() =>
 );
 const mockInsertRun = vi.hoisted(() => vi.fn(async () => undefined));
 const mockFireInternalDispatch = vi.hoisted(() => vi.fn(async () => undefined));
+const mockRunManagerFlush = vi.hoisted(() => ({
+  onFlush: undefined as (() => Promise<void>) | undefined,
+}));
 
 vi.mock("../db/ddl-guard.js", () => ({
   ensureColumnExists: vi.fn().mockResolvedValue(undefined),
@@ -260,11 +263,24 @@ vi.mock("./run-manager.js", async () => {
     ...actual,
     startRun: (...args: Parameters<typeof actual.startRun>) => {
       const [runId, threadId, runFn, onComplete, options] = args;
-      return actual.startRun(runId, threadId, runFn, onComplete, {
-        ...options,
-        executionLease: false,
-        persistEvent: async () => {},
-      });
+      return actual.startRun(
+        runId,
+        threadId,
+        (send, signal, control) =>
+          runFn(send, signal, {
+            ...control,
+            flushEvents: async () => {
+              await mockRunManagerFlush.onFlush?.();
+              await control.flushEvents();
+            },
+          }),
+        onComplete,
+        {
+          ...options,
+          executionLease: false,
+          persistEvent: async () => {},
+        },
+      );
     },
     tryClaimRunSlot: mockTryClaimRunSlot,
     getSlotHoldingRunId: mockGetSlotHoldingRunId,
@@ -4142,7 +4158,22 @@ describe("createProductionAgentHandler", () => {
     const isTurnAborted = vi
       .spyOn(runStore, "isTurnAborted")
       .mockResolvedValue(false);
-    const runAction = vi.fn(async () => "sent");
+    let releaseFlush = () => {};
+    let flushStarted = false;
+    let flushCompleted = false;
+    let actionStartedBeforeFlush = false;
+    const flushGate = new Promise<void>((resolve) => {
+      releaseFlush = resolve;
+    });
+    mockRunManagerFlush.onFlush = async () => {
+      flushStarted = true;
+      await flushGate;
+      flushCompleted = true;
+    };
+    const runAction = vi.fn(async () => {
+      actionStartedBeforeFlush = !flushCompleted;
+      return "sent";
+    });
     let completedRun: ActiveRun | undefined;
     const modelMessages: EngineMessage[][] = [];
     const engine: AgentEngine = {
@@ -4156,6 +4187,7 @@ describe("createProductionAgentHandler", () => {
         yield { type: "stop", reason: "end_turn" };
       },
     };
+    let responseText: Promise<string> | undefined;
     const handler = createProductionAgentHandler({
       systemPrompt: "Test",
       engine,
@@ -4220,9 +4252,14 @@ describe("createProductionAgentHandler", () => {
         () => handler(event),
       );
       expect(response).toBeInstanceOf(ReadableStream);
-      if (response instanceof ReadableStream) {
-        await new Response(response).text();
-      }
+      responseText =
+        response instanceof ReadableStream
+          ? new Response(response).text()
+          : Promise.resolve("");
+      await vi.waitFor(() => expect(flushStarted).toBe(true));
+      expect(runAction).not.toHaveBeenCalled();
+      releaseFlush();
+      await responseText;
       await vi.waitFor(() => expect(completedRun).toBeDefined());
 
       expect(resolveApproval).toHaveBeenCalledWith(
@@ -4233,6 +4270,7 @@ describe("createProductionAgentHandler", () => {
       );
       expect(consumeApproval).toHaveBeenCalledOnce();
       expect(runAction).toHaveBeenCalledOnce();
+      expect(actionStartedBeforeFlush).toBe(false);
       const continuedMessages = modelMessages.find((messages) =>
         messages.some(
           (message) =>
@@ -4266,6 +4304,9 @@ describe("createProductionAgentHandler", () => {
         ]),
       );
     } finally {
+      releaseFlush();
+      await responseText?.catch(() => {});
+      mockRunManagerFlush.onFlush = undefined;
       resolveApproval.mockRestore();
       consumeApproval.mockRestore();
       isTurnAborted.mockRestore();
@@ -13161,6 +13202,160 @@ describe("runAgentLoop", () => {
         type: "tool_done",
         tool: "get-meeting",
         result: "Error running get-meeting: No such meeting",
+      }),
+    );
+  });
+
+  it("gives the model the details a fail() attached", async () => {
+    let streamCalls = 0;
+    let secondRequest = "";
+    const run = vi.fn(async () => {
+      fail("A transcript import is already running", {
+        errorCode: "import_in_progress",
+        statusCode: 409,
+        details: { importId: "imp_1", apiKey: "SENSITIVE_VALUE" },
+      });
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls > 1) {
+          secondRequest = JSON.stringify(options.messages);
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text" as const, text: "done" }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "call-1",
+              name: "import-transcript",
+              input: { recordingId: "rec_1" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "import-transcript": { ...actionEntry({}), run },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    const expected =
+      "Error running import-transcript: A transcript import is already running (errorCode: import_in_progress)\n" +
+      'Error details: {"importId":"imp_1","apiKey":"[REDACTED]"}';
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "import-transcript",
+        result: expected,
+      }),
+    );
+    expect(secondRequest).toContain(JSON.stringify(expected).slice(1, -1));
+    expect(JSON.stringify(events)).not.toContain("SENSITIVE_VALUE");
+  });
+
+  it("still stops a repeated failure whose details change on every attempt", async () => {
+    let streamCalls = 0;
+    let attempts = 0;
+    const run = vi.fn(async () => {
+      attempts += 1;
+      fail("Recording rec_1 is still processing", {
+        errorCode: "recording_processing",
+        details: { attempt: attempts, checkedAt: `t${attempts}` },
+      });
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (isLoopBreakerCloseout(options)) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "text" as const,
+                text: "The repeated action failures stopped.",
+              },
+            ],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: `tool-repeat-${streamCalls}`,
+              name: "get-recording",
+              input: { id: "rec_1" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "get-recording": { ...actionEntry({ readOnly: true }), run },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledTimes(3);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "get-recording",
+        result: expect.stringMatching(
+          /^Stopped after 3 identical errors[\s\S]*\nError details: \{"attempt":3,"checkedAt":"t3"\}$/,
+        ),
       }),
     );
   });

@@ -944,6 +944,17 @@ unavailable" placeholder.
   `mutate-dashboard` for existing edits, or `update-dashboard` for new/full
   config saves, and fix the action arguments.
 - Never set `panel.source` to a table name or unsupported backend.
+- Before saving a BigQuery or first-party panel that reads a large table, or
+  adding an email report to a dashboard, check its cost with
+  `estimate-query-cost --dashboardId <id>` (add `--panelId` for one panel). It
+  is a free dry run; tell the user any panel flagged over $1 per run or $50 per
+  month. Dashboard estimates count email reports but not alert rules: before
+  adding an alert, estimate an `analytics_events` query with the alert's
+  filters and its window's `event_date` and `timestamp` bounds, as alerts
+  send both (the dry run skips only partitions the `event_date` filter rules
+  out), using `--source first-party --eventsSource raw` (alerts run as
+  first-party SQL on the raw table) and `--runsPerMonth` set from the poll
+  interval (8640 for every 5 minutes).
 - Use `first-party` for `/track` data and `query-agent-native-analytics` for ad-hoc first-party event questions.
 - Use `update-dashboard` for new dashboard config saves and full config
   replacements. Use `mutate-dashboard` for existing dashboard edits.

@@ -1,0 +1,269 @@
+import {
+  checkEffectAssetUrl,
+  effectInputEnabled,
+  type EffectDefinition,
+  type EffectInputBinding,
+  type EffectInstance,
+  type EffectTextureRef,
+} from "./native-effects";
+
+export type NativeExternalTextureInput =
+  | {
+      kind: "builtin";
+      source:
+        | "source"
+        | "mask"
+        | "backdrop"
+        | "receiver-geometry"
+        | "receiver-interior";
+    }
+  | {
+      kind: "asset";
+      url: string;
+      sampleEncoding?:
+        | "srgb-color"
+        | "srgb-color-premultiplied"
+        | "linear-data"
+        | "srgb-encoded-straight";
+      preprocess?: "paper-liquid-mask" | "paper-gem-smoke-mask-32";
+      mipmap?: "generated";
+    }
+  | { kind: "authored-node"; nodeId: string; capture: "content" | "appearance" }
+  | { kind: "camera" }
+  | { kind: "fallback"; source: "transparent-data" };
+
+export type NativeInputPlan =
+  | { ok: true; inputs: ReadonlyMap<string, NativeExternalTextureInput> }
+  | { ok: false; code: string; detail: string };
+
+const BUILTINS = new Set(["source", "mask", "backdrop"]);
+
+function sameInput(
+  a: NativeExternalTextureInput,
+  b: NativeExternalTextureInput,
+): boolean {
+  return (
+    a.kind === b.kind &&
+    (a.kind === "asset"
+      ? a.url === (b as typeof a).url
+      : a.kind === "authored-node"
+        ? a.nodeId === (b as typeof a).nodeId &&
+          a.capture === (b as typeof a).capture
+        : a.kind === "camera"
+          ? true
+          : a.source === (b as typeof a).source)
+  );
+}
+
+export function planNativeInputResources(
+  definition: EffectDefinition,
+  instance: Pick<EffectInstance, "bindings" | "params" | "placement">,
+): NativeInputPlan {
+  const produced = new Set(
+    definition.passes.flatMap((pass) => [
+      pass.output,
+      ...(pass.additionalOutputs ?? []),
+    ]),
+  );
+  const needed = new Set(
+    definition.passes
+      .flatMap((pass) => pass.reads)
+      .filter((read) => !produced.has(read)),
+  );
+  const singleSourceBackend =
+    (definition.statelessCompute !== undefined ||
+      definition.simulation !== undefined ||
+      definition.feedback !== undefined) &&
+    needed.size === 1 &&
+    needed.has("source");
+  const inputs = new Map<string, NativeExternalTextureInput>();
+  for (const [portName, port] of Object.entries(definition.inputs ?? {})) {
+    if (port.kind !== "texture-2d" && port.kind !== "mask") continue;
+    const resource = port.resource;
+    if (!resource) continue;
+    if (!effectInputEnabled(port, definition, instance.params)) {
+      if (needed.has(resource)) {
+        inputs.set(resource, { kind: "fallback", source: "transparent-data" });
+      }
+      continue;
+    }
+    const optionalNoise =
+      definition.optionalImage !== undefined &&
+      definition.passes[0]?.reads[1] === "noise" &&
+      portName === "noise";
+    let binding: EffectInputBinding | null =
+      instance.bindings &&
+      Object.prototype.hasOwnProperty.call(instance.bindings, portName)
+        ? instance.bindings[portName]
+        : null;
+    for (const [name, property] of Object.entries(definition.properties)) {
+      if (property.type !== "texture" || property.input !== portName) continue;
+      const value = Object.prototype.hasOwnProperty.call(instance.params, name)
+        ? instance.params[name]
+        : property.default;
+      if (value === null) continue;
+      if (binding)
+        return {
+          ok: false,
+          code: "input-binding-conflict",
+          detail: `Texture property ${name} conflicts with binding ${portName}.`,
+        };
+      if (
+        typeof value !== "object" ||
+        !("kind" in value) ||
+        value.kind !== "asset" ||
+        !("url" in value) ||
+        typeof value.url !== "string"
+      )
+        return {
+          ok: false,
+          code: "input-texture-property-asset-required",
+          detail: `Texture property ${name} needs an asset reference.`,
+        };
+      binding = value as EffectTextureRef;
+    }
+    if (!binding && needed.has(resource) && BUILTINS.has(resource))
+      binding = {
+        kind: "builtin",
+        source: resource as "source" | "mask" | "backdrop",
+      };
+    if (!binding && needed.has(resource) && resource === "receiverGeometry")
+      binding = { kind: "builtin", source: "receiver-geometry" };
+    if (!binding && needed.has(resource) && resource === "receiverInterior")
+      binding = { kind: "builtin", source: "receiver-interior" };
+    if (!binding) {
+      if (port.enabledWhen && needed.has(resource))
+        return {
+          ok: false,
+          code: "input-conditional-binding-required",
+          detail: `Input ${portName} needs a selected image in ${String(port.enabledWhen.equals)} mode.`,
+        };
+      if (optionalNoise && needed.has(resource))
+        return {
+          ok: false,
+          code: "optional-noise-asset-required",
+          detail: "The second input needs a resolved linear data asset.",
+        };
+      if (
+        needed.has(resource) &&
+        port.optional &&
+        port.fallback === "transparent-data"
+      )
+        inputs.set(resource, { kind: "fallback", source: "transparent-data" });
+      continue;
+    }
+    if (
+      (portName === definition.optionalImage?.port || optionalNoise) &&
+      binding.kind !== "asset"
+    )
+      return {
+        ok: false,
+        code: optionalNoise
+          ? "optional-noise-asset-required"
+          : "optional-image-asset-required",
+        detail: `Input ${portName} needs a decoded asset rather than an authored or composed source.`,
+      };
+    if (
+      (binding.kind === "authored-node" || binding.kind === "camera") &&
+      (definition.statelessCompute ||
+        definition.simulation ||
+        definition.feedback) &&
+      !singleSourceBackend
+    )
+      return {
+        ok: false,
+        code: "input-authored-mode-unsupported",
+        detail: `Input ${portName} needs a render-pass effect for live capture.`,
+      };
+    if (binding.kind === "asset") {
+      const checked = checkEffectAssetUrl(binding.url);
+      if (!checked.ok)
+        return {
+          ok: false,
+          code: "input-asset-invalid",
+          detail: `Input ${portName} has an invalid local asset path (${checked.reason}).`,
+        };
+      const resourceSpec = definition.resources?.find(
+        (candidate) => candidate.name === resource,
+      );
+      binding = {
+        kind: "asset",
+        url: checked.url,
+        ...(resourceSpec?.sampleEncoding
+          ? { sampleEncoding: resourceSpec.sampleEncoding }
+          : {}),
+        ...(resourceSpec?.preprocess
+          ? { preprocess: resourceSpec.preprocess }
+          : {}),
+        ...(resourceSpec?.mipmap ? { mipmap: resourceSpec.mipmap } : {}),
+      };
+    }
+    if (
+      binding.kind === "builtin" &&
+      binding.source === "backdrop" &&
+      instance.placement !== "backdrop"
+    )
+      return {
+        ok: false,
+        code: "input-placement-unsupported",
+        detail: `Input ${portName} cannot sample a backdrop on a ${instance.placement} instance.`,
+      };
+    if (
+      ((binding.kind === "builtin" &&
+        binding.source !== "receiver-geometry" &&
+        binding.source !== "receiver-interior") ||
+        binding.kind === "authored-node" ||
+        binding.kind === "camera") &&
+      definition.resources?.some(
+        (candidate) =>
+          candidate.name === resource &&
+          candidate.sampleEncoding === "linear-data",
+      )
+    )
+      return {
+        ok: false,
+        code: "input-encoding-unsupported",
+        detail: `Resource ${resource} needs a raw data asset, not a composed color source.`,
+      };
+    const existing = inputs.get(resource);
+    if (existing && !sameInput(existing, binding))
+      return {
+        ok: false,
+        code: "input-resource-ambiguous",
+        detail: `Resource ${resource} has conflicting input bindings.`,
+      };
+    inputs.set(resource, binding);
+  }
+  for (const resource of needed) {
+    if (inputs.has(resource)) continue;
+    if (resource === "source" || resource === "mask") {
+      inputs.set(resource, { kind: "builtin", source: resource });
+      continue;
+    }
+    if (resource === "backdrop" && instance.placement === "backdrop") {
+      inputs.set(resource, { kind: "builtin", source: "backdrop" });
+      continue;
+    }
+    if (resource === "receiverGeometry") {
+      inputs.set(resource, { kind: "builtin", source: "receiver-geometry" });
+      continue;
+    }
+    if (resource === "receiverInterior") {
+      inputs.set(resource, { kind: "builtin", source: "receiver-interior" });
+      continue;
+    }
+    return {
+      ok: false,
+      code: "input-resource-missing",
+      detail: `Pass input ${resource} has no available texture binding.`,
+    };
+  }
+  for (const resource of inputs.keys())
+    if (!needed.has(resource))
+      return {
+        ok: false,
+        code: "input-resource-unused",
+        detail: `Bound input ${resource} is not read by a pass.`,
+      };
+  return { ok: true, inputs };
+}

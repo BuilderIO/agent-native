@@ -23,6 +23,7 @@
  */
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
+import { ActionContractError } from "@agent-native/core/action";
 import { registerHostLabOverrides } from "@agent-native/core/labs/server";
 import { registerDelegatedBuilderCredentials } from "@agent-native/core/server";
 import { registerHostAccessResolver } from "@agent-native/core/sharing";
@@ -223,7 +224,11 @@ async function builderProjectRole(
   projectId: string,
 ): Promise<BuilderProjectRole> {
   const entry = delegatedCredentials.get(email.toLowerCase());
-  if (!entry || entry.expiresAtMs < Date.now() || !entry.spaceId) return null;
+  // No usable Builder credential here (it expired, or this instance never
+  // saw the exchange, e.g. after a restart) is not Builder saying no.
+  if (!entry || entry.expiresAtMs < Date.now() || !entry.spaceId) {
+    throw new BuilderSignInRequiredError();
+  }
   const cacheKey = `${email.toLowerCase()}:${entry.spaceId}:${projectId}`;
   const cached = accessCache.get(cacheKey);
   if (cached && Date.now() - cached.at < ACCESS_CACHE_MS) return cached.role;
@@ -262,13 +267,40 @@ async function builderProjectRole(
   return role;
 }
 
-/** Builder could not answer an access question; not the same as "no". */
-export class BuilderUnavailableError extends Error {
+/**
+ * Builder could not answer an access question; not the same as "no". Typed
+ * (503) so any action that reaches the access check reports it as such.
+ */
+export class BuilderUnavailableError extends ActionContractError {
   readonly reason: unknown;
-  constructor(reason: unknown) {
-    super("Builder is unavailable right now; try again shortly.");
+  constructor(
+    reason: unknown,
+    options: { message?: string; errorCode?: string; statusCode?: number } = {},
+  ) {
+    super(
+      options.message ?? "Builder is unavailable right now; try again shortly.",
+      {
+        errorCode: options.errorCode ?? "builder_unavailable",
+        statusCode: options.statusCode ?? 503,
+      },
+    );
     this.name = "BuilderUnavailableError";
     this.reason = reason;
+  }
+}
+
+/**
+ * This server holds no current Builder credential for the user, so it cannot
+ * ask Builder (401). The host re-runs the sign-in exchange to recover.
+ */
+export class BuilderSignInRequiredError extends BuilderUnavailableError {
+  constructor() {
+    super("no delegated Builder credential", {
+      message: "Sign in to Builder again to open this design.",
+      errorCode: "builder_sign_in_required",
+      statusCode: 401,
+    });
+    this.name = "BuilderSignInRequiredError";
   }
 }
 

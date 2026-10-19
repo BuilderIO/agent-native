@@ -7,6 +7,7 @@ import { requireOrgMember } from "../actions.js";
 const MAX_PENDING_INVITATIONS = 100;
 
 export default defineAction({
+  mcpTool: true,
   description:
     "List members of the active organization with their roles, sorted by email. Owners and admins also get pending invitations.",
   http: { method: "GET" },

@@ -14,7 +14,8 @@ Read `.agents/skills/<name>/SKILL.md` before deeper work:
 - `design-review-feedback` — persisted review comments.
 - `export-handoff` — exports and coding handoffs.
 - `full-app-build` — fusion-backed app builds.
-- `shader-fills` — GLSL fills/effects.
+- `shader-fills` — historical GLSL fills/effects.
+- `native-effects` — WebGPU fills/effects, source edits, and PNG.
 - `journey-storyboards` — onboarding-journey storyboards.
 
 Also read `.agents/skills/<name>/SKILL.md` for shared guides: `actions`,
@@ -55,6 +56,9 @@ Search local docs with `pnpm action docs-search --query "<topic>"`; read by slug
 | `present-design-variants` | Generate 2–5 variants |
 | `view-screen` / `navigate` | Read current screen / move UI |
 | `get-view-settings` / `update-view-settings` | Read/update view toggles (grid, snap, rulers, cursors, hidden comments) |
+| `get-shader` / `edit-native-shader` | Inspect curated native effects; CAS-edit one inline scene |
+| `prepare-native-scene-export` | Pin scene for PNG |
+| `get-native-render-contexts` / `request-native-local-export` / `get-native-local-export` | Request foreground native PNG and inspect attachment |
 | `export-png` | Export PNG |
 | `export-html` / `export-zip` / `export-coding-handoff` / `export-design-as-figma-svg` | Export finished work |
 

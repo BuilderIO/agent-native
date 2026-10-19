@@ -36,6 +36,7 @@ import {
 } from "./group-runtime.js";
 import { isStandaloneHttpUrl } from "./html-content.js";
 import { resolveLayerNameAttribute } from "./layer-name.js";
+import { pruneDeletedNativeEffects } from "./native-effect-pruning";
 import {
   parsePenNodes,
   serializePenNodes,
@@ -4003,7 +4004,10 @@ export function removeCodeLayerNodeFromHtml(
   const start = node.source.start;
   const end = node.source.end;
   if (start < 0 || end <= start || end > html.length) return null;
-  return `${html.slice(0, start)}${html.slice(end)}`;
+  return pruneDeletedNativeEffects(
+    html,
+    `${html.slice(0, start)}${html.slice(end)}`,
+  );
 }
 
 type CodeLayerTreeFields = Omit<CodeLayerTreeNode, "children">;

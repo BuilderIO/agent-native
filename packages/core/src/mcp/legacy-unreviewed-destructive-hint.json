@@ -20,7 +20,6 @@
     "create-dream-report",
     "create-extension",
     "create-link-token",
-    "create-org-service-token",
     "create-pylon-ticket",
     "create-vault-grant",
     "create-vault-secret",
