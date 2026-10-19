@@ -273,4 +273,17 @@ describe("GitHub link dialog", () => {
     expect(document.querySelector("[data-github-folder-preview]")).toBe(null);
     expect(button("Link folder").disabled).toBe(true);
   });
+
+  it("drops a preview that answers after the link changed", async () => {
+    renderDialog();
+    await typeInto(urlInput(), FOLDER_URL);
+    await click(button("Preview"));
+    const [, options] = lastCall();
+    await typeInto(urlInput(), `${FOLDER_URL}/guides`);
+    const { act } = await import("react");
+    await act(async () => options.onSuccess?.(dryRun()));
+    expect(document.querySelector("[data-github-folder-preview]")).toBe(null);
+    await act(async () => options.onError?.(new Error("No such folder")));
+    expect(document.querySelector('[role="alert"]')).toBe(null);
+  });
 });

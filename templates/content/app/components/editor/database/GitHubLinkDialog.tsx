@@ -6,7 +6,7 @@ import {
   type GitHubLinkBlockedReason,
 } from "@shared/github-source";
 import { IconBrandGithub } from "@tabler/icons-react";
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useRef, useState, type FormEvent, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -206,9 +206,13 @@ export function GitHubLinkDialog({
   const [result, setResult] = useState<LinkPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [needsConnection, setNeedsConnection] = useState(false);
+  // Counts previews and edits, so a preview that answers after the link
+  // changed is dropped rather than shown under the new link.
+  const previewRun = useRef(0);
   const pending = previewFolder.isPending || linkFolder.isPending;
 
   function reset() {
+    previewRun.current += 1;
     setResult(null);
     setError(null);
     setNeedsConnection(false);
@@ -238,18 +242,21 @@ export function GitHubLinkDialog({
       setError(problem);
       return;
     }
+    const run = previewRun.current;
     previewFolder.mutate(
       { databaseId, url: trimmed, dryRun: true },
       {
         onSuccess: (response) => {
-          if (!response.dryRun) return;
+          if (!response.dryRun || run !== previewRun.current) return;
           setResult({
             url: trimmed,
             preview: response.preview,
             blockedReason: response.blockedReason,
           });
         },
-        onError: handleError,
+        onError: (cause) => {
+          if (run === previewRun.current) handleError(cause);
+        },
       },
     );
   }
@@ -326,7 +333,7 @@ export function GitHubLinkDialog({
               disabled={linkFolder.isPending}
               onChange={(event) => {
                 setUrl(event.target.value);
-                if (result || error || needsConnection) reset();
+                reset();
               }}
             />
             <Button
