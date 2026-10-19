@@ -73,6 +73,7 @@ type QueryFailureClass =
   | "quota_exceeded"
   | "rate_limited"
   | "backend_error"
+  | "backend_not_postgres"
   | "timeout"
   | "query_error"
   | "unknown";
@@ -100,7 +101,7 @@ type QueryFailure = {
 };
 
 const QUERY_FAILURES: Record<
-  Exclude<QueryFailureClass, "unknown">,
+  Exclude<QueryFailureClass, "unknown" | "backend_not_postgres">,
   QueryFailure
 > = {
   unsupported_sql: {
@@ -317,7 +318,7 @@ export default defineAction({
   description:
     "Query the built-in first-party Analytics source: events recorded through this app's analytics collector endpoint (/track), daily rollups updated transactionally with new ingest, identifiable user-day rollups, and session replay summaries. Use it for app/site traffic, product events, template/app usage, conversions, session recordings, and LLM/agent observability (event_name = '$ai_generation': model cost, tokens, latency); use the BigQuery, GA4, Mixpanel, PostHog, or Amplitude actions when the user asks for those or the data lives there. " +
     "SQL may read analytics_events, analytics_event_daily_rollups, analytics_user_days, and session_recordings; session_replay_chunks is unavailable. Reads are scoped to the current user/org. Prefer analytics_event_daily_rollups for event counts and analytics_user_days for active-user or retention questions. After the explicit BigQuery cutover, events and rollups read from BigQuery while session_recordings stays in Postgres; cross-backend joins are not supported. " +
-    "Do not call DIV(); for ratios use CAST(numerator AS NUMERIC) / NULLIF(denominator, 0). Extract properties with properties::jsonb ->> 'key'; LATERAL/unnest/generate_series are unsupported. Use `||` explicitly between strings. On errors, follow typed recovery instructions and never repeat non-retryable SQL unchanged. Before a large or historical query, call get-first-party-analytics-health. Aggregate, project only needed columns, use bounded recent drill-downs, and add a LIMIT for raw or high-cardinality reads; an explicit all-time or lifetime request remains all-time. " +
+    "Do not call DIV(); for ratios use CAST(numerator AS NUMERIC) / NULLIF(denominator, 0). Extract properties with properties::jsonb ->> 'key'; LATERAL/unnest/generate_series are unsupported. Use `||` explicitly between strings. On errors, follow typed recovery instructions and never repeat non-retryable SQL unchanged. If the user rules out BigQuery, skip get-first-party-analytics-health; otherwise call it before large or historical queries. Aggregate, project only needed columns, use bounded recent drill-downs, and add a LIMIT for raw or high-cardinality reads; an explicit all-time or lifetime request remains all-time. " +
     "Columns. analytics_events: event_name, timestamp, event_date, user_id, anonymous_id, user_key, session_id, app, template, signed_in, url, path, hostname, referrer, properties, context. analytics_event_daily_rollups: tenant_key, owner_email, org_id, event_date, event_name, app, template, event_count. analytics_user_days: tenant_key, owner_email, org_id, event_date, user_key. session_recordings: id, session_id, user_id, anonymous_id, user_key, started_at, ended_at, duration_ms, chunk_count, event_count, page_count, error_count, rage_click_count, app, template, status, first_url, last_url, path, hostname, referrer, metadata. " +
     "The data-querying skill lists the `$ai_generation` properties and backend routing.",
   schema: z.object({
@@ -407,11 +408,11 @@ export default defineAction({
         }
         throw safeCancellationError();
       }
-      const failure =
+      const failure: QueryFailure =
         error instanceof FirstPartyAnalyticsBackendNotPostgresError
           ? {
               failureClass: "backend_not_postgres",
-              recovery: "stop" as const,
+              recovery: "stop",
               message: error.message,
             }
           : queryFailure(error);
