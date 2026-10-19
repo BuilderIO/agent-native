@@ -1065,6 +1065,7 @@ const comments = {
   commentOnProperty: "评论{{name}}",
   openPropertyComments_other: "{{name}} 上有 {{count}} 条未解决的评论",
   openRowComments_other: "{{title}} 上有 {{count}} 条未解决的评论",
+  openRow: "打开行",
   suggestions: "建议",
   suggestionAdd: "添加",
   suggestionDelete: "删除",

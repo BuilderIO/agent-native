@@ -301,8 +301,8 @@ import {
   useContentTableSelectionGutter,
 } from "./ContentTable";
 import { databaseCanCreateItems, databaseCreateTarget } from "./create-target";
+import { DatabaseCellComments } from "./database-cell-comments";
 import {
-  DatabaseCellCommentMarker,
   DatabaseItemCommentsContext,
   DatabaseRowCommentCount,
   type OpenDatabaseItemComments,
@@ -3672,7 +3672,12 @@ function DatabaseTable({
           onOpenPage={openItemPage}
         />
       ) : (
-        <DatabaseItemCommentsContext.Provider value={previewItemComments}>
+        // The read-only ChatGPT widget can't read or write Comments.
+        <DatabaseItemCommentsContext.Provider
+          value={
+            document.mcpDirectoryWidgetReadOnly ? null : previewItemComments
+          }
+        >
           <DatabaseTableView
             startupAnchored={renderMode === "page"}
             columnOrderIds={activeView.tableColumnOrderIds ?? []}
@@ -18687,7 +18692,7 @@ function DatabaseTableRow({
           <div
             key={property.definition.id}
             className={cn(
-              "flex min-w-0 hover:bg-muted/25",
+              "group/cell relative flex min-w-0 hover:bg-muted/25",
               databaseTableCellDensityClass(rowDensity),
               wrapCells ? "items-start" : "items-center",
             )}
@@ -18716,11 +18721,7 @@ function DatabaseTableRow({
             ) : (
               value
             )}
-            <DatabaseCellCommentMarker
-              item={item}
-              propertyId={itemProperty.definition.id}
-              propertyName={itemProperty.definition.name}
-            />
+            <DatabaseCellComments item={item} property={itemProperty} />
           </div>
         );
       })}

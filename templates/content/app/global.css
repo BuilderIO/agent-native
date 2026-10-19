@@ -2458,6 +2458,22 @@ audio.media-block__content {
   background-color: hsl(45 93% 47% / 0.15);
 }
 
+/* A table cell's Comment card. Its thread and composer cards draw their own
+   frame, so the layer only places them. */
+.database-cell-comment-card {
+  z-index: 290;
+  width: 20rem;
+  max-width: calc(100vw - 1.5rem);
+  outline: none;
+  --comment-popover-max-height: min(
+    32rem,
+    calc(var(--radix-popover-content-available-height) - 0.5rem)
+  );
+}
+.database-cell-comment-card [data-comments-sidebar] {
+  padding-bottom: 0;
+}
+
 .content-editor .suggestion-settling-original {
   display: none;
 }

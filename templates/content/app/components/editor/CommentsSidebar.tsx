@@ -742,6 +742,8 @@ interface CommentsSidebarOptions {
   surface?: CommentSurface;
   /** Closes the anchored popover; shown as its header close button. */
   onClose?: () => void;
+  /** Extra header actions for each comment thread's card. */
+  renderThreadActions?: (thread: CommentThread) => ReactNode;
 }
 
 type CommentsSidebarProps = CommentsSidebarOptions &
@@ -813,6 +815,7 @@ export function CommentsSidebar({
   presentation = "inline",
   surface: surfaceProp,
   onClose,
+  renderThreadActions,
 }: CommentsSidebarProps) {
   const surface: CommentSurface =
     surfaceProp ?? (presentation === "history" ? "panel" : "rail");
@@ -1817,6 +1820,7 @@ export function CommentsSidebar({
         resolved={Boolean(thread.resolved)}
         surface={surface}
         onClose={onClose}
+        threadActions={renderThreadActions?.(thread)}
         currentUserEmail={currentUserEmail}
         quote={thread.quotedText}
         propertyTarget={

@@ -982,6 +982,7 @@ const comments = {
   openRowComments_few: "{{count}} تعليقات مفتوحة على {{title}}",
   openRowComments_many: "{{count}} تعليقًا مفتوحًا على {{title}}",
   openRowComments_other: "{{count}} تعليق مفتوح على {{title}}",
+  openRow: "فتح الصف",
   suggestions: "الاقتراحات",
   suggestionAdd: "إضافة",
   suggestionDelete: "حذف",

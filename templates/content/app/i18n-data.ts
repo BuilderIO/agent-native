@@ -1557,6 +1557,7 @@ const enUS = {
     openRowComments_few: "{{count}} open comments on {{title}}",
     openRowComments_many: "{{count}} open comments on {{title}}",
     openRowComments_other: "{{count}} open comments on {{title}}",
+    openRow: "Open row",
     reply: "Reply...",
     reopen: "Reopen",
     suggestions: "Suggestions",

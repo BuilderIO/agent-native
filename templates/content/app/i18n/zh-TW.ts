@@ -62,6 +62,7 @@ const comments = {
   commentOnProperty: "留言於{{name}}",
   openPropertyComments_other: "{{name}} 有 {{count}} 則未解決的留言",
   openRowComments_other: "{{title}} 有 {{count}} 則未解決的留言",
+  openRow: "開啟行",
   suggestions: "建議",
   suggestionAdd: "新增",
   suggestionDelete: "刪除",
