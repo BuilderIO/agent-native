@@ -38,10 +38,12 @@ import {
   pngBase64OfAtLeast,
   PNG_BASE64,
 } from "../file-upload/test-image-fixtures.js";
+import { UnusableSchemaError } from "../json-schema/unusable-schema.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { hashEmail } from "../mcp-client/remote-store.js";
 import * as experiments from "../observability/experiments.js";
 import * as appRoles from "../org/app-roles.js";
+import { createProviderApiRequestAction } from "../provider-api/actions/provider-api.js";
 import { createUrlTools } from "../server/agent-chat/context-tools.js";
 import { createResourceScriptEntries } from "../server/agent-chat/script-entries.js";
 import { __resetAgentsBundleCache } from "../server/agents-bundle.js";
@@ -148,6 +150,7 @@ import {
   type ProductionAgentOptions,
 } from "./production-agent.js";
 import type { ActiveRun } from "./run-manager.js";
+import * as runManager from "./run-manager.js";
 import * as runStore from "./run-store.js";
 import { threadDataToEngineMessages } from "./thread-data-builder.js";
 import * as toolApprovalStore from "./tool-approval-store.js";
@@ -206,7 +209,6 @@ const mockGetSlotHoldingRunId = vi.hoisted(() =>
   vi.fn(async (): Promise<string | undefined> => undefined),
 );
 const mockInsertRun = vi.hoisted(() => vi.fn(async () => undefined));
-const mockPersistRunEventsInMemory = vi.hoisted(() => ({ enabled: false }));
 const mockFireInternalDispatch = vi.hoisted(() => vi.fn(async () => undefined));
 
 vi.mock("../db/ddl-guard.js", () => ({
@@ -257,11 +259,10 @@ vi.mock("./run-manager.js", async () => {
   return {
     ...actual,
     startRun: (...args: Parameters<typeof actual.startRun>) => {
-      if (!mockPersistRunEventsInMemory.enabled)
-        return actual.startRun(...args);
       const [runId, threadId, runFn, onComplete, options] = args;
       return actual.startRun(runId, threadId, runFn, onComplete, {
         ...options,
+        executionLease: false,
         persistEvent: async () => {},
       });
     },
@@ -433,7 +434,7 @@ function isLoopBreakerCloseout(options: EngineStreamOptions): boolean {
 async function runToolCallSequence(
   calls: Array<{ name: string; input: Record<string, unknown> }>,
   actions: Record<string, ActionEntry>,
-  options?: { threadId: string; turnId: string },
+  options?: { threadId?: string; turnId?: string; messages?: EngineMessage[] },
 ) {
   let nextCall = 0;
   const events: AgentChatEvent[] = [];
@@ -3256,12 +3257,12 @@ describe("buildUserContentWithAttachments", () => {
       }
     });
 
-    it("still throws an error that is not about the schema", () => {
+    it("leaves out an action whose parameters cannot be read", () => {
       const consoleError = vi
         .spyOn(console, "error")
         .mockImplementation(() => {});
       try {
-        expect(() =>
+        expect(
           actionsToEngineTools({
             "list-notes": listNotes,
             "pick-note": {
@@ -3283,8 +3284,61 @@ describe("buildUserContentWithAttachments", () => {
               },
               run: async () => ({}),
             },
-          }),
-        ).toThrow("parameters exploded");
+          }).map(({ name }) => name),
+        ).toEqual(["list-notes"]);
+        expect(consoleError.mock.calls).toContainEqual([
+          `[agent] Action "read-note" is left out of the agent's tools: its input schema could not be converted: parameters exploded at /.`,
+        ]);
+      } finally {
+        consoleError.mockRestore();
+      }
+    });
+
+    it("reports a verdict whose reason or path is not text", () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      const withVerdict = (malform: (failure: any) => void) => {
+        const failure = new UnusableSchemaError("/safe", "not usable");
+        malform(failure);
+        return defineAction({
+          description: "Malformed verdict",
+          schema: {
+            "~standard": {
+              version: 1,
+              vendor: "test",
+              validate: (value: unknown) => ({ value }),
+              jsonSchema: {
+                input: () => {
+                  throw failure;
+                },
+              },
+            },
+          } as never,
+          run: async () => ({}),
+        });
+      };
+      try {
+        expect(
+          actionsToEngineTools({
+            "list-notes": listNotes,
+            "number-reason": withVerdict((failure) => (failure.reason = 123)),
+            "number-path": withVerdict((failure) => (failure.path = 123)),
+            "object-reason": withVerdict(
+              (failure) =>
+                (failure.reason = {
+                  replace() {
+                    throw new Error("/_agent-native/embed/start?ticket=x");
+                  },
+                }),
+            ),
+          }).map(({ name }) => name),
+        ).toEqual(["list-notes"]);
+        expect(consoleError.mock.calls.map(([line]) => line)).toEqual([
+          `[agent] Action "number-reason" is left out of the agent's tools: its input schema 123 at /safe.`,
+          `[agent] Action "number-path" is left out of the agent's tools: its input schema not usable at 123.`,
+          `[agent] Action "object-reason" is left out of the agent's tools: its input schema [not text] at /safe.`,
+        ]);
       } finally {
         consoleError.mockRestore();
       }
@@ -4088,7 +4142,6 @@ describe("createProductionAgentHandler", () => {
     const isTurnAborted = vi
       .spyOn(runStore, "isTurnAborted")
       .mockResolvedValue(false);
-    mockPersistRunEventsInMemory.enabled = true;
     const runAction = vi.fn(async () => "sent");
     let completedRun: ActiveRun | undefined;
     const modelMessages: EngineMessage[][] = [];
@@ -4213,7 +4266,6 @@ describe("createProductionAgentHandler", () => {
         ]),
       );
     } finally {
-      mockPersistRunEventsInMemory.enabled = false;
       resolveApproval.mockRestore();
       consumeApproval.mockRestore();
       isTurnAborted.mockRestore();
@@ -4242,7 +4294,6 @@ describe("createProductionAgentHandler", () => {
     const updateRunHeartbeat = vi
       .spyOn(runStore, "updateRunHeartbeat")
       .mockResolvedValue(undefined);
-    mockPersistRunEventsInMemory.enabled = true;
     const runAction = vi.fn(async () => "sent");
     let completedRun: ActiveRun | undefined;
     const engine: AgentEngine = {
@@ -4357,7 +4408,6 @@ describe("createProductionAgentHandler", () => {
       expect(runAction).toHaveBeenCalledOnce();
       expect(consumeApproval).toHaveBeenCalledOnce();
     } finally {
-      mockPersistRunEventsInMemory.enabled = false;
       resolveApproval.mockRestore();
       consumeApproval.mockRestore();
       claimBackgroundRun.mockRestore();
@@ -4387,7 +4437,6 @@ describe("createProductionAgentHandler", () => {
     const consumeApproval = vi
       .spyOn(toolApprovalStore, "consumeAgentToolApproval")
       .mockResolvedValue(true);
-    mockPersistRunEventsInMemory.enabled = true;
     const onRunComplete = vi.fn();
     const handler = createProductionAgentHandler({
       systemPrompt: "Test",
@@ -4470,7 +4519,6 @@ describe("createProductionAgentHandler", () => {
       expect(outerStream).not.toHaveBeenCalled();
     } finally {
       consumeApproval.mockRestore();
-      mockPersistRunEventsInMemory.enabled = false;
     }
   });
 
@@ -4695,7 +4743,6 @@ describe("createProductionAgentHandler", () => {
       ).rejects.toBe(setupRequired);
 
       expect(assertAiSetupReady).toHaveBeenCalledOnce();
-      expect(getDbExec).not.toHaveBeenCalled();
       expect(readTurnStartedAt).not.toHaveBeenCalled();
       expect(mockTryClaimRunSlot).not.toHaveBeenCalled();
       expect(engine.stream).not.toHaveBeenCalled();
@@ -7423,6 +7470,64 @@ describe("createProductionAgentHandler", () => {
         turnId: expect.any(String),
       }),
     );
+  });
+
+  it("replays the accepted run when onRunPrepared finds an existing submission receipt", async () => {
+    const onRunPrepared = vi.fn(async () => ({
+      duplicateRunId: "run-already-submitted",
+    }));
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.close();
+      },
+    });
+    const subscribeToRun = vi
+      .spyOn(runManager, "subscribeToRun")
+      .mockReturnValue(stream);
+    onTestFinished(() => subscribeToRun.mockRestore());
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "should not start a new run" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      onRunPrepared,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Repeat the queued prompt",
+          queuedMessageId: "queued-duplicate",
+        }),
+      }),
+    );
+
+    const result = await runWithRequestContext(
+      { userEmail: "owner@example.com", run: {} },
+      () => handler(event),
+    );
+
+    expect(result).toBe(stream);
+    expect(subscribeToRun).toHaveBeenCalledWith("run-already-submitted", 0);
   });
 
   it("anchors retry deadlines to the server request time", async () => {
@@ -12424,6 +12529,136 @@ describe("runAgentLoop", () => {
         errorCode: "write_tool_outcome_unknown",
       }),
     );
+  });
+
+  describe("provider-api-request POST retries", () => {
+    const providerRequestAction = (
+      executeRequest: (args: unknown) => Promise<unknown>,
+    ): ActionEntry => ({
+      ...actionEntry({}),
+      ...createProviderApiRequestAction({
+        executeRequest: executeRequest as never,
+      }),
+    });
+    const rejected = {
+      response: { ok: false, status: 400, statusText: "Bad Request", json: {} },
+    };
+    const accepted = {
+      response: { ok: true, status: 200, json: { rows: [] } },
+    };
+
+    it("retries a failed GA4 report with corrected arguments", async () => {
+      const executeRequest = vi
+        .fn()
+        .mockResolvedValueOnce(rejected)
+        .mockResolvedValueOnce(accepted);
+      const report = (dimension: string) => ({
+        provider: "ga4",
+        method: "POST",
+        path: "/properties/{propertyId}:runReport",
+        body: { dimensions: [{ name: dimension }] },
+      });
+
+      const events = await runToolCallSequence(
+        [
+          { name: "provider-api-request", input: report("sessionSourc") },
+          { name: "provider-api-request", input: report("sessionSource") },
+        ],
+        { "provider-api-request": providerRequestAction(executeRequest) },
+      );
+
+      expect(executeRequest).toHaveBeenCalledTimes(2);
+      expect(events).not.toContainEqual(
+        expect.objectContaining({ outcomeUnknown: true }),
+      );
+      expect(events).not.toContainEqual(
+        expect.objectContaining({ errorCode: "write_tool_outcome_unknown" }),
+      );
+    });
+
+    it("still stops after a failed POST that may have written", async () => {
+      const executeRequest = vi.fn().mockResolvedValue(rejected);
+      const create = (email: string) => ({
+        provider: "hubspot",
+        method: "POST",
+        path: "/crm/v3/objects/contacts",
+        body: { properties: { email } },
+      });
+
+      const events = await runToolCallSequence(
+        [
+          { name: "provider-api-request", input: create("a@example.com") },
+          { name: "provider-api-request", input: create("b@example.com") },
+        ],
+        { "provider-api-request": providerRequestAction(executeRequest) },
+      );
+
+      expect(executeRequest).toHaveBeenCalledTimes(1);
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "error",
+          errorCode: "write_tool_outcome_unknown",
+        }),
+      );
+    });
+
+    it("runs the write again when the user replies continue in a new turn", async () => {
+      const executeRequest = vi.fn().mockResolvedValue(accepted);
+      const input = {
+        provider: "hubspot",
+        method: "POST",
+        path: "/crm/v3/objects/contacts",
+        body: { properties: { email: "a@example.com" } },
+      };
+      const messages: EngineMessage[] = [
+        { role: "user", content: [{ type: "text", text: "add the contact" }] },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "earlier-create",
+              name: "provider-api-request",
+              input,
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "earlier-create",
+              toolName: "provider-api-request",
+              content: "Error running provider-api-request: timed out",
+              isError: true,
+              outcome: "unknown",
+            },
+          ],
+        },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "text",
+              text: 'I stopped before running provider-api-request again. Reply "continue" and I will verify it.',
+            },
+          ],
+        },
+        { role: "user", content: [{ type: "text", text: "continue" }] },
+      ];
+
+      const events = await runToolCallSequence(
+        [{ name: "provider-api-request", input }],
+        { "provider-api-request": providerRequestAction(executeRequest) },
+        { messages },
+      );
+
+      expect(executeRequest).toHaveBeenCalledTimes(1);
+      expect(events).not.toContainEqual(
+        expect.objectContaining({ errorCode: "write_tool_outcome_unknown" }),
+      );
+    });
   });
 
   it("resets other tools' repeat-error counts after a successful write", async () => {
@@ -20840,30 +21075,24 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
   });
 
   it("marks a successfully chained background chunk terminal before the worker returns", async () => {
-    const updateRunStatusIfRunning = vi.fn(async () => true);
-    const setRunError = vi.fn(async () => {});
-    const setRunTerminalReason = vi.fn(async () => {});
+    const updateRunTerminalStateIfRunning = vi.fn(async () => true);
 
     await expect(
       markBackgroundContinuationChunkTerminal({
         runId: "run-old",
         continuationReason: "no_progress",
-        deps: { updateRunStatusIfRunning, setRunError, setRunTerminalReason },
+        deps: { updateRunTerminalStateIfRunning },
       }),
     ).resolves.toBe(true);
 
-    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
-      "run-old",
-      "completed",
-    );
-    expect(setRunTerminalReason).toHaveBeenCalledWith("run-old", "no_progress");
-    expect(setRunError).not.toHaveBeenCalled();
+    expect(updateRunTerminalStateIfRunning).toHaveBeenCalledWith("run-old", {
+      status: "completed",
+      terminalReason: "no_progress",
+    });
   });
 
   it("marks a recoverable error continuation chunk errored with its durable failure details", async () => {
-    const updateRunStatusIfRunning = vi.fn(async () => true);
-    const setRunError = vi.fn(async () => {});
-    const setRunTerminalReason = vi.fn(async () => {});
+    const updateRunTerminalStateIfRunning = vi.fn(async () => true);
 
     await expect(
       markBackgroundContinuationChunkTerminal({
@@ -20876,44 +21105,36 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
           details: "upstream returned 500",
           recoverable: true,
         },
-        deps: { updateRunStatusIfRunning, setRunError, setRunTerminalReason },
+        deps: { updateRunTerminalStateIfRunning },
       }),
     ).resolves.toBe(true);
 
-    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+    expect(updateRunTerminalStateIfRunning).toHaveBeenCalledWith(
       "run-error-boundary",
-      "errored",
-    );
-    expect(setRunTerminalReason).toHaveBeenCalledWith(
-      "run-error-boundary",
-      "error:provider_failed",
-    );
-    expect(setRunError).toHaveBeenCalledWith(
-      "run-error-boundary",
-      "provider_failed",
-      "upstream returned 500",
+      {
+        status: "errored",
+        terminalReason: "error:provider_failed",
+        errorCode: "provider_failed",
+        errorDetail: "upstream returned 500",
+      },
     );
   });
 
   it("does not overwrite terminal reason when another process already finished the chunk", async () => {
-    const updateRunStatusIfRunning = vi.fn(async () => false);
-    const setRunError = vi.fn(async () => {});
-    const setRunTerminalReason = vi.fn(async () => {});
+    const updateRunTerminalStateIfRunning = vi.fn(async () => false);
 
     await expect(
       markBackgroundContinuationChunkTerminal({
         runId: "run-old",
         continuationReason: "run_timeout",
-        deps: { updateRunStatusIfRunning, setRunError, setRunTerminalReason },
+        deps: { updateRunTerminalStateIfRunning },
       }),
     ).resolves.toBe(false);
 
-    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
-      "run-old",
-      "completed",
-    );
-    expect(setRunTerminalReason).not.toHaveBeenCalled();
-    expect(setRunError).not.toHaveBeenCalled();
+    expect(updateRunTerminalStateIfRunning).toHaveBeenCalledWith("run-old", {
+      status: "completed",
+      terminalReason: "run_timeout",
+    });
   });
 });
 

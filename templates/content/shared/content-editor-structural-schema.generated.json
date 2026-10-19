@@ -648,7 +648,7 @@
         {
           "name": "class",
           "hasDefault": true,
-          "default": "notion-link"
+          "default": "content-link"
         },
         {
           "name": "title",

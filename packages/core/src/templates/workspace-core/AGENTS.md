@@ -54,6 +54,10 @@ workspace app's agent needs them.
   research, analysis, generation, and synthesis go to `AgentSidebar` via
   `sendToAgentChat({ openSidebar: true })`, with follow-ups in the same thread.
   Do not add another freeform prompt box.
+- Use this app's actions by default. Call a peer only when the user asks or the
+  task requires data, credentials, or a capability only that peer can provide;
+  availability or enrichment alone is not enough. Keep authoring of this app's
+  artifacts here.
 - Keep app screens, actions, state, and skills in `apps/<app>`; put shared code
   in `packages/shared` only when multiple apps need it. Do not add a new app to
   `apps/chat` or another existing app unless asked. Use named domain routes and

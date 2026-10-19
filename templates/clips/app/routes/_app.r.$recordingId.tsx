@@ -51,7 +51,11 @@ import {
 } from "@shared/share-attribution";
 import { isDefaultTitle } from "@shared/title-source";
 import { isTranscriptExistsError } from "@shared/transcript-import";
-import type { WorkflowKind } from "@shared/workflow";
+import {
+  isRecentWorkflowGeneration,
+  type WorkflowKind,
+  workflowGenerationStaleAt,
+} from "@shared/workflow";
 import {
   IconCalendar,
   IconAlertTriangle,
@@ -1379,6 +1383,16 @@ export default function RecordingPage() {
     generatedWorkflowQ.data?.recordingId === recording?.id
       ? generatedWorkflowQ.data
       : null;
+  const workflowGenerationExpiry = workflowGenerationStaleAt(generatedWorkflow);
+  const [, refreshWorkflowGeneration] = useState(0);
+  useEffect(() => {
+    if (workflowGenerationExpiry === null) return;
+    const timer = window.setTimeout(
+      () => refreshWorkflowGeneration((value) => value + 1),
+      Math.max(0, workflowGenerationExpiry - Date.now()),
+    );
+    return () => window.clearTimeout(timer);
+  }, [refreshWorkflowGeneration, workflowGenerationExpiry]);
   const aiRequestStatus = aiRequestStatusQ.data?.kind
     ? aiRequestStatusQ.data
     : null;
@@ -1782,12 +1796,62 @@ export default function RecordingPage() {
         replaceImportId,
       }),
   );
+  const restoreTranscriptMutation = useActionMutation(
+    "restore-transcript-version" as any,
+  );
+  const [restoringVersionId, setRestoringVersionId] = useState<string | null>(
+    null,
+  );
+  // Every replace and restore keeps the transcript it replaced, so its toast
+  // can always offer to put that one back.
+  const undoTranscriptChange = (
+    recordingId: string,
+    savedVersionId: string | null | undefined,
+  ) =>
+    savedVersionId
+      ? {
+          action: {
+            label: t("transcriptHistory.undo"),
+            onClick: () =>
+              void restoreTranscriptVersion(recordingId, savedVersionId),
+          },
+          duration: 12_000,
+        }
+      : undefined;
+  /** Resolves false when the restore failed, after reporting it. */
+  const restoreTranscriptVersion = async (
+    recordingId: string,
+    versionId: string,
+  ): Promise<boolean> => {
+    setRestoringVersionId(versionId);
+    try {
+      const result: any = await restoreTranscriptMutation.mutateAsync({
+        recordingId,
+        versionId,
+      } as any);
+      void playerDataQ.refetch();
+      toast.success(
+        t("transcriptHistory.restored"),
+        undoTranscriptChange(recordingId, result?.savedVersionId),
+      );
+      return true;
+    } catch (err) {
+      toast.error(t("transcriptHistory.restoreFailed"), {
+        description:
+          actionErrorMessage(err as Error) ?? t("recordingPage.networkError"),
+      });
+      return false;
+    } finally {
+      setRestoringVersionId(null);
+    }
+  };
   const importTranscript = useActionMutation("import-transcript" as any, {
     onSuccess: (result: any) => {
       toast.success(
         result?.replaced
           ? t("transcriptImport.replaced")
           : t("transcriptImport.added"),
+        undoTranscriptChange(result?.recordingId, result?.savedVersionId),
       );
       void playerDataQ.refetch();
     },
@@ -1986,7 +2050,7 @@ export default function RecordingPage() {
   }
   function handleGenerateWorkflow(kind: WorkflowKind) {
     if (!recording) return;
-    if (aiRequestBusy || generatedWorkflow?.status === "generating") return;
+    if (aiRequestBusy || isRecentWorkflowGeneration(generatedWorkflow)) return;
     setEditing(false);
     openAgentPanel();
     workflowLifecycleActiveRef.current = true;
@@ -2000,7 +2064,7 @@ export default function RecordingPage() {
   }
 
   const workflowBusy =
-    generateWorkflow.isPending || generatedWorkflow?.status === "generating";
+    generateWorkflow.isPending || isRecentWorkflowGeneration(generatedWorkflow);
   const backgroundAiBusy = aiRequestBusy || workflowBusy;
 
   useEffect(() => {
@@ -2578,6 +2642,14 @@ export default function RecordingPage() {
                   : undefined
               }
               isImporting={importTranscript.isPending}
+              transcriptVersions={playerDataQ.data?.transcript?.versions}
+              onRestoreTranscript={
+                canEdit
+                  ? (versionId) =>
+                      restoreTranscriptVersion(recording.id, versionId)
+                  : undefined
+              }
+              restoringVersionId={restoringVersionId}
             />
           </div>
         </TabsContent>

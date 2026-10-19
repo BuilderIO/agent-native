@@ -2504,6 +2504,9 @@ importers:
       '@ag-ui/core':
         specifier: 0.0.59
         version: 0.0.59
+      '@noble/hashes':
+        specifier: ^2.4.0
+        version: 2.4.0
     devDependencies:
       typescript-7:
         specifier: 'catalog:'
@@ -5550,6 +5553,9 @@ importers:
 
   templates/clips/desktop:
     dependencies:
+      '@mediapipe/tasks-vision':
+        specifier: 0.10.35
+        version: 0.10.35
       '@radix-ui/react-alert-dialog':
         specifier: ^1.1.23
         version: 1.1.23(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -6138,6 +6144,9 @@ importers:
       isbot:
         specifier: ^5
         version: 5.1.44
+      jose:
+        specifier: ^6.2.2
+        version: 6.2.3
       jspdf:
         specifier: ^4.2.1
         version: 4.2.1

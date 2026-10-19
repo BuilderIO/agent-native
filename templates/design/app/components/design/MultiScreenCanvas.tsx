@@ -785,6 +785,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     onActiveToolChange,
     onCreatePrimitive,
     onPrimitiveCreated,
+    onPrimitivesCreated,
     onUpdatePenPath,
     onPrimitiveReparent,
     onCreateScreenFrame,
@@ -6798,22 +6799,34 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     const selectedPersisted = selectedDraftIds
       .map((id) => persistedByDraftId.get(id))
       .filter((entry): entry is PersistedDraftPrimitive => Boolean(entry));
-    const persistedEntries =
-      selectedPersisted.length > 0
-        ? selectedPersisted
-        : Array.from(persistedByDraftId.values());
-    const lastPersisted = persistedEntries[persistedEntries.length - 1];
+    const persistedEntries = Array.from(persistedByDraftId.values());
+    const lastPersisted =
+      selectedPersisted[selectedPersisted.length - 1] ??
+      persistedEntries[persistedEntries.length - 1];
     if (lastPersisted && lastPersisted.frameId !== "__board__") {
+      const created = persistedEntries.map(({ frameId, nodeId }) => ({
+        screenId: frameId,
+        nodeId,
+      }));
+      const selected = {
+        screenId: lastPersisted.frameId,
+        nodeId: lastPersisted.nodeId,
+      };
       // This runs from an effect, and onPrimitiveCreated calls flushSync, which React refuses mid-commit.
-      queueMicrotask(() =>
-        onPrimitiveCreated?.(lastPersisted.frameId, lastPersisted.nodeId, {
-          preserveActiveTool: true,
-        }),
-      );
+      queueMicrotask(() => {
+        if (onPrimitivesCreated) {
+          onPrimitivesCreated(created, selected, { preserveActiveTool: true });
+        } else {
+          onPrimitiveCreated?.(selected.screenId, selected.nodeId, {
+            preserveActiveTool: true,
+          });
+        }
+      });
     }
   }, [
     onCreatePrimitive,
     onPrimitiveCreated,
+    onPrimitivesCreated,
     persistDraftPrimitive,
     updateDraftPrimitives,
     updateSelectedDraftIds,
@@ -7900,10 +7913,19 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                   lastPersisted.frameId !== boardFileId &&
                   lastPersisted.frameId !== "__board__"
                 ) {
-                  onPrimitiveCreated?.(
-                    lastPersisted.frameId,
-                    lastPersisted.nodeId,
-                  );
+                  const created = persisted.map(({ frameId, nodeId }) => ({
+                    screenId: frameId,
+                    nodeId,
+                  }));
+                  const selected = {
+                    screenId: lastPersisted.frameId,
+                    nodeId: lastPersisted.nodeId,
+                  };
+                  if (onPrimitivesCreated) {
+                    onPrimitivesCreated(created, selected);
+                  } else {
+                    onPrimitiveCreated?.(selected.screenId, selected.nodeId);
+                  }
                 }
               }
             }
@@ -7948,10 +7970,19 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                   lastPersisted.frameId !== boardFileId &&
                   lastPersisted.frameId !== "__board__"
                 ) {
-                  onPrimitiveCreated?.(
-                    lastPersisted.frameId,
-                    lastPersisted.nodeId,
-                  );
+                  const created = persisted.map(({ frameId, nodeId }) => ({
+                    screenId: frameId,
+                    nodeId,
+                  }));
+                  const selected = {
+                    screenId: lastPersisted.frameId,
+                    nodeId: lastPersisted.nodeId,
+                  };
+                  if (onPrimitivesCreated) {
+                    onPrimitivesCreated(created, selected);
+                  } else {
+                    onPrimitiveCreated?.(selected.screenId, selected.nodeId);
+                  }
                 }
               }
             }
@@ -7970,6 +8001,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       installDragListeners,
       boardFileId,
       onPrimitiveCreated,
+      onPrimitivesCreated,
       persistDraftPrimitive,
       updateDraftPrimitives,
       updateDraftPrimitivesRefOnly,
@@ -11074,8 +11106,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       nodeId: selectedPenPathNodeId,
       path: canvasPath,
       sourceOffset: {
-        x: offset.x - renderOffset.x,
-        y: offset.y - renderOffset.y,
+        x: offset.x - scrollX - renderOffset.x,
+        y: offset.y - scrollY - renderOffset.y,
       },
     };
   }, [boardFileId, getCanvasPoint, penActive, selectedPenPathNodeId]);
@@ -12723,6 +12755,23 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             onStartResize={beginBoardElementResize}
             onStartRotate={() => {}}
             onStartDrag={beginBoardElementDrag}
+            onDoubleClick={
+              onBoardIframeHotkey
+                ? (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onBoardIframeHotkey({
+                      key: "Enter",
+                      code: "Enter",
+                      metaKey: false,
+                      ctrlKey: false,
+                      shiftKey: false,
+                      altKey: false,
+                      repeat: false,
+                    });
+                  }
+                : undefined
+            }
           />
         ) : null}
 
@@ -15561,6 +15610,7 @@ function SelectionBox({
   onStartResize,
   onStartRotate,
   onStartDrag,
+  onDoubleClick,
   boardObject = false,
   edgeOutwardReach,
 }: {
@@ -15572,6 +15622,7 @@ function SelectionBox({
   onStartResize: (handle: ResizeHandle, e: React.MouseEvent) => void;
   onStartRotate: (e: React.MouseEvent) => void;
   onStartDrag?: (e: React.MouseEvent) => void;
+  onDoubleClick?: (e: React.MouseEvent<HTMLSpanElement>) => void;
   boardObject?: boolean;
   edgeOutwardReach?: Record<EdgeHandle, number>;
 }) {
@@ -15600,6 +15651,7 @@ function SelectionBox({
           data-frame-drag-surface
           className="pointer-events-auto absolute inset-0 z-[5] cursor-move"
           onMouseDown={onStartDrag}
+          onDoubleClick={onDoubleClick}
         />
       ) : null}
       <ResizeHandles

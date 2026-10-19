@@ -11,6 +11,17 @@ import {
   classifyActionCall,
   type ActionCallClassification,
 } from "./action-call-classification.js";
+import {
+  ACTION_EXECUTION_KEY,
+  actionExecutionStorage,
+  endInvocationEvidence,
+  holdInvocationEvidence,
+  runOutsideActionInvocation,
+  takeVouchedEvidence,
+  type ActionExecutionFrame,
+  type ActionExecutionRun,
+  type ActionExecutionState,
+} from "./action-frame.js";
 import { coerceGatewayStringifiedArgs } from "./action-input-coercion.js";
 import {
   buildActionMcpOutputContract,
@@ -46,19 +57,14 @@ import {
   recordInputSchemaVerdict,
   UninterpretedSchema,
   UnusableSchemaError,
+  unusableVerdict,
 } from "./json-schema/unusable-schema.js";
 import { assertUsableSchema } from "./json-schema/usable-schema.js";
+import { describeThrownForLog } from "./mcp/embed-redaction.js";
 import { parseServiceIdentityEmail } from "./org/service-identity.js";
-import { getAsyncLocalStorageCtor } from "./shared/optional-node-builtins.js";
 import { wrapRunWithActionTracking } from "./tracking/action-lifecycle.js";
 
-/**
- * Carries an action's execution-frame key across `{ ...entry, run }` wrappers
- * and the registry rebuilds that copy named fields (`preserveActionFlags`).
- */
-export const ACTION_EXECUTION_KEY = Symbol.for(
-  "agent-native.action.executionKey",
-);
+export { ACTION_EXECUTION_KEY };
 
 /**
  * An action's recorder for a call refused before its run, kept on its
@@ -101,7 +107,7 @@ export async function recordInvalidActionCall(
     return false;
   }
   try {
-    await record(args, ctx, error);
+    await runOutsideActionInvocation(() => record(args, ctx, error));
   } catch {
     // coercion-ok: the caller reports the validation error it already has.
   }
@@ -167,6 +173,11 @@ export interface ActionRunContext {
   runId?: string;
   turnId?: string;
   toolCallId?: string;
+  /**
+   * The approval the agent loop ran this call under, for approval gates to
+   * check. Audit rows read approval from the invocation's execution frame,
+   * so a child given this context records none.
+   */
   approvedToolCallKey?: string;
   /**
    * The client behind a `caller: "mcp"` call. `name` and `version` are its
@@ -174,8 +185,6 @@ export interface ActionRunContext {
    * credential was issued to.
    */
   mcpClient?: { name?: string; version?: string; oauthClientId?: string };
-  /** The MCP client accepted this exact call's approval elicitation. */
-  mcpClientAccepted?: true;
 }
 
 export type ActionAuthorize<TArgs> = (
@@ -328,6 +337,24 @@ export function actionFailureEffect(
   return effect === "none" || effect === "committed" ? effect : undefined;
 }
 
+/**
+ * A value an action's schemas, gates or handler threw, as every consumer gets
+ * it. Any read of it may throw, so one that cannot be classified is replaced
+ * by an untyped error that says only that, and its write evidence decides.
+ */
+function readableFailure(error: unknown): unknown {
+  try {
+    actionFailureEffect(error);
+    isAgentConnectionRequiredError(error);
+    return error;
+  } catch {
+    return Object.assign(
+      new Error("The call failed, and its error could not be read."),
+      { errorCode: "error_unreadable" },
+    );
+  }
+}
+
 /** What a dispatched call did, and whether other sessions must refresh. */
 export interface InvocationEffect {
   /** `unknown`: a write may have run that nothing confirms or rules out. */
@@ -344,7 +371,8 @@ export interface InvocationEffect {
  * entry that recorded no call) entered its handler, so it may have written;
  * otherwise the call's own write, from its record or, untracked, its
  * declaration, which only then a receipt, `retrySafe` or a typed failure the
- * call raised itself may narrow.
+ * call raised itself may narrow. A refused call is settled before its error is
+ * read.
  */
 export function invocationEffect(
   entry: { changeEvents?: boolean },
@@ -360,14 +388,14 @@ export function invocationEffect(
 ): InvocationEffect {
   const { evidence, record } = outcome;
   const { failed, readOnly } = settled;
+  if (outcome.refused) return { effect: "none", changed: false };
+  if (outcome.keyed && !record) return { effect: "unknown", changed: true };
   // A typed effect speaks for the call that raised it, not for one it passed
   // through. Untracked, nothing names that call, so it stands.
   const typed =
     failed && !failed.lost && (!evidence || evidence.raised === failed.error)
       ? actionFailureEffect(failed.error)
       : undefined;
-  if (outcome.refused) return { effect: "none", changed: false };
-  if (outcome.keyed && !record) return { effect: "unknown", changed: true };
   if (evidence?.writeEntered && (evidence.nestedWriteEntered || !record)) {
     return {
       effect: !failed || typed === "committed" ? "committed" : "unknown",
@@ -1121,21 +1149,19 @@ export function defineAction(options: any) {
       }
       if (!nested) actionName = ctx?.actionName;
     }
-    let output: unknown;
+    let ran = false;
     try {
-      output = await uiOnlyGuardedRun(args, ctx, gateArgs);
-    } catch (error) {
-      if (effect() !== "committed") throw error;
-      const committed = withCommittedEffect(error);
-      if (frame) frame.raised = committed;
-      throw committed;
-    }
-    if (!checkOutput) return output;
-    try {
-      return await checkOutput(output, { actionName, effect: effect() });
-    } catch (error) {
-      if (frame) frame.raised = error;
-      throw error;
+      const output = await uiOnlyGuardedRun(args, ctx, gateArgs);
+      ran = true;
+      return checkOutput
+        ? await checkOutput(output, { actionName, effect: effect() })
+        : output;
+    } catch (thrown) {
+      const error = readableFailure(thrown);
+      if (!ran && effect() !== "committed") throw error;
+      const raised = ran ? error : withCommittedEffect(error);
+      if (frame) frame.raised = raised;
+      throw raised;
     }
   };
   const run = hasSchema
@@ -1430,7 +1456,7 @@ function wrapRunWithServicePrincipalGrant(
           orgId: ctx!.orgId,
           // A missing name only passes an unrestricted grant.
           actionName: ctx!.actionName ?? "",
-          caller: ctx!.caller,
+          ownInvocation: ctx!,
         }),
       )
       .then(() => run(args, ctx));
@@ -1455,17 +1481,20 @@ function wrapRunWithAudit(
       threw = true;
     }
     try {
-      const { recordActionAudit } = await import("./audit/record.js");
+      const [{ recordActionAudit }, { auditAttribution }] = await Promise.all([
+        import("./audit/record.js"),
+        import("./audit/attribution.js"),
+      ]);
+      const call = {
+        config: auditConfig,
+        args: recorded,
+        ctx,
+        attribution: auditAttribution(ctx),
+      };
       await recordActionAudit(
         threw
-          ? { config: auditConfig, args: recorded, ctx, status: "error", error }
-          : {
-              config: auditConfig,
-              args: recorded,
-              ctx,
-              status: "success",
-              result,
-            },
+          ? { ...call, status: "error", error }
+          : { ...call, status: "success", result },
       );
     } catch {
       // Recorder failed to load/run — never affect the action.
@@ -1715,16 +1744,7 @@ function schemaToJsonSchema(
     // Alone, `anyObject` would claim the schema accepts any object. With the
     // reason beside it, MCP and the in-app agent leave the action out; A2A
     // cards, the manifest and tool search still read `anyObject`.
-    return {
-      parameters: anyObject,
-      verdict:
-        error instanceof UnusableSchemaError
-          ? error
-          : new UnusableSchemaError(
-              "",
-              `could not be converted: ${error instanceof Error ? error.message : String(error)}`,
-            ),
-    };
+    return { parameters: anyObject, verdict: unusableVerdict(error) };
   }
 }
 
@@ -2017,37 +2037,6 @@ export interface ActionExecutionOutcome {
 /** Rejected action input; execution phase determines whether effects are possible. */
 export class ActionInputValidationError extends Error {}
 
-type ActionExecutionRun = (args: any, ctx?: ActionRunContext) => Promise<any>;
-type ActionExecutionFrame = {
-  key: object;
-  run: ActionExecutionRun;
-  parent?: ActionExecutionFrame;
-  handlerEntered: boolean;
-  /** A write entered its handler in this call or in one nested in it. */
-  writeEntered: boolean;
-  /** One of those writes publishes action changes. */
-  changeEntered: boolean;
-  /** This call's classification, once validated arguments set it. */
-  writes?: boolean;
-  emitsChange?: boolean;
-  boundaryPending?: boolean;
-  /** The call's record, and the context it ran with, once validated. */
-  record?: ActionCallRecord;
-  context?: ActionRunContext;
-  nestedWriteEntered?: boolean;
-  raised?: unknown;
-  /** The dispatcher's outcome, which takes the record as it is made. */
-  outcome?: ActionExecutionOutcome;
-};
-type ActionExecutionState = {
-  frame?: ActionExecutionFrame;
-  failures: WeakMap<object, ActionExecutionFrame>;
-};
-const ActionExecutionStorage = getAsyncLocalStorageCtor();
-const actionExecutionStorage = ActionExecutionStorage
-  ? new ActionExecutionStorage<ActionExecutionState>()
-  : undefined;
-
 function wrapRunWithExecutionBoundary(
   run: ActionExecutionRun,
   key: object,
@@ -2100,7 +2089,9 @@ export async function runActionWithExecutionOutcome(
   delete outcome.record;
   delete outcome.evidence;
   delete outcome.keyed;
-  // A mutable async stack cannot safely attribute overlapping invocations.
+  const vouched = takeVouchedEvidence(outcome);
+  // A mutable async stack cannot safely attribute overlapping invocations,
+  // so without one no row records the evidence vouched for this one.
   if (!actionExecutionStorage) return run(args, ctx);
   const parent = actionExecutionStorage.getStore();
   const entryKey = entry
@@ -2119,6 +2110,7 @@ export async function runActionWithExecutionOutcome(
     boundaryPending: true,
     outcome,
   };
+  holdInvocationEvidence(frame, vouched);
   outcome.evidence = frame;
   outcome.keyed = keyed;
   // Read before the action's boundary takes it.
@@ -2162,13 +2154,29 @@ export async function runActionWithExecutionOutcome(
       throw error;
     } finally {
       // A boundary entered once the call settled is a call of its own: it
-      // cannot leave its record on this one.
+      // cannot leave its record on this one. The evidence ends here too,
+      // not when a stream or iterator the call returned is consumed: a
+      // timer, an unawaited promise or that later consumption records none.
       frame.boundaryPending = false;
+      endInvocationEvidence(frame);
     }
   });
 }
 
 export async function validateActionArgs(
+  schema: StandardSchemaV1,
+  args: unknown,
+  toolParameters?: ActionTool["parameters"],
+  ctx?: object,
+): Promise<any> {
+  try {
+    return await validatedActionArgs(schema, args, toolParameters, ctx);
+  } catch (error) {
+    throw readableFailure(error);
+  }
+}
+
+async function validatedActionArgs(
   schema: StandardSchemaV1,
   args: unknown,
   toolParameters?: ActionTool["parameters"],
@@ -2429,8 +2437,7 @@ function outputValidator(
       if (strategy === "fallback") return fallback;
       const label = description ? ` (${description})` : "";
       console.warn(
-        `Action outputSchema threw while validating the result${label}`,
-        error,
+        `Action outputSchema threw while validating the result${label}: ${describeThrownForLog(error)}`,
       );
       return output;
     }
@@ -2470,7 +2477,9 @@ function outputValidator(
       })
       .join("; ");
     const label = description ? ` (${description})` : "";
-    console.warn(`Action output did not match outputSchema${label}: ${issues}`);
+    console.warn(
+      `Action output did not match outputSchema${label}: ${describeThrownForLog(issues)}`,
+    );
     return output;
   };
 }

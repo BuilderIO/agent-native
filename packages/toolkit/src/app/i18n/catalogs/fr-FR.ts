@@ -232,8 +232,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.why":
     "Les représentations vectorielles améliorent la recherche sémantique. La recherche par mots-clés fonctionne toujours sans elles.",
   "onboarding.capability.webSearch.label": "Recherche sur le Web",
-  "onboarding.capability.webSearch.keySummary":
-    "Recherche Web gérée par Builder",
+  "onboarding.capability.webSearch.keySummary": "Recherche sur le Web",
   "onboarding.capability.webSearch.why":
     "Recherche dans les sources publiques actuelles du Web. La recherche gérée par Builder utilise les crédits IA inclus ; aucune clé de recherche distincte n'est nécessaire.",
   "onboarding.capability.systemOne.why":
@@ -1999,6 +1998,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.agentVia": "Agent via {{protocol}}",
   "settings.audit.allApps": "Toutes les apps",
   "settings.audit.app": "App",
+  "settings.audit.approval": "Approbation",
+  "settings.audit.approvalAgentChat": "Approuvé dans le chat de l’agent",
+  "settings.audit.approvalA2AReview":
+    "Approuvé sur la page de vérification des actions de l’agent",
+  "settings.audit.approvalMcpClient": "Accepté par le client MCP (non vérifié)",
   "settings.audit.changedBy": "Modifié par",
   "settings.audit.close": "Fermer",
   "settings.audit.empty": "Aucune modification sur cette période.",
@@ -2012,9 +2016,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.last90Days": "90 derniers jours",
   "settings.audit.loadFailed": "Impossible de charger le journal d’audit.",
   "settings.audit.loading": "Chargement du journal d’audit",
+  "settings.audit.oauthClient": "Client OAuth",
   "settings.audit.onBehalfOf": "Au nom de",
   "settings.audit.range": "Période",
   "settings.audit.refused": "Refusé",
+  "settings.audit.reportedClient": "Client autodéclaré",
   "settings.audit.result": "Résultat",
   "settings.audit.showMore": "Afficher {{count}} de plus",
   "settings.audit.succeeded": "Réussi",
@@ -3146,6 +3152,10 @@ const messages: ToolkitAgentChatTranslation = {
     "Déconnecté ici. L’accès peut rester actif dans ChatGPT.",
   "settingsModel.chatgptLocalOnly":
     "Les applications open source sont accessibles sans demande lorsque vous les exécutez localement avec un callback loopback ; aucune demande de partenariat n’est nécessaire. Les applications hébergées sur *.agent-native.com nécessitent l’approbation de l’opérateur et un callback hébergé.",
+  "settingsModel.chatgptPersonalScopeOnly":
+    "Utilisez l’accès au forfait ChatGPT avec un compte personnel. En développement local, définissez access.autoCreateDefaultOrg sur false avant de vous connecter.",
+  "settingsModel.chatgptScopeUnresolved":
+    "L’application n’a pas pu confirmer le périmètre de votre compte. Terminez la configuration locale, puis rechargez les paramètres.",
   "settingsModel.chatgptNoDirectUse":
     "Reconnectez-vous et autorisez l’accès direct aux modèles pour utiliser ce compte ChatGPT.",
   "settingsModel.chatgptReconnect": "Reconnecter",

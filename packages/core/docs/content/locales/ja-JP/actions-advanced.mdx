@@ -48,7 +48,7 @@ export default createFeatureFlagsPlugin({ flags: [FULL_APP_BUILDING] });
 これが実際に重要なチェックです。エージェントであれ、フロントエンドであれ、スクリプトであれ、すべての呼び出し元がこれを通過しなければならないからです。
 
 ```ts
-// actions/create-fusion-app.ts
+// actions/create-builder-app.ts
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 
 run: async (args, ctx) => {

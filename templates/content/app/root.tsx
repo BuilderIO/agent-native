@@ -393,7 +393,7 @@ function ContentCommandMenu({
 
 function shouldHandleEditorCommandMenuShortcut(event: KeyboardEvent) {
   const target = event.target instanceof HTMLElement ? event.target : null;
-  if (!target?.closest(".notion-editor")) return true;
+  if (!target?.closest(".content-editor")) return true;
 
   const selection = window.getSelection();
   return (

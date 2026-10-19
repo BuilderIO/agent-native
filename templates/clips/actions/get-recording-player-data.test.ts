@@ -81,6 +81,7 @@ const mockResolvePlayerThumbnailUrl = vi.hoisted(() =>
   ),
 );
 const mockIsSeekableRepairPending = vi.hoisted(() => vi.fn());
+const mockListTranscriptVersions = vi.hoisted(() => vi.fn(async () => []));
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (options: unknown) => options,
@@ -179,6 +180,11 @@ vi.mock("../server/lib/media-verification-state.js", () => ({
 vi.mock("../server/lib/seekable-media-state.js", () => ({
   isSeekableRepairPending: (...args: unknown[]) =>
     mockIsSeekableRepairPending(...args),
+}));
+
+vi.mock("../server/lib/transcript-versions.js", () => ({
+  listTranscriptVersions: (...args: unknown[]) =>
+    mockListTranscriptVersions(...args),
 }));
 
 vi.mock("../server/lib/recordings.js", () => ({
@@ -437,6 +443,80 @@ describe("get-recording-player-data view count", () => {
       await expect(action.run({ recordingId: "rec-1" })).rejects.toThrow(
         "CLIPS_SCREENSHOT_EDITS_UNREADABLE",
       );
+    },
+  );
+
+  it.each([
+    ["owner", true],
+    ["admin", true],
+    ["editor", true],
+    ["viewer", false],
+  ] as const)(
+    "lists replaced transcripts to a %s only if they can edit",
+    async (role, listed) => {
+      const versions = [
+        {
+          id: "version-1",
+          replacedAt: "2026-10-16T12:00:00.000Z",
+          reason: "import",
+          source: null,
+          language: "en",
+          preview: "Automatic words.",
+        },
+      ];
+      mockListTranscriptVersions.mockReset();
+      mockListTranscriptVersions.mockImplementation(async () => versions);
+      mockShareLimit.mockResolvedValue([{ id: "share-1" }]);
+      mockResolveAccess.mockResolvedValue({
+        role,
+        resource: {
+          id: "rec-1",
+          ownerEmail: "owner@example.com",
+          visibility: "public",
+          password: null,
+          expiresAt: null,
+          status: "ready",
+          chaptersJson: "[]",
+        },
+      });
+      let transcriptRead = false;
+      mockPlayerQuery.build = () => {
+        const query: Record<string, unknown> = {};
+        query.from = () => query;
+        query.where = () => query;
+        query.orderBy = async () => [];
+        query.limit = async () => {
+          if (transcriptRead) return [];
+          transcriptRead = true;
+          return [
+            {
+              recordingId: "rec-1",
+              status: "ready",
+              fullText: "Imported words.",
+              segmentsJson: "[]",
+              language: "en",
+              source: "imported",
+              importId: "import-1",
+            },
+          ];
+        };
+        query.then = (resolve: (rows: unknown[]) => unknown) => resolve([]);
+        return query;
+      };
+
+      const result = await action.run({ recordingId: "rec-1" });
+
+      if (listed) {
+        expect(result.transcript?.versions).toEqual(versions);
+        expect(mockListTranscriptVersions).toHaveBeenCalledWith(
+          mockDb,
+          "rec-1",
+        );
+      } else {
+        expect(result.transcript).not.toHaveProperty("versions");
+        expect(mockListTranscriptVersions).not.toHaveBeenCalled();
+      }
+      mockListTranscriptVersions.mockReset();
     },
   );
 

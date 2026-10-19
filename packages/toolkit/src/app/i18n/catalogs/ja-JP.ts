@@ -227,7 +227,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.why":
     "埋め込みは意味検索を改善します。埋め込みがなくてもキーワード検索は使えます。",
   "onboarding.capability.webSearch.label": "ウェブ検索",
-  "onboarding.capability.webSearch.keySummary": "Builder が管理するウェブ検索",
+  "onboarding.capability.webSearch.keySummary": "ウェブ検索",
   "onboarding.capability.webSearch.why":
     "ウェブ上の最新の公開情報を検索します。Builder 管理の検索では付属の Builder AI クレジットを使うため、別の検索 API キーは不要です。",
   "onboarding.capability.systemOne.why":
@@ -1864,6 +1864,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.agentVia": "{{protocol}} 経由のエージェント",
   "settings.audit.allApps": "すべてのアプリ",
   "settings.audit.app": "アプリ",
+  "settings.audit.approval": "承認",
+  "settings.audit.approvalAgentChat": "エージェントチャットで承認",
+  "settings.audit.approvalA2AReview":
+    "エージェントアクションの確認ページで承認",
+  "settings.audit.approvalMcpClient": "MCP クライアントが承諾（未検証）",
   "settings.audit.changedBy": "変更者",
   "settings.audit.close": "閉じる",
   "settings.audit.empty": "この期間に変更はありません。",
@@ -1877,9 +1882,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.last90Days": "過去 90 日間",
   "settings.audit.loadFailed": "監査ログを読み込めませんでした。",
   "settings.audit.loading": "監査ログを読み込み中",
+  "settings.audit.oauthClient": "OAuth クライアント",
   "settings.audit.onBehalfOf": "依頼者",
   "settings.audit.range": "期間",
   "settings.audit.refused": "拒否",
+  "settings.audit.reportedClient": "自己申告のクライアント",
   "settings.audit.result": "結果",
   "settings.audit.showMore": "さらに {{count}} 件表示",
   "settings.audit.succeeded": "成功",
@@ -2954,6 +2961,10 @@ const messages: ToolkitAgentChatTranslation = {
     "ここでは接続を解除しました。ChatGPT ではアクセスが有効なままの場合があります。",
   "settingsModel.chatgptLocalOnly":
     "オープンソースアプリは、loopback callback を使ってローカルで実行すれば申請なしで利用できます。パートナー申請は不要です。*.agent-native.com 上のホスト型アプリには、運営者の承認とホスト型 callback が必要です。",
+  "settingsModel.chatgptPersonalScopeOnly":
+    "ChatGPT プランへのアクセスには個人アカウントを使用してください。ローカル開発では、サインイン前に access.autoCreateDefaultOrg を false に設定してください。",
+  "settingsModel.chatgptScopeUnresolved":
+    "アプリでアカウントのスコープを確認できませんでした。ローカル設定を完了してから、設定を再読み込みしてください。",
   "settingsModel.chatgptNoDirectUse":
     "このChatGPTアカウントを使用するには、再接続してモデルへの直接アクセスを許可してください。",
   "settingsModel.chatgptReconnect": "再接続",

@@ -17,6 +17,7 @@ import {
   containServicePrincipal,
   prepareServicePrincipalContainment,
 } from "../../agent/contain-principal.js";
+import { auditAttribution } from "../../audit/attribution.js";
 import {
   orgAdminAudit,
   recordOrgAdminAuditEvent,
@@ -62,6 +63,7 @@ export default defineAction({
     lifecycle: z.enum(SERVICE_PRINCIPAL_LIFECYCLES),
     reason: z.string().trim().max(500).optional(),
   }),
+  agentTool: false,
   toolCallable: false,
   audit: orgAdminAudit({
     targetType: "service-principal",
@@ -220,7 +222,7 @@ export default defineAction({
         userEmail: caller.email,
         orgId: caller.orgId,
         status: containmentErrors.length ? "error" : "success",
-        caller: ctx?.caller,
+        attribution: auditAttribution(ctx),
       });
     }
     return {

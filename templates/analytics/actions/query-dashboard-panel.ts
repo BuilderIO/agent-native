@@ -2,11 +2,16 @@ import { defineAction, type ActionRunContext } from "@agent-native/core/action";
 import { getCredentialContext } from "@agent-native/core/server/request-context";
 import { z } from "zod";
 
+import { BigQueryMaximumBytesBilledError } from "../server/lib/bigquery";
 import {
   DASHBOARD_PANEL_SOURCES,
   normalizeDashboardPanelQuery,
 } from "../server/lib/dashboard-panel-query";
 import { resolveAnalyticsPanelSource } from "../server/lib/dashboard-panel-source-resolver";
+import {
+  BREAKDOWN_OVER_BYTE_CAP_ERROR,
+  ROW_BREAKDOWN_MAX_BYTES_BILLED,
+} from "../shared/row-breakdown";
 
 export default defineAction({
   description:
@@ -15,6 +20,9 @@ export default defineAction({
     source: z.enum(DASHBOARD_PANEL_SOURCES),
     query: z.unknown(),
     forceRefresh: z.boolean().optional(),
+    // The cap is fixed here, not sent by the browser, so a client can't
+    // raise what one row breakdown may bill.
+    purpose: z.enum(["row-breakdown"]).optional(),
   }),
   http: { method: "POST" },
   readOnly: true,
@@ -27,14 +35,28 @@ export default defineAction({
     }
 
     const query = normalizeDashboardPanelQuery(args.source, args.query);
-    return resolveAnalyticsPanelSource(
-      {
-        source: args.source,
-        query,
-        ...(args.forceRefresh ? { forceRefresh: true } : {}),
-        ...(actionContext?.signal ? { signal: actionContext.signal } : {}),
-      },
-      context,
-    );
+    const breakdown = args.purpose === "row-breakdown";
+    try {
+      return await resolveAnalyticsPanelSource(
+        {
+          source: args.source,
+          query,
+          ...(args.forceRefresh ? { forceRefresh: true } : {}),
+          ...(actionContext?.signal ? { signal: actionContext.signal } : {}),
+          ...(breakdown
+            ? { maxBytesBilled: ROW_BREAKDOWN_MAX_BYTES_BILLED }
+            : {}),
+        },
+        context,
+      );
+    } catch (error) {
+      if (breakdown && error instanceof BigQueryMaximumBytesBilledError) {
+        return {
+          error: BREAKDOWN_OVER_BYTE_CAP_ERROR,
+          message: `This breakdown would read more than ${ROW_BREAKDOWN_MAX_BYTES_BILLED / 1024 ** 3} GiB, so it did not run. Narrow the dashboard filters or the panel's date range and try again.`,
+        };
+      }
+      throw error;
+    }
   },
 });

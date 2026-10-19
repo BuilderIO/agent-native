@@ -2110,8 +2110,8 @@ export default {
         title: "로컬 개발 서버에서 렌더링됨",
       },
       fusion: {
-        label: "Fusion 원격",
-        title: "Fusion에서 렌더링됨",
+        label: "Builder 원격",
+        title: "Builder에서 렌더링됨",
       },
       inline: {
         label: "인라인",
