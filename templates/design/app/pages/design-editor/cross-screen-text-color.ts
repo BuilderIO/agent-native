@@ -111,16 +111,25 @@ export function resolveDestinationBackgroundLightness(
 }
 
 const DARK_BACKGROUND_CLASS_RE =
-  /(?:^|[\s:])!?bg-(?:black|(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(?:800|900|950))(?:\/(\d{1,3})%?)?!?(?=$|[\s:])/g;
+  /(?:^|[\s:])!?bg-(?:black|(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(?:800|900|950))(?:\/(?:\[([0-9]*\.?[0-9]+%?)\]|(\d{1,3})%?))?!?(?=$|[\s:])/g;
 const LIGHT_BACKGROUND_CLASS_RE =
-  /(?:^|[\s:])!?bg-(?:white|(?:slate|gray|zinc|neutral|stone)-(?:50|100|200|300|400))(?:\/(\d{1,3})%?)?!?(?=$|[\s:])/g;
+  /(?:^|[\s:])!?bg-(?:white|(?:slate|gray|zinc|neutral|stone)-(?:50|100|200|300|400))(?:\/(?:\[([0-9]*\.?[0-9]+%?)\]|(\d{1,3})%?))?!?(?=$|[\s:])/g;
 
 function hasSufficientlyOpaqueBackgroundClassHint(
   className: string,
   pattern: RegExp,
 ): boolean {
   for (const match of className.matchAll(pattern)) {
-    const opacity = match[1] === undefined ? 1 : Number(match[1]) / 100;
+    const arbitraryOpacity = match[1];
+    const numericOpacity = match[2];
+    const opacity =
+      arbitraryOpacity === undefined
+        ? numericOpacity === undefined
+          ? 1
+          : Number(numericOpacity) / 100
+        : arbitraryOpacity.endsWith("%")
+          ? Number(arbitraryOpacity.slice(0, -1)) / 100
+          : Number(arbitraryOpacity);
     if (opacity >= MIN_OPACITY_FOR_BACKGROUND_CLASS_HINT && opacity <= 1) {
       return true;
     }
@@ -148,6 +157,7 @@ function elementBackgroundClassHint(element: Element): "dark" | "light" | null {
 function collectDestinationBackgroundSignals(
   element: Element,
   liveElement: Element | null,
+  liveConstructedElement: Element | null,
 ): Array<
   | { color: string | null }
   | { darkClassHint: boolean }
@@ -158,31 +168,35 @@ function collectDestinationBackgroundSignals(
     | { darkClassHint: boolean }
     | { lightClassHint: boolean }
   > = [];
-  if (liveElement) {
-    const liveView = liveElement.ownerDocument?.defaultView;
-    let cursor: Element | null = liveElement;
-    while (
-      liveView &&
-      cursor &&
-      cursor !== liveElement.ownerDocument.documentElement
-    ) {
-      chain.push({ color: liveView.getComputedStyle(cursor).backgroundColor });
-      cursor = cursor.parentElement;
-    }
-    return chain;
-  }
   let cursor: Element | null = element;
-  while (cursor && cursor !== element.ownerDocument.documentElement) {
+  while (
+    cursor &&
+    cursor !== element.ownerDocument.documentElement &&
+    cursor !== liveConstructedElement
+  ) {
     const inline = (cursor as HTMLElement).style;
     const inlineColor = inline?.backgroundColor || inline?.background || null;
-    if (inlineColor) {
-      chain.push({ color: inlineColor });
-    } else {
+    if (inlineColor) chain.push({ color: inlineColor });
+    const classHint = elementBackgroundClassHint(cursor);
+    if (classHint === "dark") chain.push({ darkClassHint: true });
+    if (classHint === "light") chain.push({ lightClassHint: true });
+    cursor = cursor.parentElement;
+  }
+  if (liveElement) {
+    const liveView = liveElement.ownerDocument?.defaultView;
+    cursor = liveElement;
+    while (cursor && cursor !== liveElement.ownerDocument.documentElement) {
+      if (liveView) {
+        chain.push({
+          color: liveView.getComputedStyle(cursor).backgroundColor,
+        });
+      }
       const classHint = elementBackgroundClassHint(cursor);
       if (classHint === "dark") chain.push({ darkClassHint: true });
       if (classHint === "light") chain.push({ lightClassHint: true });
+      cursor = cursor.parentElement;
     }
-    cursor = cursor.parentElement;
+    return chain;
   }
   return chain;
 }
@@ -192,15 +206,32 @@ export function destinationBackgroundLightness(
   liveDoc?: Document | null,
 ): boolean | null {
   try {
-    const liveElement =
-      liveDoc && element.hasAttribute("data-agent-native-node-id")
-        ? liveDoc.querySelector(
-            `[data-agent-native-node-id="${CSS.escape(
-              element.getAttribute("data-agent-native-node-id") ?? "",
-            )}"]`,
-          )
-        : null;
-    const chain = collectDestinationBackgroundSignals(element, liveElement);
+    let constructedMatch: Element | null = null;
+    let liveElement: Element | null = null;
+    let cursor: Element | null = element;
+    while (
+      liveDoc &&
+      cursor &&
+      cursor !== element.ownerDocument.documentElement
+    ) {
+      const nodeId = cursor.getAttribute("data-agent-native-node-id");
+      if (nodeId) {
+        const candidate = liveDoc.querySelector(
+          `[data-agent-native-node-id="${CSS.escape(nodeId)}"]`,
+        );
+        if (candidate) {
+          constructedMatch = cursor;
+          liveElement = candidate;
+          break;
+        }
+      }
+      cursor = cursor.parentElement;
+    }
+    const chain = collectDestinationBackgroundSignals(
+      element,
+      liveElement ?? liveDoc?.body ?? null,
+      constructedMatch,
+    );
     return resolveDestinationBackgroundLightnessOrNull(chain);
   } catch {
     // coercion-ok: null is the typed "unreadable" value callers branch on
@@ -263,6 +294,18 @@ export function adaptAutoTextColorForCrossScreenNode(
   } catch {
     return content;
   }
+}
+
+export function adaptAutoTextColorsForCrossScreenNodes(
+  content: string,
+  destNodeAttrIds: readonly string[],
+  liveDestDoc?: Document | null,
+): string {
+  return destNodeAttrIds.reduce(
+    (adapted, nodeId) =>
+      adaptAutoTextColorForCrossScreenNode(adapted, nodeId, liveDestDoc),
+    content,
+  );
 }
 
 export function clearAutoTextColorMarkerOnExplicitColorCommit(
