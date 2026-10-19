@@ -925,6 +925,7 @@ describe("runCommunityPrsCli", () => {
 
   it("says how a closed PR ended instead of timing it", () => {
     const detail = pr(25, "veteran", "2026-10-01T09:00:00Z", {
+      title: "Fix \u001b]8;;https://example.com\u0007it\u001b[2J",
       state: "MERGED",
       closedAt: "2026-10-09T09:00:00Z",
       mergedAt: "2026-10-09T09:00:00Z",
@@ -957,6 +958,7 @@ describe("runCommunityPrsCli", () => {
     });
     assert.equal(code, 0);
     assert.match(out, /^- Where it stands: Merged 2026-10-09$/m);
+    assert.match(out, /Fix ]8;;https:\/\/example.comit\[2J/);
   });
 
   it("audits without clocking drafts or trusting mentions from other repos", () => {

@@ -1480,7 +1480,7 @@ function audit(
   lines.push("", "## Replies", "");
   for (const row of rows)
     for (const reply of row.replies) {
-      const text = (reply.body ?? "").replace(/\s+/g, " ").trim();
+      const text = oneLine(reply.body ?? "");
       lines.push(
         `- ${day(reply.at)} [#${row.number}](${reply.url ?? row.url}) @${reply.login}${reply.state ? ` (${reply.state.toLowerCase()})` : ""}: ${text.length > 280 ? `${text.slice(0, 277)}...` : text || "(no text)"}`,
       );
@@ -1542,6 +1542,9 @@ export function runCommunityPrsCli(
   const sleep = options.sleep ?? sleepSync;
   const stdout = options.stdout ?? ((text) => process.stdout.write(text));
   const stderr = options.stderr ?? ((text) => process.stderr.write(text));
+  // Titles, names, and bodies come from GitHub users; control sequences in
+  // them must not reach the dev's terminal.
+  const print = (text: string) => stdout(text.replace(/(?!\n)\p{Cc}/gu, ""));
   const parsed = parseArgs(args);
   if ("error" in parsed) {
     stderr(`${parsed.error}\n${USAGE}\n`);
@@ -1553,14 +1556,14 @@ export function runCommunityPrsCli(
   const windowed = flags.has("--days") || flags.has("--by");
   try {
     if (command === "sweep" && !rest.length && !windowed)
-      stdout(sweep(gh, now, json, sleep));
+      print(sweep(gh, now, json, sleep));
     else if (
       command === "pr" &&
       rest.length === 1 &&
       /^\d+$/.test(rest[0]!) &&
       !windowed
     )
-      stdout(prReport(gh, Number(rest[0]), now, json, sleep));
+      print(prReport(gh, Number(rest[0]), now, json, sleep));
     else if (command === "audit" && !rest.length) {
       const days = Number(flags.get("--days") ?? 30);
       if (!Number.isInteger(days) || days < 1 || days > MAX_AUDIT_DAYS) {
@@ -1575,7 +1578,7 @@ export function runCommunityPrsCli(
         stderr(`--by must be a GitHub login or @me\n${USAGE}\n`);
         return 2;
       }
-      stdout(audit(gh, now, days, by, json));
+      print(audit(gh, now, days, by, json));
     } else {
       stderr(`${USAGE}\n`);
       return 2;
