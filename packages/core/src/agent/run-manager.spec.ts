@@ -532,6 +532,29 @@ describe("run manager soft timeout", () => {
     );
   });
 
+  it("cleans up in-memory state when run insertion fails during lease claim", async () => {
+    vi.mocked(insertRun).mockRejectedValueOnce(new Error("insert failed"));
+    const run = startRun(
+      "run-lease-claim-insert-failure",
+      "thread-lease-claim-insert-failure",
+      async () => {
+        throw new Error("run body should not start");
+      },
+      undefined,
+      {
+        softTimeoutMs: 0,
+        noProgressTimeoutMs: 0,
+        executionLease: true,
+      },
+    );
+
+    await expect(run.finalized).rejects.toThrow("insert failed");
+    expect(getRun(run.runId)).toBe(run);
+
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    expect(getRun(run.runId)).toBeNull();
+  });
+
   it("replaces an in-memory retry without durably aborting the shared run row", async () => {
     let oldStarted!: () => void;
     let replacementStarted!: () => void;
