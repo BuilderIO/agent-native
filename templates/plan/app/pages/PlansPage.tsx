@@ -349,7 +349,11 @@ export {
 };
 export type { NativeMarkerPlacement } from "@/lib/plan-native-anchors";
 export type { PlanOrgAccessPrompt } from "@/lib/plan-access-prompt";
-export { canSubmitInlineCommentDraft, mentionQueryAtCaret };
+export {
+  canSubmitInlineCommentDraft,
+  CommentMentionEditor,
+  mentionQueryAtCaret,
+};
 export type { CommentDraft } from "@/lib/plan-comment-editor-helpers";
 
 export function buildPlanEmailVerificationCallbackURL(
@@ -5742,6 +5746,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                   ) : (
                     <InlineCommentPopover
                       key={failedCommentDraft ? "retry" : "new"}
+                      anchor={pendingAnnotation}
                       position={inlineCommentPosition}
                       initialDraft={
                         failedCommentDraft ?? defaultInlineCommentDraft
@@ -5755,6 +5760,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
               )}
               {activeAnnotation && (
                 <AnnotationPopover
+                  key={activeAnnotation.annotation.id}
                   annotation={activeAnnotation.annotation}
                   position={activeAnnotation.position}
                   isPending={commentWritePending}
@@ -8930,9 +8936,20 @@ function CreatePlanDialog({
   );
 }
 
+function focusCommentEditorAtEnd(root: HTMLElement) {
+  root.focus();
+  const selection = window.getSelection();
+  const range = document.createRange();
+  range.selectNodeContents(root);
+  range.collapse(false);
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+}
+
 function CommentMentionEditor({
   initialMessage,
   resetKey,
+  focusKey,
   placeholder,
   className,
   autoFocus,
@@ -8941,6 +8958,8 @@ function CommentMentionEditor({
 }: {
   initialMessage?: string;
   resetKey?: string;
+  /** A new value puts the caret back in the editor and keeps its text. */
+  focusKey?: unknown;
   placeholder: string;
   className?: string;
   autoFocus?: boolean;
@@ -8977,16 +8996,26 @@ function CommentMentionEditor({
     if (!root) return;
     appendMessageToEditor(root, initialMessage ?? "");
     emitChange();
-    if (autoFocus) {
-      root.focus();
-      const selection = window.getSelection();
-      const range = document.createRange();
-      range.selectNodeContents(root);
-      range.collapse(false);
-      selection?.removeAllRanges();
-      selection?.addRange(range);
-    }
+    if (!autoFocus) return;
+    // An Edit menu item mounts this editor while its menu still traps focus,
+    // so keep trying for a few frames until focus lands.
+    let attempts = 0;
+    let frame = 0;
+    const focusEditor = () => {
+      focusCommentEditorAtEnd(root);
+      if (document.activeElement !== root && ++attempts < 10)
+        frame = requestAnimationFrame(focusEditor);
+    };
+    focusEditor();
+    return () => cancelAnimationFrame(frame);
   }, [autoFocus, emitChange, initialMessage, resetKey]);
+
+  useEffect(() => {
+    const root = editorRef.current;
+    if (!root || focusKey === undefined) return;
+    if (root.contains(document.activeElement)) return;
+    focusCommentEditorAtEnd(root);
+  }, [focusKey]);
 
   const selectMember = (member: OrgMemberSuggestion) => {
     const root = editorRef.current;
@@ -9158,12 +9187,14 @@ function ResolutionTargetToggle({
 }
 
 function InlineCommentPopover({
+  anchor,
   position,
   initialDraft,
   onCancel,
   onSubmit,
   lockToAgent = false,
 }: {
+  anchor: PlanAnnotationAnchor;
   position: InlineCommentPosition;
   initialDraft: CommentDraft;
   onCancel: () => void;
@@ -9250,6 +9281,9 @@ function InlineCommentPopover({
           initialMessage={initialMessageRef.current}
           placeholder={t("plansPage.comments.addPlaceholder")}
           autoFocus
+          // Commenting somewhere else moves this popover instead of
+          // remounting it, so the draft keeps its text and gets the caret.
+          focusKey={anchor}
           onSubmitShortcut={submit}
           onChange={(value) =>
             setDraft((current) => {
@@ -9391,11 +9425,13 @@ function ReplyComposer({
   author,
   isPending,
   placeholder,
+  autoFocus,
   onSubmit,
 }: {
   author: CommentAuthorPresentation;
   isPending: boolean;
   placeholder?: string;
+  autoFocus?: boolean;
   onSubmit: (message: string) => Promise<void>;
 }) {
   const t = useT();
@@ -9436,6 +9472,7 @@ function ReplyComposer({
               placeholder ?? t("plansPage.comments.replyPlaceholder")
             }
             resetKey={`reply-${resetKey}`}
+            autoFocus={autoFocus}
             className="min-h-10 border-0 bg-transparent px-0 py-2 shadow-none focus-visible:ring-0"
             onChange={setDraft}
             onSubmitShortcut={() => void submit()}
@@ -9612,6 +9649,11 @@ function AnnotationPopover({
                 align="end"
                 className="w-48 rounded-xl"
                 data-comment-popover-portal
+                onCloseAutoFocus={(event) => {
+                  // Edit puts focus in its editor; leave it there.
+                  if (document.activeElement !== document.body)
+                    event.preventDefault();
+                }}
               >
                 {canResolve && (
                   <DropdownMenuItem
@@ -9759,6 +9801,7 @@ function AnnotationPopover({
           <ReplyComposer
             author={pendingAuthor}
             isPending={isPending}
+            autoFocus
             onSubmit={(reply) => onReply(annotation.id, reply)}
           />
         </div>
