@@ -114,22 +114,10 @@ export default defineAction({
           ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
         ),
       );
-    const [preRoll] = await db
-      .select()
-      .from(schema.recordings)
-      .where(
-        and(
-          eq(schema.recordings.id, args.preRollRecordingId),
-          ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
-        ),
-      );
-    if (!recording || !preRoll) {
+    if (!recording) {
       throw new Error("The Clip or its local Rewind pre-roll is unavailable.");
     }
-    if (
-      !isPrivateClip(recording.visibility) ||
-      !isPrivateClip(preRoll.visibility)
-    ) {
+    if (!isPrivateClip(recording.visibility)) {
       throw new Error(
         "Rewind history can only be added to a private Clip from a private pre-roll.",
       );
@@ -254,6 +242,27 @@ export default defineAction({
     }
     if (wasApplied(recording.editsJson)) {
       return markApplied();
+    }
+    const [preRoll] = await db
+      .select()
+      .from(schema.recordings)
+      .where(
+        and(
+          eq(schema.recordings.id, args.preRollRecordingId),
+          ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+        ),
+      );
+    if (!preRoll) {
+      fail("The Clip or its local Rewind pre-roll is unavailable.", {
+        errorCode: "rewind_preroll_unavailable",
+        statusCode: 404,
+      });
+    }
+    if (!isPrivateClip(preRoll.visibility)) {
+      fail(
+        "Rewind history can only be added to a private Clip from a private pre-roll.",
+        { errorCode: "rewind_preroll_not_private", statusCode: 403 },
+      );
     }
     if (recording.mediaUpdatedAt !== args.expectedMediaUpdatedAt) {
       if (request.status === "applying") {

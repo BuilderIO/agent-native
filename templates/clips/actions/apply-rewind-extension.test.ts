@@ -48,6 +48,12 @@ const { mockDb, schema, stored, written } = vi.hoisted(() => {
       preRollRecordingId: "pre_1",
     } as Record<string, unknown> | null,
     preRollTrashed: false,
+    recordingExists: true,
+    preRollExists: true,
+    recordingOwner: "owner@example.com",
+    preRollOwner: "owner@example.com",
+    recordingVisibility: "private",
+    preRollVisibility: "private",
     // Racing saves, one landing just before each guarded update in turn.
     changedBeforeWrite: [] as {
       chaptersJson?: string;
@@ -59,8 +65,10 @@ const { mockDb, schema, stored, written } = vi.hoisted(() => {
 
   const recordingRow = (id: string) => ({
     id,
-    visibility: "private",
     storageMode: stored.storageMode,
+    ownerEmail: id === "pre_1" ? stored.preRollOwner : stored.recordingOwner,
+    visibility:
+      id === "pre_1" ? stored.preRollVisibility : stored.recordingVisibility,
     durationMs: 60_000,
     trashedAt: id === "pre_1" && stored.preRollTrashed ? "earlier" : null,
     chaptersJson: stored.chaptersJson,
@@ -151,7 +159,16 @@ const { mockDb, schema, stored, written } = vi.hoisted(() => {
           const id = (where.and ?? [where]).find(
             (c: any) => c.column === "recordings.id",
           )?.value;
-          return [recordingRow(id)];
+          if (
+            id === "pre_1" ? !stored.preRollExists : !stored.recordingExists
+          ) {
+            return [];
+          }
+          const row = recordingRow(id);
+          const owner = (where.and ?? [where]).find(
+            (c: any) => c.column === "recordings.ownerEmail",
+          );
+          return owner && owner.value !== row.ownerEmail ? [] : [row];
         },
       }),
     }),
@@ -249,7 +266,7 @@ vi.mock("../server/lib/post-finalize-dispatch.js", () => ({
 }));
 vi.mock("../server/lib/recordings.js", () => ({
   getCurrentOwnerEmail: () => "owner@example.com",
-  ownerEmailMatches: () => undefined,
+  ownerEmailMatches: (column: string, value: string) => ({ column, value }),
 }));
 vi.mock("../server/lib/s3-upload-provider.js", () => ({
   isS3ObjectUrlBoundToRecording: vi.fn(async () => true),
@@ -259,6 +276,7 @@ vi.mock("./make-recording-private-for-rewind.js", () => ({
 }));
 
 import action from "./apply-rewind-extension";
+import { assertNoDirectRecordingShares } from "./make-recording-private-for-rewind";
 
 const args = {
   recordingId: "rec_1",
@@ -290,6 +308,13 @@ beforeEach(() => {
     preRollRecordingId: "pre_1",
   };
   stored.preRollTrashed = false;
+  stored.recordingExists = true;
+  stored.preRollExists = true;
+  stored.recordingOwner = "owner@example.com";
+  stored.preRollOwner = "owner@example.com";
+  stored.recordingVisibility = "private";
+  stored.preRollVisibility = "private";
+  vi.mocked(assertNoDirectRecordingShares).mockReset();
   mockDispatch.mockReset();
   stored.changedBeforeWrite = [];
   written.length = 0;
@@ -485,6 +510,131 @@ describe("apply-rewind-extension", () => {
     expect(JSON.parse(stored.chaptersJson)).toEqual([
       { ...intro, startMs: 30_000 },
     ]);
+  });
+
+  it("finishes a committed apply after the consumed pre-roll is deleted", async () => {
+    mockDispatch.mockRejectedValueOnce(new Error("queue down"));
+    await expect(action.run(args)).rejects.toThrow("queue down");
+    expect(stored.request).toMatchObject({ status: "ready" });
+    expect(stored.preRollTrashed).toBe(true);
+    const committed = {
+      chaptersJson: stored.chaptersJson,
+      editsJson: stored.editsJson,
+      mediaUpdatedAt: stored.mediaUpdatedAt,
+      videoUrl: stored.videoUrl,
+      updatedAt: stored.updatedAt,
+    };
+    expect(committed.mediaUpdatedAt).not.toBe(args.expectedMediaUpdatedAt);
+    stored.preRollExists = false;
+    written.length = 0;
+
+    await expect(action.run(args)).resolves.toMatchObject({
+      request: { requestId: "req_1", status: "applied" },
+    });
+
+    expect(stored).toMatchObject(committed);
+    expect(written).toEqual([]);
+    expect(mockDispatch).toHaveBeenCalledTimes(2);
+    expect(mockDispatch).toHaveBeenLastCalledWith({
+      recordingId: "rec_1",
+      kind: "thumbnail",
+      requireAccepted: true,
+    });
+  });
+
+  it("returns an applied request after the consumed pre-roll is deleted", async () => {
+    await action.run(args);
+    const committed = {
+      chaptersJson: stored.chaptersJson,
+      editsJson: stored.editsJson,
+    };
+    stored.preRollExists = false;
+    written.length = 0;
+
+    await expect(action.run(args)).resolves.toMatchObject({
+      request: { requestId: "req_1", status: "applied" },
+    });
+
+    expect(stored).toMatchObject(committed);
+    expect(written).toEqual([]);
+    expect(mockDispatch).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["requestId", "preRollRecordingId"])(
+    "refuses committed recovery when the current request has a different %s",
+    async (field) => {
+      stored.editsJson = JSON.stringify({ rewindPreRollId: "pre_1" });
+      stored.request = { ...stored.request!, [field]: "other" };
+
+      await expect(action.run(args)).rejects.toThrow(
+        "request is not ready to apply",
+      );
+
+      expect(written).toEqual([]);
+      expect(mockDispatch).not.toHaveBeenCalled();
+      expect(stored.request).toMatchObject({
+        [field]: "other",
+        status: "ready",
+      });
+    },
+  );
+
+  it.each(["missing", "another owner"])(
+    "refuses committed recovery when the main Clip is %s",
+    async (condition) => {
+      stored.editsJson = JSON.stringify({ rewindPreRollId: "pre_1" });
+      stored.preRollExists = false;
+      if (condition === "missing") stored.recordingExists = false;
+      else stored.recordingOwner = "other@example.com";
+
+      await expect(action.run(args)).rejects.toThrow("unavailable");
+
+      expect(written).toEqual([]);
+      expect(mockDispatch).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["recordingVisibility", "preRollVisibility"] as const)(
+    "refuses a new apply when %s is not private",
+    async (field) => {
+      stored[field] = "public";
+
+      await expect(action.run(args)).rejects.toThrow(
+        "private Clip from a private pre-roll",
+      );
+
+      expect(written).toEqual([]);
+      expect(mockDispatch).not.toHaveBeenCalled();
+    },
+  );
+
+  it("refuses a new apply when the pre-roll row is missing", async () => {
+    stored.preRollExists = false;
+
+    await expect(action.run(args)).rejects.toThrow("unavailable");
+
+    expect(written).toEqual([]);
+    expect(mockDispatch).not.toHaveBeenCalled();
+  });
+
+  it("refuses a new apply when the pre-roll belongs to another owner", async () => {
+    stored.preRollOwner = "other@example.com";
+
+    await expect(action.run(args)).rejects.toThrow("unavailable");
+
+    expect(written).toEqual([]);
+    expect(mockDispatch).not.toHaveBeenCalled();
+  });
+
+  it("refuses a new apply when the Clip has direct shares", async () => {
+    vi.mocked(assertNoDirectRecordingShares).mockRejectedValueOnce(
+      new Error("direct shares"),
+    );
+
+    await expect(action.run(args)).rejects.toThrow("direct shares");
+
+    expect(written).toEqual([]);
+    expect(mockDispatch).not.toHaveBeenCalled();
   });
 
   it("doesn't take an earlier Rewind of the same length for this one", async () => {
