@@ -652,7 +652,7 @@ describe("embedApp", () => {
         ${reportEmbedError}
         return reportEmbedError;`,
       )(
-        "https://app.example.com/crm/_agent-native/embed/start?ticket=secret",
+        "https://app.example.com/crm/_agent-native/embed/start?ticket=secret#private-fragment",
         "https://app.example.com/crm/records/123",
         "",
         {
@@ -681,6 +681,12 @@ describe("embedApp", () => {
           expect.objectContaining({ method: "POST", credentials: "omit" }),
         ),
       );
+      const postBody = JSON.parse(fetch.mock.calls[0][1].body as string);
+      expect(postBody.url).toBe(
+        "https://app.example.com/crm/_agent-native/embed/start",
+      );
+      expect(JSON.stringify(postBody)).not.toContain("ticket");
+      expect(JSON.stringify(postBody)).not.toContain("private-fragment");
     });
 
     it("falls back from ordinary mounted app URLs to the app error route", async () => {

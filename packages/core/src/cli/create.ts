@@ -4688,8 +4688,12 @@ function copyDir(
           stat = fs.statSync(srcPath);
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-          // Keep dangling in-tree directory links directory-typed on Windows.
-          createAgentSymlink(copiedTarget, destPath, "dir");
+          if (process.platform === "win32") {
+            throw new Error(
+              `Cannot copy dangling symlink at "${srcPath}" on Windows because its target type is unknown.`,
+            );
+          }
+          fs.symlinkSync(copiedTarget, destPath);
           continue;
         }
         createAgentSymlink(

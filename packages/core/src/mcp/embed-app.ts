@@ -1359,13 +1359,26 @@ export function embedApp(
         embedErrorReportCount += 1;
         const reportUrls = embedReportUrls();
         if (!reportUrls.length) return;
+        const contextUrl = [openStartUrl, openUrl, lastFrameSrc].find(
+          (value) =>
+            typeof value === "string" &&
+            value &&
+            URL.canParse(value, window.location.href),
+        );
+        let embedUrl = "";
+        if (contextUrl) {
+          const url = new URL(contextUrl, window.location.href);
+          url.search = "";
+          url.hash = "";
+          embedUrl = url.href;
+        }
         let renderMode = "";
         try { renderMode = renderModeSource().mode || ""; } catch {}
         const body = JSON.stringify({
           stage: String(stage || ""),
           message: String(message || "").slice(0, 500),
           detail: detail ? String(detail).slice(0, 1200) : undefined,
-          url: openStartUrl || openUrl || lastFrameSrc || "",
+          url: embedUrl,
           status: typeof status === "number" ? status : undefined,
           host: window.location.hostname || "",
           renderMode: renderMode,
