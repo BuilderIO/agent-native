@@ -786,12 +786,15 @@ export function detectUpgradeProject(cwd: string): UpgradeProject | null {
           if (hasWorkspaceYaml) {
             packageFiles.push(...workspacePackageFiles(dir, workspaceYaml));
           } else if (workspacePatterns.length > 0) {
-            // npm reads `\` as `/` and drops a leading `/`.
-            const patterns = workspacePatterns.map((pattern) =>
-              pattern.replace(/\\/g, "/").replace(/^(!?)\/+/, "$1"),
-            );
+            // npm drops the leading `!`s and excludes when they are odd, then
+            // drops a leading `./` or `/` and reads `\` as `/`.
+            const patterns = workspacePatterns.map((pattern) => {
+              const glob = pattern.replace(/^!+/, "");
+              const negated = (pattern.length - glob.length) % 2 === 1;
+              return `${negated ? "!" : ""}${glob.replace(/^\.?\/+/, "").replace(/\\/g, "/")}`;
+            });
             packageFiles.push(
-              ...workspacePackageFilesForPatterns(dir, patterns),
+              ...workspacePackageFilesForPatterns(dir, patterns, "npm"),
             );
           }
         } catch (error) {
@@ -832,8 +835,9 @@ function workspacePackageFiles(root: string, workspaceYaml: string): string[] {
 function workspacePackageFilesForPatterns(
   root: string,
   patterns: string[],
+  rules: "pnpm" | "npm" = "pnpm",
 ): string[] {
-  const matcher = workspaceMemberMatcher(patterns);
+  const matcher = workspaceMemberMatcher(patterns, rules);
   const files = new Set<string>();
   const visit = (dir: string, relDir: string) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {

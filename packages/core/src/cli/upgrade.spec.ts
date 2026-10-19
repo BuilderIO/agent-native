@@ -368,13 +368,25 @@ describe("detectUpgradeProject + doctor", () => {
     ]);
   });
 
-  it("reads npm workspace globs with a backslash or a leading slash", () => {
+  it("reads npm workspace globs as npm does: a backslash, a leading slash, leading !s and bower_components", () => {
     const root = makeTempProject({
       kind: "workspace",
-      rootPkg: { name: "ws", workspaces: ["apps\\*", "/packages/*"] },
+      rootPkg: {
+        name: "ws",
+        workspaces: [
+          "apps\\*",
+          "/packages/*",
+          "!(apps)",
+          "!!extra",
+          "bower_components/*",
+        ],
+      },
       workspaces: {
         "apps/mail": { name: "mail" },
         "packages/ui": { name: "ui" },
+        tools: { name: "tools" },
+        extra: { name: "extra" },
+        "bower_components/legacy": { name: "legacy" },
       },
     });
     fs.rmSync(path.join(root, "pnpm-workspace.yaml"));
@@ -386,6 +398,8 @@ describe("detectUpgradeProject + doctor", () => {
     ).toEqual([
       "package.json",
       "apps/mail/package.json",
+      "bower_components/legacy/package.json",
+      "extra/package.json",
       "packages/ui/package.json",
     ]);
   });
@@ -1519,6 +1533,11 @@ describe("runUpgrade", () => {
         "a negated extglob",
         'packages:\n  - "apps/!(internal)"\n',
         ["apps/linked", "apps/web"],
+      ],
+      [
+        "a root-level negated extglob",
+        'packages:\n  - "!(apps|.tools)/*"\n',
+        ["#hash/x", "other/pkg"],
       ],
       [
         "hidden directories",

@@ -6,19 +6,27 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 // pnpm-workspace.yaml helpers: text-preserving edits shared by `create` and
 // `upgrade`, and the workspace discovery and membership checks it runs.
 
-// Directories pnpm skips when it globs for workspace projects.
-const PNPM_IGNORED_PROJECT_DIRS = ["node_modules", "bower_components"];
+// Directories each package manager skips when it globs for workspace projects.
+const IGNORED_PROJECT_DIRS = {
+  pnpm: ["node_modules", "bower_components"],
+  npm: ["node_modules"],
+};
 
 /**
  * Matches directories (relative to the workspace root, `/`-separated) against
  * workspace globs the way pnpm 10 finds projects: each glob is matched as
- * `<glob>/package.json` with any leading `./` dropped, `!` excludes,
- * node_modules and bower_components never count, and a hidden directory
- * counts only when a glob names it. `bases` are the directories a walk starts
+ * `<glob>/package.json` with any leading `./` dropped, `!` excludes unless it
+ * opens a negated extglob `!(…)`, node_modules and bower_components never
+ * count, and a hidden directory counts only when a glob names it. With
+ * `rules: "npm"`, for package.json workspaces, a leading `!` always excludes
+ * and only node_modules is skipped. `bases` are the directories a walk starts
  * from (each glob's leading literal segments), and `mayContain` tells it
  * whether a directory can hold a match.
  */
-export function workspaceMemberMatcher(patterns: string[]): {
+export function workspaceMemberMatcher(
+  patterns: string[],
+  rules: "pnpm" | "npm" = "pnpm",
+): {
   bases: string[];
   lists: (dir: string) => boolean;
   mayContain: (dir: string) => boolean;
@@ -29,14 +37,16 @@ export function workspaceMemberMatcher(patterns: string[]): {
       nocomment: true,
       nonegate: true,
     });
+  const excludes = (pattern: string) =>
+    pattern.startsWith("!") && !(rules === "pnpm" && pattern.startsWith("!("));
   const included = patterns
-    .filter((pattern) => !pattern.startsWith("!"))
+    .filter((pattern) => !excludes(pattern))
     .map(manifestGlob);
   const excluded = patterns
-    .filter((pattern) => pattern.startsWith("!"))
+    .filter(excludes)
     .map((pattern) => manifestGlob(pattern.slice(1)));
   const ignored = (dir: string) =>
-    dir.split("/").some((part) => PNPM_IGNORED_PROJECT_DIRS.includes(part));
+    dir.split("/").some((part) => IGNORED_PROJECT_DIRS[rules].includes(part));
   return {
     bases: Array.from(
       new Set(
