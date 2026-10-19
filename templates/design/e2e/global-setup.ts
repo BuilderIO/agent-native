@@ -433,6 +433,32 @@ export default async function globalSetup(config: FullConfig) {
         );
       }
 
+      const templatesURL = `${baseURL}/templates`;
+      const builtInTemplate = warmupPage.getByRole("button", {
+        name: "Event story — vertical",
+        exact: true,
+      });
+      await warmupPage.goto(templatesURL, {
+        waitUntil: "domcontentloaded",
+        timeout: 180_000,
+      });
+      try {
+        await builtInTemplate.waitFor({ state: "visible", timeout: 30_000 });
+      } catch (error) {
+        if (
+          !new URL(warmupPage.url()).searchParams.has("__an_vite_dev_recovery")
+        ) {
+          throw error;
+        }
+        await warmupPage.goto(templatesURL, {
+          waitUntil: "domcontentloaded",
+          timeout: 180_000,
+        });
+        await builtInTemplate.waitFor({ state: "visible", timeout: 30_000 });
+      }
+      // eslint-disable-next-line no-console
+      console.log("[e2e] template library warm");
+
       if (process.env.E2E_AI_SIDEBAR_LOOPBACK === "1") {
         const homeURL = `${baseURL}/home`;
         const homeComposer = warmupPage.locator("[data-design-home-composer]");
