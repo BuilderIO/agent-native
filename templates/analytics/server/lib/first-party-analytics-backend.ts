@@ -1530,15 +1530,18 @@ function conjunctionExcludesHttpResponse(
   level: number,
 ): boolean {
   let start = from;
+  let between = false;
   for (let index = from; index <= to; index++) {
-    if (
-      index < to &&
-      !(
-        condition.depths[index] === level &&
-        isWord(condition.tokens[index], "and")
-      )
-    ) {
-      continue;
+    if (index < to) {
+      if (condition.depths[index] !== level) continue;
+      const token = condition.tokens[index];
+      if (isWord(token, "between")) between = true;
+      if (!isWord(token, "and")) continue;
+      // BETWEEN's own AND joins its bounds, not two conditions.
+      if (between) {
+        between = false;
+        continue;
+      }
     }
     if (conjunctExcludesHttpResponse(condition, start, index, level)) {
       return true;
@@ -1621,10 +1624,11 @@ function eventsReadsIneligibility(
   const { tokens } = query;
   const depths: number[] = [];
   let depth = 0;
+  // Array brackets nest expressions just as parentheses do.
   for (const token of tokens) {
-    if (token.text === ")") depth--;
+    if (token.text === ")" || token.text === "]") depth--;
     depths.push(depth);
-    if (token.text === "(") depth++;
+    if (token.text === "(" || token.text === "[") depth++;
   }
   const tokenIndex = new Map(
     tokens.map((token, index) => [token.start, index]),

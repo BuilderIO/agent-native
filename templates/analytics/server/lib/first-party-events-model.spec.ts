@@ -233,6 +233,18 @@ describe("events model eligibility", () => {
       "SELECT COUNT(*) FROM analytics_events WHERE (SELECT LOGICAL_AND(ok) FROM checks WHERE ok AND event_name = 'a')",
       "http_response_not_excluded",
     ],
+    [
+      "SELECT COUNT(*) FROM analytics_events WHERE FALSE BETWEEN FALSE AND (event_name = 'signup')",
+      "http_response_not_excluded",
+    ],
+    [
+      "SELECT COUNT(*) FROM analytics_events WHERE (FALSE BETWEEN FALSE AND event_name = 'signup')",
+      "http_response_not_excluded",
+    ],
+    [
+      "SELECT COUNT(*) FROM analytics_events WHERE [TRUE AND (event_name = 'signup') AND TRUE] IS NOT NULL",
+      "http_response_not_excluded",
+    ],
   ])("keeps %s on the raw table", (sql, reason) => {
     expect(firstPartyEventsModelIneligibility(sql)).toBe(reason);
   });
@@ -249,6 +261,7 @@ describe("events model eligibility", () => {
     "SELECT COUNT(*) FROM analytics_events WHERE event_name = 'signup' AND ('30d' IN ('', 'all') OR ('30d' = '7d' AND event_date >= '2026-10-01')) AND ('exclude_builder' IN ('', 'all') OR ('exclude_builder' = 'exclude_builder' AND lower(coalesce(user_id, '')) NOT LIKE '%@builder.io')) AND ('all' IN ('', 'all') OR lower(template) = lower('all'))",
     "SELECT COUNT(DISTINCT user_key) FROM analytics_events WHERE ((event_name IN ('session status', 'session_status') AND signed_in = 'true') OR (event_name = 'app_entered' AND user_id IS NOT NULL)) AND (app = 'x' OR TRUE)",
     "SELECT COUNT(*) FROM analytics_events WHERE (event_name = 'a' OR event_name IN ('b', 'c'))",
+    "SELECT COUNT(*) FROM analytics_events WHERE event_date BETWEEN '2026-10-01' AND '2026-10-07' AND event_name = 'a'",
   ])("lets %s read the model", (sql) => {
     expect(firstPartyEventsModelIneligibility(sql)).toBeNull();
   });
