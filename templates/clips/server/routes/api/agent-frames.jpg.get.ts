@@ -166,14 +166,14 @@ export default defineEventHandler(async (event: H3Event) => {
         parsed.value.fps ?? (await probeFrameSheetFpsFromFile(media.path));
       // A stored duration can understate the file. When the request reaches
       // past it, plan against the file's real duration so the sheet covers
-      // the range that was asked for, not an earlier one.
+      // the range that was asked for, not an earlier one. If the probe fails,
+      // plan without a duration rather than move the range on the stored one.
       const durationMs = frameSheetReachesPast(
         parsed.value,
         fps,
         recording.durationMs,
       )
-        ? ((await probeMediaDurationMsFromFile(media.path)) ??
-          recording.durationMs)
+        ? await probeMediaDurationMsFromFile(media.path)
         : recording.durationMs;
       const plan = planWithin(fps, durationMs);
       if (!plan.ok) return requestFailure(event, plan);

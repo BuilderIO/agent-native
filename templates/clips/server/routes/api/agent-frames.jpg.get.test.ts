@@ -184,6 +184,7 @@ describe("agent-frames.jpg route", () => {
   });
 
   it("fills the sheet from startMs without passing the end of the clip", async () => {
+    mockProbeMediaDurationMsFromFile.mockResolvedValue(10_000);
     await run({ startMs: "9900", fps: "30" });
     expect(lastPlan()).toMatchObject({ startMs: 9900, frameCount: 3 });
   });
@@ -226,6 +227,19 @@ describe("agent-frames.jpg route", () => {
     expect(event.status).toBe(200);
     expect(mockProbeMediaDurationMsFromFile).toHaveBeenCalledTimes(1);
     expect(mockExtractJpegFrameSheetFromFile).toHaveBeenCalledTimes(1);
+    expect(lastPlan()).toMatchObject({ startMs: 11_000, frameCount: 15 });
+  });
+
+  it("keeps the requested range when the duration probe fails", async () => {
+    mockProbeMediaDurationMsFromFile.mockResolvedValue(null);
+    const { event } = await run({
+      startMs: "11000",
+      endMs: "11500",
+      fps: "30",
+    });
+
+    expect(event.status).toBe(200);
+    expect(mockProbeMediaDurationMsFromFile).toHaveBeenCalledTimes(1);
     expect(lastPlan()).toMatchObject({ startMs: 11_000, frameCount: 15 });
   });
 

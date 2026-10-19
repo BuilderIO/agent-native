@@ -173,7 +173,11 @@ export function frameSheetFpsFromProbe(stderr: string): number {
     );
     if (!match) return null;
     const value = Number(match[1]) * (match[2] ? 1000 : 1);
-    return Number.isFinite(value) && value >= 1 && value < 1000 ? value : null;
+    return Number.isFinite(value) &&
+      value >= MIN_AGENT_FRAME_SHEET_FPS &&
+      value < 1000
+      ? value
+      : null;
   };
   const detected = rate("tbr") ?? rate("fps");
   return detected === null

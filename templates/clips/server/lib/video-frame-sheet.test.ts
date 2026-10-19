@@ -150,12 +150,19 @@ describe("frameSheetFpsFromProbe", () => {
     expect(frameSheetFpsFromProbe(probe("29.97 fps, 29.97 tbr, 30k tbn"))).toBe(
       29.97,
     );
+    // A slideshow can run below one frame a second.
+    expect(frameSheetFpsFromProbe(probe("0.5 fps, 0.5 tbr, 90k tbn"))).toBe(
+      0.5,
+    );
   });
 
   it("falls back to 30 fps when the stream has no usable rate", () => {
     // MediaRecorder WebM: a millisecond timebase and no frame rate.
     expect(frameSheetFpsFromProbe(probe("1k tbr, 1k tbn"))).toBe(30);
     expect(frameSheetFpsFromProbe("Duration: 00:00:01.00")).toBe(30);
+    expect(frameSheetFpsFromProbe(probe("0.05 fps, 0.05 tbr, 90k tbn"))).toBe(
+      30,
+    );
   });
 
   it("caps a high frame rate at 60", () => {
