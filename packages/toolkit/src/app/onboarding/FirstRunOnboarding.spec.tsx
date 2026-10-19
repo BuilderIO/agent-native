@@ -2925,6 +2925,10 @@ describe("FirstRunOnboarding", () => {
       mocks.useBuilderConnectFlow.mockReturnValue(flow());
       openChoice();
       expect(q("first-run-credits-offer")).toBeNull();
+      expect(
+        document.body.querySelector("[data-onboarding-loading='true']"),
+      ).toBeNull();
+      expect(q("first-run-open-key-settings")).not.toBeNull();
       expect(mocks.setOnboardingExperiment).not.toHaveBeenCalled();
     });
 

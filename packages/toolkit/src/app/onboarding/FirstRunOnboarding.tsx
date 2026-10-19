@@ -439,9 +439,12 @@ export function FirstRunOnboarding({
   }, [canTrackOnboardingScreen, firstRun, previewMode]);
   // Both arms render a skeleton until the experiment decision is known, and the
   // credits arm's skip depends on it, so the choice view waits for the decision
-  // and is sent once with its resolved optional flag.
+  // and is sent once with its resolved optional flag. Without an assigned arm
+  // no decision is ever made, and the choice UI renders as is.
   const choiceStepKnown =
-    screen !== "choice" || setupExperimentDecision !== null;
+    screen !== "choice" ||
+    setupVariant === null ||
+    setupExperimentDecision !== null;
   useEffect(() => {
     if (
       previewMode ||
