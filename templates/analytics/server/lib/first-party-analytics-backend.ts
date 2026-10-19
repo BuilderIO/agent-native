@@ -1780,7 +1780,7 @@ export async function getFirstPartyAnalyticsBigQueryMetrics(
       WHERE ${tenantFilter}${startDateFilter}
         AND event_name IS DISTINCT FROM 'http.response'
         AND event_date <= DATE ${sqlLiteral(endDate)}
-      QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY received_at DESC) = 1
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY id, org_id ORDER BY received_at DESC) = 1
     )
     SELECT
       COUNT(*) AS event_count,
