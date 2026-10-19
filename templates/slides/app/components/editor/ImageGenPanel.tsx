@@ -1,7 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
   DEFAULT_STYLE_REFERENCE_URLS,
-  MAX_REFERENCE_IMAGE_INPUT_COUNT,
+  MAX_REFERENCE_IMAGE_COUNT,
   normalizeReferenceUrls,
 } from "@shared/api";
 import { IconX } from "@tabler/icons-react";
@@ -65,7 +65,7 @@ export function buildImageGenerationContext({
   const normalizedReferenceUrls = normalizeReferenceUrls(referenceImageUrls);
   const styleReferenceUrls = normalizedReferenceUrls.slice(
     0,
-    MAX_REFERENCE_IMAGE_INPUT_COUNT,
+    MAX_REFERENCE_IMAGE_COUNT,
   );
   const omittedReferenceCount =
     normalizedReferenceUrls.length - styleReferenceUrls.length;
@@ -76,7 +76,7 @@ export function buildImageGenerationContext({
   }
   if (omittedReferenceCount > 0) {
     contextParts.push(
-      `The action accepts at most ${MAX_REFERENCE_IMAGE_INPUT_COUNT} reference URLs, so ${omittedReferenceCount} were omitted. Tell the user that only the first ${MAX_REFERENCE_IMAGE_INPUT_COUNT} references will be used, and ask them to narrow the references if the omitted ones matter.`,
+      `Image generation can use at most ${MAX_REFERENCE_IMAGE_COUNT} reference images, so ${omittedReferenceCount} were omitted. Tell the user that only the first ${MAX_REFERENCE_IMAGE_COUNT} references will be used, and ask them to narrow the references if the omitted ones matter.`,
     );
   }
 

@@ -1,13 +1,15 @@
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import pLimit from "p-limit";
 
-import { MAX_REFERENCE_IMAGE_INPUT_COUNT } from "../../shared/api.js";
+import {
+  MAX_REFERENCE_IMAGE_COUNT,
+  MAX_REFERENCE_IMAGE_INPUT_COUNT,
+} from "../../shared/api.js";
 
-export { MAX_REFERENCE_IMAGE_INPUT_COUNT };
+export { MAX_REFERENCE_IMAGE_COUNT, MAX_REFERENCE_IMAGE_INPUT_COUNT };
 
 export const MAX_REFERENCE_IMAGE_BYTES = 5 * 1024 * 1024;
 export const MAX_REFERENCE_IMAGE_TOTAL_BYTES = 10 * 1024 * 1024;
-export const MAX_REFERENCE_IMAGE_COUNT = 8;
 
 const SUPPORTED_REFERENCE_IMAGE_TYPES = new Set([
   "image/png",
