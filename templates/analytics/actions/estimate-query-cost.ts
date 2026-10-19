@@ -351,9 +351,13 @@ export default defineAction({
     const omitted = Math.max(0, selected.length - MAX_PANELS);
     // Panels outside BigQuery cost nothing; any other gap makes the total partial.
     const partial = failed + notEstimated + omitted > 0;
-    const totalScope = partial
-      ? "per refresh of the priced panels only"
-      : "per full refresh";
+    // With panelId the total is that panel's, never the dashboard's.
+    const onePanel = args.panelId !== undefined;
+    const totalScope = onePanel
+      ? "per refresh of this panel"
+      : partial
+        ? "per refresh of the priced panels only"
+        : "per full refresh";
     // Report schedules keep their own saved filters; this prices them at the
     // filters passed here (or the defaults), so say so.
     const monthly =
@@ -389,7 +393,12 @@ export default defineAction({
           : reportSchedules > 0
             ? `${reportSchedules} enabled daily email report${reportSchedules === 1 ? "" : "s"}`
             : "none",
-      total: { ...total, ...totalFlags, partial },
+      total: {
+        ...total,
+        ...totalFlags,
+        partial,
+        scope: onePanel ? "panel" : "dashboard",
+      },
       panels,
       ...(selected.length > MAX_PANELS
         ? { omittedPanelIds: selected.slice(MAX_PANELS).map((p) => p.panelId) }
@@ -400,7 +409,7 @@ export default defineAction({
         (priced === 0
           ? `${panels.length} panel${panels.length === 1 ? "" : "s"}: ${partial ? "none could be priced." : "none read BigQuery, so nothing was priced."}`
           : `${panels.length} panel${panels.length === 1 ? "" : "s"} (${priced} priced): ~${formatBytes(total.estimatedBytes)} and ${formatUsd(total.usdPerRun)} ${totalScope}, ${monthly}.`) +
-        (totalOver.length
+        (totalOver.length && !onePanel
           ? ` The dashboard as a whole is over ${totalOver.join(" and ")} threshold${totalOver.length > 1 ? "s" : ""}${partial ? ", even counting only the priced panels" : ""}.`
           : "") +
         (flagged.length

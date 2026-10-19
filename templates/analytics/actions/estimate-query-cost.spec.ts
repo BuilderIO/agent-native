@@ -448,6 +448,13 @@ describe("estimate-query-cost action", () => {
       "small",
     ]);
     expect(one.runsPerMonth).toBeNull();
+    expect(one.total).toMatchObject({ partial: false, scope: "panel" });
+    expect(one.summary).toContain("per refresh of this panel");
+    expect(one.summary).not.toContain("full refresh");
+
+    const big = await run({ dashboardId: "d1", panelId: "big" });
+    expect(big.summary).toContain('Over threshold: "Big"');
+    expect(big.summary).not.toContain("The dashboard as a whole");
 
     await expect(
       run({ dashboardId: "d1", panelId: "nope" }),
