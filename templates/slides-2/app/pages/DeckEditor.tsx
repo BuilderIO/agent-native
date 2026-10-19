@@ -1,0 +1,6145 @@
+import {
+  AGENT_CHAT_SUBMIT_RESULT_EVENT,
+  sendToAgentChatAndConfirm,
+  type AgentChatSubmitResult,
+} from "@agent-native/core/client/agent-chat";
+import {
+  getAnalyticsSessionId,
+  trackEvent,
+} from "@agent-native/core/client/analytics";
+import { appBasePath, appPath } from "@agent-native/core/client/api-path";
+import {
+  useCollaborativeDoc,
+  emailToColor,
+  emailToName,
+} from "@agent-native/core/client/collab";
+import {
+  actionErrorMessage,
+  setClientAppState,
+  signOut,
+  usePollLoop,
+  useSession,
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import {
+  useIsMcpAppWidgetEmbed,
+  useIsMcpDirectoryWidgetReadOnlyEmbed,
+  useIsMcpDirectoryWidgetWriteEmbed,
+} from "@agent-native/core/client/mcp-app-host";
+import { useOrg } from "@agent-native/core/client/org";
+import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
+import { useGuidedQuestionFlow } from "@agent-native/toolkit/app/chat/agentkit-chat";
+import {
+  DndContext,
+  DragOverlay,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+  type Modifier,
+} from "@dnd-kit/core";
+import { appStateKey, appStateKeyForBrowserTab } from "@shared/app-state-tabs";
+import { appStorageKey } from "@shared/app-storage";
+import type { SlideCommentAnchor } from "@shared/slide-comment-anchor";
+import { hashSlideContent } from "@shared/slide-fit";
+import { nanoid } from "nanoid";
+import {
+  useState,
+  useCallback,
+  useRef,
+  useMemo,
+  useEffect,
+  useLayoutEffect,
+  type CSSProperties,
+  type FormEvent,
+} from "react";
+import { createPortal } from "react-dom";
+import {
+  useBlocker,
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router";
+import { toast } from "sonner";
+
+import { SlideCommentsPanel } from "@/components/comments/SlideCommentsPanel";
+import SlideRenderer, {
+  getRenderedSlideSource,
+  renderRawSlideHtml,
+} from "@/components/deck/SlideRenderer";
+import { AnimationsPanel } from "@/components/editor/AnimationsPanel";
+import AssetLibraryPanel from "@/components/editor/AssetLibraryPanel";
+import { DeckAccessDeniedPage } from "@/components/editor/DeckAccessDeniedPage";
+import { DeckEditorSkeleton } from "@/components/editor/DeckEditorSkeleton";
+import {
+  EditorActionCluster,
+  type SlideShapeType,
+} from "@/components/editor/EditorActionCluster";
+import EditorSidebar, {
+  getSlideSelection,
+  type SlideSelectionOptions,
+} from "@/components/editor/EditorSidebar";
+import EditorToolbar, {
+  type PresentRequest,
+} from "@/components/editor/EditorToolbar";
+import { canExportPptxFromServer } from "@/components/editor/ExportMenu";
+import GeneratingSlidePreview from "@/components/editor/GeneratingSlidePreview";
+import HistoryPanel from "@/components/editor/HistoryPanel";
+import ImageGenPanel from "@/components/editor/ImageGenPanel";
+import { MissingDeckAccessPane } from "@/components/editor/MissingDeckAccessPane";
+import { QuestionFlow } from "@/components/editor/QuestionFlow";
+import SlideEditor, {
+  type SlideCanvasCommands,
+} from "@/components/editor/SlideEditor";
+import { TweaksPanel } from "@/components/editor/TweaksPanel";
+import { UploadStorageGate } from "@/components/editor/UploadStorageGate";
+import {
+  SlideTransitionPreview,
+  transitionPreviewPair,
+} from "@/components/presentation/SlideTransitionStage";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import {
+  clearSlideEditingActive,
+  deckIdFromPathname,
+  defaultSlideContent,
+  flushPendingSaves,
+  hasUnsavedDeckChanges,
+  markSlideEditingActive,
+  type Deck,
+  type Slide,
+  useDecks,
+  useSaveState,
+} from "@/context/DeckContext";
+import {
+  clearStartedGenerationAttempt,
+  getStartedGenerationAttemptTabId,
+  hasStartedGenerationAttempt,
+  SLIDES_GENERATION_STARTED_EVENT,
+  useAgentGenerating,
+} from "@/hooks/use-agent-generating";
+import {
+  isCompactEditorLayout,
+  useCompactEditorLayout,
+} from "@/hooks/use-compact-editor-layout";
+import { useContrastAuditBridge } from "@/hooks/use-contrast-audit-bridge";
+import {
+  useDeckAccessStatus,
+  useRequestDeckAccess,
+} from "@/hooks/use-deck-access";
+import { useDeckAccessReload } from "@/hooks/use-deck-access-reload";
+import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
+import { useDeckPresence } from "@/hooks/use-deck-presence";
+import { useDeckRole } from "@/hooks/use-deck-role";
+import {
+  clearNewDeckGenerationRun,
+  NEW_DECK_GENERATION_SUBMIT_TARGET_EVENT,
+  rememberNewDeckGenerationRunTab,
+  useNewDeckGeneration,
+  useNewDeckGenerationRun,
+} from "@/hooks/use-new-deck-generation";
+import { useNewDeckGenerationSignal } from "@/hooks/use-new-deck-generation-signal";
+import {
+  useSlideComments,
+  type CommentThread,
+} from "@/hooks/use-slide-comments";
+import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status";
+import { useUndoSelection } from "@/hooks/use-undo-selection";
+import { getAspectRatioDims } from "@/lib/aspect-ratios";
+import {
+  assetErrorTranslationKey,
+  isAssetStorageSetupError,
+} from "@/lib/asset-error-copy";
+import { downloadDeckBackup, parseDeckBackup } from "@/lib/deck-backup";
+import {
+  deckAccessCheckFor,
+  deckAccessCheckKey,
+  deckAccessRequestStateFor,
+  retryMissingDeck,
+  shouldShowDeckEditorSkeleton,
+} from "@/lib/deck-editor-loading";
+import { preloadAddSlidePopover } from "@/lib/deferred-editor-surfaces";
+import { getPreset } from "@/lib/design-systems";
+import {
+  isGoogleSlidesCommentShortcut,
+  shouldActivateSlidesCommentShortcut,
+  shouldCreateSlideWithShortcut,
+  shouldSuppressSlidesItalicShortcut,
+} from "@/lib/editor-shortcuts";
+import {
+  exportDeckToGoogleSlides,
+  fetchDeckPptxFromServer,
+} from "@/lib/export-google-slides-client";
+import { exportDeckAsPdf } from "@/lib/export-pdf-client";
+import { exportDeckAsPptx } from "@/lib/export-pptx-client";
+import {
+  getNewDeckGenerationRecoveryState,
+  NEW_DECK_GENERATION_START_TIMEOUT_MS,
+  shouldClearPartialGenerationFailure,
+  shouldClearNewDeckGeneratingState,
+  shouldClearNewDeckGenerationRun,
+  shouldShowNewDeckGeneratingOverlay,
+  shouldShowNewDeckGeneratingProgress,
+  partialGenerationFailureSlidesFingerprint,
+  shouldShowPartialGenerationFailure,
+  slideBeingFilledInPlace,
+} from "@/lib/generation-state";
+import {
+  shouldBlockPendingDeckNavigation,
+  usePendingDeckUnloadGuard,
+} from "@/lib/pending-deck-changes";
+import {
+  NO_ANIMATION_TARGETS,
+  type SelectedAnimationTarget,
+} from "@/lib/slide-animation-elements";
+import {
+  getSlideClipboardNativeMarker,
+  hasClipboardPayloadBeyondSlideMarker,
+  hasImageClipboardPayload,
+  isSlideClipboardPasteSurface,
+  getSlideClipboardStorageKey,
+  normalizeSlideClipboards,
+  readSlideClipboards,
+  readSlideClipboardNativeMarker,
+  resolveSlideClipboardsForPaste,
+  shouldHandleSlideClipboardPaste,
+  shouldHandleSlideClipboardShortcut,
+  writeSlideClipboardMarkerToEvent,
+  writeSlideClipboards,
+} from "@/lib/slide-clipboard";
+import { slideCommentAnchorFromRange } from "@/lib/slide-comment-anchor";
+import {
+  applyOptimisticImagePreview,
+  captureSlideImageUploadProvenance,
+  captureOptimisticImagePreview,
+  discardSlideImageUploadProvenance,
+  hasOptimisticImagePreview,
+  imageFileLooksSupported,
+  insertDroppedImageIntoSlideHtml,
+  prefetchImage,
+  replaceOptimisticImagePreview,
+  replaceImageTargetInSlideHtml,
+  registerSlideImageUploadProvenance,
+  stripOptimisticImagePreviews,
+  updateImageFitInSlideHtml,
+  type ImageObjectPosition,
+  type OptimisticImagePreview,
+  type SlideImageUploadProvenance,
+  type SlideImageDropPosition,
+} from "@/lib/slide-image-replacement";
+import {
+  capturePendingSlideVideoGeometry,
+  hasPendingSlideVideoPlaceholder,
+  initialSlideVideoGeometry,
+  insertPendingSlideVideoPlaceholder,
+  insertDroppedVideoIntoSlideHtml,
+  stripPendingSlideVideoPlaceholders,
+  videoFileLooksLikeVideo,
+  videoFileLooksSupported,
+  type PendingSlideVideoPreview,
+} from "@/lib/slide-video";
+import {
+  firstDeckReadyView,
+  runWhenTabVisible,
+  trackSlidesRelay,
+} from "@/lib/slides-relay-tracking";
+import { TAB_ID } from "@/lib/tab-id";
+import {
+  shouldActivateRectangleTool,
+  shouldActivateTextTool,
+} from "@/lib/text-tool-shortcut";
+import {
+  discardUploadedSlideVideo,
+  uploadSlideVideo,
+  videoUploadErrorTranslationKey,
+} from "@/lib/video-upload";
+
+import { generationTimingFields } from "../../shared/generation-timing.js";
+import { refreshDeckForGenerationOutcome } from "../lib/generation-lifecycle.js";
+
+type EditorSidePanel = "comments" | null;
+
+type PendingImagePreview = OptimisticImagePreview & {
+  slideId: string;
+};
+
+type PendingImagePreviewUpdate =
+  | PendingImagePreview[]
+  | ((current: PendingImagePreview[]) => PendingImagePreview[]);
+
+type PendingVideoPreview = PendingSlideVideoPreview & {
+  slideId: string;
+};
+
+function captureImageUploadEdit(
+  slideId: string,
+  sourceContent: string,
+): SlideImageUploadProvenance | null {
+  const canvas = Array.from(
+    document.querySelectorAll<HTMLElement>("[data-main-slide-canvas='true']"),
+  ).find((candidate) =>
+    Array.from(
+      candidate.querySelectorAll<HTMLElement>("[data-slide-canvas]"),
+    ).some(
+      (slideCanvas) =>
+        slideCanvas.getAttribute("data-slide-canvas") === slideId,
+    ),
+  );
+  const root = canvas?.querySelector<HTMLElement>(".slide-content");
+  const source = root ? getRenderedSlideSource(root) : undefined;
+  const scopeId = root?.getAttribute("data-slide-content-scope");
+  if (!root || !scopeId || !source?.nonce.endsWith(`.${slideId}`)) {
+    return null;
+  }
+  const sourceSnapshot = renderRawSlideHtml(sourceContent, {
+    scopeSelector: `[data-slide-content-scope="${scopeId}"]`,
+    stampNonce: source.nonce,
+  });
+  return captureSlideImageUploadProvenance(root, sourceSnapshot.html);
+}
+
+type CommentComposerAnchor = SlideCommentAnchor | Range;
+
+type OutputViewClaim = "claimed" | "already_seen" | "unavailable";
+
+const OUTPUT_VIEW_LOCK_NAME = appStorageKey("output-viewed-lock");
+const OUTPUT_VIEW_STORAGE_KEY = appStorageKey("output-viewed");
+const OUTPUT_VIEW_DECK_LIMIT = 512;
+const ACCESS_REQUEST_CHECK_INTERVAL_MS = 60_000;
+const ACCESS_REQUEST_MAX_CHECKS = 10;
+const UNKNOWN_SNAPSHOT_REFRESH_RETRY_BASE_DELAY_MS = 1_000;
+const UNKNOWN_SNAPSHOT_REFRESH_RETRY_MAX_DELAY_MS = 30_000;
+
+function unknownSnapshotRefreshRetryDelay(retryIndex: number): number {
+  return Math.min(
+    UNKNOWN_SNAPSHOT_REFRESH_RETRY_MAX_DELAY_MS,
+    UNKNOWN_SNAPSHOT_REFRESH_RETRY_BASE_DELAY_MS * 2 ** Math.min(retryIndex, 5),
+  );
+}
+
+function isDocumentHidden(): boolean {
+  return document.visibilityState === "hidden";
+}
+
+async function claimOutputView(
+  sessionId: string,
+  deckId: string,
+): Promise<OutputViewClaim> {
+  if (typeof window === "undefined" || !navigator.locks) {
+    return "unavailable";
+  }
+
+  try {
+    return await navigator.locks.request(
+      OUTPUT_VIEW_LOCK_NAME,
+      { mode: "exclusive" },
+      () => {
+        try {
+          const storage = window.localStorage;
+          const stored = storage.getItem(OUTPUT_VIEW_STORAGE_KEY);
+          const marker = stored ? JSON.parse(stored) : null;
+          if (
+            stored &&
+            (!marker ||
+              typeof marker !== "object" ||
+              Array.isArray(marker) ||
+              typeof marker.sessionId !== "string" ||
+              !Array.isArray(marker.deckIds))
+          ) {
+            return "unavailable";
+          }
+
+          const seenDeckIds =
+            marker?.sessionId === sessionId
+              ? marker.deckIds.filter(
+                  (value: unknown): value is string =>
+                    typeof value === "string",
+                )
+              : [];
+          if (seenDeckIds.includes(deckId)) return "already_seen";
+
+          // ponytail: 512 IDs bounds one session; a longer session can re-emit an evicted deck.
+          storage.setItem(
+            OUTPUT_VIEW_STORAGE_KEY,
+            JSON.stringify({
+              sessionId,
+              deckIds: [...seenDeckIds, deckId].slice(-OUTPUT_VIEW_DECK_LIMIT),
+            }),
+          );
+          return "claimed";
+        } catch {
+          return "unavailable";
+        }
+      },
+    );
+  } catch {
+    return "unavailable";
+  }
+}
+
+function isDomRange(value: CommentComposerAnchor | undefined): value is Range {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    "commonAncestorContainer" in value &&
+    typeof value.getBoundingClientRect === "function",
+  );
+}
+
+type AccessRequestCapability =
+  | { available: true; token: string }
+  | { available: false };
+
+export const SLIDE_CLIPBOARD_ARM_WINDOW_MS = 30_000;
+
+export function isSlideClipboardStillArmed(
+  armedAt: number | null,
+  now: number = Date.now(),
+): boolean {
+  return armedAt !== null && now - armedAt <= SLIDE_CLIPBOARD_ARM_WINDOW_MS;
+}
+
+function isBlockingSlideClipboardPopper(el: Element): boolean {
+  return (
+    el.matches("[data-radix-popper-content-wrapper]") &&
+    !el.querySelector("[data-agent-native-tooltip]")
+  );
+}
+
+function isSlideClipboardTextEntrySurface(el: Element | null): boolean {
+  if (!el) return false;
+  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+    return true;
+  }
+  if (el instanceof HTMLSelectElement) return true;
+  if (!(el instanceof HTMLElement)) return false;
+  if (el.isContentEditable) return true;
+  if (el.closest("[contenteditable='true']")) return true;
+  if (el.closest("input, textarea, [role='textbox']")) return true;
+  if (el.closest("[data-pin-popover], [data-add-slide-popover]")) return true;
+  if (el.closest(".agent-panel-root")) return true;
+  if (el.closest("[role='dialog'], [role='alertdialog']")) return true;
+  const popperWrapper = el.closest("[data-radix-popper-content-wrapper]");
+  return Boolean(
+    popperWrapper && isBlockingSlideClipboardPopper(popperWrapper),
+  );
+}
+
+function hasBlockingSlideClipboardOverlay(): boolean {
+  if (
+    document.querySelector(
+      "[data-pin-popover], [data-add-slide-popover], [role='dialog'], [role='alertdialog'], [role='menu'], [role='listbox']",
+    )
+  ) {
+    return true;
+  }
+  return Array.from(
+    document.querySelectorAll("[data-radix-popper-content-wrapper]"),
+  ).some(isBlockingSlideClipboardPopper);
+}
+
+function writeSlideClipboardMarkerToNativeClipboard(
+  slides: readonly Pick<Slide, "id">[],
+  copiedAt: number,
+): boolean {
+  const marker = getSlideClipboardNativeMarker(slides, copiedAt);
+  if (
+    typeof document === "undefined" ||
+    typeof document.execCommand !== "function"
+  ) {
+    return false;
+  }
+  let wrote = false;
+  const handleCopy = (event: ClipboardEvent) => {
+    wrote = writeSlideClipboardMarkerToEvent(event, marker);
+    if (wrote) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+  };
+  document.addEventListener("copy", handleCopy, true);
+  try {
+    return document.execCommand("copy") && wrote;
+  } catch (error) {
+    console.warn("Unable to execute native slide clipboard copy", error);
+    return false;
+  } finally {
+    document.removeEventListener("copy", handleCopy, true);
+  }
+}
+
+export function getAltDragPlacement(
+  slides: readonly Pick<Slide, "id">[],
+  activeSlideId: string,
+  overSlideId: string,
+  copyAfterSlideId = activeSlideId,
+): { afterSlideId: string; beforeSlideId?: string } | null {
+  const activeIndex = slides.findIndex((slide) => slide.id === activeSlideId);
+  const overIndex = slides.findIndex((slide) => slide.id === overSlideId);
+  if (activeIndex === -1 || overIndex === -1) return null;
+  if (activeIndex === overIndex) return { afterSlideId: copyAfterSlideId };
+  if (activeIndex < overIndex) return { afterSlideId: overSlideId };
+  return {
+    afterSlideId: slides[overIndex - 1]?.id ?? overSlideId,
+    beforeSlideId: overSlideId,
+  };
+}
+
+export function constrainSlideDragToVerticalAxis(transform: {
+  x: number;
+  y: number;
+  scaleX: number;
+  scaleY: number;
+}) {
+  return { ...transform, x: 0 };
+}
+
+const verticalSlideDragModifier: Modifier = ({ transform }) =>
+  constrainSlideDragToVerticalAxis(transform);
+
+export function syncSlideContentSnapshots(
+  slides: ReadonlyArray<Pick<Slide, "id" | "content">>,
+  latestContent: Map<string, string>,
+  renderedContent: Map<string, string>,
+): void {
+  for (const slide of slides) {
+    const previousRenderedContent = renderedContent.get(slide.id);
+    const cachedContent = latestContent.get(slide.id);
+    if (
+      cachedContent === undefined ||
+      (previousRenderedContent !== undefined &&
+        slide.content !== previousRenderedContent)
+    ) {
+      latestContent.set(slide.id, slide.content);
+    }
+    renderedContent.set(slide.id, slide.content);
+  }
+}
+
+type EmptyGenerationRecovery =
+  | {
+      kind: "retry_rollback";
+      retryAttemptId: string;
+      restoreAttemptId: string | null;
+      ownerTabId?: string;
+      restoreSearchParams?: string;
+    }
+  | { kind: "retry_accepted"; retryAttemptId: string }
+  | {
+      kind: "generation_failure";
+      attemptId: string;
+      failureCode: string;
+      failureSlidesFingerprint?: string | null;
+      originalPrompt?: string;
+    };
+
+function parseEmptyGenerationRecovery(
+  serialized: string,
+): EmptyGenerationRecovery | null {
+  let recovery: unknown;
+  try {
+    recovery = JSON.parse(serialized);
+  } catch (error) {
+    console.warn("Ignoring invalid Slides generation recovery data.", error);
+    return null;
+  }
+  if (typeof recovery !== "object" || recovery === null) return null;
+  const record = recovery as Record<string, unknown>;
+  if (
+    (record.kind === "retry_rollback" || record.kind === undefined) &&
+    typeof record.retryAttemptId === "string" &&
+    (typeof record.restoreAttemptId === "string" ||
+      record.restoreAttemptId === null)
+  ) {
+    return {
+      kind: "retry_rollback",
+      retryAttemptId: record.retryAttemptId,
+      restoreAttemptId: record.restoreAttemptId,
+      ...(typeof record.ownerTabId === "string"
+        ? { ownerTabId: record.ownerTabId }
+        : {}),
+      ...(typeof record.restoreSearchParams === "string"
+        ? { restoreSearchParams: record.restoreSearchParams }
+        : {}),
+    };
+  }
+  if (
+    record.kind === "retry_accepted" &&
+    typeof record.retryAttemptId === "string"
+  ) {
+    return {
+      kind: "retry_accepted",
+      retryAttemptId: record.retryAttemptId,
+    };
+  }
+  if (
+    record.kind === "generation_failure" &&
+    typeof record.attemptId === "string" &&
+    typeof record.failureCode === "string" &&
+    (record.failureSlidesFingerprint === undefined ||
+      record.failureSlidesFingerprint === null ||
+      typeof record.failureSlidesFingerprint === "string") &&
+    (record.originalPrompt === undefined ||
+      typeof record.originalPrompt === "string")
+  ) {
+    return {
+      kind: "generation_failure",
+      attemptId: record.attemptId,
+      failureCode: record.failureCode,
+      ...(record.failureSlidesFingerprint !== undefined
+        ? { failureSlidesFingerprint: record.failureSlidesFingerprint }
+        : {}),
+      ...(typeof record.originalPrompt === "string"
+        ? { originalPrompt: record.originalPrompt }
+        : {}),
+    };
+  }
+  return null;
+}
+
+function getOriginalGenerationPrompt(
+  context: unknown,
+  fallback?: string | null,
+): string | null {
+  const originalPrompt =
+    context && typeof context === "object" && "originalPrompt" in context
+      ? context.originalPrompt
+      : undefined;
+  if (typeof originalPrompt === "string" && originalPrompt.trim()) {
+    return originalPrompt;
+  }
+  return typeof fallback === "string" && fallback.trim() ? fallback : null;
+}
+
+function getEmptyGenerationRetryOwnerTabId(deckId: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const key = appStorageKey(`empty-generation-retry-owner:${deckId}`);
+    const stored = window.sessionStorage.getItem(key);
+    if (stored) return stored;
+    const ownerTabId = nanoid();
+    window.sessionStorage.setItem(key, ownerTabId);
+    return ownerTabId;
+  } catch (error) {
+    console.error("Failed to store Slides retry tab identity.", error);
+    return null;
+  }
+}
+
+function clearEmptyGenerationRecovery(
+  key: string | null,
+  expected?: string,
+): boolean {
+  if (!key || typeof window === "undefined") return false;
+  try {
+    if (expected && window.localStorage.getItem(key) !== expected) return false;
+    window.localStorage.removeItem(key);
+    return window.localStorage.getItem(key) === null;
+  } catch (error) {
+    console.error("Failed to clear Slides generation recovery data.", error);
+    return false;
+  }
+}
+
+function clearEmptyGenerationFailureRecovery(
+  key: string | null,
+  attemptId: string,
+  slidesFingerprint: string,
+): string | null {
+  if (!key || typeof window === "undefined") return null;
+  let serializedRecovery: string | null;
+  try {
+    serializedRecovery = window.localStorage.getItem(key);
+  } catch (error) {
+    console.error("Failed to read Slides generation recovery data.", error);
+    return null;
+  }
+  if (!serializedRecovery) return null;
+  const recovery = parseEmptyGenerationRecovery(serializedRecovery);
+  if (
+    recovery?.kind !== "generation_failure" ||
+    recovery.attemptId !== attemptId ||
+    recovery.failureCode !== "outcome_unresolved" ||
+    (recovery.failureSlidesFingerprint !== undefined &&
+      recovery.failureSlidesFingerprint !== null &&
+      recovery.failureSlidesFingerprint !== slidesFingerprint)
+  ) {
+    return null;
+  }
+  return clearEmptyGenerationRecovery(key, serializedRecovery)
+    ? serializedRecovery
+    : null;
+}
+
+function retryPromptFromLocationState(state: unknown): string | null {
+  if (!state || typeof state !== "object" || Array.isArray(state)) return null;
+  const prompt = (state as Record<string, unknown>).retryPrompt;
+  return typeof prompt === "string" && prompt.trim() ? prompt : null;
+}
+
+const LAYERS_MIN_HEIGHT = 120;
+const LAYERS_MIN_RAIL_HEIGHT = 160;
+const RAIL_MIN_WIDTH = 160;
+const RAIL_MAX_WIDTH = 400;
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function trackPointerDrag(
+  event: React.PointerEvent<HTMLElement>,
+  onMove: (event: PointerEvent) => void,
+) {
+  event.preventDefault();
+  const end = () => {
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", end);
+    window.removeEventListener("pointercancel", end);
+  };
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", end);
+  window.addEventListener("pointercancel", end);
+}
+
+export default function DeckEditor() {
+  const t = useT();
+  const { id } = useParams<{ id: string }>();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const routeGenerationSubmitId = searchParams.get("generationSubmitId");
+  const isNewDeckGenerationRouteFromUrl =
+    searchParams.get("generating") === "1" || Boolean(routeGenerationSubmitId);
+  const routeGenerationRetryPrompt = (
+    location.state as { generationOriginalPrompt?: unknown } | null
+  )?.generationOriginalPrompt;
+  const generationRetryPrompt =
+    isNewDeckGenerationRouteFromUrl &&
+    typeof routeGenerationRetryPrompt === "string" &&
+    routeGenerationRetryPrompt.trim()
+      ? routeGenerationRetryPrompt
+      : null;
+  const {
+    generating: newDeckGenerationGenerating,
+    submitMessageId: restoredGenerationSubmitId,
+    tabId: newDeckGenerationTabId,
+    conversationThreadId: newDeckGenerationThreadId,
+    questionContinuationPending,
+    submitQuestionContinuation: submitTrackedQuestionContinuation,
+  } = useNewDeckGenerationRun(
+    id ?? "",
+    isNewDeckGenerationRouteFromUrl,
+    routeGenerationSubmitId,
+  );
+  const generationSubmitId =
+    routeGenerationSubmitId ?? restoredGenerationSubmitId;
+  const isNewDeckGenerationRoute =
+    isNewDeckGenerationRouteFromUrl || Boolean(restoredGenerationSubmitId);
+  const { session, isLoading: sessionLoading } = useSession();
+  const {
+    getDeck,
+    getDeckLatest,
+    reloadDecks,
+    reloadDecksWithStatus,
+    refreshOpenDeck,
+    updateDeck,
+    updateSlide,
+    updateSlides,
+    deleteSlide,
+    deleteSlides,
+    pasteSlides,
+    duplicateDeck,
+    addSlide,
+    flushDeckSave,
+    reorderSlides,
+    setDeckSlides,
+    undo,
+    redo,
+    undoAvailability,
+    subscribeUndoReveal,
+    loading,
+    loadError,
+  } = useDecks();
+  const deck = getDeck(id || "");
+  const canUndo = undoAvailability[id ?? ""]?.canUndo ?? false;
+  const canRedo = undoAvailability[id ?? ""]?.canRedo ?? false;
+  const deckAccessStatusQuery = useDeckAccessStatus(id);
+  const refetchDeckAccessStatus = deckAccessStatusQuery.refetch;
+  const requestDeckAccessMutation = useRequestDeckAccess();
+  const deniedPageAccessRequest = useRequestDeckAccess();
+  const resetDeniedPageAccessRequest = deniedPageAccessRequest.reset;
+  const [activeSlideId, setActiveSlideId] = useState<string | null>(null);
+  const [selectedSlideIds, setSelectedSlideIds] = useState<string[]>([]);
+  const [altDragState, setAltDragState] = useState<{
+    slideId: string;
+    width: number;
+  } | null>(null);
+  const selectionAnchorSlideIdRef = useRef<string | null>(null);
+  const [inlineEditActive, setInlineEditActive] = useState(false);
+  const [addSlideGenerating, setAddSlideGenerating] = useState(false);
+  const [addSlideTargetId, setAddSlideTargetId] = useState<string | null>(null);
+  const endAddSlideGeneration = useCallback(() => {
+    setAddSlideGenerating(false);
+    setAddSlideTargetId(null);
+  }, []);
+  const [generatingSlideSelected, setGeneratingSlideSelected] = useState(false);
+  const { hasUnsavedChanges: hasUnsavedSave } = useSaveState();
+  const hasPendingDeckWrites = id ? hasUnsavedDeckChanges(id) : hasUnsavedSave;
+  const hasPendingDeckEdits = inlineEditActive || hasPendingDeckWrites;
+  const inlineEditFlushRef = useRef<(() => boolean) | null>(null);
+  const canvasCommandsRef = useRef<SlideCanvasCommands | null>(null);
+  const presentNavigationRef = useRef(false);
+  const generationHomeNavigationRef = useRef(false);
+  const generationHomeExitInFlightRef = useRef(false);
+  const presentInFlightRef = useRef(false);
+  const presentAttemptRef = useRef(0);
+  useEffect(() => {
+    return () => {
+      presentAttemptRef.current += 1;
+      presentInFlightRef.current = false;
+      presentNavigationRef.current = false;
+    };
+  }, [id]);
+  usePendingDeckUnloadGuard(hasPendingDeckEdits);
+  const pendingDeckNavigationBlocker = useBlocker(
+    useCallback(
+      ({ currentLocation, nextLocation }) =>
+        shouldBlockPendingDeckNavigation({
+          hasPendingEdits:
+            hasPendingDeckEdits ||
+            (isNewDeckGenerationRoute &&
+              (deck?.slides.length ?? 0) === 0 &&
+              nextLocation.pathname === "/home"),
+          currentPathname: currentLocation.pathname,
+          nextPathname: nextLocation.pathname,
+          allowPendingEdits:
+            presentNavigationRef.current || generationHomeNavigationRef.current,
+        }),
+      [deck?.slides.length, hasPendingDeckEdits, isNewDeckGenerationRoute],
+    ),
+  );
+  const isRestoringPromptBeforeLeavingGeneration =
+    pendingDeckNavigationBlocker.state === "blocked" &&
+    isNewDeckGenerationRoute &&
+    (deck?.slides.length ?? 0) === 0 &&
+    pendingDeckNavigationBlocker.location.pathname === "/home";
+  const blockedHomeRetryPrompt =
+    pendingDeckNavigationBlocker.state === "blocked"
+      ? retryPromptFromLocationState(
+          pendingDeckNavigationBlocker.location.state,
+        )
+      : null;
+  const retryPromptForHome = blockedHomeRetryPrompt ?? generationRetryPrompt;
+  const pendingDeckNavigationWarningOpen =
+    pendingDeckNavigationBlocker.state === "blocked" &&
+    !isRestoringPromptBeforeLeavingGeneration;
+  const keepEditingAfterNavigationAttempt = useCallback(() => {
+    if (pendingDeckNavigationBlocker.state !== "blocked") return;
+    pendingDeckNavigationBlocker.reset();
+  }, [pendingDeckNavigationBlocker]);
+  const leaveWithPendingDeckChanges = useCallback(() => {
+    if (pendingDeckNavigationBlocker.state !== "blocked") return;
+    pendingDeckNavigationBlocker.proceed();
+  }, [pendingDeckNavigationBlocker]);
+  const { generating } = useAgentGenerating();
+  const { generating: addSlideAgentGenerating, submit: addSlideAgentSubmit } =
+    useAgentGenerating();
+  const retryEmptyGenerationInFlightRef = useRef(false);
+  const refetchPendingQuestionStatusRef = useRef<
+    | ReturnType<typeof useGuidedQuestionFlow>["refetchPendingQuestionStatus"]
+    | null
+  >(null);
+  const emptyGenerationRecoveryRef = useRef<string | null>(null);
+  const [retryEmptyGenerationPending, setRetryEmptyGenerationPending] =
+    useState(false);
+  const [retryAwaitingStartAttemptId, setRetryAwaitingStartAttemptId] =
+    useState<string | null>(null);
+  const questionFlowTargetTabIdRef = useRef<string | null>(null);
+  const submitQuestionContinuation = useCallback(
+    ({ message, context }: { message: string; context: string }) => {
+      if (!generationSubmitId) {
+        return sendToAgentChatAndConfirm({
+          message,
+          context,
+          submit: true,
+          chatTarget: "local",
+          openSidebar: true,
+          ...(questionFlowTargetTabIdRef.current
+            ? { targetTabId: questionFlowTargetTabIdRef.current }
+            : {}),
+        });
+      }
+      return submitTrackedQuestionContinuation({ message, context });
+    },
+    [generationSubmitId, submitTrackedQuestionContinuation],
+  );
+  const addSlideRequestSentRef = useRef(false);
+  const sawAddSlideAgentGeneratingRef = useRef(false);
+  useEffect(() => {
+    if (!addSlideRequestSentRef.current) return;
+    if (addSlideAgentGenerating) {
+      sawAddSlideAgentGeneratingRef.current = true;
+      return;
+    }
+    if (addSlideGenerating && sawAddSlideAgentGeneratingRef.current) {
+      sawAddSlideAgentGeneratingRef.current = false;
+      endAddSlideGeneration();
+    }
+  }, [addSlideGenerating, addSlideAgentGenerating, endAddSlideGeneration]);
+  const sawGeneratingRef = useRef(false);
+  const submitAddSlideAgent = useCallback(
+    (message: string, context: string) => {
+      addSlideRequestSentRef.current = true;
+      addSlideAgentSubmit(message, context);
+    },
+    [addSlideAgentSubmit],
+  );
+  const wasNewDeckCreation = useRef(isNewDeckGenerationRoute);
+  const generationStartedAtRef = useRef<number | null>(null);
+  const generationRunStartedRef = useRef(false);
+  const generationSawActiveRef = useRef(false);
+  const generationSettlingAttemptRef = useRef<string | null>(null);
+  const generationTerminalAttemptRef = useRef<string | null>(null);
+  const generationLifecycleAttemptKeyRef = useRef<string | null>(null);
+  const deckReadyViewCancelRef = useRef<(() => void) | null>(null);
+  const openDeckIdRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    openDeckIdRef.current = id;
+    return () => {
+      openDeckIdRef.current = undefined;
+      deckReadyViewCancelRef.current?.();
+      deckReadyViewCancelRef.current = null;
+    };
+  }, [id]);
+  const generationLifecyclePauseRef = useRef({
+    waitingOnQuestions: false,
+    generating: false,
+  });
+  const generationLifecycleEpochRef = useRef(0);
+  const [generationSettlementRevision, setGenerationSettlementRevision] =
+    useState(0);
+  if (isNewDeckGenerationRoute) {
+    wasNewDeckCreation.current = true;
+  }
+  const widgetEmbed = useIsMcpAppWidgetEmbed();
+  const readOnlyWidget = useIsMcpDirectoryWidgetReadOnlyEmbed();
+  const writeWidget = useIsMcpDirectoryWidgetWriteEmbed();
+  const directoryWidget = readOnlyWidget || writeWidget;
+  const compactLayout = useCompactEditorLayout();
+  const [sidebarOpen, setSidebarOpen] = useState(
+    () => !isCompactEditorLayout(),
+  );
+  const [describeSlideId, setDescribeSlideId] = useState<string | null>(null);
+  useEffect(() => {
+    setDescribeSlideId(null);
+  }, [id]);
+  const [contextToolbarSlot, setContextToolbarSlot] =
+    useState<HTMLDivElement | null>(null);
+  const [wideContextToolbarSlot, setWideContextToolbarSlot] =
+    useState<HTMLDivElement | null>(null);
+  const [layersPanelSlot, setLayersPanelSlot] = useState<HTMLDivElement | null>(
+    null,
+  );
+  const [retryingMissingDeck, setRetryingMissingDeck] = useState(false);
+  const [accessRequestSentDeckId, setAccessRequestSentDeckId] = useState<
+    string | null
+  >(null);
+  const [accessRequestNotified, setAccessRequestNotified] = useState(false);
+  const [requestAccessDialogOpen, setRequestAccessDialogOpen] = useState(false);
+  const [requesterEmail, setRequesterEmail] = useState("");
+  const [requestAccessDialogError, setRequestAccessDialogError] = useState<
+    string | null
+  >(null);
+  const [accessRequestRefreshPending, setAccessRequestRefreshPending] =
+    useState(false);
+  const {
+    data: org,
+    isLoading: orgLoading,
+    isError: orgError,
+    refetch: refetchOrg,
+  } = useOrg();
+
+  const [imageGenOpen, setImageGenOpen] = useState(false);
+  const [assetLibraryOpen, setAssetLibraryOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const panelAnchorRef = useRef<HTMLDivElement>(null);
+  const [sidePanel, setSidePanel] = useState<EditorSidePanel>(null);
+  const [animationsOpen, setAnimationsOpen] = useState(false);
+  const [layersOpen, setLayersOpen] = useState(false);
+  const [layersHeight, setLayersHeight] = useState<number | null>(null);
+  const [railWidth, setRailWidth] = useState<number | null>(null);
+  const [animationTargets, setAnimationTargets] =
+    useState<SelectedAnimationTarget[]>(NO_ANIMATION_TARGETS);
+  const [tweaksOpen, setTweaksOpen] = useState(false);
+  const [transitionPreviewOpen, setTransitionPreviewOpen] = useState(false);
+  const [drawMode, setDrawMode] = useState(false);
+  const [pinMode, setPinMode] = useState(false);
+  const [textBoxMode, setTextBoxMode] = useState(false);
+  const [shapeType, setShapeType] = useState<SlideShapeType | null>(null);
+  const [selectedCommentThreadId, setSelectedCommentThreadId] = useState<
+    string | null
+  >(null);
+  const [selectedCommentThreadRequestId, setSelectedCommentThreadRequestId] =
+    useState(0);
+
+  const openAnimationsForTarget = useCallback(
+    (targets: SelectedAnimationTarget[]) => {
+      if (!animationsOpen) {
+        trackEvent("slide_panel_opened", {
+          app_name: "slides",
+          template_name: "slides",
+          panel: "animations",
+        });
+      }
+      setLayersOpen(false);
+      setAnimationTargets(targets);
+      setAnimationsOpen(true);
+    },
+    [animationsOpen],
+  );
+  const toggleAnimations = useCallback(() => {
+    if (!animationsOpen) {
+      trackEvent("slide_panel_opened", {
+        app_name: "slides",
+        template_name: "slides",
+        panel: "animations",
+      });
+    }
+    setLayersOpen(false);
+    setAnimationTargets(NO_ANIMATION_TARGETS);
+    setAnimationsOpen((open) => !open);
+  }, [animationsOpen]);
+
+  useEffect(() => {
+    if (!sidebarOpen) setLayersOpen(false);
+  }, [sidebarOpen]);
+
+  const toggleLayers = useCallback(() => {
+    if (!layersOpen) {
+      trackEvent("slide_panel_opened", {
+        app_name: "slides",
+        template_name: "slides",
+        panel: "layers",
+      });
+      setSidebarOpen(true);
+    }
+    setAnimationsOpen(false);
+    setAnimationTargets(NO_ANIMATION_TARGETS);
+    setLayersOpen((open) => !open);
+  }, [layersOpen]);
+
+  useEffect(() => {
+    setClientAppState(
+      appStateKeyForBrowserTab("slides-panels", TAB_ID),
+      { layersOpen, animationsOpen },
+      { requestSource: TAB_ID },
+    ).catch(() => {});
+  }, [layersOpen, animationsOpen]);
+
+  const toggleDrawMode = useCallback(() => {
+    const next = !drawMode;
+    if (next) {
+      trackEvent("slide_tool_selected", {
+        app_name: "slides",
+        template_name: "slides",
+        tool: "draw",
+      });
+    }
+    if (next) {
+      setPinMode(false);
+      setTextBoxMode(false);
+      setShapeType(null);
+    }
+    setDrawMode(next);
+  }, [drawMode]);
+  const togglePinMode = useCallback(() => {
+    const next = !pinMode;
+    if (next) {
+      trackEvent("slide_tool_selected", {
+        app_name: "slides",
+        template_name: "slides",
+        tool: "comment_pin",
+      });
+    }
+    if (next) {
+      setDrawMode(false);
+      setTextBoxMode(false);
+      setShapeType(null);
+    }
+    setPinMode(next);
+  }, [pinMode]);
+  const toggleTextBoxMode = useCallback(() => {
+    const next = !textBoxMode;
+    if (next) {
+      trackEvent("slide_tool_selected", {
+        app_name: "slides",
+        template_name: "slides",
+        tool: "text_box",
+      });
+    }
+    if (next) {
+      setDrawMode(false);
+      setPinMode(false);
+      setShapeType(null);
+    }
+    setTextBoxMode(next);
+  }, [textBoxMode]);
+
+  const selectShape = useCallback((type: SlideShapeType) => {
+    trackEvent("slide_tool_selected", {
+      app_name: "slides",
+      template_name: "slides",
+      tool: "shape",
+      shape_type: type,
+    });
+    setDrawMode(false);
+    setPinMode(false);
+    setTextBoxMode(false);
+    setShapeType(type);
+  }, []);
+  const toggleComments = useCallback(() => {
+    const opening = sidePanel !== "comments";
+    if (opening) {
+      trackEvent("slide_panel_opened", {
+        app_name: "slides",
+        template_name: "slides",
+        panel: "comments",
+      });
+    }
+    if (!opening) setSelectedCommentThreadId(null);
+    setSidePanel(opening ? "comments" : null);
+  }, [sidePanel]);
+  const selectCommentThread = useCallback(
+    (threadId: string) => {
+      setSelectedCommentThreadId(threadId);
+      setSelectedCommentThreadRequestId((requestId) => requestId + 1);
+      if (sidePanel !== "comments") {
+        trackEvent("slide_panel_opened", {
+          app_name: "slides",
+          template_name: "slides",
+          panel: "comments",
+        });
+      }
+      setSidePanel("comments");
+    },
+    [sidePanel],
+  );
+  const [pendingComment, setPendingComment] = useState<{
+    slideId: string;
+    quotedText: string;
+    anchor?: SlideCommentAnchor;
+  } | null>(null);
+  const [replaceImageSrc, setReplaceImageSrc] = useState<string | null>(null);
+  const [pendingImagePreviews, setPendingImagePreviews] = useState<
+    PendingImagePreview[]
+  >([]);
+  const pendingImagePreviewsRef = useRef<PendingImagePreview[]>([]);
+  const [pendingVideoPreviews, setPendingVideoPreviews] = useState<
+    PendingVideoPreview[]
+  >([]);
+  const pendingVideoPreviewsRef = useRef<PendingVideoPreview[]>([]);
+  const latestSlideContentRef = useRef(new Map<string, string>());
+  const renderedSlideContentRef = useRef(new Map<string, string>());
+
+  const updateSlideContent = useCallback(
+    (slideId: string, content: string) => {
+      if (!id) return;
+      latestSlideContentRef.current.set(slideId, content);
+      updateSlide(id, slideId, { content });
+    },
+    [id, updateSlide],
+  );
+
+  const updatePendingImagePreviews = useCallback(
+    (update: PendingImagePreviewUpdate) => {
+      const current = pendingImagePreviewsRef.current;
+      const next = typeof update === "function" ? update(current) : update;
+      const nextSources = new Set(next.map((preview) => preview.previewSrc));
+      for (const preview of current) {
+        if (!nextSources.has(preview.previewSrc)) {
+          URL.revokeObjectURL(preview.previewSrc);
+        }
+      }
+      pendingImagePreviewsRef.current = next;
+      setPendingImagePreviews(next);
+    },
+    [],
+  );
+
+  const updatePendingVideoPreviews = useCallback(
+    (
+      update:
+        | PendingVideoPreview[]
+        | ((current: PendingVideoPreview[]) => PendingVideoPreview[]),
+    ) => {
+      const current = pendingVideoPreviewsRef.current;
+      const next = typeof update === "function" ? update(current) : update;
+      pendingVideoPreviewsRef.current = next;
+      setPendingVideoPreviews(next);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    return () => {
+      for (const preview of pendingImagePreviewsRef.current) {
+        URL.revokeObjectURL(preview.previewSrc);
+      }
+      pendingImagePreviewsRef.current = [];
+      pendingVideoPreviewsRef.current = [];
+    };
+  }, []);
+
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+  const insertMediaInputRef = useRef<HTMLInputElement>(null);
+  const storageQuery = useSlideFileStorageStatus();
+  const fileStorageConfigured =
+    storageQuery.data?.configured === true && !storageQuery.isError;
+  const [showUploadStorageSetup, setShowUploadStorageSetup] = useState(false);
+
+  const retryRecoveryStorageKey = id
+    ? appStorageKey(`empty-generation-retry-recovery:${id}`)
+    : null;
+
+  useEffect(() => {
+    setAnimationTargets(NO_ANIMATION_TARGETS);
+  }, [activeSlideId]);
+
+  useEffect(() => {
+    if (!deck) return;
+    const nextTitle = `${normalizeDocumentTitle(deck.title, t("history.untitled"))} — ${t("navigation.brand")}`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [deck, t]);
+
+  const deckAccessStatus = deckAccessStatusQuery.data ?? null;
+  const deckAccessCheck = deckAccessCheckFor(deckAccessStatusQuery);
+  const showDeckAccessDeniedPage =
+    Boolean(session) && deckAccessCheck === "denied";
+  const fitDims = getAspectRatioDims(deck?.aspectRatio);
+  const currentDeckAccessKey = deckAccessCheckKey(id, org?.orgId);
+  const hasTeamJoinOption =
+    !org?.orgId &&
+    ((org?.pendingInvitations?.length ?? 0) > 0 ||
+      (org?.domainMatches?.length ?? 0) > 0);
+  const slideCount = deck?.slides.length ?? 0;
+  const slideCountRef = useRef(slideCount);
+  slideCountRef.current = slideCount;
+  const deckRole = useDeckRole(
+    id,
+    deck?.createdByMe === true,
+    deck?.widgetAccessRole,
+    directoryWidget,
+  );
+  const canEdit = deckRole.canEdit && !readOnlyWidget;
+  // The widget's write grant carries no comment actions.
+  const canComment = deckRole.canComment && !readOnlyWidget && !widgetEmbed;
+  const generationContext =
+    deck?.generationContext &&
+    typeof deck.generationContext === "object" &&
+    !Array.isArray(deck.generationContext)
+      ? deck.generationContext
+      : null;
+  const generationPromptForDisplay =
+    typeof generationContext?.originalPrompt === "string" &&
+    generationContext.originalPrompt.trim()
+      ? generationContext.originalPrompt
+      : generationRetryPrompt;
+  const generationAttemptId =
+    typeof generationContext?.generationAttemptId === "string"
+      ? generationContext.generationAttemptId
+      : searchParams.get("generation_attempt_id");
+  const deckExportAnalytics = {
+    deckId: id,
+    ...(typeof generationContext?.generationAttemptId === "string"
+      ? { generationAttemptId: generationContext.generationAttemptId }
+      : {}),
+  };
+  useEffect(() => {
+    if (
+      !isRestoringPromptBeforeLeavingGeneration ||
+      !id ||
+      generationHomeExitInFlightRef.current
+    ) {
+      return;
+    }
+    generationHomeExitInFlightRef.current = true;
+    void flushDeckSave(id).then(
+      () => {
+        generationHomeNavigationRef.current = true;
+        generationHomeExitInFlightRef.current = false;
+        pendingDeckNavigationBlocker.reset();
+        void navigate("/home", {
+          replace: true,
+          ...(retryPromptForHome
+            ? { state: { retryPrompt: retryPromptForHome } }
+            : {}),
+        });
+      },
+      () => {
+        generationHomeExitInFlightRef.current = false;
+        pendingDeckNavigationBlocker.reset();
+        toast.error(t("settings.saveFailed"));
+      },
+    );
+  }, [
+    flushDeckSave,
+    generationContext,
+    id,
+    isRestoringPromptBeforeLeavingGeneration,
+    navigate,
+    pendingDeckNavigationBlocker,
+    retryPromptForHome,
+    t,
+  ]);
+  useEffect(() => {
+    if (!id || !retryRecoveryStorageKey || !deck) return;
+
+    let serializedRecovery: string | null;
+    try {
+      serializedRecovery = window.localStorage.getItem(retryRecoveryStorageKey);
+    } catch {
+      return;
+    }
+    if (!serializedRecovery) return;
+
+    const recovery = parseEmptyGenerationRecovery(serializedRecovery);
+    if (!recovery) {
+      clearEmptyGenerationRecovery(retryRecoveryStorageKey, serializedRecovery);
+      return;
+    }
+    const matchesGenerationFailureRecovery =
+      recovery.kind === "generation_failure" &&
+      (!generationAttemptId || recovery.attemptId === generationAttemptId);
+    const recoveryPrompt = matchesGenerationFailureRecovery
+      ? recovery.originalPrompt?.trim()
+        ? recovery.originalPrompt
+        : generationRetryPrompt
+      : null;
+    const hasGenerationContextPrompt =
+      typeof generationContext?.originalPrompt === "string" &&
+      generationContext.originalPrompt.trim();
+    const recoveryGenerationContext = generationContext
+      ? matchesGenerationFailureRecovery
+        ? {
+            ...generationContext,
+            generationAttemptId: recovery.attemptId,
+            ...(!hasGenerationContextPrompt && recoveryPrompt
+              ? { originalPrompt: recoveryPrompt }
+              : {}),
+          }
+        : generationContext
+      : matchesGenerationFailureRecovery
+        ? {
+            generationAttemptId: recovery.attemptId,
+            ...(recoveryPrompt ? { originalPrompt: recoveryPrompt } : {}),
+          }
+        : null;
+    if (!recoveryGenerationContext) return;
+    if (recovery.kind === "retry_rollback") {
+      if (recovery.retryAttemptId !== generationAttemptId) return;
+      if (recovery.ownerTabId) {
+        try {
+          if (
+            window.sessionStorage.getItem(
+              appStorageKey(`empty-generation-retry-owner:${id}`),
+            ) !== recovery.ownerTabId
+          ) {
+            return;
+          }
+        } catch {
+          return;
+        }
+      } else if (
+        searchParams.get("generation_attempt_id") !== recovery.retryAttemptId
+      ) {
+        return;
+      }
+      if (emptyGenerationRecoveryRef.current === serializedRecovery) return;
+      emptyGenerationRecoveryRef.current = serializedRecovery;
+      if (
+        searchParams.get("generation_attempt_id") === recovery.retryAttemptId
+      ) {
+        const restoredSearchParams = new URLSearchParams(
+          recovery.restoreSearchParams ?? searchParams,
+        );
+        if (recovery.restoreSearchParams === undefined) {
+          restoredSearchParams.delete("generating");
+          restoredSearchParams.delete("generation_attempt_id");
+          restoredSearchParams.delete("generationSubmitId");
+        }
+        setSearchParams(restoredSearchParams, { replace: true });
+      }
+      updateDeck(id, {
+        generationContext: {
+          ...recoveryGenerationContext,
+          generationAttemptId: recovery.restoreAttemptId ?? undefined,
+        },
+      });
+    } else if (recovery.kind === "generation_failure") {
+      if (!matchesGenerationFailureRecovery) return;
+      if (emptyGenerationRecoveryRef.current === serializedRecovery) return;
+      emptyGenerationRecoveryRef.current = serializedRecovery;
+      if (
+        generationContext?.generationAttemptId !== recovery.attemptId ||
+        recoveryGenerationContext.generationFailureCode !==
+          recovery.failureCode ||
+        recoveryGenerationContext.generationFailureAttemptId !==
+          recovery.attemptId ||
+        (recoveryPrompt && !hasGenerationContextPrompt) ||
+        (recovery.failureSlidesFingerprint !== undefined &&
+          recoveryGenerationContext.generationFailureSlidesFingerprint !==
+            recovery.failureSlidesFingerprint)
+      ) {
+        updateDeck(id, {
+          generationContext: {
+            ...recoveryGenerationContext,
+            generationFailureCode: recovery.failureCode,
+            generationFailureAttemptId: recovery.attemptId,
+            ...(recovery.failureSlidesFingerprint !== undefined
+              ? {
+                  generationFailureSlidesFingerprint:
+                    recovery.failureSlidesFingerprint,
+                }
+              : {}),
+          },
+        });
+      }
+    } else {
+      if (recovery.retryAttemptId !== generationAttemptId) return;
+      if (emptyGenerationRecoveryRef.current === serializedRecovery) return;
+      emptyGenerationRecoveryRef.current = serializedRecovery;
+    }
+
+    void flushDeckSave(id)
+      .then(() => {
+        if (
+          clearEmptyGenerationRecovery(
+            retryRecoveryStorageKey,
+            serializedRecovery,
+          ) &&
+          emptyGenerationRecoveryRef.current === serializedRecovery
+        ) {
+          emptyGenerationRecoveryRef.current = null;
+        }
+      })
+      .catch(() => toast.error(t("settings.saveFailed")));
+  }, [
+    deck,
+    flushDeckSave,
+    generationAttemptId,
+    generationContext,
+    generationRetryPrompt,
+    id,
+    retryRecoveryStorageKey,
+    searchParams,
+    setSearchParams,
+    t,
+    updateDeck,
+  ]);
+  useEffect(() => {
+    if (!id || !deck || slideCount === 0) {
+      return;
+    }
+    const analyticsSessionId = getAnalyticsSessionId();
+    if (!analyticsSessionId) return;
+    void claimOutputView(analyticsSessionId, id).then((claim) => {
+      if (claim !== "claimed") return;
+      trackEvent("output_viewed", {
+        app_name: "slides",
+        template_name: "slides",
+        output_id: id,
+        output_type: "deck",
+        slide_count: slideCount,
+        source: "deck_editor",
+        ...(generationAttemptId
+          ? { generation_attempt_id: generationAttemptId }
+          : {}),
+      });
+    });
+  }, [deck, generationAttemptId, id, slideCount]);
+  const generationLifecycleOwnedByEditor =
+    generationContext?.generationMode !== "action";
+  const [generationAttemptTab, setGenerationAttemptTab] = useState<{
+    attemptId: string;
+    tabId: string;
+  } | null>(() => {
+    if (!generationAttemptId || !id) return null;
+    const tabId =
+      getStartedGenerationAttemptTabId(generationAttemptId, id) ??
+      newDeckGenerationTabId;
+    return tabId ? { attemptId: generationAttemptId, tabId } : null;
+  });
+  const generationAttemptTabId =
+    generationAttemptTab?.attemptId === generationAttemptId
+      ? generationAttemptTab.tabId
+      : newDeckGenerationTabId;
+  const {
+    attempt: {
+      observedRun: attemptObservedRun,
+      runError: attemptRunError,
+      runErrorCode: attemptRunErrorCode,
+      stopReason: attemptStopReason,
+      timedOut: attemptTimedOut,
+      canContinueAfterStall: attemptCanContinueAfterStall,
+      abortStalledRun: abortStalledGeneration,
+      submitAndConfirm: submitGenerationAttemptAndConfirm,
+    },
+    generating: newDeckGenerationSignal,
+  } = useNewDeckGenerationSignal({
+    attemptId: generationAttemptId,
+    outputId: id ?? null,
+    tabId: generationAttemptTabId,
+    progressToken: slideCount,
+  });
+  const targetSlideCount =
+    typeof generationContext?.targetSlideCount === "number" &&
+    Number.isInteger(generationContext.targetSlideCount) &&
+    generationContext.targetSlideCount > 0
+      ? generationContext.targetSlideCount
+      : null;
+
+  useEffect(() => {
+    if (!id || !generationContext || !generationAttemptId) return;
+    if (
+      typeof generationContext.generationFailureAttemptId !== "string" ||
+      generationContext.generationFailureAttemptId === generationAttemptId ||
+      (!attemptObservedRun && !newDeckGenerationSignal)
+    ) {
+      return;
+    }
+    setRetryAwaitingStartAttemptId(null);
+    updateDeck(id, {
+      generationContext: {
+        ...generationContext,
+        generationFailureCode: null,
+        generationFailureAttemptId: null,
+        generationFailureSlidesFingerprint: null,
+      },
+    });
+    void flushDeckSave(id).catch(() => toast.error(t("settings.saveFailed")));
+  }, [
+    attemptObservedRun,
+    flushDeckSave,
+    generationAttemptId,
+    generationContext,
+    id,
+    newDeckGenerationSignal,
+    t,
+    updateDeck,
+  ]);
+
+  useEffect(() => {
+    if (
+      !attemptTimedOut ||
+      !attemptCanContinueAfterStall ||
+      !wasNewDeckCreation.current ||
+      !generationAttemptId ||
+      !id ||
+      !generationAttemptTabId
+    ) {
+      return;
+    }
+    toast.error(t("deckEditor.generationStalled"), {
+      id: `slides-generation-stalled:${id}:${generationAttemptId}`,
+      description: t("deckEditor.generationStalledDescription"),
+      action: {
+        label: t("deckEditor.continueInChat"),
+        onClick: async () => {
+          if (!(await abortStalledGeneration())) return;
+          await submitGenerationAttemptAndConfirm(
+            t("deckEditor.continueGenerationPrompt"),
+            [
+              `Deck ID: ${id}`,
+              `Current slide count: ${slideCount}`,
+              targetSlideCount !== null
+                ? `Target slide count: ${targetSlideCount}`
+                : "",
+            ]
+              .filter(Boolean)
+              .join("\n"),
+            {
+              generationAttemptId,
+              generationOutputId: id,
+              openSidebar: true,
+              targetTabId: generationAttemptTabId,
+            },
+          );
+        },
+      },
+    });
+  }, [
+    attemptTimedOut,
+    attemptCanContinueAfterStall,
+    abortStalledGeneration,
+    generationAttemptId,
+    generationAttemptTabId,
+    id,
+    slideCount,
+    t,
+    targetSlideCount,
+    submitGenerationAttemptAndConfirm,
+  ]);
+
+  useEffect(() => {
+    if (
+      !generationLifecycleOwnedByEditor ||
+      !generationAttemptId ||
+      !id ||
+      !wasNewDeckCreation.current
+    )
+      return;
+    generationRunStartedRef.current =
+      hasStartedGenerationAttempt(generationAttemptId, id) ||
+      newDeckGenerationTabId !== null;
+    const startedTabId =
+      getStartedGenerationAttemptTabId(generationAttemptId, id) ??
+      newDeckGenerationTabId;
+    setGenerationAttemptTab(
+      startedTabId
+        ? { attemptId: generationAttemptId, tabId: startedTabId }
+        : null,
+    );
+    const handleGenerationStarted = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (
+        detail?.generationAttemptId !== generationAttemptId ||
+        detail?.outputId !== id
+      ) {
+        return;
+      }
+      if (typeof detail.tabId !== "string") return;
+      setGenerationAttemptTab({
+        attemptId: generationAttemptId,
+        tabId: detail.tabId,
+      });
+      generationRunStartedRef.current = true;
+    };
+    window.addEventListener(
+      SLIDES_GENERATION_STARTED_EVENT,
+      handleGenerationStarted,
+    );
+    return () =>
+      window.removeEventListener(
+        SLIDES_GENERATION_STARTED_EVENT,
+        handleGenerationStarted,
+      );
+  }, [
+    generationAttemptId,
+    generationLifecycleOwnedByEditor,
+    id,
+    newDeckGenerationTabId,
+  ]);
+
+  const retryEmptyGeneration = useCallback(async () => {
+    if (
+      !id ||
+      !generationContext ||
+      !generationLifecycleOwnedByEditor ||
+      !canEdit ||
+      retryEmptyGenerationInFlightRef.current ||
+      retryAwaitingStartAttemptId === generationAttemptId
+    ) {
+      return;
+    }
+    retryEmptyGenerationInFlightRef.current = true;
+    setRetryEmptyGenerationPending(true);
+    const refetchPendingQuestionStatus =
+      refetchPendingQuestionStatusRef.current;
+    if (!refetchPendingQuestionStatus) {
+      retryEmptyGenerationInFlightRef.current = false;
+      setRetryEmptyGenerationPending(false);
+      toast.error(t("deckEditor.generationOutcomeUnresolved"));
+      return;
+    }
+    let pendingQuestionCheck: Awaited<
+      ReturnType<typeof refetchPendingQuestionStatus>
+    >;
+    try {
+      pendingQuestionCheck = await refetchPendingQuestionStatus();
+    } catch (error) {
+      console.error("Failed to check guided questions before retrying.", error);
+      retryEmptyGenerationInFlightRef.current = false;
+      setRetryEmptyGenerationPending(false);
+      toast.error(t("deckEditor.generationOutcomeUnresolved"));
+      return;
+    }
+    if (
+      pendingQuestionCheck.status !== "none" ||
+      generationLifecyclePauseRef.current.waitingOnQuestions ||
+      generationLifecyclePauseRef.current.generating
+    ) {
+      retryEmptyGenerationInFlightRef.current = false;
+      setRetryEmptyGenerationPending(false);
+      if (pendingQuestionCheck.status === "error") {
+        toast.error(t("deckEditor.generationOutcomeUnresolved"));
+      }
+      return;
+    }
+    const retryStartedAt = Date.now();
+    const submissionExpiresAt =
+      retryStartedAt + NEW_DECK_GENERATION_START_TIMEOUT_MS;
+    const originalSearchParams = new URLSearchParams(searchParams);
+    const retryAttemptId = nanoid();
+    const submitMessageId = nanoid();
+    const ownerTabId = getEmptyGenerationRetryOwnerTabId(id);
+    if (!ownerTabId) {
+      retryEmptyGenerationInFlightRef.current = false;
+      setRetryEmptyGenerationPending(false);
+      toast.error(t("settings.saveFailed"));
+      return;
+    }
+    const retryContext = {
+      ...generationContext,
+      generationAttemptId: retryAttemptId,
+      generationStartedAt: retryStartedAt,
+      generationFailureAttemptId:
+        generationContext.generationFailureAttemptId ?? generationAttemptId,
+    };
+    const rollbackRecovery: EmptyGenerationRecovery = {
+      kind: "retry_rollback",
+      retryAttemptId,
+      ownerTabId,
+      restoreAttemptId:
+        typeof generationContext.generationFailureAttemptId === "string"
+          ? generationContext.generationFailureAttemptId
+          : generationAttemptId,
+      restoreSearchParams: originalSearchParams.toString(),
+    };
+    const storeRecovery = (recovery: EmptyGenerationRecovery) => {
+      if (!retryRecoveryStorageKey) return null;
+      const serialized = JSON.stringify(recovery);
+      try {
+        window.localStorage.setItem(retryRecoveryStorageKey, serialized);
+        emptyGenerationRecoveryRef.current = serialized;
+        return serialized;
+      } catch (error) {
+        console.error(
+          "Failed to store Slides generation recovery data.",
+          error,
+        );
+        return null;
+      }
+    };
+    const rollbackRecoverySerialized = storeRecovery(rollbackRecovery);
+    if (!rollbackRecoverySerialized) {
+      retryEmptyGenerationInFlightRef.current = false;
+      setRetryEmptyGenerationPending(false);
+      toast.error(t("settings.saveFailed"));
+      return;
+    }
+    setGenerationAttemptTab(null);
+    generationRunStartedRef.current = false;
+    generationSawActiveRef.current = false;
+    generationTerminalAttemptRef.current = null;
+    generationSettlingAttemptRef.current = null;
+    generationStartedAtRef.current = null;
+    const restoreFailedRetry = async () => {
+      updateDeck(id, { generationContext });
+      setSearchParams(new URLSearchParams(originalSearchParams));
+      generationRunStartedRef.current = false;
+      generationSawActiveRef.current = false;
+      generationTerminalAttemptRef.current = null;
+      generationSettlingAttemptRef.current = null;
+      generationStartedAtRef.current = null;
+      try {
+        await flushDeckSave(id);
+        clearEmptyGenerationRecovery(
+          retryRecoveryStorageKey,
+          rollbackRecoverySerialized,
+        );
+        emptyGenerationRecoveryRef.current = null;
+        return { persisted: true };
+      } catch {
+        return { persisted: false };
+      }
+    };
+
+    try {
+      try {
+        updateDeck(id, { generationContext: retryContext });
+        await flushDeckSave(id);
+      } catch {
+        await restoreFailedRetry();
+        toast.error(t("settings.saveFailed"));
+        return;
+      }
+      let retryQuestionCheck: Awaited<
+        ReturnType<typeof refetchPendingQuestionStatus>
+      >;
+      try {
+        retryQuestionCheck = await refetchPendingQuestionStatus();
+      } catch (error) {
+        console.error(
+          "Failed to recheck guided questions after saving the retry.",
+          error,
+        );
+        const rollback = await restoreFailedRetry();
+        toast.error(
+          rollback.persisted
+            ? t("deckEditor.generationOutcomeUnresolved")
+            : t("settings.saveFailed"),
+        );
+        return;
+      }
+      if (
+        retryQuestionCheck.status !== "none" ||
+        generationLifecyclePauseRef.current.waitingOnQuestions ||
+        generationLifecyclePauseRef.current.generating
+      ) {
+        const rollback = await restoreFailedRetry();
+        if (!rollback.persisted) {
+          toast.error(t("settings.saveFailed"));
+        } else if (retryQuestionCheck.status === "error") {
+          toast.error(t("deckEditor.generationOutcomeUnresolved"));
+        }
+        return;
+      }
+      setSearchParams((current) => {
+        const next = new URLSearchParams(current);
+        next.set("generating", "1");
+        next.set("generation_attempt_id", retryAttemptId);
+        next.set("generationSubmitId", submitMessageId);
+        return next;
+      });
+      const prompt =
+        typeof generationContext.originalPrompt === "string"
+          ? generationContext.originalPrompt
+          : "Continue generating this deck.";
+      const acceptedRecovery: EmptyGenerationRecovery = {
+        kind: "retry_accepted",
+        retryAttemptId,
+      };
+      let acceptedRecoverySerialized: string | null = null;
+      const rememberConfirmedDelivery = (event: Event) => {
+        const { detail } = event as CustomEvent<AgentChatSubmitResult>;
+        if (detail?.submitMessageId === submitMessageId && detail.delivered) {
+          acceptedRecoverySerialized = storeRecovery(acceptedRecovery);
+        }
+      };
+      const rememberRetrySubmitTarget = (event: Event) => {
+        const { detail } = event as CustomEvent<{
+          submitMessageId?: string;
+          tabId?: string;
+        }>;
+        if (
+          detail?.submitMessageId === submitMessageId &&
+          typeof detail.tabId === "string"
+        ) {
+          rememberNewDeckGenerationRunTab(id, submitMessageId, detail.tabId);
+        }
+      };
+      let submission: Awaited<
+        ReturnType<typeof submitGenerationAttemptAndConfirm>
+      >;
+      window.addEventListener(
+        NEW_DECK_GENERATION_SUBMIT_TARGET_EVENT,
+        rememberRetrySubmitTarget,
+      );
+      window.addEventListener(
+        AGENT_CHAT_SUBMIT_RESULT_EVENT,
+        rememberConfirmedDelivery,
+      );
+      try {
+        submission = await submitGenerationAttemptAndConfirm(
+          prompt,
+          `Continue the original deck generation for deck ${id}. Call get-deck first and recover the canonical generationContext, including its original brief, target slide count, and reference handles. Continue the original sequence; do not start a new topic. The browser owns this attempt; use generationAttemptId "${retryAttemptId}" for tool calls that accept it.`,
+          {
+            generationAttemptId: retryAttemptId,
+            generationOutputId: id,
+            submitMessageId,
+            submissionExpiresAt,
+            newTab: true,
+            reuseEmptyTab: true,
+            openSidebar: true,
+          },
+        );
+      } catch {
+        const rollback = await restoreFailedRetry();
+        toast.error(
+          rollback.persisted
+            ? t("home.generationStartFailed")
+            : t("settings.saveFailed"),
+        );
+        return;
+      } finally {
+        window.removeEventListener(
+          NEW_DECK_GENERATION_SUBMIT_TARGET_EVENT,
+          rememberRetrySubmitTarget,
+        );
+        window.removeEventListener(
+          AGENT_CHAT_SUBMIT_RESULT_EVENT,
+          rememberConfirmedDelivery,
+        );
+      }
+      if (!submission.delivered) {
+        const rollback = await restoreFailedRetry();
+        toast.error(
+          rollback.persisted
+            ? t("home.generationStartFailed")
+            : t("settings.saveFailed"),
+        );
+        return;
+      }
+      setRetryAwaitingStartAttemptId(retryAttemptId);
+      acceptedRecoverySerialized ??= storeRecovery(acceptedRecovery);
+      if (!acceptedRecoverySerialized) {
+        if (
+          clearEmptyGenerationRecovery(
+            retryRecoveryStorageKey,
+            rollbackRecoverySerialized,
+          )
+        ) {
+          emptyGenerationRecoveryRef.current = null;
+        }
+        toast.error(t("settings.saveFailed"));
+      }
+      trackEvent("generation_started", {
+        app_name: "slides",
+        template_name: "slides",
+        generation_attempt_id: retryAttemptId,
+        output_id: id,
+        output_type: "deck",
+        started_at_ms: retryStartedAt,
+        source: "empty_output_retry",
+      });
+      try {
+        await flushDeckSave(id);
+        if (
+          acceptedRecoverySerialized &&
+          clearEmptyGenerationRecovery(
+            retryRecoveryStorageKey,
+            acceptedRecoverySerialized,
+          ) &&
+          emptyGenerationRecoveryRef.current === acceptedRecoverySerialized
+        ) {
+          emptyGenerationRecoveryRef.current = null;
+        }
+      } catch {
+        toast.error(t("settings.saveFailed"));
+      }
+    } finally {
+      retryEmptyGenerationInFlightRef.current = false;
+      setRetryEmptyGenerationPending(false);
+    }
+  }, [
+    canEdit,
+    generationAttemptId,
+    generationContext,
+    generationLifecycleOwnedByEditor,
+    id,
+    retryRecoveryStorageKey,
+    retryAwaitingStartAttemptId,
+    searchParams,
+    setSearchParams,
+    submitGenerationAttemptAndConfirm,
+    updateDeck,
+    flushDeckSave,
+    t,
+  ]);
+
+  useEffect(() => {
+    if (
+      !generationLifecycleOwnedByEditor ||
+      !generationAttemptId ||
+      !wasNewDeckCreation.current
+    )
+      return;
+    const attemptKey = `${id ?? ""}:${generationAttemptId}`;
+    generationLifecycleAttemptKeyRef.current = attemptKey;
+    const recordExit = (
+      exitReason: "page_exit" | "route_exit",
+      state = {
+        submitStarted: generationRunStartedRef.current,
+        settling: generationSettlingAttemptRef.current === generationAttemptId,
+        sawActive: generationSawActiveRef.current,
+      },
+    ) => {
+      if (generationTerminalAttemptRef.current === generationAttemptId) return;
+      generationTerminalAttemptRef.current = generationAttemptId;
+      const persistedStartedAt = generationContext?.generationStartedAt;
+      const startedAt =
+        generationStartedAtRef.current ??
+        (typeof persistedStartedAt === "number" &&
+        Number.isFinite(persistedStartedAt) &&
+        persistedStartedAt >= 0
+          ? persistedStartedAt
+          : null);
+      const endedAt = Date.now();
+      const properties = {
+        app_name: "slides",
+        template_name: "slides",
+        generation_attempt_id: generationAttemptId,
+        output_id: id,
+        output_type: "deck",
+        slide_count: slideCountRef.current,
+        source: "new_deck_prompt",
+        ...generationTimingFields(startedAt ?? undefined, endedAt),
+      };
+      try {
+        if (!state.submitStarted || !state.sawActive || state.settling) {
+          trackEvent("generation_outcome_unresolved", {
+            ...properties,
+            outcome: "unresolved",
+            reason: !state.submitStarted
+              ? `${exitReason}_before_submit`
+              : state.settling
+                ? `${exitReason}_during_settlement`
+                : `${exitReason}_before_active`,
+          });
+        } else {
+          trackEvent("generation_abandoned", {
+            ...properties,
+            reason: exitReason,
+          });
+        }
+      } finally {
+        if (id) clearStartedGenerationAttempt(generationAttemptId, id);
+        if (state.settling) generationSettlingAttemptRef.current = null;
+        generationSawActiveRef.current = false;
+        generationRunStartedRef.current = false;
+        generationStartedAtRef.current = null;
+      }
+    };
+    const handlePageHide = (event: PageTransitionEvent) => {
+      if (
+        event.persisted ||
+        generationTerminalAttemptRef.current === generationAttemptId
+      ) {
+        return;
+      }
+      recordExit("page_exit");
+    };
+    window.addEventListener("pagehide", handlePageHide);
+    return () => {
+      window.removeEventListener("pagehide", handlePageHide);
+      if (generationLifecycleAttemptKeyRef.current === attemptKey) {
+        generationLifecycleAttemptKeyRef.current = null;
+      }
+      const state = {
+        submitStarted: generationRunStartedRef.current,
+        settling: generationSettlingAttemptRef.current === generationAttemptId,
+        sawActive: generationSawActiveRef.current,
+      };
+      queueMicrotask(() => {
+        if (generationLifecycleAttemptKeyRef.current === attemptKey) return;
+        if (
+          state.settling &&
+          generationSettlingAttemptRef.current === generationAttemptId &&
+          generationTerminalAttemptRef.current !== generationAttemptId
+        ) {
+          return;
+        }
+        recordExit("route_exit", state);
+      });
+    };
+  }, [
+    generationAttemptId,
+    generationContext,
+    generationLifecycleOwnedByEditor,
+    id,
+  ]);
+  const fallbackCommentSlideId = deck?.slides[0]?.id ?? null;
+  const openCommentComposer = useCallback(
+    (
+      quotedText: string,
+      requestedAnchor?: CommentComposerAnchor,
+      editingEl?: HTMLElement,
+    ) => {
+      if (!canComment) return;
+      const commentSlideId = activeSlideId ?? fallbackCommentSlideId;
+      if (!commentSlideId) return;
+      if (sidePanel !== "comments") {
+        trackEvent("slide_panel_opened", {
+          app_name: "slides",
+          template_name: "slides",
+          panel: "comments",
+        });
+      }
+      const normalizedAnchor = isDomRange(requestedAnchor)
+        ? (() => {
+            const canvas = document.querySelector<HTMLElement>(
+              "[data-main-slide-canvas='true']",
+            );
+            if (!canvas) return undefined;
+            const selectionNode = requestedAnchor.commonAncestorContainer;
+            const selectionElement =
+              selectionNode instanceof Element
+                ? selectionNode
+                : selectionNode.parentElement;
+            const target =
+              editingEl?.closest<HTMLElement>("[data-slide-object-id]") ??
+              selectionElement?.closest<HTMLElement>("[data-slide-object-id]");
+            const textRoot =
+              target ?? canvas.querySelector<HTMLElement>(".slide-content");
+            return slideCommentAnchorFromRange({
+              range: requestedAnchor,
+              slideRect: canvas.getBoundingClientRect(),
+              objectId: target?.getAttribute("data-slide-object-id"),
+              objectRect: target?.getBoundingClientRect(),
+              objectElement: textRoot,
+              targetText: quotedText,
+            });
+          })()
+        : requestedAnchor;
+      setPendingComment({
+        slideId: commentSlideId,
+        quotedText,
+        ...(normalizedAnchor ? { anchor: normalizedAnchor } : {}),
+      });
+      setSidePanel("comments");
+    },
+    [activeSlideId, canComment, fallbackCommentSlideId, sidePanel],
+  );
+  useEffect(() => {
+    const currentSlideId = activeSlideId ?? fallbackCommentSlideId;
+    if (pendingComment && pendingComment.slideId !== currentSlideId) {
+      setPendingComment(null);
+    }
+  }, [activeSlideId, fallbackCommentSlideId, pendingComment]);
+  const flushCommentWrites = useCallback(async () => {
+    if (!id) return;
+    flushPendingSaves();
+    await flushDeckSave(id);
+  }, [flushDeckSave, id]);
+  const {
+    designSystem,
+    imageStyleReferenceUrls,
+    rawData: designSystemRawData,
+  } = useDeckDesignSystem(deck?.designSystemId, deck?.id);
+  useContrastAuditBridge(deck, designSystemRawData);
+  const commentsOpen = sidePanel === "comments";
+
+  const {
+    questions: questionFlowQuestions,
+    title: questionFlowTitle,
+    description: questionFlowDescription,
+    skipLabel: questionFlowSkipLabel,
+    submitLabel: questionFlowSubmitLabel,
+    isSubmissionBlocked: questionFlowSubmissionBlocked,
+    providerStatus: questionFlowProviderStatus,
+    retryProviderStatus: retryQuestionFlowProviderStatus,
+    handleSubmit: handleQuestionSubmit,
+    handleSkip: handleQuestionSkip,
+    isSubmitting: questionFlowSubmitting,
+    refetchPendingQuestionStatus,
+  } = useGuidedQuestionFlow({
+    stateKey: appStateKey("guided-questions"),
+    browserTabId: TAB_ID,
+    threadId: newDeckGenerationThreadId ?? undefined,
+    queryKey: ["slides-2", "guided-questions"],
+    submitMessage: "Here are my answers — go ahead and create the slides.",
+    skipMessage:
+      "Skip the questions — just go ahead and create the slides with your best judgment.",
+    buildSubmitContext: ({ formattedAnswers }) =>
+      [
+        "The user answered the pre-generation questions.",
+        `Deck ID: ${id}`,
+        "Before generating, call get-deck for this deck and recover generationContext. Continue the original brief and target slide count; do not treat these answers as a new unrelated request.",
+        "",
+        "Answers:",
+        formattedAnswers,
+        "",
+        `Every slide is rendered into a fixed native canvas (${fitDims.width}x${fitDims.height} CSS pixels; standard padding leaves ${Math.max(0, fitDims.width - 220)}x${Math.max(0, fitDims.height - 160)}px for main content). Keep the main content within that fit budget; split dense source material across more slides instead of packing it tightly. Never use zoom, transform: scale(), clipping, or scroll overflow to hide content overflow, and keep body text at least 16px.`,
+        "",
+        `Now generate the slides based on these preferences. Start a manage-progress run, add the first slide as soon as it is ready, then continue one slide at a time so the editor visibly fills in. Use add-slide with --deckId=${id} to add slides sequentially. Wait for each add-slide result before calling it again.`,
+      ].join("\n"),
+    buildSkipContext: () =>
+      `The user skipped the pre-generation questions for deck ${id}. Proceed with reasonable defaults. Every slide is rendered into a fixed native canvas (${fitDims.width}x${fitDims.height} CSS pixels; standard padding leaves ${Math.max(0, fitDims.width - 220)}x${Math.max(0, fitDims.height - 160)}px for main content); keep each slide within that fit budget and split dense source material across more slides instead of packing it tightly. Never use zoom, transform: scale(), clipping, or scroll overflow to hide content overflow, and keep body text at least 16px. Start a manage-progress run, add the first slide as soon as it is ready, then continue sequentially using add-slide with --deckId=${id}. Wait for each add-slide result before calling it again.`,
+    onSubmitMessage: submitQuestionContinuation,
+    onSkipMessage: submitQuestionContinuation,
+  });
+  refetchPendingQuestionStatusRef.current = refetchPendingQuestionStatus;
+  questionFlowTargetTabIdRef.current = newDeckGenerationTabId;
+
+  const showQuestionFlow = Boolean(questionFlowQuestions?.length);
+  const pendingQuestionKey =
+    questionFlowQuestions?.map((question) => question.id).join(":") ?? "";
+  useEffect(() => {
+    if (!pendingQuestionKey) return;
+    if (newDeckGenerationTabId) {
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:open-thread", {
+          detail: { threadId: newDeckGenerationTabId },
+        }),
+      );
+    }
+    window.dispatchEvent(new Event("agent-panel:open"));
+  }, [id, newDeckGenerationTabId, pendingQuestionKey]);
+  const waitingOnNewDeckQuestions =
+    showQuestionFlow || questionContinuationPending;
+  useLayoutEffect(() => {
+    const previous = generationLifecyclePauseRef.current;
+    if (
+      (waitingOnNewDeckQuestions && !previous.waitingOnQuestions) ||
+      (newDeckGenerationSignal && !previous.generating)
+    ) {
+      generationLifecycleEpochRef.current += 1;
+    }
+    generationLifecyclePauseRef.current = {
+      waitingOnQuestions: waitingOnNewDeckQuestions,
+      generating: newDeckGenerationSignal,
+    };
+  }, [newDeckGenerationSignal, waitingOnNewDeckQuestions]);
+  useEffect(() => {
+    if (
+      !generationLifecycleOwnedByEditor ||
+      !generationAttemptId ||
+      !id ||
+      !wasNewDeckCreation.current
+    )
+      return;
+    if (!generationRunStartedRef.current) return;
+    const persistedGenerationStartedAt = generationContext?.generationStartedAt;
+    const generationStartedAt =
+      typeof persistedGenerationStartedAt === "number" &&
+      Number.isFinite(persistedGenerationStartedAt) &&
+      persistedGenerationStartedAt >= 0
+        ? persistedGenerationStartedAt
+        : Date.now();
+    if (attemptObservedRun) {
+      generationSawActiveRef.current = true;
+      generationStartedAtRef.current ??= generationStartedAt;
+    }
+    if (attemptRunError) {
+      generationSawActiveRef.current = true;
+      generationStartedAtRef.current ??= generationStartedAt;
+    }
+    if (newDeckGenerationSignal) {
+      generationSawActiveRef.current = true;
+      generationStartedAtRef.current ??= generationStartedAt;
+      return;
+    }
+    if (waitingOnNewDeckQuestions) return;
+    if (
+      !generationSawActiveRef.current ||
+      generationSettlingAttemptRef.current === generationAttemptId ||
+      generationTerminalAttemptRef.current === generationAttemptId
+    ) {
+      return;
+    }
+    generationSettlingAttemptRef.current = generationAttemptId;
+    const settlementLifecycleEpoch =
+      generationLifecycleEpochRef.current + generationSettlementRevision;
+    let pausedForQuestionOrRun = false;
+    const getGenerationFailureContext = () => {
+      const latestDeck = getDeckLatest(id);
+      const latestGenerationContext = latestDeck
+        ? latestDeck.generationContext &&
+          typeof latestDeck.generationContext === "object" &&
+          !Array.isArray(latestDeck.generationContext)
+          ? latestDeck.generationContext
+          : null
+        : generationContext;
+      return (
+        latestGenerationContext ?? {
+          generationAttemptId,
+          ...(generationRetryPrompt
+            ? { originalPrompt: generationRetryPrompt }
+            : {}),
+        }
+      );
+    };
+    const getGenerationFailurePrompt = (context: unknown) =>
+      getOriginalGenerationPrompt(context, generationRetryPrompt);
+    const pauseSettlementForQuestionOrRun = (pendingQuestionCheck = false) => {
+      const lifecycleResumed =
+        generationLifecycleEpochRef.current + generationSettlementRevision !==
+        settlementLifecycleEpoch;
+      if (
+        !pendingQuestionCheck &&
+        !lifecycleResumed &&
+        !generationLifecyclePauseRef.current.waitingOnQuestions &&
+        !generationLifecyclePauseRef.current.generating
+      ) {
+        return false;
+      }
+      pausedForQuestionOrRun = true;
+      generationSettlingAttemptRef.current = null;
+      return true;
+    };
+    const resumeSettlementAfterPausedSave = () => {
+      if (!pauseSettlementForQuestionOrRun()) return;
+      generationTerminalAttemptRef.current = null;
+      wasNewDeckCreation.current = true;
+      setGenerationSettlementRevision((revision) => revision + 1);
+    };
+    const persistUnresolvedGuidedQuestionCheck = async () => {
+      trackEvent("generation_outcome_unresolved", {
+        app_name: "slides",
+        template_name: "slides",
+        generation_attempt_id: generationAttemptId,
+        output_id: id,
+        output_type: "deck",
+        ...(targetSlideCount !== null
+          ? { target_slide_count: targetSlideCount }
+          : {}),
+        ...generationTimingFields(
+          generationStartedAtRef.current ?? undefined,
+          Date.now(),
+        ),
+        source: "new_deck_prompt",
+        outcome: "unresolved",
+        reason: "guided_question_refetch_failed",
+      });
+      const contextForFailure = getGenerationFailureContext();
+
+      const failureCode = "outcome_unresolved";
+      const failureSlidesFingerprint = null;
+      const originalPrompt = getGenerationFailurePrompt(contextForFailure);
+      updateDeck(id, {
+        generationContext: {
+          ...contextForFailure,
+          generationAttemptId,
+          ...(originalPrompt ? { originalPrompt } : {}),
+          generationFailureCode: failureCode,
+          generationFailureAttemptId: generationAttemptId,
+          generationFailureSlidesFingerprint: failureSlidesFingerprint,
+        },
+      });
+
+      let serializedRecovery: string | null = null;
+      const recovery: EmptyGenerationRecovery = {
+        kind: "generation_failure",
+        attemptId: generationAttemptId,
+        failureCode,
+        failureSlidesFingerprint,
+        ...(originalPrompt ? { originalPrompt } : {}),
+      };
+      serializedRecovery = JSON.stringify(recovery);
+      if (retryRecoveryStorageKey) {
+        try {
+          window.localStorage.setItem(
+            retryRecoveryStorageKey,
+            serializedRecovery,
+          );
+          emptyGenerationRecoveryRef.current = serializedRecovery;
+        } catch (error) {
+          console.error(
+            "Failed to store Slides generation recovery data.",
+            error,
+          );
+        }
+      }
+      try {
+        await flushDeckSave(id);
+        if (
+          serializedRecovery &&
+          clearEmptyGenerationRecovery(
+            retryRecoveryStorageKey,
+            serializedRecovery,
+          )
+        ) {
+          emptyGenerationRecoveryRef.current = null;
+        }
+      } catch {
+        toast.error(t("settings.saveFailed"));
+      }
+    };
+    void (async () => {
+      try {
+        await refreshDeckForGenerationOutcome(refreshOpenDeck, id);
+        if (
+          generationSettlingAttemptRef.current !== generationAttemptId ||
+          generationTerminalAttemptRef.current === generationAttemptId
+        ) {
+          return;
+        }
+        const pendingQuestionCheck = await refetchPendingQuestionStatus();
+        if (
+          generationSettlingAttemptRef.current !== generationAttemptId ||
+          generationTerminalAttemptRef.current === generationAttemptId
+        ) {
+          return;
+        }
+        if (
+          pauseSettlementForQuestionOrRun(
+            pendingQuestionCheck.status === "pending",
+          )
+        ) {
+          return;
+        }
+        if (pendingQuestionCheck.status === "error") {
+          await persistUnresolvedGuidedQuestionCheck();
+          resumeSettlementAfterPausedSave();
+          return;
+        }
+        const outcomeRefreshResult = await refreshDeckForGenerationOutcome(
+          refreshOpenDeck,
+          id,
+        );
+        if (
+          generationSettlingAttemptRef.current !== generationAttemptId ||
+          generationTerminalAttemptRef.current === generationAttemptId
+        ) {
+          return;
+        }
+        if (pauseSettlementForQuestionOrRun()) return;
+        const finalPendingQuestionCheck = await refetchPendingQuestionStatus();
+        if (
+          generationSettlingAttemptRef.current !== generationAttemptId ||
+          generationTerminalAttemptRef.current === generationAttemptId
+        ) {
+          return;
+        }
+        if (
+          pauseSettlementForQuestionOrRun(
+            finalPendingQuestionCheck.status === "pending",
+          )
+        ) {
+          return;
+        }
+        if (finalPendingQuestionCheck.status === "error") {
+          await persistUnresolvedGuidedQuestionCheck();
+          resumeSettlementAfterPausedSave();
+          return;
+        }
+        const generationEndedAt = Date.now();
+        generationTerminalAttemptRef.current = generationAttemptId;
+        const refreshedDeck =
+          outcomeRefreshResult.status === "ready"
+            ? outcomeRefreshResult.deck
+            : null;
+        const startedAt = generationStartedAtRef.current;
+        const properties = {
+          app_name: "slides",
+          template_name: "slides",
+          generation_attempt_id: generationAttemptId,
+          output_id: id,
+          output_type: "deck",
+          ...(refreshedDeck !== null
+            ? { slide_count: refreshedDeck.slides.length }
+            : {}),
+          ...(targetSlideCount !== null
+            ? { target_slide_count: targetSlideCount }
+            : {}),
+          ...generationTimingFields(startedAt ?? undefined, generationEndedAt),
+          source: "new_deck_prompt",
+        };
+        if (outcomeRefreshResult.status !== "ready") {
+          trackEvent("generation_outcome_unresolved", {
+            ...properties,
+            outcome: "unresolved",
+            reason:
+              outcomeRefreshResult.status === "failed"
+                ? "deck_refresh_failed"
+                : "deck_not_visible_after_refresh",
+          });
+          const failureCode = "outcome_unresolved";
+          const failureSlidesFingerprint = null;
+          const contextForFailure = getGenerationFailureContext();
+          const originalPrompt = getGenerationFailurePrompt(contextForFailure);
+          updateDeck(id, {
+            generationContext: {
+              ...contextForFailure,
+              generationAttemptId,
+              ...(originalPrompt ? { originalPrompt } : {}),
+              generationFailureCode: failureCode,
+              generationFailureAttemptId: generationAttemptId,
+              generationFailureSlidesFingerprint: failureSlidesFingerprint,
+            },
+          });
+          let serializedRecovery: string | null = null;
+          const recovery: EmptyGenerationRecovery = {
+            kind: "generation_failure",
+            attemptId: generationAttemptId,
+            failureCode,
+            failureSlidesFingerprint,
+            ...(originalPrompt ? { originalPrompt } : {}),
+          };
+          serializedRecovery = JSON.stringify(recovery);
+          if (retryRecoveryStorageKey) {
+            try {
+              window.localStorage.setItem(
+                retryRecoveryStorageKey,
+                serializedRecovery,
+              );
+              emptyGenerationRecoveryRef.current = serializedRecovery;
+            } catch (error) {
+              console.error(
+                "Failed to store Slides generation recovery data.",
+                error,
+              );
+            }
+          }
+          try {
+            await flushDeckSave(id);
+            if (
+              serializedRecovery &&
+              clearEmptyGenerationRecovery(
+                retryRecoveryStorageKey,
+                serializedRecovery,
+              )
+            ) {
+              emptyGenerationRecoveryRef.current = null;
+            }
+          } catch {
+            toast.error(t("editorSidebar.newSlideSaveFailed"));
+          }
+          resumeSettlementAfterPausedSave();
+          return;
+        }
+        const settledSlideCount = outcomeRefreshResult.deck.slides.length;
+        const failureCode =
+          attemptRunErrorCode === "write_tool_outcome_unknown"
+            ? "outcome_unresolved"
+            : attemptStopReason === "stopped"
+              ? "cancelled"
+              : attemptTimedOut
+                ? "timeout"
+                : attemptRunError
+                  ? "agent_error"
+                  : settledSlideCount === 0
+                    ? "no_output"
+                    : targetSlideCount !== null &&
+                        settledSlideCount < targetSlideCount
+                      ? "incomplete_output"
+                      : null;
+        if (failureCode && failureCode !== "incomplete_output") {
+          const contextForFailure = getGenerationFailureContext();
+          const originalPrompt = getGenerationFailurePrompt(contextForFailure);
+          const failureSlidesFingerprint =
+            partialGenerationFailureSlidesFingerprint(
+              outcomeRefreshResult.deck.slides,
+            );
+          updateDeck(id, {
+            generationContext: {
+              ...contextForFailure,
+              generationAttemptId,
+              ...(originalPrompt ? { originalPrompt } : {}),
+              generationFailureCode: failureCode,
+              generationFailureAttemptId: generationAttemptId,
+              generationFailureSlidesFingerprint: failureSlidesFingerprint,
+            },
+          });
+          let serializedRecovery: string | null = null;
+          const recovery: EmptyGenerationRecovery = {
+            kind: "generation_failure",
+            attemptId: generationAttemptId,
+            failureCode,
+            failureSlidesFingerprint,
+            ...(originalPrompt ? { originalPrompt } : {}),
+          };
+          serializedRecovery = JSON.stringify(recovery);
+          if (retryRecoveryStorageKey) {
+            try {
+              window.localStorage.setItem(
+                retryRecoveryStorageKey,
+                serializedRecovery,
+              );
+              emptyGenerationRecoveryRef.current = serializedRecovery;
+            } catch (error) {
+              console.error(
+                "Failed to store Slides generation recovery data.",
+                error,
+              );
+            }
+          }
+          try {
+            await flushDeckSave(id);
+            if (
+              serializedRecovery &&
+              clearEmptyGenerationRecovery(
+                retryRecoveryStorageKey,
+                serializedRecovery,
+              )
+            ) {
+              emptyGenerationRecoveryRef.current = null;
+            }
+          } catch {
+            toast.error(t("editorSidebar.newSlideSaveFailed"));
+          }
+        }
+        if (failureCode === "cancelled") {
+          trackEvent("generation_cancelled", {
+            ...properties,
+            outcome: "cancelled",
+            failure_code: failureCode,
+          });
+        } else if (failureCode === "timeout") {
+          trackEvent("generation_stuck", {
+            ...properties,
+            outcome: "stuck",
+            failure_code: failureCode,
+          });
+        } else if (failureCode) {
+          trackEvent("generation_failed", {
+            ...properties,
+            failure_code: failureCode,
+            failure_stage: "agent",
+          });
+        }
+        // A turn the agent finished with slides is a completed deck, even if
+        // it made fewer than the prompt asked for; errors, timeouts and
+        // cancels did not finish the turn.
+        const turnCompleted =
+          !failureCode || failureCode === "incomplete_output";
+        if (
+          turnCompleted &&
+          settledSlideCount > 0 &&
+          outcomeRefreshResult.deck.createdByMe === true
+        ) {
+          const readyProperties = {
+            generation_attempt_id: generationAttemptId,
+            output_id: id,
+            output_type: "deck",
+            slide_count: settledSlideCount,
+            view_mode: "live",
+            ...(targetSlideCount !== null
+              ? { target_slide_count: targetSlideCount }
+              : {}),
+          };
+          deckReadyViewCancelRef.current?.();
+          deckReadyViewCancelRef.current = runWhenTabVisible(() => {
+            deckReadyViewCancelRef.current = null;
+            if (openDeckIdRef.current !== id) return;
+            if (firstDeckReadyView(generationAttemptId)) {
+              trackSlidesRelay("deck_ready_viewed", readyProperties);
+            }
+          });
+        }
+        // Success is `generation_completed`, reported by the server when the
+        // run that wrote the first slide ends; this tab may already be closed.
+      } finally {
+        if (!pausedForQuestionOrRun) {
+          clearStartedGenerationAttempt(generationAttemptId, id);
+        }
+        if (
+          !pausedForQuestionOrRun &&
+          generationSettlingAttemptRef.current === generationAttemptId
+        ) {
+          generationSettlingAttemptRef.current = null;
+          generationSawActiveRef.current = false;
+          generationRunStartedRef.current = false;
+          generationStartedAtRef.current = null;
+        }
+      }
+    })();
+  }, [
+    attemptObservedRun,
+    generationAttemptId,
+    generationLifecycleOwnedByEditor,
+    generationContext,
+    generationRetryPrompt,
+    getDeckLatest,
+    attemptRunError,
+    attemptStopReason,
+    attemptTimedOut,
+    generationSettlementRevision,
+    id,
+    newDeckGenerationSignal,
+    refreshOpenDeck,
+    retryRecoveryStorageKey,
+    updateDeck,
+    flushDeckSave,
+    t,
+    targetSlideCount,
+    refetchPendingQuestionStatus,
+    waitingOnNewDeckQuestions,
+  ]);
+
+  const { isNewDeckCreation, phase: newDeckGenerationPhase } =
+    useNewDeckGeneration({
+      deckId: id ?? "",
+      isNewDeckRoute: isNewDeckGenerationRoute,
+      generating: newDeckGenerationSignal,
+      waitingOnQuestions: waitingOnNewDeckQuestions,
+      slideCount,
+    });
+  useEffect(() => {
+    if (retryAwaitingStartAttemptId !== generationAttemptId) return;
+    if (
+      !attemptObservedRun &&
+      !newDeckGenerationSignal &&
+      !attemptRunError &&
+      !attemptTimedOut &&
+      !attemptStopReason
+    ) {
+      return;
+    }
+    setRetryAwaitingStartAttemptId((current) =>
+      current === generationAttemptId ? null : current,
+    );
+  }, [
+    attemptObservedRun,
+    attemptRunError,
+    attemptStopReason,
+    attemptTimedOut,
+    generationAttemptId,
+    newDeckGenerationSignal,
+    retryAwaitingStartAttemptId,
+  ]);
+  useEffect(() => {
+    if (
+      !generationLifecycleOwnedByEditor ||
+      !id ||
+      !generationAttemptId ||
+      typeof generationContext?.generationFailureAttemptId !== "string" ||
+      generationContext.generationFailureAttemptId === generationAttemptId ||
+      attemptObservedRun ||
+      attemptRunError ||
+      attemptStopReason ||
+      attemptTimedOut ||
+      newDeckGenerationSignal
+    ) {
+      return;
+    }
+    const attemptId = generationAttemptId;
+    const persistedStartedAt = generationContext.generationStartedAt;
+    const startedAt =
+      typeof persistedStartedAt === "number" &&
+      Number.isFinite(persistedStartedAt) &&
+      persistedStartedAt >= 0
+        ? persistedStartedAt
+        : Date.now();
+    const deadline = startedAt + NEW_DECK_GENERATION_START_TIMEOUT_MS;
+    const timeout = window.setTimeout(
+      () => {
+        if (
+          generationSawActiveRef.current ||
+          generationLifecyclePauseRef.current.generating
+        ) {
+          return;
+        }
+        setRetryAwaitingStartAttemptId((current) =>
+          current === attemptId ? null : current,
+        );
+        clearStartedGenerationAttempt(attemptId, id);
+        const failureCode = "start_timeout";
+        const currentSlides = getDeckLatest(id)?.slides ?? deck?.slides ?? [];
+        const failureSlidesFingerprint =
+          partialGenerationFailureSlidesFingerprint(currentSlides);
+        const originalPrompt = getOriginalGenerationPrompt(
+          generationContext,
+          generationRetryPrompt,
+        );
+        updateDeck(id, {
+          generationContext: {
+            ...generationContext,
+            ...(originalPrompt ? { originalPrompt } : {}),
+            generationFailureCode: failureCode,
+            generationFailureAttemptId: attemptId,
+            generationFailureSlidesFingerprint: failureSlidesFingerprint,
+          },
+        });
+        const recovery: EmptyGenerationRecovery = {
+          kind: "generation_failure",
+          attemptId,
+          failureCode,
+          failureSlidesFingerprint,
+          ...(originalPrompt ? { originalPrompt } : {}),
+        };
+        const serializedRecovery = JSON.stringify(recovery);
+        if (retryRecoveryStorageKey) {
+          try {
+            window.localStorage.setItem(
+              retryRecoveryStorageKey,
+              serializedRecovery,
+            );
+            emptyGenerationRecoveryRef.current = serializedRecovery;
+          } catch (error) {
+            console.error(
+              "Failed to store Slides generation recovery data.",
+              error,
+            );
+          }
+        }
+        trackEvent("generation_outcome_unresolved", {
+          app_name: "slides",
+          template_name: "slides",
+          generation_attempt_id: attemptId,
+          output_id: id,
+          output_type: "deck",
+          source: "empty_output_retry",
+          outcome: "unresolved",
+          reason: "retry_start_timeout",
+        });
+        void flushDeckSave(id)
+          .then(() => {
+            if (
+              clearEmptyGenerationRecovery(
+                retryRecoveryStorageKey,
+                serializedRecovery,
+              ) &&
+              emptyGenerationRecoveryRef.current === serializedRecovery
+            ) {
+              emptyGenerationRecoveryRef.current = null;
+            }
+          })
+          .catch(() => toast.error(t("settings.saveFailed")));
+      },
+      Math.max(0, deadline - Date.now()),
+    );
+    return () => window.clearTimeout(timeout);
+  }, [
+    attemptObservedRun,
+    attemptRunError,
+    attemptStopReason,
+    attemptTimedOut,
+    deck,
+    flushDeckSave,
+    generationAttemptId,
+    generationContext,
+    generationRetryPrompt,
+    getDeckLatest,
+    generationLifecycleOwnedByEditor,
+    id,
+    newDeckGenerationSignal,
+    retryAwaitingStartAttemptId,
+    retryRecoveryStorageKey,
+    t,
+    updateDeck,
+  ]);
+  const generationRetryPending =
+    retryEmptyGenerationPending ||
+    retryAwaitingStartAttemptId === generationAttemptId ||
+    (generationContext?.generationFailureCode === "outcome_unresolved" &&
+      generationContext.generationFailureSlidesFingerprint === null) ||
+    (typeof generationContext?.generationFailureAttemptId === "string" &&
+      generationContext.generationFailureAttemptId !== generationAttemptId);
+  const generationState = {
+    slideCount,
+    hasGenerationContext: generationContext !== null,
+    failureCode: generationContext?.generationFailureCode,
+    isNewDeckCreation,
+    phase: newDeckGenerationPhase,
+    generating: newDeckGenerationSignal,
+    waitingOnQuestions: waitingOnNewDeckQuestions,
+  };
+  const generationRecoveryState =
+    getNewDeckGenerationRecoveryState(generationState);
+  const showGenerationRecovery = generationRecoveryState !== null;
+  const currentSlidesFingerprint = useMemo(
+    () =>
+      deck &&
+      typeof generationContext?.generationFailureCode === "string" &&
+      generationContext.generationFailureCode !== "incomplete_output" &&
+      typeof generationContext?.generationFailureSlidesFingerprint ===
+        "string" &&
+      generationContext.generationFailureAttemptId === generationAttemptId
+        ? partialGenerationFailureSlidesFingerprint(deck.slides)
+        : null,
+    [
+      deck?.slides,
+      generationAttemptId,
+      generationContext?.generationFailureCode,
+      generationContext?.generationFailureAttemptId,
+      generationContext?.generationFailureSlidesFingerprint,
+    ],
+  );
+  const partialGenerationFailureState = {
+    slideCount,
+    failureCode: generationContext?.generationFailureCode,
+    failureAttemptId: generationContext?.generationFailureAttemptId,
+    attemptId: generationAttemptId,
+    failureSlidesFingerprint:
+      generationContext?.generationFailureSlidesFingerprint,
+    currentSlidesFingerprint,
+    generating: newDeckGenerationSignal,
+    waitingOnQuestions: waitingOnNewDeckQuestions,
+    retryPending:
+      retryEmptyGenerationPending || retryEmptyGenerationInFlightRef.current,
+  };
+  const showPartialGenerationFailure = shouldShowPartialGenerationFailure(
+    partialGenerationFailureState,
+  );
+  const clearPartialGenerationFailure = shouldClearPartialGenerationFailure(
+    partialGenerationFailureState,
+  );
+  const unresolvedFailureSnapshotUnknown =
+    generationContext?.generationFailureCode === "outcome_unresolved" &&
+    generationContext.generationFailureAttemptId === generationAttemptId &&
+    generationContext.generationFailureSlidesFingerprint === null;
+  useEffect(() => {
+    if (!id || !generationAttemptId || !unresolvedFailureSnapshotUnknown)
+      return;
+    let cancelled = false;
+    let retryTimeout: ReturnType<typeof setTimeout> | undefined;
+    let retryIndex = 0;
+    let refreshInFlight = false;
+    const refreshAndEstablishBaseline = async () => {
+      if (cancelled || refreshInFlight || isDocumentHidden()) {
+        return;
+      }
+      refreshInFlight = true;
+      const result = await refreshDeckForGenerationOutcome(refreshOpenDeck, id);
+      refreshInFlight = false;
+      if (cancelled) return;
+      if (result.status !== "ready") {
+        if (!isDocumentHidden()) {
+          retryTimeout = setTimeout(() => {
+            retryTimeout = undefined;
+            void refreshAndEstablishBaseline();
+          }, unknownSnapshotRefreshRetryDelay(retryIndex));
+          retryIndex += 1;
+        }
+        return;
+      }
+      const latestDeck = getDeckLatest(id);
+      const latestContext = latestDeck?.generationContext;
+      if (
+        !latestDeck ||
+        !latestContext ||
+        typeof latestContext !== "object" ||
+        Array.isArray(latestContext) ||
+        latestContext.generationFailureCode !== "outcome_unresolved" ||
+        latestContext.generationFailureAttemptId !== generationAttemptId ||
+        latestContext.generationFailureSlidesFingerprint !== null
+      ) {
+        return;
+      }
+      const failureSlidesFingerprint =
+        partialGenerationFailureSlidesFingerprint(result.deck.slides);
+      const originalPrompt = getOriginalGenerationPrompt(
+        latestContext,
+        generationRetryPrompt,
+      );
+      const nextContext = {
+        ...latestContext,
+        ...(originalPrompt ? { originalPrompt } : {}),
+        generationFailureSlidesFingerprint: failureSlidesFingerprint,
+      };
+      const recovery: EmptyGenerationRecovery = {
+        kind: "generation_failure",
+        attemptId: generationAttemptId,
+        failureCode: "outcome_unresolved",
+        failureSlidesFingerprint,
+        ...(originalPrompt ? { originalPrompt } : {}),
+      };
+      const serializedRecovery = JSON.stringify(recovery);
+      if (retryRecoveryStorageKey) {
+        try {
+          window.localStorage.setItem(
+            retryRecoveryStorageKey,
+            serializedRecovery,
+          );
+          emptyGenerationRecoveryRef.current = serializedRecovery;
+        } catch (error) {
+          console.error(
+            "Failed to store refreshed Slides generation recovery data.",
+            error,
+          );
+        }
+      }
+      updateDeck(id, {
+        generationContext: nextContext,
+      });
+      void flushDeckSave(id).then(
+        () => {
+          const clearedRecovery = clearEmptyGenerationFailureRecovery(
+            retryRecoveryStorageKey,
+            generationAttemptId,
+            failureSlidesFingerprint,
+          );
+          if (
+            clearedRecovery &&
+            emptyGenerationRecoveryRef.current === clearedRecovery
+          ) {
+            emptyGenerationRecoveryRef.current = null;
+          }
+        },
+        (error) => {
+          console.error(
+            "Failed to save the refreshed Slides generation outcome.",
+            error,
+          );
+          toast.error(t("settings.saveFailed"));
+        },
+      );
+    };
+    const refreshOnVisibilityChange = () => {
+      if (isDocumentHidden()) {
+        if (retryTimeout !== undefined) {
+          clearTimeout(retryTimeout);
+          retryTimeout = undefined;
+        }
+        return;
+      }
+      if (retryTimeout !== undefined) {
+        clearTimeout(retryTimeout);
+        retryTimeout = undefined;
+      }
+      void refreshAndEstablishBaseline();
+    };
+    document.addEventListener("visibilitychange", refreshOnVisibilityChange);
+    void refreshAndEstablishBaseline();
+    return () => {
+      cancelled = true;
+      if (retryTimeout !== undefined) clearTimeout(retryTimeout);
+      document.removeEventListener(
+        "visibilitychange",
+        refreshOnVisibilityChange,
+      );
+    };
+  }, [
+    flushDeckSave,
+    generationRetryPrompt,
+    generationAttemptId,
+    getDeckLatest,
+    id,
+    refreshOpenDeck,
+    retryRecoveryStorageKey,
+    t,
+    unresolvedFailureSnapshotUnknown,
+    updateDeck,
+  ]);
+  useEffect(() => {
+    if (!id || !clearPartialGenerationFailure) return;
+    const latestDeck = getDeckLatest(id);
+    const latestContext = latestDeck?.generationContext;
+    if (
+      !latestDeck ||
+      !latestContext ||
+      typeof latestContext !== "object" ||
+      Array.isArray(latestContext)
+    ) {
+      return;
+    }
+    const latestAttemptId =
+      typeof latestContext.generationAttemptId === "string"
+        ? latestContext.generationAttemptId
+        : generationAttemptId;
+    const latestFailureSlidesFingerprint =
+      typeof latestContext.generationFailureSlidesFingerprint === "string"
+        ? latestContext.generationFailureSlidesFingerprint
+        : null;
+    const latestCurrentSlidesFingerprint =
+      typeof latestContext.generationFailureCode === "string" &&
+      latestContext.generationFailureCode !== "incomplete_output" &&
+      latestFailureSlidesFingerprint !== null &&
+      latestContext.generationFailureAttemptId === latestAttemptId
+        ? partialGenerationFailureSlidesFingerprint(latestDeck.slides)
+        : null;
+    const lifecyclePause = generationLifecyclePauseRef.current;
+    const clearLatestFailure = shouldClearPartialGenerationFailure({
+      slideCount: latestDeck.slides.length,
+      failureCode: latestContext.generationFailureCode,
+      failureAttemptId: latestContext.generationFailureAttemptId,
+      attemptId: latestAttemptId,
+      failureSlidesFingerprint: latestFailureSlidesFingerprint,
+      currentSlidesFingerprint: latestCurrentSlidesFingerprint,
+      generating: lifecyclePause.generating || newDeckGenerationSignal,
+      waitingOnQuestions:
+        lifecyclePause.waitingOnQuestions || waitingOnNewDeckQuestions,
+      retryPending:
+        retryEmptyGenerationPending || retryEmptyGenerationInFlightRef.current,
+    });
+    if (!clearLatestFailure) return;
+    updateDeck(id, {
+      generationContext: {
+        ...latestContext,
+        generationFailureCode: null,
+        generationFailureAttemptId: null,
+        generationFailureSlidesFingerprint: null,
+      },
+    });
+    void flushDeckSave(id).catch((error) => {
+      console.error(
+        "Failed to clear a stale Slides generation failure.",
+        error,
+      );
+    });
+  }, [
+    clearPartialGenerationFailure,
+    flushDeckSave,
+    generationAttemptId,
+    getDeckLatest,
+    id,
+    newDeckGenerationSignal,
+    retryEmptyGenerationPending,
+    updateDeck,
+    waitingOnNewDeckQuestions,
+  ]);
+  const isNewDeckGenerating = shouldShowNewDeckGeneratingProgress({
+    generating: newDeckGenerationSignal,
+    isNewDeckCreation,
+  });
+  const showNewDeckGeneratingOverlay = shouldShowNewDeckGeneratingOverlay({
+    generating: newDeckGenerationSignal,
+    isNewDeckCreation,
+    slideCount,
+    phase: newDeckGenerationPhase,
+  });
+  const fillingPlaceholderSlideId = slideBeingFilledInPlace({
+    addSlideGenerating,
+    addSlideTargetId,
+    slides: deck?.slides ?? [],
+    blankContent: defaultSlideContent.blank,
+  });
+  const generatingSlideVisible =
+    canEdit &&
+    (isNewDeckGenerating ||
+      (addSlideGenerating && !fillingPlaceholderSlideId) ||
+      showNewDeckGeneratingOverlay);
+  const showCurrentSlideEditor =
+    !generatingSlideSelected &&
+    !showNewDeckGeneratingOverlay &&
+    !showQuestionFlow;
+
+  useEffect(() => {
+    if (!generatingSlideVisible) setGeneratingSlideSelected(false);
+  }, [generatingSlideVisible]);
+
+  useEffect(() => {
+    if (!addSlideRequestSentRef.current) return;
+    if (generating) {
+      sawGeneratingRef.current = true;
+      return;
+    }
+    if (addSlideGenerating && sawGeneratingRef.current) {
+      sawGeneratingRef.current = false;
+      endAddSlideGeneration();
+    }
+  }, [generating, addSlideGenerating, endAddSlideGeneration]);
+
+  useEffect(() => {
+    const onResize = () => setSidebarOpen(!isCompactEditorLayout());
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  const previousSlideIdsRef = useRef<string[]>([]);
+  useEffect(() => {
+    const currentSlideIds = deck?.slides.map((slide) => slide.id) ?? [];
+    const previousSlideIds = previousSlideIdsRef.current;
+    const addedSlide = deck?.slides.find(
+      (slide) => !previousSlideIds.includes(slide.id),
+    );
+    const slideWasAdded = currentSlideIds.length > previousSlideIds.length;
+
+    previousSlideIdsRef.current = currentSlideIds;
+    if (!slideWasAdded) return;
+
+    if (addedSlide && generatingSlideSelected) {
+      selectionAnchorSlideIdRef.current = addedSlide.id;
+      setSelectedSlideIds([addedSlide.id]);
+      setActiveSlideId(addedSlide.id);
+    }
+    setGeneratingSlideSelected(false);
+  }, [deck, generatingSlideSelected]);
+
+  const checkedDeckAccessKey = useDeckAccessReload({
+    accessKey: currentDeckAccessKey,
+    deckFound: Boolean(deck),
+    loading,
+    orgId: org?.orgId,
+    orgLoading,
+    reload: reloadDecksWithStatus,
+  });
+
+  const retryOpenDeck = useCallback(async () => {
+    setRetryingMissingDeck(true);
+    try {
+      await retryMissingDeck({
+        refetchOrg,
+        reloadDecks,
+        refetchAccessStatus: refetchDeckAccessStatus,
+      });
+    } finally {
+      setRetryingMissingDeck(false);
+    }
+  }, [refetchDeckAccessStatus, refetchOrg, reloadDecks]);
+
+  const openSignIn = useCallback(() => {
+    window.location.href = buildSignInReturnHref({
+      returnTo: appPath(id ? `/deck/${encodeURIComponent(id)}` : "/home"),
+    });
+  }, [id]);
+
+  const getFreshAccessRequestCapability =
+    useCallback(async (): Promise<AccessRequestCapability> => {
+      setAccessRequestRefreshPending(true);
+      try {
+        const result = await deckAccessStatusQuery.refetch();
+        const token = result.isSuccess
+          ? result.data?.accessRequestToken
+          : undefined;
+        return token ? { available: true, token } : { available: false };
+      } catch (error) {
+        console.warn(
+          "[slides] deck access request capability refresh failed:",
+          error,
+        );
+        return { available: false };
+      } finally {
+        setAccessRequestRefreshPending(false);
+      }
+    }, [deckAccessStatusQuery]);
+
+  const submitDeckAccessRequest = useCallback(
+    async (guestEmail?: string) => {
+      if (!id) return;
+      const normalizedGuestEmail = guestEmail?.trim() || undefined;
+      setRequestAccessDialogError(null);
+      const accessRequestCapability = normalizedGuestEmail
+        ? await getFreshAccessRequestCapability()
+        : { available: false as const };
+      if (normalizedGuestEmail && !accessRequestCapability.available) {
+        setRequestAccessDialogError(t("deckEditor.accessRequestFailed"));
+        return;
+      }
+      const accessRequestToken =
+        normalizedGuestEmail && accessRequestCapability.available
+          ? accessRequestCapability.token
+          : undefined;
+      requestDeckAccessMutation.mutate(
+        {
+          deckId: id,
+          ...(accessRequestToken ? { accessRequestToken } : {}),
+          ...(normalizedGuestEmail
+            ? { requesterEmail: normalizedGuestEmail }
+            : {}),
+        },
+        {
+          onSuccess: (result) => {
+            setAccessRequestSentDeckId(id);
+            setAccessRequestNotified(result.notifiedOwner);
+            if (normalizedGuestEmail) setRequestAccessDialogOpen(false);
+            toast.success(
+              normalizedGuestEmail
+                ? t("deckEditor.accessRequestSentWithEmail", {
+                    email: normalizedGuestEmail,
+                  })
+                : result.message,
+            );
+            if (result.alreadyHasAccess) void reloadDecks();
+          },
+          onError: (error: unknown) => {
+            const message =
+              actionErrorMessage(error) ?? t("deckEditor.accessRequestFailed");
+            toast.error(message);
+            if (!normalizedGuestEmail) return;
+            setRequestAccessDialogError(message);
+          },
+        },
+      );
+    },
+    [
+      getFreshAccessRequestCapability,
+      id,
+      reloadDecks,
+      requestDeckAccessMutation,
+      t,
+    ],
+  );
+
+  const requestDeckAccess = useCallback(() => {
+    void submitDeckAccessRequest();
+  }, [submitDeckAccessRequest]);
+
+  const submitGuestAccessRequest = useCallback(
+    (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const email = requesterEmail.trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        setRequestAccessDialogError(t("deckEditor.requestAccessEmailRequired"));
+        return;
+      }
+      void submitDeckAccessRequest(email);
+    },
+    [requesterEmail, submitDeckAccessRequest, t],
+  );
+
+  const requestAccessDialogOpenChange = useCallback(
+    (open: boolean) => {
+      setRequestAccessDialogOpen(open);
+      if (!open) {
+        setRequestAccessDialogError(null);
+        return;
+      }
+      setRequestAccessDialogError(null);
+      void getFreshAccessRequestCapability().then((capability) => {
+        if (!capability.available) {
+          setRequestAccessDialogError(t("deckEditor.accessRequestFailed"));
+        }
+      });
+    },
+    [getFreshAccessRequestCapability, t],
+  );
+
+  useEffect(() => {
+    if (accessRequestSentDeckId && accessRequestSentDeckId !== id) {
+      setAccessRequestSentDeckId(null);
+      setAccessRequestNotified(false);
+    }
+  }, [accessRequestSentDeckId, id]);
+
+  // The deck poll stops on 403/404, so a visible tab waiting on an access
+  // request checks back on its own for a while instead of needing a refocus.
+  const waitingOnAccessRequest =
+    !deck &&
+    (accessRequestSentDeckId === id ||
+      deniedPageAccessRequest.isSuccess ||
+      Boolean(deckAccessStatus?.pendingAccessRequest));
+  const accessRequestChecksRef = useRef({ deckId: id, count: 0 });
+  usePollLoop(
+    async () => {
+      if (!id) return;
+      if (accessRequestChecksRef.current.deckId !== id) {
+        accessRequestChecksRef.current = { deckId: id, count: 0 };
+      }
+      if (accessRequestChecksRef.current.count >= ACCESS_REQUEST_MAX_CHECKS) {
+        return;
+      }
+      accessRequestChecksRef.current.count += 1;
+      await refreshOpenDeck(id);
+    },
+    {
+      intervalMs: ACCESS_REQUEST_CHECK_INTERVAL_MS,
+      enabled: Boolean(id) && waitingOnAccessRequest,
+      pauseWhenHidden: true,
+      leading: false,
+    },
+  );
+
+  useEffect(() => {
+    resetDeniedPageAccessRequest();
+  }, [id, resetDeniedPageAccessRequest]);
+
+  // The final generation write can race the last sync event. Pull the
+  // authoritative open deck when the run settles so a stale canvas does not
+  // require a browser refresh to reveal completed slides.
+  useEffect(() => {
+    if (
+      !id ||
+      newDeckGenerationGenerating ||
+      waitingOnNewDeckQuestions ||
+      newDeckGenerationPhase !== "started"
+    ) {
+      return;
+    }
+    void refreshOpenDeck(id);
+  }, [
+    newDeckGenerationGenerating,
+    id,
+    newDeckGenerationPhase,
+    refreshOpenDeck,
+    waitingOnNewDeckQuestions,
+  ]);
+
+  useEffect(() => {
+    if (
+      !id ||
+      !generationSubmitId ||
+      !shouldClearNewDeckGenerationRun({
+        generating: newDeckGenerationGenerating || newDeckGenerationSignal,
+        waitingOnQuestions: waitingOnNewDeckQuestions,
+        phase: newDeckGenerationPhase,
+      })
+    ) {
+      return;
+    }
+    let cancelled = false;
+    void refetchPendingQuestionStatus().then((questionCheck) => {
+      if (cancelled || questionCheck.status !== "none") return;
+      clearNewDeckGenerationRun(id, generationSubmitId);
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("generationSubmitId");
+          return next;
+        },
+        { replace: true },
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    generationSubmitId,
+    id,
+    newDeckGenerationGenerating,
+    newDeckGenerationSignal,
+    newDeckGenerationPhase,
+    refetchPendingQuestionStatus,
+    searchParams,
+    setSearchParams,
+    waitingOnNewDeckQuestions,
+  ]);
+  useEffect(() => {
+    if (
+      !shouldClearNewDeckGeneratingState({
+        generating: newDeckGenerationSignal,
+        waitingOnQuestions: waitingOnNewDeckQuestions,
+        phase: newDeckGenerationPhase,
+      })
+    ) {
+      return;
+    }
+    wasNewDeckCreation.current = false;
+    if (
+      searchParams.get("generating") ||
+      searchParams.get("generation_attempt_id")
+    ) {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("generating");
+          next.delete("generation_attempt_id");
+          return next;
+        },
+        { replace: true },
+      );
+    }
+  }, [
+    newDeckGenerationSignal,
+    newDeckGenerationPhase,
+    searchParams,
+    setSearchParams,
+    waitingOnNewDeckQuestions,
+  ]);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+  );
+
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    if (!(event.activatorEvent as MouseEvent | undefined)?.altKey) {
+      setAltDragState(null);
+      return;
+    }
+    setAltDragState({
+      slideId: String(event.active.id),
+      width: event.active.rect.current.initial?.width || 160,
+    });
+  }, []);
+
+  const handleDragCancel = useCallback(() => {
+    setAltDragState(null);
+  }, []);
+
+  const altDragSlide = altDragState
+    ? deck?.slides.find((slide) => slide.id === altDragState.slideId)
+    : null;
+
+  const handleReorderSlidesFromRail = useCallback(
+    (
+      activeSlideId: string,
+      overSlideId: string,
+      selectedSlideIds?: string[],
+    ) => {
+      if (!deck || !id || !canEdit) return;
+      reorderSlides(id, activeSlideId, overSlideId, selectedSlideIds);
+    },
+    [canEdit, deck, id, reorderSlides],
+  );
+
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      setAltDragState(null);
+      if (!deck || !id) return;
+      const { active, over } = event;
+      if (!over) return;
+
+      const activeSlideId = String(active.id);
+      const overSlideId = String(over.id);
+      const isAltDrag = Boolean((event.activatorEvent as MouseEvent).altKey);
+      if (isAltDrag) {
+        const slidesToCopy = selectedSlideIds.includes(activeSlideId)
+          ? deck.slides.filter((slide) => selectedSlideIds.includes(slide.id))
+          : deck.slides.filter((slide) => slide.id === activeSlideId);
+        if (slidesToCopy.length === 0) return;
+
+        const placement = getAltDragPlacement(
+          deck.slides,
+          activeSlideId,
+          overSlideId,
+          slidesToCopy[slidesToCopy.length - 1]?.id,
+        );
+        if (!placement) return;
+        const newIds = pasteSlides(
+          id,
+          placement.afterSlideId,
+          slidesToCopy.map(({ id: _slideId, ...fields }) => fields),
+          placement.beforeSlideId
+            ? { beforeSlideId: placement.beforeSlideId }
+            : undefined,
+        );
+        if (newIds.length > 0) {
+          selectionAnchorSlideIdRef.current = newIds[0] ?? null;
+          setSelectedSlideIds(newIds);
+          setActiveSlideId(newIds[newIds.length - 1] ?? null);
+        }
+        return;
+      }
+
+      if (active.id === over.id) return;
+      reorderSlides(id, activeSlideId, overSlideId, selectedSlideIds);
+    },
+    [deck, id, pasteSlides, reorderSlides, selectedSlideIds],
+  );
+
+  const handleSlideSelection = useCallback(
+    (slideId: string, options: SlideSelectionOptions = {}) => {
+      if (!deck) return;
+      const result = getSlideSelection({
+        slideIds: deck.slides.map((slide) => slide.id),
+        selectedSlideIds,
+        anchorSlideId: selectionAnchorSlideIdRef.current,
+        targetSlideId: slideId,
+        ...options,
+      });
+      trackEvent("slide_selected", {
+        app_name: "slides",
+        template_name: "slides",
+        selection_mode: options.shiftKey
+          ? "range"
+          : options.metaKey || options.ctrlKey
+            ? "multi"
+            : "single",
+        selection_count: Math.min(result.selectedSlideIds.length, 50),
+      });
+      selectionAnchorSlideIdRef.current = result.anchorSlideId;
+      setSelectedSlideIds(result.selectedSlideIds);
+      setGeneratingSlideSelected(false);
+      setActiveSlideId(slideId);
+      if (isCompactEditorLayout()) setSidebarOpen(false);
+    },
+    [deck, selectedSlideIds],
+  );
+
+  // Scrolling through the deck is navigation, not a selection the user made.
+  const followScrolledSlide = useCallback((slideId: string) => {
+    selectionAnchorSlideIdRef.current = slideId;
+    setSelectedSlideIds([slideId]);
+    setGeneratingSlideSelected(false);
+    setActiveSlideId(slideId);
+  }, []);
+
+  const { undoSelection, clearUndoSelection } = useUndoSelection({
+    deckId: id,
+    subscribe: subscribeUndoReveal,
+    getCurrentSlideId: () => currentSlideRef.current?.id,
+    selectSlide: handleSlideSelection,
+  });
+
+  const uploadImageAsset = useCallback(
+    async (file: File): Promise<string> => {
+      const form = new FormData();
+      form.append("file", file);
+      let res: Response;
+      try {
+        res = await fetch(`${appBasePath()}/api/assets/upload`, {
+          method: "POST",
+          body: form,
+        });
+      } catch {
+        throw Object.assign(new Error(t("raw.assetErrors.uploadFailed")), {
+          errorCode: "image_upload_failed",
+        });
+      }
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.url) {
+        const errorCode = data?.errorCode;
+        if (isAssetStorageSetupError(errorCode)) {
+          throw Object.assign(
+            new Error(t("deckEditor.imageUploadNeedsBuilder")),
+            {
+              errorCode,
+            },
+          );
+        }
+        throw Object.assign(
+          new Error(
+            t(
+              `raw.assetErrors.${assetErrorTranslationKey(errorCode, "upload")}`,
+            ),
+          ),
+          { errorCode },
+        );
+      }
+      return data.url as string;
+    },
+    [t],
+  );
+
+  const replaceImageInSlide = useCallback(
+    (oldSrc: string, newSrc: string, alt?: string) => {
+      if (!id || !currentSlideRef.current) return;
+      const slide = currentSlideRef.current;
+      const currentContent =
+        latestSlideContentRef.current.get(slide.id) ?? slide.content;
+      const updatedContent = replaceImageTargetInSlideHtml(
+        currentContent,
+        oldSrc,
+        newSrc,
+        { alt },
+      );
+      if (updatedContent !== currentContent) {
+        updateSlideContent(slide.id, updatedContent);
+      }
+    },
+    [updateSlideContent],
+  );
+
+  const uploadAndApplyImage = useCallback(
+    async (
+      replaceSrc: string | null,
+      file: File,
+      position?: SlideImageDropPosition,
+    ) => {
+      if (!fileStorageConfigured) {
+        setShowUploadStorageSetup(true);
+        return;
+      }
+      const startingSlide = currentSlideRef.current;
+      if (!id || !startingSlide) return;
+      const targetSlideId = startingSlide.id;
+      const previewSrc = URL.createObjectURL(file);
+      const sourceContentAtUploadStart =
+        latestSlideContentRef.current.get(targetSlideId) ??
+        startingSlide.content;
+      const previewProvenance = captureImageUploadEdit(
+        targetSlideId,
+        startingSlide.content,
+      );
+      const uploadProvenance = captureImageUploadEdit(
+        targetSlideId,
+        sourceContentAtUploadStart,
+      );
+      const initialPreview: PendingImagePreview = {
+        slideId: targetSlideId,
+        previewSrc,
+        replaceSrc,
+        alt: file.name,
+        position,
+        objectId: replaceSrc ? undefined : nanoid(8),
+      };
+      updatePendingImagePreviews((current) => [
+        ...current.filter(
+          (preview) =>
+            preview.slideId !== targetSlideId ||
+            replaceSrc === null ||
+            preview.replaceSrc !== replaceSrc,
+        ),
+        initialPreview,
+      ]);
+      let registeredPreviewContent: string | null = null;
+      if (previewProvenance) {
+        const previewContent = pendingImagePreviewsRef.current
+          .filter((preview) => preview.slideId === targetSlideId)
+          .reduce(
+            (content, preview) => applyOptimisticImagePreview(content, preview),
+            startingSlide.content,
+          );
+        registerSlideImageUploadProvenance(
+          targetSlideId,
+          previewContent,
+          previewProvenance,
+        );
+        registeredPreviewContent = previewContent;
+      }
+      const clearPreview = () => {
+        updatePendingImagePreviews((current) =>
+          current.filter((preview) => preview.previewSrc !== previewSrc),
+        );
+      };
+
+      try {
+        const newUrl = await uploadImageAsset(file);
+        if (!(await prefetchImage(newUrl))) {
+          clearPreview();
+          toast.error(t("deckEditor.imageUploadFailed"), {
+            description: t("deckEditor.imageUploadError"),
+          });
+          return;
+        }
+        if (
+          !pendingImagePreviewsRef.current.some(
+            (preview) => preview.previewSrc === previewSrc,
+          )
+        ) {
+          return;
+        }
+        const targetSlide =
+          currentSlideRef.current?.id === targetSlideId
+            ? currentSlideRef.current
+            : getDeck(id)?.slides.find((slide) => slide.id === targetSlideId);
+        if (!targetSlide) {
+          clearPreview();
+          return;
+        }
+        const targetContent =
+          latestSlideContentRef.current.get(targetSlideId) ??
+          targetSlide.content;
+        const activePreview = pendingImagePreviewsRef.current.find(
+          (preview) => preview.previewSrc === previewSrc,
+        );
+        if (!activePreview) return;
+        const pendingForSlide = pendingImagePreviewsRef.current.filter(
+          (preview) => preview.slideId === targetSlideId,
+        );
+        const cleanTargetContent = stripOptimisticImagePreviews(
+          targetContent,
+          pendingForSlide,
+        );
+        const previewContent = applyOptimisticImagePreview(
+          cleanTargetContent,
+          activePreview,
+        );
+        const updatedContent = replaceOptimisticImagePreview(
+          previewContent,
+          previewSrc,
+          newUrl,
+        );
+        if (!hasOptimisticImagePreview(previewContent, previewSrc)) {
+          clearPreview();
+          return;
+        }
+        latestSlideContentRef.current.set(targetSlideId, updatedContent);
+        if (updatedContent !== targetContent) {
+          if (uploadProvenance) {
+            registerSlideImageUploadProvenance(
+              targetSlideId,
+              updatedContent,
+              uploadProvenance,
+            );
+          }
+          updateSlideContent(targetSlide.id, updatedContent);
+        }
+        trackEvent("media_added", {
+          output_id: id,
+          output_type: "deck",
+          media_source: "upload",
+          slide_id: targetSlideId,
+        });
+        clearPreview();
+      } catch (error) {
+        clearPreview();
+        const errorCode = (error as { errorCode?: unknown })?.errorCode;
+        toast.error(t("deckEditor.imageUploadFailed"), {
+          description: isAssetStorageSetupError(errorCode)
+            ? t("deckEditor.imageUploadNeedsBuilder")
+            : errorCode
+              ? t(
+                  `raw.assetErrors.${assetErrorTranslationKey(errorCode, "upload")}`,
+                )
+              : t("deckEditor.imageUploadError"),
+        });
+      } finally {
+        if (registeredPreviewContent !== null) {
+          discardSlideImageUploadProvenance(
+            targetSlideId,
+            registeredPreviewContent,
+          );
+        }
+      }
+    },
+    [
+      getDeck,
+      fileStorageConfigured,
+      id,
+      t,
+      updatePendingImagePreviews,
+      updateSlideContent,
+      uploadImageAsset,
+    ],
+  );
+
+  const uploadAndApplyVideo = useCallback(
+    async (file: File, position?: SlideImageDropPosition) => {
+      if (!videoFileLooksSupported(file)) {
+        toast.error(t("editorToolbar.videoUploadFailed"), {
+          description: t("editorToolbar.videoFormatUnsupported"),
+        });
+        return;
+      }
+      if (file.size > 50 * 1024 * 1024) {
+        toast.error(t("editorToolbar.videoUploadFailed"), {
+          description: t("editorToolbar.videoTooLarge"),
+        });
+        return;
+      }
+      if (!fileStorageConfigured) {
+        setShowUploadStorageSetup(true);
+        return;
+      }
+      if (!id || !currentSlideRef.current) return;
+      const targetSlide = currentSlideRef.current;
+      const targetSlideId = targetSlide.id;
+      const pendingPreview: PendingVideoPreview = {
+        slideId: targetSlideId,
+        objectId: nanoid(8),
+        label: file.name,
+        statusLabel: t("editorToolbar.videoUploading"),
+        geometry: initialSlideVideoGeometry(position),
+      };
+      updatePendingVideoPreviews((current) => [...current, pendingPreview]);
+      const toastId = toast.loading(t("editorToolbar.videoUploading"));
+      const clearPreview = () => {
+        updatePendingVideoPreviews((current) =>
+          current.filter(
+            (preview) => preview.objectId !== pendingPreview.objectId,
+          ),
+        );
+      };
+      try {
+        const uploadedVideo = await uploadSlideVideo(file);
+        const discardUploadedVideo = async () => {
+          try {
+            await discardUploadedSlideVideo(uploadedVideo.id);
+            toast.dismiss(toastId);
+          } catch {
+            toast.error(t("editorToolbar.videoUploadFailed"), {
+              id: toastId,
+              description: t("editorToolbar.videoUploadError"),
+            });
+          }
+        };
+        const activePreview = pendingVideoPreviewsRef.current.find(
+          (preview) => preview.objectId === pendingPreview.objectId,
+        );
+        if (!activePreview) {
+          await discardUploadedVideo();
+          return;
+        }
+        const currentTarget =
+          currentSlideRef.current?.id === targetSlideId
+            ? currentSlideRef.current
+            : getDeck(id)?.slides.find((slide) => slide.id === targetSlideId);
+        if (!currentTarget) {
+          clearPreview();
+          await discardUploadedVideo();
+          return;
+        }
+        const currentContent = stripPendingSlideVideoPlaceholders(
+          latestSlideContentRef.current.get(targetSlideId) ??
+            currentTarget.content,
+          [pendingPreview.objectId],
+        );
+        const updatedContent = insertDroppedVideoIntoSlideHtml(
+          currentContent,
+          uploadedVideo.url,
+          {
+            label: file.name,
+            objectId: pendingPreview.objectId,
+            geometry: activePreview.geometry,
+          },
+        );
+        latestSlideContentRef.current.set(targetSlideId, updatedContent);
+        updateSlideContent(targetSlideId, updatedContent);
+        clearPreview();
+        trackEvent("media_added", {
+          output_id: id,
+          output_type: "deck",
+          media_source: "upload",
+          slide_id: targetSlideId,
+          media_type: "video",
+        });
+        toast.success(t("editorToolbar.videoAdded"), { id: toastId });
+      } catch (error) {
+        const description = t(videoUploadErrorTranslationKey(error));
+        if (
+          pendingVideoPreviewsRef.current.some(
+            (preview) => preview.objectId === pendingPreview.objectId,
+          )
+        ) {
+          toast.error(t("editorToolbar.videoUploadFailed"), {
+            id: toastId,
+            description,
+          });
+        } else {
+          toast.dismiss(toastId);
+        }
+        clearPreview();
+      }
+    },
+    [
+      fileStorageConfigured,
+      getDeck,
+      id,
+      t,
+      updatePendingVideoPreviews,
+      updateSlideContent,
+    ],
+  );
+
+  const dropImageUrlOnSlide = useCallback(
+    (
+      replaceSrc: string | null,
+      url: string,
+      position?: { x: number; y: number },
+    ) => {
+      if (!id || !currentSlideRef.current) return;
+      if (!replaceSrc) {
+        const targetSlide = currentSlideRef.current;
+        const currentContent =
+          latestSlideContentRef.current.get(targetSlide.id) ??
+          targetSlide.content;
+        const updatedContent = insertDroppedImageIntoSlideHtml(
+          currentContent,
+          url,
+          { position },
+        );
+        if (updatedContent !== currentContent) {
+          updateSlideContent(targetSlide.id, updatedContent);
+          trackEvent("media_added", {
+            output_id: id,
+            output_type: "deck",
+            media_source: "generated_asset",
+            slide_id: targetSlide.id,
+          });
+        }
+        return;
+      }
+      replaceImageInSlide(replaceSrc, url);
+    },
+    [replaceImageInSlide, updateSlideContent],
+  );
+
+  const updateImageFit = useCallback(
+    (
+      imgSrc: string,
+      updates: {
+        objectFit?: "cover" | "contain";
+        objectPosition?: ImageObjectPosition;
+      },
+      imageOccurrence?: number,
+    ) => {
+      if (!id || !currentSlideRef.current) return;
+      const slide = currentSlideRef.current;
+      const pendingForSlide = pendingImagePreviewsRef.current.filter(
+        (preview) => preview.slideId === slide.id,
+      );
+      const currentContent = pendingForSlide.reduce(
+        (content, preview) => applyOptimisticImagePreview(content, preview),
+        latestSlideContentRef.current.get(slide.id) ?? slide.content,
+      );
+      const updatedContent = updateImageFitInSlideHtml(
+        currentContent,
+        imgSrc,
+        updates,
+        imageOccurrence,
+      );
+      if (updatedContent !== currentContent) {
+        const updatedPreviews = pendingForSlide.map((preview) => ({
+          ...captureOptimisticImagePreview(updatedContent, preview),
+          slideId: preview.slideId,
+        }));
+        if (updatedPreviews.length > 0) {
+          updatePendingImagePreviews((current) =>
+            current.map((preview) => {
+              const updated = updatedPreviews.find(
+                (candidate) => candidate.previewSrc === preview.previewSrc,
+              );
+              return updated ?? preview;
+            }),
+          );
+        }
+        updateSlideContent(
+          slide.id,
+          updatedPreviews.length > 0
+            ? stripOptimisticImagePreviews(updatedContent, updatedPreviews)
+            : updatedContent,
+        );
+      }
+    },
+    [updatePendingImagePreviews, updateSlideContent],
+  );
+
+  const handleClipboardImagePaste = useCallback(
+    (event: ClipboardEvent) => {
+      if (!canEdit || event.defaultPrevented) return;
+      const active = document.activeElement;
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      const isTextSurface = (element: Element | null) =>
+        element instanceof HTMLInputElement ||
+        element instanceof HTMLTextAreaElement ||
+        (element instanceof HTMLElement && element.isContentEditable) ||
+        Boolean(element?.closest("[contenteditable='true'], [role='textbox']"));
+      if (isTextSurface(active) || isTextSurface(target)) return;
+
+      const file = Array.from(event.clipboardData?.items ?? [])
+        .filter(
+          (item) => item.kind === "file" && item.type.startsWith("image/"),
+        )
+        .map((item) => item.getAsFile())
+        .find((candidate): candidate is File => Boolean(candidate));
+      if (!file) return;
+
+      event.preventDefault();
+      void uploadAndApplyImage(null, file);
+    },
+    [canEdit, uploadAndApplyImage],
+  );
+
+  useEffect(() => {
+    window.addEventListener("paste", handleClipboardImagePaste, true);
+    return () =>
+      window.removeEventListener("paste", handleClipboardImagePaste, true);
+  }, [handleClipboardImagePaste]);
+
+  const toggleObjectFit = useCallback(
+    (imgSrc: string, newFit: "cover" | "contain", imageOccurrence?: number) => {
+      updateImageFit(imgSrc, { objectFit: newFit }, imageOccurrence);
+    },
+    [updateImageFit],
+  );
+
+  const updateObjectPosition = useCallback(
+    (
+      imgSrc: string,
+      objectPosition: ImageObjectPosition,
+      imageOccurrence?: number,
+    ) => {
+      updateImageFit(imgSrc, { objectPosition }, imageOccurrence);
+    },
+    [updateImageFit],
+  );
+
+  const handleDirectUpload = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = e.target.files;
+      if (!files || files.length === 0 || !replaceImageSrc) return;
+      await uploadAndApplyImage(replaceImageSrc, files[0]);
+      setReplaceImageSrc(null);
+      e.target.value = "";
+    },
+    [replaceImageSrc, uploadAndApplyImage],
+  );
+
+  const openInsertMedia = useCallback(() => {
+    if (fileStorageConfigured) {
+      insertMediaInputRef.current?.click();
+    } else {
+      setShowUploadStorageSetup(true);
+    }
+  }, [fileStorageConfigured]);
+
+  const handleInsertMedia = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      e.target.value = "";
+      if (!file) return;
+      if (file.type.startsWith("video/")) await uploadAndApplyVideo(file);
+      else await uploadAndApplyImage(null, file);
+    },
+    [uploadAndApplyImage, uploadAndApplyVideo],
+  );
+
+  const selectedSlideIdsForAction = useCallback(
+    (slideIds: string[]) => {
+      const selected = new Set(slideIds);
+      return deck?.slides.filter((slide) => selected.has(slide.id)) ?? [];
+    },
+    [deck],
+  );
+
+  const deleteSlidesWithUndo = useCallback(
+    (deckId: string, slideIds: string[]) => {
+      deleteSlides(deckId, slideIds);
+      toast(t("editorSidebar.slideDeleted"), {
+        className: "!bg-background !text-foreground !border-border",
+        duration: 6000,
+        closeButton: true,
+        classNames: {
+          closeButton:
+            "!static !order-1 !size-6 !transform-none !rounded-md !border-0 !bg-transparent !p-0 !text-muted-foreground hover:!bg-muted",
+        },
+        action: {
+          label: "Undo",
+          onClick: () => undo(),
+        },
+      });
+    },
+    [deleteSlides, t, undo],
+  );
+
+  const deleteSlideIds = useCallback(
+    (slideIds: string[]) => {
+      if (!deck || !id) return;
+      const slides = selectedSlideIdsForAction(slideIds);
+      if (!slides.length || slides.length >= deck.slides.length) return;
+      const selected = new Set(slides.map((slide) => slide.id));
+      const firstIndex = Math.min(
+        ...slides.map((slide) => deck.slides.indexOf(slide)),
+      );
+      const nextSlide =
+        deck.slides.find(
+          (slide, index) => index > firstIndex && !selected.has(slide.id),
+        ) ??
+        deck.slides.find(
+          (slide, index) => index < firstIndex && !selected.has(slide.id),
+        );
+      deleteSlidesWithUndo(
+        id,
+        slides.map((slide) => slide.id),
+      );
+      const activeSlideSurvives =
+        activeSlideId &&
+        !selected.has(activeSlideId) &&
+        deck.slides.some((slide) => slide.id === activeSlideId);
+      if (activeSlideSurvives) return;
+      if (nextSlide) {
+        selectionAnchorSlideIdRef.current = nextSlide.id;
+        setSelectedSlideIds([nextSlide.id]);
+        setActiveSlideId(nextSlide.id);
+      }
+    },
+    [activeSlideId, deck, deleteSlidesWithUndo, id, selectedSlideIdsForAction],
+  );
+
+  useEffect(() => {
+    const handleSlideToolShortcut = (event: KeyboardEvent) => {
+      const options = {
+        canEdit,
+        activeElement: document.activeElement,
+        blockingSurfaceOpen: Boolean(
+          document.querySelector(
+            "[role='dialog'], [role='menu'], [role='listbox']",
+          ),
+        ),
+      };
+
+      if (shouldActivateTextTool(event, options)) {
+        event.preventDefault();
+        setDrawMode(false);
+        setPinMode(false);
+        setShapeType(null);
+        setTextBoxMode(true);
+        return;
+      }
+
+      if (!shouldActivateRectangleTool(event, options)) return;
+      event.preventDefault();
+      selectShape("rectangle");
+    };
+
+    document.addEventListener("keydown", handleSlideToolShortcut);
+    return () =>
+      document.removeEventListener("keydown", handleSlideToolShortcut);
+  }, [canEdit, selectShape]);
+
+  useEffect(() => {
+    const handleCommentShortcut = (event: KeyboardEvent) => {
+      const googleCommentShortcut = isGoogleSlidesCommentShortcut(event);
+      const activeElement = document.activeElement;
+      if (
+        !shouldActivateSlidesCommentShortcut(event, {
+          canComment,
+          activeElement,
+          focusedCanvas: Boolean(
+            activeElement?.closest("[data-slide-canvas-focus='true']"),
+          ),
+          blockingSurfaceOpen:
+            document.querySelector(
+              "[role='dialog'], [role='menu'], [role='listbox'], [data-slide-comment-popover], [data-pin-popover]",
+            ) !== null,
+        })
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      setDrawMode(false);
+      setTextBoxMode(false);
+      setShapeType(null);
+      const selection = window.getSelection();
+      const range =
+        selection?.rangeCount && !selection.isCollapsed
+          ? selection.getRangeAt(0)
+          : null;
+      const quotedText = selection?.toString().trim() ?? "";
+      const focusedCanvas = activeElement?.closest<HTMLElement>(
+        "[data-slide-canvas-focus='true']",
+      );
+      if (googleCommentShortcut) {
+        setPinMode(false);
+        if (
+          range &&
+          quotedText &&
+          focusedCanvas?.contains(range.commonAncestorContainer)
+        ) {
+          const canvas =
+            focusedCanvas.closest<HTMLElement>(
+              "[data-main-slide-canvas='true']",
+            ) ?? focusedCanvas;
+          const selectionNode = range.commonAncestorContainer;
+          const selectionElement =
+            selectionNode instanceof Element
+              ? selectionNode
+              : selectionNode.parentElement;
+          const object = selectionElement?.closest<HTMLElement>(
+            "[data-slide-object-id]",
+          );
+          const textRoot =
+            object ?? canvas.querySelector<HTMLElement>(".slide-content");
+          openCommentComposer(
+            quotedText,
+            slideCommentAnchorFromRange({
+              range,
+              slideRect: canvas.getBoundingClientRect(),
+              objectId: object?.getAttribute("data-slide-object-id"),
+              objectRect: object?.getBoundingClientRect(),
+              objectElement: textRoot,
+              targetText: quotedText,
+            }),
+          );
+        } else {
+          openCommentComposer("");
+        }
+      } else {
+        setPinMode(true);
+      }
+    };
+
+    document.addEventListener("keydown", handleCommentShortcut, true);
+    return () =>
+      document.removeEventListener("keydown", handleCommentShortcut, true);
+  }, [canComment, openCommentComposer]);
+
+  useEffect(() => {
+    const handleItalicShortcut = (event: KeyboardEvent) => {
+      if (!shouldSuppressSlidesItalicShortcut(event)) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    };
+
+    document.addEventListener("keydown", handleItalicShortcut, true);
+    return () =>
+      document.removeEventListener("keydown", handleItalicShortcut, true);
+  }, []);
+
+  const slideClipboardSlidesRef = useRef<Slide[] | null>(null);
+  const slideClipboardScopeRef = useRef<string | null>(null);
+  const slideClipboardPersistenceFailedRef = useRef(false);
+  const slideClipboardArmedAtRef = useRef<number | null>(null);
+  const slideClipboardMarkerWriteInProgressRef = useRef(false);
+  const [hasSlideClipboard, setHasSlideClipboard] = useState(false);
+  const slideClipboardStorageKey = session?.email
+    ? getSlideClipboardStorageKey(session.email)
+    : null;
+
+  const syncSlideClipboard = useCallback(() => {
+    if (!slideClipboardStorageKey) {
+      if (
+        slideClipboardSlidesRef.current !== null &&
+        slideClipboardScopeRef.current === null
+      ) {
+        setHasSlideClipboard(true);
+        return slideClipboardSlidesRef.current;
+      }
+      slideClipboardSlidesRef.current = null;
+      slideClipboardScopeRef.current = null;
+      slideClipboardPersistenceFailedRef.current = false;
+      slideClipboardArmedAtRef.current = null;
+      setHasSlideClipboard(false);
+      return null;
+    }
+    const result = readSlideClipboards(slideClipboardStorageKey);
+    const cachedSlides = slideClipboardSlidesRef.current;
+    const cachedCopiedAt = slideClipboardArmedAtRef.current;
+    const isPendingSessionClipboard =
+      cachedSlides !== null && slideClipboardScopeRef.current === null;
+    const slides = resolveSlideClipboardsForPaste(
+      result,
+      cachedSlides,
+      slideClipboardScopeRef.current,
+      slideClipboardStorageKey,
+      cachedCopiedAt,
+      slideClipboardPersistenceFailedRef.current,
+    );
+    const usedCachedClipboard = slides !== null && slides === cachedSlides;
+    slideClipboardSlidesRef.current = slides;
+    slideClipboardScopeRef.current = slideClipboardStorageKey;
+    slideClipboardArmedAtRef.current = usedCachedClipboard
+      ? cachedCopiedAt
+      : result.status === "ready"
+        ? result.copiedAt
+        : null;
+    if (
+      isPendingSessionClipboard &&
+      usedCachedClipboard &&
+      cachedCopiedAt !== null &&
+      slides !== null
+    ) {
+      slideClipboardPersistenceFailedRef.current = !writeSlideClipboards(
+        slideClipboardStorageKey,
+        slides,
+        cachedCopiedAt,
+      );
+    } else if (!usedCachedClipboard) {
+      slideClipboardPersistenceFailedRef.current = false;
+    }
+    setHasSlideClipboard(slides !== null);
+    return slides;
+  }, [slideClipboardStorageKey]);
+
+  useEffect(() => {
+    syncSlideClipboard();
+    if (!slideClipboardStorageKey) return;
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === slideClipboardStorageKey) syncSlideClipboard();
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, [slideClipboardStorageKey, syncSlideClipboard]);
+
+  const saveSlidesToClipboard = useCallback(
+    (slides: Slide[], writeNativeMarker = true) => {
+      const copiedAt = Date.now();
+      const snapshots = normalizeSlideClipboards(slides);
+      if (!snapshots) return false;
+      slideClipboardSlidesRef.current = snapshots;
+      slideClipboardScopeRef.current = slideClipboardStorageKey;
+      slideClipboardArmedAtRef.current = copiedAt;
+      let nativeMarkerWritten = !writeNativeMarker;
+      if (writeNativeMarker) {
+        slideClipboardMarkerWriteInProgressRef.current = true;
+        try {
+          nativeMarkerWritten = writeSlideClipboardMarkerToNativeClipboard(
+            snapshots,
+            copiedAt,
+          );
+        } finally {
+          slideClipboardMarkerWriteInProgressRef.current = false;
+        }
+      }
+      if (!nativeMarkerWritten) {
+        console.warn(
+          "Native slide clipboard marker unavailable; use the slide Paste menu.",
+        );
+      }
+      setHasSlideClipboard(true);
+      if (slideClipboardStorageKey) {
+        slideClipboardPersistenceFailedRef.current = !writeSlideClipboards(
+          slideClipboardStorageKey,
+          snapshots,
+          copiedAt,
+        );
+      } else {
+        slideClipboardPersistenceFailedRef.current = false;
+      }
+      return nativeMarkerWritten;
+    },
+    [slideClipboardStorageKey],
+  );
+
+  const copySlides = useCallback(
+    (slideIds: string[], writeNativeMarker = true) => {
+      const selected = new Set(slideIds);
+      const slides = deck?.slides.filter((slide) => selected.has(slide.id));
+      if (!slides?.length) return false;
+      return saveSlidesToClipboard(slides, writeNativeMarker);
+    },
+    [deck, saveSlidesToClipboard],
+  );
+
+  const cutSlides = useCallback(
+    (slideIds: string[]) => {
+      if (!deck || !id) return;
+      const slides = selectedSlideIdsForAction(slideIds);
+      if (!slides.length || slides.length >= deck.slides.length) return;
+      if (!saveSlidesToClipboard(slides)) return;
+      deleteSlideIds(slideIds);
+    },
+    [
+      deck,
+      deleteSlideIds,
+      id,
+      saveSlidesToClipboard,
+      selectedSlideIdsForAction,
+    ],
+  );
+
+  const pasteSlideAfter = useCallback(
+    (targetSlideId: string) => {
+      if (!id) return;
+      const clipboard = syncSlideClipboard();
+      if (!clipboard) return;
+      const newIds = pasteSlides(
+        id,
+        targetSlideId,
+        clipboard.map(({ id: _clipboardId, ...fields }) => fields),
+      );
+      if (newIds.length > 0) {
+        selectionAnchorSlideIdRef.current = newIds[0] ?? null;
+        setSelectedSlideIds(newIds);
+        setActiveSlideId(newIds[newIds.length - 1] ?? null);
+      }
+    },
+    [id, pasteSlides, syncSlideClipboard],
+  );
+
+  const handleDeleteSlideFromRail = useCallback(
+    (slideIds: string[]) => {
+      deleteSlideIds(slideIds);
+    },
+    [deleteSlideIds],
+  );
+
+  const handleDuplicateSlideFromRail = useCallback(
+    (slideIds: string[]) => {
+      if (!deck || !id) return;
+      const slides = selectedSlideIdsForAction(slideIds);
+      if (!slides.length) return;
+      const afterSlideId = slides[slides.length - 1]?.id;
+      if (!afterSlideId) return;
+      const newIds = pasteSlides(
+        id,
+        afterSlideId,
+        slides.map(({ id: _slideId, ...fields }) => fields),
+      );
+      if (newIds.length > 0) {
+        selectionAnchorSlideIdRef.current = newIds[0] ?? null;
+        setSelectedSlideIds(newIds);
+        setActiveSlideId(newIds[newIds.length - 1] ?? null);
+      }
+    },
+    [deck, id, pasteSlides, selectedSlideIdsForAction],
+  );
+
+  const handleNewSlideAfter = useCallback(
+    (afterSlideId: string) => {
+      if (!deck || !id) return;
+      preloadAddSlidePopover();
+      const afterIdx = deck.slides.findIndex((s) => s.id === afterSlideId);
+      const newId = addSlide(
+        id,
+        "blank",
+        afterIdx >= 0 ? afterIdx : undefined,
+        { persistence: "immediate" },
+      );
+      selectionAnchorSlideIdRef.current = newId;
+      setSelectedSlideIds([newId]);
+      setActiveSlideId(newId);
+      setSidebarOpen(true);
+      setDescribeSlideId(newId);
+    },
+    [addSlide, deck, id],
+  );
+
+  const handleToggleSkipSlide = useCallback(
+    (slideIds: string[], skipped: boolean) => {
+      if (!deck || !id) return;
+      updateSlides(
+        id,
+        selectedSlideIdsForAction(slideIds).map((slide) => ({
+          slideId: slide.id,
+          updates: { skipped },
+        })),
+      );
+    },
+    [deck, id, selectedSlideIdsForAction, updateSlides],
+  );
+
+  // Copy, cut, and duplicate stay scoped to the focused rail. Copy writes an
+  // app-owned native marker so later paste can distinguish it from newer text.
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!deck || !id || !canEdit) return;
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+      const key = e.key.toLowerCase();
+      if (key !== "x" && key !== "d") return;
+      if (pinMode || drawMode) return;
+      const focusedThumbnail = document.activeElement?.closest(
+        "[data-slide-thumbnail-id]",
+      );
+      if (!shouldHandleSlideClipboardShortcut(key, Boolean(focusedThumbnail))) {
+        return;
+      }
+
+      if ((window.getSelection()?.toString().length ?? 0) > 0) {
+        return;
+      }
+
+      if (isSlideClipboardTextEntrySurface(e.target as Element | null)) return;
+      if (isSlideClipboardTextEntrySurface(document.activeElement)) return;
+      if (hasBlockingSlideClipboardOverlay()) return;
+      if (
+        !focusedThumbnail &&
+        document.querySelector("[data-slide-element-selected='true']")
+      )
+        return;
+
+      if (key === "x") {
+        if (!activeSlideId) return;
+        const slideIds =
+          selectedSlideIds.length > 0 ? selectedSlideIds : [activeSlideId];
+        if (slideIds.length >= deck.slides.length) return;
+        e.preventDefault();
+        e.stopPropagation();
+        cutSlides(slideIds);
+        return;
+      }
+
+      if (key === "d") {
+        if (!activeSlideId) return;
+        const slideIds = selectedSlideIds.includes(activeSlideId)
+          ? selectedSlideIds
+          : [activeSlideId];
+        e.preventDefault();
+        e.stopPropagation();
+        handleDuplicateSlideFromRail(slideIds);
+        return;
+      }
+    };
+    const handleCopy = (event: ClipboardEvent) => {
+      if (
+        slideClipboardMarkerWriteInProgressRef.current ||
+        !deck ||
+        !id ||
+        !canEdit ||
+        pinMode ||
+        drawMode ||
+        event.defaultPrevented
+      ) {
+        return;
+      }
+      const focusedThumbnail = document.activeElement?.closest(
+        "[data-slide-thumbnail-id]",
+      );
+      if (!shouldHandleSlideClipboardShortcut("c", Boolean(focusedThumbnail))) {
+        return;
+      }
+      if ((window.getSelection()?.toString().length ?? 0) > 0) return;
+      if (isSlideClipboardTextEntrySurface(event.target as Element | null)) {
+        return;
+      }
+      if (isSlideClipboardTextEntrySurface(document.activeElement)) return;
+      if (hasBlockingSlideClipboardOverlay()) return;
+      if (!activeSlideId) return;
+
+      const slideIds =
+        selectedSlideIds.length > 0 ? selectedSlideIds : [activeSlideId];
+      copySlides(slideIds, false);
+
+      const copiedSlides = slideClipboardSlidesRef.current;
+      const copiedAt = slideClipboardArmedAtRef.current;
+      if (!copiedSlides || copiedAt === null) return;
+      const marker = getSlideClipboardNativeMarker(copiedSlides, copiedAt);
+      const markerWritten = writeSlideClipboardMarkerToEvent(event, marker);
+      if (markerWritten) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      } else {
+        console.warn(
+          "Native slide clipboard marker unavailable; use the slide Paste menu.",
+        );
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("copy", handleCopy, true);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("copy", handleCopy, true);
+    };
+  }, [
+    deck,
+    id,
+    canEdit,
+    activeSlideId,
+    copySlides,
+    cutSlides,
+    handleDuplicateSlideFromRail,
+    selectedSlideIds,
+    pinMode,
+    drawMode,
+  ]);
+
+  const handlePasteSlideClipboard = useCallback(
+    (event: ClipboardEvent): boolean => {
+      if (
+        !deck ||
+        !id ||
+        !canEdit ||
+        !activeSlideId ||
+        event.defaultPrevented
+      ) {
+        return false;
+      }
+      if (
+        !isSlideClipboardPasteSurface(
+          event.target instanceof Element ? event.target : null,
+          document.activeElement instanceof Element
+            ? document.activeElement
+            : null,
+        )
+      ) {
+        return false;
+      }
+
+      const clipboard = syncSlideClipboard();
+      const copiedAt = slideClipboardArmedAtRef.current;
+      if (
+        !clipboard ||
+        copiedAt === null ||
+        !isSlideClipboardStillArmed(copiedAt)
+      ) {
+        return false;
+      }
+
+      const html = event.clipboardData?.getData("text/html") ?? "";
+      const expectedMarker = getSlideClipboardNativeMarker(clipboard, copiedAt);
+      const hasMatchingSlideClipboardMarker =
+        readSlideClipboardNativeMarker(html) === expectedMarker;
+      if (!hasMatchingSlideClipboardMarker) return false;
+
+      const hasImage = hasImageClipboardPayload({
+        types: Array.from(event.clipboardData?.types ?? []),
+        itemTypes: Array.from(event.clipboardData?.items ?? []).map(
+          (item) => item.type,
+        ),
+        fileTypes: Array.from(event.clipboardData?.files ?? []).map(
+          (file) => file.type,
+        ),
+        html,
+      });
+      const hasNonMarkerPayload = hasClipboardPayloadBeyondSlideMarker({
+        types: Array.from(event.clipboardData?.types ?? []),
+        itemTypes: Array.from(event.clipboardData?.items ?? []).map(
+          (item) => item.type,
+        ),
+        fileTypes: Array.from(event.clipboardData?.files ?? []).map(
+          (file) => file.type,
+        ),
+        html,
+        plainText: event.clipboardData?.getData("text/plain") ?? "",
+        marker: expectedMarker,
+      });
+      const isTextEntrySurface =
+        isSlideClipboardTextEntrySurface(event.target as Element | null) ||
+        isSlideClipboardTextEntrySurface(document.activeElement);
+      const focusedThumbnail = document.activeElement?.closest(
+        "[data-slide-thumbnail-id]",
+      );
+      const shouldPasteSlide = shouldHandleSlideClipboardPaste({
+        hasMatchingSlideClipboardMarker,
+        hasImage,
+        hasNonMarkerPayload,
+        isTextEntrySurface,
+        hasSelectedCanvasElement:
+          !focusedThumbnail &&
+          Boolean(
+            document.querySelector("[data-slide-element-selected='true']"),
+          ),
+        hasBlockingOverlay: hasBlockingSlideClipboardOverlay(),
+        isSlideToolActive: pinMode || drawMode,
+      });
+      if (!shouldPasteSlide) {
+        if (isTextEntrySurface && !hasImage && !hasNonMarkerPayload) {
+          event.preventDefault();
+          event.stopPropagation();
+          return true;
+        }
+        return false;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      pasteSlideAfter(activeSlideId);
+      return true;
+    },
+    [
+      deck,
+      id,
+      canEdit,
+      activeSlideId,
+      syncSlideClipboard,
+      pasteSlideAfter,
+      pinMode,
+      drawMode,
+    ],
+  );
+
+  useEffect(() => {
+    const handlePaste = (event: ClipboardEvent) => {
+      if (event.defaultPrevented) return;
+      handlePasteSlideClipboard(event);
+    };
+    document.addEventListener("paste", handlePaste, true);
+    return () => document.removeEventListener("paste", handlePaste, true);
+  }, [handlePasteSlideClipboard]);
+
+  // Resolve the active slide from URL/deck state. Imports replace slide IDs, so
+  // keep this valid after deck contents change instead of only on first load.
+  // Track the last URL ?slide param we processed so we can tell "the URL changed
+  // externally" (agent navigate command, browser back/forward, deep link) apart
+  // from "the URL is the same as last render, just other state moved". Without
+  // this, the resolver short-circuited on external URL changes and the agent's
+  // navigate --slideNumber / --slideIndex commands were effectively ignored.
+  const lastUrlSlideParamRef = useRef<string | null>(null);
+  const pendingUrlSlideIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!deck) return;
+    if (deck.slides.length === 0) {
+      if (activeSlideId) setActiveSlideId(null);
+      lastUrlSlideParamRef.current = null;
+      pendingUrlSlideIdRef.current = null;
+      return;
+    }
+
+    const slideParam = searchParams.get("slide");
+    const urlChanged = slideParam !== lastUrlSlideParamRef.current;
+    lastUrlSlideParamRef.current = slideParam;
+
+    if (urlChanged && slideParam) {
+      const idx = parseInt(slideParam, 10) - 1;
+      if (idx >= 0 && idx < deck.slides.length) {
+        const targetId = deck.slides[idx].id;
+        if (activeSlideId !== targetId) {
+          pendingUrlSlideIdRef.current = targetId;
+          setActiveSlideId(targetId);
+        } else if (pendingUrlSlideIdRef.current === targetId) {
+          pendingUrlSlideIdRef.current = null;
+        }
+        return;
+      }
+    }
+
+    if (
+      pendingUrlSlideIdRef.current &&
+      !deck.slides.some((s) => s.id === pendingUrlSlideIdRef.current)
+    ) {
+      pendingUrlSlideIdRef.current = null;
+    }
+
+    if (activeSlideId && deck.slides.some((s) => s.id === activeSlideId)) {
+      return;
+    }
+    if (slideParam) {
+      const idx = parseInt(slideParam, 10) - 1;
+      if (idx >= 0 && idx < deck.slides.length) {
+        setActiveSlideId(deck.slides[idx].id);
+        return;
+      }
+    }
+    setActiveSlideId(deck.slides[0].id);
+  }, [deck, activeSlideId, searchParams]);
+
+  useEffect(() => {
+    selectionAnchorSlideIdRef.current = null;
+    setSelectedSlideIds([]);
+  }, [id]);
+
+  useEffect(() => {
+    if (!deck) return;
+    const slideIds = new Set(deck.slides.map((slide) => slide.id));
+    const validSelectedIds = selectedSlideIds.filter((slideId) =>
+      slideIds.has(slideId),
+    );
+    if (validSelectedIds.length !== selectedSlideIds.length) {
+      const nextActiveSlideId =
+        activeSlideId && slideIds.has(activeSlideId)
+          ? activeSlideId
+          : (validSelectedIds[0] ?? deck.slides[0]?.id ?? null);
+      const nextSelectedIds = validSelectedIds.length
+        ? validSelectedIds
+        : nextActiveSlideId
+          ? [nextActiveSlideId]
+          : [];
+      selectionAnchorSlideIdRef.current =
+        selectionAnchorSlideIdRef.current &&
+        slideIds.has(selectionAnchorSlideIdRef.current)
+          ? selectionAnchorSlideIdRef.current
+          : (nextSelectedIds[0] ?? null);
+      setSelectedSlideIds(nextSelectedIds);
+      if (nextActiveSlideId !== activeSlideId) {
+        setActiveSlideId(nextActiveSlideId);
+      }
+      return;
+    }
+    if (selectedSlideIds.length === 0) {
+      const slideId =
+        activeSlideId && slideIds.has(activeSlideId)
+          ? activeSlideId
+          : deck.slides[0]?.id;
+      if (slideId) {
+        selectionAnchorSlideIdRef.current = slideId;
+        setSelectedSlideIds([slideId]);
+      }
+    }
+  }, [activeSlideId, deck, selectedSlideIds]);
+
+  useEffect(() => {
+    if (!deck || !activeSlideId) return;
+    const pendingUrlSlideId = pendingUrlSlideIdRef.current;
+    if (pendingUrlSlideId) {
+      if (!deck.slides.some((s) => s.id === pendingUrlSlideId)) {
+        pendingUrlSlideIdRef.current = null;
+      } else if (activeSlideId !== pendingUrlSlideId) {
+        return;
+      } else {
+        pendingUrlSlideIdRef.current = null;
+      }
+    }
+    const idx = deck.slides.findIndex((s) => s.id === activeSlideId);
+    if (idx >= 0) {
+      const current = searchParams.get("slide");
+      const newVal = String(idx + 1);
+      if (current !== newVal) {
+        setSearchParams(
+          (prev) => {
+            const next = new URLSearchParams(prev);
+            next.set("slide", newVal);
+            return next;
+          },
+          { replace: true },
+        );
+      }
+    }
+  }, [activeSlideId, deck, searchParams, setSearchParams]);
+
+  useEffect(() => {
+    if (!deck || !id) return;
+    const slide =
+      deck.slides.find((s) => s.id === activeSlideId) || deck.slides[0];
+    const idx = deck.slides.findIndex((s) => s.id === slide?.id);
+    const selection = {
+      deckId: id,
+      deckTitle: deck.title,
+      slideId: slide?.id || null,
+      slideIndex: idx >= 0 ? idx : 0,
+      slideLayout: slide?.layout || null,
+      slideContent: slide?.content || null,
+      selectedSlideIds,
+      selectedImageSrc: replaceImageSrc,
+    };
+    (window as any).__deckSelection = selection;
+    const el = document.documentElement;
+    el.dataset.deckId = id;
+    el.dataset.slideId = slide?.id || "";
+    el.dataset.slideIndex = String(idx >= 0 ? idx : 0);
+    if (replaceImageSrc) {
+      el.dataset.selectedImage = replaceImageSrc;
+    } else {
+      delete el.dataset.selectedImage;
+    }
+    return () => {
+      delete (window as any).__deckSelection;
+      delete el.dataset.deckId;
+      delete el.dataset.slideId;
+      delete el.dataset.slideIndex;
+      delete el.dataset.selectedImage;
+    };
+  }, [deck, id, activeSlideId, replaceImageSrc, selectedSlideIds]);
+
+  const currentSlideRef =
+    useRef<typeof deck extends undefined ? null : any>(null);
+
+  const currentUser = session?.email
+    ? {
+        email: session.email,
+        name: session.name?.trim() || emailToName(session.email),
+        color: emailToColor(session.email),
+      }
+    : undefined;
+
+  const slideDocId =
+    id && activeSlideId ? `deck-${id}-slide-${activeSlideId}` : null;
+  const {
+    activeUsers: slideActiveUsers,
+    agentActive: slideAgentActive,
+    agentPresent: slideAgentPresent,
+  } = useCollaborativeDoc({
+    docId: slideDocId,
+    activityResource: id ? { resourceType: "deck", resourceId: id } : undefined,
+    requestSource: TAB_ID,
+    user: currentUser,
+  });
+
+  const {
+    slidePresence,
+    agentPresent: deckAgentPresent,
+    agentActive: deckAgentActive,
+    agentSlideId,
+    recentEdits: deckRecentEdits,
+  } = useDeckPresence({
+    deckId: deck ? (id ?? null) : null,
+    activeSlideId: activeSlideId,
+    user: currentUser,
+  });
+
+  const agentPresent = generating || deckAgentPresent || slideAgentPresent;
+  const agentActive = generating || deckAgentActive || slideAgentActive;
+
+  const currentSlideCommentsQuery = useSlideComments(
+    deck ? (id ?? null) : null,
+    activeSlideId,
+  );
+  const currentSlideThreads: CommentThread[] =
+    currentSlideCommentsQuery.data ?? [];
+  const unresolvedCommentCount = currentSlideThreads.filter(
+    (t) => !t.resolved,
+  ).length;
+
+  const insertSlideAfterActive = useCallback(
+    (layout: Slide["layout"]) => {
+      if (!deck || !id) return;
+      const activeIdx = deck.slides.findIndex((s) => s.id === activeSlideId);
+      const newId = addSlide(
+        id,
+        layout,
+        activeIdx >= 0 ? activeIdx : undefined,
+        {
+          persistence: "immediate",
+        },
+      );
+      selectionAnchorSlideIdRef.current = newId;
+      setSelectedSlideIds([newId]);
+      setActiveSlideId(newId);
+      return newId;
+    },
+    [activeSlideId, addSlide, deck, id],
+  );
+
+  useEffect(() => {
+    const handleNewSlideShortcut = (event: KeyboardEvent) => {
+      if (
+        !deck ||
+        !id ||
+        pinMode ||
+        drawMode ||
+        !shouldCreateSlideWithShortcut(event, {
+          canEdit,
+          activeElement: document.activeElement,
+          blockingSurfaceOpen: Boolean(
+            document.querySelector(
+              "[role='dialog'], [role='alertdialog'], [role='menu'], [role='listbox']",
+            ),
+          ),
+        })
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      const slide =
+        deck.slides.find((s) => s.id === activeSlideId) ?? deck.slides[0];
+      insertSlideAfterActive(slide?.layout ?? "content");
+    };
+
+    document.addEventListener("keydown", handleNewSlideShortcut);
+    return () =>
+      document.removeEventListener("keydown", handleNewSlideShortcut);
+  }, [
+    activeSlideId,
+    canEdit,
+    deck,
+    drawMode,
+    id,
+    insertSlideAfterActive,
+    pinMode,
+  ]);
+
+  if (
+    shouldShowDeckEditorSkeleton({
+      deckFound: Boolean(deck),
+      decksLoading: loading,
+      orgLoading,
+      accessCheckKey: currentDeckAccessKey,
+      checkedAccessKey: checkedDeckAccessKey,
+      retrying: retryingMissingDeck,
+      accessCheck: deckAccessCheck,
+    })
+  ) {
+    return <DeckEditorSkeleton label={t("deckEditor.lookingForDeck")} />;
+  }
+  if (id && !deck && showDeckAccessDeniedPage) {
+    const pendingAccessRequest = deckAccessStatus?.pendingAccessRequest;
+    return (
+      <DeckAccessDeniedPage
+        key={id}
+        canRequestAccess={deckAccessStatus?.visibility === "private"}
+        request={deckAccessRequestStateFor(
+          deniedPageAccessRequest,
+          pendingAccessRequest,
+        )}
+        savedNote={pendingAccessRequest?.note ?? null}
+        viewerEmail={session?.email ?? deckAccessStatus?.viewerEmail ?? null}
+        onNoteChange={() => {
+          if (deniedPageAccessRequest.isError) resetDeniedPageAccessRequest();
+        }}
+        onRequestAccess={(note) =>
+          deniedPageAccessRequest.mutate(
+            { deckId: id, note },
+            {
+              onSuccess: (result) => {
+                if (result.alreadyHasAccess) void reloadDecks();
+              },
+            },
+          )
+        }
+        onSwitchAccount={() => void signOut()}
+        onGoHome={() => navigate("/home")}
+      />
+    );
+  }
+  if (!deck || !id) {
+    return (
+      <MissingDeckAccessPane
+        accessStatus={deckAccessStatus}
+        accessStatusError={deckAccessStatusQuery.isError}
+        accessStatusLoading={loading || deckAccessStatusQuery.isLoading}
+        hasTeamJoinOption={hasTeamJoinOption}
+        orgLoading={orgLoading}
+        orgError={orgError || loadError}
+        requestAccessPending={
+          requestDeckAccessMutation.isPending || accessRequestRefreshPending
+        }
+        accessRequestSent={accessRequestSentDeckId === id}
+        accessRequestNotified={accessRequestNotified}
+        requestAccessDialogOpen={requestAccessDialogOpen}
+        requesterEmail={requesterEmail}
+        requestAccessDialogError={requestAccessDialogError}
+        originalPrompt={generationRetryPrompt}
+        signedIn={Boolean(session) && !sessionLoading}
+        signInHref={buildSignInReturnHref({
+          returnTo: appPath(id ? `/deck/${encodeURIComponent(id)}` : "/home"),
+        })}
+        viewerEmail={session?.email ?? deckAccessStatus?.viewerEmail ?? null}
+        refreshing={retryingMissingDeck}
+        onRequestAccess={requestDeckAccess}
+        onRequestAccessDialogOpenChange={requestAccessDialogOpenChange}
+        onRequesterEmailChange={(email) => {
+          setRequesterEmail(email);
+          setRequestAccessDialogError(null);
+        }}
+        onSubmitGuestAccessRequest={submitGuestAccessRequest}
+        onSignIn={openSignIn}
+        onRetry={() => void retryOpenDeck()}
+        onBack={() =>
+          navigate(
+            "/home",
+            generationRetryPrompt
+              ? { state: { retryPrompt: generationRetryPrompt } }
+              : undefined,
+          )
+        }
+      />
+    );
+  }
+
+  const handleDownloadDeckBackup = () => {
+    inlineEditFlushRef.current?.();
+    const backupDeck: Deck = {
+      ...deck,
+      slides: deck.slides.map((slide) => {
+        const content = latestSlideContentRef.current.get(slide.id);
+        return content === undefined ? slide : { ...slide, content };
+      }),
+    };
+    try {
+      downloadDeckBackup(backupDeck);
+      toast.success(t("editorToolbar.backupDownloaded"));
+    } catch (error) {
+      console.error("[slides] deck backup download failed:", error);
+      toast.error(t("editorToolbar.backupDownloadFailed"));
+    }
+  };
+
+  const handleImportDeckBackup = async (file: File) => {
+    const backup = parseDeckBackup(await file.text());
+    setDeckSlides(id, backup.deck.slides, {
+      deckFields: {
+        title: backup.deck.title,
+        ...(backup.deck.aspectRatio !== undefined
+          ? { aspectRatio: backup.deck.aspectRatio }
+          : {}),
+        designSystemId: backup.deck.designSystemId ?? null,
+        ...(backup.deck.tweaks !== undefined
+          ? { tweaks: backup.deck.tweaks }
+          : {}),
+        ...(backup.deck.starred !== undefined
+          ? { starred: backup.deck.starred }
+          : {}),
+      },
+      clearDeckFields: [
+        "aspectRatio",
+        "designSystemId",
+        "tweaks",
+        "starred",
+        "sourceImport",
+      ],
+      persistence: "immediate",
+      forcePersistence: true,
+    });
+    await flushDeckSave(id);
+    return { slideCount: backup.deck.slides.length };
+  };
+
+  const currentSlide =
+    deck.slides.find((s) => s.id === activeSlideId) || deck.slides[0];
+  const currentIndex = deck.slides.findIndex((s) => s.id === currentSlide?.id);
+  const previousSlide = deck.slides[currentIndex - 1];
+  const nextSlide =
+    currentIndex >= 0 ? deck.slides[currentIndex + 1] : undefined;
+  const menuSlideIds =
+    activeSlideId && !selectedSlideIds.includes(activeSlideId)
+      ? [activeSlideId]
+      : selectedSlideIds;
+  const canDeleteMenuSlides =
+    deck.slides.length > menuSlideIds.length && menuSlideIds.length > 0;
+  const canPreviewTransition =
+    transitionPreviewPair(deck.slides, currentIndex) !== null;
+  currentSlideRef.current = currentSlide;
+  syncSlideContentSnapshots(
+    deck.slides,
+    latestSlideContentRef.current,
+    renderedSlideContentRef.current,
+  );
+  const pendingForCurrentSlide = currentSlide
+    ? pendingImagePreviews.filter(
+        (preview) => preview.slideId === currentSlide.id,
+      )
+    : [];
+  const previewContent = pendingForCurrentSlide.reduce(
+    (content, preview) => applyOptimisticImagePreview(content, preview),
+    currentSlide?.content ?? "",
+  );
+  const pendingVideosForCurrentSlide = currentSlide
+    ? pendingVideoPreviews.filter(
+        (preview) => preview.slideId === currentSlide.id,
+      )
+    : [];
+  const videoPreviewContent = pendingVideosForCurrentSlide.reduce(
+    insertPendingSlideVideoPlaceholder,
+    previewContent,
+  );
+  const editorSlide =
+    currentSlide && videoPreviewContent !== currentSlide.content
+      ? { ...currentSlide, content: videoPreviewContent }
+      : currentSlide;
+
+  const finishPresent = async (
+    attemptId: number,
+    target: Window | null,
+    presentationUrl: string,
+  ) => {
+    try {
+      await flushDeckSave(id);
+      if (presentAttemptRef.current !== attemptId) {
+        if (target && !target.closed) target.close();
+        return;
+      }
+      if (target) {
+        if (!target.closed) target.location.href = presentationUrl;
+        return;
+      }
+      presentNavigationRef.current = true;
+      void navigate(presentationUrl);
+    } catch (error) {
+      if (presentAttemptRef.current !== attemptId) {
+        if (target && !target.closed) target.close();
+        return;
+      }
+      if (target && !target.closed) target.close();
+      console.error("[slides-present] failed to flush save:", error);
+      toast.error(t("settings.saveFailed"));
+    } finally {
+      if (presentAttemptRef.current === attemptId) {
+        presentInFlightRef.current = false;
+      }
+    }
+  };
+
+  const handlePresent = (request?: PresentRequest): boolean | void => {
+    if (presentInFlightRef.current || presentNavigationRef.current) {
+      return request?.preserveNativeNavigation ? true : undefined;
+    }
+
+    trackEvent("slide_presentation_opened", {
+      app_name: "slides",
+      template_name: "slides",
+      navigation: request?.preserveNativeNavigation ? "new_tab" : "current_tab",
+    });
+
+    const hasInlineDraft = inlineEditFlushRef.current?.() ?? false;
+    const hasPendingEdits =
+      hasPendingDeckEdits || hasInlineDraft || hasUnsavedDeckChanges(id);
+    flushPendingSaves();
+    if (request?.preserveNativeNavigation && !hasPendingEdits) return false;
+
+    const presentationUrl = `/deck/${id}/present?slide=${Math.max(0, currentIndex) + 1}`;
+    const target = request?.preserveNativeNavigation
+      ? window.open("", "_blank")
+      : null;
+    if (request?.preserveNativeNavigation && !target) {
+      toast.error(t("settings.saveFailed"));
+      return true;
+    }
+    presentInFlightRef.current = true;
+    const attemptId = ++presentAttemptRef.current;
+    void finishPresent(attemptId, target, presentationUrl);
+    return request?.preserveNativeNavigation ? true : undefined;
+  };
+
+  const editorDragOver = (e: React.DragEvent) => {
+    if (!Array.from(e.dataTransfer?.types ?? []).includes("Files")) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+  };
+  const editorDrop = (e: React.DragEvent) => {
+    const files = Array.from(e.dataTransfer?.files ?? []);
+    const video = files.find(videoFileLooksLikeVideo);
+    if (video) {
+      e.preventDefault();
+      e.stopPropagation();
+      void uploadAndApplyVideo(video);
+      return;
+    }
+    const file = files.find(imageFileLooksSupported);
+    if (!file) return;
+    e.preventDefault();
+    e.stopPropagation();
+    void uploadAndApplyImage(null, file);
+  };
+
+  const handleAddEmptySlide = () => insertSlideAfterActive("blank");
+
+  const handleNewSlideClick = () => {
+    preloadAddSlidePopover();
+    const newId = handleAddEmptySlide();
+    if (newId) {
+      setSidebarOpen(true);
+      setDescribeSlideId(newId);
+    }
+  };
+
+  return (
+    <div
+      className="deck-editor-shell flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-l-lg bg-background"
+      data-slides-editor-root="true"
+      data-slides-editor-editable={canEdit ? "true" : "false"}
+      onDragOver={editorDragOver}
+      onDrop={editorDrop}
+    >
+      <EditorToolbar
+        deck={deck}
+        deckId={id}
+        deckTitle={deck.title}
+        canEdit={canEdit}
+        canComment={canComment}
+        onTitleChange={(title) => updateDeck(id, { title })}
+        currentSlideIndex={currentIndex >= 0 ? currentIndex : 0}
+        sidebarOpen={sidebarOpen}
+        onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+        onGenerateImage={() => setImageGenOpen(!imageGenOpen)}
+        onOpenAssetLibrary={() => {
+          if (!assetLibraryOpen) {
+            trackEvent("slide_panel_opened", {
+              app_name: "slides",
+              template_name: "slides",
+              panel: "asset_library",
+            });
+          }
+          setReplaceImageSrc(null);
+          setAssetLibraryOpen(true);
+        }}
+        onShowHistory={() => {
+          if (!historyOpen) {
+            trackEvent("slide_panel_opened", {
+              app_name: "slides",
+              template_name: "slides",
+              panel: "history",
+            });
+          }
+          setHistoryOpen((open) => !open);
+        }}
+        panelAnchorRef={panelAnchorRef}
+        onPresent={handlePresent}
+        currentSlide={currentSlide}
+        layersOpen={layersOpen}
+        onToggleLayers={canEdit ? toggleLayers : undefined}
+        onAddEmptySlide={canEdit ? handleNewSlideClick : undefined}
+        addSlideGenerating={addSlideGenerating}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onUndo={canEdit ? () => undo(id) : undefined}
+        onRedo={canEdit ? () => redo(id) : undefined}
+        canvasCommandsRef={canvasCommandsRef}
+        onDuplicateSlides={
+          canEdit && menuSlideIds.length > 0
+            ? () => handleDuplicateSlideFromRail(menuSlideIds)
+            : undefined
+        }
+        onDeleteSlides={
+          canEdit && canDeleteMenuSlides
+            ? () => handleDeleteSlideFromRail(menuSlideIds)
+            : undefined
+        }
+        onPreviousSlide={
+          previousSlide
+            ? () => handleSlideSelection(previousSlide.id)
+            : undefined
+        }
+        onNextSlide={
+          nextSlide ? () => handleSlideSelection(nextSlide.id) : undefined
+        }
+        onWideContextToolbarSlotChange={setWideContextToolbarSlot}
+        onDownloadBackup={handleDownloadDeckBackup}
+        onImportDeckBackup={handleImportDeckBackup}
+        activeUsers={slideActiveUsers.filter((u) => u.email !== session?.email)}
+        agentPresent={agentPresent}
+        agentActive={agentActive}
+        commentsOpen={commentsOpen}
+        onToggleComments={toggleComments}
+        unresolvedCommentCount={unresolvedCommentCount}
+        currentUserEmail={session?.email}
+        animationsOpen={animationsOpen}
+        onToggleAnimations={toggleAnimations}
+        tweaksOpen={tweaksOpen}
+        onToggleTweaks={() => {
+          if (!tweaksOpen) {
+            trackEvent("slide_panel_opened", {
+              app_name: "slides",
+              template_name: "slides",
+              panel: "tweaks",
+            });
+          }
+          setTweaksOpen((open) => !open);
+        }}
+        drawMode={drawMode}
+        onToggleDrawMode={toggleDrawMode}
+        pinMode={pinMode}
+        onTogglePinMode={togglePinMode}
+        textBoxMode={textBoxMode}
+        onToggleTextBoxMode={toggleTextBoxMode}
+        shapeType={shapeType}
+        onSelectShape={selectShape}
+        onChangeSlideTransition={
+          canEdit && currentSlide
+            ? (patch) => updateSlide(id, currentSlide.id, patch)
+            : undefined
+        }
+        onPlaySlideTransition={
+          canPreviewTransition
+            ? () => setTransitionPreviewOpen(true)
+            : undefined
+        }
+        onApplySlideTransitionToAll={
+          canEdit && deck.slides.length > 0
+            ? (patch) =>
+                updateSlides(
+                  id,
+                  deck.slides.map((slide) => ({
+                    slideId: slide.id,
+                    updates: patch,
+                  })),
+                )
+            : undefined
+        }
+        onDuplicateDeck={async () => {
+          const newId = `deck-${nanoid()}`;
+          const optimistic = await duplicateDeck(id, newId, undefined, () => {
+            if (deckIdFromPathname(window.location.pathname) === newId) {
+              void navigate("/home");
+            }
+            toast.error(t("home.duplicateFailed"));
+          });
+          if (optimistic) void navigate(`/deck/${optimistic.id}`);
+        }}
+        onExportPdf={async () => {
+          trackEvent("slide_export_started", {
+            app_name: "slides",
+            template_name: "slides",
+            format: "pdf",
+          });
+          const exportSlides = deck.slides;
+          if (exportSlides.length === 0) {
+            throw new Error(t("deckEditor.deckHasNoSlides"));
+          }
+          await exportDeckAsPdf(deck.title, exportSlides, deck.aspectRatio, {
+            analytics: deckExportAnalytics,
+          });
+        }}
+        onExportPptx={async () => {
+          trackEvent("slide_export_started", {
+            app_name: "slides",
+            template_name: "slides",
+            format: "pptx",
+          });
+          const slides = deck.slides.map((s) => ({
+            id: s.id,
+            notes: s.notes,
+          }));
+          if (slides.length === 0) {
+            throw new Error(t("deckEditor.deckHasNoSlides"));
+          }
+          await exportDeckAsPptx(
+            deck.title,
+            slides,
+            deck.aspectRatio,
+            deckExportAnalytics,
+          );
+        }}
+        onExportGoogleSlides={async () => {
+          trackEvent("slide_export_started", {
+            app_name: "slides",
+            template_name: "slides",
+            format: "google_slides",
+          });
+          const slides = deck.slides.map((s) => ({
+            id: s.id,
+            notes: s.notes,
+          }));
+          if (slides.length === 0) {
+            throw new Error(t("deckEditor.deckHasNoSlides"));
+          }
+          if (canExportPptxFromServer(deck)) {
+            await flushDeckSave(id);
+            return exportDeckToGoogleSlides(
+              deck.title,
+              slides,
+              deck.aspectRatio,
+              () =>
+                fetchDeckPptxFromServer(
+                  id,
+                  t("editorExport.exportPptxError"),
+                  "google_slides",
+                ),
+              deckExportAnalytics,
+            );
+          }
+          return exportDeckToGoogleSlides(
+            deck.title,
+            slides,
+            deck.aspectRatio,
+            undefined,
+            deckExportAnalytics,
+          );
+        }}
+      />
+
+      {/* Full-width host for the slide's contextual style toolbar: it spans the
+       * slide rail as well as the canvas, matching the deck toolbar above it. */}
+      <div
+        ref={setContextToolbarSlot}
+        data-context-toolbar-host="narrow"
+        className="deck-editor-context-toolbar-host deck-editor-context-toolbar-host--narrow shrink-0"
+      />
+
+      {showPartialGenerationFailure ? (
+        <div className="shrink-0 border-b bg-muted/50 px-4 py-3" role="alert">
+          <div className="mx-auto max-w-6xl text-start">
+            <p>
+              {generationContext?.generationFailureCode === "outcome_unresolved"
+                ? t("deckEditor.generationOutcomeUnresolvedWithSlides")
+                : t("deckEditor.partialGenerationFailed")}
+            </p>
+            {generationPromptForDisplay ? (
+              <div className="mt-2">
+                <p className="text-xs font-medium text-muted-foreground">
+                  {t("deckEditor.originalPrompt")}
+                </p>
+                <p className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap rounded-md bg-background p-3 text-sm">
+                  {generationPromptForDisplay}
+                </p>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="deck-editor-workspace relative flex min-h-0 flex-1 overflow-hidden rounded-l-lg bg-background">
+        {sidebarOpen && (
+          <>
+            <div
+              // guard:allow-raw-color — existing scrim behind the mobile rail, unchanged
+              className="md:hidden fixed inset-0 bg-black/50 z-30"
+              onClick={() => setSidebarOpen(false)}
+            />
+            <div
+              className="absolute z-[70] flex h-full min-h-0 w-48 flex-col sm:w-52 md:relative md:w-[var(--rail-width,13rem)]"
+              style={
+                railWidth === null
+                  ? undefined
+                  : ({ "--rail-width": `${railWidth}px` } as CSSProperties)
+              }
+            >
+              <div
+                role="separator"
+                aria-orientation="vertical"
+                aria-label={t("editorToolbar.resizeSlideList")}
+                aria-valuenow={railWidth ?? undefined}
+                tabIndex={0}
+                className="absolute inset-y-0 -right-1 z-10 hidden w-2 cursor-col-resize touch-none hover:bg-primary/20 focus-visible:bg-primary/20 focus-visible:outline-none md:block"
+                onPointerDown={(event) => {
+                  const rail = event.currentTarget.parentElement;
+                  if (!rail) return;
+                  const startX = event.clientX;
+                  const startWidth = rail.offsetWidth;
+                  trackPointerDrag(event, (moveEvent) =>
+                    setRailWidth(
+                      clamp(
+                        startWidth + moveEvent.clientX - startX,
+                        RAIL_MIN_WIDTH,
+                        RAIL_MAX_WIDTH,
+                      ),
+                    ),
+                  );
+                }}
+                onKeyDown={(event) => {
+                  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight")
+                    return;
+                  event.preventDefault();
+                  const rail = event.currentTarget.parentElement;
+                  if (!rail) return;
+                  const delta = event.key === "ArrowRight" ? 16 : -16;
+                  setRailWidth(
+                    clamp(
+                      rail.offsetWidth + delta,
+                      RAIL_MIN_WIDTH,
+                      RAIL_MAX_WIDTH,
+                    ),
+                  );
+                }}
+              />
+              <div className="min-h-0 flex-1">
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  modifiers={[verticalSlideDragModifier]}
+                  onDragStart={handleDragStart}
+                  onDragEnd={handleDragEnd}
+                  onDragCancel={handleDragCancel}
+                >
+                  <EditorSidebar
+                    slides={deck.slides}
+                    activeSlideId={currentSlide?.id || ""}
+                    selectedSlideIds={selectedSlideIds}
+                    deckId={id}
+                    deckTitle={deck.title}
+                    describeSlideId={describeSlideId}
+                    onCloseDescribe={() => setDescribeSlideId(null)}
+                    onAwaitAddSlidePersisted={() => flushDeckSave(id)}
+                    onRemoveFailedSlide={(slideId) => deleteSlide(id, slideId)}
+                    addSlideAgentSubmit={submitAddSlideAgent}
+                    onAddSlideGeneratingChange={(
+                      isGenerating,
+                      targetSlideId,
+                    ) => {
+                      if (isGenerating) {
+                        sawGeneratingRef.current = false;
+                        sawAddSlideAgentGeneratingRef.current = false;
+                        addSlideRequestSentRef.current = false;
+                      }
+                      setAddSlideGenerating(isGenerating);
+                      setAddSlideTargetId(isGenerating ? targetSlideId : null);
+                    }}
+                    aiGeneratingSlideId={fillingPlaceholderSlideId}
+                    onSelectSlide={handleSlideSelection}
+                    readOnly={!canEdit}
+                    slidePresence={slidePresence}
+                    recentEdits={deckRecentEdits}
+                    aspectRatio={deck.aspectRatio}
+                    designSystem={designSystem}
+                    generatingSlide={
+                      generatingSlideVisible
+                        ? {
+                            index: deck.slides.length,
+                          }
+                        : undefined
+                    }
+                    generatingSlideSelected={generatingSlideSelected}
+                    onSelectGeneratingSlide={() => {
+                      setGeneratingSlideSelected(true);
+                      if (isCompactEditorLayout()) setSidebarOpen(false);
+                    }}
+                    hasSlideClipboard={hasSlideClipboard}
+                    onCutSlide={cutSlides}
+                    onCopySlide={copySlides}
+                    onPasteSlide={pasteSlideAfter}
+                    onDeleteSlide={handleDeleteSlideFromRail}
+                    onNewSlideAfter={handleNewSlideAfter}
+                    onDuplicateSlide={handleDuplicateSlideFromRail}
+                    onReorderSlides={handleReorderSlidesFromRail}
+                    altDragSlideId={altDragState?.slideId}
+                    onToggleSkipSlide={handleToggleSkipSlide}
+                  />
+                  {typeof document !== "undefined"
+                    ? createPortal(
+                        <DragOverlay dropAnimation={null} zIndex={1000}>
+                          {altDragSlide ? (
+                            <div
+                              aria-hidden="true"
+                              data-slide-drag-overlay="copy"
+                              className="pointer-events-none overflow-hidden rounded-lg border border-primary/50 bg-background p-1.5 shadow-2xl"
+                              style={{ width: altDragState?.width ?? 160 }}
+                            >
+                              <div
+                                className="overflow-hidden rounded border"
+                                style={{
+                                  aspectRatio: `${getAspectRatioDims(deck.aspectRatio).width} / ${getAspectRatioDims(deck.aspectRatio).height}`,
+                                }}
+                              >
+                                <SlideRenderer
+                                  slide={altDragSlide}
+                                  aspectRatio={deck.aspectRatio}
+                                  designSystem={designSystem}
+                                  thumbnail
+                                />
+                              </div>
+                            </div>
+                          ) : null}
+                        </DragOverlay>,
+                        document.body,
+                      )
+                    : null}
+                </DndContext>
+              </div>
+              {layersOpen ? (
+                <div className="relative h-0 shrink-0">
+                  <div
+                    role="separator"
+                    aria-orientation="horizontal"
+                    aria-label={t("editorToolbar.resizeLayers")}
+                    aria-valuenow={layersHeight ?? undefined}
+                    tabIndex={0}
+                    className="absolute inset-x-0 -top-1 z-10 h-2 cursor-row-resize touch-none hover:bg-primary/20 focus-visible:bg-primary/20 focus-visible:outline-none"
+                    onPointerDown={(event) => {
+                      const host = layersPanelSlot;
+                      if (!host) return;
+                      const startY = event.clientY;
+                      const startHeight = host.offsetHeight;
+                      const railHeight =
+                        host.parentElement?.offsetHeight ?? startHeight;
+                      trackPointerDrag(event, (moveEvent) =>
+                        setLayersHeight(
+                          clamp(
+                            startHeight + startY - moveEvent.clientY,
+                            LAYERS_MIN_HEIGHT,
+                            railHeight - LAYERS_MIN_RAIL_HEIGHT,
+                          ),
+                        ),
+                      );
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key !== "ArrowUp" && event.key !== "ArrowDown")
+                        return;
+                      event.preventDefault();
+                      const host = layersPanelSlot;
+                      if (!host) return;
+                      const railHeight =
+                        host.parentElement?.offsetHeight ?? host.offsetHeight;
+                      const delta = event.key === "ArrowUp" ? 24 : -24;
+                      setLayersHeight(
+                        clamp(
+                          host.offsetHeight + delta,
+                          LAYERS_MIN_HEIGHT,
+                          railHeight - LAYERS_MIN_RAIL_HEIGHT,
+                        ),
+                      );
+                    }}
+                  />
+                </div>
+              ) : null}
+              <div
+                ref={setLayersPanelSlot}
+                data-layers-panel-host="true"
+                style={{
+                  height: layersHeight ?? "50%",
+                  maxHeight: `calc(100% - ${LAYERS_MIN_RAIL_HEIGHT}px)`,
+                }}
+                className="flex w-full shrink-0 flex-col overflow-hidden empty:hidden"
+              />
+            </div>
+          </>
+        )}
+
+        {generatingSlideSelected && generatingSlideVisible && (
+          <div className="flex min-h-0 flex-1 overflow-auto bg-[var(--slides-editor-surface)] p-4 md:p-8">
+            <div className="m-auto w-full max-w-6xl">
+              <GeneratingSlidePreview
+                aspectRatio={deck.aspectRatio}
+                designSystem={designSystem}
+                thumbnail={false}
+              />
+            </div>
+          </div>
+        )}
+
+        {transitionPreviewOpen && canPreviewTransition && (
+          <SlideTransitionPreview
+            slides={deck.slides}
+            index={currentIndex}
+            aspectRatio={deck.aspectRatio}
+            designSystem={designSystem}
+            onClose={() => setTransitionPreviewOpen(false)}
+          />
+        )}
+
+        {showQuestionFlow && (
+          <QuestionFlow
+            questions={questionFlowQuestions ?? []}
+            onSubmit={handleQuestionSubmit}
+            onSkip={handleQuestionSkip}
+            designSystem={designSystem}
+            title={questionFlowTitle}
+            description={questionFlowDescription}
+            skipLabel={questionFlowSkipLabel}
+            submitLabel={questionFlowSubmitLabel}
+            isSubmitting={questionFlowSubmitting}
+            isSubmissionBlocked={questionFlowSubmissionBlocked}
+            providerStatus={questionFlowProviderStatus}
+            onRetryProviderStatus={retryQuestionFlowProviderStatus}
+          />
+        )}
+
+        {!generatingSlideSelected &&
+          deck.slides.length === 0 &&
+          (showGenerationRecovery ? (
+            <div className="flex min-h-0 flex-1 overflow-auto bg-[var(--slides-editor-surface)] p-4 md:p-8">
+              <div
+                className="m-auto flex max-w-md flex-col items-center gap-4 text-center"
+                role="alert"
+              >
+                <p>
+                  {generationContext?.generationFailureCode === "agent_error"
+                    ? t("deckEditor.agentRunFailed")
+                    : generationRecoveryState === "outcome_unresolved"
+                      ? t("deckEditor.generationOutcomeUnresolved")
+                      : t("deckEditor.generationFailed")}
+                </p>
+                {generationPromptForDisplay ? (
+                  <div className="w-full text-left">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      {t("deckEditor.originalPrompt")}
+                    </p>
+                    <p className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-3 text-sm">
+                      {generationPromptForDisplay}
+                    </p>
+                  </div>
+                ) : null}
+                <Button
+                  disabled={!canEdit || generationRetryPending}
+                  onClick={() => void retryEmptyGeneration()}
+                >
+                  {generationRecoveryState === "outcome_unresolved"
+                    ? t("deckEditor.checkedDeckTryAgain")
+                    : t("deckEditor.tryAgain")}
+                </Button>
+              </div>
+            </div>
+          ) : generatingSlideVisible ? (
+            <div className="flex min-h-0 flex-1 overflow-auto bg-[var(--slides-editor-surface)] p-4 md:p-8">
+              <div className="m-auto w-full max-w-6xl">
+                <GeneratingSlidePreview
+                  aspectRatio={deck.aspectRatio}
+                  designSystem={designSystem}
+                  thumbnail={false}
+                />
+              </div>
+            </div>
+          ) : null)}
+
+        {deck.slides.length === 0 &&
+          !showGenerationRecovery &&
+          !generatingSlideVisible && (
+            <div className="flex min-h-0 flex-1 overflow-auto bg-[var(--slides-editor-surface)] p-4 md:p-8">
+              <div className="m-auto w-full max-w-6xl">
+                <GeneratingSlidePreview
+                  aspectRatio={deck.aspectRatio}
+                  designSystem={designSystem}
+                  thumbnail={false}
+                  busy={false}
+                />
+              </div>
+            </div>
+          )}
+
+        {showCurrentSlideEditor && currentSlide && (
+          <SlideEditor
+            slide={editorSlide ?? currentSlide}
+            slidePosition={{
+              number: currentIndex + 1,
+              count: deck.slides.length,
+            }}
+            undoSelection={undoSelection}
+            onUndoSelectionConsumed={clearUndoSelection}
+            deckId={id}
+            onFlushInlineEdit={() => {
+              flushPendingSaves();
+              return flushDeckSave(id);
+            }}
+            flushInlineEditRef={inlineEditFlushRef}
+            canvasCommandsRef={canvasCommandsRef}
+            onPasteSlideClipboard={handlePasteSlideClipboard}
+            readOnly={!canEdit}
+            canComment={canComment}
+            currentUserEmail={session?.email ?? null}
+            comments={currentSlideThreads}
+            onSelectCommentThread={selectCommentThread}
+            slideScroll={
+              compactLayout
+                ? {
+                    slides: deck.slides,
+                    onSelectSlide: handleSlideSelection,
+                    onFollowScroll: followScrolledSlide,
+                    following: !inlineEditActive,
+                  }
+                : undefined
+            }
+            contextToolbarSlot={contextToolbarSlot}
+            wideContextToolbarSlot={wideContextToolbarSlot}
+            layersPanelSlot={layersPanelSlot}
+            contextToolbarLeading={
+              canEdit ? (
+                <EditorActionCluster
+                  textBoxMode={textBoxMode}
+                  onToggleTextBoxMode={toggleTextBoxMode}
+                  onInsertMedia={openInsertMedia}
+                  shapeType={shapeType}
+                  onSelectShape={selectShape}
+                />
+              ) : undefined
+            }
+            onUpdateSlide={(updates, slideIdOverride, options) => {
+              const targetSlideId = slideIdOverride ?? currentSlide.id;
+              const pendingVideosForSlide =
+                pendingVideoPreviewsRef.current.filter(
+                  (preview) => preview.slideId === targetSlideId,
+                );
+              const capturedVideoPreviews =
+                updates.content === undefined
+                  ? pendingVideosForSlide
+                  : pendingVideosForSlide
+                      .filter((preview) =>
+                        hasPendingSlideVideoPlaceholder(
+                          updates.content as string,
+                          preview.objectId,
+                        ),
+                      )
+                      .map((preview) => ({
+                        ...capturePendingSlideVideoGeometry(
+                          updates.content as string,
+                          preview,
+                        ),
+                        slideId: preview.slideId,
+                      }));
+              if (
+                updates.content !== undefined &&
+                pendingVideosForSlide.length > 0
+              ) {
+                updatePendingVideoPreviews((current) => [
+                  ...current.filter(
+                    (preview) => preview.slideId !== targetSlideId,
+                  ),
+                  ...capturedVideoPreviews,
+                ]);
+              }
+              const pendingForSlide = pendingImagePreviewsRef.current.filter(
+                (preview) => preview.slideId === targetSlideId,
+              );
+              const clearMissingPreviews =
+                options?.clearMissingImagePreviews === true;
+              const activePreviews =
+                updates.content === undefined
+                  ? pendingForSlide
+                  : clearMissingPreviews
+                    ? pendingForSlide.filter((preview) =>
+                        hasOptimisticImagePreview(
+                          updates.content as string,
+                          preview.previewSrc,
+                        ),
+                      )
+                    : pendingForSlide;
+              const previewsToStrip =
+                updates.content === undefined
+                  ? activePreviews
+                  : activePreviews.map((preview) =>
+                      captureOptimisticImagePreview(
+                        updates.content as string,
+                        preview,
+                      ),
+                    );
+              if (updates.content !== undefined) {
+                updatePendingImagePreviews((current) =>
+                  current.flatMap((preview) => {
+                    if (preview.slideId !== targetSlideId) return [preview];
+                    if (
+                      !activePreviews.some(
+                        (active) => active.previewSrc === preview.previewSrc,
+                      )
+                    ) {
+                      return clearMissingPreviews ? [] : [preview];
+                    }
+                    const updated = previewsToStrip.find(
+                      (candidate) =>
+                        candidate.previewSrc === preview.previewSrc,
+                    );
+                    return [
+                      { ...(updated ?? preview), slideId: preview.slideId },
+                    ];
+                  }),
+                );
+              }
+              const safeImageUpdates =
+                updates.content !== undefined && previewsToStrip.length > 0
+                  ? {
+                      ...updates,
+                      content: stripOptimisticImagePreviews(
+                        updates.content,
+                        previewsToStrip,
+                      ),
+                    }
+                  : updates;
+              const safeUpdates =
+                typeof safeImageUpdates.content === "string" &&
+                pendingVideosForSlide.length > 0
+                  ? {
+                      ...safeImageUpdates,
+                      content: stripPendingSlideVideoPlaceholders(
+                        safeImageUpdates.content,
+                        pendingVideosForSlide.map(
+                          (preview) => preview.objectId,
+                        ),
+                      ),
+                    }
+                  : safeImageUpdates;
+              if (typeof safeUpdates.content === "string") {
+                latestSlideContentRef.current.set(
+                  targetSlideId,
+                  safeUpdates.content,
+                );
+              }
+              const storedContent = updateSlide(
+                id,
+                targetSlideId,
+                safeUpdates,
+                options,
+              );
+              return storedContent === undefined
+                ? undefined
+                : hashSlideContent(storedContent);
+            }}
+            onInlineEditStart={(slideId) => {
+              setInlineEditActive(true);
+              if (id) markSlideEditingActive(id, slideId);
+            }}
+            onInlineEditEnd={(slideId) => {
+              setInlineEditActive(false);
+              if (id) clearSlideEditingActive(id, slideId);
+            }}
+            onGenerateImage={() => setImageGenOpen(true)}
+            onOpenAssetLibrary={(src) => {
+              if (!assetLibraryOpen) {
+                trackEvent("slide_panel_opened", {
+                  app_name: "slides",
+                  template_name: "slides",
+                  panel: "asset_library",
+                });
+              }
+              setReplaceImageSrc(src);
+              setAssetLibraryOpen(true);
+            }}
+            onUploadImage={(src) => {
+              setReplaceImageSrc(src);
+              if (fileStorageConfigured) {
+                uploadInputRef.current?.click();
+              } else {
+                setShowUploadStorageSetup(true);
+              }
+            }}
+            onDropImage={uploadAndApplyImage}
+            onDropVideo={uploadAndApplyVideo}
+            onDropImageUrl={dropImageUrlOnSlide}
+            onToggleObjectFit={toggleObjectFit}
+            onChangeObjectPosition={updateObjectPosition}
+            slideIndex={currentIndex >= 0 ? currentIndex : 0}
+            designSystem={designSystem}
+            aspectRatio={deck.aspectRatio}
+            collabUser={
+              currentUser
+                ? { name: currentUser.name, color: currentUser.color }
+                : undefined
+            }
+            agentActive={
+              slideAgentActive ||
+              (deckAgentActive && agentSlideId === currentSlide.id) ||
+              (isNewDeckGenerating &&
+                currentSlide.id === deck.slides[deck.slides.length - 1]?.id)
+            }
+            recentEdits={deckRecentEdits}
+            onComment={openCommentComposer}
+            drawMode={drawMode}
+            onExitDrawMode={() => setDrawMode(false)}
+            onToggleLayers={toggleLayers}
+            pinMode={pinMode}
+            onExitPinMode={() => setPinMode(false)}
+            textBoxMode={textBoxMode}
+            onExitTextBoxMode={() => setTextBoxMode(false)}
+            shapeType={shapeType}
+            onExitShapeMode={() => setShapeType(null)}
+            animationsOpen={animationsOpen}
+            layersOpen={layersOpen}
+            onCloseLayers={() => setLayersOpen(false)}
+            onOpenAnimations={openAnimationsForTarget}
+            onSelectedAnimationTargetsChange={setAnimationTargets}
+            slideId={currentSlide.id}
+            presentUsers={slidePresence.get(currentSlide.id) ?? []}
+          />
+        )}
+
+        {commentsOpen && (
+          <SlideCommentsPanel
+            deckId={id}
+            slideId={currentSlide?.id ?? null}
+            canComment={canComment}
+            canEdit={canEdit}
+            currentUserEmail={session?.email ?? null}
+            selectedThreadId={selectedCommentThreadId}
+            selectedThreadRequestId={selectedCommentThreadRequestId}
+            onThreadResolved={(threadId) =>
+              setSelectedCommentThreadId((current) =>
+                current === threadId ? null : current,
+              )
+            }
+            onBeforeCommentSubmit={flushCommentWrites}
+            onSelectSlide={handleSlideSelection}
+            pendingComment={
+              pendingComment?.slideId === currentSlide?.id
+                ? pendingComment
+                : null
+            }
+            onPendingDone={() => setPendingComment(null)}
+            onClose={() => {
+              setSidePanel(null);
+              setSelectedCommentThreadId(null);
+              setPendingComment(null);
+            }}
+          />
+        )}
+
+        {animationsOpen && currentSlide && (
+          <AnimationsPanel
+            slide={currentSlide}
+            selectedTargets={animationTargets}
+            onUpdateSlide={(updates) =>
+              updateSlide(id, currentSlide.id, updates)
+            }
+            onClose={() => setAnimationsOpen(false)}
+          />
+        )}
+
+        {tweaksOpen && (
+          <TweaksPanel
+            tweaks={getPreset(deck?.designSystemId || "default").tweaks}
+            values={deck?.tweaks || {}}
+            onChange={(tweakId, value) => {
+              updateDeck(id, {
+                tweaks: { ...(deck?.tweaks || {}), [tweakId]: value },
+              });
+            }}
+            onClose={() => setTweaksOpen(false)}
+          />
+        )}
+      </div>
+
+      {/* Hidden upload input */}
+      <input
+        ref={uploadInputRef}
+        type="file"
+        accept="image/*,.svg"
+        onChange={handleDirectUpload}
+        disabled={!fileStorageConfigured}
+        className="hidden"
+      />
+
+      <input
+        ref={insertMediaInputRef}
+        type="file"
+        accept="image/*,.svg,video/*"
+        onChange={handleInsertMedia}
+        disabled={!fileStorageConfigured}
+        className="hidden"
+      />
+
+      <UploadStorageGate
+        configured={fileStorageConfigured}
+        unavailable={!storageQuery.isSuccess}
+        open={showUploadStorageSetup}
+        onOpenChange={setShowUploadStorageSetup}
+        onRetry={() => void storageQuery.refetch()}
+      />
+
+      {/* Popovers & Dialogs */}
+      <ImageGenPanel
+        open={imageGenOpen}
+        onOpenChange={setImageGenOpen}
+        anchorRef={panelAnchorRef}
+        referenceImageUrls={imageStyleReferenceUrls}
+        slideContext={
+          currentSlide
+            ? {
+                slideId: currentSlide.id,
+                slideIndex: currentIndex >= 0 ? currentIndex : 0,
+                slideContent: currentSlide.content,
+                slideLayout: currentSlide.layout,
+                deckId: id,
+                deckTitle: deck.title,
+              }
+            : undefined
+        }
+      />
+      <AssetLibraryPanel
+        open={assetLibraryOpen}
+        onOpenChange={setAssetLibraryOpen}
+        anchorRef={panelAnchorRef}
+        onSelectAsset={
+          replaceImageSrc
+            ? (newUrl) => {
+                replaceImageInSlide(replaceImageSrc, newUrl);
+                trackEvent("media_added", {
+                  output_id: id,
+                  output_type: "deck",
+                  media_source: "asset_library",
+                  slide_id: currentSlideRef.current?.id,
+                });
+                setReplaceImageSrc(null);
+              }
+            : undefined
+        }
+      />
+      <HistoryPanel
+        deckId={id}
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        canRestore={canEdit}
+        anchorRef={panelAnchorRef}
+      />
+
+      <AlertDialog open={pendingDeckNavigationWarningOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("deckEditor.unsavedChangesTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("deckEditor.unsavedChangesDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={keepEditingAfterNavigationAttempt}>
+              {t("deckEditor.keepEditing")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={leaveWithPendingDeckChanges}
+            >
+              {t("deckEditor.leaveWithoutSaving")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}

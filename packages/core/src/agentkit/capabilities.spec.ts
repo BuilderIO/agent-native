@@ -97,7 +97,8 @@ describe("AgentKit integration capabilities", () => {
     vi.clearAllMocks();
     mocks.resolveWorkspaceConnection.mockImplementation(
       async ({ provider, appId }) =>
-        provider === "google_drive" && appId === "slides"
+        provider === "google_drive" &&
+        (appId === "slides" || appId === "slides-2")
           ? {
               available: true,
               connection: {
@@ -153,6 +154,33 @@ describe("AgentKit integration capabilities", () => {
         workspaceProvider: "figma",
         ctx: context,
       }),
+    );
+  });
+
+  it("keeps Slides 2 workspace connection checks in its own app scope", async () => {
+    const context = { userEmail: "member@example.test", orgId: "org-1" };
+
+    await expect(
+      listAgentKitCapabilities("slides-2", context),
+    ).resolves.toEqual({
+      sources: { figma: { available: true } },
+      integrations: [
+        { id: "google_drive", label: "Google Drive", kind: "provider-api" },
+        { id: "google_slides", label: "Google Slides", kind: "provider-api" },
+      ],
+    });
+    expect(mocks.resolveWorkspaceConnection).toHaveBeenCalledWith(
+      expect.objectContaining({ appId: "slides-2", provider: "google_drive" }),
+    );
+    expect(mocks.resolveWorkspaceConnection).not.toHaveBeenCalledWith(
+      expect.objectContaining({ appId: "slides", provider: "google_drive" }),
+    );
+
+    await expect(
+      readAgentKitIntegrationIntent("slides-2", "google_drive", context),
+    ).resolves.toMatchObject({ id: "google_drive", title: "Google Drive" });
+    expect(mocks.resolveWorkspaceConnection).toHaveBeenCalledWith(
+      expect.objectContaining({ appId: "slides-2", provider: "google_drive" }),
     );
   });
 

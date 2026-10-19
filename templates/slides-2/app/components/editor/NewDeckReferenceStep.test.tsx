@@ -1,0 +1,981 @@
+// @vitest-environment happy-dom
+vi.mock("@/hooks/use-design-system-workflows", () => ({
+  useDesignSystemWorkflows: () => true,
+}));
+const isReferenceStorageReadyMock = vi.hoisted(() => vi.fn());
+const callActionMock = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/prompt-file-uploads", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/prompt-file-uploads")>()),
+  isReferenceStorageReady: isReferenceStorageReadyMock,
+}));
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
+  callAction: callActionMock,
+}));
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render as renderWithoutQueryClient,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import type { ReactNode } from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import type { Deck } from "@/context/DeckContext";
+import { SLIDE_FILE_STORAGE_STATUS_KEY } from "@/hooks/use-slide-file-storage-status";
+
+vi.mock("@agent-native/toolkit/app/chat/FileStorageSetupPopover", () => ({
+  FileStorageSetupPopover: ({
+    open,
+    status,
+    onRetry,
+  }: {
+    open: boolean;
+    status?: "missing" | "unavailable";
+    onRetry?: () => void;
+  }) =>
+    open ? (
+      <div
+        role="dialog"
+        aria-label={
+          status === "unavailable"
+            ? "Couldn't check storage"
+            : "Connect storage to upload files"
+        }
+        data-testid="file-storage-setup-card"
+      >
+        {status === "unavailable" ? <h2>Couldn't check storage</h2> : null}
+        {status === "unavailable" ? (
+          <button type="button" onClick={onRetry}>
+            Retry
+          </button>
+        ) : null}
+      </div>
+    ) : null,
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
+  useT: () => (key: string, options?: { title?: string }) => {
+    if (key === "home.referenceImportSelected") {
+      return `"${options?.title ?? ""}" is now the reference deck.`;
+    }
+    return (
+      {
+        "home.chooseReferences": "Choose references",
+        "home.importFrom": "Import from",
+        "home.imported": "Imported",
+        "home.googleSlidesImportLabel": "Slides",
+        "home.googleSlidesReferenceTitle": "Google Slides",
+        "home.referenceImportSuccess": "Imported successfully",
+        "home.importMenu.networkFailed":
+          "The import request timed out or lost its network connection. Check your connection and retry.",
+        "home.importMenu.notStarted":
+          "Complete any required sign-in, then retry the import.",
+        "home.fileStorageStatusUnavailable":
+          "Couldn't check object storage. Retry before uploading files.",
+        "home.retry": "Retry",
+        "home.none": "None",
+        "home.continue": "Continue",
+        "home.continueToGenerate": "Continue to generate",
+        "home.noMatchingDecks": "No matching decks found.",
+        "home.addDesignSystem": "Add design system",
+      }[key] ?? key
+    );
+  },
+  useFormatters: () => ({ formatDate: (value: string) => value }),
+}));
+
+vi.mock("@/components/deck/SlideRenderer", () => ({
+  default: () => <div data-testid="reference-deck-preview" />,
+}));
+
+vi.mock("./GoogleDriveConnectionCta", () => ({
+  GoogleDriveConnectionCta: () => (
+    <div data-testid="google-drive-connection-cta" />
+  ),
+}));
+
+vi.mock("@/components/design-system/DesignSystemSetup", () => ({
+  DesignSystemSetup: ({
+    open,
+    onComplete,
+  }: {
+    open: boolean;
+    onClose: () => void;
+    onComplete: () => void;
+  }) =>
+    open ? (
+      <div data-testid="design-system-setup-dialog">
+        <button type="button" onClick={onComplete}>
+          Finish setup
+        </button>
+      </div>
+    ) : null,
+}));
+
+import {
+  NewDeckReferenceStep,
+  type ImportedReference,
+} from "./NewDeckReferenceStep";
+
+function render(ui: ReactNode, configured: boolean | null = true) {
+  const queryClient = new QueryClient();
+  if (configured !== null) {
+    queryClient.setQueryData(SLIDE_FILE_STORAGE_STATUS_KEY, {
+      referenceStorageReady: configured,
+    });
+  }
+  return renderWithoutQueryClient(ui, {
+    wrapper: ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    ),
+  });
+}
+
+async function renderStep(
+  overrides: Partial<React.ComponentProps<typeof NewDeckReferenceStep>> = {},
+  storageConfigured: boolean | null = true,
+) {
+  const onSelect = vi.fn();
+  const onImport =
+    vi.fn<(files: File[]) => Promise<ImportedReference | null>>();
+  const onImportSource =
+    vi.fn<
+      (source: {
+        kind: "google-docs" | "website" | "figma";
+        value: string;
+      }) => Promise<ImportedReference | null>
+    >();
+  const onOpenChange = vi.fn();
+  const onDesignSystemsChanged = vi.fn();
+
+  const props = {
+    open: true,
+    designSystems: [{ id: "ds-1", title: "Builder" }],
+    decks: [] as Deck[],
+    referenceOptionsLoaded: true,
+    defaultDesignSystemId: "ds-1",
+    onSelect,
+    onImport,
+    onImportSource,
+    onSkip: vi.fn(),
+    onOpenChange,
+    onDesignSystemsChanged,
+    title: "New presentation",
+    designSystemLabel: "Design system",
+    referenceDeckLabel: "Reference deck",
+    chooseDeckLabel: "Match the style of an existing deck",
+    importingLabel: "Importing...",
+    skipLabel: "Skip",
+    searchDecksLabel: "Search decks",
+    ...overrides,
+  };
+  const view = render(<NewDeckReferenceStep {...props} />, storageConfigured);
+  await act(async () => {
+    await Promise.resolve();
+  });
+
+  return {
+    onSelect,
+    onImport,
+    onImportSource,
+    onOpenChange,
+    onDesignSystemsChanged,
+    rerender: (
+      nextOverrides: Partial<
+        React.ComponentProps<typeof NewDeckReferenceStep>
+      > = {},
+    ) => view.rerender(<NewDeckReferenceStep {...props} {...nextOverrides} />),
+  };
+}
+
+describe("<NewDeckReferenceStep>", () => {
+  afterEach(() => {
+    cleanup();
+    isReferenceStorageReadyMock.mockReset();
+    callActionMock.mockReset();
+  });
+
+  it("confirms a PPTX import and keeps it selected until generation continues", async () => {
+    const imported: ImportedReference = {
+      id: "deck-pptx",
+      title: "Reference PPT",
+      source: "pptx",
+      referenceFilePaths: ["/uploads/reference.pptx"],
+    };
+    const { onSelect, onImport } = await renderStep();
+    onImport.mockResolvedValue(imported);
+
+    const input = document.querySelector('input[accept=".pptx"]');
+    expect(input).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.change(input!, {
+        target: {
+          files: [new File(["pptx"], "reference.pptx")],
+        },
+      });
+    });
+
+    expect(screen.getByRole("status").textContent).toContain(
+      "Imported successfully",
+    );
+    expect(screen.getByLabelText("PPT - Imported")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Reference deck" }).textContent,
+    ).toContain("Reference PPT");
+    expect(
+      screen.getByRole("button", { name: "Continue to generate" }),
+    ).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Continue to generate" }),
+      );
+    });
+
+    expect(onSelect).toHaveBeenCalledWith({
+      designSystemId: null,
+      referenceDeckId: "deck-pptx",
+      referenceDeckIdSource: "selection",
+      referenceSource: null,
+      referenceFilePaths: ["/uploads/reference.pptx"],
+    });
+  });
+
+  it("only shows storage setup after a file import is requested", async () => {
+    isReferenceStorageReadyMock.mockRejectedValue(
+      new TypeError("Failed to fetch"),
+    );
+    await renderStep({}, null);
+
+    expect(screen.queryByTestId("file-storage-setup-card")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "PDF" }));
+    expect(
+      await screen.findByRole("dialog", { name: "Couldn't check storage" }),
+    ).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    });
+    expect(isReferenceStorageReadyMock).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    Object.assign(new Error("private storage response"), {
+      code: "reference_storage_auth_required",
+    }),
+    Object.assign(new Error("Storage status request failed (503)"), {
+      code: "reference_storage_http_failed",
+    }),
+    Object.assign(new Error("Storage status response is invalid"), {
+      code: "reference_storage_contract_failed",
+    }),
+  ])("shows generic storage guidance after a failed check", async (error) => {
+    isReferenceStorageReadyMock.mockRejectedValue(error);
+    await renderStep({}, null);
+
+    expect(
+      screen.queryByRole("dialog", { name: "Couldn't check storage" }),
+    ).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "PDF" }));
+    const setup = await screen.findByRole("dialog", {
+      name: "Couldn't check storage",
+    });
+    expect(setup.textContent).toContain("Couldn't check storage");
+    expect(setup.textContent).not.toMatch(
+      /private storage|503|response is invalid/i,
+    );
+  });
+
+  it("confirms a PDF import as the selected reference deck", async () => {
+    const imported: ImportedReference = {
+      id: "deck-pdf",
+      title: "Reference PDF",
+      source: "pdf",
+    };
+    const { onImport } = await renderStep();
+    onImport.mockResolvedValue(imported);
+
+    const input = document.querySelector('input[accept=".pdf"]');
+    expect(input).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.change(input!, {
+        target: {
+          files: [
+            new File(["pdf"], "reference.pdf", { type: "application/pdf" }),
+          ],
+        },
+      });
+    });
+
+    expect(screen.getByRole("status").textContent).toContain("Reference PDF");
+    expect(screen.getByLabelText("PDF - Imported")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Reference deck" }).textContent,
+    ).toContain("Reference PDF");
+  });
+
+  it("shows storage setup only after a file import is requested", async () => {
+    const { onImport } = await renderStep({}, false);
+
+    const input = document.querySelector('input[accept=".pdf"]')!;
+    expect(input).toHaveProperty("disabled", true);
+    expect(screen.queryByTestId("file-storage-setup-card")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "PDF" }));
+    expect(screen.getByTestId("file-storage-setup-card")).toBeTruthy();
+
+    expect(onImport).not.toHaveBeenCalled();
+  });
+
+  it("only labels the selected file option while importing", async () => {
+    let resolveImport!: (reference: ImportedReference) => void;
+    const { onImport } = await renderStep({ importing: true });
+    onImport.mockReturnValue(
+      new Promise((resolve) => {
+        resolveImport = resolve;
+      }),
+    );
+
+    await act(async () => {
+      fireEvent.change(document.querySelector('input[accept=".pdf"]')!, {
+        target: {
+          files: [
+            new File(["pdf"], "reference.pdf", { type: "application/pdf" }),
+          ],
+        },
+      });
+      await Promise.resolve();
+    });
+
+    expect(
+      document.querySelector('button[aria-label="PDF - Importing..."]')
+        ?.textContent,
+    ).toContain("Importing...");
+    expect(
+      document.querySelector('button[aria-label="PPT"]')?.textContent,
+    ).toContain("PPT");
+    expect(
+      document.querySelector('button[aria-label="DOCX"]')?.textContent,
+    ).toContain("DOCX");
+
+    await act(async () => {
+      resolveImport({ id: "deck-pdf", title: "Reference PDF", source: "pdf" });
+    });
+  });
+
+  it("confirms a DOCX import as the selected reference deck", async () => {
+    const imported: ImportedReference = {
+      id: "deck-docx",
+      title: "Reference DOCX",
+      source: "docx",
+    };
+    const { onImport } = await renderStep();
+    onImport.mockResolvedValue(imported);
+
+    const input = document.querySelector('input[accept=".docx"]');
+    expect(input).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.change(input!, {
+        target: {
+          files: [
+            new File(["docx"], "reference.docx", {
+              type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            }),
+          ],
+        },
+      });
+    });
+
+    expect(screen.getByRole("status").textContent).toContain("Reference DOCX");
+    expect(screen.getByLabelText("DOCX - Imported")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Reference deck" }).textContent,
+    ).toContain("Reference DOCX");
+  });
+
+  it("imports a Google Slides URL before showing the success state", async () => {
+    const imported: ImportedReference = {
+      id: "deck-google",
+      title: "Quarterly plan",
+      source: "google-slides",
+    };
+    const { onSelect, onImportSource } = await renderStep();
+    onImportSource.mockResolvedValue(imported);
+
+    fireEvent.click(screen.getByRole("button", { name: "Slides" }));
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Google Slides link" }),
+      {
+        target: {
+          value: "https://docs.google.com/presentation/d/deck-google/edit",
+        },
+      },
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    });
+
+    expect(onImportSource).toHaveBeenCalledWith({
+      kind: "google-docs",
+      value: "https://docs.google.com/presentation/d/deck-google/edit",
+    });
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(screen.getByRole("status").textContent).toContain("Quarterly plan");
+    expect(screen.getByLabelText("Slides - Imported")).toBeTruthy();
+  });
+
+  it("requires a reference after Slides is deselected", async () => {
+    const imported: ImportedReference = {
+      id: "deck-google",
+      title: "Quarterly plan",
+      source: "google-slides",
+    };
+    const { onSelect, onImportSource } = await renderStep();
+    onImportSource.mockResolvedValue(imported);
+
+    fireEvent.click(screen.getByRole("button", { name: "Slides" }));
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Google Slides link" }),
+      {
+        target: {
+          value: "https://docs.google.com/presentation/d/deck-google/edit",
+        },
+      },
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Slides - Imported" }));
+    expect(screen.queryByRole("status")).toBeNull();
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+    expect(screen.getByRole("button", { name: "Skip" })).toHaveProperty(
+      "disabled",
+      false,
+    );
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("continues without references when the workspace has no design systems or decks", async () => {
+    const { onSelect } = await renderStep({
+      designSystems: [],
+      defaultDesignSystemId: null,
+    });
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      false,
+    );
+    expect(screen.getByRole("button", { name: "Skip" })).toHaveProperty(
+      "disabled",
+      false,
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    });
+
+    expect(onSelect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        designSystemId: null,
+        referenceDeckId: null,
+      }),
+    );
+  });
+
+  it("waits for reference options to load before continuing without a selection", async () => {
+    const { rerender } = await renderStep({
+      designSystems: [],
+      decks: [],
+      referenceOptionsLoaded: false,
+      defaultDesignSystemId: null,
+    });
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+
+    rerender({
+      designSystems: [{ id: "ds-1", title: "Builder" }],
+      decks: [],
+      referenceOptionsLoaded: true,
+      defaultDesignSystemId: null,
+    });
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+  });
+
+  it("disables Continue while empty reference options are being refreshed", async () => {
+    const { rerender } = await renderStep({
+      designSystems: [],
+      decks: [],
+      referenceOptionsLoaded: true,
+      defaultDesignSystemId: null,
+    });
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      false,
+    );
+
+    rerender({
+      designSystems: [],
+      decks: [],
+      referenceOptionsLoaded: false,
+      defaultDesignSystemId: null,
+    });
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+  });
+
+  it("waits for reference options before continuing with a preselected design system", async () => {
+    const { onSelect, rerender } = await renderStep({
+      referenceOptionsLoaded: false,
+    });
+    const continueButton = screen.getByRole("button", { name: "Continue" });
+
+    expect(continueButton).toHaveProperty("disabled", true);
+    fireEvent.click(continueButton);
+    expect(onSelect).not.toHaveBeenCalled();
+
+    rerender({ referenceOptionsLoaded: true });
+
+    expect(continueButton).toHaveProperty("disabled", false);
+    await act(async () => fireEvent.click(continueButton));
+    expect(onSelect).toHaveBeenCalled();
+  });
+
+  it("keeps Continue disabled for an invalid Figma link and enables it for a valid one", async () => {
+    await renderStep();
+
+    fireEvent.click(screen.getByRole("button", { name: "Figma" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Figma link" }), {
+      target: { value: "@" },
+    });
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Figma link" }), {
+      target: { value: "https://www.figma.com/file/abc123" },
+    });
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      false,
+    );
+  });
+
+  it("keeps Continue disabled for an invalid Website link and enables it for a valid one", async () => {
+    await renderStep();
+
+    fireEvent.click(screen.getByRole("button", { name: "Website" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Website link" }), {
+      target: { value: "@" },
+    });
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Website link" }), {
+      target: { value: "https://example.com" },
+    });
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      false,
+    );
+  });
+
+  it("keeps Continue disabled for an invalid Google Slides link but allows a bare picker file ID", async () => {
+    await renderStep();
+
+    fireEvent.click(screen.getByRole("button", { name: "Slides" }));
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Google Slides link" }),
+      { target: { value: "@" } },
+    );
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Google Slides link" }),
+      { target: { value: "presentation_123" } },
+    );
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      false,
+    );
+  });
+
+  it("keeps Continue disabled for a URL that is not a Google Slides presentation link", async () => {
+    await renderStep();
+
+    fireEvent.click(screen.getByRole("button", { name: "Slides" }));
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Google Slides link" }),
+      { target: { value: "https://example.com" } },
+    );
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+  });
+
+  it("only shows Google connection recovery after choosing Slides", async () => {
+    await renderStep();
+
+    expect(screen.queryByTestId("google-drive-connection-cta")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Slides" }));
+
+    expect(screen.getByTestId("google-drive-connection-cta")).toBeTruthy();
+  });
+
+  it("searches references in the preview picker and selects one deck", async () => {
+    callActionMock.mockResolvedValue({
+      decks: [
+        {
+          id: "deck-campaign",
+          title: "Campaign launch",
+          updatedAt: "2026-08-10T00:00:00.000Z",
+          previewSlide: {
+            id: "slide-campaign",
+            content: "<h1>Campaign</h1>",
+            notes: "",
+            layout: "title",
+          },
+        },
+      ],
+    });
+    const { onSelect } = await renderStep({ decks: [] });
+
+    fireEvent.click(screen.getByRole("button", { name: "Reference deck" }));
+
+    const picker = await screen.findByRole("dialog", {
+      name: "Reference deck",
+    });
+    expect(picker.querySelector(".agent-template-library-grid")).toBeTruthy();
+    expect(await screen.findByTestId("reference-deck-preview")).toBeTruthy();
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search decks" }), {
+      target: { value: "campaign" },
+    });
+    await waitFor(() =>
+      expect(callActionMock).toHaveBeenLastCalledWith(
+        "list-decks",
+        {
+          includePreview: "true",
+          limit: 12,
+          search: "campaign",
+          cursor: undefined,
+        },
+        expect.objectContaining({
+          method: "GET",
+          signal: expect.any(AbortSignal),
+        }),
+      ),
+    );
+
+    await act(async () => {
+      picker.querySelector<HTMLElement>("[aria-pressed]")?.click();
+      await Promise.resolve();
+    });
+    expect(screen.queryByRole("dialog", { name: "Reference deck" })).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Reference deck" }).textContent,
+    ).toContain("Campaign launch");
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    });
+    expect(onSelect).toHaveBeenCalledWith(
+      expect.objectContaining({ referenceDeckId: "deck-campaign" }),
+    );
+  });
+
+  it("shows a fallback preview when a deck slide is too large to render", async () => {
+    callActionMock.mockResolvedValue({
+      decks: [
+        {
+          id: "deck-large-preview",
+          title: "Large slide deck",
+          updatedAt: "2026-08-10T00:00:00.000Z",
+          previewTooLarge: true,
+        },
+      ],
+    });
+    await renderStep({ decks: [] });
+
+    fireEvent.click(screen.getByRole("button", { name: "Reference deck" }));
+    const picker = await screen.findByRole("dialog", {
+      name: "Reference deck",
+    });
+
+    await waitFor(() =>
+      expect(
+        picker.querySelector(
+          ".agent-template-library-preview .slide-reference-preview-fallback svg",
+        ),
+      ).toBeTruthy(),
+    );
+  });
+
+  it("omits date metadata when a deck timestamp is missing or invalid", async () => {
+    callActionMock.mockResolvedValue({
+      decks: [
+        {
+          id: "deck-missing-date",
+          title: "Deck without a date",
+          updatedAt: null,
+        },
+        {
+          id: "deck-invalid-date",
+          title: "Deck with an invalid date",
+          updatedAt: "not-a-date",
+        },
+      ],
+    });
+    await renderStep({ decks: [] });
+
+    fireEvent.click(screen.getByRole("button", { name: "Reference deck" }));
+    const picker = await screen.findByRole("dialog", {
+      name: "Reference deck",
+    });
+
+    expect(picker.querySelectorAll("time")).toHaveLength(0);
+  });
+
+  it("requires an explicit reference deck choice", async () => {
+    callActionMock.mockResolvedValue({ decks: [] });
+    const { onSelect } = await renderStep({
+      designSystems: [],
+      defaultDesignSystemId: null,
+      decks: [
+        {
+          id: "deck-recent",
+          title: "Recent deck",
+          createdAt: "2026-08-01T00:00:00.000Z",
+          updatedAt: "2026-08-10T00:00:00.000Z",
+          slides: [],
+        },
+      ],
+    });
+
+    expect(
+      screen.getByRole("button", { name: "Reference deck" }).textContent,
+    ).toContain("Match the style of an existing deck");
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+
+    callActionMock.mockResolvedValue({ decks: [] });
+    fireEvent.click(screen.getByRole("button", { name: "Reference deck" }));
+    await act(async () => {
+      fireEvent.click(await screen.findByRole("button", { name: "None" }));
+      await Promise.resolve();
+    });
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "Reference deck" }),
+      ).toBeNull(),
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    });
+
+    expect(onSelect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        referenceDeckId: null,
+        referenceDeckIdSource: "selection",
+      }),
+    );
+  });
+
+  it("hydrates the default design system when the list resolves after opening", async () => {
+    const { rerender } = await renderStep({
+      designSystems: [],
+      defaultDesignSystemId: "ds-1",
+    });
+
+    expect(screen.getAllByRole("combobox")[0]?.textContent).toContain("None");
+
+    rerender({ designSystems: [{ id: "ds-1", title: "Builder" }] });
+
+    expect(screen.getAllByRole("combobox")[0]?.textContent).toContain(
+      "Builder",
+    );
+  });
+
+  it("keeps the reference step locked until selection handling finishes", async () => {
+    let resolveSelection!: () => void;
+    const selection = new Promise<void>((resolve) => {
+      resolveSelection = resolve;
+    });
+    await renderStep({ onSelect: () => selection });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    });
+
+    expect(
+      screen.getByRole("button", { name: "New presentation" }),
+    ).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: "Skip" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+
+    await act(async () => {
+      resolveSelection();
+    });
+
+    expect(
+      screen.getByRole("button", { name: "New presentation" }),
+    ).toHaveProperty("disabled", false);
+  });
+
+  it("does not render an Attached section on the reference step", async () => {
+    await renderStep({ promptSummary: "Some prompt" });
+
+    expect(screen.queryByText("Attached")).toBeNull();
+  });
+
+  it("opens design system creation inline instead of navigating away", async () => {
+    const { onOpenChange, onDesignSystemsChanged } = await renderStep({
+      designSystems: [],
+    });
+
+    expect(
+      screen.queryByRole("link", { name: "Add design system" }),
+    ).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Add design system" }));
+
+    expect(screen.getByTestId("design-system-setup-dialog")).not.toBeNull();
+    expect(onOpenChange).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Finish setup" }));
+
+    expect(screen.queryByTestId("design-system-setup-dialog")).toBeNull();
+    expect(onDesignSystemsChanged).toHaveBeenCalledTimes(1);
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
+  it("shows the placeholder until the reference deck is touched", async () => {
+    await renderStep({
+      decks: [
+        {
+          id: "deck-1",
+          title: "Some deck",
+          createdAt: "2026-08-01T00:00:00.000Z",
+          updatedAt: "2026-08-01T00:00:00.000Z",
+          slides: [],
+        },
+      ],
+    });
+
+    expect(
+      screen.getByRole("button", { name: "Reference deck" }).textContent,
+    ).toBe("Match the style of an existing deck");
+  });
+
+  it("shows None instead of the placeholder after explicitly selecting None", async () => {
+    await renderStep({
+      decks: [
+        {
+          id: "deck-1",
+          title: "Some deck",
+          createdAt: "2026-08-01T00:00:00.000Z",
+          updatedAt: "2026-08-01T00:00:00.000Z",
+          slides: [],
+        },
+      ],
+    });
+
+    callActionMock.mockResolvedValue({ decks: [] });
+    fireEvent.click(screen.getByRole("button", { name: "Reference deck" }));
+    await act(async () => {
+      fireEvent.click(await screen.findByRole("button", { name: "None" }));
+      await Promise.resolve();
+    });
+
+    const trigger = screen.getByRole("button", { name: "Reference deck" });
+    expect(trigger.textContent).toBe("None");
+    expect(trigger.textContent).not.toContain(
+      "Match the style of an existing deck",
+    );
+  });
+
+  it("shows the deck name in the trigger after selecting a deck", async () => {
+    callActionMock.mockResolvedValue({
+      decks: [
+        {
+          id: "deck-1",
+          title: "Some deck",
+          updatedAt: "2026-08-01T00:00:00.000Z",
+        },
+      ],
+    });
+    const { onSelect } = await renderStep({
+      decks: [
+        {
+          id: "deck-1",
+          title: "Some deck",
+          createdAt: "2026-08-01T00:00:00.000Z",
+          updatedAt: "2026-08-01T00:00:00.000Z",
+          slides: [],
+        },
+      ],
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Reference deck" }));
+    const card = await screen.findByText("Some deck");
+    await act(async () => {
+      card
+        .closest(".agent-template-library-card")
+        ?.querySelector<HTMLElement>("[aria-pressed]")
+        ?.click();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    });
+
+    expect(
+      screen.getByRole("button", { name: "Reference deck" }).textContent,
+    ).toBe("Some deck");
+    expect(onSelect).toHaveBeenCalledWith(
+      expect.objectContaining({ referenceDeckIdSource: "selection" }),
+    );
+  });
+});

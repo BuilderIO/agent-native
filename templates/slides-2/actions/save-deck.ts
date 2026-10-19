@@ -1,0 +1,296 @@
+import { defineAction } from "@agent-native/core/action";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
+import { resolveAccess } from "@agent-native/core/sharing";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+import { notifyClients } from "../server/handlers/decks.js";
+import {
+  createDeckVersionSnapshot,
+  deckVersionContentSignature,
+} from "../server/lib/deck-versions.js";
+import {
+  assertHumanReadableDeckTitle,
+  repairGeneratedDeckTitle,
+} from "../shared/deck-title.js";
+import {
+  createLayoutFitRevision,
+  deckFitRenderFieldsChanged,
+  slideFitRenderFieldsChanged,
+} from "../shared/slide-fit.js";
+import {
+  ensureUniqueSlideIds,
+  repairDeckSlideReferences,
+} from "../shared/slide-ids.js";
+import { getDeckUrl } from "./_app-url.js";
+import {
+  assertSlides2CreatePayload,
+  assertSlides2DeckData,
+} from "./_deck-app-scope.js";
+import {
+  trackDeckCreationStarted,
+  trackSlideContentEdited,
+} from "./_deck-tracking.js";
+import {
+  assertDesignSystemReadable,
+  assertValidAspectRatio,
+  assertDeckWriteApplied,
+  assertDeckClientWriteCurrent,
+  deckClientWriteFields,
+  deckClientWriteSchema,
+  deckDesignSystemId,
+  deckHttpError,
+  deckTitle,
+  deckRevisionWhere,
+  nextDeckRevision,
+  type DeckPayload,
+} from "./_deck-write.js";
+import { assertNoDeckRenderArtifacts } from "./_render-artifacts.js";
+import { assertSourceBackedSlidesUnchanged } from "./_slide-source.js";
+import { withDeckLock } from "./patch-deck.js";
+
+function shouldSnapshotDeckWrite(
+  current: { title?: string | null; data?: string | null },
+  nextTitle: string,
+  nextDeck: DeckPayload,
+): boolean {
+  return (
+    (current.title ?? "Untitled") !== nextTitle ||
+    deckVersionContentSignature(current.data ?? "") !==
+      deckVersionContentSignature(nextDeck)
+  );
+}
+
+export default defineAction({
+  description:
+    "Create or replace a deck's full JSON payload (title, slides, deck-level fields).",
+  schema: z.object({
+    deckId: z.string().min(1).describe("Deck ID"),
+    deck: z.record(z.string(), z.unknown()).describe("Full deck JSON payload"),
+    clientWrite: deckClientWriteSchema.optional(),
+  }),
+  http: { method: "PUT" },
+  agentTool: false,
+  run: async ({ deckId, deck: inputDeck, clientWrite }, ctx) =>
+    withDeckLock(deckId, async () => {
+      const deck = inputDeck as DeckPayload;
+      assertSlides2CreatePayload(deck);
+      if (Array.isArray(deck.slides)) {
+        const normalized = ensureUniqueSlideIds(
+          deck.slides as Array<{ id?: unknown }>,
+        );
+        deck.slides = normalized.slides;
+        if (normalized.changed) {
+          Object.assign(
+            deck,
+            repairDeckSlideReferences(
+              deck,
+              normalized.slides,
+              normalized.originalIds,
+            ),
+          );
+        }
+      }
+      assertValidAspectRatio(deck);
+
+      const db = getDb();
+      const now = new Date().toISOString();
+
+      deck.id = deckId;
+      deck.updatedAt = now;
+      const requestedTitle = deckTitle(deck);
+
+      const access = await resolveAccess("deck", deckId);
+      if (access) {
+        assertSlides2DeckData(access.resource.data);
+        const writeDisposition = assertDeckClientWriteCurrent(
+          access.resource,
+          deckId,
+          clientWrite,
+        );
+        if (writeDisposition === "already-applied") {
+          return {
+            ...(JSON.parse(access.resource.data) as DeckPayload),
+            updatedAt: access.resource.updatedAt,
+            appUrl: getDeckUrl(deckId),
+          };
+        }
+      }
+      const previous = stampChangedSlideRevisions(access?.resource.data, deck);
+      assertSourceBackedSlidesUnchanged(access?.resource.data, deck);
+
+      if (!access) {
+        const ownerEmail = getRequestUserEmail();
+        if (!ownerEmail) {
+          throw deckHttpError(403, "Sign in to create a deck");
+        }
+        const title =
+          repairGeneratedDeckTitle(requestedTitle, firstSlideContent(deck)) ??
+          requestedTitle;
+        assertHumanReadableDeckTitle(title);
+        deck.title = title;
+        deck.appId = "slides-2";
+        await assertDesignSystemReadable(deckDesignSystemId(deck));
+        assertNoDeckRenderArtifacts(null, deck);
+        try {
+          await db.insert(schema.decks).values({
+            id: deckId,
+            title,
+            data: JSON.stringify(deck),
+            designSystemId: deckDesignSystemId(deck),
+            ...deckClientWriteFields(clientWrite, now),
+            ownerEmail,
+            orgId: getRequestOrgId() ?? null,
+            createdAt: now,
+            updatedAt: now,
+          });
+        } catch {
+          throw deckHttpError(404, "Deck not found");
+        }
+      } else if (
+        access.role === "owner" ||
+        access.role === "admin" ||
+        access.role === "editor"
+      ) {
+        const title =
+          repairGeneratedDeckTitle(
+            requestedTitle,
+            firstSlideContent(deck),
+            access.resource.title,
+          ) ?? requestedTitle;
+        assertHumanReadableDeckTitle(title);
+        deck.title = title;
+        const updatedAt = nextDeckRevision(access.resource.updatedAt);
+        deck.updatedAt = updatedAt;
+        const nextDesignSystemId = Object.hasOwn(deck, "designSystemId")
+          ? deckDesignSystemId(deck)
+          : (access.resource.designSystemId ?? null);
+        await assertDesignSystemReadable(nextDesignSystemId);
+        assertNoDeckRenderArtifacts(access.resource.data, deck);
+        if (!shouldSnapshotDeckWrite(access.resource, title, deck)) {
+          if (clientWrite) {
+            const updateResult = await db
+              .update(schema.decks)
+              .set(
+                deckClientWriteFields(clientWrite, access.resource.updatedAt),
+              )
+              .where(
+                deckRevisionWhere(
+                  schema.decks,
+                  deckId,
+                  access.resource.updatedAt,
+                ),
+              );
+            assertDeckWriteApplied(updateResult, deckId, "deck save replay");
+          }
+          return { ...deck, updatedAt: access.resource.updatedAt };
+        }
+        deck.appId = "slides-2";
+        await db.transaction(async (tx: any) => {
+          if (shouldSnapshotDeckWrite(access.resource, title, deck)) {
+            await createDeckVersionSnapshot(
+              {
+                id: access.resource.id,
+                title: access.resource.title,
+                data: access.resource.data,
+                ownerEmail: access.resource.ownerEmail as string,
+              },
+              { label: "Before editor save", db: tx },
+            );
+          }
+          const updateResult = await tx
+            .update(schema.decks)
+            .set({
+              title,
+              data: JSON.stringify(deck),
+              designSystemId: nextDesignSystemId,
+              updatedAt,
+              ...deckClientWriteFields(clientWrite, updatedAt),
+            })
+            .where(
+              deckRevisionWhere(
+                schema.decks,
+                deckId,
+                access.resource.updatedAt,
+              ),
+            );
+          assertDeckWriteApplied(updateResult, deckId, "deck save");
+        });
+      } else {
+        throw deckHttpError(404, "Deck not found");
+      }
+
+      // An insert here is an undo/restore of a deleted deck (or a save racing
+      // add-deck), not a new deck; only add-deck records creations.
+      if (access) {
+        trackSlideContentEdited(
+          "save_deck",
+          deckId,
+          previous.slides,
+          deck,
+          ctx,
+        );
+        trackDeckCreationStarted(
+          deckId,
+          previous.generationContext,
+          deck.generationContext,
+          ctx,
+        );
+      }
+
+      await notifyClients(deckId);
+      return { ...deck, appUrl: getDeckUrl(deckId) };
+    }),
+});
+
+function firstSlideContent(deck: DeckPayload): string | null {
+  const slides = Array.isArray(deck.slides) ? deck.slides : [];
+  const content = slides[0] && (slides[0] as Record<string, unknown>).content;
+  return typeof content === "string" ? content : null;
+}
+
+/** Returns the parsed stored deck so callers don't parse it a second time. */
+export function stampChangedSlideRevisions(
+  previousData: string | null | undefined,
+  nextDeck: DeckPayload,
+): {
+  aspectRatio?: unknown;
+  designSystemId?: unknown;
+  slides?: unknown;
+  generationContext?: unknown;
+} {
+  const previous = previousData
+    ? (JSON.parse(previousData) as {
+        aspectRatio?: unknown;
+        designSystemId?: unknown;
+        slides?: unknown;
+        generationContext?: unknown;
+      })
+    : {};
+  const deckFitFieldsChanged = deckFitRenderFieldsChanged(previous, nextDeck);
+  const previousSlides = (
+    Array.isArray(previous.slides) ? previous.slides : []
+  ) as Array<Record<string, unknown>>;
+  const nextSlides = Array.isArray(nextDeck.slides)
+    ? (nextDeck.slides as Array<Record<string, unknown>>)
+    : [];
+
+  for (const slide of nextSlides) {
+    const prior = previousSlides.find((candidate) => candidate.id === slide.id);
+    if (
+      deckFitFieldsChanged ||
+      !prior ||
+      slideFitRenderFieldsChanged(prior, slide)
+    ) {
+      slide.layoutFitRevision = createLayoutFitRevision();
+    } else if (typeof prior.layoutFitRevision === "string") {
+      slide.layoutFitRevision = prior.layoutFitRevision;
+    } else {
+      delete slide.layoutFitRevision;
+    }
+  }
+  return previous;
+}

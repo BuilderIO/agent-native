@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "onboarding": {
+    "firstRun": {
+      "development": "off",
+      "production": "connect"
+    }
+  },
+  "doctor": {
+    "dbToolScopingDenylist": {
+      "deck_events": "Durable access-request audit rows are written by the request action and are not exposed through generic agent DB reads.",
+      "deck_share_links": "Share snapshots are created by create-share-link and read through opaque share tokens; raw DB access could enumerate snapshot content.",
+      "slide_comments": "Comment rows are child records of decks; comment actions check deck access and scope reads and writes by deck ID.",
+      "deck_access_request_limits": "Anonymous access-request rate-limit counters are read and updated only by request-deck-access as anti-abuse state."
+    },
+    "failOnBuild": false
+  }
+}

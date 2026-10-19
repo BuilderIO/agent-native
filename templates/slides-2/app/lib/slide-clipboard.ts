@@ -1,0 +1,534 @@
+import { isAnimationTrigger } from "@shared/api";
+import { appStorageKey } from "@shared/app-storage";
+import {
+  clampTransitionSpeed,
+  normalizeSlideTransition,
+  SLIDE_TRANSITION_INPUTS,
+} from "@shared/slide-transitions";
+
+import type {
+  AnimationType,
+  Slide,
+  SlideAnimation,
+  SlideLayout,
+} from "@/context/DeckContext";
+
+export const SLIDE_CLIPBOARD_STORAGE_PREFIX = appStorageKey("slide-clipboard");
+const SLIDE_CLIPBOARD_NATIVE_MARKER_PREFIX = appStorageKey(
+  "slide-clipboard-marker:",
+);
+
+export function shouldHandleSlideClipboardShortcut(
+  key: string,
+  hasFocusedThumbnail: boolean,
+): boolean {
+  return key !== "v" && hasFocusedThumbnail;
+}
+
+export function shouldHandleSlideClipboardPaste({
+  hasMatchingSlideClipboardMarker,
+  hasImage,
+  hasNonMarkerPayload,
+  isTextEntrySurface,
+  hasSelectedCanvasElement,
+  hasBlockingOverlay,
+  isSlideToolActive,
+}: {
+  hasMatchingSlideClipboardMarker: boolean;
+  hasImage: boolean;
+  hasNonMarkerPayload: boolean;
+  isTextEntrySurface: boolean;
+  hasSelectedCanvasElement: boolean;
+  hasBlockingOverlay: boolean;
+  isSlideToolActive: boolean;
+}): boolean {
+  return (
+    hasMatchingSlideClipboardMarker &&
+    !hasImage &&
+    !hasNonMarkerPayload &&
+    !isTextEntrySurface &&
+    !hasSelectedCanvasElement &&
+    !hasBlockingOverlay &&
+    !isSlideToolActive
+  );
+}
+
+export function getSlideClipboardNativeMarker(
+  slides: readonly Pick<Slide, "id">[],
+  copiedAt: number,
+): string {
+  const slideIds = slides
+    .map(({ id }) => encodeURIComponent(id).replaceAll("-", "%2D"))
+    .join(",");
+  return `${SLIDE_CLIPBOARD_NATIVE_MARKER_PREFIX}${copiedAt}:${slideIds}`;
+}
+
+export function getSlideClipboardNativeMarkerHtml(marker: string): string {
+  return `<!--${marker}-->`;
+}
+
+export function writeSlideClipboardMarkerToEvent(
+  event: ClipboardEvent,
+  marker: string,
+): boolean {
+  if (!event.clipboardData) return false;
+  try {
+    event.clipboardData.setData(
+      "text/html",
+      getSlideClipboardNativeMarkerHtml(marker),
+    );
+  } catch (error) {
+    console.warn("Unable to write Slides clipboard marker", error);
+    return false;
+  }
+  try {
+    event.clipboardData.setData("text/plain", "");
+  } catch (error) {
+    // The HTML marker is enough to identify this clipboard as a slide copy.
+    console.warn("Unable to clear Slides clipboard plain text", error);
+    return true;
+  }
+  return true;
+}
+
+export function readSlideClipboardNativeMarker(html: string): string | null {
+  const prefix = `<!--${SLIDE_CLIPBOARD_NATIVE_MARKER_PREFIX}`;
+  const start = html.indexOf(prefix);
+  if (start < 0) return null;
+  const valueStart = start + 4;
+  const end = html.indexOf("-->", valueStart);
+  if (end < 0) return null;
+  const marker = html.slice(valueStart, end).trim();
+  return marker.startsWith(SLIDE_CLIPBOARD_NATIVE_MARKER_PREFIX)
+    ? marker
+    : null;
+}
+
+export function hasImageClipboardPayload({
+  types,
+  itemTypes,
+  fileTypes,
+  html,
+}: {
+  types: readonly string[];
+  itemTypes: readonly string[];
+  fileTypes: readonly string[];
+  html: string;
+}): boolean {
+  return (
+    [...types, ...itemTypes, ...fileTypes].some((type) =>
+      type.toLowerCase().startsWith("image/"),
+    ) || /<(?:img|picture|svg|image)\b|data:image\//i.test(html)
+  );
+}
+
+export function hasClipboardPayloadBeyondSlideMarker({
+  types,
+  itemTypes,
+  fileTypes,
+  html,
+  plainText,
+  marker,
+}: {
+  types: readonly string[];
+  itemTypes: readonly string[];
+  fileTypes: readonly string[];
+  html: string;
+  plainText: string;
+  marker: string;
+}): boolean {
+  const htmlWithoutMarker = html
+    .replace(getSlideClipboardNativeMarkerHtml(marker), "")
+    .replace(/<!--(?:StartFragment|EndFragment)-->/gi, "")
+    .replace(/<\/?(?:html|body)\b[^>]*>/gi, "")
+    .trim();
+  const hasOtherDataType = [...types, ...itemTypes, ...fileTypes].some(
+    (type) =>
+      !["text/plain", "text/html", "files"].includes(type.toLowerCase()),
+  );
+  return (
+    plainText.length > 0 || htmlWithoutMarker.length > 0 || hasOtherDataType
+  );
+}
+
+export function isSlideClipboardPasteSurface(
+  eventTarget: Element | null,
+  activeElement: Element | null,
+): boolean {
+  const selector =
+    "[data-slide-thumbnail-id], [data-slide-canvas-focus='true']";
+  return Boolean(
+    eventTarget?.closest(selector) || activeElement?.closest(selector),
+  );
+}
+
+export function getSlideClipboardStorageKey(email: string): string {
+  return `${SLIDE_CLIPBOARD_STORAGE_PREFIX}:${encodeURIComponent(email)}`;
+}
+
+const LEGACY_SLIDE_CLIPBOARD_VERSION = 1;
+const SLIDE_CLIPBOARD_VERSION = 2;
+const SLIDE_LAYOUTS: readonly SlideLayout[] = [
+  "title",
+  "section",
+  "content",
+  "two-column",
+  "image",
+  "statement",
+  "full-image",
+  "blank",
+];
+const ANIMATION_TYPES: readonly AnimationType[] = [
+  "appear",
+  "fade",
+  "slide-up",
+  "zoom",
+];
+
+type SlideClipboardStorage = Pick<Storage, "getItem" | "setItem">;
+
+interface StoredSlideClipboard {
+  version: typeof SLIDE_CLIPBOARD_VERSION;
+  slides: Slide[];
+  copiedAt: number;
+}
+
+export type SlideClipboardReadResult =
+  | {
+      status: "unavailable" | "empty" | "unreadable";
+      slide: null;
+      copiedAt: null;
+    }
+  | { status: "ready"; slide: Slide; copiedAt: number };
+
+export type SlideClipboardsReadResult =
+  | {
+      status: "unavailable" | "empty" | "unreadable";
+      slides: null;
+      copiedAt: null;
+    }
+  | { status: "ready"; slides: Slide[]; copiedAt: number };
+
+export function resolveSlideClipboardsForPaste(
+  result: SlideClipboardsReadResult,
+  cachedSlides: Slide[] | null,
+  cachedStorageKey: string | null,
+  storageKey: string,
+  cachedCopiedAt: number | null = null,
+  cachedPersistenceFailed = false,
+): Slide[] | null {
+  const canUseCachedClipboard =
+    cachedStorageKey === storageKey ||
+    (cachedStorageKey === null && cachedSlides !== null);
+  if (
+    result.status === "ready" &&
+    canUseCachedClipboard &&
+    (cachedPersistenceFailed || cachedStorageKey === null) &&
+    cachedSlides &&
+    cachedCopiedAt !== null &&
+    cachedCopiedAt > result.copiedAt
+  ) {
+    return cachedSlides;
+  }
+  if (result.status === "ready") return result.slides;
+  if (
+    canUseCachedClipboard &&
+    (result.status === "unavailable" ||
+      cachedPersistenceFailed ||
+      cachedStorageKey === null)
+  ) {
+    return cachedSlides;
+  }
+  return null;
+}
+
+export function resolveSlideClipboardForPaste(
+  result: SlideClipboardReadResult,
+  cachedSlide: Slide | null,
+  cachedStorageKey: string | null,
+  storageKey: string,
+  cachedCopiedAt: number | null = null,
+  cachedPersistenceFailed = false,
+): Slide | null {
+  const slides = resolveSlideClipboardsForPaste(
+    result.status === "ready"
+      ? { status: "ready", slides: [result.slide], copiedAt: result.copiedAt }
+      : { status: result.status, slides: null, copiedAt: null },
+    cachedSlide ? [cachedSlide] : null,
+    cachedStorageKey,
+    storageKey,
+    cachedCopiedAt,
+    cachedPersistenceFailed,
+  );
+  return slides?.[0] ?? null;
+}
+
+function getBrowserStorage(): SlideClipboardStorage | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage;
+  } catch {
+    // coercion-ok: storage availability is reported as an explicit unavailable status.
+    // Storage can be disabled by an embedded browser or privacy setting.
+    return null;
+  }
+}
+
+export function normalizeSlideClipboard(value: unknown): Slide | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const candidate = value as Partial<Slide> & Record<string, unknown>;
+  if (
+    typeof candidate.id !== "string" ||
+    candidate.id.length === 0 ||
+    typeof candidate.content !== "string"
+  ) {
+    return null;
+  }
+
+  const notes = candidate.notes;
+  if (notes !== undefined && notes !== null && typeof notes !== "string") {
+    return null;
+  }
+
+  const layout = candidate.layout;
+  if (
+    layout !== undefined &&
+    layout !== null &&
+    (typeof layout !== "string" ||
+      !SLIDE_LAYOUTS.includes(layout as SlideLayout))
+  ) {
+    return null;
+  }
+
+  const normalized: Slide = {
+    notes: notes ?? "",
+    layout: (layout as SlideLayout | null | undefined) ?? "content",
+    id: candidate.id,
+    content: candidate.content,
+  } as Slide;
+
+  const optionalStrings = [
+    "background",
+    "imageUrl",
+    "imagePrompt",
+    "excalidrawData",
+  ] as const;
+  for (const key of optionalStrings) {
+    const field = candidate[key];
+    if (field !== undefined && typeof field !== "string") return null;
+    if (field !== undefined) normalized[key] = field;
+  }
+
+  if (candidate.transition !== undefined && candidate.transition !== null) {
+    if (
+      !(SLIDE_TRANSITION_INPUTS as readonly unknown[]).includes(
+        candidate.transition,
+      )
+    ) {
+      return null;
+    }
+    normalized.transition = normalizeSlideTransition(candidate.transition);
+  }
+
+  // null means "use the default speed", so it is dropped rather than stored.
+  if (
+    candidate.transitionSpeed !== undefined &&
+    candidate.transitionSpeed !== null
+  ) {
+    if (
+      typeof candidate.transitionSpeed !== "number" ||
+      !Number.isFinite(candidate.transitionSpeed)
+    ) {
+      return null;
+    }
+    normalized.transitionSpeed = clampTransitionSpeed(
+      candidate.transitionSpeed,
+    );
+  }
+
+  for (const key of [
+    "layoutWarningDismissed",
+    "splitByParagraph",
+    "skipped",
+  ] as const) {
+    const field = candidate[key];
+    if (field !== undefined && typeof field !== "boolean") return null;
+    if (field !== undefined) normalized[key] = field;
+  }
+
+  if (candidate.animations !== undefined) {
+    if (!Array.isArray(candidate.animations)) return null;
+    const animations: SlideAnimation[] = [];
+    for (const value of candidate.animations) {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return null;
+      }
+      const animation = value as Partial<SlideAnimation> &
+        Record<string, unknown>;
+      if (
+        typeof animation.id !== "string" ||
+        animation.id.length === 0 ||
+        typeof animation.elementIndex !== "number" ||
+        !Number.isInteger(animation.elementIndex) ||
+        animation.elementIndex < 0 ||
+        typeof animation.type !== "string" ||
+        !ANIMATION_TYPES.includes(animation.type as AnimationType)
+      ) {
+        return null;
+      }
+      if (
+        animation.elementPath !== undefined &&
+        (!Array.isArray(animation.elementPath) ||
+          animation.elementPath.some(
+            (index) => typeof index !== "number" || !Number.isInteger(index),
+          ))
+      ) {
+        return null;
+      }
+      if (
+        animation.byParagraph !== undefined &&
+        typeof animation.byParagraph !== "boolean"
+      ) {
+        return null;
+      }
+      if (
+        animation.trigger !== undefined &&
+        !isAnimationTrigger(animation.trigger)
+      ) {
+        return null;
+      }
+      animations.push({
+        id: animation.id,
+        elementIndex: animation.elementIndex,
+        ...(animation.elementPath !== undefined
+          ? { elementPath: animation.elementPath as number[] }
+          : {}),
+        ...(animation.byParagraph !== undefined
+          ? { byParagraph: animation.byParagraph }
+          : {}),
+        ...(animation.trigger !== undefined
+          ? { trigger: animation.trigger }
+          : {}),
+        type: animation.type as AnimationType,
+      });
+    }
+    normalized.animations = animations;
+  }
+
+  return normalized;
+}
+
+export function normalizeSlideClipboards(values: unknown): Slide[] | null {
+  if (!Array.isArray(values) || values.length === 0) return null;
+  const normalized = values.map(normalizeSlideClipboard);
+  return normalized.every((slide): slide is Slide => slide !== null)
+    ? normalized
+    : null;
+}
+
+function unreadableClipboardResult(): SlideClipboardsReadResult {
+  return { status: "unreadable", slides: null, copiedAt: null };
+}
+
+export function readSlideClipboard(
+  storageKey: string,
+  storage: SlideClipboardStorage | null = getBrowserStorage(),
+): SlideClipboardReadResult {
+  const result = readSlideClipboards(storageKey, storage);
+  if (result.status === "ready") {
+    return {
+      status: "ready",
+      slide: result.slides[0]!,
+      copiedAt: result.copiedAt,
+    };
+  }
+  return { status: result.status, slide: null, copiedAt: null };
+}
+
+export function readSlideClipboards(
+  storageKey: string,
+  storage: SlideClipboardStorage | null = getBrowserStorage(),
+): SlideClipboardsReadResult {
+  if (!storage) {
+    return { status: "unavailable", slides: null, copiedAt: null };
+  }
+
+  let raw: string | null;
+  try {
+    raw = storage.getItem(storageKey);
+  } catch {
+    // coercion-ok: storage read failures return an explicit unreadable status.
+    // A failed read is not the same as an empty clipboard.
+    return { status: "unreadable", slides: null, copiedAt: null };
+  }
+  if (raw === null) return { status: "empty", slides: null, copiedAt: null };
+
+  try {
+    const parsed = JSON.parse(raw) as {
+      copiedAt?: unknown;
+      slide?: unknown;
+      slides?: unknown;
+      version?: unknown;
+    };
+    const slides =
+      parsed.version === SLIDE_CLIPBOARD_VERSION
+        ? normalizeSlideClipboards(parsed.slides ?? [])
+        : parsed.version === LEGACY_SLIDE_CLIPBOARD_VERSION
+          ? normalizeSlideClipboards(
+              parsed.slide === undefined ? [] : [parsed.slide],
+            )
+          : null;
+    if (
+      !slides ||
+      typeof parsed.copiedAt !== "number" ||
+      !Number.isFinite(parsed.copiedAt)
+    ) {
+      return unreadableClipboardResult();
+    }
+    return {
+      status: "ready",
+      slides,
+      copiedAt: parsed.copiedAt,
+    };
+  } catch {
+    // coercion-ok: malformed storage data returns an explicit unreadable status.
+    // A malformed local value must not become a pasteable slide.
+    return unreadableClipboardResult();
+  }
+}
+
+export function writeSlideClipboard(
+  storageKey: string,
+  slide: Slide,
+  copiedAt: number,
+  storage: SlideClipboardStorage | null = getBrowserStorage(),
+): boolean {
+  return writeSlideClipboards(storageKey, [slide], copiedAt, storage);
+}
+
+export function writeSlideClipboards(
+  storageKey: string,
+  slides: readonly Slide[],
+  copiedAt: number,
+  storage: SlideClipboardStorage | null = getBrowserStorage(),
+): boolean {
+  const normalizedSlides = normalizeSlideClipboards(slides);
+  if (!storage || !normalizedSlides || !Number.isFinite(copiedAt)) return false;
+  try {
+    storage.setItem(
+      storageKey,
+      JSON.stringify({
+        version: SLIDE_CLIPBOARD_VERSION,
+        slides: normalizedSlides,
+        copiedAt,
+      } satisfies StoredSlideClipboard),
+    );
+    return true;
+  } catch {
+    // coercion-ok: a failed write returns false while the in-memory clipboard remains usable.
+    // The in-memory editor clipboard remains available when persistence fails.
+    return false;
+  }
+}

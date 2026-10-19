@@ -1,0 +1,115 @@
+import { describe, expect, it } from "vitest";
+
+import { resolveSlideBackground } from "../../shared/slide-background";
+import {
+  DEFAULT_DESIGN_SYSTEM,
+  getDesignSystemImageStyleReferenceUrls,
+  mergeDesignSystemData,
+  resolveDeckDesignSystem,
+} from "./use-deck-design-system";
+
+describe("mergeDesignSystemData", () => {
+  it("fills missing nested design-system tokens with defaults", () => {
+    const merged = mergeDesignSystemData({
+      colors: { accent: "#ff00aa" },
+      typography: { headingFont: "Inter" },
+      customCSS: ".slide { color: red; }",
+    });
+
+    expect(merged.colors.accent).toBe("#ff00aa");
+    expect(merged.colors.text).toBe(DEFAULT_DESIGN_SYSTEM.colors.text);
+    expect(merged.typography.headingFont).toBe("Inter");
+    expect(merged.typography.bodyFont).toBe(
+      DEFAULT_DESIGN_SYSTEM.typography.bodyFont,
+    );
+    expect(merged.borders.radius).toBe(DEFAULT_DESIGN_SYSTEM.borders.radius);
+    expect(merged.borders.accentWidth).toBe(
+      DEFAULT_DESIGN_SYSTEM.borders.accentWidth,
+    );
+    expect(merged.customCSS).toBe(".slide { color: red; }");
+  });
+
+  it("uses the default object shape when the stored value is malformed", () => {
+    const merged = mergeDesignSystemData({
+      colors: "not an object",
+      borders: null,
+      logos: "not an array",
+    });
+
+    expect(merged.colors).toEqual(DEFAULT_DESIGN_SYSTEM.colors);
+    expect(merged.borders).toEqual(DEFAULT_DESIGN_SYSTEM.borders);
+    expect(merged.logos).toEqual([]);
+  });
+
+  it("falls back to the default when a leaf value has the wrong runtime type", () => {
+    const merged = mergeDesignSystemData({
+      typography: { headingFont: {}, bodyWeight: 450 },
+      borders: { radius: ["14px"] },
+    });
+
+    expect(merged.typography.headingFont).toBe(
+      DEFAULT_DESIGN_SYSTEM.typography.headingFont,
+    );
+    expect(typeof merged.typography.headingFont).toBe("string");
+    expect(merged.typography.bodyWeight).toBe(
+      DEFAULT_DESIGN_SYSTEM.typography.bodyWeight,
+    );
+    expect(merged.borders.radius).toBe(DEFAULT_DESIGN_SYSTEM.borders.radius);
+  });
+
+  it("keeps the design system's own canvas when it sets no slide default", () => {
+    const merged = mergeDesignSystemData({
+      colors: { background: "#0d0d0d", text: "#ffffff" },
+    });
+
+    expect(merged.slideDefaults.background).toBe("#0d0d0d");
+    expect(resolveSlideBackground(undefined, merged)).toBe("#0d0d0d");
+  });
+
+  it("prefers an explicit slide default over the canvas color", () => {
+    const merged = mergeDesignSystemData({
+      colors: { background: "#0d0d0d" },
+      slideDefaults: { background: "#111827" },
+    });
+
+    expect(merged.slideDefaults.background).toBe("#111827");
+  });
+
+  it("normalizes design-system image style reference urls", () => {
+    expect(
+      getDesignSystemImageStyleReferenceUrls({
+        imageStyle: {
+          referenceUrls: [
+            " https://cdn.example.com/style-1.png ",
+            "",
+            "https://cdn.example.com/style-1.png",
+            "https://cdn.example.com/style-2.png",
+          ],
+          styleDescription: "Primary deck imagery",
+        },
+      }),
+    ).toEqual([
+      "https://cdn.example.com/style-1.png",
+      "https://cdn.example.com/style-2.png",
+    ]);
+  });
+});
+
+describe("resolveDeckDesignSystem", () => {
+  it("reports no design system for a deck that has none linked", () => {
+    const resolved = resolveDeckDesignSystem(null, undefined);
+
+    expect(resolved.designSystem).toBeUndefined();
+    expect(resolved.designSystemTitle).toBeNull();
+  });
+
+  it("reports no design system when a linked one cannot be parsed", () => {
+    const resolved = resolveDeckDesignSystem("ds-1", {
+      title: "Brand",
+      data: "{not json",
+    });
+
+    expect(resolved.designSystem).toBeUndefined();
+    expect(resolved.designSystemTitle).toBe("Brand");
+  });
+});

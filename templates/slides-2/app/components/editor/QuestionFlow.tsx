@@ -1,0 +1,119 @@
+import { type AgentEngineConfiguredState } from "@agent-native/core/client/agent-chat";
+import {
+  GuidedQuestionFlow,
+  type GuidedQuestion,
+} from "@agent-native/toolkit/app/chat/agentkit-chat";
+import type { DesignSystemData, QuestionFlowQuestion } from "@shared/api";
+import { useMemo } from "react";
+
+interface QuestionFlowProps {
+  questions: QuestionFlowQuestion[];
+  onSubmit: (answers: Record<string, any>) => void;
+  onSkip: () => void;
+  designSystem?: DesignSystemData;
+  title?: string;
+  description?: string;
+  skipLabel?: string;
+  submitLabel?: string;
+  isSubmitting?: boolean;
+  isSubmissionBlocked?: boolean;
+  providerStatus?: AgentEngineConfiguredState;
+  onRetryProviderStatus?: () => void;
+}
+
+const DESIGN_SYSTEM_COLOR_KEYS: Array<
+  [keyof DesignSystemData["colors"], string]
+> = [
+  ["primary", "Primary"],
+  ["secondary", "Secondary"],
+  ["accent", "Accent"],
+  ["background", "Background"],
+  ["surface", "Surface"],
+];
+
+function isUsableColor(value: string | undefined): value is string {
+  if (!value) return false;
+  const color = value.trim();
+  return (
+    /^#[0-9a-f]{3,8}$/i.test(color) ||
+    /^rgba?\(/i.test(color) ||
+    /^hsla?\(/i.test(color)
+  );
+}
+
+function designSystemColorOptions(
+  designSystem: DesignSystemData,
+  fallback: NonNullable<QuestionFlowQuestion["options"]>,
+): NonNullable<QuestionFlowQuestion["options"]> {
+  const seen = new Set<string>();
+  const options = DESIGN_SYSTEM_COLOR_KEYS.flatMap(([key, label]) => {
+    const color = designSystem.colors[key]?.trim();
+    const normalized = color?.toLowerCase();
+    if (!isUsableColor(color) || !normalized || seen.has(normalized)) {
+      return [];
+    }
+    seen.add(normalized);
+    return [{ label, value: color, color }];
+  });
+
+  return options.length >= 2 ? options : fallback;
+}
+
+export function QuestionFlow({
+  questions,
+  onSubmit,
+  onSkip,
+  designSystem,
+  title,
+  description,
+  skipLabel,
+  submitLabel,
+  isSubmitting,
+  isSubmissionBlocked,
+  providerStatus,
+  onRetryProviderStatus,
+}: QuestionFlowProps) {
+  const visibleQuestions = useMemo(() => {
+    const submitSingleChoiceOnSelect =
+      questions.length === 1 &&
+      questions[0]?.type === "text-options" &&
+      questions[0].multiSelect !== true;
+
+    return questions.map((question) => {
+      const resolvedQuestion = submitSingleChoiceOnSelect
+        ? { ...question, submitOnSelect: true }
+        : question;
+      return resolvedQuestion.type === "color-options" && designSystem
+        ? {
+            ...resolvedQuestion,
+            options: designSystemColorOptions(
+              designSystem,
+              resolvedQuestion.options || [],
+            ),
+          }
+        : resolvedQuestion;
+    });
+  }, [designSystem, questions]);
+
+  return (
+    <div className="slides-question-flow absolute inset-0 z-50 bg-transparent">
+      <GuidedQuestionFlow
+        questions={visibleQuestions as GuidedQuestion[]}
+        onSubmit={onSubmit}
+        onSkip={onSkip}
+        className="bg-background/65 backdrop-blur-sm"
+        title={title ?? "Shape the deck first"}
+        description={
+          description ??
+          "Answer the choices that matter. Use Other for a custom direction, or let the agent decide."
+        }
+        skipLabel={skipLabel}
+        submitLabel={submitLabel}
+        isSubmitting={isSubmitting}
+        isSubmissionBlocked={isSubmissionBlocked}
+        providerStatus={providerStatus}
+        onRetryProviderStatus={onRetryProviderStatus}
+      />
+    </div>
+  );
+}

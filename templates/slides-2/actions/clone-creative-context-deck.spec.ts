@@ -1,0 +1,151 @@
+import { createHash } from "node:crypto";
+
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  readPrivateBlob: vi.fn(),
+  resolveReference: vi.fn(),
+  insertValues: vi.fn(),
+  track: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/tracking", () => ({ track: mocks.track }));
+
+vi.mock("@agent-native/core/private-blob", () => ({
+  readPrivateBlob: mocks.readPrivateBlob,
+}));
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestUserEmail: () => "viewer@example.test",
+  getRequestOrgId: () => "org-1",
+}));
+vi.mock("@agent-native/creative-context/server", () => ({
+  resolveNativeContextCloneReference: mocks.resolveReference,
+}));
+vi.mock("drizzle-orm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("drizzle-orm")>()),
+  eq: vi.fn(() => ({})),
+}));
+vi.mock("../server/db/index.js", () => ({
+  schema: { decks: { id: "id" } },
+  getDb: () => ({
+    insert: () => ({ values: mocks.insertValues }),
+    select: () => ({
+      from: () => ({
+        where: async () => [{ id: "cloned-deck", title: "Copy of launch" }],
+      }),
+    }),
+  }),
+}));
+vi.mock("./_app-url.js", () => ({
+  getDeckUrl: (id: string) => `/deck/${id}`,
+}));
+
+import action from "./clone-creative-context-deck.js";
+
+describe("clone-creative-context-deck", () => {
+  const body = JSON.stringify({
+    title: "Launch",
+    slides: [{ id: "source-slide", content: "<div>Exact</div>" }],
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.resolveReference.mockResolvedValue({
+      publishedItemVersionId: "version-1",
+      cloneHandle: { key: "private" },
+    });
+    mocks.readPrivateBlob.mockResolvedValue({
+      data: Buffer.from(body),
+      metadata: {
+        appId: "slides",
+        resourceType: "deck",
+        resourceId: "source-deck",
+        contentHash: createHash("sha256").update(body).digest("hex"),
+      },
+    });
+  });
+
+  it("persists an exact governed deck snapshot without exposing its handle", async () => {
+    const result = await action.run({
+      contextId: "context-1",
+      artifactKey: "slides:deck:source-deck",
+      resourceId: "source-deck",
+    });
+    expect(mocks.resolveReference).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: "slides",
+        resourceType: "deck",
+        contextId: "context-1",
+      }),
+    );
+    expect(mocks.insertValues).toHaveBeenCalledWith(
+      expect.objectContaining({ ownerEmail: "viewer@example.test" }),
+    );
+    const insertedDeck = JSON.parse(
+      mocks.insertValues.mock.calls[0]?.[0].data as string,
+    ) as Record<string, unknown>;
+    expect(insertedDeck.appId).toBe("slides-2");
+    expect(result).toMatchObject({
+      id: "cloned-deck",
+      slideCount: 1,
+      clonedExactVersion: "version-1",
+    });
+    expect(result).not.toHaveProperty("cloneHandle");
+    const created = mocks.track.mock.calls.filter(
+      ([name]) => name === "deck_created",
+    );
+    expect(created).toHaveLength(1);
+    expect(created[0]?.[1]).toMatchObject({
+      output_id: "cloned-deck",
+      creation_method: "duplicate",
+      purpose: "direct",
+      slide_count: 1,
+    });
+  });
+
+  it("rejects a payload whose governed resource identity was forged", async () => {
+    mocks.readPrivateBlob.mockResolvedValue({
+      data: Buffer.from(body),
+      metadata: {
+        appId: "slides",
+        resourceType: "deck",
+        resourceId: "another-deck",
+        contentHash: createHash("sha256").update(body).digest("hex"),
+      },
+    });
+    await expect(
+      action.run({
+        contextId: "context-1",
+        artifactKey: "slides:deck:source-deck",
+        resourceId: "source-deck",
+      }),
+    ).rejects.toThrow(/integrity verification/);
+    expect(mocks.insertValues).not.toHaveBeenCalled();
+  });
+
+  it("rejects source data marked for another app before inserting a clone", async () => {
+    const foreignBody = JSON.stringify({
+      appId: "other-app",
+      title: "Launch",
+      slides: [{ id: "source-slide", content: "<div>Exact</div>" }],
+    });
+    mocks.readPrivateBlob.mockResolvedValue({
+      data: Buffer.from(foreignBody),
+      metadata: {
+        appId: "slides",
+        resourceType: "deck",
+        resourceId: "source-deck",
+        contentHash: createHash("sha256").update(foreignBody).digest("hex"),
+      },
+    });
+
+    await expect(
+      action.run({
+        contextId: "context-1",
+        artifactKey: "slides:deck:source-deck",
+        resourceId: "source-deck",
+      }),
+    ).rejects.toThrow(/Deck not found/);
+    expect(mocks.insertValues).not.toHaveBeenCalled();
+  });
+});

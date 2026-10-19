@@ -1,0 +1,878 @@
+/**
+ * Helpers for editing styled bullet lists — list-item rows built from a marker
+ * glyph plus text (e.g. `<div><span>●</span><span>Point</span></div>`) rather
+ * than real <ul>/<li> markup, which is how generated decks represent bullets.
+ *
+ * Kept in a standalone module (no React exports) so SlideEditor stays
+ * Fast-Refresh friendly and this logic is unit-testable.
+ */
+
+/** Zero-width space: keeps the caret inside an otherwise-empty text span so
+ * typed characters inherit that span's font instead of the container's. */
+export const ZERO_WIDTH_SPACE = "\u200B";
+
+/**
+ * A copy made to split an element (Enter, a list or link split) keeps its
+ * look, never the original's identity: two elements answering to one `id` or
+ * object id break selection, freeform moves, and export.
+ */
+export function stripCopiedIdentity(root: Element) {
+  for (const element of [root, ...Array.from(root.querySelectorAll("*"))]) {
+    stripIdentity(element);
+  }
+}
+
+function stripIdentity(element: Element) {
+  for (const { name } of Array.from(element.attributes)) {
+    if (name === "id" || /^data-.+-id$/.test(name)) {
+      element.removeAttribute(name);
+    }
+  }
+}
+
+/**
+ * `range.extractContents()` for a split. An element the range only partly
+ * holds stays where it is and the fragment gets a copy of it, along the
+ * fragment's first and last edges; those copies lose their identity, while
+ * elements that moved whole keep theirs.
+ */
+export function extractWithoutCopiedIdentity(range: Range): DocumentFragment {
+  const common = range.commonAncestorContainer;
+  const copiedDepth = (node: Node) => {
+    let depth = 0;
+    for (let at: Node | null = node; at && at !== common; at = at.parentNode) {
+      if (at instanceof Element) depth += 1;
+    }
+    return depth;
+  };
+  const startDepth = copiedDepth(range.startContainer);
+  const endDepth = copiedDepth(range.endContainer);
+  const fragment = range.extractContents();
+  let copy = fragment.firstChild;
+  for (let left = startDepth; left > 0 && copy instanceof Element; left -= 1) {
+    stripIdentity(copy);
+    copy = copy.firstChild;
+  }
+  copy = fragment.lastChild;
+  for (let left = endDepth; left > 0 && copy instanceof Element; left -= 1) {
+    stripIdentity(copy);
+    copy = copy.lastChild;
+  }
+  return fragment;
+}
+
+/** Single glyphs commonly used as bullet markers in styled (non-<ul>) lists. */
+const BULLET_GLYPHS = new Set([
+  "\u2022", // •
+  "\u25CF", // ●
+  "\u25E6", // ◦
+  "\u25AA", // ▪
+  "\u2023", // ‣
+  "\u00B7", // ·
+  "\u2043", // ⁃
+  "-",
+  "\u2013", // –
+  "\u2014", // —
+  "*",
+]);
+
+/** True if an element is a bullet marker — either a text glyph (a leading ●
+ * span) or an empty CSS shape (a small square/dot/box span used as a marker). */
+export function isBulletMarker(el: Element): boolean {
+  return isGlyphMarker(el) || isShapeMarker(el);
+}
+
+/** A leading span whose text is only bullet glyph characters (e.g. "●"). */
+function isGlyphMarker(el: Element): boolean {
+  const text = (el.textContent ?? "").trim();
+  return text.length > 0 && Array.from(text).every((c) => BULLET_GLYPHS.has(c));
+}
+
+/** An empty, small, roughly-square span drawn as a marker via border/background
+ * (e.g. `<span style="width:21px;height:21px;border:2px solid ...">`), which is
+ * how generated decks often render checkbox/dot bullets with no text glyph. */
+function isShapeMarker(el: Element): boolean {
+  if ((el.textContent ?? "").trim().length > 0) return false;
+  if (el.childElementCount > 0) return false;
+  const w = parseCssPx(styleValue(el, "width"));
+  const h = parseCssPx(styleValue(el, "height"));
+  if (!(w > 0 && h > 0) || w > 48 || h > 48) return false;
+  const ratio = w / h;
+  if (ratio < 0.5 || ratio > 2) return false;
+  const hasBorder =
+    parseCssPx(styleValue(el, "border-top-width")) > 0 ||
+    parseCssPx(styleValue(el, "border-left-width")) > 0 ||
+    parseCssPx(styleValue(el, "border-width")) > 0;
+  const bg = styleValue(el, "background-color");
+  const hasBg = !!bg && bg !== "transparent" && bg !== "rgba(0, 0, 0, 0)";
+  const hasRadius = parseCssPx(styleValue(el, "border-radius")) > 0;
+  return hasBorder || hasBg || hasRadius;
+}
+
+/** Read a style property, preferring inline styles and falling back to computed
+ * styles when available (jsdom-safe). */
+function styleValue(el: Element, prop: string): string {
+  const inline = (el as HTMLElement).style?.getPropertyValue(prop);
+  if (inline) return inline;
+  if (typeof window !== "undefined" && window.getComputedStyle) {
+    try {
+      return window.getComputedStyle(el).getPropertyValue(prop);
+    } catch {
+      return "";
+    }
+  }
+  return "";
+}
+
+function parseCssPx(value: string): number {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+/** The bullet-marker element enclosing a node (or the node itself), bounded by
+ * `root`, or null when the node isn't inside a marker glyph. */
+function enclosingMarker(node: Node, root: HTMLElement): HTMLElement | null {
+  let el: HTMLElement | null =
+    node.nodeType === Node.ELEMENT_NODE
+      ? (node as HTMLElement)
+      : node.parentElement;
+  while (el && el !== root && root.contains(el)) {
+    if (isBulletMarker(el)) return el;
+    el = el.parentElement;
+  }
+  return null;
+}
+
+/**
+ * A "bullet row" is a styled list item whose first element child is a marker
+ * glyph. The text after it may be a <span> or a bare text node (contentEditable
+ * often unwraps spans while editing), and may be empty for a freshly-added
+ * bullet — so only the leading marker is required.
+ */
+export function isBulletRow(el: HTMLElement): boolean {
+  if (el.tagName !== "DIV" && el.tagName !== "LI" && el.tagName !== "P") {
+    return false;
+  }
+  const first = el.firstElementChild;
+  return first?.tagName === "SPAN" && isBulletMarker(first);
+}
+
+/** A typed `- ` prefix can look like a marker while it is still inside a span. */
+export function isMarkdownBulletPrefixInMarker(
+  el: HTMLElement,
+  caret: Range,
+): boolean {
+  const marker = el.firstElementChild;
+  if (!(marker instanceof HTMLElement) || !isBulletMarker(marker)) return false;
+  const prefix = el.ownerDocument.createRange();
+  prefix.selectNodeContents(el);
+  prefix.setEnd(caret.startContainer, caret.startOffset);
+  const typed = prefix
+    .toString()
+    .replaceAll(ZERO_WIDTH_SPACE, "")
+    .replaceAll("\u00a0", " ");
+  const markerText = (marker.textContent ?? "")
+    .replaceAll(ZERO_WIDTH_SPACE, "")
+    .replaceAll("\u00a0", " ");
+  return /^(?:[-*+] |--- ?|\*\*\* ?)$/.test(typed) && markerText === typed;
+}
+
+/** Count the styled bullet rows directly inside a container. */
+export function bulletRowCount(el: HTMLElement): number {
+  return Array.from(el.children).filter((k) => isBulletRow(k as HTMLElement))
+    .length;
+}
+
+/** A container whose element children are (essentially) all styled bullet rows. */
+export function isBulletList(el: HTMLElement): boolean {
+  const kids = Array.from(el.children);
+  if (kids.length === 0) return false;
+  const rows = bulletRowCount(el);
+  // Tolerate one stray non-bullet child (e.g. a stray <br>/<div> left behind by
+  // contentEditable) as long as the container is clearly a bullet list.
+  return rows >= 1 && rows >= kids.length - 1;
+}
+
+/** Regex for a markdown-style bullet prefix at the start of a line. */
+const MARKDOWN_BULLET_PREFIX = /^[-*+] $/;
+
+function markdownBulletPrefixRange(
+  el: HTMLElement,
+): { range: Range; previousBreak: HTMLBRElement | null } | null {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return null;
+  const caret = selection.getRangeAt(0);
+  if (!caret.collapsed || !el.contains(caret.endContainer)) return null;
+  if (
+    (isBulletRow(el) && !isMarkdownBulletPrefixInMarker(el, caret)) ||
+    isBulletList(el)
+  ) {
+    return null;
+  }
+
+  const range = el.ownerDocument.createRange();
+  range.selectNodeContents(el);
+  range.setEnd(caret.endContainer, caret.endOffset);
+  let previousBreak: HTMLBRElement | null = null;
+  const walker = el.ownerDocument.createTreeWalker(el, NodeFilter.SHOW_ELEMENT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const element = node as HTMLElement;
+    if (element.tagName === "BR" && range.intersectsNode(element)) {
+      previousBreak = element as HTMLBRElement;
+    }
+  }
+  if (previousBreak) range.setStartAfter(previousBreak);
+  const typed = range
+    .toString()
+    .replaceAll(ZERO_WIDTH_SPACE, "")
+    .replaceAll("\u00a0", " ");
+  return MARKDOWN_BULLET_PREFIX.test(typed) ? { range, previousBreak } : null;
+}
+
+/**
+ * If the current line in `el` starts with a markdown-style "- "/"* " prefix
+ * and the caret sits right after it, convert the line into a styled bullet row
+ * — a small marker span plus a text span holding the rest of the line —
+ * nested inside `el`, which becomes the list container. `el` itself must stay
+ * the contentEditable root (nesting the row rather than turning `el` itself
+ * into the row) so a later Enter's cloned sibling row lands inside the same
+ * contentEditable boundary and is actually typeable. Returns false when `el`
+ * is already a bullet row/list, there's no such prefix, or the selection
+ * isn't a collapsed caret.
+ */
+export function convertMarkdownPrefixToBullet(el: HTMLElement): boolean {
+  const prefix = markdownBulletPrefixRange(el);
+  if (!prefix) return false;
+  const { range: beforeCaretRange, previousBreak } = prefix;
+  beforeCaretRange.deleteContents();
+
+  const marker = document.createElement("span");
+  marker.textContent = "\u25CF";
+
+  const textSpan = document.createElement("span");
+  let rowInsertionRange: Range | null = null;
+  if (previousBreak) {
+    const breaks = Array.from(el.querySelectorAll("br"));
+    const nextBreak = breaks[breaks.indexOf(previousBreak) + 1];
+    const line = el.ownerDocument.createRange();
+    line.setStartAfter(previousBreak);
+    if (nextBreak) line.setEndBefore(nextBreak);
+    else line.setEnd(el, el.childNodes.length);
+    textSpan.append(extractWithoutCopiedIdentity(line));
+    rowInsertionRange = line;
+  } else {
+    while (el.firstChild) textSpan.appendChild(el.firstChild);
+  }
+  // The prefix's emptied text node is not content to anchor the caret to.
+  for (const child of Array.from(textSpan.childNodes)) {
+    if (child instanceof Text && !child.data) child.remove();
+  }
+  const restFirstChild = textSpan.firstChild;
+  let placeholderZws: Text | null = null;
+  if (!restFirstChild) {
+    placeholderZws = document.createTextNode(ZERO_WIDTH_SPACE);
+    textSpan.appendChild(placeholderZws);
+  }
+
+  const row = document.createElement("div");
+  row.style.display = "flex";
+  row.style.alignItems = "baseline";
+  row.style.gap = "0.7em";
+  row.append(marker, textSpan);
+  if (previousBreak) {
+    // A hard line break inside the editable root is one paragraph boundary.
+    // Keep earlier lines where they are and turn only this line into a row.
+    if (!rowInsertionRange) return false;
+    rowInsertionRange.insertNode(row);
+  } else {
+    el.append(row);
+    if (!el.style.display) el.style.display = "flex";
+    if (!el.style.flexDirection) el.style.flexDirection = "column";
+    if (!el.style.gap) el.style.gap = "0.6em";
+  }
+
+  const range = el.ownerDocument.createRange();
+  if (restFirstChild) {
+    range.setStartBefore(restFirstChild);
+  } else {
+    // See primeNewRow: anchor the caret inside the placeholder text node
+    // (not an element-based position) so it keeps the text span's font
+    // instead of falling back to the marker's.
+    range.setStart(placeholderZws as Text, ZERO_WIDTH_SPACE.length);
+  }
+  range.collapse(true);
+  const sel = window.getSelection();
+  if (!sel) return false;
+  sel.removeAllRanges();
+  sel.addRange(range);
+  return true;
+}
+
+/**
+ * Walk up from a text leaf to the nearest enclosing list — a native UL/OL or
+ * a styled bullet-row container — so Enter can add a new item to the whole
+ * list instead of being trapped inside one item.
+ */
+export function findEnclosingList(
+  el: HTMLElement,
+  root: HTMLElement,
+): HTMLElement | null {
+  let node: HTMLElement | null = el;
+  while (node && root.contains(node)) {
+    const parentEl: HTMLElement | null = node.parentElement;
+    if (!parentEl) break;
+    // A native item can only gain a sibling when the list is the editing
+    // host; with the LI itself as host the browser splits inside the item.
+    if (
+      node.tagName === "LI" &&
+      (parentEl.tagName === "UL" || parentEl.tagName === "OL")
+    ) {
+      return parentEl;
+    }
+    if (isBulletRow(node) && isBulletList(parentEl)) return parentEl;
+    // Even from a bullet row whose siblings aren't all bullets, treat the
+    // parent as a list once it holds two or more bullet rows.
+    if (isBulletRow(node) && bulletRowCount(parentEl) >= 2) return parentEl;
+    node = parentEl;
+  }
+  return null;
+}
+
+/** The non-marker text container of a row: a dedicated text <span> if present,
+ * otherwise the row itself (rows whose text is a bare node). */
+export function rowTextContainer(
+  row: HTMLElement,
+  marker: HTMLElement | null,
+): HTMLElement {
+  const textSpan = Array.from(row.children).find(
+    (c) => c.tagName === "SPAN" && c !== marker && !isBulletMarker(c),
+  ) as HTMLElement | undefined;
+  return textSpan ?? row;
+}
+
+/**
+ * The row's own children that hold its text: after the marker and the
+ * spacing that follows it, up to the last non-blank node. An imported
+ * paragraph holds its runs as sibling spans, so this is every run, not
+ * rowTextContainer's first span; splitting, joining and caret placement at a
+ * row's edge all need the whole of it.
+ */
+export function rowTextRange(
+  row: HTMLElement,
+  marker: HTMLElement | null,
+): Range {
+  const nodes = Array.from(row.childNodes);
+  const blank = (node: Node) => node instanceof Text && !node.data.trim();
+  let start = marker ? nodes.indexOf(marker) + 1 : 0;
+  while (start < nodes.length && blank(nodes[start])) start += 1;
+  let end = nodes.length;
+  while (end > start && blank(nodes[end - 1])) end -= 1;
+  const range = row.ownerDocument.createRange();
+  range.setStart(row, start);
+  range.setEnd(row, end);
+  return range;
+}
+
+function listRows(list: HTMLElement): HTMLElement[] {
+  return Array.from(list.children).filter((child) => {
+    const element = child as HTMLElement;
+    return element.tagName === "LI" || isBulletRow(element);
+  }) as HTMLElement[];
+}
+
+function isNativeListItem(row: HTMLElement): boolean {
+  const parentTag = row.parentElement?.tagName;
+  return row.tagName === "LI" && (parentTag === "UL" || parentTag === "OL");
+}
+
+/** Elements that draw something with no text; an empty inline run such as
+ * <strong> or <a> only carries style for the next character typed. */
+const RENDERED_CONTENT = "img, svg, video, canvas, picture, iframe, input, hr";
+
+function hasRenderedElement(element: Element): boolean {
+  return (
+    element.matches(RENDERED_CONTENT) ||
+    element.querySelector(RENDERED_CONTENT) !== null
+  );
+}
+
+function hasNonPlaceholderElement(element: Element): boolean {
+  if (element.tagName === "BR") return false;
+  if (element.children.length === 0) {
+    return element.tagName !== "SPAN";
+  }
+  return Array.from(element.children).some(hasNonPlaceholderElement);
+}
+
+function hasMeaningfulContent(nodes: Node[]): boolean {
+  return nodes.some((node) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      return node.textContent?.replaceAll(ZERO_WIDTH_SPACE, "").trim() !== "";
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return false;
+    const element = node as Element;
+    return (
+      element.textContent?.replaceAll(ZERO_WIDTH_SPACE, "").trim() !== "" ||
+      hasRenderedElement(element)
+    );
+  });
+}
+
+function selectedEmptyBulletRow(list: HTMLElement): HTMLElement | null {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount !== 1 || !sel.isCollapsed) return null;
+  const range = sel.getRangeAt(0);
+  let node: Node | null = range.startContainer;
+  let row: HTMLElement | null = null;
+  while (node && node !== list) {
+    if (node.parentNode === list && node.nodeType === Node.ELEMENT_NODE) {
+      const candidate = node as HTMLElement;
+      if (candidate.tagName === "LI" || isBulletRow(candidate)) row = candidate;
+      break;
+    }
+    node = node.parentNode;
+  }
+  if (!row) return null;
+
+  if (isNativeListItem(row)) {
+    return hasMeaningfulContent(Array.from(row.childNodes)) ? null : row;
+  }
+
+  const marker =
+    row.firstElementChild && isBulletMarker(row.firstElementChild)
+      ? (row.firstElementChild as HTMLElement)
+      : null;
+  if (marker?.contains(range.startContainer)) return null;
+  const textContainer = rowTextContainer(row, marker);
+  if (
+    range.startContainer !== row &&
+    !textContainer.contains(range.startContainer)
+  ) {
+    return null;
+  }
+  const text =
+    textContainer === row
+      ? Array.from(row.childNodes)
+          .filter((child) => child !== marker)
+          .map((child) => child.textContent ?? "")
+          .join("")
+      : (textContainer.textContent ?? "");
+  if (text.replaceAll(ZERO_WIDTH_SPACE, "").trim() !== "") return null;
+  return hasMeaningfulContent(
+    Array.from(row.childNodes).filter((child) => child !== marker),
+  )
+    ? null
+    : row;
+}
+
+function setCaretAtRowBoundary(row: HTMLElement, atEnd: boolean): void {
+  const marker =
+    row.firstElementChild && isBulletMarker(row.firstElementChild)
+      ? (row.firstElementChild as HTMLElement)
+      : null;
+  const text = rowTextRange(row, marker);
+  const range = document.createRange();
+  const textWalker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
+  let firstText: Text | null = null;
+  let lastText: Text | null = null;
+  for (let node = textWalker.nextNode(); node; node = textWalker.nextNode()) {
+    if (!text.intersectsNode(node)) continue;
+    firstText ??= node as Text;
+    lastText = node as Text;
+  }
+  const textNode = atEnd ? lastText : firstText;
+  const edge = row.childNodes[atEnd ? text.endOffset - 1 : text.startOffset];
+  if (textNode) {
+    range.setStart(textNode, atEnd ? textNode.data.length : 0);
+  } else if (edge?.nodeName === "SPAN" && text.intersectsNode(edge)) {
+    // An empty text span still carries the font for the next character.
+    range.selectNodeContents(edge);
+    range.collapse(!atEnd);
+  } else {
+    range.setStart(row, atEnd ? text.endOffset : text.startOffset);
+  }
+  range.collapse(true);
+  const sel = window.getSelection();
+  sel?.removeAllRanges();
+  sel?.addRange(range);
+}
+
+function setCaretAtContainerBoundary(container: Node, atEnd: boolean): void {
+  const range = document.createRange();
+  range.selectNodeContents(container);
+  range.collapse(!atEnd);
+  const sel = window.getSelection();
+  sel?.removeAllRanges();
+  sel?.addRange(range);
+}
+
+/** A list child that is not a row is dropped with the list unless this holds,
+ * so any element short of a stray break or empty span is kept. */
+function isMeaningfulNode(node: Node): boolean {
+  return (
+    hasMeaningfulContent([node]) ||
+    (node.nodeType === Node.ELEMENT_NODE &&
+      hasNonPlaceholderElement(node as Element))
+  );
+}
+
+function hasBulletRow(nodes: Node[]): boolean {
+  return nodes.some(
+    (node) =>
+      node.nodeType === Node.ELEMENT_NODE &&
+      ((node as HTMLElement).tagName === "LI" ||
+        isBulletRow(node as HTMLElement)),
+  );
+}
+
+function effectiveOrderedListStart(
+  list: HTMLElement,
+  rowCount: number,
+): number {
+  const parsedStart = Number.parseInt(list.getAttribute("start") ?? "", 10);
+  if (Number.isFinite(parsedStart)) return parsedStart;
+  return list.hasAttribute("reversed") ? rowCount : 1;
+}
+
+function orderedListContinuation(
+  list: HTMLElement,
+  rows: HTMLElement[],
+  rowIndex: number,
+): number {
+  let value = effectiveOrderedListStart(list, rows.length);
+  const step = list.hasAttribute("reversed") ? -1 : 1;
+  for (let index = 0; index <= rowIndex; index++) {
+    const override = Number.parseInt(
+      rows[index].getAttribute("value") ?? "",
+      10,
+    );
+    if (Number.isFinite(override)) value = override;
+    value += step;
+  }
+  return value;
+}
+
+function listWithNodes(
+  list: HTMLElement,
+  nodes: Node[],
+  orderedStart?: number,
+): HTMLElement {
+  const clone = list.cloneNode(false) as HTMLElement;
+  stripCopiedIdentity(clone);
+  clone.removeAttribute("contenteditable");
+  clone.removeAttribute("data-editing-block");
+  if (orderedStart !== undefined) {
+    clone.setAttribute("start", String(orderedStart));
+  }
+  clone.replaceChildren(...nodes);
+  return clone;
+}
+
+function createRootLine(
+  list: HTMLElement,
+  row: HTMLElement,
+): HTMLElement | null {
+  const parent = list.parentElement;
+  if (!parent) return null;
+
+  const line = list.ownerDocument.createElement("div");
+  line.style.cssText = list.style.cssText;
+  for (let i = 0; i < row.style.length; i++) {
+    const property = row.style.item(i);
+    line.style.setProperty(
+      property,
+      row.style.getPropertyValue(property),
+      row.style.getPropertyPriority(property),
+    );
+  }
+  for (const property of [
+    "display",
+    "flex-direction",
+    "flex-wrap",
+    "align-items",
+    "justify-content",
+    "gap",
+    "list-style",
+    "list-style-position",
+    "list-style-type",
+    "padding-left",
+  ]) {
+    line.style.removeProperty(property);
+  }
+
+  const marker =
+    row.firstElementChild && isBulletMarker(row.firstElementChild)
+      ? (row.firstElementChild as HTMLElement)
+      : null;
+  const textContainer = rowTextContainer(row, marker);
+  if (textContainer !== row) {
+    const text = textContainer.cloneNode(false) as HTMLElement;
+    stripCopiedIdentity(text);
+    text.replaceChildren(list.ownerDocument.createTextNode(ZERO_WIDTH_SPACE));
+    line.appendChild(text);
+  } else {
+    line.appendChild(list.ownerDocument.createTextNode(ZERO_WIDTH_SPACE));
+  }
+  return line;
+}
+
+/** Remove the empty bullet under the caret for a single Backspace press. */
+export function removeEmptyBulletAtCaret(
+  list: HTMLElement,
+): { handled: true; editingElement: HTMLElement | null } | null {
+  const row = selectedEmptyBulletRow(list);
+  if (!row) return null;
+
+  const rows = listRows(list);
+  const rowIndex = rows.indexOf(row);
+  if (rowIndex < 0) return null;
+  if (rows.length === 1) {
+    const remainingNodes = Array.from(list.childNodes).filter(
+      (node) => node !== row,
+    );
+    if (remainingNodes.some(isMeaningfulNode)) {
+      const placeAtEnd = !!row.previousElementSibling;
+      row.remove();
+      setCaretAtContainerBoundary(list, placeAtEnd);
+      return { handled: true, editingElement: null };
+    }
+    const line = createRootLine(list, row);
+    if (!line) return null;
+    list.replaceWith(line);
+    setCaretAtRowBoundary(line, false);
+    return { handled: true, editingElement: line };
+  }
+
+  const previous = rows[rowIndex - 1];
+  const next = rows[rowIndex + 1];
+  const parsedStart = Number.parseInt(list.getAttribute("start") ?? "", 10);
+  const implicitReversedStart =
+    list.tagName === "OL" &&
+    list.hasAttribute("reversed") &&
+    !Number.isFinite(parsedStart)
+      ? effectiveOrderedListStart(list, rows.length)
+      : null;
+  row.remove();
+  if (implicitReversedStart !== null) {
+    list.setAttribute("start", String(implicitReversedStart));
+  }
+  setCaretAtRowBoundary(previous ?? next, Boolean(previous));
+  return { handled: true, editingElement: null };
+}
+
+/** Exit an empty bullet into a plain root-level line under the current list. */
+export function exitEmptyBulletAtCaret(list: HTMLElement): HTMLElement | null {
+  const row = selectedEmptyBulletRow(list);
+  if (!row) return null;
+  const line = createRootLine(list, row);
+  if (!line) return null;
+
+  const childNodes = Array.from(list.childNodes);
+  const rowIndex = childNodes.indexOf(row);
+  if (rowIndex < 0) return null;
+  const beforeNodes = childNodes.slice(0, rowIndex);
+  const afterNodes = childNodes.slice(rowIndex + 1);
+  const beforeHasRows = hasBulletRow(beforeNodes);
+  const afterHasRows = hasBulletRow(afterNodes);
+  const rows = listRows(list);
+  const rowIndexInList = rows.indexOf(row);
+  const orderedStart =
+    list.tagName === "OL" ? effectiveOrderedListStart(list, rows.length) : null;
+  const trailingStart =
+    orderedStart !== null && rowIndexInList >= 0
+      ? orderedListContinuation(list, rows, rowIndexInList)
+      : undefined;
+
+  if (beforeHasRows) {
+    list.replaceChildren(...beforeNodes);
+    if (list.hasAttribute("reversed") && orderedStart !== null) {
+      list.setAttribute("start", String(orderedStart));
+    }
+    if (afterHasRows) {
+      list.after(line, listWithNodes(list, afterNodes, trailingStart));
+    } else {
+      const following = list.ownerDocument.createDocumentFragment();
+      following.append(line, ...afterNodes);
+      list.after(following);
+    }
+  } else if (afterHasRows) {
+    list.replaceChildren(...afterNodes);
+    if (trailingStart !== undefined) {
+      list.setAttribute("start", String(trailingStart));
+    }
+    const preceding = list.ownerDocument.createDocumentFragment();
+    preceding.append(...beforeNodes, line);
+    list.before(preceding);
+  } else if (
+    beforeNodes.some(isMeaningfulNode) ||
+    afterNodes.some(isMeaningfulNode)
+  ) {
+    const replacement = list.ownerDocument.createDocumentFragment();
+    replacement.append(...beforeNodes, line, ...afterNodes);
+    list.replaceWith(replacement);
+  } else {
+    list.replaceWith(line);
+  }
+  setCaretAtRowBoundary(line, false);
+  return line;
+}
+
+/**
+ * Seed a freshly-inserted row with the caret's trailing content and place the
+ * caret at the start of its editable text. `tail` is a DOM fragment (not a
+ * string) so inline formatting such as <strong>/<em> carried over from the
+ * split point is preserved; it holds its own copy of every run the caret cut
+ * through, and `caret` is its spot from tailCaret. When there is no tail at
+ * all, a zero-width space keeps the caret inside the font-carrying text span
+ * rather than dropping it to the container.
+ */
+function primeNewRow(
+  row: HTMLElement,
+  tail: { fragment: DocumentFragment; caret: [Text, number] } | null,
+): void {
+  const marker =
+    row.firstElementChild && isBulletMarker(row.firstElementChild)
+      ? (row.firstElementChild as HTMLElement)
+      : null;
+  const container = rowTextContainer(row, marker);
+  const range = document.createRange();
+  if (tail) {
+    // Keep the marker and the spacing after it; the tail replaces the rest.
+    const text = rowTextRange(row, marker);
+    text.setEnd(row, row.childNodes.length);
+    text.deleteContents();
+    row.appendChild(tail.fragment);
+    range.setStart(...tail.caret);
+  } else {
+    if (container !== row) {
+      container.replaceChildren();
+      while (container.nextSibling) container.nextSibling.remove();
+    } else {
+      while (marker?.nextSibling) marker.nextSibling.remove();
+      if (!marker) row.replaceChildren();
+    }
+    const zws = document.createTextNode(ZERO_WIDTH_SPACE);
+    container.appendChild(zws);
+    range.setStart(zws, ZERO_WIDTH_SPACE.length);
+  }
+
+  const sel = window.getSelection();
+  if (!sel) return;
+  range.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
+/**
+ * Insert a new list item after the caret's current row. Content after the caret
+ * moves into the new row (with inline formatting preserved); the marker glyph is
+ * preserved on both rows. Returns false when the caret isn't inside a direct row
+ * of the list so the caller can fall back.
+ */
+export function insertBulletAfterCaret(list: HTMLElement): boolean {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return false;
+  let range = sel.getRangeAt(0);
+  if (!range.collapsed) {
+    // A selection that spans a row's marker glyph would delete it here, blanking
+    // the bullet on the surviving row (and its clone). Clamp both boundaries out
+    // of any enclosing marker so deletion never touches the glyphs.
+    const startMarker = enclosingMarker(range.startContainer, list);
+    if (startMarker) range.setStartAfter(startMarker);
+    const endMarker = enclosingMarker(range.endContainer, list);
+    if (endMarker) range.setEndBefore(endMarker);
+    if (!range.collapsed) range.deleteContents();
+  }
+
+  let row: HTMLElement | null = null;
+  let node: Node | null = range.endContainer;
+  while (node && node !== list) {
+    if (node.parentNode === list) {
+      row = node as HTMLElement;
+      break;
+    }
+    node = node.parentNode;
+  }
+  if (!row) return false;
+  if (
+    range.collapsed &&
+    range.startContainer === row &&
+    range.startOffset === row.childNodes.length
+  ) {
+    setCaretAtRowBoundary(row, true);
+    range = sel.getRangeAt(0);
+  }
+  const marker =
+    row.firstElementChild && isBulletMarker(row.firstElementChild)
+      ? (row.firstElementChild as HTMLElement)
+      : null;
+
+  // Never split inside the marker glyph itself: a caret at offset 0 of the "●"
+  // text node (e.g. clicking the marker's leading edge) would otherwise blank
+  // the marker and un-bullet the row. In that case add an empty bullet instead.
+  const caretInMarker = !!marker && marker.contains(range.endContainer);
+
+  let tail: Parameters<typeof primeNewRow>[1] = null;
+  if (!caretInMarker && row.contains(range.endContainer)) {
+    // Every run after the caret moves, not just the rest of the first text
+    // span; trailing whitespace stays put.
+    const text = rowTextRange(row, marker);
+    const tailRange = document.createRange();
+    tailRange.setStart(range.endContainer, range.endOffset);
+    tailRange.setEnd(text.endContainer, text.endOffset);
+    if (!tailRange.collapsed) {
+      // extractContents() moves the trailing DOM subtree (preserving
+      // <strong>/<em>) out of the original row so it can be reparented into
+      // the new one.
+      const fragment = extractWithoutCopiedIdentity(tailRange);
+      if (fragment.firstChild) tail = { fragment, caret: tailCaret(fragment) };
+    }
+  }
+
+  const newRow = row.cloneNode(true) as HTMLElement;
+  stripCopiedIdentity(newRow);
+  row.after(newRow);
+  primeNewRow(newRow, tail);
+  return true;
+}
+
+/**
+ * Where the caret goes in a tail moved to a new row: the start of the text on
+ * the fragment's leading edge, inside the inline chain the caret sat in, so
+ * typing keeps that run's style. A caret at the end of its run leaves empty
+ * copies of that chain there; an empty text node has no character to anchor
+ * the caret's font to, so they get a zero-width space instead. An emptied
+ * link is dropped rather than entered: a link is a target, not a style, and
+ * text typed on the new row must not join it.
+ */
+function tailCaret(tail: DocumentFragment): [Text, number] {
+  let parent: Node = tail;
+  let node = tail.firstChild;
+  while (
+    node?.nodeType === Node.ELEMENT_NODE &&
+    !(node as Element).matches(`${RENDERED_CONTENT}, br`) &&
+    !isEmptyLink(node) &&
+    !isBlockBoundary(node as Element)
+  ) {
+    parent = node;
+    node = node.firstChild;
+  }
+  if (node instanceof Text && node.data) return [node, 0];
+  const placeholder = document.createTextNode(ZERO_WIDTH_SPACE);
+  if (node instanceof Text || (node && isEmptyLink(node))) {
+    node.replaceWith(placeholder);
+  } else parent.insertBefore(placeholder, node);
+  return [placeholder, ZERO_WIDTH_SPACE.length];
+}
+
+function isBlockBoundary(element: Element): boolean {
+  const display = styleValue(element, "display");
+  return (
+    element.matches("ul, ol, li") ||
+    (!!display && display !== "contents" && !display.startsWith("inline"))
+  );
+}
+
+function isEmptyLink(node: Node): boolean {
+  return node.nodeName === "A" && !hasMeaningfulContent([node]);
+}

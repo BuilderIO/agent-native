@@ -134,6 +134,13 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "slides:deck_access_request_limits":
     "internal anonymous access-request throttling buckets",
   "slides:slide_comments": "child rows scoped through decks",
+  "slides-2:deck_share_links":
+    "public share-token snapshots scoped by token and created through authorized deck actions",
+  "slides-2:deck_events":
+    "deck access-request audit rows read and written through scoped actions",
+  "slides-2:deck_access_request_limits":
+    "internal anonymous access-request throttling buckets",
+  "slides-2:slide_comments": "child rows scoped through authorized decks",
 };
 
 async function* walk(dir) {

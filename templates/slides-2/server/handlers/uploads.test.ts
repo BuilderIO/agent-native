@@ -1,0 +1,609 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mockMkdir = vi.hoisted(() => vi.fn(async () => undefined));
+const mockWriteFile = vi.hoisted(() => vi.fn(async () => undefined));
+const mockIsHostedSlidesRuntime = vi.hoisted(() => vi.fn(() => false));
+const mockMintUploadedReference = vi.hoisted(() => vi.fn());
+const mockDeleteUploadedReference = vi.hoisted(() => vi.fn());
+const mockReadMultipartFormData = vi.hoisted(() => vi.fn());
+const mockReadBoundedMultipartFormData = vi.hoisted(() => vi.fn());
+const mockAssertBodySize = vi.hoisted(() => vi.fn());
+const mockSetResponseStatus = vi.hoisted(() => vi.fn());
+const mockResolveSlidesRequestAuth = vi.hoisted(() => vi.fn());
+const mockWithSlidesRequestContext = vi.hoisted(() => vi.fn());
+const mockHasExpectedSvgSignature = vi.hoisted(() => vi.fn(() => true));
+const mockIsSafeSvg = vi.hoisted(() => vi.fn(() => true));
+const mockStripSafeSvgDoctype = vi.hoisted(() =>
+  vi.fn((data: Uint8Array) => data),
+);
+const mockGetRequestOrgId = vi.hoisted(() => vi.fn());
+const mockCanSaveAsUploadedAsset = vi.hoisted(() =>
+  vi.fn((..._args: unknown[]) => false),
+);
+const mockUploadImageAsset = vi.hoisted(() =>
+  vi.fn((..._args: unknown[]) => Promise.resolve({ url: "" })),
+);
+const mockAssertDeckAssetUploadScope = vi.hoisted(() => vi.fn());
+
+vi.mock("@agent-native/core/server", () => ({
+  getRequestOrgId: () => mockGetRequestOrgId(),
+}));
+
+vi.mock("h3", () => ({
+  assertBodySize: (...args: unknown[]) => mockAssertBodySize(...args),
+  defineEventHandler: (handler: unknown) => handler,
+  readMultipartFormData: (...args: unknown[]) =>
+    mockReadMultipartFormData(...args),
+  setResponseStatus: (...args: unknown[]) => mockSetResponseStatus(...args),
+}));
+
+vi.mock("fs", () => ({
+  default: {
+    promises: {
+      mkdir: mockMkdir,
+      writeFile: mockWriteFile,
+    },
+  },
+}));
+
+vi.mock("../lib/tenant-files.js", () => ({
+  tenantUploadDir: () => "/tmp/slides-test-uploads",
+}));
+
+vi.mock("../lib/uploaded-reference-storage.js", () => ({
+  isHostedSlidesRuntime: () => mockIsHostedSlidesRuntime(),
+  deleteUploadedReference: (...args: unknown[]) =>
+    mockDeleteUploadedReference(...args),
+  mintUploadedReference: (...args: unknown[]) =>
+    mockMintUploadedReference(...args),
+}));
+
+vi.mock("./assets.js", () => ({
+  canSaveAsUploadedAsset: (...args: unknown[]) =>
+    mockCanSaveAsUploadedAsset(...args),
+  hasExpectedSvgSignature: mockHasExpectedSvgSignature,
+  isSafeSvg: () => mockIsSafeSvg(),
+  stripSafeSvgDoctype: (...args: unknown[]) =>
+    mockStripSafeSvgDoctype(...(args as [Uint8Array])),
+  uploadImageAsset: (...args: unknown[]) => mockUploadImageAsset(...args),
+}));
+
+vi.mock("../lib/bounded-multipart.js", () => ({
+  readBoundedMultipartFormData: (...args: unknown[]) =>
+    mockReadBoundedMultipartFormData(...args),
+}));
+
+vi.mock("./request-auth-context.js", () => ({
+  resolveSlidesRequestAuth: (...args: unknown[]) =>
+    mockResolveSlidesRequestAuth(...args),
+  withSlidesRequestContext: (...args: unknown[]) =>
+    mockWithSlidesRequestContext(...args),
+}));
+
+vi.mock("../lib/deck-asset-scope.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../lib/deck-asset-scope.js")>();
+  return {
+    ...actual,
+    assertDeckAssetUploadScope: (...args: unknown[]) =>
+      mockAssertDeckAssetUploadScope(...args),
+  };
+});
+
+import {
+  MAX_FIG_REFERENCE_FILE_BYTES,
+  MAX_REFERENCE_UPLOAD_REQUEST_BYTES,
+  MAX_REFERENCE_FILE_BYTES,
+  MAX_SVG_REFERENCE_FILE_BYTES,
+  maxReferenceFileBytes,
+  saveUploadedReferenceFile,
+  uploadFiles,
+} from "./uploads";
+
+const mintedRef = {
+  status: "ok" as const,
+  ref: "attachment:v1:scoped-handle",
+  handle: {
+    id: "blob-1",
+    provider: "test",
+    opaque: true as const,
+    encrypted: true,
+  },
+};
+
+describe("Slides reference upload limits", () => {
+  beforeEach(() => {
+    mockMkdir.mockClear();
+    mockWriteFile.mockClear();
+    mockIsHostedSlidesRuntime.mockReturnValue(false);
+    mockMintUploadedReference.mockReset();
+    mockDeleteUploadedReference.mockReset();
+    mockReadMultipartFormData.mockReset();
+    mockReadBoundedMultipartFormData.mockReset();
+    mockAssertBodySize.mockReset();
+    mockReadBoundedMultipartFormData.mockImplementation(
+      async (event: unknown, limit: number) => {
+        await mockAssertBodySize(event, limit);
+        return mockReadMultipartFormData(event);
+      },
+    );
+    mockSetResponseStatus.mockReset();
+    mockHasExpectedSvgSignature.mockReset();
+    mockHasExpectedSvgSignature.mockReturnValue(true);
+    mockIsSafeSvg.mockReset();
+    mockIsSafeSvg.mockReturnValue(true);
+    mockStripSafeSvgDoctype.mockReset();
+    mockStripSafeSvgDoctype.mockImplementation((data) => data);
+    mockGetRequestOrgId.mockReset();
+    mockGetRequestOrgId.mockReturnValue(undefined);
+    mockCanSaveAsUploadedAsset.mockReset();
+    mockCanSaveAsUploadedAsset.mockReturnValue(false);
+    mockUploadImageAsset.mockReset();
+    mockAssertDeckAssetUploadScope.mockReset();
+    mockAssertDeckAssetUploadScope.mockResolvedValue(undefined);
+    mockResolveSlidesRequestAuth.mockResolvedValue({
+      ok: true,
+      context: { email: "owner@example.com", orgId: "active-org" },
+    });
+    mockWithSlidesRequestContext.mockImplementation(
+      async (
+        _event: unknown,
+        callback: (context: { email?: string; orgId?: string }) => unknown,
+        context: { email?: string; orgId?: string },
+      ) => callback(context),
+    );
+  });
+
+  it("allows larger .fig files than ordinary references", () => {
+    expect(maxReferenceFileBytes("brand.fig")).toBe(
+      MAX_FIG_REFERENCE_FILE_BYTES,
+    );
+    expect(maxReferenceFileBytes("logo.svg")).toBe(
+      MAX_SVG_REFERENCE_FILE_BYTES,
+    );
+    expect(maxReferenceFileBytes("deck.pdf")).toBe(MAX_REFERENCE_FILE_BYTES);
+    expect(maxReferenceFileBytes(undefined)).toBe(MAX_REFERENCE_FILE_BYTES);
+  });
+
+  it("bounds multipart request bytes before parsing the buffered body", async () => {
+    const event = {} as any;
+    mockAssertBodySize.mockImplementationOnce(() => {
+      throw Object.assign(new Error("Request body too large"), {
+        statusCode: 413,
+      });
+    });
+
+    await expect(uploadFiles(event)).rejects.toMatchObject({ statusCode: 413 });
+
+    expect(mockAssertBodySize).toHaveBeenCalledWith(
+      event,
+      MAX_REFERENCE_UPLOAD_REQUEST_BYTES,
+    );
+    expect(mockReadBoundedMultipartFormData).toHaveBeenCalledWith(
+      event,
+      MAX_REFERENCE_UPLOAD_REQUEST_BYTES,
+    );
+    expect(MAX_REFERENCE_UPLOAD_REQUEST_BYTES).toBe(
+      MAX_FIG_REFERENCE_FILE_BYTES + 1024 * 1024,
+    );
+    expect(mockReadMultipartFormData).not.toHaveBeenCalled();
+  });
+
+  it("rejects oversized SVGs before full-content validation", async () => {
+    await expect(
+      saveUploadedReferenceFile({
+        email: "owner@example.com",
+        originalName: "large.svg",
+        data: Buffer.alloc(MAX_SVG_REFERENCE_FILE_BYTES + 1),
+      }),
+    ).rejects.toThrow("File too large (max 10 MB)");
+
+    expect(mockIsSafeSvg).not.toHaveBeenCalled();
+    expect(mockWriteFile).not.toHaveBeenCalled();
+  });
+
+  it("accepts only zip or fig-kiwi .fig upload signatures", async () => {
+    const figKiwi = Buffer.from([
+      0x66, 0x69, 0x67, 0x2d, 0x6b, 0x69, 0x77, 0x69, 0, 0, 0, 0,
+    ]);
+    const zip = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
+
+    await expect(
+      saveUploadedReferenceFile({
+        email: "owner@example.com",
+        originalName: "brand.fig",
+        data: figKiwi,
+      }),
+    ).resolves.toMatchObject({
+      originalName: "brand.fig",
+      type: "application/octet-stream",
+      size: figKiwi.length,
+    });
+    await expect(
+      saveUploadedReferenceFile({
+        email: "owner@example.com",
+        originalName: "zipped.fig",
+        data: zip,
+      }),
+    ).resolves.toMatchObject({
+      originalName: "zipped.fig",
+      size: zip.length,
+    });
+    await expect(
+      saveUploadedReferenceFile({
+        email: "owner@example.com",
+        originalName: "not-fig.fig",
+        data: Buffer.from("not-a-fig"),
+      }),
+    ).rejects.toThrow("File contents do not match .fig upload type");
+
+    expect(mockWriteFile).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses the detected raster type when an image extension is mislabeled", async () => {
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0x00]);
+
+    await expect(
+      saveUploadedReferenceFile({
+        email: "owner@example.com",
+        originalName: "reference.png",
+        data: jpeg,
+        type: "image/png",
+      }),
+    ).resolves.toMatchObject({
+      originalName: "reference.png",
+      filename: expect.stringMatching(/\.jpg$/),
+      type: "image/jpeg",
+      size: jpeg.length,
+    });
+
+    expect(mockWriteFile).toHaveBeenCalledWith(
+      expect.stringMatching(/\.jpg$/),
+      jpeg,
+    );
+  });
+
+  it("uses the detected raster MIME when the matching extension is mislabeled", async () => {
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0x00]);
+
+    await expect(
+      saveUploadedReferenceFile({
+        email: "owner@example.com",
+        originalName: "reference.jpg",
+        data: jpeg,
+        type: "image/png",
+      }),
+    ).resolves.toMatchObject({
+      filename: expect.stringMatching(/\.jpg$/),
+      type: "image/jpeg",
+    });
+  });
+
+  it("normalizes SVG uploads to the SVG MIME type", async () => {
+    const svg = Buffer.from(
+      '<!-- generated by Illustrator -->\n<svg xmlns="http://www.w3.org/2000/svg" />',
+    );
+
+    await expect(
+      saveUploadedReferenceFile({
+        email: "owner@example.com",
+        originalName: "logo.svg",
+        data: svg,
+        type: "application/octet-stream",
+      }),
+    ).resolves.toMatchObject({
+      filename: expect.stringMatching(/\.svg$/),
+      type: "image/svg+xml",
+    });
+    expect(mockHasExpectedSvgSignature).toHaveBeenCalledWith(svg);
+  });
+
+  it("strips the standard SVG 1.1 doctype before storing reference uploads", async () => {
+    const svg = Buffer.from("svg with doctype");
+    const strippedSvg = Buffer.from("svg without doctype");
+    mockStripSafeSvgDoctype.mockReturnValue(strippedSvg);
+    mockCanSaveAsUploadedAsset.mockReturnValue(true);
+
+    await saveUploadedReferenceFile({
+      email: "owner@example.com",
+      originalName: "arrow.svg",
+      data: svg,
+      type: "image/svg+xml",
+    });
+
+    expect(mockWriteFile).toHaveBeenCalledWith(
+      expect.stringMatching(/\.svg$/),
+      strippedSvg,
+    );
+    expect(mockCanSaveAsUploadedAsset).toHaveBeenCalledWith({
+      originalName: "arrow.svg",
+      data: strippedSvg,
+    });
+    expect(mockUploadImageAsset).toHaveBeenCalledWith(
+      expect.objectContaining({ data: strippedSvg, originalName: "arrow.svg" }),
+    );
+  });
+
+  it("rejects unsafe SVG reference uploads before storing them", async () => {
+    mockIsSafeSvg.mockReturnValue(false);
+
+    await expect(
+      saveUploadedReferenceFile({
+        email: "owner@example.com",
+        originalName: "unsafe.svg",
+        data: Buffer.from(
+          "<svg><image href=https://example.com/x.png /></svg>",
+        ),
+      }),
+    ).rejects.toThrow("SVG contains active content or external references");
+
+    expect(mockWriteFile).not.toHaveBeenCalled();
+  });
+
+  it("stores hosted reference uploads in durable private blob storage", async () => {
+    mockIsHostedSlidesRuntime.mockReturnValue(true);
+    mockMintUploadedReference.mockResolvedValue(mintedRef);
+    const pptx = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
+
+    await expect(
+      saveUploadedReferenceFile({
+        email: "owner@example.com",
+        orgId: "org-1",
+        originalName: "deck.pptx",
+        data: pptx,
+        type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      }),
+    ).resolves.toMatchObject({
+      path: "attachment:v1:scoped-handle",
+      originalName: "deck.pptx",
+    });
+
+    expect(mockMintUploadedReference).toHaveBeenCalledWith({
+      data: pptx,
+      email: "owner@example.com",
+      orgId: "org-1",
+      filename: expect.stringMatching(/\.pptx$/),
+      mimeType:
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    });
+    expect(mockWriteFile).not.toHaveBeenCalled();
+  });
+
+  it("uses the live active organization when the upload route saves files", async () => {
+    mockIsHostedSlidesRuntime.mockReturnValue(true);
+    mockMintUploadedReference.mockResolvedValue(mintedRef);
+    const pptx = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
+    mockReadMultipartFormData.mockResolvedValue([
+      {
+        name: "files",
+        filename: "deck.pptx",
+        type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        data: pptx,
+      },
+    ]);
+    const event = {} as any;
+
+    await expect(uploadFiles(event)).resolves.toEqual([
+      expect.objectContaining({ path: "attachment:v1:scoped-handle" }),
+    ]);
+
+    expect(mockResolveSlidesRequestAuth).toHaveBeenCalledWith(event);
+    expect(mockWithSlidesRequestContext).toHaveBeenCalledWith(
+      event,
+      expect.any(Function),
+      { email: "owner@example.com", orgId: "active-org" },
+    );
+    expect(mockMintUploadedReference).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: "owner@example.com",
+        orgId: "active-org",
+      }),
+    );
+  });
+
+  it("carries the optional deck scope through a single reference upload", async () => {
+    mockIsHostedSlidesRuntime.mockReturnValue(true);
+    mockMintUploadedReference.mockResolvedValue(mintedRef);
+    mockCanSaveAsUploadedAsset.mockReturnValue(true);
+    mockUploadImageAsset.mockResolvedValue({
+      url: "https://cdn.builder.io/slides/deck-image.png",
+    });
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    mockReadMultipartFormData.mockResolvedValue([
+      { name: "deckId", data: Buffer.from("deck-1") },
+      {
+        name: "files",
+        filename: "deck-image.png",
+        type: "image/png",
+        data: png,
+      },
+    ]);
+
+    await expect(uploadFiles({} as any)).resolves.toMatchObject([
+      { url: "https://cdn.builder.io/slides/deck-image.png" },
+    ]);
+
+    expect(mockAssertDeckAssetUploadScope).toHaveBeenCalledWith({
+      deckId: "deck-1",
+      email: "owner@example.com",
+      orgId: "active-org",
+    });
+    expect(mockUploadImageAsset).toHaveBeenCalledWith(
+      expect.objectContaining({ deckId: "deck-1" }),
+    );
+  });
+
+  it("does not report a deck-scoped image as uploaded when catalog persistence fails", async () => {
+    mockIsHostedSlidesRuntime.mockReturnValue(true);
+    mockMintUploadedReference.mockResolvedValue(mintedRef);
+    mockCanSaveAsUploadedAsset.mockReturnValue(true);
+    mockUploadImageAsset.mockRejectedValue(new Error("asset write failed"));
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+    await expect(
+      saveUploadedReferenceFile({
+        email: "owner@example.com",
+        orgId: "active-org",
+        deckId: "deck-1",
+        originalName: "deck-image.png",
+        data: png,
+        type: "image/png",
+      }),
+    ).rejects.toThrow("asset write failed");
+
+    expect(mockDeleteUploadedReference).toHaveBeenCalledWith(
+      mintedRef.ref,
+      "owner@example.com",
+    );
+  });
+
+  it("keeps the active organization for private and embeddable chat images", async () => {
+    mockIsHostedSlidesRuntime.mockReturnValue(true);
+    mockGetRequestOrgId.mockReturnValue("active-org");
+    mockMintUploadedReference.mockResolvedValue(mintedRef);
+    mockCanSaveAsUploadedAsset.mockReturnValue(true);
+    mockUploadImageAsset.mockResolvedValue({
+      url: "https://cdn.builder.io/slides/chat-image.png",
+    });
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+    await expect(
+      saveUploadedReferenceFile({
+        email: "owner@example.com",
+        originalName: "chat-image.png",
+        data: png,
+        type: "image/png",
+      }),
+    ).resolves.toMatchObject({
+      path: "attachment:v1:scoped-handle",
+      url: "https://cdn.builder.io/slides/chat-image.png",
+    });
+
+    expect(mockMintUploadedReference).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: "active-org" }),
+    );
+    expect(mockUploadImageAsset).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: "active-org" }),
+    );
+  });
+
+  it("names the rejected file in a failed batch and cleans up successful files", async () => {
+    const event = {} as any;
+    mockReadMultipartFormData.mockResolvedValue([
+      {
+        name: "files",
+        filename: "deck.pdf",
+        type: "application/pdf",
+        data: Buffer.from("%PDF-1.7"),
+      },
+      {
+        name: "files",
+        filename: "reference.exe",
+        type: "application/octet-stream",
+        data: Buffer.from("not allowed"),
+      },
+    ]);
+
+    await expect(uploadFiles(event)).resolves.toEqual({
+      error: expect.stringMatching(
+        /^File "reference\.exe": Unsupported file type\./,
+      ),
+      failedFileName: "reference.exe",
+    });
+
+    expect(mockWriteFile).toHaveBeenCalledOnce();
+    expect(mockDeleteUploadedReference).toHaveBeenCalledOnce();
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 400);
+  });
+
+  it("stores HTML references as text", async () => {
+    const data = Buffer.from("<main>Design system</main>");
+
+    await expect(
+      saveUploadedReferenceFile({
+        email: "owner@example.com",
+        originalName: "reference.html",
+        data,
+        type: "text/html",
+      }),
+    ).resolves.toMatchObject({
+      originalName: "reference.html",
+      type: "text/html",
+      size: data.length,
+      filename: expect.stringContaining(".html"),
+    });
+    expect(mockWriteFile).toHaveBeenCalledOnce();
+  });
+
+  it("fails closed with a typed retryable error when hosted storage is not connected", async () => {
+    mockIsHostedSlidesRuntime.mockReturnValue(true);
+    mockMintUploadedReference.mockResolvedValue({
+      status: "storageUnavailable",
+      reason: "not_configured",
+      whoCanFix: "workspace_admin",
+    });
+
+    await expect(
+      saveUploadedReferenceFile({
+        email: "owner@example.com",
+        originalName: "deck.pptx",
+        data: Buffer.from([0x50, 0x4b, 0x03, 0x04]),
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "attachment_storage_unavailable",
+      statusCode: 503,
+      details: { retryable: true, whoCanFix: "workspace_admin" },
+    });
+    expect(mockWriteFile).not.toHaveBeenCalled();
+  });
+
+  it("reports hosted private storage failures as typed service errors", async () => {
+    mockIsHostedSlidesRuntime.mockReturnValue(true);
+    mockMintUploadedReference.mockResolvedValue({
+      status: "storageUnavailable",
+      reason: "provider_unavailable",
+      whoCanFix: "self_resolving",
+    });
+
+    await expect(
+      saveUploadedReferenceFile({
+        email: "owner@example.com",
+        originalName: "deck.pptx",
+        data: Buffer.from([0x50, 0x4b, 0x03, 0x04]),
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "attachment_storage_unavailable",
+      statusCode: 503,
+      details: { retryable: true, whoCanFix: "self_resolving" },
+    });
+    expect(mockWriteFile).not.toHaveBeenCalled();
+  });
+
+  it("answers an upload route failure with the typed code and a user-facing message", async () => {
+    mockIsHostedSlidesRuntime.mockReturnValue(true);
+    mockMintUploadedReference.mockResolvedValue({
+      status: "storageUnavailable",
+      reason: "not_configured",
+      whoCanFix: "workspace_admin",
+    });
+    mockReadMultipartFormData.mockResolvedValue([
+      {
+        name: "files",
+        filename: "deck.pdf",
+        type: "application/pdf",
+        data: Buffer.from("%PDF-1.7"),
+      },
+    ]);
+    const event = {} as any;
+
+    await expect(uploadFiles(event)).resolves.toMatchObject({
+      error: expect.stringMatching(
+        /^File "deck\.pdf": No object storage is connected\./,
+      ),
+      errorCode: "attachment_storage_unavailable",
+      details: { retryable: true, whoCanFix: "workspace_admin" },
+      failedFileName: "deck.pdf",
+    });
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 503);
+  });
+});

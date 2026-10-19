@@ -1,11 +1,12 @@
 # Stable product, provider, protocol, and literal terms that should remain as-is
-# in localized docs. Keep this list intentionally small and alphabetized.
+# in localized catalogs and docs. Keep this list intentionally small and alphabetized.
 # Format: exact source string
 "google"
 *.eval.ts
 `window.openai`host APIs ·`agentNative.mcpHost.*` postMessage relay
 + Drizzle query DSL
 + Slack / webhook / Sheets
+Aa Bb Cc 123
 Ease
 Ease In
 Ease In/Out
@@ -63,6 +64,7 @@ gh · ffmpeg · stripe
 GitHub
 GitHub OAuth
 Google Calendar
+Google Fonts
 Google OAuth
 Google Sheets
 Headless Chrome
@@ -122,6 +124,8 @@ Slack webhook URL
 Slack · Granola · GitHub · Clips · webhooks
 Slack · Stripe · email
 Slack · Telegram
+# Slides 2 is the product name, so keep this proper noun verbatim.
+Slides 2
 Sonnet 4.6 · Auto
 SQL
 SQL + application_state

@@ -1344,7 +1344,14 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     docsUrls: ["https://developers.google.com/drive/api/reference/rest/v3"],
     specUrls: ["https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"],
     allowedHostSuffixes: ["googleapis.com"],
-    templateUses: ["brain", "content", "slides", "dispatch", "analytics"],
+    templateUses: [
+      "brain",
+      "content",
+      "slides",
+      "slides-2",
+      "dispatch",
+      "analytics",
+    ],
     examples: [
       { label: "List files", method: "GET", path: "/files" },
       { label: "Get file metadata", method: "GET", path: "/files/{fileId}" },
@@ -1400,7 +1407,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     ],
     specUrls: ["https://slides.googleapis.com/$discovery/rest?version=v1"],
     allowedHostSuffixes: ["googleapis.com"],
-    templateUses: ["brain", "content", "slides", "dispatch"],
+    templateUses: ["brain", "content", "slides", "slides-2", "dispatch"],
     examples: [
       {
         label: "Get presentation with slides and speaker notes",

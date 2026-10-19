@@ -1,0 +1,156 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  assertAccess: vi.fn(),
+  runWithRequestContext: vi.fn(),
+  select: vi.fn(),
+  deck: null as {
+    data: string;
+    ownerEmail: string;
+    orgId: string | null;
+  } | null,
+  events: [] as string[],
+  schema: {
+    decks: {
+      id: "decks.id",
+      data: "decks.data",
+      ownerEmail: "decks.ownerEmail",
+      orgId: "decks.orgId",
+    },
+  },
+}));
+
+vi.mock("@agent-native/core/sharing", () => ({
+  assertAccess: (...args: unknown[]) => mocks.assertAccess(...args),
+}));
+
+vi.mock("@agent-native/core/server", () => ({
+  getRequestOrgId: () => undefined,
+  runWithRequestContext: (...args: unknown[]) =>
+    mocks.runWithRequestContext(...args),
+}));
+
+vi.mock("drizzle-orm", () => ({
+  eq: (column: unknown, value: unknown) => ({ column, value }),
+}));
+
+vi.mock("../db/index.js", () => ({
+  getDb: () => ({ select: (...args: unknown[]) => mocks.select(...args) }),
+  schema: mocks.schema,
+}));
+
+import {
+  assertDeckAssetUploadScope,
+  parseOptionalDeckId,
+} from "./deck-asset-scope";
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mocks.deck = null;
+  mocks.events.length = 0;
+  mocks.runWithRequestContext.mockImplementation(
+    async (_context: unknown, callback: () => unknown) => callback(),
+  );
+  mocks.assertAccess.mockImplementation(async (...args: unknown[]) => {
+    mocks.events.push("access-check");
+    expect(args).toEqual(["deck", "deck-1", "editor"]);
+  });
+  mocks.select.mockImplementation(() => ({
+    from: (table: unknown) => ({
+      where: () => ({
+        limit: async () => {
+          mocks.events.push("deck-read");
+          return table === mocks.schema.decks && mocks.deck ? [mocks.deck] : [];
+        },
+      }),
+    }),
+  }));
+});
+
+describe("deck asset upload scope", () => {
+  it("does not query a deck for a global upload", async () => {
+    await expect(
+      assertDeckAssetUploadScope({ email: "owner@example.com" }),
+    ).resolves.toBeUndefined();
+    expect(mocks.assertAccess).not.toHaveBeenCalled();
+    expect(mocks.select).not.toHaveBeenCalled();
+  });
+
+  it("requires editor access before reading a markerless legacy deck", async () => {
+    mocks.deck = {
+      data: JSON.stringify({ slides: [] }),
+      ownerEmail: "owner@example.com",
+      orgId: null,
+    };
+
+    await expect(
+      assertDeckAssetUploadScope({
+        deckId: "deck-1",
+        email: "owner@example.com",
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(mocks.events).toEqual(["access-check", "deck-read"]);
+    expect(mocks.runWithRequestContext).toHaveBeenCalledWith(
+      { userEmail: "owner@example.com", orgId: undefined },
+      expect.any(Function),
+    );
+  });
+
+  it("rejects explicit foreign-app decks before any asset write can start", async () => {
+    mocks.deck = {
+      data: JSON.stringify({ appId: "slides", slides: [] }),
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    };
+
+    await expect(
+      assertDeckAssetUploadScope({
+        deckId: "deck-1",
+        email: "owner@example.com",
+        orgId: "org-1",
+      }),
+    ).rejects.toMatchObject({ statusCode: 404, errorCode: "deck_not_found" });
+
+    expect(mocks.events).toEqual(["access-check", "deck-read"]);
+  });
+
+  it("rejects an uploader whose org scope would make the asset invisible in this deck", async () => {
+    mocks.deck = {
+      data: JSON.stringify({ appId: "slides-2", slides: [] }),
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    };
+
+    await expect(
+      assertDeckAssetUploadScope({
+        deckId: "deck-1",
+        email: "owner@example.com",
+        orgId: "org-2",
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      errorCode: "asset_deck_scope_forbidden",
+    });
+  });
+
+  it("parses one bounded optional deckId field and rejects duplicates or malformed fields", () => {
+    expect(
+      parseOptionalDeckId([
+        { name: "deckId", data: new TextEncoder().encode(" deck-1 ") },
+      ]),
+    ).toBe("deck-1");
+    expect(
+      parseOptionalDeckId([{ name: "file", data: new Uint8Array([1]) }]),
+    ).toBe(undefined);
+    expect(() =>
+      parseOptionalDeckId([
+        { name: "deckId", data: new TextEncoder().encode("deck-1") },
+        { name: "deckId", data: new TextEncoder().encode("deck-2") },
+      ]),
+    ).toThrow("Invalid deckId field.");
+    expect(() =>
+      parseOptionalDeckId([{ name: "deckId", data: new Uint8Array(201) }]),
+    ).toThrow("Invalid deckId field.");
+  });
+});

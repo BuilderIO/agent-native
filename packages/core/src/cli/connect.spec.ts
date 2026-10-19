@@ -799,6 +799,7 @@ describe("hostedApps", () => {
     const names = apps.map((a) => a.name);
     expect(names).toContain("mail");
     expect(names).toContain("calendar");
+    expect(names).not.toContain("slides-2");
     expect(names).not.toContain("voice");
     expect(names).not.toContain("scheduling");
     for (const a of apps) {

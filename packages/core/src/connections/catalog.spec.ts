@@ -231,6 +231,19 @@ describe("workspace connection provider catalog", () => {
     ).toEqual(expect.arrayContaining(["slack", "github", "sentry"]));
   });
 
+  it("offers the Slides workspace connections to Slides 2 under its own id", () => {
+    expect(
+      listWorkspaceConnectionProvidersForTemplate("slides-2").map(
+        (provider) => provider.id,
+      ),
+    ).toEqual(["figma", "google_drive", "google_docs", "google_slides"]);
+    expect(
+      listWorkspaceConnectionProvidersForTemplate("slides").map(
+        (provider) => provider.id,
+      ),
+    ).toEqual(["figma", "google_drive", "google_docs", "google_slides"]);
+  });
+
   it("checks provider capabilities without exposing credential values", () => {
     expect(workspaceConnectionProviderSupports("slack", "messages")).toBe(true);
     expect(workspaceConnectionProviderSupports("slack", "crm")).toBe(false);

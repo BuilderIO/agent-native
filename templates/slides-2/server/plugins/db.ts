@@ -1,0 +1,408 @@
+import {
+  ensureAdditiveColumns,
+  getDbExec,
+  runMigrations,
+} from "@agent-native/core/db";
+import { getH3App } from "@agent-native/core/server";
+import { setResponseHeader, setResponseStatus } from "h3";
+
+import "../db/index.js";
+import * as schema from "../db/schema.js";
+
+function isDrizzleTable(value: unknown): value is object {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    Object.getOwnPropertySymbols(value).some((s) =>
+      s.toString().includes("drizzle"),
+    )
+  );
+}
+
+const schemaTables = Object.values(schema).filter(isDrizzleTable);
+
+// Convention: every new migration below MUST set a unique `name:` slug (see
+// packages/core/src/db/migrations.ts for the full rationale). Version numbers
+// alone are not a safe identity across parallel branches that each extend
+// this list independently.
+export const runSlidesMigrations = runMigrations(
+  [
+    {
+      version: 1,
+      sql: `CREATE TABLE IF NOT EXISTS decks (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    data TEXT NOT NULL,
+    created_at TEXT DEFAULT (CURRENT_TIMESTAMP),
+    updated_at TEXT DEFAULT (CURRENT_TIMESTAMP)
+  )`,
+    },
+    {
+      version: 2,
+      sql: `CREATE TABLE IF NOT EXISTS slide_comments (
+    id TEXT PRIMARY KEY,
+    deck_id TEXT NOT NULL,
+    slide_id TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    parent_id TEXT,
+    content TEXT NOT NULL,
+    quoted_text TEXT,
+    author_email TEXT NOT NULL,
+    author_name TEXT,
+    resolved INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+    updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+  )`,
+    },
+    {
+      version: 3,
+      sql: `ALTER TABLE decks ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT 'local@localhost'`,
+    },
+    {
+      version: 4,
+      sql: `ALTER TABLE decks ADD COLUMN IF NOT EXISTS org_id TEXT`,
+    },
+    {
+      version: 5,
+      sql: `ALTER TABLE decks ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'private'`,
+    },
+    {
+      version: 6,
+      sql: `CREATE TABLE IF NOT EXISTS deck_shares (
+    id TEXT PRIMARY KEY,
+    resource_id TEXT NOT NULL,
+    principal_type TEXT NOT NULL,
+    principal_id TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'viewer',
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+  )`,
+    },
+    {
+      version: 7,
+      sql: `CREATE TABLE IF NOT EXISTS design_systems (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    description TEXT,
+    data TEXT NOT NULL,
+    assets TEXT,
+    is_default INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT DEFAULT (CURRENT_TIMESTAMP),
+    updated_at TEXT DEFAULT (CURRENT_TIMESTAMP),
+    owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+    org_id TEXT,
+    visibility TEXT NOT NULL DEFAULT 'private'
+  )`,
+    },
+    {
+      version: 8,
+      sql: `CREATE TABLE IF NOT EXISTS design_system_shares (
+    id TEXT PRIMARY KEY,
+    resource_id TEXT NOT NULL,
+    principal_type TEXT NOT NULL,
+    principal_id TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'viewer',
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+  )`,
+    },
+    {
+      version: 9,
+      sql: `ALTER TABLE decks ADD COLUMN IF NOT EXISTS design_system_id TEXT`,
+    },
+    {
+      version: 10,
+      sql: {
+        postgres: `ALTER TABLE design_systems ALTER COLUMN is_default DROP DEFAULT`,
+      },
+    },
+    {
+      version: 11,
+      sql: {
+        postgres: `ALTER TABLE design_systems ALTER COLUMN is_default TYPE boolean USING is_default::int::boolean`,
+      },
+    },
+    {
+      version: 12,
+      sql: {
+        postgres: `ALTER TABLE design_systems ALTER COLUMN is_default SET DEFAULT false`,
+      },
+    },
+    {
+      version: 13,
+      sql: {
+        postgres: `ALTER TABLE slide_comments ALTER COLUMN resolved DROP DEFAULT`,
+      },
+    },
+    {
+      version: 14,
+      sql: {
+        postgres: `ALTER TABLE slide_comments ALTER COLUMN resolved TYPE boolean USING resolved::int::boolean`,
+      },
+    },
+    {
+      version: 15,
+      sql: {
+        postgres: `ALTER TABLE slide_comments ALTER COLUMN resolved SET DEFAULT false`,
+      },
+    },
+    {
+      version: 16,
+      sql: `CREATE TABLE IF NOT EXISTS deck_share_links (
+    token TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    slides TEXT NOT NULL,
+    aspect_ratio TEXT,
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+  )`,
+    },
+    {
+      version: 17,
+      sql: `ALTER TABLE design_systems ADD COLUMN IF NOT EXISTS custom_instructions TEXT NOT NULL DEFAULT ''`,
+    },
+    {
+      version: 18,
+      sql: `CREATE TABLE IF NOT EXISTS deck_versions (
+    id TEXT PRIMARY KEY,
+    owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+    deck_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    data TEXT NOT NULL,
+    change_label TEXT,
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+  );
+  CREATE INDEX IF NOT EXISTS deck_versions_deck_owner_created_idx ON deck_versions (deck_id, owner_email, created_at)`,
+    },
+    {
+      version: 19,
+      sql: `CREATE INDEX IF NOT EXISTS decks_owner_org_updated_idx ON decks (owner_email, org_id, updated_at);
+  CREATE INDEX IF NOT EXISTS deck_shares_resource_principal_idx ON deck_shares (resource_id, principal_type, principal_id);
+  CREATE INDEX IF NOT EXISTS design_systems_owner_org_updated_idx ON design_systems (owner_email, org_id, updated_at);
+  CREATE INDEX IF NOT EXISTS design_system_shares_resource_principal_idx ON design_system_shares (resource_id, principal_type, principal_id);
+  CREATE INDEX IF NOT EXISTS slide_comments_deck_created_idx ON slide_comments (deck_id, created_at);
+  CREATE INDEX IF NOT EXISTS slide_comments_deck_slide_created_idx ON slide_comments (deck_id, slide_id, created_at)`,
+    },
+    {
+      version: 20,
+      name: "slides-uploaded-assets-table",
+      sql: `CREATE TABLE IF NOT EXISTS uploaded_assets (
+    id TEXT PRIMARY KEY,
+    filename TEXT NOT NULL,
+    url TEXT NOT NULL,
+    type TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    provider TEXT,
+    owner_email TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+  );
+  CREATE INDEX IF NOT EXISTS uploaded_assets_owner_created_idx ON uploaded_assets (owner_email, created_at)`,
+    },
+    {
+      version: 21,
+      name: "slides-share-design-system-snapshot",
+      sql: `ALTER TABLE deck_share_links ADD COLUMN IF NOT EXISTS design_system_data TEXT`,
+    },
+    {
+      version: 22,
+      name: "slides-deck-access-requests",
+      sql: `CREATE TABLE IF NOT EXISTS deck_events (
+    id TEXT PRIMARY KEY,
+    deck_id TEXT NOT NULL,
+    type TEXT NOT NULL,
+    message TEXT NOT NULL,
+    payload TEXT,
+    created_by TEXT NOT NULL DEFAULT 'human',
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+  );
+  CREATE INDEX IF NOT EXISTS deck_events_deck_created_idx ON deck_events (deck_id, created_at)`,
+    },
+    {
+      version: 23,
+      name: "slides-deck-access-request-rate-limits",
+      sql: `CREATE TABLE IF NOT EXISTS deck_access_request_limits (
+    deck_id TEXT PRIMARY KEY,
+    window_started_at TEXT NOT NULL,
+    request_count INTEGER NOT NULL DEFAULT 0
+  )`,
+    },
+    {
+      version: 24,
+      name: "slides-deck-shares-user-principal-unique",
+      sql: `DELETE FROM deck_shares
+WHERE principal_type = 'user'
+  AND id NOT IN (
+    SELECT id
+    FROM (
+      SELECT id,
+        ROW_NUMBER() OVER (
+          PARTITION BY resource_id, LOWER(principal_id)
+          ORDER BY CASE LOWER(role)
+            WHEN 'owner' THEN 5
+            WHEN 'admin' THEN 4
+            WHEN 'editor' THEN 3
+            WHEN 'commenter' THEN 2
+            WHEN 'viewer' THEN 1
+            ELSE 0
+          END DESC,
+          created_at ASC,
+          id ASC
+        ) AS row_number
+      FROM deck_shares
+      WHERE principal_type = 'user'
+    ) AS ranked
+    WHERE row_number = 1
+  );
+UPDATE deck_shares
+SET principal_id = LOWER(principal_id)
+WHERE principal_type = 'user'
+  AND principal_id <> LOWER(principal_id);
+CREATE UNIQUE INDEX IF NOT EXISTS deck_shares_resource_user_principal_uidx
+ON deck_shares (resource_id, LOWER(principal_id))
+WHERE principal_type = 'user'`,
+    },
+    {
+      version: 25,
+      name: "slides-comment-canvas-anchors",
+      sql: `CREATE TABLE IF NOT EXISTS slide_comments (
+    id TEXT PRIMARY KEY,
+    deck_id TEXT NOT NULL,
+    slide_id TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    parent_id TEXT,
+    content TEXT NOT NULL,
+    quoted_text TEXT,
+    author_email TEXT NOT NULL,
+    author_name TEXT,
+    resolved INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+    updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+  );
+  ALTER TABLE slide_comments ADD COLUMN IF NOT EXISTS anchor TEXT`,
+    },
+    {
+      version: 26,
+      name: "slides-deck-version-chat-context",
+      sql: `ALTER TABLE deck_versions ADD COLUMN IF NOT EXISTS chat_context TEXT`,
+    },
+    {
+      version: 27,
+      name: "slides-deck-version-change-group",
+      sql: `ALTER TABLE deck_versions ADD COLUMN IF NOT EXISTS change_group TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS deck_versions_deck_owner_change_group_uidx
+ON deck_versions (deck_id, owner_email, change_group)
+WHERE change_group IS NOT NULL`,
+    },
+    {
+      version: 28,
+      name: "share-tables-notified-at",
+      sql: `
+        ALTER TABLE IF EXISTS deck_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS design_system_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
+      `,
+    },
+    {
+      version: 29,
+      name: "slides-comment-emoji-reactions",
+      sql: `ALTER TABLE slide_comments ADD COLUMN IF NOT EXISTS emoji_reactions_json TEXT NOT NULL DEFAULT '{}'`,
+    },
+    {
+      version: 30,
+      name: "slides-comment-read-indexes",
+      sql: `CREATE INDEX IF NOT EXISTS slide_comments_deck_created_idx
+ON slide_comments (deck_id, created_at);
+CREATE INDEX IF NOT EXISTS slide_comments_deck_slide_created_idx
+ON slide_comments (deck_id, slide_id, created_at)`,
+    },
+    {
+      version: 31,
+      name: "slides-deck-client-write-revisions",
+      sql: `ALTER TABLE decks ADD COLUMN IF NOT EXISTS last_write_client_id TEXT;
+ALTER TABLE decks ADD COLUMN IF NOT EXISTS last_write_client_sequence INTEGER;
+ALTER TABLE decks ADD COLUMN IF NOT EXISTS last_write_revision TEXT`,
+    },
+    {
+      version: 32,
+      name: "slides-uploaded-assets-provider-object-id",
+      sql: `ALTER TABLE uploaded_assets ADD COLUMN IF NOT EXISTS provider_object_id TEXT`,
+    },
+    {
+      version: 33,
+      name: "slides-uploaded-assets-upload-session-id",
+      sql: `ALTER TABLE uploaded_assets ADD COLUMN IF NOT EXISTS upload_session_id TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS uploaded_assets_owner_upload_session_uidx
+ON uploaded_assets (owner_email, upload_session_id)`,
+    },
+    {
+      version: 34,
+      name: "slides-uploaded-assets-org-id",
+      sql: `ALTER TABLE uploaded_assets ADD COLUMN IF NOT EXISTS org_id TEXT`,
+    },
+    {
+      version: 35,
+      name: "slides-uploaded-assets-deck-id",
+      sql: `ALTER TABLE uploaded_assets ADD COLUMN IF NOT EXISTS deck_id TEXT;
+CREATE INDEX IF NOT EXISTS uploaded_assets_deck_created_idx
+ON uploaded_assets (deck_id, created_at)`,
+    },
+    {
+      version: 36,
+      name: "slides-uploaded-assets-font-metadata",
+      sql: `ALTER TABLE uploaded_assets ADD COLUMN IF NOT EXISTS font_family TEXT;
+ALTER TABLE uploaded_assets ADD COLUMN IF NOT EXISTS font_variant TEXT`,
+    },
+  ],
+  { table: "slides_migrations" },
+);
+
+/**
+ * The migration list above is the authoritative source for tables, indexes,
+ * and data transforms. `ensureAdditiveColumns` runs after it as a
+ * belt-and-braces safety net for the failure mode where a column is added to
+ * schema.ts without a matching hand-written ALTER migration, which silently
+ * 500s every query touching a pre-existing production table. It only ever
+ * adds missing columns — never drops, renames, or retypes anything — and any
+ * failure here is logged and swallowed so it can never fail boot.
+ */
+export default (nitroApp: any): void => {
+  const init = (async () => {
+    await runSlidesMigrations(nitroApp);
+    try {
+      const summary = await ensureAdditiveColumns({
+        db: getDbExec(),
+        tables: schemaTables,
+      });
+      if (summary.errors.length > 0) {
+        console.warn(
+          "[db] ensureAdditiveColumns completed with errors:",
+          summary.errors,
+        );
+      }
+    } catch (err) {
+      console.warn(
+        "[db] ensureAdditiveColumns failed (non-fatal):",
+        err instanceof Error ? err.message : err,
+      );
+    }
+  })();
+
+  const ready = init.then(
+    () => null,
+    (err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[db] Slides migrations failed:", message);
+      return message;
+    },
+  );
+  const waitForReady = async (event: any) => {
+    const error = await ready;
+    if (!error) return undefined;
+    setResponseStatus(event, 503);
+    setResponseHeader(event, "retry-after", "5");
+    return { error: "Slides database is temporarily unavailable" };
+  };
+  if (!nitroApp?.h3) return;
+  const app = getH3App(nitroApp);
+  for (const path of ["/", "/p", "/share", "/api"]) {
+    app.use(path, waitForReady);
+  }
+};

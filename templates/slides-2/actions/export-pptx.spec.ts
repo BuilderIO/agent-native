@@ -1,0 +1,1770 @@
+import fs from "fs";
+import path from "path";
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  ssrfSafeFetch: vi.fn(),
+  resolveAccess: vi.fn(),
+  track: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/tracking", () => ({
+  track: mocks.track,
+}));
+
+vi.mock("@agent-native/core/extensions/url-safety", () => ({
+  ssrfSafeFetch: mocks.ssrfSafeFetch,
+}));
+
+vi.mock("@agent-native/core/sharing", () => ({
+  resolveAccess: mocks.resolveAccess,
+}));
+
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestUserEmail: vi.fn(() => "local@example.com"),
+}));
+
+vi.mock("../server/db/index.js", () => ({}));
+
+import PptxGenJS from "pptxgenjs";
+
+import { asGoogleSlidesBuildStep } from "../server/lib/deck-export-tracking";
+import {
+  pptxDeckBindingPath,
+  pptxExportRevisionKey,
+  safeGeneratedFilename,
+  tenantExportDir,
+} from "../server/lib/tenant-files";
+import exportPptx, {
+  applyDeckIdentity,
+  assertServerPptxExportable,
+  cssGradientToDrawingMl,
+  fetchImageAsBase64,
+  orderImportedObjects,
+  parseSlideHtml,
+  resolveShapeType,
+  sourcePageInches,
+  tableOptions,
+  themeClrSchemeXml,
+} from "./export-pptx";
+
+describe("export-pptx action", () => {
+  beforeEach(() => {
+    mocks.track.mockReset();
+    vi.stubEnv("NETLIFY", "1");
+    vi.spyOn(fs, "readdirSync").mockReturnValue([] as never);
+    vi.spyOn(fs, "mkdirSync").mockImplementation(() => undefined);
+    vi.spyOn(fs, "writeFileSync").mockImplementation(() => undefined);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  it("rejects empty decks before generating a PowerPoint", async () => {
+    mocks.resolveAccess.mockResolvedValue({
+      resource: { data: JSON.stringify({ appId: "slides-2", slides: [] }) },
+    });
+
+    await expect(
+      exportPptx.run({ deckId: "deck-1", includeNotes: true }, {} as never),
+    ).rejects.toThrow("Cannot export empty deck");
+  });
+
+  it("reports a failed export once, then rethrows", async () => {
+    mocks.resolveAccess.mockResolvedValue({
+      resource: {
+        data: JSON.stringify({
+          appId: "slides-2",
+          slides: [],
+          generationContext: { generationAttemptId: "attempt-1" },
+        }),
+      },
+    });
+
+    await expect(
+      exportPptx.run({ deckId: "deck-1", includeNotes: true }, {
+        caller: "ui",
+      } as never),
+    ).rejects.toThrow("Cannot export empty deck");
+
+    expect(mocks.track).toHaveBeenCalledTimes(1);
+    expect(mocks.track.mock.calls[0][0]).toBe("deck_exported");
+    expect(mocks.track.mock.calls[0][1]).toEqual({
+      caller: "ui",
+      output_id: "deck-1",
+      output_type: "deck",
+      export_format: "pptx",
+      render_location: "server",
+      status: "failed",
+      error_type: "empty_deck",
+      slide_count: 0,
+      generation_attempt_id: "attempt-1",
+      app_name: "slides-2",
+      template_name: "slides-2",
+    });
+  });
+
+  it("reports a completed export with its slide count", async () => {
+    mocks.resolveAccess.mockResolvedValue({
+      resource: {
+        title: "Deck",
+        data: JSON.stringify({
+          appId: "slides-2",
+          slides: [{ id: "s1", content: importedSlide("") }],
+        }),
+      },
+    });
+
+    await exportPptx.run({ deckId: "deck-1", includeNotes: true }, {
+      caller: "agent",
+      runId: "run-1",
+    } as never);
+
+    expect(mocks.track).toHaveBeenCalledTimes(1);
+    expect(mocks.track.mock.calls[0][1]).toMatchObject({
+      run_id: "run-1",
+      caller: "agent",
+      output_id: "deck-1",
+      export_format: "pptx",
+      render_location: "server",
+      status: "completed",
+      slide_count: 1,
+    });
+  });
+
+  it("rejects source-only slides before writing a PowerPoint export", async () => {
+    mocks.resolveAccess.mockResolvedValue({
+      resource: {
+        title: "Deck",
+        ownerEmail: "local@example.com",
+        orgId: null,
+        data: JSON.stringify({
+          appId: "slides-2",
+          slides: [
+            { id: "static-slide", content: "<main>Static preview</main>" },
+            {
+              id: "source-only-slide",
+              sourceTsx: "export default function Slide() { return null; }",
+            },
+          ],
+        }),
+      },
+    });
+
+    await expect(
+      exportPptx.run({ deckId: "deck-1", includeNotes: true }, {
+        caller: "ui",
+      } as never),
+    ).rejects.toMatchObject({
+      errorCode: "source_runtime_export_required",
+      statusCode: 422,
+      details: {
+        format: "pptx",
+        slideIds: ["source-only-slide"],
+        slideCount: 1,
+      },
+    });
+
+    expect(fs.writeFileSync).not.toHaveBeenCalled();
+    expect(mocks.track.mock.calls[0][1]).toMatchObject({
+      export_format: "pptx",
+      status: "failed",
+      error_type: "source_runtime_export_required",
+      slide_count: 2,
+    });
+  });
+
+  it("renders source-only static slides alongside legacy HTML slides", async () => {
+    mocks.resolveAccess.mockResolvedValue({
+      resource: {
+        title: "Deck",
+        ownerEmail: "local@example.com",
+        orgId: null,
+        data: JSON.stringify({
+          appId: "slides-2",
+          slides: [
+            { id: "legacy-slide", content: importedSlide("<h1>Legacy</h1>") },
+            {
+              id: "source-only-slide",
+              content: "",
+              sourceTsx:
+                "export default function Slide() { return <main><h1>Source rendered</h1></main>; }",
+            },
+          ],
+        }),
+      },
+    });
+
+    const result = await exportPptx.run(
+      { deckId: "deck-1", includeNotes: true },
+      { caller: "agent", runId: "run-source" } as never,
+    );
+
+    expect(result.downloadUrl).toContain("/api/exports/");
+    expect(result.slideCount).toBe(2);
+    expect(fs.writeFileSync).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Buffer),
+    );
+    expect(mocks.track.mock.calls[0][1]).toMatchObject({
+      run_id: "run-source",
+      caller: "agent",
+      export_format: "pptx",
+      status: "completed",
+      slide_count: 2,
+    });
+  });
+
+  it("fails instead of silently omitting an unavailable image", async () => {
+    mocks.ssrfSafeFetch.mockReset();
+    mocks.ssrfSafeFetch
+      .mockResolvedValueOnce(
+        new Response(new Uint8Array([1, 2, 3]), {
+          headers: { "content-type": "image/png" },
+        }),
+      )
+      .mockRejectedValueOnce(new Error("image is unavailable"));
+    mocks.resolveAccess.mockResolvedValue({
+      resource: {
+        title: "Deck",
+        data: JSON.stringify({
+          appId: "slides-2",
+          slides: [
+            {
+              id: "first-slide",
+              content: importedSlide(
+                `<div data-pptx-element-kind="image" style="${SHAPE_BOX}"><img src="https://cdn.example/available.png" /></div>`,
+              ),
+            },
+            {
+              id: "second-slide",
+              content: importedSlide(
+                `<div data-pptx-element-kind="image" style="${SHAPE_BOX}"><img src="https://cdn.example/unavailable.png" /></div>`,
+              ),
+            },
+          ],
+        }),
+      },
+    });
+
+    await expect(
+      exportPptx.run({ deckId: "deck-1", includeNotes: true }, {
+        caller: "ui",
+      } as never),
+    ).rejects.toMatchObject({
+      errorCode: "pptx_image_unavailable",
+      statusCode: 422,
+      details: { slideNumber: 2 },
+      message: expect.stringContaining("No file was created."),
+    });
+
+    expect(fs.writeFileSync).not.toHaveBeenCalled();
+    expect(mocks.track.mock.calls[0][1]).toMatchObject({
+      export_format: "pptx",
+      status: "failed",
+      error_type: "pptx_image_unavailable",
+      slide_count: 2,
+    });
+  });
+
+  it("returns a download link instead of file bytes to tool callers", async () => {
+    mocks.resolveAccess.mockResolvedValue({
+      resource: {
+        title: "Deck",
+        data: JSON.stringify({
+          appId: "slides-2",
+          slides: [{ id: "s1", content: importedSlide("") }],
+        }),
+      },
+    });
+
+    const result = await exportPptx.run(
+      { deckId: "deck-1", includeNotes: false },
+      { caller: "tool" } as never,
+    );
+
+    const downloadUrl = new URL(result.downloadUrl);
+    expect(downloadUrl.pathname).toBe(`/api/exports/${result.filename}`);
+    expect(downloadUrl.searchParams.get("deckId")).toBe("deck-1");
+    expect(downloadUrl.searchParams.get("includeNotes")).toBe("false");
+    expect(result).not.toHaveProperty("buffer");
+    expect(result).not.toHaveProperty("filePath");
+  });
+
+  it("does not return binary internals to generic HTTP action callers", async () => {
+    mocks.resolveAccess.mockResolvedValue({
+      resource: {
+        title: "Deck",
+        data: JSON.stringify({
+          appId: "slides-2",
+          slides: [{ id: "s1", content: importedSlide("") }],
+        }),
+      },
+    });
+
+    const result = await exportPptx.run(
+      { deckId: "deck-1", includeNotes: true },
+      { caller: "http" } as never,
+    );
+
+    expect(result.downloadUrl).toContain("/api/exports/");
+    expect(result).not.toHaveProperty("buffer");
+    expect(result).not.toHaveProperty("filePath");
+  });
+
+  it("returns bytes without persisting for a direct Slides download", async () => {
+    mocks.resolveAccess.mockResolvedValue({
+      resource: {
+        title: "Deck",
+        data: JSON.stringify({
+          appId: "slides-2",
+          slides: [{ id: "s1", content: importedSlide("") }],
+        }),
+      },
+    });
+
+    const result = await exportPptx.run(
+      { deckId: "deck-1", includeNotes: true },
+      {
+        caller: "http",
+        slidesPptxDownload: true,
+        slidesPptxDownloadFilename: "requested-export.pptx",
+      } as never,
+    );
+
+    expect(result.buffer).toBeInstanceOf(Buffer);
+    expect(result.filename).toBe("requested-export.pptx");
+    expect(result).not.toHaveProperty("filePath");
+    expect(fs.writeFileSync).not.toHaveBeenCalled();
+    expect(fs.mkdirSync).not.toHaveBeenCalled();
+  });
+
+  it("persists authenticated download regeneration for later GET requests", async () => {
+    vi.stubEnv("NETLIFY", "");
+    vi.stubEnv("K_SERVICE", "slides");
+    const filename = safeGeneratedFilename(
+      "requested-export",
+      ".pptx",
+      "deck-1",
+    );
+    const data = JSON.stringify({
+      appId: "slides-2",
+      slides: [{ id: "s1", content: importedSlide("") }],
+    });
+    mocks.resolveAccess.mockResolvedValue({
+      resource: {
+        title: "Deck",
+        data,
+      },
+    });
+
+    const result = await exportPptx.run(
+      { deckId: "deck-1", includeNotes: true },
+      {
+        caller: "http",
+        slidesPptxDownload: true,
+        slidesPptxDownloadFilename: filename,
+        slidesPptxDownloadPersist: true,
+        slidesPptxDownloadExpectedRevision: pptxExportRevisionKey(
+          "deck-1",
+          null,
+          "Deck",
+          data,
+          true,
+        ),
+      } as never,
+    );
+    const exportDir = tenantExportDir("local@example.com");
+
+    expect(result.buffer).toBeInstanceOf(Buffer);
+    expect(fs.writeFileSync).toHaveBeenCalledWith(
+      path.join(exportDir, filename),
+      expect.any(Buffer),
+    );
+    expect(fs.writeFileSync).toHaveBeenCalledWith(
+      pptxDeckBindingPath(exportDir, filename),
+      pptxExportRevisionKey("deck-1", null, "Deck", data, true),
+    );
+    expect(new URL(result.downloadUrl).searchParams.get("exportRevision")).toBe(
+      pptxExportRevisionKey("deck-1", null, "Deck", data, true),
+    );
+  });
+
+  it("rejects regeneration when the deck no longer matches the export revision", async () => {
+    const data = JSON.stringify({
+      appId: "slides-2",
+      slides: [{ id: "s1", content: importedSlide("") }],
+    });
+    const previousData = JSON.stringify({
+      appId: "slides-2",
+      slides: [{ id: "s1", content: importedSlide("Earlier slide content") }],
+    });
+    const previousRevision = pptxExportRevisionKey(
+      "deck-1",
+      null,
+      "Deck",
+      previousData,
+      true,
+    );
+    mocks.resolveAccess.mockResolvedValue({
+      resource: { title: "Deck", data },
+    });
+
+    await expect(
+      exportPptx.run({ deckId: "deck-1", includeNotes: true }, {
+        caller: "http",
+        slidesPptxDownload: true,
+        slidesPptxDownloadFilename: "requested-export.pptx",
+        slidesPptxDownloadPersist: true,
+        slidesPptxDownloadExpectedRevision: previousRevision,
+      } as never),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "export_revision_stale",
+    });
+
+    expect(fs.writeFileSync).not.toHaveBeenCalled();
+    expect(fs.mkdirSync).not.toHaveBeenCalled();
+  });
+
+  it("persists exports in the hosted runtime directory for later downloads", async () => {
+    vi.stubEnv("NETLIFY", "");
+    vi.stubEnv("K_SERVICE", "slides");
+    mocks.resolveAccess.mockResolvedValue({
+      resource: {
+        title: "Deck",
+        data: JSON.stringify({
+          appId: "slides-2",
+          slides: [{ id: "s1", content: importedSlide("") }],
+        }),
+      },
+    });
+
+    const result = await exportPptx.run(
+      { deckId: "deck-1", includeNotes: true },
+      { caller: "tool" } as never,
+    );
+    const exportDir = tenantExportDir("local@example.com");
+
+    expect(fs.mkdirSync).toHaveBeenCalledWith(exportDir, { recursive: true });
+    expect(fs.writeFileSync).toHaveBeenCalledWith(
+      path.join(exportDir, result.filename),
+      expect.any(Buffer),
+    );
+  });
+
+  it("reports hosted export cleanup failures without failing the export", async () => {
+    mocks.resolveAccess.mockResolvedValue({
+      resource: {
+        title: "Deck",
+        data: JSON.stringify({
+          appId: "slides-2",
+          slides: [{ id: "s1", content: importedSlide("") }],
+        }),
+      },
+    });
+    const cleanupError = new Error("temporary directory is unavailable");
+    vi.mocked(fs.readdirSync).mockImplementationOnce(() => {
+      throw cleanupError;
+    });
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = await exportPptx.run(
+      { deckId: "deck-1", includeNotes: true },
+      { caller: "tool" } as never,
+    );
+
+    expect(result.downloadUrl).toContain("/api/exports/");
+    expect(fs.writeFileSync).toHaveBeenCalled();
+    expect(warning).toHaveBeenCalledWith(
+      "[export-pptx] Could not prune hosted PPTX exports",
+      cleanupError,
+    );
+  });
+
+  it("does not let a caller pass an analytics opt-out", () => {
+    const parsed = exportPptx.schema.safeParse({
+      deckId: "deck-1",
+      exportPurpose: "google_slides",
+    });
+    expect(parsed.success).toBe(true);
+    expect(parsed.data).not.toHaveProperty("exportPurpose");
+  });
+
+  it("stays silent inside the Google Slides build step", async () => {
+    mocks.resolveAccess.mockResolvedValue({
+      resource: {
+        title: "Deck",
+        data: JSON.stringify({
+          appId: "slides-2",
+          slides: [{ id: "s1", content: importedSlide("") }],
+        }),
+      },
+    });
+    await asGoogleSlidesBuildStep(() =>
+      exportPptx.run({ deckId: "deck-1", includeNotes: true }, {
+        caller: "ui",
+      } as never),
+    );
+
+    mocks.resolveAccess.mockResolvedValue({
+      resource: { data: JSON.stringify({ appId: "slides-2", slides: [] }) },
+    });
+    await expect(
+      asGoogleSlidesBuildStep(() =>
+        exportPptx.run({ deckId: "deck-1", includeNotes: true }, {
+          caller: "ui",
+        } as never),
+      ),
+    ).rejects.toThrow("Cannot export empty deck");
+
+    expect(mocks.track).not.toHaveBeenCalled();
+  });
+});
+
+function importedSlide(element: string, slideStyle = "background:#000000;") {
+  return `<div class="fmd-slide fmd-imported-pptx" data-imported-pptx="true" style="${slideStyle}">${element}</div>`;
+}
+
+const SHAPE_BOX =
+  "position:absolute;left:96px;top:54px;width:192px;height:108px;";
+
+function sourcePagedSlide(element: string) {
+  return `<div class="fmd-slide fmd-imported-pptx" data-imported-pptx="true" data-slide-width-emu="12192000" data-slide-height-emu="6858000" style="background:#FFFFFF;">${element}</div>`;
+}
+
+const CONNECTOR_ELEMENT =
+  '<div class="fmd-pptx-shape" data-pptx-element-kind="shape" data-slide-object-id="153" style="position: absolute; left: 95.528px; top: 216.774px; width: 0px; height: 72.581px; z-index: 9; box-sizing: border-box; transform: rotate(180deg); transform-origin: center center;border-left: 1.5px solid #3A3838;">' +
+  '<svg viewBox="0 0 4.5 77.081" style="position:absolute;left:-2.25px;top:-2.25px;width:4.5px;height:77.081px;overflow:visible;pointer-events:none;">' +
+  '<circle cx="3" cy="2.25" r="2.25" fill="#3A3838" />' +
+  '<circle cx="3" cy="74.831" r="2.25" fill="#3A3838" /></svg></div>';
+
+describe("fetchImageAsBase64", () => {
+  beforeEach(() => {
+    mocks.ssrfSafeFetch.mockReset();
+  });
+
+  it("downloads images through the SSRF-safe fetch helper", async () => {
+    mocks.ssrfSafeFetch.mockResolvedValue(
+      new Response(new Uint8Array([1, 2, 3]), {
+        headers: { "content-type": "image/png" },
+      }),
+    );
+
+    await expect(
+      fetchImageAsBase64("https://cdn.example/logo.png"),
+    ).resolves.toBe("data:image/png;base64,AQID");
+    expect(mocks.ssrfSafeFetch).toHaveBeenCalledWith(
+      "https://cdn.example/logo.png",
+      { signal: expect.any(AbortSignal) },
+      { maxRedirects: 3 },
+    );
+  });
+
+  it("rejects non-image responses", async () => {
+    mocks.ssrfSafeFetch.mockResolvedValue(
+      new Response("<html></html>", {
+        headers: { "content-type": "text/html" },
+      }),
+    );
+
+    await expect(fetchImageAsBase64("https://cdn.example/page")).resolves.toBe(
+      null,
+    );
+  });
+
+  it("returns null when SSRF-safe fetch blocks a URL", async () => {
+    mocks.ssrfSafeFetch.mockRejectedValue(
+      new Error("SSRF blocked: refusing to fetch private/internal address"),
+    );
+
+    await expect(
+      fetchImageAsBase64("http://127.0.0.1/image.png"),
+    ).resolves.toBe(null);
+  });
+});
+
+describe("resolveShapeType", () => {
+  const shapeTypes = new PptxGenJS().ShapeType as unknown as Record<
+    string,
+    string
+  >;
+
+  it("passes through preset geometries PowerPoint knows", () => {
+    expect(resolveShapeType(shapeTypes, "trapezoid")).toBe("trapezoid");
+    expect(resolveShapeType(shapeTypes, "ellipse")).toBe("ellipse");
+    expect(resolveShapeType(shapeTypes, "custGeom")).toBe("custGeom");
+    expect(resolveShapeType(shapeTypes, undefined)).toBe("rect");
+  });
+
+  it("warns instead of silently writing a prst PowerPoint would reject", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    expect(resolveShapeType(shapeTypes, "notAShape")).toBe("rect");
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("notAShape"));
+
+    warnSpy.mockRestore();
+  });
+});
+
+describe("orderImportedObjects", () => {
+  it("paints imported panels under the content they sit behind, whatever order the stored HTML lists them in", () => {
+    const parsed = parseSlideHtml(
+      `<div class="fmd-slide fmd-imported-pptx" data-imported-pptx="true" style="position:relative;background:#ffffff;">
+        <div class="fmd-pptx-text" data-pptx-element-kind="text" style="position:absolute;left:40px;top:40px;width:800px;height:100px;z-index:2;"><p><span style="color:#ffffff;">Hello</span></p></div>
+        <div class="fmd-pptx-shape" data-pptx-element-kind="shape" style="position:absolute;left:0px;top:0px;width:960px;height:540px;z-index:0;background-color:#000000;"></div>
+        <div class="fmd-pptx-shape" data-pptx-element-kind="shape" style="position:absolute;left:40px;top:0px;width:880px;height:540px;z-index:1;background-color:#f5f5f5;"></div>
+      </div>`,
+      "16:9",
+      1,
+    );
+
+    const painted = orderImportedObjects(parsed).map(
+      (object) => `${object.kind}:${object.value.stack}`,
+    );
+
+    expect(painted).toEqual(["shape:0", "shape:1", "text:2"]);
+  });
+});
+
+describe("parseSlideHtml", () => {
+  it("allows normal-flow slide HTML", () => {
+    expect(() =>
+      parseSlideHtml(
+        '<div class="fmd-slide"><h1>Title</h1></div>',
+        undefined,
+        1,
+      ),
+    ).not.toThrow();
+  });
+
+  it("fails loudly instead of reflowing freeform objects", () => {
+    expect(() =>
+      parseSlideHtml(
+        `<div class="fmd-slide">
+          <div
+            data-slide-object-id="freeform-1"
+            style="position: absolute; left: 120px; top: 80px"
+          >Text</div>
+        </div>`,
+        undefined,
+        3,
+      ),
+    ).toThrowError(
+      /Slide 3 contains freeform positioned objects.*Export > PowerPoint.*stopped instead of silently reflowing/s,
+    );
+  });
+
+  it("allows an absolute uploaded background without a persisted object id", () => {
+    expect(() =>
+      assertServerPptxExportable(
+        `<div class="fmd-slide">
+          <img
+            class="fmd-img-uploaded"
+            src="https://cdn.example/background.png"
+            style="position: absolute; inset: 0; width: 100%; height: 100%"
+          />
+          <h1>Title</h1>
+        </div>`,
+        2,
+      ),
+    ).not.toThrow();
+  });
+
+  it("rejects the persisted freeform class even if its object id is absent", () => {
+    expect(() =>
+      assertServerPptxExportable(
+        `<div class="fmd-slide"><div class="fmd-freeform-object" style="position: absolute">Text</div></div>`,
+        4,
+      ),
+    ).toThrowError(/Slide 4 contains freeform positioned objects/);
+  });
+
+  it("preserves imported scene geometry, rich text runs, and placed images", () => {
+    const result = parseSlideHtml(
+      `<div class="fmd-slide fmd-imported-pptx" data-imported-pptx="true" style="position:relative;background:#000000;">
+        <div class="fmd-pptx-text" data-pptx-element-kind="text" style="position:absolute;left:72px;top:68px;width:480px;height:120px;">
+          <p style="line-height:1.5;"><span style="font-size:48px;font-family:'Poppins',sans-serif;color:#ffffff;font-weight:700;">Title</span></p>
+          <p style="line-height:1.5;"><span style="font-size:25.333px;font-family:'Poppins',sans-serif;color:#d9d9d9;">Body </span><span style="font-size:25.333px;font-family:'Poppins',sans-serif;color:#28e2fa;">accent</span></p>
+        </div>
+        <div class="fmd-pptx-image" data-pptx-element-kind="image" style="position:absolute;left:100px;top:300px;width:200px;height:100px;"><img src="/api/import-assets/token" alt="" /></div>
+      </div>`,
+      "16:9",
+      2,
+    );
+
+    expect(result.bgColor).toBe("000000");
+    expect(result.texts).toHaveLength(1);
+    expect(result.texts[0].x).toBeCloseTo(1, 3);
+    expect(result.texts[0].y).toBeCloseTo((68 / 540) * 7.5, 4);
+    expect(result.texts[0].fontSize).toBe(48);
+    expect(result.texts[0].runs?.map((run) => run.text).join("")).toContain(
+      "Body accent",
+    );
+    expect(result.images).toEqual([
+      expect.objectContaining({
+        src: "/api/import-assets/token",
+        x: expect.closeTo((100 / 960) * 13.33, 4),
+        y: expect.closeTo((300 / 540) * 7.5, 4),
+      }),
+    ]);
+  });
+
+  it("keeps a source-faithful PDF page as a full-slide image", () => {
+    const result = parseSlideHtml(
+      `<div class="fmd-slide fmd-imported-pdf" data-imported-pdf="true" style="background: #101820;"><img src="https://files.example/page.png" alt="" /></div>`,
+      "16:9",
+      1,
+    );
+
+    expect(result.texts).toHaveLength(0);
+    expect(result.images).toEqual([
+      expect.objectContaining({
+        src: "https://files.example/page.png",
+        x: 0,
+        y: 0,
+        w: expect.closeTo(13.33, 2),
+        h: expect.closeTo(7.5, 2),
+      }),
+    ]);
+  });
+
+  it("letterboxes portrait PDF pages during export", () => {
+    const result = parseSlideHtml(
+      `<div class="fmd-slide fmd-imported-pdf" data-imported-pdf="true" data-source-width="900" data-source-height="1600"><img src="https://files.example/portrait.png" alt="" /></div>`,
+      "16:9",
+      1,
+    );
+
+    expect(result.images).toEqual([
+      expect.objectContaining({
+        src: "https://files.example/portrait.png",
+        x: expect.closeTo((13.33 - 7.5 * (900 / 1600)) / 2, 4),
+        y: 0,
+        w: expect.closeTo(7.5 * (900 / 1600), 4),
+        h: expect.closeTo(7.5, 4),
+      }),
+    ]);
+  });
+
+  it("decodes escaped query parameters in imported PDF image URLs", () => {
+    const result = parseSlideHtml(
+      `<div class="fmd-slide fmd-imported-pdf" data-imported-pdf="true"><img src="https://files.example/page.png?token=abc&amp;signature=def" alt="" /></div>`,
+      "16:9",
+      1,
+    );
+
+    expect(result.images[0]?.src).toBe(
+      "https://files.example/page.png?token=abc&signature=def",
+    );
+  });
+
+  it("derives px-to-pt from the deck's actual px/inch ratio, not a fixed 96dpi assumption", () => {
+    const result = parseSlideHtml(
+      '<div class="fmd-slide"><h1 style="font-size: 48px;">Title</h1></div>',
+      "1:1",
+      1,
+    );
+
+    expect(result.texts[0].fontSize).toBe(32);
+  });
+
+  it("threads rgba alpha through as pptxgenjs transparency instead of discarding it", () => {
+    const result = parseSlideHtml(
+      '<div class="fmd-slide"><h1 style="color: rgba(255, 0, 0, 0.5);">Title</h1></div>',
+      undefined,
+      1,
+    );
+
+    expect(result.texts[0].color).toBe("FF0000");
+    expect(result.texts[0].transparency).toBe(50);
+  });
+
+  it("preserves 8-digit CSS hex alpha through PPTX export", () => {
+    const result = parseSlideHtml(
+      '<div class="fmd-slide"><h1 style="color: #11223380;">Title</h1></div>',
+      undefined,
+      1,
+    );
+
+    expect(result.texts[0].color).toBe("112233");
+    expect(result.texts[0].transparency).toBe(50);
+  });
+
+  it("exports imported tables with cell text, fills, and spans", () => {
+    const result = parseSlideHtml(
+      [
+        '<div class="fmd-slide fmd-imported-pptx" data-imported-pptx="true" style="background:#000000;">',
+        '<div data-pptx-element-kind="table" style="position:absolute;left:72px;top:68px;width:480px;height:180px;">',
+        '<table><tr><td colspan="2" style="background:#11223380;border:1px solid rgba(255,255,255,0.25);"><p><span style="font-size:24px;color:#ffffff;font-weight:700;">Header</span></p></td></tr>',
+        '<tr><td rowspan="2"><p>Left</p></td><td><p>Right</p></td></tr><tr><td><p>Bottom</p></td></tr></table>',
+        "</div></div>",
+      ].join(""),
+      "16:9",
+      1,
+    );
+
+    expect(result.tables).toHaveLength(1);
+    expect(result.tables[0]?.x).toBeCloseTo(1, 3);
+    const [headerRow, bodyRow] = result.tables[0]?.rows ?? [];
+    expect(headerRow?.[0]?.options).toMatchObject({
+      colspan: 2,
+      fill: { color: "112233", transparency: 50 },
+    });
+    expect(headerRow?.[0]?.text).toEqual(
+      expect.arrayContaining([expect.objectContaining({ text: "Header" })]),
+    );
+    expect(bodyRow?.[0]?.options).toMatchObject({ rowspan: 2 });
+    expect(bodyRow?.[0]?.text).toEqual(
+      expect.arrayContaining([expect.objectContaining({ text: "Left" })]),
+    );
+    expect(bodyRow?.[1]?.text).toEqual(
+      expect.arrayContaining([expect.objectContaining({ text: "Right" })]),
+    );
+  });
+
+  it("warns and falls back to white instead of silently defaulting an unrecognized color", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = parseSlideHtml(
+      '<div class="fmd-slide"><h1 style="color: hsl(200 50% 50%);">Title</h1></div>',
+      undefined,
+      1,
+    );
+
+    expect(result.texts[0].color).toBe("FFFFFF");
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("hsl(200 50% 50%)"),
+    );
+
+    warnSpy.mockRestore();
+  });
+
+  it("fills a gradient shape with its first opaque stop instead of dropping the fill", () => {
+    const result = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}background:linear-gradient(135deg, rgba(255,95,109,0) 0%, #FF5F6D 20%, #FFC371 100%);"></div>`,
+      ),
+      "16:9",
+      1,
+    );
+
+    expect(result.shapes[0]).toMatchObject({ fill: "FF5F6D" });
+    expect(result.shapes[0]?.fillTransparency).toBeUndefined();
+  });
+
+  it("keeps the source preset geometry the importer carries on the shape", () => {
+    const result = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="shape" data-pptx-shape-type="trapezoid" style="${SHAPE_BOX}background:#123456;"></div>`,
+      ),
+      "16:9",
+      1,
+    );
+
+    expect(result.shapes[0]?.shapeType).toBe("trapezoid");
+  });
+
+  it("traces a freeform clip-path outline as custom geometry instead of a rectangle", () => {
+    const result = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}background:#123456;clip-path: path('M0 0 L96 0 C96 27 48 54 0 54 Q0 27 0 0 Z');"></div>`,
+      ),
+      "16:9",
+      1,
+    );
+
+    const inX = (px: number) => (px / 960) * 13.33;
+    const inY = (px: number) => (px / 540) * 7.5;
+    expect(result.shapes[0]?.shapeType).toBe("custGeom");
+    expect(result.shapes[0]?.points).toEqual([
+      { x: 0, y: 0, moveTo: true },
+      { x: inX(96), y: 0 },
+      {
+        x: 0,
+        y: inY(54),
+        curve: {
+          type: "cubic",
+          x1: inX(96),
+          y1: inY(27),
+          x2: inX(48),
+          y2: inY(54),
+        },
+      },
+      { x: 0, y: 0, curve: { type: "quadratic", x1: 0, y1: inY(27) } },
+      { close: true },
+    ]);
+  });
+
+  it("keeps an arc an arc, so a ring segment does not export as its chord", () => {
+    const result = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}background:#123456;clip-path: path('M100 50 A50 50 0 0 1 50 100 Z');"></div>`,
+      ),
+      "16:9",
+      1,
+    );
+
+    const [start, arc] = (result.shapes[0]?.points ?? []) as Array<
+      Record<string, never>
+    >;
+    expect(start).toEqual({
+      x: (100 / 960) * 13.33,
+      y: (50 / 540) * 7.5,
+      moveTo: true,
+    });
+    expect(arc).toMatchObject({
+      x: (50 / 960) * 13.33,
+      y: (100 / 540) * 7.5,
+      curve: {
+        type: "arc",
+        wR: (50 / 960) * 13.33,
+        hR: (50 / 540) * 7.5,
+      },
+    });
+    expect(arc.curve.stAng).toBeCloseTo(0, 6);
+    expect(arc.curve.swAng).toBeCloseTo(90, 6);
+  });
+
+  it("reads a stroke-only freeform's outline and weight from its SVG overlay", () => {
+    const result = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}"><svg viewBox="0 0 192 108" preserveAspectRatio="none" style="position:absolute;inset:0;"><path d="M0 0 L192 108" fill="none" stroke="#FF0000" stroke-width="4" /></svg></div>`,
+      ),
+      "16:9",
+      1,
+    );
+
+    expect(result.shapes[0]).toMatchObject({
+      shapeType: "custGeom",
+      lineColor: "FF0000",
+      lineWidth: 4,
+    });
+    expect(result.shapes[0]?.points).toEqual([
+      { x: 0, y: 0, moveTo: true },
+      { x: (192 / 960) * 13.33, y: (108 / 540) * 7.5 },
+    ]);
+  });
+
+  it("reads the importer's compact relative path, not just the absolute spelling", () => {
+    const compact = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}background:#123456;clip-path: path('m0 0 96 0-96 54z');"></div>`,
+      ),
+      "16:9",
+      1,
+    ).shapes[0];
+    const absolute = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}background:#123456;clip-path: path('M0 0 L96 0 L0 54 Z');"></div>`,
+      ),
+      "16:9",
+      1,
+    ).shapes[0];
+
+    expect(compact?.shapeType).toBe("custGeom");
+    expect(compact?.points).toEqual(absolute?.points);
+  });
+
+  it("steps a relative curve's control points from the segment start, not the last point", () => {
+    const [relative] = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}background:#123456;clip-path: path('m10 10c5 0 10 5 10 10z');"></div>`,
+      ),
+      "16:9",
+      1,
+    ).shapes;
+    const [absolute] = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}background:#123456;clip-path: path('M10 10 C15 10 20 15 20 20 Z');"></div>`,
+      ),
+      "16:9",
+      1,
+    ).shapes;
+
+    expect(relative?.points).toEqual(absolute?.points);
+  });
+
+  it("falls back to a whole rectangle, loudly, when an outline cannot be read", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}background:#123456;clip-path: path('M0 0 H96 Z');"></div>`,
+      ),
+      "16:9",
+      1,
+    );
+
+    expect(result.shapes[0]?.points).toBeUndefined();
+    expect(result.shapes[0]?.shapeType).toBeUndefined();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("H96"));
+
+    warnSpy.mockRestore();
+  });
+
+  it("keeps each element's rotation, so a rotated ring is not six stacked arrows", () => {
+    const result = parseSlideHtml(
+      importedSlide(
+        [
+          `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}background:#123456;transform: rotate(60deg);"></div>`,
+          `<div data-pptx-element-kind="text" style="${SHAPE_BOX}transform: rotate(-90deg);"><p><span>Side</span></p></div>`,
+          `<div data-pptx-element-kind="image" style="${SHAPE_BOX}transform: rotate(12.5deg);"><img src="https://example.com/a.png" /></div>`,
+          `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}background:#123456;"></div>`,
+        ].join(""),
+      ),
+      "16:9",
+      1,
+    );
+
+    expect(result.shapes[0]?.rotate).toBe(60);
+    expect(result.texts[0]?.rotate).toBe(-90);
+    expect(result.images[0]?.rotate).toBe(12.5);
+    expect(result.shapes[1]?.rotate).toBeUndefined();
+  });
+
+  it("reads a circle and a real corner radius instead of collapsing both to roundRect", () => {
+    const [circle] = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}background:#123456;border-radius:50%;"></div>`,
+      ),
+      "16:9",
+      1,
+    ).shapes;
+    const [rounded] = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}background:#123456;border-radius:18px;"></div>`,
+      ),
+      "16:9",
+      1,
+    ).shapes;
+    const [pill] = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}background:#123456;border-radius:9999px;"></div>`,
+      ),
+      "16:9",
+      1,
+    ).shapes;
+
+    expect(circle?.shapeType).toBe("ellipse");
+    expect(circle?.rectRadius).toBeUndefined();
+    expect(rounded?.shapeType).toBe("roundRect");
+    expect(rounded?.rectRadius).toBeCloseTo((18 / 960) * 13.33, 4);
+    expect(pill?.rectRadius).toBeCloseTo(((108 / 540) * 7.5) / 2, 4);
+  });
+
+  it("traces a clip-path polygon as custom geometry rather than a rectangle", () => {
+    const result = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}background:#123456;clip-path:polygon(50% 0%, 100% 100%, 0% 100%);"></div>`,
+      ),
+      "16:9",
+      1,
+    );
+
+    const w = (192 / 960) * 13.33;
+    const h = (108 / 540) * 7.5;
+    expect(result.shapes[0]?.shapeType).toBe("custGeom");
+    expect(result.shapes[0]?.points).toEqual([
+      { x: expect.closeTo(w / 2, 4), y: 0 },
+      { x: expect.closeTo(w, 4), y: expect.closeTo(h, 4) },
+      { x: 0, y: expect.closeTo(h, 4) },
+      { close: true },
+    ]);
+  });
+
+  it("exports dashed and dotted outlines instead of dropping the line entirely", () => {
+    const [dashed] = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}border:2px dashed #FF0000;"></div>`,
+      ),
+      "16:9",
+      1,
+    ).shapes;
+    const [dotted] = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}border:1px dotted #00FF00;"></div>`,
+      ),
+      "16:9",
+      1,
+    ).shapes;
+    const [solid] = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}border:1px solid #0000FF;"></div>`,
+      ),
+      "16:9",
+      1,
+    ).shapes;
+
+    expect(dashed).toMatchObject({ lineColor: "FF0000", lineDashType: "dash" });
+    expect(dotted).toMatchObject({
+      lineColor: "00FF00",
+      lineDashType: "sysDot",
+    });
+    expect(solid?.lineColor).toBe("0000FF");
+    expect(solid?.lineDashType).toBeUndefined();
+  });
+
+  it("exports a connector as a real line, not a zero-width unstroked rect", () => {
+    const [connector] = parseSlideHtml(
+      sourcePagedSlide(CONNECTOR_ELEMENT),
+      "16:9",
+      4,
+    ).shapes;
+
+    expect(connector).toMatchObject({
+      shapeType: "line",
+      lineColor: "3A3838",
+      lineWidth: 2,
+      lineHeadType: "oval",
+      lineTailType: "oval",
+      rotate: 180,
+    });
+    expect(connector.w).toBe(0);
+  });
+
+  it("collapses a thin imported rule onto its line axis", () => {
+    const [connector] = parseSlideHtml(
+      sourcePagedSlide(CONNECTOR_ELEMENT.replace("width: 0px;", "width: 2px;")),
+      "16:9",
+      4,
+    ).shapes;
+
+    expect(connector).toMatchObject({
+      shapeType: "line",
+      w: 0,
+    });
+    expect(connector.h).toBeGreaterThan(0);
+  });
+
+  it("caps only the end of a line the source actually decorated", () => {
+    const tailOnly = CONNECTOR_ELEMENT.replace(
+      '<circle cx="3" cy="2.25" r="2.25" fill="#3A3838" />',
+      "",
+    );
+    const [connector] = parseSlideHtml(
+      sourcePagedSlide(tailOnly),
+      "16:9",
+      4,
+    ).shapes;
+
+    expect(connector.lineHeadType).toBeUndefined();
+    expect(connector.lineTailType).toBe("oval");
+  });
+
+  it("ignores an end-cap circle that lacks the line-axis coordinate", () => {
+    const malformed = CONNECTOR_ELEMENT.replace('cy="2.25"', 'cx="3"');
+    const [connector] = parseSlideHtml(
+      sourcePagedSlide(malformed),
+      "16:9",
+      4,
+    ).shapes;
+
+    expect(connector.lineHeadType).toBeUndefined();
+    expect(connector.lineTailType).toBe("oval");
+  });
+
+  it("does not read a four-sided outline as a line", () => {
+    const [outlined] = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}border:1px solid #0000FF;"></div>`,
+      ),
+      "16:9",
+      1,
+    ).shapes;
+
+    expect(outlined.shapeType).toBeUndefined();
+    expect(outlined.lineHeadType).toBeUndefined();
+  });
+
+  it("preserves authored line-height for ordinary server exports", () => {
+    const [text] = parseSlideHtml(
+      '<div class="fmd-slide"><h1 style="font-size:18px;line-height:1.2;">Body</h1></div>',
+      "16:9",
+      1,
+    ).texts;
+
+    expect(text.lineSpacingMultiple).toBe(1.2);
+  });
+
+  it("converts a CSS line-height back to single spacing rather than re-applying it", () => {
+    const [text] = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="text" style="${SHAPE_BOX}">` +
+          `<p style="line-height:1.2;"><span style="font-size:18px;">Body</span></p></div>`,
+      ),
+      "16:9",
+      1,
+    ).texts;
+
+    expect(text.lineSpacingMultiple).toBe(1);
+  });
+
+  it("maps a dotted table rule to the nearest border pptxgenjs can draw", () => {
+    const result = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="table" style="${SHAPE_BOX}"><table><tr><td style="border:1px dotted #888888;"><p>Cell</p></td></tr></table></div>`,
+      ),
+      "16:9",
+      1,
+    );
+
+    expect(result.tables[0]?.rows[0]?.[0]?.options?.border).toMatchObject({
+      type: "dash",
+      color: "888888",
+    });
+  });
+
+  it("keeps the source column and row tracks instead of an even split", () => {
+    const result = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="table" style="${SHAPE_BOX}"><table>` +
+          '<colgroup><col style="width:50%" /><col style="width:25%" /><col style="width:25%" /></colgroup>' +
+          '<tr style="height:40%"><td colspan="2"><p>Wide</p></td><td><p>C</p></td></tr>' +
+          '<tr style="height:60%"><td><p>A</p></td><td><p>B</p></td><td><p>C</p></td></tr>' +
+          "</table></div>",
+      ),
+      "16:9",
+      1,
+    );
+
+    expect(result.tables[0]?.colW).toEqual([
+      expect.closeTo(1.3333, 3),
+      expect.closeTo(0.6667, 3),
+      expect.closeTo(0.6667, 3),
+    ]);
+    expect(result.tables[0]?.rowH).toEqual([
+      expect.closeTo(0.6, 3),
+      expect.closeTo(0.9, 3),
+    ]);
+  });
+
+  it("drops a column track list that does not cover every column", () => {
+    const result = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="table" style="${SHAPE_BOX}"><table>` +
+          '<colgroup><col style="width:50%" /><col style="width:50%" /></colgroup>' +
+          "<tr><td><p>A</p></td><td><p>B</p></td><td><p>C</p></td></tr>" +
+          "</table></div>",
+      ),
+      "16:9",
+      1,
+    );
+
+    expect(result.tables[0]?.colW).toBeUndefined();
+    expect(result.tables[0]?.rowH).toBeUndefined();
+  });
+
+  it("reads a cell's alignment and padding, which the importer writes on the paragraph and the cell", () => {
+    const result = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="table" style="${SHAPE_BOX}"><table>` +
+          '<tr><td style="padding:9.6px 19.2px;"><p style="text-align:center;"><span>Centered</span></p></td></tr>' +
+          "</table></div>",
+      ),
+      "16:9",
+      1,
+    );
+
+    const cell = result.tables[0]?.rows[0]?.[0]?.options;
+    expect(cell?.align).toBe("center");
+    expect(cell?.margin).toEqual([
+      expect.closeTo(0.1333, 3),
+      expect.closeTo(0.2667, 3),
+      expect.closeTo(0.1333, 3),
+      expect.closeTo(0.2667, 3),
+    ]);
+  });
+
+  it("writes the source deck's font, not this template's, on a round trip", () => {
+    const result = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="text" style="position:absolute;left:72px;top:68px;width:480px;height:120px;"><p style="line-height:1.5;"><span style="font-size:24px;font-family:'Work Sans',sans-serif;color:#333333;">Heading</span></p></div>`,
+        "background:#ffffff;font-family:'Bodoni Moda',serif;",
+      ),
+      "16:9",
+      1,
+    );
+
+    expect(result.texts[0]?.fontFace).toBe("Work Sans");
+  });
+
+  it("falls back to the imported deck's own theme font when a run declares none", () => {
+    const result = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="text" style="position:absolute;left:72px;top:68px;width:480px;height:120px;"><p>Heading</p></div>`,
+        "background:#ffffff;font-family:'Bodoni Moda',serif;",
+      ),
+      "16:9",
+      1,
+    );
+
+    expect(result.texts[0]?.fontFace).toBe("Bodoni Moda");
+    expect(result.texts[0]?.fontSize).toBeUndefined();
+  });
+
+  it("does not spread a bold first run over the rest of its text box", () => {
+    const result = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="text" style="position:absolute;left:72px;top:68px;width:480px;height:120px;">` +
+          `<p><span style="font-size:11px;font-weight:700;color:#000000;">Soft Launch</span></p>` +
+          `<p><span style="font-size:8px;font-weight:400;color:#000000;">(Current stage)</span></p>` +
+          `</div>`,
+      ),
+      "16:9",
+      1,
+    );
+
+    expect(result.texts[0]?.bold).toBe(false);
+    expect(result.texts[0]?.runs?.map((run) => run.options.bold)).toEqual([
+      true,
+      undefined,
+      false,
+    ]);
+  });
+
+  it("keeps a box-level bold when every run in it is bold", () => {
+    const result = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="text" style="position:absolute;left:72px;top:68px;width:480px;height:120px;">` +
+          `<p><span style="font-weight:700;color:#000000;">All</span><span style="font-weight:800;color:#000000;"> bold</span></p>` +
+          `</div>`,
+      ),
+      "16:9",
+      1,
+    );
+
+    expect(result.texts[0]?.bold).toBe(true);
+  });
+
+  it("uses the deck wrapper's font family on normal-flow slides", () => {
+    const result = parseSlideHtml(
+      `<div class="fmd-slide" style="font-family: 'Montserrat', sans-serif;"><h1 style="font-size: 48px;">Title</h1></div>`,
+      "16:9",
+      1,
+    );
+
+    expect(result.texts[0]?.fontFace).toBe("Montserrat");
+  });
+
+  it("matches the importer's own defaults so an undecorated round trip keeps its colors", () => {
+    const result = parseSlideHtml(
+      `<div class="fmd-slide fmd-imported-pptx" data-imported-pptx="true"><div data-pptx-element-kind="text" style="position:absolute;left:72px;top:68px;width:480px;height:120px;"><p>Heading</p></div></div>`,
+      "16:9",
+      1,
+    );
+
+    expect(result.bgColor).toBe("FFFFFF");
+    expect(result.texts[0]?.color).toBe("111827");
+  });
+
+  it("scales onto the source page size, not the preset the import snapped to", () => {
+    const element = `<div data-pptx-element-kind="text" style="position:absolute;left:96px;top:54px;width:192px;height:108px;"><p><span style="font-size:32px;">Title</span></p></div>`;
+    const onSourcePage = parseSlideHtml(
+      `<div class="fmd-slide fmd-imported-pptx" data-imported-pptx="true" data-slide-width-emu="9144000" data-slide-height-emu="5715000" style="background:#ffffff;">${element}</div>`,
+      "16:9",
+      1,
+    );
+    const onPresetPage = parseSlideHtml(
+      `<div class="fmd-slide fmd-imported-pptx" data-imported-pptx="true" style="background:#ffffff;">${element}</div>`,
+      "16:9",
+      1,
+    );
+
+    expect(onSourcePage.texts[0].x).toBeCloseTo(1, 6);
+    expect(onSourcePage.texts[0].y).toBeCloseTo((54 / 540) * 6.25, 6);
+    expect(onSourcePage.texts[0].fontSize).toBe(24);
+    expect(onPresetPage.texts[0].x).toBeCloseTo((96 / 960) * 13.33, 6);
+    expect(onPresetPage.texts[0].y).toBeCloseTo((54 / 540) * 7.5, 6);
+    expect(onPresetPage.texts[0].fontSize).toBe(32);
+  });
+
+  it("keeps a gradient background alongside the solid stop it falls back to", () => {
+    const result = parseSlideHtml(
+      `<div class="fmd-slide fmd-imported-pptx" data-imported-pptx="true" style="background: linear-gradient(140.02deg, #2A80D0 0%, #67A99C 50%, #9CCB5A 100%);"><div data-pptx-element-kind="text" style="left:0px;top:0px;width:100px;height:40px;"><p>Title</p></div></div>`,
+      "16:9",
+      1,
+    );
+
+    expect(result.bgGradient).toBe(
+      "linear-gradient(140.02deg, #2A80D0 0%, #67A99C 50%, #9CCB5A 100%)",
+    );
+    expect(result.bgColor).toBe("2A80D0");
+  });
+
+  it("ignores imported grids with non-positive spacing", () => {
+    for (const backgroundSize of [
+      "0px 24px",
+      "-1px 24px",
+      "24px 0px",
+      "24px -1px",
+    ]) {
+      const result = parseSlideHtml(
+        `<div class="fmd-slide fmd-imported-pptx" data-imported-pptx="true" style="background-image:linear-gradient(#ffffff 0 1px, transparent 1px);background-size:${backgroundSize};background-position:0px 0px;"><div data-pptx-element-kind="text" style="left:0px;top:0px;width:100px;height:40px;">Title</div></div>`,
+        "16:9",
+        1,
+      );
+
+      expect(result.grid).toBeUndefined();
+    }
+  });
+});
+
+describe("sourcePageInches", () => {
+  it("reads the page size the importer stamped on the slide root", () => {
+    expect(
+      sourcePageInches(
+        '<div data-slide-width-emu="9144000" data-slide-height-emu="5715000">',
+      ),
+    ).toEqual({ w: 10, h: 6.25 });
+  });
+
+  it("falls back to the deck preset when the slide declares no source size", () => {
+    expect(sourcePageInches('<div class="fmd-slide">')).toBeUndefined();
+  });
+
+  it("warns instead of re-paging the deck onto an out-of-range size", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    expect(
+      sourcePageInches(
+        '<div data-slide-width-emu="914400000" data-slide-height-emu="5143500">',
+      ),
+    ).toBeUndefined();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("out-of-range source page size"),
+    );
+
+    warnSpy.mockRestore();
+  });
+});
+
+describe("cssGradientToDrawingMl", () => {
+  it("re-orients a linear gradient back to the OOXML angle the importer read", () => {
+    expect(
+      cssGradientToDrawingMl(
+        "linear-gradient(140.02deg, #2A80D0 0%, #67A99C 50%, #9CCB5A 100%)",
+      ),
+    ).toBe(
+      '<a:gradFill rotWithShape="1"><a:gsLst>' +
+        '<a:gs pos="0"><a:srgbClr val="2A80D0"/></a:gs>' +
+        '<a:gs pos="50000"><a:srgbClr val="67A99C"/></a:gs>' +
+        '<a:gs pos="100000"><a:srgbClr val="9CCB5A"/></a:gs>' +
+        '</a:gsLst><a:lin ang="3001200" scaled="0"/></a:gradFill>',
+    );
+  });
+
+  it("puts a radial gradient's focus back where fillToRect had it", () => {
+    expect(
+      cssGradientToDrawingMl(
+        "radial-gradient(circle at 0% 0%, #013445 0%, #018589 100%)",
+      ),
+    ).toContain('<a:fillToRect l="0" t="0" r="100000" b="100000"/>');
+  });
+
+  it("keeps the alpha an rgba stop carries", () => {
+    expect(
+      cssGradientToDrawingMl(
+        "linear-gradient(90deg, rgba(255,0,0,0.5) 0%, #00FF00 100%)",
+      ),
+    ).toContain('<a:srgbClr val="FF0000"><a:alpha val="50000"/></a:srgbClr>');
+  });
+
+  it("declines gradients DrawingML cannot express instead of writing a broken fill", () => {
+    expect(
+      cssGradientToDrawingMl("conic-gradient(#fff, #000)"),
+    ).toBeUndefined();
+    expect(
+      cssGradientToDrawingMl("linear-gradient(90deg, #ffffff 0%)"),
+    ).toBeUndefined();
+  });
+
+  it("reads a `to <side>` direction as its angle rather than as a color stop", () => {
+    expect(
+      cssGradientToDrawingMl("linear-gradient(to right, #013445, #018589)"),
+    ).toBe(
+      '<a:gradFill rotWithShape="1"><a:gsLst>' +
+        '<a:gs pos="0"><a:srgbClr val="013445"/></a:gs>' +
+        '<a:gs pos="100000"><a:srgbClr val="018589"/></a:gs>' +
+        '</a:gsLst><a:lin ang="0" scaled="0"/></a:gradFill>',
+    );
+    expect(
+      cssGradientToDrawingMl("linear-gradient(to bottom, #013445, #018589)"),
+    ).toContain('<a:lin ang="5400000" scaled="0"/>');
+    expect(
+      cssGradientToDrawingMl("linear-gradient(to top right, #013445, #018589)"),
+    ).toContain('<a:lin ang="18900000" scaled="0"/>');
+  });
+
+  it("centers a radial gradient that names only its shape, without inventing a stop", () => {
+    for (const css of [
+      "radial-gradient(circle, #013445, #018589)",
+      "radial-gradient(ellipse at center, #013445, #018589)",
+    ]) {
+      const xml = cssGradientToDrawingMl(css);
+      expect(xml).toContain(
+        '<a:fillToRect l="50000" t="50000" r="50000" b="50000"/>',
+      );
+      expect(xml).not.toContain("FFFFFF");
+      expect(xml?.match(/<a:gs /g)).toHaveLength(2);
+    }
+  });
+
+  it("resolves a radial focus written with position keywords", () => {
+    expect(
+      cssGradientToDrawingMl(
+        "radial-gradient(circle at top left, #013445, #018589)",
+      ),
+    ).toContain('<a:fillToRect l="0" t="0" r="100000" b="100000"/>');
+  });
+
+  it("flattens rather than whitens a configuration or stop it cannot read", () => {
+    for (const css of [
+      "linear-gradient(0.25turn, #013445, #018589)", // angle unit we do not convert
+      "linear-gradient(in oklab, #013445, #018589)", // color-interpolation syntax
+      "radial-gradient(circle at 10px 20px, #013445, #018589)", // non-percent focus
+      "linear-gradient(90deg, #013445, notacolor)", // unreadable stop
+    ]) {
+      expect(cssGradientToDrawingMl(css)).toBeUndefined();
+    }
+  });
+});
+
+describe("themeClrSchemeXml", () => {
+  const palette = {
+    dk1: "#000000",
+    lt1: "#FFFFFF",
+    dk2: "#595959",
+    lt2: "#EEEEEE",
+    accent1: "#FFAB40",
+    accent2: "#212121",
+    accent3: "#78909C",
+    accent4: "#FFAB40",
+    accent5: "#0097A7",
+    accent6: "#EEFF41",
+    hlink: "#0097A7",
+    folHlink: "#0097A7",
+  };
+
+  it("writes the deck's own palette in the slot order PowerPoint requires", () => {
+    const xml = themeClrSchemeXml(palette);
+
+    expect(xml).toContain('<a:accent1><a:srgbClr val="FFAB40"/></a:accent1>');
+    expect(xml).not.toContain("4472C4");
+    expect(xml?.indexOf("<a:dk1>")).toBeLessThan(xml?.indexOf("<a:lt1>") ?? -1);
+  });
+
+  it("keeps the Office default rather than writing a partial scheme", () => {
+    const { accent4: _dropped, ...incomplete } = palette;
+
+    expect(themeClrSchemeXml(incomplete)).toBeUndefined();
+  });
+});
+
+describe("exported slide XML", () => {
+  async function writeParsedSlide(html: string): Promise<string> {
+    const { texts, shapes } = parseSlideHtml(html, "16:9", 1);
+    const pptx = new PptxGenJS();
+    const slide = pptx.addSlide();
+    for (const shape of shapes) {
+      slide.addShape(resolveShapeType(pptx.ShapeType, shape.shapeType), {
+        x: shape.x,
+        y: shape.y,
+        w: shape.w,
+        h: shape.h,
+        ...(shape.lineColor
+          ? {
+              line: {
+                color: shape.lineColor,
+                width: shape.lineWidth ?? 1,
+                ...(shape.lineHeadType
+                  ? { beginArrowType: shape.lineHeadType }
+                  : {}),
+                ...(shape.lineTailType
+                  ? { endArrowType: shape.lineTailType }
+                  : {}),
+              },
+            }
+          : {}),
+      });
+    }
+    for (const text of texts) {
+      slide.addText(text.runs ?? text.text, {
+        x: text.x,
+        y: text.y,
+        w: text.w,
+        h: text.h,
+        ...(text.lineSpacingMultiple != null
+          ? { lineSpacingMultiple: text.lineSpacingMultiple }
+          : {}),
+      });
+    }
+    const JSZip = (await import("jszip")).default;
+    const slideXml = await (
+      await JSZip.loadAsync(
+        (await pptx.write({ outputType: "nodebuffer" })) as Buffer,
+      )
+    )
+      .file("ppt/slides/slide1.xml")
+      ?.async("string");
+    if (slideXml === undefined) throw new Error("missing slide part");
+    return slideXml;
+  }
+
+  it("writes a connector with its stroke and both oval ends", async () => {
+    const slideXml = await writeParsedSlide(
+      sourcePagedSlide(CONNECTOR_ELEMENT),
+    );
+
+    expect(slideXml).toContain('<a:prstGeom prst="line">');
+    expect(slideXml).toContain(
+      '<a:ln w="25400"><a:solidFill><a:srgbClr val="3A3838"/></a:solidFill>',
+    );
+    expect(slideXml).toContain('<a:headEnd type="oval"/>');
+    expect(slideXml).toContain('<a:tailEnd type="oval"/>');
+  });
+
+  it("round-trips a thin imported rule without making it diagonal", async () => {
+    const thinRule = CONNECTOR_ELEMENT.replace("width: 0px;", "width: 2px;");
+    const slideXml = await writeParsedSlide(sourcePagedSlide(thinRule));
+
+    expect(slideXml).toContain('<a:prstGeom prst="line">');
+    expect(slideXml).toContain('cx="0"');
+  });
+
+  it("round-trips a source spcPct of 100% back to 100%, not 120%", async () => {
+    const slideXml = await writeParsedSlide(
+      importedSlide(
+        `<div data-pptx-element-kind="text" style="${SHAPE_BOX}">` +
+          `<p style="line-height:1.2;"><span style="font-size:18px;">Body</span></p></div>`,
+      ),
+    );
+
+    expect(slideXml).toContain('<a:lnSpc><a:spcPct val="100000"/></a:lnSpc>');
+    expect(slideXml).not.toContain('<a:spcPct val="120000"/>');
+  });
+
+  it("keeps authored line-height in ordinary server-exported slide XML", async () => {
+    const slideXml = await writeParsedSlide(
+      '<div class="fmd-slide"><h1 style="font-size:18px;line-height:1.2;">Body</h1></div>',
+    );
+
+    expect(slideXml).toContain('<a:lnSpc><a:spcPct val="120000"/></a:lnSpc>');
+    expect(slideXml).not.toContain('<a:spcPct val="100000"/>');
+  });
+});
+
+describe("tableOptions", () => {
+  it("writes the source grid and no border the HTML never declared", async () => {
+    const result = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="table" style="${SHAPE_BOX}"><table>` +
+          '<colgroup><col style="width:60%" /><col style="width:40%" /></colgroup>' +
+          '<tr style="height:25%"><td><p>A</p></td><td><p>B</p></td></tr>' +
+          '<tr style="height:75%"><td><p>C</p></td><td><p>D</p></td></tr>' +
+          "</table></div>",
+      ),
+      "16:9",
+      1,
+    );
+    const table = result.tables[0];
+    if (!table) throw new Error("no table parsed");
+
+    const pptx = new PptxGenJS();
+    pptx.addSlide().addTable(table.rows, tableOptions(table));
+    const JSZip = (await import("jszip")).default;
+    const slideXml = await (
+      await JSZip.loadAsync(
+        (await pptx.write({ outputType: "nodebuffer" })) as Buffer,
+      )
+    )
+      .file("ppt/slides/slide1.xml")
+      ?.async("string");
+
+    expect(slideXml).toContain(
+      '<a:gridCol w="1462674"/><a:gridCol w="975116"/>',
+    );
+    expect(slideXml).toContain('<a:tr h="342900">');
+    expect(slideXml).toContain('<a:tr h="1028700">');
+    expect(slideXml).not.toContain('<a:srgbClr val="FFFFFF"/></a:solidFill>');
+  });
+});
+
+describe("applyDeckIdentity", () => {
+  async function writeDeck(): Promise<Buffer> {
+    const pptx = new PptxGenJS();
+    const slide = pptx.addSlide();
+    slide.background = { color: "013445" };
+    slide.addText("Title", { x: 1, y: 1, w: 4, h: 1 });
+    return (await pptx.write({ outputType: "nodebuffer" })) as Buffer;
+  }
+
+  async function readPart(buffer: Buffer, partPath: string): Promise<string> {
+    const JSZip = (await import("jszip")).default;
+    const part = await (
+      await JSZip.loadAsync(buffer)
+    )
+      .file(partPath)
+      ?.async("string");
+    if (part === undefined) throw new Error(`missing ${partPath}`);
+    return part;
+  }
+
+  it("carries a gradient background pptxgenjs has no fill type for", async () => {
+    const gradFill = cssGradientToDrawingMl(
+      "radial-gradient(circle at 0% 0%, #013445 0%, #018589 100%)",
+    );
+    const patched = await applyDeckIdentity(await writeDeck(), {
+      slideGradients: new Map([[0, gradFill ?? ""]]),
+    });
+
+    const slideXml = await readPart(patched, "ppt/slides/slide1.xml");
+    expect(slideXml).toContain('<p:bg><p:bgPr><a:gradFill rotWithShape="1">');
+    expect(slideXml).toContain('<a:srgbClr val="018589"/>');
+    expect(slideXml).not.toContain('<a:solidFill><a:srgbClr val="013445"/>');
+  });
+
+  it("replaces the hardcoded Office palette with the deck's theme", async () => {
+    const patched = await applyDeckIdentity(await writeDeck(), {
+      themeColors: {
+        dk1: "#000000",
+        lt1: "#FFFFFF",
+        dk2: "#595959",
+        lt2: "#EEEEEE",
+        accent1: "#FFAB40",
+        accent2: "#212121",
+        accent3: "#78909C",
+        accent4: "#FFAB40",
+        accent5: "#0097A7",
+        accent6: "#EEFF41",
+        hlink: "#0097A7",
+        folHlink: "#0097A7",
+      },
+      slideGradients: new Map(),
+    });
+
+    const themeXml = await readPart(patched, "ppt/theme/theme1.xml");
+    expect(themeXml).toContain(
+      '<a:accent1><a:srgbClr val="FFAB40"/></a:accent1>',
+    );
+    expect(themeXml).not.toContain("4472C4");
+  });
+
+  it("returns the package untouched when the deck has nothing of its own", async () => {
+    const buffer = await writeDeck();
+
+    expect(await applyDeckIdentity(buffer, { slideGradients: new Map() })).toBe(
+      buffer,
+    );
+  });
+
+  it("fails loudly rather than shipping a deck that silently lost its gradient", async () => {
+    await expect(
+      applyDeckIdentity(await writeDeck(), {
+        slideGradients: new Map([[7, "<a:gradFill/>"]]),
+      }),
+    ).rejects.toThrowError(/missing ppt\/slides\/slide8\.xml/);
+  });
+});

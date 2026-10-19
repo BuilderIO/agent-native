@@ -1,0 +1,630 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { describe, expect, it } from "vitest";
+
+const source = readFileSync(
+  path.join(path.dirname(fileURLToPath(import.meta.url)), "Index.tsx"),
+  "utf8",
+);
+const editorSource = readFileSync(
+  path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "OpenSlideEditorPage.tsx",
+  ),
+  "utf8",
+);
+const generationLibSource = readFileSync(
+  path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../lib/create-deck-generation.ts",
+  ),
+  "utf8",
+);
+const flow = source.slice(
+  source.indexOf("const handleCreateDeckWithPrompt"),
+  source.indexOf("const handlePromptSubmit"),
+);
+const runner = source.slice(
+  source.indexOf("const runPendingDeckGeneration"),
+  source.indexOf("const handlePromptSubmit"),
+);
+
+describe("new deck generation flow", () => {
+  it("renders the inline home composer immediately with chunk recovery", () => {
+    expect(source).toContain(
+      "import PromptPopover, {\n  type PromptAttachmentActions,",
+    );
+    expect(source).not.toContain("LazyPromptPopover");
+    expect(source).toContain('presentation="inline"');
+    expect(source).toContain("data-slides-home-composer");
+    expect(source).toContain("clearInitialPromptFromUrl();");
+    expect(source).toContain("window.location.reload()");
+    expect(source).toContain("<LazyChunkErrorBoundary");
+  });
+
+  it("finishes home setup before opening the generating editor", () => {
+    const persistIndex = flow.indexOf(
+      "persisted = await ensureDeckPersisted(deckId)",
+    );
+    const openEditorIndex = flow.indexOf(
+      "generationSubmitId=${encodeURIComponent(generationSubmitMessageId)}",
+    );
+    const hydrationIndex = flow.indexOf("await hydrateReferenceDocuments(");
+    const contextLoadIndex = flow.indexOf(
+      "loadReferenceDeckGenerationContext(referenceDeckId)",
+    );
+    const sourceImportIndex = flow.indexOf("await importUploadedDeckIntoDeck(");
+    const finalContextPersistenceIndex = flow.indexOf(
+      "await persistDeckGenerationContext(deckId, generationContext)",
+    );
+    const askQuestionIndex = flow.indexOf("use the `ask-question` tool");
+    const submitIndex = flow.indexOf("const submission = await agentSubmit(");
+
+    expect(persistIndex).toBeGreaterThan(-1);
+    expect(openEditorIndex).toBeGreaterThan(-1);
+    expect(persistIndex).toBeLessThan(openEditorIndex);
+    expect(openEditorIndex).toBeGreaterThan(hydrationIndex);
+    expect(openEditorIndex).toBeGreaterThan(contextLoadIndex);
+    expect(openEditorIndex).toBeGreaterThan(sourceImportIndex);
+    expect(openEditorIndex).toBeGreaterThan(finalContextPersistenceIndex);
+    expect(openEditorIndex).toBeLessThan(submitIndex);
+    expect(flow).toContain(
+      "generation_attempt_id=${encodeURIComponent(generationAttemptId)}",
+    );
+    expect(askQuestionIndex).toBeGreaterThan(-1);
+    expect(askQuestionIndex).toBeLessThan(openEditorIndex);
+    expect(flow).not.toContain("await askUserQuestion");
+    expect(flow).toContain("prompt-specific question");
+    expect(flow).toContain("recoverFromGenerationSetupFailure");
+  });
+
+  it("persists new decks before context setup and preserves source import ordering", () => {
+    const createIndex = flow.indexOf("deck = createDeck(undefined, {");
+    const initialContextIndex = flow.indexOf(
+      "generationContext: { ...initialGenerationContext }",
+    );
+    const initialPersistenceIndex = flow.indexOf(
+      "persisted = await ensureDeckPersisted(deckId)",
+    );
+    const validationIndex = flow.indexOf("validateUploadedDeckImport(");
+    const hydrationIndex = flow.indexOf("await hydrateReferenceDocuments(");
+    const contextLoadIndex = flow.indexOf(
+      "loadReferenceDeckGenerationContext(referenceDeckId)",
+    );
+    const sourcePersistenceIndex = flow.indexOf(
+      "await ensureDeckPersisted(deck.id)",
+    );
+    const sourceImportIndex = flow.indexOf("await importUploadedDeckIntoDeck(");
+    const finalContextPersistenceIndex = flow.indexOf(
+      "await persistDeckGenerationContext(deckId, generationContext)",
+    );
+
+    expect(createIndex).toBeGreaterThan(-1);
+    expect(flow.slice(createIndex, createIndex + 260)).toContain(
+      "deferPersistence: true",
+    );
+    expect(flow.slice(createIndex, createIndex + 260)).toContain(
+      "undoableCreation: false",
+    );
+    expect(initialContextIndex).toBeGreaterThan(createIndex);
+    expect(initialContextIndex).toBeLessThan(initialPersistenceIndex);
+    expect(initialPersistenceIndex).toBeLessThan(hydrationIndex);
+    expect(validationIndex).toBeGreaterThan(initialPersistenceIndex);
+    expect(validationIndex).toBeLessThan(hydrationIndex);
+    expect(hydrationIndex).toBeLessThan(sourcePersistenceIndex);
+    expect(contextLoadIndex).toBeLessThan(sourcePersistenceIndex);
+    expect(sourcePersistenceIndex).toBeGreaterThan(-1);
+    expect(sourceImportIndex).toBeGreaterThan(sourcePersistenceIndex);
+    expect(sourceImportIndex).toBeLessThan(finalContextPersistenceIndex);
+    expect(flow).toContain("if (sourceImprovementRequest)");
+  });
+
+  it("restores the complete reference selection after a failed generation", () => {
+    expect(source).toContain(
+      "retryReferenceSelection?: NewDeckReferenceSelection",
+    );
+    expect(source).toContain("retryReferenceSelection: referenceSelection");
+    expect(source).toContain("setNewDeckRetryRequiresExactPrompt(true)");
+    expect(source).toContain(
+      "withoutAutomaticReferenceDeck(state.retryReferenceSelection)",
+    );
+    expect(source).toContain("...(retryReferenceSelection ?? {})");
+    expect(source).toContain("retryReferenceSelection.composerContext");
+    expect(source).toContain("retryReferenceSelection?.referenceFilePaths");
+    expect(source).toContain("referenceSelection.referenceSource");
+    expect(source).toContain("resolveRetryReferenceDeckSelection");
+    expect(source).toContain("selection.referenceDeckIdSource === undefined");
+    expect(source).toContain(
+      "selection.referenceDeckId === carriedImportedReference.deckId",
+    );
+    expect(source).toContain(
+      "!decks.some((deck) => deck.id === carriedImportedReference.deckId)",
+    );
+    expect(source).toContain(
+      "...(carriedDeckMissing ? { referenceDeckId: null } : {})",
+    );
+  });
+
+  it("prefers references edited in the retry composer", () => {
+    const promptSubmit = source.slice(
+      source.indexOf("const handlePromptSubmit"),
+      source.indexOf("const handlePromptSkip"),
+    );
+
+    expect(promptSubmit).toContain(
+      "options?.slidesContext ?? retryReferenceSelection.composerContext",
+    );
+    expect(promptSubmit).toContain(
+      "options?.contextItems ?? retryReferenceSelection.contextItems",
+    );
+    expect(promptSubmit).toContain("resolveRetryReferenceDeckSelection({");
+    expect(promptSubmit).toContain("automaticReferenceDeckRemovedFromComposer");
+    expect(promptSubmit).toContain("Boolean(promptReferenceDeckId)");
+    expect(promptSubmit).toContain("!reusingRetryInputs");
+    expect(promptSubmit).toContain(
+      "designSystemId: generationComposerContext.designSystemId",
+    );
+  });
+
+  it("keeps selected references in the sign-in retry draft", () => {
+    const generation = source.slice(
+      source.indexOf("const handleCreateDeckWithPrompt"),
+      source.indexOf("const runPendingDeckGeneration"),
+    );
+    const preserveSignIn = source.slice(
+      source.indexOf("const preservePromptForSignIn"),
+      source.indexOf("const setSignInDialogOpen"),
+    );
+
+    expect(generation).toContain("referenceSelection,\n      });");
+    expect(preserveSignIn).toContain(
+      "referenceSelection?: NewDeckReferenceSelection",
+    );
+    expect(preserveSignIn).toContain(
+      "(current) => options.referenceSelection ?? current",
+    );
+  });
+
+  it("shows the destination-shaped loading surface before navigation", () => {
+    const loadingIndex = flow.indexOf("setIsStartingNewDeck(true)");
+    const navigateIndex = flow.indexOf(
+      "generationSubmitId=${encodeURIComponent(generationSubmitMessageId)}",
+    );
+
+    expect(loadingIndex).toBeGreaterThan(-1);
+    expect(loadingIndex).toBeLessThan(navigateIndex);
+    expect(source).toContain('data-testid="new-deck-loading"');
+  });
+
+  it("marks generation intent before submitting the agent run", () => {
+    const generatingRouteIndex = flow.indexOf(
+      "generationSubmitId=${encodeURIComponent(generationSubmitMessageId)}",
+    );
+    const submitIndex = flow.indexOf("const submission = await agentSubmit(");
+
+    expect(generatingRouteIndex).toBeGreaterThan(-1);
+    expect(submitIndex).toBeGreaterThan(generatingRouteIndex);
+    expect(flow).toContain(
+      "generation_attempt_id=${encodeURIComponent(generationAttemptId)}",
+    );
+    expect(flow).toContain("submitMessageId: generationSubmitMessageId");
+    expect(flow).toContain("if (!submission.delivered)");
+    expect(flow).toContain('"agent_submit_failed"');
+    expect(flow).toContain("submission.reason ??");
+  });
+
+  it("closes before references and restores prompt state when returning", () => {
+    const recovery = flow.slice(
+      flow.indexOf("const recoverFromGenerationSetupFailure"),
+      flow.indexOf("const persisted = await ensureDeckPersisted"),
+    );
+    const promptSubmit = source.slice(
+      source.indexOf("const handlePromptSubmit"),
+      source.indexOf("const handlePromptSkip"),
+    );
+    const referenceStep = source.slice(
+      source.indexOf("<NewDeckReferenceStep"),
+      source.indexOf(
+        "onDesignSystemsChanged",
+        source.indexOf("<NewDeckReferenceStep"),
+      ),
+    );
+
+    expect(recovery).toContain('settlePendingDeckAttachments("commit")');
+    const composerContextIndex = promptSubmit.indexOf(
+      "const retryComposerContext =",
+    );
+    expect(composerContextIndex).toBeGreaterThan(-1);
+    const promptCloseIndex = promptSubmit.indexOf("setNewDeckPromptOpen(false");
+    expect(promptCloseIndex).toBeGreaterThan(composerContextIndex);
+    expect(promptCloseIndex).toBeLessThan(
+      promptSubmit.indexOf("const promptReferenceDeckId ="),
+    );
+    expect(referenceStep).toContain('settlePendingDeckAttachments("commit")');
+    expect(referenceStep).toContain("text: pending.prompt");
+    expect(referenceStep).toContain("pending.files");
+    expect(referenceStep).toContain("pending.referenceFilePaths");
+    expect(referenceStep).toContain("pending.importedReference");
+    expect(referenceStep).toContain("pending.context");
+    expect(referenceStep).toContain("pending.attachments");
+    expect(referenceStep).toContain("pending.modelSelection");
+    expect(referenceStep).toContain("setShowNewDeckPrompt(true)");
+  });
+
+  it("carries hidden prompt context through generation retries", () => {
+    expect(source).toContain("PENDING_PROMPT_CONTEXT_KEY");
+    expect(source).toContain("PENDING_PROMPT_MODEL_SELECTION_KEY");
+    expect(source).toContain("retryContext?: string");
+    expect(source).toContain("modelSelection?: DeckModelSelection");
+    expect(flow).toContain("retryContext: additionalContext || undefined");
+    expect(flow).toContain("modelSelection,");
+    expect(source).toContain("newDeckRetryPrompt");
+    expect(source).toContain(
+      "initialModelSelection={newDeckRetryModelSelection}",
+    );
+    expect(source).toContain(
+      "reusingRetryInputs ? newDeckRetryContext : undefined",
+    );
+  });
+
+  it("keeps accepted-run retry attachments and model choice in route state", () => {
+    const navigation = flow.slice(
+      flow.indexOf("void navigate(", flow.indexOf("const generationContext")),
+      flow.indexOf("try {\n      const submission = await agentSubmit("),
+    );
+    const retryState = editorSource.slice(
+      editorSource.indexOf("const retryState = generationPrompt"),
+      editorSource.indexOf("const generationTabForAttempt"),
+    );
+    const settledLocationState = editorSource.slice(
+      editorSource.indexOf("const nextLocationState"),
+      editorSource.indexOf("const search = next.toString()"),
+    );
+    const persistedContext = flow.slice(
+      flow.indexOf("const initialGenerationContext"),
+      flow.indexOf("let generationFailureTracked"),
+    );
+
+    expect(navigation).toContain(
+      "generationRetryAttachments: attachmentsForGeneration",
+    );
+    expect(navigation).toContain("generationModelSelection: modelSelection");
+    expect(retryState).toContain(
+      "retryAttachments: generationRetryAttachments",
+    );
+    expect(retryState).toContain("modelSelection: generationModelSelection");
+    expect(navigation).not.toContain("generationContext: {");
+    expect(persistedContext).not.toContain("attachmentsForGeneration");
+    expect(settledLocationState).toContain("if (!outcome)");
+    expect(settledLocationState).toContain(
+      "delete nextLocationState.generationRetryAttachments",
+    );
+    expect(settledLocationState).toContain(
+      "delete nextLocationState.generationModelSelection",
+    );
+  });
+
+  it("keeps imported reference exclusions through skip, repeats, and retries", () => {
+    const promptSubmit = source.slice(
+      source.indexOf("const handlePromptSubmit"),
+      source.indexOf("const handlePromptSkip"),
+    );
+
+    expect(promptSubmit).toContain(
+      "reusingRetryInputs\n        ? (retryReferenceSelection?.referenceFilePaths ?? [])\n        : []",
+    );
+    expect(promptSubmit).toContain("...(retryReferenceFilePaths.length > 0");
+    expect(promptSubmit).toContain(
+      "{ referenceFilePaths: retryReferenceFilePaths }",
+    );
+    expect(source).toContain(
+      "retryReferenceSelection.importedReferenceFilePath",
+    );
+    expect(source).toContain(
+      "referenceFilePaths: [\n                  ...new Set([",
+    );
+    expect(source).toContain("...(pending.referenceFilePaths.length > 0");
+  });
+
+  it("requires a generated title before the first slide", () => {
+    const titleInstructionIndex = flow.indexOf(
+      "After reading any requested or attached reference material, but before adding the first slide",
+    );
+    const titlePatchIndex = flow.indexOf('"op": "patch-deck-fields"');
+    const addSlideInstructionIndex = flow.indexOf(
+      "Add every generated slide ONE AT A TIME using `add-slide` with deckId:",
+    );
+    const sparseTitleInstructionIndex = flow.indexOf(
+      "Include only `title` in `fields`; omit all other optional fields.",
+    );
+
+    expect(titleInstructionIndex).toBeGreaterThan(-1);
+    expect(titlePatchIndex).toBeGreaterThan(titleInstructionIndex);
+    expect(sparseTitleInstructionIndex).toBeGreaterThan(titlePatchIndex);
+    expect(addSlideInstructionIndex).toBeGreaterThan(titlePatchIndex);
+    expect(flow).toContain(
+      "Never use the deck id, run id, file id, or another opaque alphanumeric token as the title",
+    );
+  });
+
+  it("keeps presentation generation multi-slide and persisted", () => {
+    expect(flow).toContain(
+      "infer a coherent multi-slide outline from the scope",
+    );
+    expect(flow).not.toContain("generate-slides-ai");
+    expect(generationLibSource).not.toContain("generate-slides-ai");
+    expect(flow).toContain(
+      "After all slides are added, call `get-deck` once with `compact:",
+    );
+    expect(flow).toContain('compact: "true"');
+    expect(flow).toContain('compact: "false"');
+    expect(flow).toContain(
+      "This Home flow already has a persisted deck. Add each page with `add-slide`",
+    );
+    expect(flow).toContain(
+      "Before the first `add-slide`, call `get-deck` with { id:",
+    );
+    expect(flow).toContain("reuse the same ID, sourceTsx, and notes");
+    expect(generationLibSource).not.toContain(
+      "Use create-deck and add-slide/patch-deck",
+    );
+    expect(flow).toContain("deck-level visual contract");
+    expect(flow).toContain(
+      "Add every generated slide ONE AT A TIME using `add-slide` with deckId:",
+    );
+    expect(flow).toContain(
+      "Do not use `patch-deck` to append generated slides because `add-slide` records per-slide Creative Context provenance",
+    );
+    expect(flow).toContain(
+      "Do not call `create-deck` for this Home flow or use `patch-deck` to append generated slides",
+    );
+    expect(flow).toContain(
+      'After the first slide, use `get-slide-source` and a targeted `get-deck` read with `compact: "false"` to verify canonical source and derived preview',
+    );
+    expect(flow).not.toContain("at most three `add-slide` operations");
+    expect(flow).toContain("Never issue parallel writes to the same deck");
+  });
+
+  it("keeps unreferenced decks coherent instead of inventing text-covering boxes", () => {
+    expect(flow).toContain(
+      "No design system or style reference was selected. Call `get-workspace-defaults`",
+    );
+    expect(flow).toContain(
+      "link this already-persisted deck with `patch-deck` using `operations:",
+    );
+    expect(flow).toContain("patch-deck-fields");
+    expect(flow).toContain("fields: { designSystemId:");
+    expect(flow).toContain("Do not call `create-deck` again.");
+    expect(flow).toContain(
+      "If no workspace default exists, choose a background family, text and surface roles, one accent, a type pairing, spacing, radius, and image treatment",
+    );
+    expect(flow).toContain(
+      "record semantic --deck-* values on each slide component’s outer React element and reuse them throughout",
+    );
+  });
+
+  it("keeps ordinary attachments as reference material for a new deck", () => {
+    expect(flow).toContain(
+      "attached reference files must not seed it with imported slides",
+    );
+    expect(generationLibSource).toContain(
+      "Attachments are context for the agent by default",
+    );
+    expect(flow).toContain("isSourceImprovementRequest");
+    expect(flow).toContain("importUploadedDeckIntoDeck");
+    expect(flow).toContain("Source-preserving improvement mode");
+    expect(flow).toContain(
+      "attached reference files must not seed it with imported slides",
+    );
+  });
+
+  it("blocks generation when an attached reference cannot be read", () => {
+    const hydrateIndex = flow.indexOf("await hydrateReferenceDocuments(");
+    const submitIndex = flow.indexOf("const submission = await agentSubmit(");
+
+    expect(hydrateIndex).toBeGreaterThan(-1);
+    expect(hydrateIndex).toBeLessThan(submitIndex);
+    expect(flow).toContain('referenceHydration.status === "unreadable"');
+    expect(flow).toContain(
+      "recoverFromGenerationSetupFailure(referenceHydration.message)",
+    );
+    expect(flow).toContain("referenceDocumentContext,");
+    expect(generationLibSource).toContain(
+      "PDF, PPTX, and DOCX files were already read before this run",
+    );
+    expect(generationLibSource).not.toContain(
+      "when you need their text or structure",
+    );
+  });
+
+  it("reuses failed-run files and attachments only for the original prompt", () => {
+    expect(runner).toContain(
+      "const reusingRetryInputs =\n        !newDeckRetryRequiresExactPrompt || prompt === newDeckRetryPrompt;",
+    );
+    expect(runner).toContain("reusingRetryInputs ? newDeckRetryFiles : []");
+    expect(runner).toContain("const attachmentsForGeneration = [");
+    expect(runner).toContain(
+      "...(reusingRetryInputs ? newDeckRetryAttachments : [])",
+    );
+    expect(runner).toContain("...attachments");
+    expect(runner).toContain(
+      "mergeUploadedFilesForRetry(\n        reusingRetryInputs ? newDeckRetryFiles : [],\n        files,\n      )",
+    );
+    expect(runner).toContain("modelSelection ?? newDeckRetryModelSelection");
+  });
+
+  it("shares saved retry inputs with composer-context generation", () => {
+    const promptSubmit = source.slice(
+      source.indexOf("const handlePromptSubmit"),
+      source.indexOf("const handlePromptSkip"),
+    );
+
+    expect(promptSubmit).toContain("runPendingDeckGeneration(");
+    expect(promptSubmit).toContain("files,");
+    expect(promptSubmit).toContain("attachments.attachments");
+    expect(promptSubmit).toContain(
+      "composerContext: generationComposerContext",
+    );
+    expect(promptSubmit).toContain(
+      "const retryReferenceSelection = newDeckRetryReferenceSelection;",
+    );
+    expect(runner).toContain("mergeUploadedFilesForRetry(");
+    expect(runner).toContain(
+      "...(reusingRetryInputs ? newDeckRetryAttachments : [])",
+    );
+  });
+  it("passes uploaded image references through the home agent submission", () => {
+    expect(flow).toContain(
+      "...getUploadedImageAgentOptions(filesForGeneration)",
+    );
+    expect(source).toContain("getUploadedImageAgentOptions");
+  });
+
+  it("passes the composer model selection into immediate generation", () => {
+    const promptSubmit = source.slice(
+      source.indexOf("const handlePromptSubmit"),
+      source.indexOf("const handlePromptSkip"),
+    );
+
+    expect(promptSubmit).toContain("options?: SlidesPromptSubmitOptions");
+    expect(promptSubmit).toContain("model: options.model");
+    expect(promptSubmit).toContain("engine: options.engine");
+    expect(promptSubmit).toContain("effort: options.effort");
+    expect(promptSubmit).toContain(": newDeckRetryModelSelection");
+    expect(promptSubmit).toContain("runPendingDeckGeneration(");
+    expect(flow).toContain("...modelSelection");
+  });
+
+  it("starts submitted prompts immediately and keeps reference selection for blank decks", () => {
+    const promptSubmit = source.slice(
+      source.indexOf("const handlePromptSubmit"),
+      source.indexOf("const handlePromptSkip"),
+    );
+    const promptSkip = source.slice(
+      source.indexOf("const handlePromptSkip"),
+      source.indexOf("const handleDirectImport"),
+    );
+
+    expect(source).toContain("const handlePromptSubmit");
+    expect(source).toContain("const handlePromptSkip");
+    expect(source).toContain("onSubmit={handlePromptSubmit}");
+    expect(source).toContain("onSkip={handlePromptSkip}");
+    expect(promptSubmit).toContain("runPendingDeckGeneration(");
+    expect(promptSubmit).not.toContain("setShowNewDeckReferenceStep(true)");
+    expect(promptSkip).toContain('prompt: ""');
+    expect(promptSkip).toContain("setShowNewDeckReferenceStep(true)");
+  });
+
+  it("clears uploaded files when a retry prompt is skipped", () => {
+    const skip = source.slice(
+      source.indexOf("const handlePromptSkip"),
+      source.indexOf("const handleDirectImport"),
+    );
+
+    expect(skip).toContain("setNewDeckRetryFiles([]);");
+  });
+
+  it("imports directly from the new-deck prompt and opens the imported deck", () => {
+    const directImportFlow = source.slice(
+      source.indexOf("const handleDirectImport"),
+      source.indexOf("const handleReferenceSelect"),
+    );
+
+    expect(directImportFlow).toContain(
+      'callAction("import-google-slides-reference"',
+    );
+    expect(directImportFlow).toMatch(/callAction\(\s*"import-pptx"/);
+    expect(directImportFlow).toMatch(/callAction\(\s*"import-file"/);
+    expect(directImportFlow).toContain("navigate(`/deck/${imported.id}`");
+    expect(source).toContain(
+      "usePromptImport({ onImport: handleDirectImport })",
+    );
+    expect(source).toContain("<ImportDeckButton controller={deckImport}");
+    expect(source).not.toContain("<ImportDeckDialog");
+  });
+
+  it("turns an imported PPTX into a reusable reference deck", () => {
+    const referenceImportFlow = source.slice(
+      source.indexOf("const handleReferenceImport"),
+      source.indexOf("const handleReferenceSkip"),
+    );
+
+    expect(referenceImportFlow).toMatch(/callAction\(\s*"import-pptx"/);
+    expect(referenceImportFlow).toContain(
+      "timeoutMs: IMPORT_ACTION_TIMEOUT_MS",
+    );
+    expect(referenceImportFlow).toContain("importedReference = {");
+    expect(referenceImportFlow).toContain('source: "pptx"');
+    expect(referenceImportFlow).toContain("setPendingDeck((current) =>");
+    expect(referenceImportFlow).toContain("return importedReference");
+    expect(referenceImportFlow).not.toContain("handleCreateDeckWithPrompt(");
+  });
+
+  it("imports an uploaded PDF into a reusable reference deck", () => {
+    const referenceImportFlow = source.slice(
+      source.indexOf("const handleReferenceImport"),
+      source.indexOf("const handleReferenceSkip"),
+    );
+
+    expect(referenceImportFlow).toMatch(/callAction\(\s*"import-file"/);
+    expect(referenceImportFlow).toContain(
+      'const documentFormat = pdfReference ? "pdf" : "docx"',
+    );
+    expect(referenceImportFlow).toContain("importIntoDeck: true");
+    expect(referenceImportFlow).toContain("setSelectedReferenceDeckId");
+    expect(referenceImportFlow).toContain(
+      "The target generation context must retain the source handle",
+    );
+    expect(referenceImportFlow).toContain(
+      "const referenceFilePaths = uploaded\n          .filter((file) => /\\.(pdf|pptx|docx)$/i.test(file.originalName))",
+    );
+    expect(referenceImportFlow).toMatch(
+      /source: "pptx",\s+referenceFilePaths,/,
+    );
+    expect(referenceImportFlow).toMatch(
+      /source: documentFormat,\s+referenceFilePaths,/,
+    );
+    expect(referenceImportFlow).toContain("let generationFiles = uploaded;");
+    expect(referenceImportFlow).toContain("referenceFilePaths");
+    expect(referenceImportFlow).not.toMatch(
+      /generationFiles = uploaded\.filter\(\s*\(file\) => file !== documentReference,/,
+    );
+    expect(referenceImportFlow).not.toContain(
+      "generationFiles = uploaded.filter((file) => file !== pptxReference)",
+    );
+    expect(referenceImportFlow).not.toContain("handleCreateDeckWithPrompt(");
+    expect(referenceImportFlow).toContain(
+      't("editorToolbar.importFailedDescription")',
+    );
+  });
+
+  it("imports an uploaded DOCX into a reusable reference deck", () => {
+    const referenceImportFlow = source.slice(
+      source.indexOf("const handleReferenceImport"),
+      source.indexOf("const handleReferenceSkip"),
+    );
+
+    expect(referenceImportFlow).toContain("const docxReference =");
+    expect(referenceImportFlow).toContain("format: documentFormat");
+    expect(referenceImportFlow).toContain("slideCount?: unknown;");
+    expect(referenceImportFlow).toContain("source: documentFormat");
+    expect(referenceImportFlow).toContain(
+      "timeoutMs: IMPORT_ACTION_TIMEOUT_MS",
+    );
+  });
+
+  it("imports a pasted Google Slides URL before selecting the reference deck", () => {
+    const referenceSourceImportFlow = source.slice(
+      source.indexOf("const handleReferenceSourceImport"),
+      source.indexOf("const handleReferenceSkip"),
+    );
+
+    expect(referenceSourceImportFlow).toContain(
+      'callAction("import-google-slides-reference"',
+    );
+    expect(referenceSourceImportFlow).toContain("return importedReference");
+    expect(source).toContain("onImportSource={handleReferenceSourceImport}");
+  });
+});

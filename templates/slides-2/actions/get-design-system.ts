@@ -1,0 +1,427 @@
+import { defineAction } from "@agent-native/core/action";
+import {
+  hydrateBuilderDesignSystemReference,
+  parseBuilderDesignSystemProxyReference,
+} from "@agent-native/core/server";
+import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
+import { and, eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+import { assertSlides2DeckData } from "./_deck-app-scope.js";
+import {
+  projectRenderingDesignSystemData,
+  readDeckLinkedDesignSystem,
+} from "./_linked-design-system.js";
+
+const MAX_AGENT_CONTEXT_CHARS = 14_000;
+const MAX_JSON_CONTEXT_CHARS = 2_500;
+const MAX_BUILDER_DOCS = 8;
+const MAX_BUILDER_DOC_CHARS = 1_200;
+const MAX_TOKEN_VALUES = 48;
+const MAX_SUMMARY_CONTEXT_CHARS = 1_500;
+const MAX_SUMMARY_TOKEN_VALUES = 16;
+const MAX_SUMMARY_INSTRUCTIONS_CHARS = 600;
+const MAX_SUMMARY_DESCRIPTION_CHARS = 600;
+const MAX_PROMPT_TITLE_CHARS = 120;
+
+interface BuilderGenerationContext {
+  builderDesignSystemId: string;
+  builderJobId: string;
+  builderProjectId?: string;
+  builderUrl?: string;
+  builderStatus?: string;
+  docs: Array<{
+    name?: string;
+    type?: string;
+    description?: string;
+    content?: string;
+    tokenValues?: Record<string, string>;
+  }>;
+  tokenValues: Record<string, string>;
+  docCount: number | null;
+  warning?: string;
+}
+
+function truncate(value: string, maxChars: number): string {
+  if (value.length <= maxChars) return value;
+  return `${value.slice(0, maxChars).trimEnd()}\n[truncated]`;
+}
+
+function formatDesignSystemPromptTitle(title: string): string {
+  const normalized = title
+    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const bounded =
+    normalized.length <= MAX_PROMPT_TITLE_CHARS
+      ? normalized
+      : `${normalized.slice(0, MAX_PROMPT_TITLE_CHARS - 1).trimEnd()}…`;
+  return JSON.stringify(bounded || "Untitled design system") ?? '""';
+}
+
+// list-design-systems only ever reads the docCount baked into row.data at
+// proxy creation time (always absent) - this is the one place that hydrates
+// a live count from Builder, so it is the one place that can refresh the
+// cache. Compare-and-set against the exact data snapshot this request read
+// avoids clobbering a concurrent sync/update; a lost race just leaves the
+// next call to persist it. Never bumps updatedAt, so a background count
+// refresh doesn't reorder the list.
+async function persistBuilderDocCount(
+  row: { id: string; ownerEmail: string; data: string | null },
+  docCount: number,
+): Promise<void> {
+  if (!row.data) return;
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(row.data);
+  } catch {
+    return;
+  }
+  if (parsed.docCount === docCount) return;
+  const db = getDb();
+  await db
+    .update(schema.designSystems)
+    .set({ data: JSON.stringify({ ...parsed, docCount }) })
+    .where(
+      and(
+        eq(schema.designSystems.id, row.id),
+        eq(schema.designSystems.ownerEmail, row.ownerEmail),
+        eq(schema.designSystems.data, row.data),
+        accessFilter(
+          schema.designSystems,
+          schema.designSystemShares,
+          undefined,
+          "editor",
+        ),
+      ),
+    );
+}
+
+function parseJson(value: string | null | undefined): unknown {
+  if (!value) return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function formatJson(value: unknown, maxChars = MAX_JSON_CONTEXT_CHARS): string {
+  return truncate(JSON.stringify(value, null, 2), maxChars);
+}
+
+function formatTokenValues(
+  tokenValues: Record<string, string>,
+  limit = MAX_TOKEN_VALUES,
+): string[] {
+  const entries = Object.entries(tokenValues)
+    .filter(([, value]) => typeof value === "string" && value.trim())
+    .slice(0, limit);
+  if (entries.length === 0) return [];
+  return [
+    "Builder DSI token values to apply first:",
+    ...entries.map(([name, value]) => `- ${name}: ${value}`),
+  ];
+}
+
+function flattenLocalTokenValues(data: unknown): Record<string, string> {
+  const flat: Record<string, string> = {};
+  if (!data || typeof data !== "object") return flat;
+  for (const [group, groupValue] of Object.entries(
+    data as Record<string, unknown>,
+  )) {
+    if (!groupValue || typeof groupValue !== "object") continue;
+    for (const [key, value] of Object.entries(
+      groupValue as Record<string, unknown>,
+    )) {
+      if (typeof value === "string" && value.trim()) {
+        flat[`${group}.${key}`] = value;
+      }
+    }
+  }
+  return flat;
+}
+
+function buildDesignSystemAgentContext({
+  id,
+  title,
+  description,
+  data,
+  assets,
+  customInstructions,
+  builder,
+  purpose,
+}: {
+  id: string;
+  title: string;
+  description?: string | null;
+  data?: string | null;
+  assets?: string | null;
+  customInstructions?: string | null;
+  builder: BuilderGenerationContext | null;
+  purpose: "selected" | "reference";
+}): string {
+  const promptTitle = formatDesignSystemPromptTitle(title);
+  const lines: string[] =
+    purpose === "reference"
+      ? [
+          "## Linked Design System Context (reference)",
+          `Use ${promptTitle} (id: ${id}) as advisory visual guidance only when no separate design system is selected for this deck; an explicitly selected target system takes precedence.`,
+          "When this linked system applies, use its tokens, assets, and usage notes before choosing colors, type, spacing, radius, imagery, slide defaults, or component language.",
+        ]
+      : [
+          "## Selected Design System Context",
+          `Use ${promptTitle} (id: ${id}) as the visual source of truth for this deck.`,
+          "Apply these tokens, assets, and usage notes before choosing colors, type, spacing, radius, imagery, slide defaults, or component language.",
+        ];
+
+  if (description?.trim()) {
+    lines.push("", "Description:", description.trim());
+  }
+
+  if (customInstructions?.trim()) {
+    lines.push("", "Custom instructions:", customInstructions.trim());
+  }
+
+  const parsedAssets = parseJson(assets);
+  if (Array.isArray(parsedAssets) && parsedAssets.length > 0) {
+    lines.push("", "Design system assets:", formatJson(parsedAssets));
+  }
+
+  if (builder) {
+    lines.push(
+      "",
+      "Builder DSI:",
+      `- Design system id: ${builder.builderDesignSystemId}`,
+      `- Job id: ${builder.builderJobId}`,
+      builder.builderProjectId
+        ? `- Project id: ${builder.builderProjectId}`
+        : "",
+      builder.builderUrl ? `- URL: ${builder.builderUrl}` : "",
+      builder.builderStatus ? `- Status: ${builder.builderStatus}` : "",
+      "- Builder DSI docs and token values override local proxy placeholders.",
+      "- Do not substitute a generic style if DSI docs or tokens are unavailable; call get-design-system again or tell the user Builder indexing is not ready.",
+    );
+
+    if (builder.warning) {
+      lines.push(`- Warning: ${builder.warning}`);
+    }
+
+    lines.push("", ...formatTokenValues(builder.tokenValues));
+
+    const docs = builder.docs.slice(0, MAX_BUILDER_DOCS);
+    if (docs.length > 0) {
+      lines.push("", "Builder DSI docs to follow:");
+      for (const doc of docs) {
+        const label = [doc.name, doc.type ? `(${doc.type})` : ""]
+          .filter(Boolean)
+          .join(" ");
+        lines.push(
+          "",
+          `### ${label || "Design system doc"}`,
+          doc.description?.trim() ? doc.description.trim() : "",
+          doc.content?.trim()
+            ? truncate(doc.content.trim(), MAX_BUILDER_DOC_CHARS)
+            : "",
+        );
+      }
+    }
+  } else {
+    const parsedData = parseJson(data);
+    if (parsedData) {
+      lines.push("", "Local design-system tokens:", formatJson(parsedData));
+    }
+  }
+
+  return truncate(lines.filter(Boolean).join("\n"), MAX_AGENT_CONTEXT_CHARS);
+}
+
+function buildCompactDesignSystemAgentContext({
+  id,
+  title,
+  description,
+  data,
+  customInstructions,
+  builderDesignSystemId,
+  purpose,
+}: {
+  id: string;
+  title: string;
+  description?: string | null;
+  data?: string | null;
+  customInstructions?: string | null;
+  builderDesignSystemId: string | null;
+  purpose: "selected" | "reference";
+}): string {
+  const promptTitle = formatDesignSystemPromptTitle(title);
+  const lines: string[] =
+    purpose === "reference"
+      ? [
+          "## Linked Design System Context (reference summary)",
+          `Use ${promptTitle} (id: ${id}) as advisory visual guidance only when no separate design system is selected for this deck; an explicitly selected target system takes precedence.`,
+        ]
+      : [
+          "## Selected Design System Context (summary)",
+          `Use ${promptTitle} (id: ${id}) as the visual source of truth for this deck.`,
+        ];
+
+  if (description?.trim()) {
+    lines.push("", "Description:", description.trim());
+  }
+
+  if (customInstructions?.trim()) {
+    lines.push(
+      "",
+      "Custom instructions:",
+      truncate(customInstructions.trim(), MAX_SUMMARY_INSTRUCTIONS_CHARS),
+    );
+  }
+
+  if (builderDesignSystemId) {
+    lines.push(
+      "",
+      `Builder-linked design system (builderDesignSystemId=${builderDesignSystemId}): token values and docs are returned only by get-design-system { id } without compact.`,
+    );
+  } else {
+    lines.push(
+      "",
+      ...formatTokenValues(
+        flattenLocalTokenValues(parseJson(data)),
+        MAX_SUMMARY_TOKEN_VALUES,
+      ),
+    );
+  }
+
+  return truncate(lines.filter(Boolean).join("\n"), MAX_SUMMARY_CONTEXT_CHARS);
+}
+
+export default defineAction({
+  description:
+    "Get a design system by ID. Returns the full design system (colors, typography, spacing, assets, Builder docs) and its agentContext for generation; call it once before the first slide or screen you author and reuse it for every later write. Use purpose='reference' only for a system linked to a style-reference deck; that guidance remains advisory to a separately selected target system. compact='true' returns only the bounded summary that deck and design reads already include.",
+  schema: z.object({
+    id: z.string().describe("Design system ID"),
+    deckId: z
+      .string()
+      .optional()
+      .describe(
+        "Deck that links this design system. Lets anyone who can read the deck read only the rendering fields (id, title, data) of its design system.",
+      ),
+    purpose: z
+      .enum(["selected", "reference"])
+      .optional()
+      .describe(
+        "Use 'reference' for a system linked to a style-reference deck; its guidance applies only when no separate target system is selected.",
+      ),
+    compact: z
+      .enum(["true", "false"])
+      .optional()
+      .describe(
+        "'true' returns a bounded, network-free summary: no Builder docs fetch, agentContext capped at 1,500 chars, no data/assets blobs. Omit for the full context you need before authoring.",
+      ),
+  }),
+  readOnly: false, // GET refreshes the cached Builder doc count.
+  http: { method: "GET" },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
+  run: async ({ id, deckId, compact, purpose = "selected" }, ctx) => {
+    const deckAccess = deckId ? await resolveAccess("deck", deckId) : null;
+    if (deckAccess) assertSlides2DeckData(deckAccess.resource.data);
+    const access = deckAccess
+      ? await readDeckLinkedDesignSystem(deckAccess.resource, id)
+      : await resolveAccess("design-system", id).then(
+          (direct) => direct && { resource: direct.resource, viaDeck: false },
+        );
+    if (!access) {
+      throw Object.assign(new Error("Design system not found"), {
+        statusCode: 404,
+      });
+    }
+
+    const row = access.resource;
+
+    // Deck readers get only what renders the deck; the rest of the record
+    // (instructions, assets, notes, Builder docs) stays with design-system
+    // readers.
+    if (access.viaDeck) {
+      return {
+        id: row.id,
+        title: row.title,
+        data: projectRenderingDesignSystemData(row.data),
+      };
+    }
+
+    const builderReference = parseBuilderDesignSystemProxyReference(row.data);
+
+    if (compact === "true") {
+      return {
+        id: row.id,
+        title: row.title,
+        description: row.description
+          ? truncate(row.description, MAX_SUMMARY_DESCRIPTION_CHARS)
+          : row.description,
+        builderDesignSystemId: builderReference?.builderDesignSystemId ?? null,
+        agentContext: buildCompactDesignSystemAgentContext({
+          id: row.id,
+          title: row.title,
+          description: row.description,
+          data: row.data,
+          customInstructions: row.customInstructions,
+          builderDesignSystemId:
+            builderReference?.builderDesignSystemId ?? null,
+          purpose,
+        }),
+      };
+    }
+
+    const builder = builderReference
+      ? await hydrateBuilderDesignSystemReference(builderReference).catch(
+          (error) => ({
+            ...builderReference,
+            docs: [],
+            tokenValues: {},
+            docCount: null,
+            warning:
+              error instanceof Error
+                ? error.message
+                : "Builder design-system docs could not be loaded.",
+          }),
+        )
+      : null;
+
+    if (
+      ctx?.caller !== "mcp-widget" &&
+      builder &&
+      typeof builder.docCount === "number"
+    ) {
+      await persistBuilderDocCount(row, builder.docCount);
+    }
+
+    return {
+      id: row.id,
+      title: row.title,
+      description: row.description,
+      data: row.data ?? null,
+      assets: row.assets ?? null,
+      customInstructions: row.customInstructions ?? "",
+      isDefault: row.isDefault,
+      visibility: row.visibility,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      builder,
+      agentContext: buildDesignSystemAgentContext({
+        id: row.id,
+        title: row.title,
+        description: row.description,
+        data: row.data,
+        assets: row.assets,
+        customInstructions: row.customInstructions,
+        builder,
+        purpose,
+      }),
+    };
+  },
+});

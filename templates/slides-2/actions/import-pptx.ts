@@ -1,0 +1,477 @@
+import { defineAction, fail } from "@agent-native/core/action";
+import { writeAppState } from "@agent-native/core/application-state";
+import {
+  getRequestUserEmail,
+  getRequestOrgId,
+} from "@agent-native/core/server/request-context";
+import { assertAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
+import pLimit from "p-limit";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+import { notifyClients } from "../server/handlers/decks.js";
+import { convertToSlideHtml } from "../server/handlers/import/html-converter.js";
+import {
+  assertPptxImagesRenderable,
+  uploadPptxSlideImages,
+} from "../server/handlers/import/pptx-assets.js";
+import {
+  parsePptx,
+  type ParsedElement,
+  type ParsedImage,
+  type ParsedPresentation,
+} from "../server/handlers/import/pptx-parser.js";
+import { trackSlides } from "../server/lib/slides-tracking.js";
+import { buildSourceImportMetadata } from "../server/lib/source-import.js";
+import {
+  ASPECT_RATIOS,
+  DEFAULT_ASPECT_RATIO,
+  type AspectRatio,
+} from "../shared/aspect-ratios.js";
+import {
+  assertHumanReadableDeckTitle,
+  resolveImportedDeckTitle,
+} from "../shared/deck-title.js";
+import {
+  InvalidPptxSourceError,
+  SOURCE_IMPORT_NO_WRITE_ERROR_CODE,
+} from "../shared/source-import-errors.js";
+import { getDeckUrl } from "./_app-url.js";
+import { assertSlides2DeckData } from "./_deck-app-scope.js";
+import { trackDeckCreated } from "./_deck-tracking.js";
+import {
+  assertDeckWriteApplied,
+  deckRevisionWhere,
+  nextDeckRevision,
+} from "./_deck-write.js";
+import { compileImportedSlideSource } from "./_imported-slide-source.js";
+import { readUserUploadedFile } from "./_uploaded-files.js";
+import { withDeckLock } from "./patch-deck.js";
+
+export interface ImportedImageFallback {
+  slideIndex: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  data: Uint8Array;
+  mimeType: string;
+  name: string;
+  crop?: ParsedImage["crop"];
+}
+
+export function applyImageFallbacks(
+  presentation: Awaited<ReturnType<typeof parsePptx>>,
+  fallbacks: ImportedImageFallback[] = [],
+): number {
+  let added = 0;
+  for (const [fallbackIndex, fallback] of fallbacks.entries()) {
+    const slide = presentation.slides[fallback.slideIndex];
+    if (!slide || fallback.width <= 0 || fallback.height <= 0) continue;
+
+    const duplicate = slide.elements.some(
+      (element) =>
+        element.kind === "image" &&
+        Math.abs(element.x - fallback.x) < 1000 &&
+        Math.abs(element.y - fallback.y) < 1000 &&
+        Math.abs(element.width - fallback.width) < 1000 &&
+        Math.abs(element.height - fallback.height) < 1000,
+    );
+    if (duplicate) continue;
+
+    const image: ParsedImage = {
+      data: fallback.data,
+      mimeType: fallback.mimeType,
+      name: fallback.name,
+      aspectRatio: fallback.width / fallback.height,
+      ...(fallback.crop ? { crop: fallback.crop } : {}),
+    };
+    const element: ParsedElement = {
+      id: `image-fallback-${fallback.slideIndex}-${fallbackIndex}`,
+      name: fallback.name,
+      kind: "image",
+      x: fallback.x,
+      y: fallback.y,
+      width: fallback.width,
+      height: fallback.height,
+      image,
+    };
+    slide.images.push(image);
+    slide.elements.push(element);
+    added++;
+  }
+  return added;
+}
+
+export async function importPptxBufferToDeck(args: {
+  fileBuffer: Buffer;
+  title?: string;
+  deckId?: string;
+  designSystemId?: string | null;
+  source?: string;
+  imageFallbacks?: ImportedImageFallback[];
+  parsedPresentation?: ParsedPresentation;
+}): Promise<{
+  id: string;
+  title: string;
+  slideCount: number;
+  theme: Awaited<ReturnType<typeof parsePptx>>["theme"];
+  imported: true;
+  url: string;
+  imagesSkipped?: number;
+  tablesDegraded?: number;
+}> {
+  const {
+    fileBuffer,
+    title,
+    deckId,
+    designSystemId,
+    source = "import-pptx",
+    imageFallbacks,
+    parsedPresentation,
+  } = args;
+  const presentation =
+    parsedPresentation ?? (await parsePptxBeforeDeckWrite(fileBuffer));
+  applyImageFallbacks(presentation, imageFallbacks);
+  if (presentation.slides.length === 0) {
+    fail(
+      "This PowerPoint file contains no importable slides. No deck was written.",
+      { errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE },
+    );
+  }
+  const requestedTitle = title?.trim() || presentation.title || "";
+  const ownerEmail = getRequestUserEmail();
+  if (!ownerEmail) throw new Error("no authenticated user");
+  const orgId = getRequestOrgId();
+  const themeFont = presentation.theme?.fonts?.[0];
+
+  const db = getDb();
+  if (deckId) {
+    await assertAccess("deck", deckId, "editor");
+    const [deck] = await db
+      .select({ data: schema.decks.data })
+      .from(schema.decks)
+      .where(eq(schema.decks.id, deckId))
+      .limit(1);
+    if (!deck) {
+      throw new Error(`Deck ${deckId} not found`);
+    }
+    assertSlides2DeckData(safeParseDeckData(deck.data));
+  }
+  assertPptxImagesRenderable(presentation.slides);
+
+  const uploadLimit = pLimit(4);
+  const results = await Promise.all(
+    presentation.slides.map((parsedSlide, i) =>
+      uploadLimit(async () => {
+        const uploadedImages = await uploadPptxSlideImages({
+          slide: parsedSlide,
+          slideIndex: i,
+          ownerEmail,
+        });
+        const html = convertToSlideHtml(
+          parsedSlide,
+          uploadedImages.urls,
+          themeFont,
+        );
+        const source = await compileImportedSlideSource(
+          html,
+          { ownerEmail, orgId },
+          (parsedSlide.elements ?? []).flatMap((element) => {
+            if (element.kind !== "image" || !element.image) return [];
+            const url = uploadedImages.urls[element.id];
+            if (!url) return [];
+            return [
+              {
+                url,
+                filename: element.image.name,
+                mimeType: element.image.mimeType,
+                size: element.image.data.byteLength,
+              },
+            ];
+          }),
+        );
+        const id = `slide-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+        return {
+          slide: {
+            id,
+            ...source,
+            layout: parsedSlide.layoutHint ?? "content",
+            notes: parsedSlide.notes,
+            ...(parsedSlide.transition
+              ? { transition: parsedSlide.transition }
+              : {}),
+            ...(parsedSlide.splitByParagraph ? { splitByParagraph: true } : {}),
+          },
+          sourceText: parsedSlide.texts.map((text) => text.content).join("\n"),
+          imageUrls: Object.values(uploadedImages.urls),
+          imageSkippedCount: uploadedImages.imageSkippedCount,
+          tablesDegraded: parsedSlide.tablesDegraded ?? 0,
+        };
+      }),
+    ),
+  );
+  const slides = results.map((r) => r.slide);
+  const deckTitle = resolveImportedDeckTitle(
+    requestedTitle,
+    results[0]?.sourceText || slides[0]?.content,
+  );
+  assertHumanReadableDeckTitle(deckTitle);
+  const imagesSkipped = results.reduce(
+    (total, r) => total + r.imageSkippedCount,
+    0,
+  );
+  const tablesDegraded = results.reduce(
+    (total, r) => total + r.tablesDegraded,
+    0,
+  );
+  if (imagesSkipped > 0) {
+    fail(
+      `Source-faithful PPTX import could not preserve ${imagesSkipped} image(s). No deck was written. Retry with browser-renderable images or use a PDF export for page-faithful preservation.`,
+      { errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE },
+    );
+  }
+  const sourceImport = buildSourceImportMetadata({
+    format: "pptx",
+    slides: results.map((result) => ({
+      id: result.slide.id,
+      text: result.sourceText,
+      notes: result.slide.notes ?? "",
+      imageUrls: result.imageUrls,
+      editableText: true,
+    })),
+    imagesSkipped,
+    tablesDegraded,
+  });
+  const aspectRatio = nearestAspectRatio(
+    presentation.slides[0]?.widthEmu,
+    presentation.slides[0]?.heightEmu,
+  );
+
+  const now = new Date().toISOString();
+
+  if (deckId) {
+    return withDeckLock(deckId, async () => {
+      const [latestDeck] = await db
+        .select()
+        .from(schema.decks)
+        .where(eq(schema.decks.id, deckId));
+      if (!latestDeck) {
+        throw new Error(`Deck ${deckId} not found`);
+      }
+
+      const previousData = safeParseDeckData(latestDeck.data);
+      assertSlides2DeckData(previousData);
+      const writeNow = nextDeckRevision(latestDeck.updatedAt);
+      const data = {
+        ...previousData,
+        title: deckTitle,
+        slides,
+        ...(aspectRatio ? { aspectRatio } : {}),
+        ...(presentation.theme ? { theme: presentation.theme } : {}),
+        sourceImport,
+        updatedAt: writeNow,
+      };
+      const updateResult = await db
+        .update(schema.decks)
+        .set({
+          title: deckTitle,
+          data: JSON.stringify(data),
+          ...(designSystemId !== undefined
+            ? { designSystemId }
+            : { designSystemId: latestDeck.designSystemId }),
+          updatedAt: writeNow,
+        })
+        .where(deckRevisionWhere(schema.decks, deckId, latestDeck.updatedAt));
+      assertDeckWriteApplied(updateResult, deckId, "PPTX import");
+
+      await notifyClients(deckId);
+      await writeAppState("refresh-signal", {
+        ts: now,
+        source,
+      });
+
+      return {
+        id: deckId,
+        title: deckTitle,
+        slideCount: slides.length,
+        theme: presentation.theme,
+        imported: true,
+        url: getDeckUrl(deckId),
+        ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
+        ...(tablesDegraded > 0 ? { tablesDegraded } : {}),
+      };
+    });
+  }
+
+  const id = `deck-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const data = {
+    appId: "slides-2",
+    title: deckTitle,
+    slides,
+    ...(aspectRatio ? { aspectRatio } : {}),
+    ...(presentation.theme ? { theme: presentation.theme } : {}),
+    sourceImport,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await db.insert(schema.decks).values({
+    id,
+    title: deckTitle,
+    data: JSON.stringify(data),
+    ownerEmail,
+    orgId: getRequestOrgId(),
+    designSystemId: designSystemId ?? undefined,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  await notifyClients(id);
+  await writeAppState("refresh-signal", { ts: now, source });
+
+  return {
+    id,
+    title: deckTitle,
+    slideCount: slides.length,
+    theme: presentation.theme,
+    imported: true,
+    url: getDeckUrl(id),
+    ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
+    ...(tablesDegraded > 0 ? { tablesDegraded } : {}),
+  };
+}
+
+export default defineAction({
+  description:
+    "Import a PPTX file and create a slide deck from it. " +
+    "Parses the PowerPoint file, extracts text and layout information, " +
+    "converts each slide to the app's positioned HTML format, records source-preservation metadata, and creates or updates a deck. " +
+    "If an embedded image cannot be preserved, the action fails before writing a partial deck. Returns the deck ID and slide count.",
+  schema: z.object({
+    filePath: z
+      .string()
+      .describe("Uploaded PPTX path or opaque hosted upload reference"),
+    deckId: z
+      .string()
+      .optional()
+      .describe(
+        "If provided, import slides into this existing deck (replaces all slides)",
+      ),
+    designSystemId: z
+      .string()
+      .nullable()
+      .optional()
+      .describe("Optional design system to link when creating a new deck"),
+    title: z
+      .string()
+      .optional()
+      .describe(
+        "Deck title — defaults to the title extracted from the presentation",
+      ),
+    purpose: z
+      .enum(["direct", "reference"])
+      .optional()
+      .describe("Why the deck is being imported; used only for analytics"),
+  }),
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
+  run: async ({ filePath, deckId, title, designSystemId, purpose }, ctx) => {
+    const { data: fileBuffer } = await readUserUploadedFile(filePath, ctx);
+    const result = await importPptxBufferToDeck({
+      fileBuffer,
+      deckId,
+      title,
+      designSystemId,
+    });
+    trackPptxImport(result, { deckId, purpose }, ctx);
+    return result;
+  },
+});
+
+/**
+ * A PPTX imported as a new deck is a creation; imported into an existing deck
+ * it replaces that deck's slides, which is an edit.
+ */
+export function trackPptxImport(
+  result: { id: string; slideCount: number },
+  args: { deckId?: string; purpose?: "direct" | "reference" },
+  source: Parameters<typeof trackSlides>[2],
+): void {
+  if (!args.deckId) {
+    trackDeckCreated(
+      result.id,
+      {
+        creationMethod: "import_pptx",
+        purpose: args.purpose ?? "unknown",
+        slideCount: result.slideCount,
+      },
+      source,
+    );
+    return;
+  }
+  trackSlides(
+    "deck_edited",
+    {
+      output_id: args.deckId,
+      output_type: "deck",
+      edit_mode: "import_pptx",
+      change_kinds: ["content"],
+      slide_count: result.slideCount,
+    },
+    source,
+  );
+}
+
+function nearestAspectRatio(
+  width: number | undefined,
+  height: number | undefined,
+): AspectRatio | undefined {
+  if (!width || !height || width <= 0 || height <= 0) return undefined;
+  const target = width / height;
+  let best: AspectRatio = DEFAULT_ASPECT_RATIO;
+  let bestDiff = Infinity;
+  for (const key of Object.keys(ASPECT_RATIOS) as AspectRatio[]) {
+    const preset = ASPECT_RATIOS[key];
+    const diff = Math.abs(preset.width / preset.height - target);
+    if (diff < bestDiff) {
+      best = key;
+      bestDiff = diff;
+    }
+  }
+  return best;
+}
+
+function safeParseDeckData(raw: string): Record<string, unknown> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error(
+      "The target deck contains invalid JSON; refusing to overwrite it.",
+    );
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(
+      "The target deck data is invalid; refusing to overwrite it.",
+    );
+  }
+  return parsed as Record<string, unknown>;
+}
+
+async function parsePptxBeforeDeckWrite(
+  fileBuffer: Buffer,
+): Promise<ParsedPresentation> {
+  try {
+    return await parsePptx(fileBuffer);
+  } catch (error) {
+    if (!(error instanceof InvalidPptxSourceError)) throw error;
+    fail(
+      "Slides could not read this PowerPoint file. No slides were written to the deck.",
+      { errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE },
+    );
+  }
+}
