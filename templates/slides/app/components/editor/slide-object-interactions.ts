@@ -424,7 +424,14 @@ export type SlidesSelectionMode =
   | "resizing"
   | "canvas";
 
-export type SlidesSelectionTool = "select" | "draw" | "pin" | "text" | "shape";
+export type SlidesSelectionTool =
+  | "select"
+  | "hand"
+  | "scale"
+  | "draw"
+  | "pin"
+  | "text"
+  | "shape";
 
 export interface SlidesSelectionState<TItem> {
   deckId?: string;
@@ -478,6 +485,8 @@ export function createSlidesSelectionState<TItem>({
   pinMode,
   textBoxMode,
   shapeMode = false,
+  handMode = false,
+  scaleMode = false,
   activeTool,
 }: {
   deckId?: string;
@@ -489,6 +498,8 @@ export function createSlidesSelectionState<TItem>({
   pinMode: boolean;
   textBoxMode: boolean;
   shapeMode?: boolean;
+  handMode?: boolean;
+  scaleMode?: boolean;
   activeTool?: SlidesSelectionTool;
 }): SlidesSelectionState<TItem> {
   return {
@@ -499,15 +510,19 @@ export function createSlidesSelectionState<TItem>({
     mode,
     activeTool:
       activeTool ??
-      (drawMode
-        ? "draw"
-        : pinMode
-          ? "pin"
-          : textBoxMode
-            ? "text"
-            : shapeMode
-              ? "shape"
-              : "select"),
+      (scaleMode
+        ? "scale"
+        : handMode
+          ? "hand"
+          : drawMode
+            ? "draw"
+            : pinMode
+              ? "pin"
+              : textBoxMode
+                ? "text"
+                : shapeMode
+                  ? "shape"
+                  : "select"),
     items,
   };
 }
@@ -5056,6 +5071,97 @@ export function resizeTransformedSlideObject(
     x: start.x + fixedAnchor.x - nextAnchor.x,
     y: start.y + fixedAnchor.y - nextAnchor.y,
   };
+}
+
+const SCALE_CORNER_SIGNS: Partial<
+  Record<ResizeHandle, { x: -1 | 1; y: -1 | 1 }>
+> = {
+  nw: { x: -1, y: -1 },
+  ne: { x: 1, y: -1 },
+  sw: { x: -1, y: 1 },
+  se: { x: 1, y: 1 },
+};
+
+/**
+ * Uniform factor for a corner drag, with the pointer delta that yields exactly
+ * that factor. The factor is the pointer's corner projected onto the box
+ * diagonal, so it moves continuously with the pointer. Proportional resizing
+ * that picks whichever axis travelled further jumps whenever the path crosses
+ * |dx| = |dy|, and a wide box then snaps between two very different scales.
+ */
+export function resolveProportionalScale(
+  size: { width: number; height: number },
+  delta: { x: number; y: number },
+  {
+    handle,
+    altKey = false,
+    minSize = MIN_SLIDE_OBJECT_SIZE,
+  }: { handle: ResizeHandle; altKey?: boolean; minSize?: number },
+): { factor: number; delta: { x: number; y: number } } | null {
+  const sign = SCALE_CORNER_SIGNS[handle];
+  if (!sign || !(size.width > 0) || !(size.height > 0)) return null;
+  const reach = altKey ? 2 : 1;
+  const width = size.width + sign.x * delta.x * reach;
+  const height = size.height + sign.y * delta.y * reach;
+  const projected =
+    (width * size.width + height * size.height) /
+    (size.width * size.width + size.height * size.height);
+  // A box already under the minimum can't shrink further, but must not be
+  // forced to grow.
+  const factor = Math.max(
+    projected,
+    Math.min(1, Math.max(minSize / size.width, minSize / size.height)),
+  );
+  return {
+    factor,
+    delta: {
+      x: (sign.x * (factor - 1) * size.width) / reach,
+      y: (sign.y * (factor - 1) * size.height) / reach,
+    },
+  };
+}
+
+/** `resizeTransformedSlideObject` for a uniform corner scale (see `resolveProportionalScale`). */
+export function scaleTransformedSlideObject(
+  start: SlideObjectGeometry,
+  transform: SlideObjectTransformSnapshot,
+  {
+    handle,
+    dx,
+    dy,
+    altKey = false,
+    fitText = false,
+    minSize = MIN_SLIDE_OBJECT_SIZE,
+  }: Omit<ResizeOptions, "preserveAspectRatio"> & {
+    altKey?: boolean;
+    fitText?: boolean;
+  },
+): SlideObjectGeometry | null {
+  const matrix = readSlideObjectTransformMatrix(start, transform.transform);
+  if (!matrix) return null;
+  const [a, b, c, d] = matrix;
+  const determinant = a * d - b * c;
+  if (!Number.isFinite(determinant) || Math.abs(determinant) < 1e-8) {
+    return null;
+  }
+  const scale = resolveProportionalScale(
+    start,
+    {
+      x: (d * dx - c * dy) / determinant,
+      y: (a * dy - b * dx) / determinant,
+    },
+    { handle, altKey, minSize },
+  );
+  if (!scale) return null;
+  return resizeTransformedSlideObject(start, transform, {
+    handle,
+    dx: a * scale.delta.x + c * scale.delta.y,
+    dy: b * scale.delta.x + d * scale.delta.y,
+    altKey,
+    fitText,
+    minSize,
+    preserveAspectRatio: false,
+  });
 }
 
 export function readSlideObjectSelectionFrame(
