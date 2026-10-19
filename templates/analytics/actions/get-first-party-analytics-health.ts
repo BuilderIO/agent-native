@@ -61,10 +61,10 @@ const healthSchema = z.object({
       .nullable(),
     lastEventDate: z.string().nullable(),
     spanDays: z.number().nullable(),
-    slowQueryCount24h: z.number(),
-    timeoutCount24h: z.number(),
-    errorCount24h: z.number(),
-    maxQueryDurationMs24h: z.number(),
+    slowQueryCount24h: z.number().nullable(),
+    timeoutCount24h: z.number().nullable(),
+    errorCount24h: z.number().nullable(),
+    maxQueryDurationMs24h: z.number().nullable(),
   }),
   thresholds: z.object({
     slowQueryMs: z.number(),
@@ -72,12 +72,14 @@ const healthSchema = z.object({
     recommendSlowQueries24h: z.number(),
     recommendMaxQueryMs: z.number(),
   }),
-  delivery: z.object({
-    pendingCount: z.number(),
-    oldestPendingAt: z.string().nullable(),
-    lastDeliveredAt: z.string().nullable(),
-    lastError: z.string().nullable(),
-  }),
+  delivery: z
+    .object({
+      pendingCount: z.number(),
+      oldestPendingAt: z.string().nullable(),
+      lastDeliveredAt: z.string().nullable(),
+      lastError: z.string().nullable(),
+    })
+    .nullable(),
   bigQuery: z.object({
     id: z.literal("bigquery"),
     label: z.string(),

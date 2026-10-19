@@ -121,7 +121,7 @@ describe("first-party analytics pressure", () => {
     });
   });
 
-  it("distinguishes no recent activity from unavailable event metrics", async () => {
+  it("distinguishes measured zeroes from unavailable health metrics", async () => {
     const health = await getFirstPartyAnalyticsHealth({
       userEmail: "owner@example.com",
       orgId: null,
@@ -133,6 +133,16 @@ describe("first-party analytics pressure", () => {
       firstEventDate: null,
       firstEventDateUnavailableReason: "bounded_bigquery_read",
       lastEventDate: null,
+      slowQueryCount24h: 0,
+      timeoutCount24h: 0,
+      errorCount24h: 0,
+      maxQueryDurationMs24h: 0,
+    });
+    expect(health.delivery).toEqual({
+      pendingCount: 0,
+      oldestPendingAt: null,
+      lastDeliveredAt: null,
+      lastError: null,
     });
     const unavailable = unavailableFirstPartyAnalyticsHealth(
       "maximum_bytes_billed",
@@ -146,7 +156,12 @@ describe("first-party analytics pressure", () => {
       firstEventDateUnavailableReason: "health_unavailable",
       lastEventDate: null,
       spanDays: null,
+      slowQueryCount24h: null,
+      timeoutCount24h: null,
+      errorCount24h: null,
+      maxQueryDurationMs24h: null,
     });
+    expect(unavailable.delivery).toBeNull();
   });
 
   it("does not replace a rejected BigQuery read with zero events", async () => {
@@ -321,7 +336,7 @@ describe("first-party analytics pressure", () => {
 
     expect(health.status).toBe("monitor");
     expect(health.reasons).toContain("delivery_backlog");
-    expect(health.delivery.lastError).toBe(
+    expect(health.delivery?.lastError).toBe(
       "BigQuery delivery queue migration is pending",
     );
   });

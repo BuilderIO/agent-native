@@ -116,13 +116,13 @@ export interface FirstPartyAnalyticsHealth {
       | null;
     lastEventDate: string | null;
     spanDays: number | null;
-    slowQueryCount24h: number;
-    timeoutCount24h: number;
-    errorCount24h: number;
-    maxQueryDurationMs24h: number;
+    slowQueryCount24h: number | null;
+    timeoutCount24h: number | null;
+    errorCount24h: number | null;
+    maxQueryDurationMs24h: number | null;
   };
   thresholds: typeof FIRST_PARTY_ANALYTICS_PRESSURE_THRESHOLDS;
-  delivery: FirstPartyAnalyticsDeliveryHealth;
+  delivery: FirstPartyAnalyticsDeliveryHealth | null;
   bigQuery: FirstPartyAnalyticsBackendStatus;
 }
 
@@ -590,13 +590,13 @@ export function unavailableFirstPartyAnalyticsHealth(
       firstEventDateUnavailableReason: "health_unavailable",
       lastEventDate: null,
       spanDays: null,
-      slowQueryCount24h: 0,
-      timeoutCount24h: 0,
-      errorCount24h: 0,
-      maxQueryDurationMs24h: 0,
+      slowQueryCount24h: null,
+      timeoutCount24h: null,
+      errorCount24h: null,
+      maxQueryDurationMs24h: null,
     },
     thresholds: FIRST_PARTY_ANALYTICS_PRESSURE_THRESHOLDS,
-    delivery: emptyDeliveryHealth(),
+    delivery: null,
     bigQuery,
   };
 }

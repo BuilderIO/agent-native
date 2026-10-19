@@ -154,8 +154,8 @@ interface FirstPartyAnalyticsHealthResponse {
   metrics: {
     coverage: { kind: "all_time" | "recent_window" | "unavailable" };
     eventCount: number | null;
-    slowQueryCount24h: number;
-    maxQueryDurationMs24h: number;
+    slowQueryCount24h: number | null;
+    maxQueryDurationMs24h: number | null;
   };
   externalBackends?: Array<{
     id: "bigquery" | "amplitude";
@@ -1846,7 +1846,9 @@ function FirstPartyAnalyticsDetail() {
                   {t("dataSources.slowQueries24h")}
                 </div>
                 <div className="font-medium text-foreground">
-                  {formatNumber(health.metrics.slowQueryCount24h)}
+                  {health.metrics.slowQueryCount24h === null
+                    ? t("dataSources.statusUnknown")
+                    : formatNumber(health.metrics.slowQueryCount24h)}
                 </div>
               </div>
               <div>
@@ -1854,10 +1856,14 @@ function FirstPartyAnalyticsDetail() {
                   {t("dataSources.maxQueryDuration")}
                 </div>
                 <div className="font-medium text-foreground">
-                  {formatNumber(health.metrics.maxQueryDurationMs24h / 1_000, {
-                    maximumFractionDigits: 1,
-                  })}
-                  s
+                  {health.metrics.maxQueryDurationMs24h === null
+                    ? t("dataSources.statusUnknown")
+                    : `${formatNumber(
+                        health.metrics.maxQueryDurationMs24h / 1_000,
+                        {
+                          maximumFractionDigits: 1,
+                        },
+                      )}s`}
                 </div>
               </div>
             </div>
