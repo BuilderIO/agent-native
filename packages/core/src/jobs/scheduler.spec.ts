@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { RunChunkControl } from "../agent/run-manager.js";
+import type { CurrentTurnRunEvent } from "../agent/run-store.js";
 import {
   buildTriggerContent,
   parseTriggerFrontmatter,
@@ -52,6 +53,7 @@ const beginAgentExecutionStepMock = vi.hoisted(() => vi.fn());
 const markAgentExecutionStepDispatchedMock = vi.hoisted(() => vi.fn());
 const completeAgentExecutionStepMock = vi.hoisted(() => vi.fn());
 const currentExecutionFenceMock = vi.hoisted(() => vi.fn());
+const getCurrentTurnRunEventsForThreadMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../agent/execution-fence.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../agent/execution-fence.js")>()),
@@ -63,6 +65,7 @@ vi.mock("../agent/run-store.js", async (importOriginal) => ({
   beginAgentExecutionStep: beginAgentExecutionStepMock,
   markAgentExecutionStepDispatched: markAgentExecutionStepDispatchedMock,
   completeAgentExecutionStep: completeAgentExecutionStepMock,
+  getCurrentTurnRunEventsForThread: getCurrentTurnRunEventsForThreadMock,
 }));
 
 const resourceListAllOwnersMock = vi.hoisted(() => vi.fn());
@@ -228,6 +231,36 @@ describe("processRecurringJobs", () => {
     process.env = { ...originalEnv };
     vi.clearAllMocks();
     mockBackgroundExecutionJournal();
+    getCurrentTurnRunEventsForThreadMock.mockImplementation(
+      async (threadId: string, turnId?: string) =>
+        startRunMock.mock.results.flatMap((result, index) => {
+          if (result.type !== "return") return [];
+          const run = result.value as {
+            runId: string;
+            threadId: string;
+            turnId?: string;
+            events?: Array<{
+              seq: number;
+              event: CurrentTurnRunEvent["event"];
+            }>;
+          };
+          const options = startRunMock.mock.calls[index]?.[4] as
+            | { turnId?: string }
+            | undefined;
+          const runTurnId = run.turnId ?? options?.turnId ?? run.runId;
+          if (
+            run.threadId !== threadId ||
+            (turnId !== undefined && runTurnId !== turnId)
+          ) {
+            return [];
+          }
+          return (run.events ?? []).map(({ seq, event }) => ({
+            runId: run.runId,
+            seq,
+            event,
+          }));
+        }),
+    );
     dbExecuteMock.mockResolvedValue({ rows: [{ "1": 1 }], rowsAffected: 1 });
     getDbExecMock.mockReturnValue({
       execute: dbExecuteMock,
@@ -307,6 +340,7 @@ Summarize the inbox.`,
         const activeRun = {
           runId,
           threadId,
+          turnId: options?.turnId ?? runId,
           status: "running",
           abort,
           finalized: Promise.resolve(),
@@ -1489,20 +1523,22 @@ Post the digest.`,
               createRunChunkControl(abort.signal),
             );
             activeRun.status = "completed";
+            const events = [
+              {
+                seq: 0,
+                event: {
+                  type: "tool_done",
+                  tool: "send-notification",
+                  result: "Sent",
+                  completedSideEffect: true,
+                },
+              },
+              { seq: 1, event: { type: "text", text: "Digest ready" } },
+            ];
+            Object.assign(activeRun, { events });
             await onComplete?.({
               ...activeRun,
-              events: [
-                {
-                  seq: 0,
-                  event: {
-                    type: "tool_done",
-                    tool: "send-notification",
-                    result: "Sent",
-                    completedSideEffect: true,
-                  },
-                },
-                { seq: 1, event: { type: "text", text: "Digest ready" } },
-              ],
+              events,
             });
           },
         );
@@ -1599,6 +1635,7 @@ Post the digest.`,
         const activeRun = {
           runId,
           threadId,
+          turnId: runId,
           status: "running",
           abort,
           finalized: Promise.resolve(),
@@ -1610,15 +1647,17 @@ Post the digest.`,
             createRunChunkControl(abort.signal),
           );
           activeRun.status = "completed";
+          const events = [
+            { seq: 0, event: { type: "text", text: "Half a digest" } },
+            {
+              seq: 1,
+              event: { type: "auto_continue", reason: "run_timeout" },
+            },
+          ];
+          Object.assign(activeRun, { events });
           await onComplete?.({
             ...activeRun,
-            events: [
-              { seq: 0, event: { type: "text", text: "Half a digest" } },
-              {
-                seq: 1,
-                event: { type: "auto_continue", reason: "run_timeout" },
-              },
-            ],
+            events,
           });
         });
         return activeRun;
@@ -1695,28 +1734,30 @@ Post the digest.`,
               createRunChunkControl(abort.signal),
             );
             activeRun.status = "completed";
+            const events = [
+              {
+                seq: 0,
+                event: {
+                  type: "auto_continue",
+                  reason: "network_interrupted",
+                },
+              },
+              {
+                seq: 1,
+                event: {
+                  type: "tool_done",
+                  tool: "send-notification",
+                  result: "Sent",
+                  completedSideEffect: true,
+                },
+              },
+              { seq: 2, event: { type: "text", text: "Digest ready" } },
+              { seq: 3, event: { type: "done" } },
+            ];
+            Object.assign(activeRun, { events });
             await onComplete?.({
               ...activeRun,
-              events: [
-                {
-                  seq: 0,
-                  event: {
-                    type: "auto_continue",
-                    reason: "network_interrupted",
-                  },
-                },
-                {
-                  seq: 1,
-                  event: {
-                    type: "tool_done",
-                    tool: "send-notification",
-                    result: "Sent",
-                    completedSideEffect: true,
-                  },
-                },
-                { seq: 2, event: { type: "text", text: "Digest ready" } },
-                { seq: 3, event: { type: "done" } },
-              ],
+              events,
             });
           },
         );
