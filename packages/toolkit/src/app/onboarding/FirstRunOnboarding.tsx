@@ -437,8 +437,20 @@ export function FirstRunOnboarding({
       trackOnboardingEvent("onboarding_started", { flow: "first_run" });
     }
   }, [canTrackOnboardingScreen, firstRun, previewMode]);
+  // The credits arm's skip exists only once its experiment decision is known,
+  // so the choice view waits for that decision and is sent once, with its
+  // resolved optional flag.
+  const choiceStepKnown =
+    screen !== "choice" ||
+    setupVariant !== "credits" ||
+    setupExperimentDecision !== null;
   useEffect(() => {
-    if (previewMode || !firstRun || !canTrackOnboardingScreen) {
+    if (
+      previewMode ||
+      !firstRun ||
+      !canTrackOnboardingScreen ||
+      !choiceStepKnown
+    ) {
       stepViewRef.current = null;
       return;
     }
@@ -471,6 +483,7 @@ export function FirstRunOnboarding({
     firstRun,
     previewMode,
     canTrackOnboardingScreen,
+    choiceStepKnown,
     screen,
   ]);
   useEffect(() => {
@@ -1167,7 +1180,7 @@ export function FirstRunOnboarding({
                       {t("agentChat.onboarding.creditsSkipConfirmBody")}
                     </p>
                   </div>
-                  <div className="flex items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <Button
                       type="button"
                       variant="ghost"
@@ -1177,7 +1190,7 @@ export function FirstRunOnboarding({
                     >
                       {t("agentChat.onboarding.creditsUseCustomKeys")}
                     </Button>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap justify-end gap-2">
                       <Button
                         type="button"
                         variant="secondary"
