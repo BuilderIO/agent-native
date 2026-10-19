@@ -1702,9 +1702,14 @@ export function ReviewCanvasPins({
         }
       }
       if (resolved.anchor.nodeId || resolved.anchor.selector) {
-        const element = resolved.anchor.nodeId
-          ? findNodeElement(canvas, resolved.anchor.nodeId)
-          : selectorElement(canvas, resolved.anchor.selector!);
+        // A repeated data-loc resolves to no node; the saved selector names the instance.
+        const element =
+          (resolved.anchor.nodeId
+            ? findNodeElement(canvas, resolved.anchor.nodeId)
+            : null) ??
+          (resolved.anchor.selector
+            ? selectorElement(canvas, resolved.anchor.selector)
+            : null);
         if (element instanceof HTMLElement || element instanceof SVGElement) {
           element.scrollIntoView({ block: "center", inline: "center" });
           const previousBoxShadow = element.style.boxShadow;
@@ -2129,10 +2134,25 @@ export function ReviewCanvasPins({
 
   // Panning or zooming moves what sits under a still pointer, and moves the boxes
   // already reported: re-measure both on every layout change.
+  const layoutTickRef = useRef(layoutTick);
   useEffect(() => {
+    const layoutMoved = layoutTickRef.current !== layoutTick;
+    layoutTickRef.current = layoutTick;
     const point = hoverPointerRef.current;
     if (point) scheduleHoverNode(point.x, point.y);
-    if (!popoverKey || !snapshotSelector) return;
+    if (!popoverKey) return;
+    if (!snapshotSelector) {
+      // A box with no selector cannot be measured again. Once the layout has moved, drop it
+      // rather than draw it where the element used to be.
+      if (layoutMoved) {
+        setPopoverHover((current) =>
+          current?.key === popoverKey && current.target?.box
+            ? { key: popoverKey, target: { ...current.target, box: null } }
+            : current,
+        );
+      }
+      return;
+    }
     requestSelectorBox(snapshotSelector, (box) => {
       setPopoverHover((current) =>
         current?.key === popoverKey && current.target
