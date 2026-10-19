@@ -17,6 +17,11 @@ import {
 } from "../shared/transcript-segments.js";
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   description:
     "Bring back a transcript that an import, a regenerate, or an earlier restore replaced. Version IDs are in transcript.versions from get-recording-player-data, and in savedVersionId from import-transcript or this action. The transcript it replaces is kept in turn, so pass this result's savedVersionId back to undo the restore. Leaves chapters alone.",
   // An outside agent that replaced a transcript over MCP needs the undo just
