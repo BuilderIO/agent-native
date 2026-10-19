@@ -148,6 +148,7 @@ import {
   type ProductionAgentOptions,
 } from "./production-agent.js";
 import type { ActiveRun } from "./run-manager.js";
+import * as runManager from "./run-manager.js";
 import * as runStore from "./run-store.js";
 import { threadDataToEngineMessages } from "./thread-data-builder.js";
 import * as toolApprovalStore from "./tool-approval-store.js";
@@ -206,7 +207,6 @@ const mockGetSlotHoldingRunId = vi.hoisted(() =>
   vi.fn(async (): Promise<string | undefined> => undefined),
 );
 const mockInsertRun = vi.hoisted(() => vi.fn(async () => undefined));
-const mockPersistRunEventsInMemory = vi.hoisted(() => ({ enabled: false }));
 const mockFireInternalDispatch = vi.hoisted(() => vi.fn(async () => undefined));
 
 vi.mock("../db/ddl-guard.js", () => ({
@@ -257,11 +257,10 @@ vi.mock("./run-manager.js", async () => {
   return {
     ...actual,
     startRun: (...args: Parameters<typeof actual.startRun>) => {
-      if (!mockPersistRunEventsInMemory.enabled)
-        return actual.startRun(...args);
       const [runId, threadId, runFn, onComplete, options] = args;
       return actual.startRun(runId, threadId, runFn, onComplete, {
         ...options,
+        executionLease: false,
         persistEvent: async () => {},
       });
     },
@@ -4088,7 +4087,6 @@ describe("createProductionAgentHandler", () => {
     const isTurnAborted = vi
       .spyOn(runStore, "isTurnAborted")
       .mockResolvedValue(false);
-    mockPersistRunEventsInMemory.enabled = true;
     const runAction = vi.fn(async () => "sent");
     let completedRun: ActiveRun | undefined;
     const modelMessages: EngineMessage[][] = [];
@@ -4213,7 +4211,6 @@ describe("createProductionAgentHandler", () => {
         ]),
       );
     } finally {
-      mockPersistRunEventsInMemory.enabled = false;
       resolveApproval.mockRestore();
       consumeApproval.mockRestore();
       isTurnAborted.mockRestore();
@@ -4242,7 +4239,6 @@ describe("createProductionAgentHandler", () => {
     const updateRunHeartbeat = vi
       .spyOn(runStore, "updateRunHeartbeat")
       .mockResolvedValue(undefined);
-    mockPersistRunEventsInMemory.enabled = true;
     const runAction = vi.fn(async () => "sent");
     let completedRun: ActiveRun | undefined;
     const engine: AgentEngine = {
@@ -4357,7 +4353,6 @@ describe("createProductionAgentHandler", () => {
       expect(runAction).toHaveBeenCalledOnce();
       expect(consumeApproval).toHaveBeenCalledOnce();
     } finally {
-      mockPersistRunEventsInMemory.enabled = false;
       resolveApproval.mockRestore();
       consumeApproval.mockRestore();
       claimBackgroundRun.mockRestore();
@@ -4387,7 +4382,6 @@ describe("createProductionAgentHandler", () => {
     const consumeApproval = vi
       .spyOn(toolApprovalStore, "consumeAgentToolApproval")
       .mockResolvedValue(true);
-    mockPersistRunEventsInMemory.enabled = true;
     const onRunComplete = vi.fn();
     const handler = createProductionAgentHandler({
       systemPrompt: "Test",
@@ -4470,7 +4464,6 @@ describe("createProductionAgentHandler", () => {
       expect(outerStream).not.toHaveBeenCalled();
     } finally {
       consumeApproval.mockRestore();
-      mockPersistRunEventsInMemory.enabled = false;
     }
   });
 
@@ -4695,7 +4688,6 @@ describe("createProductionAgentHandler", () => {
       ).rejects.toBe(setupRequired);
 
       expect(assertAiSetupReady).toHaveBeenCalledOnce();
-      expect(getDbExec).not.toHaveBeenCalled();
       expect(readTurnStartedAt).not.toHaveBeenCalled();
       expect(mockTryClaimRunSlot).not.toHaveBeenCalled();
       expect(engine.stream).not.toHaveBeenCalled();
@@ -7423,6 +7415,64 @@ describe("createProductionAgentHandler", () => {
         turnId: expect.any(String),
       }),
     );
+  });
+
+  it("replays the accepted run when onRunPrepared finds an existing submission receipt", async () => {
+    const onRunPrepared = vi.fn(async () => ({
+      duplicateRunId: "run-already-submitted",
+    }));
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.close();
+      },
+    });
+    const subscribeToRun = vi
+      .spyOn(runManager, "subscribeToRun")
+      .mockReturnValue(stream);
+    onTestFinished(() => subscribeToRun.mockRestore());
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "should not start a new run" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      onRunPrepared,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Repeat the queued prompt",
+          queuedMessageId: "queued-duplicate",
+        }),
+      }),
+    );
+
+    const result = await runWithRequestContext(
+      { userEmail: "owner@example.com", run: {} },
+      () => handler(event),
+    );
+
+    expect(result).toBe(stream);
+    expect(subscribeToRun).toHaveBeenCalledWith("run-already-submitted", 0);
   });
 
   it("anchors retry deadlines to the server request time", async () => {
@@ -20840,30 +20890,24 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
   });
 
   it("marks a successfully chained background chunk terminal before the worker returns", async () => {
-    const updateRunStatusIfRunning = vi.fn(async () => true);
-    const setRunError = vi.fn(async () => {});
-    const setRunTerminalReason = vi.fn(async () => {});
+    const updateRunTerminalStateIfRunning = vi.fn(async () => true);
 
     await expect(
       markBackgroundContinuationChunkTerminal({
         runId: "run-old",
         continuationReason: "no_progress",
-        deps: { updateRunStatusIfRunning, setRunError, setRunTerminalReason },
+        deps: { updateRunTerminalStateIfRunning },
       }),
     ).resolves.toBe(true);
 
-    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
-      "run-old",
-      "completed",
-    );
-    expect(setRunTerminalReason).toHaveBeenCalledWith("run-old", "no_progress");
-    expect(setRunError).not.toHaveBeenCalled();
+    expect(updateRunTerminalStateIfRunning).toHaveBeenCalledWith("run-old", {
+      status: "completed",
+      terminalReason: "no_progress",
+    });
   });
 
   it("marks a recoverable error continuation chunk errored with its durable failure details", async () => {
-    const updateRunStatusIfRunning = vi.fn(async () => true);
-    const setRunError = vi.fn(async () => {});
-    const setRunTerminalReason = vi.fn(async () => {});
+    const updateRunTerminalStateIfRunning = vi.fn(async () => true);
 
     await expect(
       markBackgroundContinuationChunkTerminal({
@@ -20876,44 +20920,36 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
           details: "upstream returned 500",
           recoverable: true,
         },
-        deps: { updateRunStatusIfRunning, setRunError, setRunTerminalReason },
+        deps: { updateRunTerminalStateIfRunning },
       }),
     ).resolves.toBe(true);
 
-    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+    expect(updateRunTerminalStateIfRunning).toHaveBeenCalledWith(
       "run-error-boundary",
-      "errored",
-    );
-    expect(setRunTerminalReason).toHaveBeenCalledWith(
-      "run-error-boundary",
-      "error:provider_failed",
-    );
-    expect(setRunError).toHaveBeenCalledWith(
-      "run-error-boundary",
-      "provider_failed",
-      "upstream returned 500",
+      {
+        status: "errored",
+        terminalReason: "error:provider_failed",
+        errorCode: "provider_failed",
+        errorDetail: "upstream returned 500",
+      },
     );
   });
 
   it("does not overwrite terminal reason when another process already finished the chunk", async () => {
-    const updateRunStatusIfRunning = vi.fn(async () => false);
-    const setRunError = vi.fn(async () => {});
-    const setRunTerminalReason = vi.fn(async () => {});
+    const updateRunTerminalStateIfRunning = vi.fn(async () => false);
 
     await expect(
       markBackgroundContinuationChunkTerminal({
         runId: "run-old",
         continuationReason: "run_timeout",
-        deps: { updateRunStatusIfRunning, setRunError, setRunTerminalReason },
+        deps: { updateRunTerminalStateIfRunning },
       }),
     ).resolves.toBe(false);
 
-    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
-      "run-old",
-      "completed",
-    );
-    expect(setRunTerminalReason).not.toHaveBeenCalled();
-    expect(setRunError).not.toHaveBeenCalled();
+    expect(updateRunTerminalStateIfRunning).toHaveBeenCalledWith("run-old", {
+      status: "completed",
+      terminalReason: "run_timeout",
+    });
   });
 });
 

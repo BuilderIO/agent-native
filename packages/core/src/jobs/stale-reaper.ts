@@ -77,35 +77,30 @@ export async function reapStaleA2ATasks(
 ): Promise<number> {
   const now = options.now ?? Date.now();
   const cutoff = now - STALE_A2A_TASK_AFTER_MS;
-  const message = {
-    role: "agent",
-    parts: [
-      {
-        type: "text",
-        text: "The task did not finish and showed no activity for 24 hours, so it was closed. Please retry the request.",
-      },
-    ],
-    metadata: { errorCode: A2A_TASK_ABANDONED_ERROR_CODE },
-  };
   try {
-    const result = await getDbExec().execute({
-      sql: `UPDATE a2a_tasks
-            SET status_state = 'failed', status_message = ?, status_timestamp = ?, updated_at = ?
-            WHERE status_state IN ('submitted', 'working', 'processing') AND id IN (
-              SELECT id FROM a2a_tasks
-              WHERE status_state IN ('submitted', 'working', 'processing')
-                AND created_at < ? AND updated_at < ?
-              ORDER BY created_at ASC LIMIT ${batchLimit(options.limit)}
-            )`,
-      args: [
-        JSON.stringify(message),
-        new Date(now).toISOString(),
-        now,
-        cutoff,
-        cutoff,
-      ],
+    const { rows } = await getDbExec().execute({
+      sql: `SELECT id FROM a2a_tasks
+            WHERE status_state IN ('submitted', 'working', 'processing')
+              AND created_at < ? AND updated_at < ?
+            ORDER BY created_at ASC
+            LIMIT ${batchLimit(options.limit)}`,
+      args: [cutoff, cutoff],
     });
-    return Number(result.rowsAffected ?? 0);
+    const { failStaleA2ATask } = await import("../a2a/task-store.js");
+    let failed = 0;
+    for (const row of rows) {
+      if (
+        await failStaleA2ATask(
+          String((row as { id: unknown }).id),
+          cutoff,
+          "The task did not finish and showed no activity for 24 hours, so it was closed. Please retry the request.",
+          A2A_TASK_ABANDONED_ERROR_CODE,
+        )
+      ) {
+        failed += 1;
+      }
+    }
+    return failed;
   } catch (error) {
     if (isUndefinedTableError(error)) return 0;
     throw error;

@@ -1726,7 +1726,6 @@ test("selection, same-screen move, text and style edits, undo redo, and zoom nev
   await expectIframePaintStable(page, "focused-edit-stable");
 });
 
-// oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
 test("Hand and Scale shortcuts project the active move-group tool", async ({
   page,
 }) => {
@@ -1921,7 +1920,6 @@ test("click text creates auto-width text and survives reload", async ({
   ).toHaveCount(1);
 });
 
-// oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
 test("typing into a new text layer and clicking out renders it once, in order", async ({
   page,
 }) => {
@@ -3042,7 +3040,6 @@ test("frame drawn left of the first screen creates a new screen", async ({
     .toBeLessThan(0);
 });
 
-// oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
 test("rectangle drawn left of the first screen persists on the board", async ({
   page,
 }) => {

@@ -879,6 +879,62 @@ describe("text takes its colour from what it lands on", () => {
   });
 
   it.each([
+    ["bg-slate-900/80", "#ffffff", "#ffffff"],
+    ["bg-white/90", "#111111", "#000000"],
+    ["bg-slate-900/[.85]", "#ffffff", "#ffffff"],
+    ["bg-white/[0.9]", "#111111", "#000000"],
+    ["bg-slate-900!", "#ffffff", "#ffffff"],
+    ["bg-white!", "#111111", "#000000"],
+  ])(
+    "chooses readable text over %s when live background styles are unavailable",
+    (className, ancestorBackground, expectedColor) => {
+      const content = `<!doctype html><html><body style="background:${ancestorBackground}">
+        <div class="${className}" style="position:absolute;left:20px;top:150px;width:280px;height:300px"></div>
+      </body></html>`;
+      const html =
+        appendCanvasPrimitiveToHtml(content, {
+          kind: "text",
+          nodeId: "t",
+          geometry: { x: 60, y: 260, width: 120, height: 24 },
+          text: "on a class-painted surface",
+        }) ?? "";
+
+      expect(styleOf(html, "t")).toMatch(
+        new RegExp(`color:\\s*${expectedColor}`, "i"),
+      );
+    },
+  );
+
+  it.each(["bg-white/10", "bg-white/[.1]"])(
+    "does not treat translucent white background utility %s as opaque in fallback sampling",
+    (className) => {
+      const content = `<!doctype html><html><body>
+      <div class="bg-slate-900" style="position:absolute;left:20px;top:150px;width:280px;height:300px">
+        <div class="${className}" style="position:absolute;left:0;top:0;width:280px;height:300px"></div>
+      </div>
+    </body></html>`;
+      const parsed = new DOMParser().parseFromString(content, "text/html");
+      const translucentWhite = parsed.querySelector(`[class="${className}"]`);
+
+      expect(destinationBackgroundLightness(translucentWhite!)).toBe(false);
+
+      const html =
+        appendCanvasPrimitiveToHtml(
+          content,
+          {
+            kind: "text",
+            nodeId: "t",
+            geometry: { x: 60, y: 260, width: 120, height: 24 },
+            text: "over a translucent white overlay",
+          },
+          { isBoardTarget: true },
+        ) ?? "";
+
+      expect(styleOf(html, "t")).toMatch(/color:\s*#ffffff/i);
+    },
+  );
+
+  it.each([
     ["p-4 bg-white", true],
     ["p-4 bg-slate-900", false],
   ])(

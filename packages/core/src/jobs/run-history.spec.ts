@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
+import { withExecutionFence } from "../agent/execution-fence.js";
 import type { DbExec, DbExecStatement } from "../db/client.js";
 
 const executeMock = vi.hoisted(() => vi.fn());
@@ -106,6 +107,102 @@ describe("automation run history", () => {
     ).rejects.toMatchObject({
       errorCode: "background_automation_history_write_failed",
     });
+  });
+
+  it("commits an automation outcome under the current execution lease", async () => {
+    const statements: DbExecStatement[] = [];
+    executeMock.mockImplementation(async (statement: DbExecStatement) => {
+      statements.push(statement);
+      if (statement.sql.includes("FROM agent_execution_leases")) {
+        return { rows: [{ generation: "4" }], rowsAffected: 1 };
+      }
+      if (statement.sql.startsWith("SELECT owner")) {
+        return {
+          rows: [row({ run_id: "worker", thread_id: "thread" })],
+          rowsAffected: 1,
+        };
+      }
+      return { rows: [], rowsAffected: 1 };
+    });
+
+    await withExecutionFence(
+      {
+        threadId: "thread",
+        turnId: "turn",
+        runId: "worker",
+        generation: "4",
+      },
+      () => finishAutomationRun("run-1", "success"),
+    );
+
+    expect(transactionMock).toHaveBeenCalledOnce();
+    expect(statements.map(({ sql }) => sql)).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("FROM agent_execution_leases"),
+        expect.stringContaining("SELECT owner"),
+        expect.stringContaining("UPDATE automation_runs"),
+      ]),
+    );
+    const update = statements.find(({ sql }) =>
+      sql.startsWith("UPDATE automation_runs"),
+    );
+    expect(update?.sql).toContain("AND run_id IS NOT DISTINCT FROM ?");
+    expect(update?.sql).toContain("AND thread_id IS NOT DISTINCT FROM ?");
+    expect(update?.args).toEqual(expect.arrayContaining(["worker", "thread"]));
+    expect(emitMock).toHaveBeenCalledOnce();
+  });
+
+  it("fences history links to the active run and thread", async () => {
+    const statements: DbExecStatement[] = [];
+    executeMock.mockImplementation(async (statement: DbExecStatement) => {
+      statements.push(statement);
+      if (statement.sql.includes("FROM agent_execution_leases")) {
+        return { rows: [{ generation: "4" }], rowsAffected: 1 };
+      }
+      return { rows: [], rowsAffected: 1 };
+    });
+
+    await withExecutionFence(
+      {
+        threadId: "thread",
+        turnId: "turn",
+        runId: "worker",
+        generation: "4",
+      },
+      () => attachAutomationRunThread("run-1", "thread", "worker"),
+    );
+
+    const update = statements.find(({ sql }) =>
+      sql.startsWith("UPDATE automation_runs"),
+    );
+    expect(transactionMock).toHaveBeenCalledOnce();
+    expect(update?.sql).toContain("AND run_id IS NOT DISTINCT FROM ?");
+    expect(update?.sql).toContain("AND thread_id IS NOT DISTINCT FROM ?");
+    expect(update?.args).toEqual(expect.arrayContaining(["worker", "thread"]));
+  });
+
+  it("does not write automation history after the execution lease is lost", async () => {
+    const statements: DbExecStatement[] = [];
+    executeMock.mockImplementation(async (statement: DbExecStatement) => {
+      statements.push(statement);
+      return { rows: [], rowsAffected: 0 };
+    });
+
+    await expect(
+      withExecutionFence(
+        {
+          threadId: "thread",
+          turnId: "turn",
+          runId: "worker",
+          generation: "4",
+        },
+        () => finishAutomationRun("run-1", "success"),
+      ),
+    ).rejects.toMatchObject({ code: "stale_execution_fence" });
+
+    expect(statements).toHaveLength(1);
+    expect(statements[0]?.sql).toContain("FROM agent_execution_leases");
+    expect(emitMock).not.toHaveBeenCalled();
   });
 
   it.each(["success", "interrupted"] as const)(

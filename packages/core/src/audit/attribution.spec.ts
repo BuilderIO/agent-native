@@ -119,6 +119,7 @@ const { _agentTeamsQueueForTests } = await import("../server/agent-teams.js");
 const { createRunCodeEntry } = await import("../coding-tools/run-code.js");
 const { executeApprovedA2AToolCall } =
   await import("../server/agent-chat/action-filters-a2a.js");
+const { a2aTaskLeaseThreadId } = await import("../a2a/task-store.js");
 const { insertRun, tryClaimRunSlot } = await import("../agent/run-store.js");
 const { noteJobFrontmatterWrite } = await import("../jobs/frontmatter-loss.js");
 
@@ -284,6 +285,13 @@ const noReplayIds = {
   networkProtocol: null,
   networkId: null,
 };
+// A call the replay's context reaches, other than the approved one, records the
+// approval route's execution lease it runs under, never the override.
+const leaseIds = {
+  ...noReplayIds,
+  threadId: a2aTaskLeaseThreadId(TASK),
+  turnId: TASK,
+};
 
 async function replay(
   name: string,
@@ -307,7 +315,13 @@ async function replay(
       ),
       callId: `call-${task}`,
     },
-    { actions: { [name]: entry as ActionEntry } },
+    {
+      actions: { [name]: entry as ActionEntry },
+      // As the approval route does: under the task's execution lease.
+      signal: new AbortController().signal,
+      threadId: a2aTaskLeaseThreadId(task),
+      turnId: task,
+    },
   );
 }
 
@@ -382,10 +396,10 @@ describe("an approved A2A replay's audit override", () => {
     expect((await replay("parent", parent)).status).toBe("completed");
 
     expect(rows()).toEqual([
-      ["child", null, null],
+      ["child", leaseIds.threadId, null],
       ["parent", TASK, "a2a-review"],
     ]);
-    expect(recorded[0]).toMatchObject(noReplayIds);
+    expect(recorded[0]).toMatchObject(leaseIds);
   });
 
   it.each(["defineAction", "raw"])(
@@ -417,7 +431,7 @@ describe("an approved A2A replay's audit override", () => {
 
       expect(seen).toEqual([
         {
-          threadId: undefined,
+          threadId: leaseIds.threadId,
           approval: undefined,
           approvedToolCallKey: undefined,
         },
@@ -425,9 +439,9 @@ describe("an approved A2A replay's audit override", () => {
       // The child's row comes first; only a defineAction parent writes one.
       expect(rows()).toEqual(
         kind === "raw"
-          ? [["parent", null, null]]
+          ? [["parent", leaseIds.threadId, null]]
           : [
-              ["parent", null, null],
+              ["parent", leaseIds.threadId, null],
               ["parent", TASK, "a2a-review"],
             ],
       );
@@ -449,8 +463,8 @@ describe("an approved A2A replay's audit override", () => {
 
     expect(calls).toBe(2);
     expect(rows()).toEqual([
-      ["self-audited", null, null],
-      ["recursive", null, null],
+      ["self-audited", leaseIds.threadId, null],
+      ["recursive", leaseIds.threadId, null],
       ["self-audited", TASK, "a2a-review"],
       ["recursive", TASK, "a2a-review"],
     ]);
@@ -467,8 +481,8 @@ describe("an approved A2A replay's audit override", () => {
 
     await action.run({}, kept);
 
-    expect(rows()).toEqual([["kept", null, null]]);
-    expect(recorded[0]).toMatchObject(noReplayIds);
+    expect(rows()).toEqual([["kept", leaseIds.threadId, null]]);
+    expect(recorded[0]).toMatchObject(leaseIds);
   });
 
   it.each([
@@ -510,7 +524,7 @@ describe("an approved A2A replay's audit override", () => {
     expect((await replay("unkeyed", wrapper)).status).toBe("completed");
 
     // The action runs as the wrapper's child, so its row has none.
-    expect(rows()).toEqual([["unkeyed", null, null]]);
+    expect(rows()).toEqual([["unkeyed", leaseIds.threadId, null]]);
   });
 
   it.each(["defineAction", "raw"])(
@@ -548,8 +562,8 @@ describe("an approved A2A replay's audit override", () => {
       });
 
       expect(result.status).toBe("completed");
-      expect(rows()).toEqual([["read-sensitive", null, null]]);
-      expect(recorded[0]).toMatchObject(noReplayIds);
+      expect(rows()).toEqual([["read-sensitive", leaseIds.threadId, null]]);
+      expect(recorded[0]).toMatchObject(leaseIds);
     },
   );
 

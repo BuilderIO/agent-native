@@ -612,25 +612,37 @@ export function a2aActionResult(
 }
 
 /**
- * Runs the tool call an A2A task paused on, once its owner approved it.
+ * Runs the tool call an A2A task paused on, once its owner approved it, under
+ * the approval's execution lease: its thread, its turn, and its signal.
  */
 export async function executeApprovedA2AToolCall(
   approval: A2AApprovalExecution,
-  options: { actions: Record<string, ActionEntry>; appId?: string },
+  options: {
+    actions: Record<string, ActionEntry>;
+    appId?: string;
+    signal?: AbortSignal;
+    threadId?: string;
+    turnId?: string;
+  },
 ): Promise<A2AActionExecutionResult> {
   const result = await executeAgentToolCall({
     actions: options.actions,
     name: approval.tool,
     input: approval.input,
+    signal: options.signal,
+    threadId: options.threadId,
+    turnId: options.turnId,
     callId: approval.callId,
     ownerEmail: approval.ownerEmail,
     orgId: approval.orgId ?? null,
     appId: options.appId,
     approvedToolCalls: [approval.approvalKey],
-    // On the approved call's own audit rows only: as the replay's thread and
-    // turn, the task id would load the task's journal, where an earlier
-    // identical call could stand in for this approved one. Its caller app is
-    // not stored with the approval, so `networkPeer` stays empty.
+    // The replay runs under the lease's thread and turn, never the task's
+    // own: as the replay's thread and turn, the task id would load the task's
+    // journal and ledger, where an earlier identical call could stand in for
+    // this approved one. So the task id reaches the approved call's own audit
+    // rows only. Its caller app is not stored with the approval, so
+    // `networkPeer` stays empty.
     auditOverride: {
       networkProtocol: "a2a",
       networkId: approval.taskId,

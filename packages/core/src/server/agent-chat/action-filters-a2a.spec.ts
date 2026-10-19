@@ -69,7 +69,7 @@ function action(overrides: Partial<ActionEntry> = {}): ActionEntry {
 }
 
 describe("executeApprovedA2AToolCall", () => {
-  it("runs the approved call once, outside the paused task's journal, and links its row to the task", async () => {
+  it("runs the approved call once, under its lease rather than the paused task's journal, and links its row to the task", async () => {
     const input = { to: "ceo@example.test" };
     const approvalKey = toolCallCacheKey("send-email", input);
     // The paused task already holds an identical completed call; read as the
@@ -112,7 +112,14 @@ describe("executeApprovedA2AToolCall", () => {
         ),
         callId: "call-1",
       },
-      { actions: { "send-email": sendEmail }, appId: "mail" },
+      {
+        actions: { "send-email": sendEmail },
+        appId: "mail",
+        // The approval route's execution lease: its own thread, the task's turn.
+        signal: new AbortController().signal,
+        threadId: "a2a-task:task-1",
+        turnId: "task-1",
+      },
     );
 
     // The result says whether the call's side effect completed.
@@ -122,18 +129,21 @@ describe("executeApprovedA2AToolCall", () => {
       completedSideEffect: true,
     });
     expect(sent).toHaveBeenCalledOnce();
-    expect(runStoreReads.journal).not.toHaveBeenCalled();
-    expect(runStoreReads.ledger).not.toHaveBeenCalled();
+    const threadsRead = [
+      ...runStoreReads.journal.mock.calls,
+      ...runStoreReads.ledger.mock.calls,
+    ].map(([threadId]) => threadId);
+    expect(threadsRead).not.toContain("task-1");
     const ctx = sent.mock.calls[0]![0] as Record<string, unknown>;
     expect(ctx).toMatchObject({
       userEmail: "owner@example.test",
       orgId: "org-1",
       caller: "tool",
       approvedToolCallKey: approvalKey,
+      threadId: "a2a-task:task-1",
+      turnId: "task-1",
     });
     for (const key of [
-      "threadId",
-      "turnId",
       "runId",
       "networkProtocol",
       "networkId",

@@ -186,6 +186,7 @@ export interface A2AHandlerContext {
   metadata?: Record<string, unknown>;
   event?: unknown;
   sourceContext?: A2ASourceContext;
+  signal?: AbortSignal;
   writeArtifact: (name: string, content: string, mimeType?: string) => string;
 }
 
@@ -242,6 +243,7 @@ export interface A2AConfig {
   durableBackgroundRuns?: boolean;
   executeApproval?: (
     approval: A2AApprovalExecution,
+    options: { signal: AbortSignal; threadId: string; turnId: string },
   ) => Promise<A2AActionExecutionResult>;
   executeReadOnlyAction?: (
     invocation: A2AReadOnlyActionInvocation,
