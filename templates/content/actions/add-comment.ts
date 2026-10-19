@@ -28,6 +28,8 @@ import {
   readStoredCommentMentions,
   serializeStoredCommentMentions,
 } from "../shared/comment-mentions.js";
+import { commentPropertyTarget } from "../shared/comment-property-target.js";
+import { listPropertiesForDocument } from "./_property-utils.js";
 
 function displayNameFromEmail(email: string): string {
   const localPart = email.split("@")[0] ?? "";
@@ -77,6 +79,20 @@ const commentSchema = z.object({
     .number()
     .optional()
     .describe("Character offset of the quote start within the document"),
+  propertyId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "Property ID, to start a thread on one Property value (such as Status) instead of body text. The Property's name and current value are recorded with the thread; relation, rollup, and formula values aren't, because they depend on who reads them. Not used with quotedText or on replies.",
+    ),
+  databaseId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "Collection ID that owns propertyId; omit to use the Page's Collection",
+    ),
   mentions: z
     .union([z.string(), z.array(z.unknown())])
     .optional()
@@ -97,19 +113,42 @@ export function commentIdForIdempotency(
   return `${digest.slice(0, 8)}-${digest.slice(8, 12)}-4${digest.slice(13, 16)}-8${digest.slice(17, 20)}-${digest.slice(20)}`;
 }
 
-/** A retried submission may arrive from another run; these may differ. */
-const RUN_PROVENANCE_KEYS = new Set([
+/**
+ * A retried submission may arrive from another run, or after its Property
+ * changed; these may differ.
+ */
+const RETRY_VARIABLE_KEYS = new Set([
   "authorName",
   "submissionSource",
   "submissionRunId",
   "submissionThreadId",
   "authorModel",
   "authorEffort",
+  "propertyName",
+  "propertyValue",
 ]);
 
 type CommentTransaction = Parameters<
   Parameters<ReturnType<typeof getDb>["transaction"]>[0]
 >[0];
+
+async function resolveCommentPropertyTarget(
+  document: Parameters<typeof listPropertiesForDocument>[0],
+  propertyId: string,
+  databaseId: string | undefined,
+) {
+  const properties = await listPropertiesForDocument(document, databaseId);
+  const property = properties.find(
+    (candidate) => candidate.definition.id === propertyId,
+  );
+  if (!property) {
+    fail("That Property isn't on this Page", {
+      statusCode: 400,
+      errorCode: "comment_property_not_found",
+    });
+  }
+  return commentPropertyTarget(property);
+}
 
 export async function addCommentWithGuard(
   args: z.infer<typeof commentSchema>,
@@ -121,6 +160,12 @@ export async function addCommentWithGuard(
 
   if (Boolean(args.threadId) !== Boolean(args.parentId)) {
     throw new Error("Replies require both threadId and parentId");
+  }
+  if (args.propertyId && (args.threadId || args.quotedText)) {
+    fail(
+      "A Property comment starts its own thread and has no quoted text; omit threadId, parentId, and quotedText",
+      { statusCode: 400, errorCode: "comment_property_target_conflict" },
+    );
   }
 
   const access = await assertAccess("document", documentId, "commenter");
@@ -169,6 +214,13 @@ export async function addCommentWithGuard(
     actorKind === "agent"
       ? (ctx?.threadId ?? runContext?.threadId ?? null)
       : null;
+  const propertyTarget = args.propertyId
+    ? await resolveCommentPropertyTarget(
+        access.resource as Parameters<typeof listPropertiesForDocument>[0],
+        args.propertyId,
+        args.databaseId,
+      )
+    : null;
 
   const values = {
     id,
@@ -181,6 +233,9 @@ export async function addCommentWithGuard(
     anchorPrefix: args.anchorPrefix ?? null,
     anchorSuffix: args.anchorSuffix ?? null,
     anchorStartOffset: args.anchorStartOffset ?? null,
+    propertyId: propertyTarget?.propertyId ?? null,
+    propertyName: propertyTarget?.propertyName ?? null,
+    propertyValue: propertyTarget?.propertyValue ?? null,
     mentionsJson,
     authorEmail: email,
     authorName: name,
@@ -208,7 +263,7 @@ export async function addCommentWithGuard(
       if (!existing) return false;
       if (
         Object.entries(values).some(([key, value]) => {
-          if (RUN_PROVENANCE_KEYS.has(key)) return false;
+          if (RETRY_VARIABLE_KEYS.has(key)) return false;
           if (key === "mentionsJson") {
             return (
               serializeStoredCommentMentions(

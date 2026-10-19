@@ -223,17 +223,41 @@ place of Slack source messages.
   `in:<#CHANNEL> hasmy::white_check_mark`, and
   `in:<#CHANNEL> hasmy::ticket`. Use the same bot-inclusive detailed search
   arguments as the channel scan, but omit `after`, `before`, keywords, semantic
-  search, and all other filters. Follow every cursor to explicit exhaustion.
+  search, and all other filters. Follow every cursor to explicit exhaustion. If
+  Slack caps a cursor before exhaustion, preserve that capped page and record
+  the exact `page_limit_exceeded` response in that search's
+  `pageLimitRecoveries[]`, including its failed cursor and request args, raw
+  response, read time, and the capped page's oldest result as `boundaryTs`.
+  Restart the same exact `hasmy` query at `cursor: null` with an inclusive
+  `before` exactly one microsecond below that boundary. Keep that `before` on
+  every page in the restarted cursor slice and in each raw request wrapper; the
+  base `filters` query remains unchanged. Follow the restarted slice to
+  exhaustion, and repeat this recovery for every later cap. The checker proves
+  each failed cursor against exactly one restarted slice, checks the boundary
+  and read order, and requires explicit exhaustion. If Slack does not let you
+  recover a capped tail, report the historical ownership search as incomplete;
+  do not claim every owned mark was reconciled.
   Record each exact query and page in `ownedMarkSearches`; save raw wrappers
   named `owned-marks-{channelName}-{eyes|white_check_mark|ticket}-00.json` and
   continue numbering for each cursor page. Each wrapper preserves exact
   request `args`, the complete `raw` connector response, requested `cursor`,
-  and local `readAt`. Keep each result's exact `{ts, root, text}`. Resolve reply
-  results through their permalink/thread metadata, but count a root as owned
-  only when the returned marked message is itself the root (`ts === root`). A
-  mark on a reply remains reply-level history and never becomes a root
-  checkoff. Deduplicate roots across the three searches. For any discovered
-  root missing from the bounded source pages and `threadRootAudits`, add a
+  and local `readAt`. Keep each result's exact `{ts, root, text}`. Treat a
+  `hasmy` hit as a discovery candidate, not proof that the query's emoji is on
+  that message: the connector can return the same messages for different
+  emoji-specific queries. For a root candidate (`ts === root`), read reactions
+  on that exact timestamp and confirm the expected emoji and this actor's ID
+  in its owner list. Only exact reaction read-back establishes root ownership;
+  a candidate returned by the wrong emoji query must not create an owned mark,
+  status, or root checkoff. Keep the mismatch and candidate in the audit
+  evidence; if the exact read fails or is incomplete, leave ownership
+  unresolved rather than treating the query as confirmation. A result with
+  `ts !== root` is reply-level evidence: resolve and preserve its parent, but
+  never count it as a root checkoff. Verify reply reactions from the exact
+  reply read-back in its complete thread snapshot; if that historical reply
+  cannot be read back, report reply-level reconciliation as incomplete.
+  Deduplicate confirmed roots across the three searches. For any
+  exact-readback-confirmed root missing from the bounded source pages and
+  `threadRootAudits`, add a
   full root audit row to `ownedRootAudits`; an in-scope root must instead
   appear in the source pages. Reconcile each discovered root's latest human
   message, status reply, scopes, and exact current reaction state. Read its

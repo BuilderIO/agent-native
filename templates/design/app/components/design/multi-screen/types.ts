@@ -267,6 +267,14 @@ export interface MultiScreenCanvasProps {
       preserveActiveTool?: boolean;
     },
   ) => void;
+  onPrimitivesCreated?: (
+    created: ReadonlyArray<{ screenId: string; nodeId: string }>,
+    selected?: { screenId: string; nodeId: string },
+    options?: {
+      nextTool?: "move" | "pen";
+      preserveActiveTool?: boolean;
+    },
+  ) => void;
   onUpdatePenPath?: (
     screenId: string,
     nodeId: string,
@@ -634,6 +642,7 @@ export type MultiScreenCanvasCreationProps = Pick<
   | "onActiveToolChange"
   | "onCreatePrimitive"
   | "onPrimitiveCreated"
+  | "onPrimitivesCreated"
   | "onUpdatePenPath"
   | "onPrimitiveReparent"
   | "onCreateScreenFrame"

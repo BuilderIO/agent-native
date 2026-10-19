@@ -252,7 +252,11 @@ import {
   BuilderSourceReviewDialog,
   type BuilderReviewPublicationTransitions,
 } from "../database-sources/BuilderSourceReviewDialog";
-import { PageEditorSurface, type PageEditorSession } from "../DocumentEditor";
+import {
+  PageEditorSurface,
+  type PageCommentIntent,
+  type PageEditorSession,
+} from "../DocumentEditor";
 import {
   AddProperty,
   PropertyManagementPopover,
@@ -294,6 +298,12 @@ import {
   useContentTableSelectionGutter,
 } from "./ContentTable";
 import { databaseCanCreateItems, databaseCreateTarget } from "./create-target";
+import {
+  DatabaseCellCommentMarker,
+  DatabaseItemCommentsContext,
+  DatabaseRowCommentCount,
+  type OpenDatabaseItemComments,
+} from "./database-item-comments";
 import {
   DatabaseColumnPresentation,
   ColumnPresentationMenuItems,
@@ -1050,6 +1060,9 @@ function DatabaseTable({
   const [previewDocumentId, setPreviewDocumentIdState] = useState<
     string | null
   >(null);
+  const [previewCommentIntent, setPreviewCommentIntent] =
+    useState<PageCommentIntent | null>(null);
+  const previewCommentIntentSequenceRef = useRef(0);
   const previewSessionRef = useRef<PageEditorSession | null>(null);
   const previewTransitionRef = useRef(false);
   const [previewTransitionPending, setPreviewTransitionPending] =
@@ -1091,6 +1104,7 @@ function DatabaseTable({
     if (id === previewDocumentId) return;
     runPreviewTransition(() => {
       previewSessionRef.current = null;
+      setPreviewCommentIntent(null);
       setPreviewDocumentIdState(id);
     });
   }
@@ -1914,6 +1928,41 @@ function DatabaseTable({
     }
     setPreviewDocumentId(item.document.id);
   }
+
+  // Opens the row with its Comments showing, from a count or a cell marker.
+  const previewItemComments: OpenDatabaseItemComments = (item, threadId) => {
+    if (openWorkspaceFiles(item)) return;
+    seedDatabaseItemDocumentCaches(queryClient, item);
+    prioritizeBuilderBodyHydrationForItem(item);
+    if (activeView.openPagesIn === "full_page") {
+      const path = databaseItemPagePath(
+        item.document.id,
+        databaseId,
+        document.id,
+      );
+      runPreviewTransition(
+        () =>
+          void navigate(
+            threadId ? `${path}&comment=${encodeURIComponent(threadId)}` : path,
+          ),
+      );
+      return;
+    }
+    const intent: PageCommentIntent = {
+      key: ++previewCommentIntentSequenceRef.current,
+      documentId: item.document.id,
+      threadId,
+    };
+    if (item.document.id === previewDocumentId) {
+      setPreviewCommentIntent(intent);
+      return;
+    }
+    runPreviewTransition(() => {
+      previewSessionRef.current = null;
+      setPreviewCommentIntent(intent);
+      setPreviewDocumentIdState(item.document.id);
+    });
+  };
 
   function handleDeletedPreviewItem(item: ContentDatabaseItem) {
     const previewState = previewStateRef.current;
@@ -3630,102 +3679,107 @@ function DatabaseTable({
           onOpenPage={openItemPage}
         />
       ) : (
-        <DatabaseTableView
-          startupAnchored={renderMode === "page"}
-          columnOrderIds={activeView.tableColumnOrderIds ?? []}
-          databaseId={databaseId}
-          databaseSystemRole={data?.database.systemRole}
-          newRowLabel={newDatabaseRowLabel}
-          canCreateItems={canCreateItems}
-          properties={tableProperties}
-          groupableProperties={orderedProperties}
-          items={visibleItems}
-          source={source}
-          sources={sources}
-          databaseDocumentId={document.id}
-          canEdit={effectiveCanEdit}
-          canEditRows={canEditWidgetRows}
-          canManageDatabase={effectiveCanEdit && document.canManage === true}
-          workspaceCreationPropertyValues={workspaceCreationPropertyValues}
-          isLoading={isDatabaseViewLoading}
-          isCreating={isCreatingDatabaseItem}
-          columnWidths={columnWidths}
-          sorts={sorts}
-          filters={filters}
-          activeFilters={activeFilters}
-          selectedItemIds={selectedItemIds}
-          hasSearch={!!searchQuery}
-          totalCount={totalItemCount}
-          constrained={hasResultConstraints}
-          rowsAreManuallyOrdered={rowsAreManuallyOrdered}
-          wrapCells={activeView.wrapCells === true}
-          onGroupByChange={(propertyId) =>
-            updateActiveView((view) =>
-              setDatabaseViewGroupByProperty(view, propertyId),
-            )
-          }
-          onEffectiveFrozenColumnsChange={setEffectiveFrozenColumnIds}
-          columnWrapOverrides={activeView.columnWrapOverrides ?? {}}
-          frozenThroughColumnId={activeView.frozenThroughColumnId}
-          onWrapColumn={(id, wrapped) =>
-            updateActiveView((view) => ({
-              ...view,
-              columnWrapOverrides: {
-                ...view.columnWrapOverrides,
-                [id]: wrapped,
-              },
-            }))
-          }
-          onFreezeThrough={(id) =>
-            updateActiveView((view) => ({ ...view, frozenThroughColumnId: id }))
-          }
-          rowDensity={activeView.rowDensity ?? "default"}
-          groupByPropertyId={activeView.groupByPropertyId ?? null}
-          collapsedGroupIds={activeView.collapsedGroupIds ?? []}
-          hideEmptyGroups={activeView.hideEmptyGroups === true}
-          focusedTitleDocumentId={inlineTitleFocusDocumentId}
-          addPropertyOpenRequestId={addPropertyOpenRequestId}
-          onAddPropertyOpenRequestHandled={(requestId) =>
-            setAddPropertyOpenRequestId((current) =>
-              current === requestId ? 0 : current,
-            )
-          }
-          onConnectSource={openSourcesFromAddProperty}
-          onClearResultConstraints={clearSearchAndFilters}
-          onSortsChange={setActiveSorts}
-          onFiltersChange={setActiveFilters}
-          onResizeColumn={resizeColumn}
-          onPropertyHiddenChange={setPropertyHiddenInActiveView}
-          onPropertyMove={movePropertyInActiveView}
-          calculations={activeView.calculations ?? {}}
-          onCalculationChange={setColumnCalculation}
-          onToggleRowSelection={(itemId) =>
-            setSelectedItemIds((current) =>
-              toggleDatabaseRowSelection(current, itemId),
-            )
-          }
-          onToggleAllRowsSelection={() =>
-            setSelectedItemIds((current) =>
-              toggleAllDatabaseRowSelection(current, visibleItems),
-            )
-          }
-          onClearSelection={() => setSelectedItemIds([])}
-          onRemoveSelection={(itemIds) =>
-            setSelectedItemIds((current) => {
-              const removedIds = new Set(itemIds);
-              return current.filter((itemId) => !removedIds.has(itemId));
-            })
-          }
-          onCreateRow={createInlineRow}
-          onUpdateWidgetRowTitle={updateWidgetRowTitle}
-          onCreateGroupedRow={createInlineGroupedRow}
-          onTitleFocusHandled={() => setInlineTitleFocusDocumentId(null)}
-          onGroupCollapsedChange={setGroupCollapsed}
-          onPreview={previewItemPage}
-          onDeletedPreviewItem={handleDeletedPreviewItem}
-          onDeletedPreviewItems={handleDeletedPreviewItems}
-          onOpenPage={openItemPage}
-        />
+        <DatabaseItemCommentsContext.Provider value={previewItemComments}>
+          <DatabaseTableView
+            startupAnchored={renderMode === "page"}
+            columnOrderIds={activeView.tableColumnOrderIds ?? []}
+            databaseId={databaseId}
+            databaseSystemRole={data?.database.systemRole}
+            newRowLabel={newDatabaseRowLabel}
+            canCreateItems={canCreateItems}
+            properties={tableProperties}
+            groupableProperties={orderedProperties}
+            items={visibleItems}
+            source={source}
+            sources={sources}
+            databaseDocumentId={document.id}
+            canEdit={effectiveCanEdit}
+            canEditRows={canEditWidgetRows}
+            canManageDatabase={effectiveCanEdit && document.canManage === true}
+            workspaceCreationPropertyValues={workspaceCreationPropertyValues}
+            isLoading={isDatabaseViewLoading}
+            isCreating={isCreatingDatabaseItem}
+            columnWidths={columnWidths}
+            sorts={sorts}
+            filters={filters}
+            activeFilters={activeFilters}
+            selectedItemIds={selectedItemIds}
+            hasSearch={!!searchQuery}
+            totalCount={totalItemCount}
+            constrained={hasResultConstraints}
+            rowsAreManuallyOrdered={rowsAreManuallyOrdered}
+            wrapCells={activeView.wrapCells === true}
+            onGroupByChange={(propertyId) =>
+              updateActiveView((view) =>
+                setDatabaseViewGroupByProperty(view, propertyId),
+              )
+            }
+            onEffectiveFrozenColumnsChange={setEffectiveFrozenColumnIds}
+            columnWrapOverrides={activeView.columnWrapOverrides ?? {}}
+            frozenThroughColumnId={activeView.frozenThroughColumnId}
+            onWrapColumn={(id, wrapped) =>
+              updateActiveView((view) => ({
+                ...view,
+                columnWrapOverrides: {
+                  ...view.columnWrapOverrides,
+                  [id]: wrapped,
+                },
+              }))
+            }
+            onFreezeThrough={(id) =>
+              updateActiveView((view) => ({
+                ...view,
+                frozenThroughColumnId: id,
+              }))
+            }
+            rowDensity={activeView.rowDensity ?? "default"}
+            groupByPropertyId={activeView.groupByPropertyId ?? null}
+            collapsedGroupIds={activeView.collapsedGroupIds ?? []}
+            hideEmptyGroups={activeView.hideEmptyGroups === true}
+            focusedTitleDocumentId={inlineTitleFocusDocumentId}
+            addPropertyOpenRequestId={addPropertyOpenRequestId}
+            onAddPropertyOpenRequestHandled={(requestId) =>
+              setAddPropertyOpenRequestId((current) =>
+                current === requestId ? 0 : current,
+              )
+            }
+            onConnectSource={openSourcesFromAddProperty}
+            onClearResultConstraints={clearSearchAndFilters}
+            onSortsChange={setActiveSorts}
+            onFiltersChange={setActiveFilters}
+            onResizeColumn={resizeColumn}
+            onPropertyHiddenChange={setPropertyHiddenInActiveView}
+            onPropertyMove={movePropertyInActiveView}
+            calculations={activeView.calculations ?? {}}
+            onCalculationChange={setColumnCalculation}
+            onToggleRowSelection={(itemId) =>
+              setSelectedItemIds((current) =>
+                toggleDatabaseRowSelection(current, itemId),
+              )
+            }
+            onToggleAllRowsSelection={() =>
+              setSelectedItemIds((current) =>
+                toggleAllDatabaseRowSelection(current, visibleItems),
+              )
+            }
+            onClearSelection={() => setSelectedItemIds([])}
+            onRemoveSelection={(itemIds) =>
+              setSelectedItemIds((current) => {
+                const removedIds = new Set(itemIds);
+                return current.filter((itemId) => !removedIds.has(itemId));
+              })
+            }
+            onCreateRow={createInlineRow}
+            onUpdateWidgetRowTitle={updateWidgetRowTitle}
+            onCreateGroupedRow={createInlineGroupedRow}
+            onTitleFocusHandled={() => setInlineTitleFocusDocumentId(null)}
+            onGroupCollapsedChange={setGroupCollapsed}
+            onPreview={previewItemPage}
+            onDeletedPreviewItem={handleDeletedPreviewItem}
+            onDeletedPreviewItems={handleDeletedPreviewItems}
+            onOpenPage={openItemPage}
+          />
+        </DatabaseItemCommentsContext.Provider>
       )}
 
       {hasMoreItems &&
@@ -3763,11 +3817,13 @@ function DatabaseTable({
         position={previewPosition}
         databaseDocumentId={document.id}
         open={!!previewItem}
+        commentIntent={previewCommentIntent}
         focusTitle={previewTitleFocusDocumentId === previewItem?.document.id}
         onOpenChange={(open) => {
           if (!open) {
             runPreviewTransition(() => {
               previewSessionRef.current = null;
+              setPreviewCommentIntent(null);
               setPreviewDocumentIdState(null);
               setPreviewTitleFocusDocumentId(null);
               setCreatedPreviewItem(null);
@@ -4976,6 +5032,7 @@ function DatabaseItemPreviewSheet({
   onOpenPage,
   transitionPending,
   onSessionChange,
+  commentIntent,
 }: {
   item: ContentDatabaseItem | null;
   previousItem: ContentDatabaseItem | null;
@@ -4983,6 +5040,7 @@ function DatabaseItemPreviewSheet({
   position: { index: number; total: number } | null;
   databaseDocumentId: string;
   open: boolean;
+  commentIntent: PageCommentIntent | null;
   focusTitle: boolean;
   transitionPending: boolean;
   onSessionChange: (session: PageEditorSession | null) => void;
@@ -5027,6 +5085,7 @@ function DatabaseItemPreviewSheet({
             position={position}
             focusTitle={focusTitle}
             onTitleFocused={onTitleFocused}
+            commentIntent={commentIntent}
             transitionPending={transitionPending}
             onSessionChange={onSessionChange}
             onPreviewItem={onPreviewItem}
@@ -5066,12 +5125,14 @@ function DatabaseItemPreview({
   onOpenPage,
   transitionPending,
   onSessionChange,
+  commentIntent,
 }: {
   item: ContentDatabaseItem;
   previousItem: ContentDatabaseItem | null;
   nextItem: ContentDatabaseItem | null;
   position: { index: number; total: number } | null;
   databaseDocumentId: string;
+  commentIntent: PageCommentIntent | null;
   focusTitle: boolean;
   transitionPending: boolean;
   onSessionChange: (session: PageEditorSession | null) => void;
@@ -5266,6 +5327,7 @@ function DatabaseItemPreview({
             host="preview"
             focusTitle={focusTitle}
             onTitleFocused={onTitleFocused}
+            commentIntent={commentIntent}
             onSessionChange={handleSessionChange}
             onDelete={() => deletePreviewPage()}
           />
@@ -18784,6 +18846,11 @@ function DatabaseTableRow({
             ) : (
               value
             )}
+            <DatabaseCellCommentMarker
+              item={item}
+              propertyId={itemProperty.definition.id}
+              propertyName={itemProperty.definition.name}
+            />
           </div>
         );
       })}
@@ -19187,6 +19254,7 @@ function RowNameCell({
           </span>
         </button>
       )}
+      {!editingTitle ? <DatabaseRowCommentCount item={item} /> : null}
       {canEditTitle && !editingTitle ? (
         <button
           type="button"

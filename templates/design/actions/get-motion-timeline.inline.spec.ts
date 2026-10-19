@@ -668,7 +668,7 @@ describe("get-motion-timeline inline source recovery", () => {
     });
   });
 
-  it("recovers native Figma style instances losslessly from source metadata", async () => {
+  it("recovers imported motion style instances losslessly from source metadata", async () => {
     const nativeStyles = [
       {
         type: "FIGMA" as const,

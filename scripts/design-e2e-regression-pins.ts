@@ -195,6 +195,12 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     title: "search selects Lato Medium and keeps custom font names offline",
   },
   {
+    shard: "inspector-4a",
+    file: "interaction-walkthrough-2.spec.ts",
+    title:
+      "Shift+A wraps the shift-clicked title and creator in a vertical auto-layout frame without moving them, and saves a gap of 4",
+  },
+  {
     shard: "inspector-4b",
     file: "inspector-styles.spec.ts",
     title: "export rows add, remove, and reset when selection changes",
@@ -208,6 +214,12 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     shard: "inspector-4b",
     file: "text-range-visibility.spec.ts",
     title: "Line Height Enter returns a real Text-tool range to the editor",
+  },
+  {
+    shard: "inspector-4b",
+    file: "text-range-visibility.spec.ts",
+    title:
+      "multi-selected text leaves share inspector styles, edits save to both, and one undo restores both",
   },
   {
     shard: "drag-1a",
@@ -378,6 +390,11 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     title: "Align uses a Group's bounds while Position stays Frame-relative",
   },
   {
+    shard: "inspector-4a",
+    file: "pasted-svg-image-inspector.spec.ts",
+    title: "stroke gradient edits stay on the selected nested pasted-SVG shape",
+  },
+  {
     shard: "inspector-1a",
     file: "ai-source-continuity.spec.ts",
     title:
@@ -425,6 +442,17 @@ export const DESIGN_E2E_REGRESSION_PINS = [
       "pastes a multi-selection across screens with each layer and child id regenerated",
   },
   {
+    shard: "position-1a",
+    file: "interaction-clipboard-duplicate.spec.ts",
+    title:
+      "cmd+C then cmd+V with nothing else selected pastes into the SAME parent, directly above the source, keeping name and size",
+  },
+  {
+    shard: "position-1b",
+    file: "interaction-clipboard-duplicate.spec.ts",
+    title: "with a container selected, paste goes inside that container",
+  },
+  {
     shard: "position-2a",
     file: "editor-keyboard-layers.spec.ts",
     title:
@@ -440,6 +468,28 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     shard: "drag-2a",
     file: "interaction-selection.spec.ts",
     title: "cmd+marquee over Card reaches into Kid A and Kid B",
+  },
+  {
+    shard: "drag-2a",
+    file: "interaction-selection.spec.ts",
+    title:
+      "click-selecting Screen 2 after a nested Screen 1 element replaces the layer selection, so Cmd+A selects all Screens",
+  },
+  {
+    shard: "drag-2b",
+    file: "interaction-selection.spec.ts",
+    title:
+      "marquee-selecting Screen 2 after a nested Screen 1 element replaces the layer selection, so Cmd+A selects all Screens",
+  },
+  {
+    shard: "drag-1a",
+    file: "interaction-unique-paths.spec.ts",
+    title: "Cmd+A with a child selected selects exactly that child's siblings",
+  },
+  {
+    shard: "drag-1a",
+    file: "interaction-unique-paths.spec.ts",
+    title: "Cmd+A with no selection selects every Screen",
   },
   {
     shard: "inspector-4a",
@@ -489,6 +539,28 @@ export const DESIGN_E2E_REGRESSION_PINS = [
       "pasted SVG is an editable sized layer and image scale mode writes object-fit",
   },
   {
+    shard: "inspector-4b",
+    file: "vector-live-edit-acceptance.spec.ts",
+    title:
+      "closing an edited pasted SVG restores authored fill opacity through history and reload",
+  },
+  {
+    shard: "inspector-1b",
+    file: "vector-live-edit-acceptance.spec.ts",
+    title: "editing a resized pasted SVG keeps its frame and non-path sibling",
+  },
+  {
+    shard: "drag-2a",
+    file: "interaction-walkthrough-8.spec.ts",
+    title: "Cmd+D duplicates every selected screen in one undo step",
+  },
+  {
+    shard: "position-2b",
+    file: "vector-live-edit-acceptance.spec.ts",
+    title:
+      "an open pasted SVG continues from its endpoint and closes without adding a fill",
+  },
+  {
     shard: "drag-1a",
     file: "drag-and-drop.drop-containers-modifier-collisions-marquee.spec.ts",
     title: "dragging from empty canvas marquee-selects the elements it covers",
@@ -511,7 +583,7 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     title: "Cmd+Shift+R replaces a flow text root at its measured origin",
   },
   {
-    shard: "inspector-1a",
+    shard: "inspector-3b",
     file: "canvas-chords.spec.ts",
     title: "Cmd+Shift+R uses rendered flow offsets for relative text",
   },

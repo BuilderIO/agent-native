@@ -164,10 +164,7 @@ describe("tool-call result ledger", () => {
     currentTurnEventsMock.mockResolvedValue([]);
   });
 
-  it("writes a ledger entry for a dynamically classified write", async () => {
-    // Simulate the zombie path: the action promise resolves normally (no race),
-    // meaning the zombie .then() fires. With threadId set, writeLedgerEntry
-    // must be called with the thread + tool key.
+  it("emits a dynamically classified write result without a zombie ledger entry", async () => {
     const action = makeWriteAction();
     action.readOnly = true;
     action.planMode = {
@@ -198,6 +195,7 @@ describe("tool-call result ledger", () => {
         };
       },
     };
+    const events: any[] = [];
 
     await runAgentLoop({
       engine: singleToolEngine("save-data", { payload: "x" }),
@@ -206,20 +204,20 @@ describe("tool-call result ledger", () => {
       tools: [],
       messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
       actions: { "save-data": action },
-      send: () => {},
+      send: (event) => events.push(event),
       signal: new AbortController().signal,
       threadId: "thread-zombie",
     });
 
-    expect(writeLedgerMock).toHaveBeenCalledWith(
-      "thread-zombie",
-      ledgerKey("save-data", { payload: "x" }),
-      JSON.stringify(actionResult, null, 2),
-      [],
-      false,
-      JSON.stringify(widgetResult),
-      actionArgumentsHash({ payload: "x" }),
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "save-data",
+        completedSideEffect: true,
+        chatUIResult: widgetResult,
+      }),
     );
+    expect(writeLedgerMock).not.toHaveBeenCalled();
   });
 
   it("keeps the request pool alive through a late zombie ledger write", async () => {
@@ -321,7 +319,7 @@ describe("tool-call result ledger", () => {
     expect(writeLedgerMock).not.toHaveBeenCalled();
   });
 
-  it("emits and ledgers artifact receipts before the tool result is capped", async () => {
+  it("emits artifact receipts before the tool result is capped", async () => {
     const action = makeWriteAction();
     action.maxResultChars = 80;
     (action.run as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -362,19 +360,7 @@ describe("tool-call result ledger", () => {
         artifacts: [receipt],
       }),
     );
-    expect(writeLedgerMock).toHaveBeenCalledWith(
-      "thread-artifact",
-      ledgerKey("generate-asset", { prompt: "large image" }),
-      expect.stringContaining('"payload"'),
-      [receipt],
-      false,
-      undefined,
-      actionArgumentsHash({ prompt: "large image" }),
-    );
-    const zombieWrite = writeLedgerMock.mock.calls.find(
-      ([threadId]) => threadId === "thread-artifact",
-    );
-    expect(zombieWrite?.[2]).not.toContain("_agentImages");
+    expect(writeLedgerMock).not.toHaveBeenCalled();
   });
 
   it("keeps a draft delete as ordinary tool work when chatUI.when does not match", async () => {
@@ -498,15 +484,7 @@ describe("tool-call result ledger", () => {
       chatUI: { renderer: "mail.draft-created" },
       chatUIResult: widgetResult,
     });
-    expect(writeLedgerMock).toHaveBeenCalledWith(
-      "thread-structured-widget",
-      ledgerKey("manage-draft", { action: "create" }),
-      JSON.stringify(result, null, 2),
-      [],
-      false,
-      JSON.stringify(widgetResult),
-      actionArgumentsHash({ action: "create" }),
-    );
+    expect(writeLedgerMock).not.toHaveBeenCalled();
   });
 
   it("emits widgets when the transcript result is truncated", async () => {

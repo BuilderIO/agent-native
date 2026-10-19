@@ -22,6 +22,7 @@ import type {
   ContentHistoryEntry,
   YjsUndoSelectionSnapshot,
 } from "@/pages/design-editor/history";
+import { captureYjsUndoHistoryUpdate } from "@/pages/design-editor/history";
 import { designSaveErrorMessage } from "@/pages/design-editor/save-failure";
 import { prepareAcceptedSourceContent } from "@/pages/design-editor/source-publication";
 import type { DesignFile } from "@/pages/design-editor/types";
@@ -92,6 +93,7 @@ export type ApplyLocalContentUpdateResult =
       status: "accepted";
       content: string;
       nodeIdMap: ReadonlyMap<string, string>;
+      yjsHistoryRecorded?: boolean;
       saveCompletion?: Promise<FileContentSaveCompletion>;
     }
   | { status: "refused" };
@@ -300,18 +302,28 @@ export function runApplyLocalContentUpdate(
   if (renderFallback) {
     setContentRenderRevision((revision) => revision + 1);
   }
+  let yjsHistoryRecorded = false;
   if (ydoc && writeLiveDoc && !previewOnly) {
     const ytext = ydoc.getText("content");
     if (ytext.toJSON() !== nextContent) {
       if (!yjsHistoryAvailable) {
         undoManagerRef.current?.clear(true, false);
       }
-      writeCollabText(
-        ydoc,
-        ytext,
-        nextContent,
-        yjsHistoryAvailable ? LOCAL_EDIT_ORIGIN : TAB_ID,
-      );
+      const write = () =>
+        writeCollabText(
+          ydoc,
+          ytext,
+          nextContent,
+          yjsHistoryAvailable ? LOCAL_EDIT_ORIGIN : TAB_ID,
+        );
+      if (yjsHistoryAvailable) {
+        yjsHistoryRecorded = captureYjsUndoHistoryUpdate(
+          undoManagerRef.current,
+          write,
+        ).recorded;
+      } else {
+        write();
+      }
     }
   }
   let saveCompletion: Promise<FileContentSaveCompletion> | undefined;
@@ -336,6 +348,7 @@ export function runApplyLocalContentUpdate(
     status: "accepted",
     content: nextContent,
     nodeIdMap: prepared.nodeIdMap,
+    yjsHistoryRecorded,
     ...(options.awaitSave && saveCompletion instanceof Promise
       ? { saveCompletion }
       : {}),
