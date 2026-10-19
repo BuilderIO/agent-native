@@ -1771,3 +1771,96 @@ describe("importLoomTranscriptForRecording", () => {
     );
   });
 });
+
+describe("requestTranscript for a YouTube clip", () => {
+  it("refuses before queueing work, since Clips has no copy of the audio", async () => {
+    vi.clearAllMocks();
+    mockSelectRows.queue = [];
+    mockAssertAccess.mockResolvedValue({
+      role: "editor",
+      resource: {
+        sourceAppName: "YouTube",
+        sourceWindowTitle: "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+        videoUrl: "https://www.youtube.com/embed/jNQXAC9IVRw",
+      },
+    });
+
+    await expect(
+      requestTranscript.run({ recordingId: "rec_youtube" }, {
+        caller: "tool",
+      } as any),
+    ).rejects.toMatchObject({
+      errorCode: "native_media_required",
+      statusCode: 422,
+    });
+    expect(mockDispatchPostFinalizeJob).not.toHaveBeenCalled();
+    expect(mockDb.select).not.toHaveBeenCalled();
+  });
+
+  it("finishes the follow-up job for an imported transcript", async () => {
+    vi.clearAllMocks();
+    mockAssertAccess.mockResolvedValue({
+      role: "editor",
+      resource: {
+        sourceAppName: "YouTube",
+        sourceWindowTitle: "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+        videoUrl: "https://www.youtube.com/embed/jNQXAC9IVRw",
+      },
+    });
+    mockSelectRows.queue = [
+      [
+        {
+          status: "ready",
+          fullText: "All right, so here we are in front of the elephants.",
+          segmentsJson: JSON.stringify([
+            {
+              startMs: 0,
+              endMs: 4000,
+              text: "All right, so here we are in front of the elephants.",
+            },
+          ]),
+          language: "en",
+          source: "imported",
+          importId: "import_1",
+        },
+      ],
+      [
+        {
+          title: "Me at the zoo",
+          titleSource: "manual",
+          description: "",
+          durationMs: 19_000,
+        },
+      ],
+    ];
+
+    const result = await requestTranscript.run({
+      recordingId: "rec_youtube",
+      force: true,
+    });
+
+    expect(result).toMatchObject({ status: "ready", provider: "existing" });
+    expect(mockTranscribeWithBuilder).not.toHaveBeenCalled();
+  });
+
+  it("refuses the job when there is no transcript to keep", async () => {
+    vi.clearAllMocks();
+    mockAssertAccess.mockResolvedValue({
+      role: "editor",
+      resource: {
+        sourceAppName: "YouTube",
+        sourceWindowTitle: "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+        videoUrl: "https://www.youtube.com/embed/jNQXAC9IVRw",
+      },
+    });
+    mockSelectRows.queue = [[{ mediaUpdatedAt: null, status: null }]];
+
+    await expect(
+      requestTranscript.run({ recordingId: "rec_youtube", force: true }),
+    ).rejects.toMatchObject({
+      errorCode: "native_media_required",
+      statusCode: 422,
+    });
+    expect(mockTranscribeWithBuilder).not.toHaveBeenCalled();
+  });
+});

@@ -14,6 +14,7 @@ import {
   type FilmstripSpriteGrid,
 } from "../../server/lib/video-filmstrip-sprite.js";
 import { isLoomRecordingSource } from "../../shared/loom.js";
+import { isYouTubeEmbedBackedRecording } from "../../shared/youtube.js";
 import {
   fetchProviderBytes,
   isRemoteProviderUrl,
@@ -97,7 +98,7 @@ export async function ensureRecordingFilmstrip(params: {
   if (rec.status !== "ready") {
     return { recordingId, status: "skipped-not-ready", changed: false };
   }
-  if (isLoomRecordingSource(rec)) {
+  if (isLoomRecordingSource(rec) || isYouTubeEmbedBackedRecording(rec)) {
     return { recordingId, status: "skipped-local-media", changed: false };
   }
   if (!rec.videoUrl) {

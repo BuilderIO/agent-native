@@ -531,6 +531,26 @@ describe("Design final response guard", () => {
     }
   });
 
+  it("counts a Builder delegation only once Builder finished it", () => {
+    const delegated = (value: Record<string, unknown>) =>
+      designFinalResponseGuard(
+        guardContext("make the header sticky", {
+          toolResults: [toolResult("send-builder-message", value)],
+        }),
+      );
+
+    expect(delegated({ sent: true, completed: true })).toBeNull();
+    expect(
+      delegated({
+        sent: true,
+        completed: false,
+        unconfirmed: true,
+        error: "Timed out waiting for the app agent to finish",
+      }),
+    ).not.toBeNull();
+    expect(delegated({ sent: true, completed: false })).not.toBeNull();
+  });
+
   it("does not accept a partial generation", () => {
     const result = designFinalResponseGuard(
       guardContext("create another version of this", {

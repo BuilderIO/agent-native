@@ -1356,6 +1356,9 @@ async function readHttpRuntimeError(response: Response): Promise<Error> {
   const runSlotBusy =
     status === 409 &&
     (explicitCode === "run_slot_busy" ||
+      (explicitCode === "queued_message_already_submitted" &&
+        typeof submittedRunId === "string" &&
+        submittedRunId.length > 0) ||
       (explicitCode === undefined &&
         (activeRunIdValue ||
           (typeof submittedRunId === "string" && submittedRunId.length > 0))));

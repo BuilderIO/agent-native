@@ -180,10 +180,21 @@ const messages = {
   "onboarding.creditsActivate": "Activate free credits",
   "onboarding.creditsFinePrint":
     "This will create a free Builder.io account. By continuing, you agree to our",
-  "onboarding.creditsConnectExisting": "Connect an existing Builder.io account",
   "onboarding.creditsMoreInfo": "More info",
-  "onboarding.creditsSkipBody":
-    "If you skip, you'll need to connect your own keys to use AI and storage.",
+  "onboarding.creditsSubtitle":
+    "Get free credits for LLMs, Jev, storage, and more for this app in one click from Builder.io.",
+  "onboarding.creditsLearnMore": "Learn more",
+  "onboarding.creditsSkip": "Skip",
+  "onboarding.creditsSkipConfirmTitle": "Are you sure?",
+  "onboarding.creditsSkipConfirmBody":
+    "Agent-Native apps need an LLM connected to use most features. Most functionality won't work without one.",
+  "onboarding.creditsSkipGoBack": "Go back",
+  "onboarding.creditsSkipAnyway": "Skip anyway",
+  "onboarding.creditsUseCustomKeys": "Use custom keys",
+  "onboarding.creditsAboutLabel": "About free credits",
+  "onboarding.creditsActivating": "Activating free credits",
+  "onboarding.creditsActivatingTooltip":
+    "Builder provides free credits for LLMs, Jev, storage, and more, so you can use this app’s AI features without bringing your own keys.",
   "onboarding.builderActivating": "Activating Builder.io free credits",
   "onboarding.builderConnecting": "Setting up Builder.io credits",
   "onboarding.builderProvisioningDescription":

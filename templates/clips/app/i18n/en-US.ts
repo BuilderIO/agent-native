@@ -1317,6 +1317,15 @@ const messages = {
     playClip: "Play clip",
     unsupportedFormat:
       "This browser can't play this video. Try opening the link in Chrome, Edge, or Firefox.",
+    youtubeLoading: "Loading YouTube's player",
+    youtubeUnavailable: "This YouTube video is private or has been removed.",
+    youtubeEmbedBlocked:
+      "This video's owner doesn't allow it to play outside YouTube.",
+    youtubeInvalid: "This YouTube link doesn't point to a playable video.",
+    youtubePlaybackFailed: "YouTube couldn't play this video here.",
+    youtubeApiUnavailable:
+      "YouTube's player didn't load. Check your connection or content blocker, then reload.",
+    watchOnYouTube: "Watch on YouTube",
   },
   searchBar: {
     placeholder: "Search recordings…",
@@ -1947,6 +1956,8 @@ const messages = {
     storageNeededToFinishLoomImport: "Storage needed to finish Loom import",
     loomImported: "Loom imported",
     couldNotImportLoom: "Could not import that Loom.",
+    youtubeImported: "YouTube video added",
+    couldNotImportVideo: "Could not import that video.",
     recordingReadyToUpload: "Recording is ready to upload",
     recordingSaved: "Recording saved",
     linkCopied: "Link copied",
@@ -2051,7 +2062,7 @@ const messages = {
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "Import",
     helperText:
-      "Works great with Loom. You can also paste a link to any other screen recording or video file.",
+      "Works great with Loom and YouTube. You can also paste a link to any other screen recording or video file.",
     stageFetching: "Pulling in your video…",
     stageUploading: "Uploading the raw footage…",
     stageTranscript: "Making speech and on-screen visuals agent-readable…",

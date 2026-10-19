@@ -39,9 +39,9 @@ import {
   lockTaskExecutionLease,
   revokeTaskExecutionLease,
 } from "../agent/run-store.js";
+import { buildAssistantMessageFromRunJournal } from "../agent/run-thread-projector.js";
 import { resolveMaxSubagentDelegationDepth } from "../agent/runtime-context.js";
 import {
-  buildAssistantMessage,
   foldAssistantTurn,
   threadDataToEngineMessages,
 } from "../agent/thread-data-builder.js";
@@ -2029,9 +2029,14 @@ async function persistTaskThreadData(
     if (!repo.headId) repo.headId = userMsgId;
   }
 
-  const assistantMsg = buildAssistantMessage(run.events ?? [], runId, {
-    suppressInternalContinuation: true,
+  const assistantMsg = await buildAssistantMessageFromRunJournal({
+    threadId: task.threadId,
     turnId,
+    runId,
+    runEvents: run.events ?? [],
+    options: {
+      suppressInternalContinuation: true,
+    },
   });
   if (assistantMsg) {
     repo = foldAssistantTurn(repo, assistantMsg, { runId, turnId });

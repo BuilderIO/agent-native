@@ -47,6 +47,8 @@
     "test:ci-red-report": "node --experimental-strip-types --test scripts/ci-red-report.test.ts",
     "test:guard-test-title-production": "node --experimental-strip-types --test scripts/guard-test-title-production.test.ts",
     "ci:red-report": "node --experimental-strip-types scripts/ci-red-report.ts",
+    "community-prs": "node --experimental-strip-types scripts/community-prs.ts",
+    "test:community-prs": "node --experimental-strip-types --test scripts/community-prs.test.ts",
     "test:netlify-migration-url": "tsx --test scripts/netlify-migration-url.test.ts",
     "test:netlify-database-region": "tsx --test scripts/netlify-database-region.test.ts",
     "test:netlify-prebuilt-workflow": "tsx --test scripts/guard-netlify-prebuilt-workflow.test.ts scripts/netlify-migration-url.test.ts scripts/netlify-database-region.test.ts scripts/verify-netlify-prebuilt-client.spec.ts scripts/smoke-check-health.test.ts scripts/check-production-cache-contract.test.ts scripts/cleanup-netlify-pr-previews.test.ts scripts/netlify-prebuilt-target.spec.ts scripts/netlify-pr-preview-targets.test.ts scripts/netlify-beta-targets.test.ts scripts/sync-netlify-preview-database.test.ts",

@@ -27,7 +27,10 @@ const backendMocks = vi.hoisted(() => ({
   table: vi.fn(),
   insert: vi.fn(),
   insertWithResults: vi.fn(),
+  plan: vi.fn(),
   query: vi.fn(),
+  render: vi.fn(),
+  settle: vi.fn(),
 }));
 const exceptionMocks = vi.hoisted(() => ({
   ingest: vi.fn(),
@@ -137,7 +140,10 @@ vi.mock("./first-party-analytics-backend.js", () => ({
   getFirstPartyAnalyticsTable: backendMocks.table,
   insertFirstPartyAnalyticsRows: backendMocks.insert,
   insertFirstPartyAnalyticsRowsWithResults: backendMocks.insertWithResults,
+  planFirstPartyEventsSource: backendMocks.plan,
   queryFirstPartyAnalyticsInBigQuery: backendMocks.query,
+  renderFirstPartyAnalyticsBigQueryRequestSql: backendMocks.render,
+  settleFirstPartyEventsSource: backendMocks.settle,
 }));
 
 import { lexAgentSql } from "@agent-native/core/agent-sql";
@@ -152,6 +158,7 @@ import {
   FirstPartyAnalyticsQueryTimeoutError,
   firstPartyAnalyticsTableBackends,
   recordAnalyticsEvents,
+  renderFirstPartyAnalyticsBigQueryEstimateSql,
   resolveAnalyticsEventDimensions,
   scopedAnalyticsSql,
   SESSION_RECORDING_FILTER_TABLES,
@@ -219,6 +226,9 @@ beforeEach(() => {
       error: null,
     }));
   backendMocks.query.mockReset();
+  backendMocks.plan.mockReset();
+  backendMocks.render.mockReset();
+  backendMocks.settle.mockReset();
   exceptionMocks.ingest.mockReset();
   sessionEventIndexMocks.record.mockReset();
   sessionEventIndexMocks.record.mockResolvedValue(undefined);
@@ -1817,6 +1827,39 @@ describe("queryFirstPartyAnalytics", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
+  it("plans the events source from the caller's SQL and the configured model", async () => {
+    const plan = {
+      source: "model",
+      table: "example-project.dbt_mart.fact_events",
+    };
+    backendMocks.plan.mockReturnValueOnce(plan);
+    backendMocks.get.mockResolvedValueOnce({
+      sink: "bigquery",
+      table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      modelTable: "example-project.dbt_mart.fact_events",
+    });
+    const sql = "SELECT COUNT(*) AS count FROM analytics_events";
+
+    await queryFirstPartyAnalytics(
+      sql,
+      { userEmail: "alice@example.com", orgId: "org_123" },
+      { eventsSource: "raw" },
+    );
+
+    // The scoped SQL adds the tenant filter; eligibility reads the caller's.
+    expect(backendMocks.plan).toHaveBeenCalledWith(
+      sql,
+      "example-project.dbt_mart.fact_events",
+      expect.objectContaining({ eventsSource: "raw" }),
+    );
+    expect(backendMocks.query).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Array),
+      expect.any(Object),
+      expect.objectContaining({ eventsSource: plan }),
+    );
+  });
+
   it("forwards the frozen onboarding range and records BigQuery read failures", async () => {
     const scope = { userEmail: "alice@example.com", orgId: "org_123" };
     healthMocks.classify.mockReturnValue("raw-events");
@@ -3011,5 +3054,86 @@ describe("queryFirstPartyAnalytics", () => {
       cached: false,
       fetchedAt: expect.any(String),
     });
+  });
+});
+
+describe("renderFirstPartyAnalyticsBigQueryEstimateSql", () => {
+  const scope = { userEmail: "alice@example.com", orgId: "org_123" };
+  const model = "example-project.dbt_mart.fact_events";
+  const sql = "SELECT COUNT(*) AS count FROM analytics_events";
+
+  beforeEach(() => {
+    backendMocks.get.mockResolvedValue({
+      sink: "bigquery",
+      table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      modelTable: model,
+    });
+    backendMocks.render.mockReturnValue("SELECT 1");
+  });
+
+  it("prices the events model when the panel's query would read it", async () => {
+    const plan = { source: "model", table: model };
+    backendMocks.plan.mockReturnValueOnce(plan);
+    backendMocks.settle.mockResolvedValueOnce({
+      eventsSource: plan,
+      sourceGeneration: undefined,
+    });
+
+    await expect(
+      renderFirstPartyAnalyticsBigQueryEstimateSql(sql, scope),
+    ).resolves.toEqual({ target: "bigquery", sql: "SELECT 1" });
+
+    expect(backendMocks.plan).toHaveBeenCalledWith(sql, model, {
+      eventsSource: undefined,
+    });
+    expect(backendMocks.settle).toHaveBeenCalledWith(plan, undefined);
+    expect(backendMocks.render).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Array),
+      expect.objectContaining({ tableId: "first_party_analytics_events_raw" }),
+      { eventsModelTable: model },
+    );
+  });
+
+  it("passes a raw-table request to the plan, as alerts make", async () => {
+    backendMocks.plan.mockReturnValueOnce({
+      source: "raw",
+      modelSkipped: "raw_requested",
+    });
+    backendMocks.settle.mockImplementationOnce(async (eventsSource) => ({
+      eventsSource,
+      sourceGeneration: undefined,
+    }));
+
+    await renderFirstPartyAnalyticsBigQueryEstimateSql(sql, scope, undefined, {
+      eventsSource: "raw",
+    });
+
+    expect(backendMocks.plan).toHaveBeenCalledWith(sql, model, {
+      eventsSource: "raw",
+    });
+    expect(backendMocks.render).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Array),
+      expect.any(Object),
+      {},
+    );
+  });
+
+  it("prices the raw table when the model is not there to read", async () => {
+    backendMocks.plan.mockReturnValueOnce({ source: "model", table: model });
+    backendMocks.settle.mockResolvedValueOnce({
+      eventsSource: { source: "raw", modelSkipped: "model_not_found" },
+      sourceGeneration: undefined,
+    });
+
+    await renderFirstPartyAnalyticsBigQueryEstimateSql(sql, scope);
+
+    expect(backendMocks.render).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Array),
+      expect.any(Object),
+      {},
+    );
   });
 });

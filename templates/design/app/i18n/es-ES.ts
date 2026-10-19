@@ -918,6 +918,24 @@ export default {
     motion: {
       openDock: "Movimiento",
       animations: "Animaciones",
+      code: {
+        list: "Lista",
+        code: "Código",
+        format: "Formato del código",
+        css: "CSS",
+        data: "Datos",
+        styles: "Estilos",
+        keyframes: "Fotogramas clave",
+        copy: "Copiar",
+        copyAll: "Copiar todo",
+        copied: "Copiado",
+        copyFailed: "No se pudo copiar",
+        showMore: "Mostrar más",
+        openInTimeline: "Abrir en la línea de tiempo",
+        nothingToList: "No hay filas de animación que mostrar",
+        nothingToShow: "No hay movimiento que mostrar como código",
+        unavailable: "No se puede mostrar el código de este movimiento",
+      },
       pathEditAmbiguous:
         "Esta capa tiene varias animaciones de posición, por lo que su trayectoria no se puede editar de forma inequívoca.",
       pathEditPositionConflict:
@@ -1161,6 +1179,14 @@ export default {
       emptyStateNoSelection:
         "Selecciona un elemento en el lienzo y añade una pista para animarlo.",
       addMotion: "Añadir animación",
+      addMenu: {
+        strokeColor: "Color del trazo",
+        strokeWeight: "Grosor del trazo",
+        readyMade: "Estilo de animación",
+        outermostFrame: "Los marcos de nivel superior no se pueden animar",
+        allStylesAdded:
+          "Esta selección ya tiene todos los estilos de animación",
+      },
       text: "Texto",
       textAnimation: {
         title: "Animación de texto",
@@ -1226,6 +1252,22 @@ export default {
           blur: "Desenfoque",
           distance: "Distancia",
           amount: "Cantidad",
+        },
+      },
+      textStaggerControls: {
+        settings: "Ajustes",
+        effects: "Efectos",
+        addEffect: "Añadir efecto",
+        crop: "Recortar",
+        showDetails: "Mostrar detalles",
+        hideDetails: "Ocultar detalles",
+        removeEffect: "Quitar efecto",
+        effectNames: {
+          move: "Mover",
+          growShrink: "Ampliar o reducir",
+          spin: "Girar",
+          fade: "Desvanecer",
+          soften: "Suavizar",
         },
       },
       selectElementFirst: "Selecciona primero un elemento en el lienzo",
@@ -2123,7 +2165,6 @@ export default {
     fork: "Bifurcar",
     fullView: "Vista completa",
     preview: "Vista previa",
-    focusScreen: "Enfocar pantalla",
     openAndDuplicate:
       "Selecciona {{display}}. Usa Interactuar para desplazamiento enfocado.",
     openAndPreview:

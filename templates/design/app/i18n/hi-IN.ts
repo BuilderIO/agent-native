@@ -902,6 +902,24 @@ export default {
     motion: {
       openDock: "मोशन",
       animations: "एनिमेशन",
+      code: {
+        list: "सूची",
+        code: "कोड",
+        format: "कोड फ़ॉर्मैट",
+        css: "CSS",
+        data: "डेटा",
+        styles: "स्टाइल",
+        keyframes: "कीफ़्रेम",
+        copy: "कॉपी करें",
+        copyAll: "सभी कॉपी करें",
+        copied: "कॉपी हो गया",
+        copyFailed: "कॉपी नहीं हो सका",
+        showMore: "और दिखाएँ",
+        openInTimeline: "टाइमलाइन में खोलें",
+        nothingToList: "सूची में दिखाने के लिए कोई एनिमेशन पंक्ति नहीं है",
+        nothingToShow: "कोड के रूप में दिखाने के लिए कोई मोशन नहीं है",
+        unavailable: "इस मोशन का कोड नहीं दिखाया जा सकता",
+      },
       pathEditAmbiguous:
         "इस लेयर में कई Position एनिमेशन हैं, इसलिए इसका पाथ स्पष्ट रूप से संपादित नहीं किया जा सकता।",
       pathEditPositionConflict:
@@ -1142,6 +1160,13 @@ export default {
       emptyStateNoSelection:
         "कैनवस पर एक एलिमेंट चुनें, फिर उसे एनिमेट करने के लिए एक ट्रैक जोड़ें।",
       addMotion: "एनिमेशन जोड़ें",
+      addMenu: {
+        strokeColor: "स्ट्रोक का रंग",
+        strokeWeight: "स्ट्रोक की मोटाई",
+        readyMade: "एनिमेशन शैली",
+        outermostFrame: "शीर्ष-स्तर के Frame को एनिमेट नहीं किया जा सकता",
+        allStylesAdded: "इस चयन में सभी एनिमेशन शैलियाँ पहले से जोड़ी जा चुकी हैं",
+      },
       text: "टेक्स्ट",
       textAnimation: {
         title: "टेक्स्ट एनिमेशन",
@@ -1207,6 +1232,22 @@ export default {
           blur: "धुंधलापन",
           distance: "दूरी",
           amount: "मात्रा",
+        },
+      },
+      textStaggerControls: {
+        settings: "सेटिंग्स",
+        effects: "प्रभाव",
+        addEffect: "प्रभाव जोड़ें",
+        crop: "क्रॉप करें",
+        showDetails: "विवरण दिखाएँ",
+        hideDetails: "विवरण छिपाएँ",
+        removeEffect: "प्रभाव हटाएँ",
+        effectNames: {
+          move: "हिलाएँ",
+          growShrink: "बड़ा या छोटा करें",
+          spin: "घुमाएँ",
+          fade: "फीका करें",
+          soften: "नरम करें",
         },
       },
       selectElementFirst: "पहले कैनवस पर एक एलिमेंट चुनें",
@@ -2082,7 +2123,6 @@ export default {
     fork: "फोर्क",
     fullView: "पूर्ण दृश्य",
     preview: "पूर्वावलोकन",
-    focusScreen: "स्क्रीन पर फ़ोकस करें",
     openAndDuplicate:
       "{{display}} चुनें। केंद्रित स्क्रॉलिंग के लिए इंटरैक्ट मोड का उपयोग करें।",
     openAndPreview:

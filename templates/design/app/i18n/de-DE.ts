@@ -923,6 +923,24 @@ export default {
     motion: {
       openDock: "Motion",
       animations: "Animationen",
+      code: {
+        list: "Liste",
+        code: "Code",
+        format: "Codeformat",
+        css: "CSS",
+        data: "Daten",
+        styles: "Stile",
+        keyframes: "Keyframes",
+        copy: "Kopieren",
+        copyAll: "Alle kopieren",
+        copied: "Kopiert",
+        copyFailed: "Kopieren fehlgeschlagen",
+        showMore: "Mehr anzeigen",
+        openInTimeline: "In Zeitleiste öffnen",
+        nothingToList: "Keine Animationszeilen zum Auflisten",
+        nothingToShow: "Keine Motion zum Anzeigen als Code",
+        unavailable: "Code für diese Motion kann nicht angezeigt werden",
+      },
       pathEditAmbiguous:
         "Diese Ebene hat mehrere Positionsanimationen. Ihr Pfad kann daher nicht eindeutig bearbeitet werden.",
       pathEditPositionConflict:
@@ -1166,6 +1184,14 @@ export default {
       emptyStateNoSelection:
         "Wähle ein Element auf der Leinwand aus und füge dann eine Spur hinzu, um es zu animieren.",
       addMotion: "Animation hinzufügen",
+      addMenu: {
+        strokeColor: "Konturfarbe",
+        strokeWeight: "Konturstärke",
+        readyMade: "Animationsstil",
+        outermostFrame:
+          "Frames der obersten Ebene können nicht animiert werden",
+        allStylesAdded: "Diese Auswahl hat bereits alle Animationsstile",
+      },
       text: "Text",
       textAnimation: {
         title: "Textanimation",
@@ -1231,6 +1257,22 @@ export default {
           blur: "Unschärfe",
           distance: "Abstand",
           amount: "Menge",
+        },
+      },
+      textStaggerControls: {
+        settings: "Einstellungen",
+        effects: "Effekte",
+        addEffect: "Effekt hinzufügen",
+        crop: "Zuschneiden",
+        showDetails: "Details anzeigen",
+        hideDetails: "Details ausblenden",
+        removeEffect: "Effekt entfernen",
+        effectNames: {
+          move: "Bewegen",
+          growShrink: "Vergrößern oder verkleinern",
+          spin: "Drehen",
+          fade: "Verblassen",
+          soften: "Weichzeichnen",
         },
       },
       selectElementFirst: "Wähle zuerst ein Element auf der Leinwand aus",
@@ -2142,7 +2184,6 @@ export default {
     fork: "Abzweigen",
     fullView: "Vollansicht",
     preview: "Vorschau",
-    focusScreen: "Bildschirm fokussieren",
     openAndDuplicate:
       "{{display}} auswählen. Verwenden Sie Interagieren zum fokussierten Scrollen.",
     openAndPreview:

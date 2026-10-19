@@ -1,5 +1,12 @@
 # @agent-native/creative-context
 
+## 0.8.44
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 0cfbd4d: Include the MIT license text in the published package.
+
 ## 0.8.43
 
 ### Patch Changes

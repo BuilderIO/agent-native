@@ -178,10 +178,21 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.creditsActivate": "무료 크레딧 활성화",
   "onboarding.creditsFinePrint":
     "이렇게 하면 무료 Builder.io 계정이 생성됩니다. 계속하면 당사의",
-  "onboarding.creditsConnectExisting": "기존 Builder.io 계정 연결",
   "onboarding.creditsMoreInfo": "자세한 정보",
-  "onboarding.creditsSkipBody":
-    "건너뛰면 AI와 저장소를 사용하기 위해 자신의 키를 연결해야 합니다.",
+  "onboarding.creditsSubtitle":
+    "Builder.io에서 이 앱을 위해 한 번의 클릭으로 LLM, Jev, 스토리지 등의 무료 크레딧을 받으세요.",
+  "onboarding.creditsLearnMore": "자세히 알아보기",
+  "onboarding.creditsSkip": "건너뛰기",
+  "onboarding.creditsSkipConfirmTitle": "정말 건너뛰시겠습니까?",
+  "onboarding.creditsSkipConfirmBody":
+    "Agent-Native 앱은 대부분의 기능을 사용하려면 연결된 LLM이 필요합니다. LLM이 없으면 대부분의 기능이 작동하지 않습니다.",
+  "onboarding.creditsSkipGoBack": "돌아가기",
+  "onboarding.creditsSkipAnyway": "그래도 건너뛰기",
+  "onboarding.creditsUseCustomKeys": "사용자 지정 키 사용",
+  "onboarding.creditsAboutLabel": "무료 크레딧 정보",
+  "onboarding.creditsActivating": "무료 크레딧 활성화 중",
+  "onboarding.creditsActivatingTooltip":
+    "Builder는 LLM, Jev, 스토리지 등을 위한 무료 크레딧을 제공하므로, 직접 키를 준비하지 않고도 이 앱의 AI 기능을 사용할 수 있습니다.",
   "onboarding.builderConnect": "Builder.io 연결",
   "onboarding.builderActivating": "Builder.io 무료 크레딧 활성화 중",
   "onboarding.builderConnecting": "Builder.io 무료 크레딧 설정 중",
