@@ -387,9 +387,7 @@ export async function processA2ATaskFromQueue(
           })
           .catch(async (error) => {
             console.error("[a2a] Failed to heartbeat async task:", error);
-            if (error?.code === "stale_execution_fence") {
-              await abortForLostClaim(error);
-            }
+            await abortForLostClaim(error);
           });
       }, A2A_PROCESSING_HEARTBEAT_MS);
       (

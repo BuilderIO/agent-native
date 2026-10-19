@@ -948,23 +948,53 @@ describe("task-store lifecycle (real pglite)", () => {
         createTask,
         a2aTaskLeaseThreadId,
       } = await loadStore();
-      const { claimTaskExecutionLease, renewTaskExecutionLease } =
-        await import("../agent/run-store.js");
+      const {
+        beginAgentExecutionStep,
+        claimTaskExecutionLease,
+        claimTurnExecutionLease,
+        insertRun,
+        renewTaskExecutionLease,
+      } = await import("../agent/run-store.js");
+      const { withExecutionFence } =
+        await import("../agent/execution-fence.js");
       const task = await createTask(makeMessage("go"));
       await claimA2ATaskForProcessing(task.id);
-      const fence = await claimTaskExecutionLease(
+      const taskFence = await claimTaskExecutionLease(
         a2aTaskLeaseThreadId(task.id),
         task.id,
         "a2a:canceled-worker",
       );
+      await insertRun(task.id, task.id, task.id);
+      const runFence = await claimTurnExecutionLease(task.id, task.id, task.id);
+      const step = {
+        ...runFence,
+        stepId: "before-cancel",
+        operationId: "test:canceled-task",
+        toolName: "canceled-task",
+        inputJson: "{}",
+        replayPolicy: "never" as const,
+      };
+
+      await expect(
+        withExecutionFence(taskFence, () =>
+          withExecutionFence(runFence, () => beginAgentExecutionStep(step)),
+        ),
+      ).resolves.toEqual({ status: "execute", wasDispatched: false });
 
       await expect(cancelA2ATask(task.id)).resolves.toMatchObject({
         id: task.id,
         status: { state: "canceled" },
       });
-      await expect(renewTaskExecutionLease(fence)).rejects.toMatchObject({
+      await expect(renewTaskExecutionLease(taskFence)).rejects.toMatchObject({
         code: "stale_execution_fence",
       });
+      await expect(
+        withExecutionFence(taskFence, () =>
+          withExecutionFence(runFence, () =>
+            beginAgentExecutionStep({ ...step, stepId: "after-cancel" }),
+          ),
+        ),
+      ).rejects.toMatchObject({ code: "stale_execution_fence" });
     });
   });
 

@@ -81,6 +81,9 @@ export interface ActiveRun {
   status: RunStatus;
   subscribers: Set<(event: RunEvent) => void>;
   abort: AbortController;
+  nextEventSeq?: number;
+  pendingAbortEvent?: RunEvent;
+  flushEvents?: () => Promise<void>;
   abortReason?: string;
   continuationTerminalEvent?: Extract<
     AgentChatEvent,
@@ -95,6 +98,40 @@ export interface StartedRun extends ActiveRun {
 
 const activeRuns = new Map<string, ActiveRun>();
 const threadToRun = new Map<string, string>();
+
+function peekRunEventSeq(run: ActiveRun): number {
+  return run.nextEventSeq ?? run.events.length;
+}
+
+function allocateRunEventSeq(run: ActiveRun): number {
+  const seq = peekRunEventSeq(run);
+  run.nextEventSeq = seq + 1;
+  return seq;
+}
+
+function reportAbortFlushFailure(run: ActiveRun, error: unknown): void {
+  captureError(error, {
+    route: "/_agent-native/agent-chat/runs/:id/abort",
+    aiTraceId: run.runId,
+    tags: {
+      source: "agent-run-manager",
+      phase: "abort-event-flush",
+    },
+    extra: { runId: run.runId, threadId: run.threadId },
+  });
+  console.error(
+    "[run-manager] failed to flush run events before abort:",
+    error instanceof Error ? error.message : error,
+  );
+}
+
+async function flushRunEventsBeforeAbort(run?: ActiveRun): Promise<void> {
+  try {
+    await run?.flushEvents?.();
+  } catch (error) {
+    if (run) reportAbortFlushFailure(run, error);
+  }
+}
 
 const CLEANUP_DELAY_MS = 5 * 60 * 1000;
 
@@ -683,13 +720,37 @@ function abortInMemoryRun(run: ActiveRun, reason: string = "user") {
   const existingTerminalEvent = [...run.events]
     .reverse()
     .find((event) => isTerminalRunEvent(event.event));
-  const terminalRunEvent = existingTerminalEvent ?? {
-    seq: run.events.length,
-    event: terminalEventForAbortReason(reason),
-  };
-  if (!existingTerminalEvent) {
-    run.events.push(terminalRunEvent);
+  const terminalRunEvent = existingTerminalEvent ??
+    run.pendingAbortEvent ?? {
+      seq: allocateRunEventSeq(run),
+      event: terminalEventForAbortReason(reason),
+    };
+  if (!existingTerminalEvent && !run.pendingAbortEvent) {
+    run.pendingAbortEvent = terminalRunEvent;
+    const publishTerminal = () => {
+      run.pendingAbortEvent = undefined;
+      run.events.push(terminalRunEvent);
+      for (const subscriber of run.subscribers) {
+        try {
+          subscriber(terminalRunEvent);
+        } catch {
+          // coercion-ok: one disconnected subscriber must not block terminal delivery.
+          // ignore — subscriber is being removed below
+        }
+      }
+      run.subscribers.clear();
+    };
+    if (run.flushEvents) {
+      void run
+        .flushEvents()
+        .catch((error) => reportAbortFlushFailure(run, error))
+        .then(publishTerminal);
+    } else {
+      publishTerminal();
+    }
+    return;
   }
+  if (!existingTerminalEvent && run.pendingAbortEvent) return;
   for (const subscriber of run.subscribers) {
     try {
       subscriber(terminalRunEvent);
@@ -804,6 +865,7 @@ export function startRun(
     status: "running",
     subscribers: new Set(),
     abort,
+    nextEventSeq: 0,
     startedAt: Date.now(),
     finalized,
   };
@@ -914,7 +976,7 @@ export function startRun(
   };
 
   let persistenceChain: Promise<void> = Promise.resolve();
-  let nextEventSeq = run.events.length;
+  run.flushEvents = () => persistenceChain;
   // Streamed deltas arrive hundreds per tool call, and a write tool waits for
   // every queued event to persist first; one round trip per event put tens of
   // seconds between the model finishing and the tool starting.
@@ -1580,7 +1642,7 @@ export function startRun(
         ? { ...event, approvalPause: false }
         : event;
     const runEvent: RunEvent = {
-      seq: nextEventSeq,
+      seq: peekRunEventSeq(run),
       event: normalizedEvent,
     };
     if (isTerminalRunEvent(event)) {
@@ -1588,7 +1650,7 @@ export function startRun(
       return Promise.resolve();
     }
 
-    nextEventSeq += 1;
+    run.nextEventSeq = runEvent.seq + 1;
     return emitRunEvent(runEvent);
   };
 
@@ -1664,7 +1726,7 @@ export function startRun(
         if (run.status !== "aborted") {
           run.status = "errored";
           pendingTerminalEvent = {
-            seq: nextEventSeq++,
+            seq: allocateRunEventSeq(run),
             event: {
               type: "error",
               error: "Agent run ended unexpectedly",
@@ -1678,13 +1740,13 @@ export function startRun(
         if (eventPersistenceError) return pendingTerminalEvent;
         const continuationTerminalEvent = run.continuationTerminalEvent
           ? {
-              seq: nextEventSeq,
+              seq: peekRunEventSeq(run),
               event: run.continuationTerminalEvent,
             }
           : null;
         if (continuationTerminalEvent) return continuationTerminalEvent;
         return pendingTerminalEvent
-          ? { ...pendingTerminalEvent, seq: nextEventSeq }
+          ? { ...pendingTerminalEvent, seq: peekRunEventSeq(run) }
           : null;
       };
       let terminalEventForCompletion = resolveTerminalEventForCompletion();
@@ -1790,7 +1852,7 @@ export function startRun(
         const last = run.events[run.events.length - 1];
         if (!last || !isTerminalRunEvent(last.event)) {
           const terminal: RunEvent = {
-            seq: terminalEventForCompletion?.seq ?? nextEventSeq++,
+            seq: terminalEventForCompletion?.seq ?? allocateRunEventSeq(run),
             event: terminalEventToEmit,
           };
           try {
@@ -1850,7 +1912,10 @@ export function startRun(
 
       if (executionLeaseClaimFailed) {
         await insertRunPromise;
-        await updateRunStatusIfRunning(runId, "aborted");
+        await markRunAborted(
+          runId,
+          run.abortReason ?? "execution-lease-claim-failed",
+        );
       } else {
         try {
           await insertRunPromise;
@@ -2109,7 +2174,7 @@ function subscribeInMemory(
         }
       }
 
-      if (run.status !== "running") {
+      if (run.status !== "running" && !run.pendingAbortEvent) {
         let bufferedTerminalIndex = -1;
         for (let index = run.events.length - 1; index >= 0; index -= 1) {
           const buffered = run.events[index];
@@ -2808,8 +2873,22 @@ function abortRunInMemory(runId: string, reason: string): boolean {
 }
 
 export function abortRun(runId: string, reason: string = "user"): boolean {
+  const run = activeRuns.get(runId);
   const abortedInMemory = abortRunInMemory(runId, reason);
-  markRunAborted(runId, reason).catch(() => {});
+  void flushRunEventsBeforeAbort(run)
+    .then(() => markRunAborted(runId, reason))
+    .catch((error) => {
+      captureError(error, {
+        route: "/_agent-native/agent-chat/runs/:id/abort",
+        aiTraceId: runId,
+        tags: { source: "agent-run-manager", phase: "abort-run" },
+        extra: { runId, threadId: run?.threadId, reason },
+      });
+      console.error(
+        "[run-manager] durable abort persistence failed:",
+        error instanceof Error ? error.message : error,
+      );
+    });
   return abortedInMemory;
 }
 
@@ -2823,8 +2902,10 @@ export async function abortRunDurably(
   runId: string,
   reason: string = "user",
 ): Promise<boolean> {
+  const run = activeRuns.get(runId);
   const abortedInMemory = abortRunInMemory(runId, reason);
   try {
+    await flushRunEventsBeforeAbort(run);
     await markRunAborted(runId, reason);
   } catch (error) {
     captureError(error, {
@@ -2854,11 +2935,14 @@ export async function abortTurnByRefDurably(
   turnId: string,
   reason: string = "user",
 ): Promise<"aborted" | "already_terminal"> {
+  const runsToFlush: ActiveRun[] = [];
   for (const run of activeRuns.values()) {
     if (run.threadId === threadId && run.turnId === turnId) {
       abortInMemoryRun(run, reason);
+      runsToFlush.push(run);
     }
   }
+  await Promise.all(runsToFlush.map((run) => flushRunEventsBeforeAbort(run)));
   return markTurnAborted(threadId, turnId, reason);
 }
 

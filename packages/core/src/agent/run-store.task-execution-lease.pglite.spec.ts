@@ -37,7 +37,9 @@ vi.mock("../db/ddl-guard.js", () => ({
 const {
   beginAgentExecutionStep,
   claimTaskExecutionLease,
+  claimTurnExecutionLease,
   ensureRunTables,
+  insertRun,
   renewTaskExecutionLease,
 } = await import("./run-store.js");
 
@@ -109,5 +111,47 @@ describe("task execution leases", () => {
         beginAgentExecutionStep(currentStep),
       ),
     ).resolves.toEqual({ status: "execute", wasDispatched: false });
+  });
+
+  it("keeps a parent task fence active inside a nested agent-run fence", async () => {
+    const taskThreadId = "a2a-task:nested-fence-test";
+    const taskTurnId = "nested-fence-test";
+    const runId = "nested-fence-run";
+    const taskFence = await claimTaskExecutionLease(
+      taskThreadId,
+      taskTurnId,
+      "a2a:worker",
+    );
+    await insertRun(runId, runId, runId);
+    const runFence = await claimTurnExecutionLease(runId, runId, runId);
+    const step = {
+      ...runFence,
+      stepId: "nested-step",
+      operationId: "test:nested-step",
+      toolName: "nested-step",
+      inputJson: "{}",
+      replayPolicy: "never" as const,
+    };
+
+    await expect(
+      withExecutionFence(taskFence, () =>
+        withExecutionFence(runFence, () => beginAgentExecutionStep(step)),
+      ),
+    ).resolves.toEqual({ status: "execute", wasDispatched: false });
+
+    await pglite.query(
+      `UPDATE agent_execution_leases
+          SET lease_expires_at = clock_timestamp() - INTERVAL '1 millisecond'
+          WHERE thread_id = ? AND turn_id = ?`,
+      [taskThreadId, taskTurnId],
+    );
+
+    await expect(
+      withExecutionFence(taskFence, () =>
+        withExecutionFence(runFence, () =>
+          beginAgentExecutionStep({ ...step, stepId: "after-task-loss" }),
+        ),
+      ),
+    ).rejects.toMatchObject({ code: "stale_execution_fence" });
   });
 });

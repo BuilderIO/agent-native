@@ -84,6 +84,7 @@ vi.mock("./task-store.js", () => {
     return task;
   };
   return {
+    A2A_TASK_CLAIM_LOST_ERROR_CODE: "a2a_task_claim_lost",
     A2A_PERSONAL_OWNER_SCOPE: "__personal__",
     A2A_ORG_ID_OWNER_SCOPE_PREFIX: "__a2a_org_id__:",
     MAX_A2A_IDEMPOTENCY_KEY_CHARS: 128,
@@ -527,6 +528,64 @@ describe("handleJsonRpc", () => {
       expect.stringMatching(/^a2a:/),
     );
     expect(releaseTurnExecutionLeaseMock).toHaveBeenCalledOnce();
+  });
+
+  it("stops a task handler when its heartbeat cannot confirm lease renewal", async () => {
+    vi.useFakeTimers();
+    const { processA2ATaskFromQueue } = await import("./handlers.js");
+    let handlerSignal: AbortSignal | undefined;
+    let markHandlerStarted!: () => void;
+    const handlerStarted = new Promise<void>((resolve) => {
+      markHandlerStarted = resolve;
+    });
+    const config: A2AConfig = {
+      ...customHandler,
+      handler: async (_message, context) => {
+        handlerSignal = context.signal;
+        markHandlerStarted();
+        await new Promise<void>((resolve) => {
+          context.signal?.addEventListener("abort", () => resolve(), {
+            once: true,
+          });
+        });
+        return {
+          message: {
+            role: "agent",
+            parts: [{ type: "text", text: "stopped" }],
+          },
+        };
+      },
+    };
+    const submitted = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          async: true,
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "do work" }],
+          },
+        },
+      },
+      mockEvent(),
+      config,
+    );
+    const processing = processA2ATaskFromQueue(submitted.result.id, config);
+    await handlerStarted;
+    renewTaskExecutionLeaseMock.mockRejectedValueOnce(
+      new Error("database unavailable during heartbeat"),
+    );
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    await processing;
+
+    expect(handlerSignal?.aborted).toBe(true);
+    expect(handlerSignal?.reason).toMatchObject({
+      code: "a2a_task_claim_lost",
+    });
+    expect(renewTaskExecutionLeaseMock).toHaveBeenCalledOnce();
   });
 
   it("rechecks suspended service principals before local agent task access", async () => {

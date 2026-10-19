@@ -25,6 +25,13 @@ const mockInsertRunEvent = vi.hoisted(() =>
 );
 
 vi.mock("./run-store.js", () => ({
+  TurnExecutionLeaseBusyError: class extends Error {
+    readonly code = "turn_execution_lease_busy";
+
+    constructor(threadId: string, turnId: string) {
+      super(`Another worker still owns turn ${turnId} in thread ${threadId}`);
+    }
+  },
   RUN_RECORD_MISSING_ERROR_EVENT: {
     type: "error",
     error:
@@ -232,6 +239,7 @@ import {
   claimTurnExecutionLease,
   releaseTurnExecutionLease,
   renewTurnExecutionLease,
+  TurnExecutionLeaseBusyError,
 } from "./run-store.js";
 import {
   getRunAbortState,
@@ -451,6 +459,76 @@ describe("run manager soft timeout", () => {
 
     expect(waitUntil).toHaveBeenCalledTimes(1);
     expect(waitUntil).toHaveBeenCalledWith(expect.any(Promise));
+  });
+
+  it("allocates abort sequence numbers after events still being persisted", async () => {
+    let releasePersistence!: () => void;
+    let markPersistenceStarted!: () => void;
+    const persistenceStarted = new Promise<void>((resolve) => {
+      markPersistenceStarted = resolve;
+    });
+    const persistenceGate = new Promise<void>((resolve) => {
+      releasePersistence = resolve;
+    });
+    mockInsertRunEvent.mockImplementationOnce(async () => {
+      markPersistenceStarted();
+      await persistenceGate;
+    });
+
+    const run = startRun(
+      "run-abort-pending-event-sequence",
+      "thread-abort-pending-event-sequence",
+      async (send) => {
+        void send({ type: "text", text: "pending" });
+      },
+      undefined,
+      { softTimeoutMs: 0, noProgressTimeoutMs: 0 },
+    );
+
+    await persistenceStarted;
+    abortRun(run.runId, "user");
+    expect(run.pendingAbortEvent).toMatchObject({ seq: 1 });
+    expect(run.events).toEqual([]);
+
+    releasePersistence();
+    await run.finalized;
+
+    expect(run.events.map(({ seq }) => seq)).toEqual([0, 1]);
+    expect(new Set(run.events.map(({ seq }) => seq)).size).toBe(2);
+  });
+
+  it("persists a terminal outcome when execution lease claim fails", async () => {
+    vi.mocked(claimTurnExecutionLease).mockRejectedValueOnce(
+      new TurnExecutionLeaseBusyError(
+        "thread-lease-claim-terminal",
+        "run-lease-claim-terminal",
+      ),
+    );
+    const run = startRun(
+      "run-lease-claim-terminal",
+      "thread-lease-claim-terminal",
+      async () => {
+        throw new Error("run body should not start");
+      },
+      undefined,
+      {
+        softTimeoutMs: 0,
+        noProgressTimeoutMs: 0,
+        executionLease: true,
+      },
+    );
+
+    await run.finalized;
+
+    expect(run.events).toHaveLength(1);
+    expect(run.events[0]).toMatchObject({
+      seq: 0,
+      event: { type: "error", errorCode: "aborted_execution-lease-busy" },
+    });
+    expect(markRunAborted).toHaveBeenCalledWith(
+      run.runId,
+      "execution-lease-busy",
+    );
   });
 
   it("replaces an in-memory retry without durably aborting the shared run row", async () => {
@@ -1361,10 +1439,11 @@ describe("run manager soft timeout", () => {
       return abortedInMemory;
     });
 
-    await Promise.resolve();
-    expect(markRunAborted).toHaveBeenCalledWith(
-      "run-cross-isolate",
-      "user_stuck_retry",
+    await vi.waitFor(() =>
+      expect(markRunAborted).toHaveBeenCalledWith(
+        "run-cross-isolate",
+        "user_stuck_retry",
+      ),
     );
     expect(resolved).toBe(false);
 
