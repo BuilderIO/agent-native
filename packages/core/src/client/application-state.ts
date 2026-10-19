@@ -9,7 +9,6 @@ import { agentNativePath } from "./api-path.js";
 import { assertAgentNativeApiEnabled } from "./api-surface.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
 import { recordStateWrite } from "./recorder.js";
-import { scrubUrl } from "./url-scrub.js";
 
 export {
   AGENT_SCREEN_METADATA_KEY,
@@ -389,22 +388,6 @@ export function registerAgentScreenStateKeys(
   };
 }
 
-function scrubScreenUrl(url: Record<string, unknown>): Record<string, unknown> {
-  const pathname = typeof url.pathname === "string" ? url.pathname : "/";
-  const search = typeof url.search === "string" ? url.search : "";
-  const hash = typeof url.hash === "string" ? url.hash : "";
-  const original = `${pathname}${search}${hash}`;
-  const scrubbed = scrubUrl(original);
-  if (!scrubbed || scrubbed === original) return url;
-  const parsed = new URL(scrubbed, "http://placeholder.local");
-  return {
-    ...url,
-    search: parsed.search,
-    hash: parsed.hash,
-    searchParams: Object.fromEntries(parsed.searchParams),
-  };
-}
-
 /**
  * The tab's screen state as the server holds it now, after this tab's pending
  * writes to those keys land. The message stores it, so URL secrets are scrubbed.
@@ -420,11 +403,7 @@ export async function captureAgentScreenState(
   const batch = await readClientAppStateMany(keys.map(tabKey), options);
   const values: Record<string, unknown> = {};
   for (const key of keys) {
-    const value = batch.values[tabKey(key)] ?? null;
-    values[key] =
-      key === "__url__" && value && typeof value === "object"
-        ? scrubScreenUrl(value as Record<string, unknown>)
-        : value;
+    values[key] = batch.values[tabKey(key)] ?? null;
   }
   return buildTurnScreenSnapshot(browserTabId, values);
 }

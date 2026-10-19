@@ -1,0 +1,12 @@
+import { chromium } from "playwright";
+const browser = await chromium.connectOverCDP("http://127.0.0.1:9222");
+const ctx = browser.contexts()[0];
+const page = await ctx.newPage();
+await page.goto("http://127.0.0.1:9310/", { waitUntil: "networkidle", timeout: 60000 }).catch(e=>console.log("goto", e.message));
+await page.waitForTimeout(4000);
+console.log(page.url());
+await page.screenshot({ path: "/tmp/proof/peek.png" });
+const text = (await page.locator("body").innerText()).slice(0, 800);
+console.log(text);
+await page.close();
+await browser.close();

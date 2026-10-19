@@ -1,0 +1,12 @@
+import { chromium } from "playwright";
+import fs from "node:fs";
+const browser = await chromium.connectOverCDP("http://127.0.0.1:9222");
+const ctx = browser.contexts()[0];
+const page = await ctx.newPage();
+await page.goto("http://127.0.0.1:9310/home", { waitUntil: "domcontentloaded", timeout: 60000 });
+await page.waitForTimeout(10000);
+const buf = await page.screenshot({ timeout: 30000 });
+fs.writeFileSync("/tmp/proof/peek.png", buf);
+console.log("bytes", buf.length, "title", await page.title());
+console.log((await page.evaluate(() => document.body.innerText)).slice(0, 600));
+await page.close();

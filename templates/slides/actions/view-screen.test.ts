@@ -175,6 +175,60 @@ describe("view-screen", () => {
     expect(result).toContain("<h1>Opening</h1>");
   });
 
+  it("keeps the open slide when a slide was inserted before it", async () => {
+    mockRows = [
+      {
+        id: "deck-1",
+        title: "Quarterly Review",
+        data: JSON.stringify({
+          slides: [
+            { id: "slide-a", content: "<h1>Opening</h1>" },
+            { id: "slide-new", content: "<h1>Inserted</h1>" },
+            { id: "slide-b", content: "<h1>Revenue</h1>" },
+          ],
+        }),
+      },
+    ];
+    navigationState = { view: "editor", deckId: "deck-1", slideIndex: 1 };
+    slidesSelectionState = {
+      deckId: "deck-1",
+      slideId: "slide-b",
+      slideIndex: 1,
+      items: [],
+    };
+
+    const result = await action.run({});
+
+    expect(result).toContain("currentSlideId: slide-b");
+    expect(result).toContain("currentSlideNumber: 3 of 3");
+  });
+
+  it("uses the navigation slide when the recorded selection is from another slide", async () => {
+    mockRows = [
+      {
+        id: "deck-1",
+        title: "Quarterly Review",
+        data: JSON.stringify({
+          slides: [
+            { id: "slide-a", content: "<h1>Opening</h1>" },
+            { id: "slide-b", content: "<h1>Revenue</h1>" },
+          ],
+        }),
+      },
+    ];
+    navigationState = { view: "editor", deckId: "deck-1", slideIndex: 1 };
+    slidesSelectionState = {
+      deckId: "deck-1",
+      slideId: "slide-a",
+      slideIndex: 0,
+      items: [],
+    };
+
+    const result = await action.run({});
+
+    expect(result).toContain("currentSlideId: slide-b");
+  });
+
   it("includes the linked design-system context in the current deck read", async () => {
     mockRows = [
       {

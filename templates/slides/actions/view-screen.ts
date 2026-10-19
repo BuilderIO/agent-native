@@ -196,7 +196,29 @@ export default defineAction({
         background?: string;
         layoutFitRevision?: string;
       }> = Array.isArray(deck?.slides) ? deck.slides : [];
-      const slideIndex =
+      const selection = (await readAppStateForCurrentTab("slides-selection", {
+        fallbackToGlobal: false,
+      })) as {
+        deckId?: string;
+        slideId?: string;
+        slideIndex?: number;
+        mode?: string;
+        activeTool?: string;
+        items?: Array<{
+          selector?: string;
+          runtimeSelector?: string;
+          objectId?: string;
+          text?: string;
+          selectedText?: string;
+          textTruncated?: boolean;
+          kind?: string;
+          tagName?: string;
+          imageSrc?: string;
+          videoSrc?: string;
+          style?: Record<string, unknown>;
+        }>;
+      } | null;
+      const navigationSlideIndex =
         typeof effectiveNavigation.slideIndex === "number"
           ? effectiveNavigation.slideIndex
           : typeof effectiveNavigation.slideNumber === "number" &&
@@ -204,6 +226,17 @@ export default defineAction({
               effectiveNavigation.slideNumber >= 1
             ? effectiveNavigation.slideNumber - 1
             : 0;
+      // The editor records the open slide's id; follow it if slides were inserted or removed before it.
+      const selectedOpenSlideIndex =
+        selection?.slideId &&
+        selection.deckId === rows[0].id &&
+        selection.slideIndex === navigationSlideIndex
+          ? slides.findIndex((slide) => slide.id === selection.slideId)
+          : -1;
+      const slideIndex =
+        selectedOpenSlideIndex >= 0
+          ? selectedOpenSlideIndex
+          : navigationSlideIndex;
       const slideNumber = slideIndex + 1;
       const currentSlide = slides[slideIndex] ?? null;
 
@@ -370,27 +403,6 @@ export default defineAction({
           : `openPanels: unknown`,
       );
 
-      const selection = (await readAppStateForCurrentTab("slides-selection", {
-        fallbackToGlobal: false,
-      })) as {
-        deckId?: string;
-        slideId?: string;
-        mode?: string;
-        activeTool?: string;
-        items?: Array<{
-          selector?: string;
-          runtimeSelector?: string;
-          objectId?: string;
-          text?: string;
-          selectedText?: string;
-          textTruncated?: boolean;
-          kind?: string;
-          tagName?: string;
-          imageSrc?: string;
-          videoSrc?: string;
-          style?: Record<string, unknown>;
-        }>;
-      } | null;
       const openPanel = (await readAppStateForCurrentTab("slides-open-panel", {
         fallbackToGlobal: false,
       })) as { slideId?: string; panel?: string | null } | null;

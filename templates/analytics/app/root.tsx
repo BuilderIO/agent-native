@@ -1,5 +1,6 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
+import { registerAgentScreenStateKeys } from "@agent-native/core/client/application-state";
 import {
   callAction,
   createAgentNativeQueryClient,
@@ -42,6 +43,7 @@ configureTracking({
     app: "agent-native-analytics",
   }),
 });
+registerAgentScreenStateKeys(["selected-object"]);
 
 export const links: LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },

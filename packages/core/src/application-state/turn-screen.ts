@@ -141,3 +141,17 @@ export function noteScreenStateWrite(
   snapshot.released = true;
   return snapshot;
 }
+
+/** A prefix delete that can erase a pinned key or navigation command releases like a write. */
+export function noteScreenStatePrefixDelete(
+  prefix: string,
+): TurnScreenSnapshot | undefined {
+  const snapshot = activeSnapshot();
+  if (!snapshot) return undefined;
+  const covered = [...NAVIGATION_COMMAND_KEYS, ...Object.keys(snapshot.values)]
+    .flatMap((base) => [base, `${base}:${snapshot.browserTabId}`])
+    .some((key) => key.startsWith(prefix));
+  if (!covered) return undefined;
+  snapshot.released = true;
+  return snapshot;
+}

@@ -1,3 +1,5 @@
+import { scrubUrl } from "../client/url-scrub.js";
+
 /** Message metadata key carrying the sending tab's screen state. */
 export const AGENT_SCREEN_METADATA_KEY = "agentNativeScreen";
 
@@ -31,9 +33,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function scrubScreenUrl(url: Record<string, unknown>): Record<string, unknown> {
+  const pathname = typeof url.pathname === "string" ? url.pathname : "/";
+  const search = typeof url.search === "string" ? url.search : "";
+  const hash = typeof url.hash === "string" ? url.hash : "";
+  const original = `${pathname}${search}${hash}`;
+  const scrubbed = scrubUrl(original);
+  if (!scrubbed || scrubbed === original) return url;
+  const parsed = new URL(scrubbed, "http://placeholder.local");
+  return {
+    ...url,
+    search: parsed.search,
+    hash: parsed.hash,
+    searchParams: Object.fromEntries(parsed.searchParams),
+  };
+}
+
 /**
  * Values over the caps, or that are not app-state objects, go to `omitted`
- * so they are read live rather than silently dropped.
+ * so they are read live rather than silently dropped. Message metadata is
+ * persisted, so `__url__` is scrubbed of secrets.
  */
 export function buildTurnScreenSnapshot(
   browserTabId: string,
@@ -43,14 +62,15 @@ export function buildTurnScreenSnapshot(
   const kept: TurnScreenSnapshot["values"] = {};
   const omitted: string[] = [];
   let total = 0;
-  for (const [key, value] of Object.entries(values).slice(
+  for (const [key, raw] of Object.entries(values).slice(
     0,
     MAX_SCREEN_STATE_KEYS,
   )) {
-    if (value !== null && !isRecord(value)) {
+    if (raw !== null && !isRecord(raw)) {
       omitted.push(key);
       continue;
     }
+    const value = key === "__url__" && raw ? scrubScreenUrl(raw) : raw;
     const size = JSON.stringify(value).length;
     if (
       size > MAX_SCREEN_STATE_VALUE_CHARS ||

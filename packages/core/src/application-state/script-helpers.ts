@@ -17,6 +17,7 @@ import {
 import {
   buildTurnScreenSnapshot,
   FRAMEWORK_SCREEN_STATE_KEYS,
+  noteScreenStatePrefixDelete,
   noteScreenStateWrite,
   readPinnedScreenState,
   TURN_SCREEN_RELEASED_KEY,
@@ -118,9 +119,16 @@ export async function listAppState(
 
 export async function deleteAppStateByPrefix(prefix: string): Promise<number> {
   const sessionId = await resolveSessionId();
-  return appStateDeleteByPrefix(sessionId, prefix, {
+  const deleted = await appStateDeleteByPrefix(sessionId, prefix, {
     requestSource: "agent",
   });
+  if (deleted > 0) {
+    await recordScreenStateRelease(
+      sessionId,
+      noteScreenStatePrefixDelete(prefix),
+    );
+  }
+  return deleted;
 }
 
 const SAFE_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
@@ -177,7 +185,13 @@ async function recordScreenStateWrite(
   sessionId: string,
   key: string,
 ): Promise<void> {
-  const released = noteScreenStateWrite(key);
+  await recordScreenStateRelease(sessionId, noteScreenStateWrite(key));
+}
+
+async function recordScreenStateRelease(
+  sessionId: string,
+  released: TurnScreenSnapshot | undefined,
+): Promise<void> {
   if (!released) return;
   await appStatePut(
     sessionId,

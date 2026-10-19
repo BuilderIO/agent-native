@@ -432,6 +432,26 @@ describe("application-state script-helpers", () => {
       );
     });
 
+    it.each([
+      ["covers a pinned key", "slides-", 1, true],
+      ["covers a navigation command", "nav", 1, true],
+      ["misses the screen", "compose-", 1, false],
+      ["deletes nothing", "slides-", 0, false],
+    ])(
+      "handles a prefix delete that %s",
+      async (_label, prefix, deleted, releases) => {
+        mockAppStateDeleteByPrefix.mockResolvedValue(deleted);
+        mockAppStatePut.mockResolvedValue(undefined);
+        const turnScreen = sentScreen();
+
+        await inTurn(turnScreen, (helpers) =>
+          helpers.deleteAppStateByPrefix(prefix),
+        );
+
+        expect(turnScreen.snapshot.released === true).toBe(releases);
+      },
+    );
+
     it("keeps the snapshot when the turn writes unrelated state", async () => {
       mockAppStatePut.mockResolvedValue(undefined);
       const turnScreen = sentScreen();

@@ -1,0 +1,12 @@
+import { chromium } from "playwright";
+import fs from "node:fs";
+const browser = await chromium.connectOverCDP("http://127.0.0.1:9222");
+const page = browser.contexts()[0].pages().find((p) => p.url().includes(":9310"));
+const box = page.locator('[contenteditable="true"][aria-label="Message agent..."], [contenteditable="true"][data-placeholder="Message agent..."], [contenteditable="true"]').first();
+await box.click();
+await page.keyboard.type("Probe A: which slide am I on?");
+await page.keyboard.press("Enter");
+await page.waitForTimeout(25000);
+fs.writeFileSync("/root/app/code/.tmp/proof/dry4.png", await page.screenshot({ timeout: 30000 }));
+console.log((await page.evaluate(() => document.body.innerText)).match(/Probe A[^\n]*/g));
+process.exit(0);
