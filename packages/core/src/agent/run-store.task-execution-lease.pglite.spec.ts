@@ -123,6 +123,51 @@ describe("task execution leases", () => {
     ).resolves.toEqual({ status: "execute", wasDispatched: false });
   });
 
+  it("fences worker-created successor rows against a replaced lease", async () => {
+    const threadId = "thread-fenced-successor-insert";
+    const turnId = "turn-fenced-successor-insert";
+    const firstRunId = "run-fenced-successor-first";
+    const secondRunId = "run-fenced-successor-second";
+    await insertRun(firstRunId, threadId, turnId);
+    const firstFence = await claimTurnExecutionLease(
+      threadId,
+      turnId,
+      firstRunId,
+    );
+
+    await insertRun(secondRunId, threadId, turnId);
+    await pglite.query(
+      `UPDATE agent_execution_leases
+          SET lease_expires_at = clock_timestamp() - INTERVAL '1 millisecond'
+          WHERE thread_id = ? AND turn_id = ?`,
+      [threadId, turnId],
+    );
+    const secondFence = await claimTurnExecutionLease(
+      threadId,
+      turnId,
+      secondRunId,
+    );
+
+    const staleSuccessorId = "run-fenced-successor-stale-child";
+    await expect(
+      withExecutionFence(firstFence, () =>
+        insertRun(staleSuccessorId, threadId, turnId),
+      ),
+    ).rejects.toMatchObject({ code: "stale_execution_fence" });
+
+    const staleSuccessor = await pglite.query(
+      "SELECT id FROM agent_runs WHERE id = ?",
+      [staleSuccessorId],
+    );
+    expect(staleSuccessor.rows).toHaveLength(0);
+
+    await expect(
+      withExecutionFence(secondFence, () =>
+        insertRun("run-fenced-successor-current-child", threadId, turnId),
+      ),
+    ).resolves.toBeUndefined();
+  });
+
   it("keeps a parent task fence active inside a nested agent-run fence", async () => {
     const taskThreadId = "a2a-task:nested-fence-test";
     const taskTurnId = "nested-fence-test";

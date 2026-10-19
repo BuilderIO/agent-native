@@ -42,6 +42,31 @@ export function withExecutionFence<T>(fence: ExecutionFence, work: () => T): T {
   );
 }
 
+export async function lockAndAssertCurrentExecutionFences(
+  tx: DbExec,
+): Promise<void> {
+  const fences = executionFenceStorage.getStore() ?? [];
+  for (const activeFence of fences) {
+    const { rows } = await tx.execute({
+      sql: `SELECT generation
+            FROM agent_execution_leases
+            WHERE thread_id = ?
+              AND turn_id = ?
+              AND owner_run_id = ?
+              AND generation = CAST(? AS BIGINT)
+              AND lease_expires_at > clock_timestamp()
+            FOR UPDATE`,
+      args: [
+        activeFence.threadId,
+        activeFence.turnId,
+        activeFence.runId,
+        activeFence.generation,
+      ],
+    });
+    if (rows.length !== 1) throw new StaleExecutionFenceError(activeFence);
+  }
+}
+
 export async function withFencedExecutionWrite<T>(
   write: (tx: DbExec) => Promise<T>,
   scope?: { runId?: string; threadId?: string; turnId?: string },
@@ -64,25 +89,7 @@ export async function withFencedExecutionWrite<T>(
     throw new Error("Fenced execution writes require transaction support");
   }
   return client.transaction(async (tx) => {
-    for (const activeFence of fences) {
-      const { rows } = await tx.execute({
-        sql: `SELECT generation
-              FROM agent_execution_leases
-              WHERE thread_id = ?
-                AND turn_id = ?
-                AND owner_run_id = ?
-                AND generation = CAST(? AS BIGINT)
-                AND lease_expires_at > clock_timestamp()
-              FOR UPDATE`,
-        args: [
-          activeFence.threadId,
-          activeFence.turnId,
-          activeFence.runId,
-          activeFence.generation,
-        ],
-      });
-      if (rows.length !== 1) throw new StaleExecutionFenceError(activeFence);
-    }
+    await lockAndAssertCurrentExecutionFences(tx);
     return write(tx);
   });
 }

@@ -1240,7 +1240,9 @@ export function startRun(
       return;
     checkpointAbortInFlight = true;
     try {
-      await persistRunCheckpointEvent(runId, event, terminalReason);
+      await withWorkerFence(() =>
+        persistRunCheckpointEvent(runId, event, terminalReason),
+      );
     } catch {
       // The abort still has to happen if the checkpoint write is rejected; the
       // caller has already reached a server-owned chunk boundary.

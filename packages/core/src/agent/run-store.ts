@@ -39,6 +39,7 @@ import {
 } from "./engine/credential-errors.js";
 import {
   currentExecutionFence,
+  lockAndAssertCurrentExecutionFences,
   StaleExecutionFenceError,
   type ExecutionFence,
   withFencedExecutionWrite,
@@ -1233,6 +1234,9 @@ export async function insertRun(
     }
   };
   if (!client.transaction) {
+    if (currentExecutionFence()) {
+      throw new Error("Fenced run insertion requires transaction support");
+    }
     if (options?.afterInsert)
       throw new Error("Atomic run insertion requires transaction support");
     if (options?.turnInitiator) {
@@ -1252,6 +1256,7 @@ export async function insertRun(
     await prepareServicePrincipalRunStart(options.turnInitiator);
   }
   const refusal = await client.transaction(async (tx) => {
+    await lockAndAssertCurrentExecutionFences(tx);
     if (options?.turnInitiator) {
       const denied = await lockAndAssertServicePrincipalMayStartRun(tx, {
         email: options.turnInitiator.email,

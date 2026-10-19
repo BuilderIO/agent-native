@@ -12,6 +12,7 @@ import {
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./engine/credential-errors.js";
 import { EngineError } from "./engine/types.js";
+import { currentExecutionFence } from "./execution-fence.js";
 import type { AgentChatEvent } from "./types.js";
 
 const RUN_RECORD_MISSING_ERROR_CODE = "run_record_missing";
@@ -711,6 +712,49 @@ describe("run manager soft timeout", () => {
     releaseCheckpoint();
     await vi.advanceTimersByTimeAsync(0);
     expect(unwound).toBe(true);
+  });
+
+  it("persists timeout checkpoints under the run execution fence", async () => {
+    const fence = {
+      threadId: "thread-timeout-fenced-checkpoint",
+      turnId: "run-timeout-fenced-checkpoint",
+      runId: "run-timeout-fenced-checkpoint",
+      generation: "7",
+    };
+    let resolveClaim!: () => void;
+    const claimAcquired = new Promise<void>((resolve) => {
+      resolveClaim = resolve;
+    });
+    vi.mocked(claimTurnExecutionLease).mockImplementationOnce(async () => {
+      resolveClaim();
+      return fence;
+    });
+    let observedFence: ReturnType<typeof currentExecutionFence> = undefined;
+    vi.mocked(persistRunCheckpointEvent).mockImplementationOnce(async () => {
+      observedFence = currentExecutionFence();
+    });
+    const run = startRun(
+      fence.runId,
+      fence.threadId,
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", resolve, { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 10, executionLease: true },
+    );
+
+    await claimAcquired;
+    await vi.advanceTimersByTimeAsync(11);
+
+    expect(persistRunCheckpointEvent).toHaveBeenCalledWith(
+      fence.runId,
+      { type: "auto_continue", reason: "run_timeout" },
+      "run_timeout",
+    );
+    expect(observedFence).toEqual(fence);
+    await run.finalized;
   });
 
   it("persists the terminal auto_continue with a unique seq when the run emits events after the soft timeout", async () => {
