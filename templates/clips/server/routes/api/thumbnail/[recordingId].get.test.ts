@@ -353,6 +353,24 @@ describe("/api/thumbnail/:recordingId route", () => {
     expect(mockIsBlockedExtensionUrlWithDns).toHaveBeenCalledWith(thumbnailUrl);
   });
 
+  it("falls back to the public fetch when the own bucket read throws", async () => {
+    const thumbnailUrl = "https://bucket.example.com/clips/rec-1/thumb.jpg";
+    mockGetDb.mockReturnValue(
+      createDbWithRow(makeRow({ thumbnailUrl, storageMode: "own" })),
+    );
+    mockFetchS3ObjectByUrl.mockRejectedValue(new Error("bucket timed out"));
+    vi.mocked(fetch).mockResolvedValue(
+      new Response("public thumbnail", {
+        status: 200,
+        headers: { "content-type": "image/jpeg" },
+      }),
+    );
+
+    const result = await handler(makeEvent() as any);
+
+    expect(await (result as Response).text()).toBe("public thumbnail");
+  });
+
   it("redirects to the branded image while a thumbnail is unavailable", async () => {
     mockGetDb.mockReturnValue(
       createDbWithRow(

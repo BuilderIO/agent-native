@@ -259,18 +259,28 @@ async function fetchOwnBucketThumbnail(
   recordingId: string,
   recording: ThumbnailRecording,
 ): Promise<Response | null> {
-  const upstream = await runWithRequestContext(
-    {
-      userEmail: recording.ownerEmail ?? undefined,
-      orgId: recording.organizationId ?? undefined,
-    },
-    () =>
-      fetchS3ObjectByUrl(sourceUrl, {
-        recordingId,
-        storageMode: "own",
-        timeoutMs: FETCH_TIMEOUT_MS,
-      }),
-  );
+  let upstream: Response | null;
+  try {
+    upstream = await runWithRequestContext(
+      {
+        userEmail: recording.ownerEmail ?? undefined,
+        orgId: recording.organizationId ?? undefined,
+      },
+      () =>
+        fetchS3ObjectByUrl(sourceUrl, {
+          recordingId,
+          storageMode: "own",
+          timeoutMs: FETCH_TIMEOUT_MS,
+        }),
+    );
+  } catch (error) {
+    // A bucket that is down or misconfigured still leaves the public URL.
+    captureRouteError(error, {
+      route: "api/thumbnail",
+      extra: { recordingId },
+    });
+    return null;
+  }
   if (!upstream?.ok) {
     await upstream?.body?.cancel().catch(() => {});
     return null;
