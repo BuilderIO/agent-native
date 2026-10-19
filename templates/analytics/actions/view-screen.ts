@@ -8,15 +8,17 @@ import { z } from "zod";
 
 import {
   buildDashboardAgentContext,
+  buildDashboardSeedAgentContext,
   fitDashboardScreenContext,
 } from "../server/lib/agent-readable-resource-context";
 import { listAnalyticsAlertRules } from "../server/lib/analytics-alerts";
 import { repairKnownFirstPartyDashboardQueries } from "../server/lib/canonical-first-party-dashboard-repair";
 import { loadDashboardAnnotationSummary } from "../server/lib/dashboard-annotation-reads";
 import { storedDashboardAnnotationScope } from "../server/lib/dashboard-annotation-scope";
-import { getAnalysis, getDashboard } from "../server/lib/dashboards-store";
+import { getAnalysis } from "../server/lib/dashboards-store";
 import { getErrorIssue, listErrorIssues } from "../server/lib/error-capture.js";
 import { listAnalyticsPublicKeys } from "../server/lib/first-party-analytics.js";
+import { openDashboard } from "../server/lib/open-dashboard";
 import { getSessionFrictionDetails } from "../server/lib/session-friction.js";
 import {
   getSessionRecordingPerformance,
@@ -179,6 +181,17 @@ export default defineAction({
     if (effectiveNavigation) screen.navigation = effectiveNavigation;
     if (url?.pathname) screen.pathname = url.pathname;
     if (selectedObject) screen.selectedObject = selectedObject;
+    // The key can outlive its dashboard (a reload onto a page with no
+    // breakdown table never clears it), so it only counts on that dashboard.
+    const rowBreakdown =
+      nav?.view === "adhoc" && typeof nav.dashboardId === "string"
+        ? ((await readAppStateForCurrentTab("row-breakdown")) as {
+            dashboardId?: unknown;
+          } | null)
+        : null;
+    if (rowBreakdown && rowBreakdown.dashboardId === nav.dashboardId) {
+      screen.rowBreakdown = rowBreakdown;
+    }
 
     if (url?.searchParams) {
       const activeFilters: Record<string, string> = {};
@@ -202,11 +215,25 @@ export default defineAction({
         const orgId = getRequestOrgId() || null;
         const email = getRequestUserEmail();
         if (email) {
-          const stored = await getDashboard(nav.dashboardId, {
+          const opened = await openDashboard(nav.dashboardId, {
             email,
             orgId,
           });
-          if (stored) {
+          const stored = opened?.saved;
+          if (opened?.builtin) {
+            const builtin = opened.builtin;
+            screen.dashboard = fitDashboardScreenContext(
+              buildDashboardSeedAgentContext(nav.dashboardId, builtin.config, {
+                forAgent: true,
+                annotationSummary: await loadDashboardAnnotationSummary(
+                  { scope: { email, orgId }, editable: true },
+                  nav.dashboardId,
+                  builtin.config,
+                ),
+              }),
+              SCREEN_DASHBOARD_CHAR_BUDGET,
+            );
+          } else if (stored) {
             // The page draws what get-sql-dashboard returns: for a first-party
             // dashboard, the repaired SQL, not the stored SQL.
             const dashboard = {

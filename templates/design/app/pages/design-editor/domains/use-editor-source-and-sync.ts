@@ -31,6 +31,7 @@ import { isEditorHotkeyBlockedByShortcutsDialog } from "@/components/design/Keyb
 import { type LocalhostWriteConsentPayload } from "@/components/design/LocalhostWriteConsentDialog";
 import {
   isDesignHotkeyBlockedByOpenLayer,
+  isOptedInDesignHistoryHotkey,
   isPlatformPrimaryModifier,
   normalizeDesignHotkeyKey,
   isShowKeyboardShortcutsHotkey,
@@ -206,6 +207,7 @@ export function useEditorSourceAndSync({
     motionDockOpen,
     undoManagerRef,
     contentUndoStackRef,
+    localContentUndoStackRef,
     selectedLayerIdsStateRef,
     explicitOverviewScreenSelectionRef,
     hasPendingVisualStyleEdits,
@@ -504,6 +506,7 @@ export function useEditorSourceAndSync({
         canEditDesign,
         contentHistorySelectionAfterRef,
         contentUndoStackRef,
+        localContentUndoStackRef,
         files,
         getFreshActiveContent,
         overviewSelectedScreenIds,
@@ -519,6 +522,7 @@ export function useEditorSourceAndSync({
       canEditDesign,
       files,
       getFreshActiveContent,
+      localContentUndoStackRef,
       overviewSelectedScreenIds,
       selectedLayerIdsState,
       t,
@@ -531,8 +535,10 @@ export function useEditorSourceAndSync({
         canEditDesign,
         selectedElement,
         handleStylesChange,
+        onUnsupportedFillPaint: () =>
+          toast.error(t("designEditor.toasts.swapFillStrokeLayeredFill")),
       }),
-    [canEditDesign, handleStylesChange, selectedElement],
+    [canEditDesign, handleStylesChange, selectedElement, t],
   );
 
   const handleEyedropper = useCallback(() => {
@@ -556,7 +562,8 @@ export function useEditorSourceAndSync({
     if (isEditorHotkeyBlockedByShortcutsDialog(event)) return false;
     if (
       isDesignHotkeyBlockedByOpenLayer(event.target) &&
-      !isShowKeyboardShortcutsHotkey(event)
+      !isShowKeyboardShortcutsHotkey(event) &&
+      !isOptedInDesignHistoryHotkey(event)
     ) {
       return false;
     }

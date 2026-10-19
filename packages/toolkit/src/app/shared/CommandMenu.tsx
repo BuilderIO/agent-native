@@ -38,7 +38,6 @@ import {
   IconExternalLink,
   IconInfoCircle,
   IconMessage,
-  IconMessageReport,
   IconHistory,
   IconLogout,
   IconSettings,
@@ -55,7 +54,6 @@ import React, {
   type ReactNode,
 } from "react";
 
-import { ReportProblemDialog } from "../feedback/ReportProblemDialog.js";
 import { AboutAgentNativeDialog } from "./AboutAgentNativeDialog.js";
 import { LazyChunkErrorBoundary } from "./LazyChunkErrorBoundary.js";
 
@@ -358,7 +356,6 @@ export function CommandMenu({
 
   const [changelogOpen, setChangelogOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
-  const [reportProblemOpen, setReportProblemOpen] = useState(false);
   const hasChangelog =
     typeof changelog === "string" && changelog.trim().length > 0;
   const showAbout = showAboutProp ?? hasChangelog;
@@ -375,11 +372,6 @@ export function CommandMenu({
   const openAbout = useCallback(() => {
     onOpenChange(false);
     setTimeout(() => setAboutOpen(true), 50);
-  }, [onOpenChange]);
-
-  const openReportProblem = useCallback(() => {
-    onOpenChange(false);
-    setTimeout(() => setReportProblemOpen(true), 50);
   }, [onOpenChange]);
 
   useEffect(() => {
@@ -459,13 +451,6 @@ export function CommandMenu({
       .toLowerCase()
       .includes(search.toLowerCase());
   const showAboutRow = showAbout && aboutRowMatches;
-  const reportProblemLabel = t("agentChat.reportProblem.menuItem");
-  const showReportProblemRow =
-    !search ||
-    [reportProblemLabel, "bug", "issue", "problem", "report"]
-      .join(" ")
-      .toLowerCase()
-      .includes(search.toLowerCase());
   const settingsLabel = t("settingsShortcut.command");
   const showSettingsRow =
     !search ||
@@ -615,31 +600,12 @@ export function CommandMenu({
         </>
       )}
 
-      {showReportProblemRow && (
-        <>
-          {(hasResults ||
-            showSettingsRow ||
-            showChangelogRow ||
-            showAboutRow) && <CommandSeparator />}
-          <div className="p-1">
-            <CommandItemPrimitive
-              className="cursor-pointer gap-2 py-2"
-              onSelect={openReportProblem}
-            >
-              <IconMessageReport className="h-4 w-4 text-muted-foreground" />
-              <span>{reportProblemLabel}</span>
-            </CommandItemPrimitive>
-          </div>
-        </>
-      )}
-
       {showSignOutRow && (
         <>
           {(hasResults ||
             showSettingsRow ||
             showChangelogRow ||
-            showAboutRow ||
-            showReportProblemRow) && <CommandSeparator />}
+            showAboutRow) && <CommandSeparator />}
           <div className="p-1">
             <CommandItemPrimitive
               className="cursor-pointer gap-2 py-2"
@@ -658,7 +624,6 @@ export function CommandMenu({
             showSettingsRow ||
             showChangelogRow ||
             showAboutRow ||
-            showReportProblemRow ||
             showSignOutRow ||
             Boolean(results)) && <CommandSeparator />}
           <div className="p-1">
@@ -796,11 +761,6 @@ export function CommandMenu({
       {showAbout && (
         <AboutAgentNativeDialog open={aboutOpen} onOpenChange={setAboutOpen} />
       )}
-
-      <ReportProblemDialog
-        open={reportProblemOpen}
-        onOpenChange={setReportProblemOpen}
-      />
     </>
   );
 }

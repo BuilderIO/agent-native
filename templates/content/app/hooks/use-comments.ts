@@ -6,7 +6,7 @@ import {
   parseCommentMentions,
   type CommentMention,
 } from "@shared/comment-mentions";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, type Query } from "@tanstack/react-query";
 
 import { useContentActionMutation } from "./use-content-action-mutation";
 
@@ -36,6 +36,11 @@ export interface Comment {
   anchor_prefix: string | null;
   anchor_suffix: string | null;
   anchor_start_offset: number | null;
+  /** Set on the root of a thread about one Property value. */
+  property_id?: string | null;
+  /** The Property's name and value when the thread started. */
+  property_name?: string | null;
+  property_value?: string | null;
   mentions: CommentMention[];
   author_email: string;
   author_name: string | null;
@@ -56,12 +61,21 @@ export interface Comment {
   mutation?: CommentMutationState;
 }
 
+/** What a Property thread targets, as it was when the thread started. */
+export interface CommentThreadProperty {
+  propertyId: string;
+  propertyName: string | null;
+  propertyValue: string | null;
+}
+
 export interface CommentThread {
   threadId: string;
   quotedText: string | null;
   prefix: string | null;
   suffix: string | null;
   startOffset: number | null;
+  /** Set when the thread is about one Property value, not body text. */
+  property?: CommentThreadProperty | null;
   resolved: boolean;
   comments: Comment[];
 }
@@ -96,6 +110,10 @@ export interface CreateCommentVariables {
   anchorPrefix?: string;
   anchorSuffix?: string;
   anchorStartOffset?: number;
+  /** Starts a thread on this Property instead of on quoted text. */
+  propertyId?: string;
+  /** The Collection that owns propertyId. */
+  databaseId?: string;
   mentions?: string;
 }
 
@@ -341,6 +359,44 @@ function invalidateDocumentComments(
   });
 }
 
+/**
+ * Collection reads whose loaded rows include this Page, so a change to its
+ * Comments can refresh the row's comment count.
+ */
+export function collectionRowsShowingDocumentFilter(documentId: string) {
+  return {
+    queryKey: ["action"],
+    predicate: (query: Query) => {
+      const name = query.queryKey[1];
+      if (
+        name !== "get-content-database" &&
+        name !== "query-content-database-items"
+      ) {
+        return false;
+      }
+      const items = (query.state.data as { items?: unknown } | undefined)
+        ?.items;
+      return (
+        Array.isArray(items) &&
+        items.some(
+          (item: { document?: { id?: unknown } } | null) =>
+            item?.document?.id === documentId,
+        )
+      );
+    },
+  };
+}
+
+function invalidateCollectionRowsShowingDocument(
+  queryClient: ReturnType<typeof useQueryClient>,
+  documentId: string,
+) {
+  return queryClient.invalidateQueries({
+    ...collectionRowsShowingDocumentFilter(documentId),
+    refetchType: "active",
+  });
+}
+
 function groupCommentThreads(data: unknown): CommentThread[] {
   const raw =
     data && typeof data === "object" && "comments" in data
@@ -367,6 +423,13 @@ function groupCommentThreads(data: unknown): CommentThread[] {
           typeof comment.anchor_start_offset === "number"
             ? comment.anchor_start_offset
             : null,
+        property: comment.property_id
+          ? {
+              propertyId: comment.property_id,
+              propertyName: comment.property_name ?? null,
+              propertyValue: comment.property_value ?? null,
+            }
+          : null,
         resolved: !!comment.resolved,
         comments: [],
       });
@@ -422,6 +485,9 @@ export function useCreateComment(author: CommentAuthor = {}) {
         anchor_prefix: variables.anchorPrefix ?? null,
         anchor_suffix: variables.anchorSuffix ?? null,
         anchor_start_offset: variables.anchorStartOffset ?? null,
+        property_id: variables.propertyId ?? null,
+        property_name: null,
+        property_value: null,
         mentions:
           variables.mentions === undefined
             ? []
@@ -456,7 +522,7 @@ export function useCreateComment(author: CommentAuthor = {}) {
         temporaryId,
       } satisfies CreateMutationContext;
     },
-    onSuccess: (result, _variables, rawContext) => {
+    onSuccess: (result, variables, rawContext) => {
       const context = rawContext as CreateMutationContext | undefined;
       if (!context) return;
       const operations = documentOperations(
@@ -491,6 +557,12 @@ export function useCreateComment(author: CommentAuthor = {}) {
           }),
       );
       void invalidateDocumentComments(queryClient, context.queryKey);
+      if (!variables.parentId) {
+        void invalidateCollectionRowsShowingDocument(
+          queryClient,
+          context.queryKey[2].documentId,
+        );
+      }
     },
     onError: (error, _variables, rawContext) => {
       const context = rawContext as CreateMutationContext | undefined;
@@ -720,6 +792,12 @@ function useOptimisticCommentUpdate<
             ),
         );
         void invalidateDocumentComments(queryClient, context.queryKey);
+        if (kind === "resolve") {
+          void invalidateCollectionRowsShowingDocument(
+            queryClient,
+            context.queryKey[2].documentId,
+          );
+        }
       },
       onError: (error, _variables, rawContext) => {
         const context = rawContext as UpdateMutationContext | undefined;
@@ -825,6 +903,7 @@ export function useDeleteComment() {
     invalidates: (_data, { documentId }) => [
       commentQueryKey(documentId),
       ["action", "list-comment-ai-requests", { documentId }],
+      collectionRowsShowingDocumentFilter(documentId),
     ],
   });
 }

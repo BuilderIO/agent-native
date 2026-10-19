@@ -27,6 +27,8 @@ vi.mock("../db/client.js", () => ({
 }));
 
 const { defineAction } = await import("../action.js");
+const { AuditAttributionError, auditAttribution } =
+  await import("./attribution.js");
 const {
   recordDefaultAgentEngineRefusal,
   resolveDefaultAgentEngineAuthority,
@@ -54,8 +56,12 @@ async function addMember(email: string, role: string) {
   );
 }
 
+const { __resetStoreLedgerSnapshotForTests } =
+  await import("../db/store-registry.js");
+
 beforeEach(async () => {
   pglite = await createTestPglite();
+  __resetStoreLedgerSnapshotForTests();
   __resetAuditInitForTests();
   process.env.AGENT_NATIVE_APP_ID = "mail";
   await pglite.exec(`CREATE TABLE settings (
@@ -89,7 +95,10 @@ async function seedDefaultModelChanges() {
     member,
     refused,
     "set",
-    { actionName: "manage-agent-engine", caller: "frontend" },
+    {
+      actionName: "manage-agent-engine",
+      attribution: auditAttribution({ caller: "frontend" }),
+    },
     { engine: "ai-sdk:openai", model: "gpt-5.5" },
   );
   const allowed = await resolveDefaultAgentEngineAuthority(admin);
@@ -97,7 +106,10 @@ async function seedDefaultModelChanges() {
   await writeDefaultAgentEngineSelection(
     allowed,
     { engine: "anthropic", model: "claude-sonnet-5" },
-    { actionName: "manage-agent-engine", caller: "tool" },
+    {
+      actionName: "manage-agent-engine",
+      attribution: auditAttribution({ caller: "tool" }),
+    },
   );
 }
 
@@ -190,6 +202,7 @@ describe("organization audit log", () => {
         summary: `change at ${at}`,
         userEmail: ADMIN,
         orgId: ORG,
+        attribution: auditAttribution({ caller: "http" }),
       });
     }
 
@@ -270,6 +283,7 @@ describe("organization audit log", () => {
       userEmail: MEMBER,
       orgId: ORG,
       personal: true,
+      attribution: auditAttribution({ caller: "http" }),
     });
 
     expect(
@@ -278,6 +292,22 @@ describe("organization audit log", () => {
     expect(
       (await listAuditEvents.run({}, member)).events.map((e) => e.visibility),
     ).toEqual(["private"]);
+  });
+
+  it("throws AuditAttributionError for a change recorded without attribution", async () => {
+    await expect(
+      recordOrgAdminAuditEvent({
+        action: "change-member-role",
+        targetType: "org-member-role",
+        targetId: MEMBER,
+        summary: "Changed a member's role",
+        userEmail: ADMIN,
+        orgId: ORG,
+      } as never),
+    ).rejects.toBeInstanceOf(AuditAttributionError);
+    expect(
+      (await listAuditEvents.run({ scope: "organization" }, admin)).events,
+    ).toEqual([]);
   });
 });
 

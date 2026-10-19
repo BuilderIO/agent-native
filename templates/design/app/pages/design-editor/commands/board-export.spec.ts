@@ -227,6 +227,7 @@ describe("board document exports", () => {
 
     try {
       const events: string[] = [];
+      const screenLease = Symbol("raster export");
       const args = {
         ...renderArgs({ doc: iframe.contentDocument!, iframe }),
         overviewScreens: [
@@ -241,6 +242,7 @@ describe("board document exports", () => {
           cropSelection: null,
           doc: iframe.contentDocument!,
           iframe,
+          screenLease,
         };
       });
       const resolvePngCaptureTarget = vi.fn(() => ({
@@ -270,7 +272,7 @@ describe("board document exports", () => {
         "screen-1",
       );
       expect(resolvePngCaptureTarget).toHaveBeenCalledWith("screens");
-      expect(args.releaseScreenFromExport).toHaveBeenCalledOnce();
+      expect(args.releaseScreenFromExport).toHaveBeenCalledWith(screenLease);
       expect(events).toEqual(["target:screen-1", "release"]);
       expect(mocks.renderNativeExportPng).toHaveBeenCalledOnce();
       expect(mocks.renderNativeExportPng).toHaveBeenCalledWith(

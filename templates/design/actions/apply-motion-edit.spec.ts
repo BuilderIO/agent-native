@@ -14,6 +14,150 @@ import action, {
   resolveMotionTimelineInsertOwnership,
 } from "./apply-motion-edit.js";
 
+describe("apply-motion-edit Text stagger validation", () => {
+  const animation = {
+    targetNodeId: "target-1",
+    unit: "character",
+    direction: "forward",
+    staggerMs: 6000,
+    animationDirection: "in",
+    order: "left-to-right",
+    overlapPercent: 0,
+    ignoreSpaces: false,
+    property: "opacity",
+    durationMs: 6000,
+    keyframes: [
+      { t: 0, value: "0" },
+      { t: 1, value: "1" },
+    ],
+  };
+  const input = {
+    designId: "design-1",
+    tracks: [],
+    textDocument: { version: 2, animations: [animation] },
+  };
+
+  it("accepts duration-derived stagger when overlap is explicit", () => {
+    expect(action.schema.safeParse(input).success).toBe(true);
+  });
+
+  it("preserves stable track ids in validated edit input", () => {
+    const parsed = action.schema.safeParse({
+      ...input,
+      tracks: [
+        {
+          id: "track-opacity-a",
+          targetNodeId: "target-1",
+          property: "opacity",
+          keyframes: [{ t: 0, value: "0" }],
+        },
+      ],
+    });
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.tracks[0]?.id).toBe("track-opacity-a");
+    }
+  });
+
+  it("accepts ordered same-property tracks when they have distinct identities", () => {
+    const parsed = action.schema.safeParse({
+      ...input,
+      tracks: [
+        {
+          id: "opacity-first",
+          targetNodeId: "target-1",
+          property: "opacity",
+          keyframes: [{ t: 0, value: "0" }],
+        },
+        {
+          id: "opacity-second",
+          targetNodeId: "target-1",
+          property: "opacity",
+          keyframes: [{ t: 0, value: "1" }],
+        },
+      ],
+    });
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.tracks.map((track) => track.id)).toEqual([
+        "opacity-first",
+        "opacity-second",
+      ]);
+    }
+  });
+
+  it("accepts additive Position rows but rejects Position rows with path collisions", () => {
+    const positionTrack = (id: string, value: string) => ({
+      id,
+      targetNodeId: "target-1",
+      property: "translate",
+      composition: "add",
+      keyframes: [
+        { t: 0, value: "0px 0px" },
+        { t: 1, value },
+      ],
+    });
+    const additive = action.schema.safeParse({
+      ...input,
+      tracks: [
+        positionTrack("position-x", "100px 0px"),
+        positionTrack("position-y", "0px 60px"),
+      ],
+    });
+    expect(additive.success).toBe(true);
+
+    const pathCollision = action.schema.safeParse({
+      ...input,
+      tracks: [
+        {
+          ...positionTrack("position-path", "100px 0px"),
+          composition: undefined,
+          keyframes: [
+            {
+              t: 0,
+              value: "0px 0px",
+              motionPath: {
+                version: 1,
+                type: "cubic",
+                control1: { x: 10, y: 0 },
+                control2: { x: -10, y: 0 },
+              },
+            },
+            { t: 1, value: "100px 0px" },
+          ],
+        },
+        positionTrack("position-second", "0px 60px"),
+      ],
+    });
+    expect(pathCollision.success).toBe(false);
+  });
+
+  it("keeps fixed stagger bounded by the source duration limit", () => {
+    const { overlapPercent: _overlapPercent, ...legacyAnimation } = animation;
+
+    expect(
+      action.schema.safeParse({
+        ...input,
+        textDocument: {
+          version: 2,
+          animations: [{ ...legacyAnimation, staggerMs: 9600 }],
+        },
+      }).success,
+    ).toBe(true);
+    expect(
+      action.schema.safeParse({
+        ...input,
+        textDocument: {
+          version: 2,
+          animations: [{ ...legacyAnimation, staggerMs: 120_001 }],
+        },
+      }).success,
+    ).toBe(false);
+  });
+});
+
 describe("assertSafeCssProperty (Issue 1 — CSS injection via track.property)", () => {
   it("FAILS before fix: injection payload containing colon is accepted — MUST throw after fix", () => {
     expect(() =>
@@ -500,7 +644,7 @@ describe("Motion Text source action input", () => {
     expect(result.success).toBe(true);
   });
 
-  it("rejects empty or unsupported Text source documents", () => {
+  it("accepts supported Text source versions and rejects empty or unsupported documents", () => {
     expect(
       action.schema.safeParse({
         designId: "d1",
@@ -513,6 +657,13 @@ describe("Motion Text source action input", () => {
         designId: "d1",
         tracks: [],
         textDocument: { ...textDocument, version: 2 },
+      }).success,
+    ).toBe(true);
+    expect(
+      action.schema.safeParse({
+        designId: "d1",
+        tracks: [],
+        textDocument: { ...textDocument, version: 3 },
       }).success,
     ).toBe(false);
   });

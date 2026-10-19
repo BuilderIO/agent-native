@@ -54,6 +54,19 @@ export function ensureMonacoEnvironment() {
     });
   }
 
+  // Monaco's word highlighter never awaits its delayer, so disposing an editor
+  // within 50 ms of a cursor move rejects that promise with nobody listening.
+  window.addEventListener("unhandledrejection", (event) => {
+    const reason: unknown = event.reason;
+    if (
+      reason instanceof Error &&
+      reason.name === "Canceled" &&
+      reason.message === "Canceled"
+    ) {
+      event.preventDefault();
+    }
+  });
+
   monacoEnvironmentInstalled = true;
 }
 

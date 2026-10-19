@@ -119,6 +119,8 @@ export const FIRST_PARTY_TEMPLATE_SCOPED_METRIC_KEYS = [
   "signup-method-conversion",
   "onboarding-step-dropoff",
   "onboarding-setup-choice",
+  "onboarding-ab-comparison",
+  "onboarding-ab-connected-trend",
   "sharing-actions-by-app",
 ] as const;
 const FIRST_PARTY_TEMPLATE_SQL_LIST = FIRST_PARTY_TEMPLATE_NAMES.map(
@@ -1139,7 +1141,7 @@ const ACTION_RESPONSE_CALL_TYPE_SQL = `CASE WHEN COALESCE(upper(properties::json
 const ACTION_RESPONSE_AUTH_STATE_SQL = `CASE WHEN NULLIF(user_id, '') IS NOT NULL THEN 'signed_in' ELSE 'anonymous' END`;
 const ACTION_RESPONSE_DEPLOYMENT_ENV_SQL = `CASE WHEN hostname LIKE 'beta.%' THEN 'beta' WHEN NULLIF(hostname, '') IS NOT NULL THEN 'prod' ELSE 'unknown' END`;
 const ACTION_RESPONSE_EVENT_FILTER = `event_name = 'action.response' AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${DASHBOARD_APP_FILTER} AND ${FIRST_PARTY_TEMPLATE_FILTER}`;
-const ACTIVATION_FUNNEL_SQL = `${FUNNEL_EVENTS_CTE}, funnel_users AS (
+const ACTIVATION_FUNNEL_CHAIN = `${FUNNEL_EVENTS_CTE}, funnel_users AS (
   SELECT DISTINCT funnel_user_key
   FROM funnel_events
   WHERE funnel_user_key IS NOT NULL
@@ -1230,7 +1232,8 @@ const ACTIVATION_FUNNEL_SQL = `${FUNNEL_EVENTS_CTE}, funnel_users AS (
       AND e.timestamp::timestamptz >= s.entered_at
       AND ${FUNNEL_SCOPE_FILTER}
   ) action ON true
-) SELECT 1 AS stage_order, 'Signup page viewed' AS stage, COUNT(*) FILTER (WHERE page_at IS NOT NULL) AS users FROM action_stage UNION ALL SELECT 2, 'Signup CTA clicked', COUNT(*) FILTER (WHERE cta_at IS NOT NULL) FROM action_stage UNION ALL SELECT 3, 'Signed up', COUNT(*) FILTER (WHERE signed_up_at IS NOT NULL) FROM action_stage UNION ALL SELECT 4, 'Onboarding started', COUNT(*) FILTER (WHERE started_at IS NOT NULL) FROM action_stage UNION ALL SELECT 5, 'Onboarding step reached', COUNT(*) FILTER (WHERE step_at IS NOT NULL) FROM action_stage UNION ALL SELECT 6, 'Onboarding completed', COUNT(*) FILTER (WHERE completed_at IS NOT NULL) FROM action_stage UNION ALL SELECT 7, 'Entered app', COUNT(*) FILTER (WHERE entered_at IS NOT NULL) FROM action_stage UNION ALL SELECT 8, 'First significant action', COUNT(*) FILTER (WHERE action_at IS NOT NULL) FROM action_stage ORDER BY stage_order`;
+)`;
+const ACTIVATION_FUNNEL_SQL = `${ACTIVATION_FUNNEL_CHAIN} SELECT 1 AS stage_order, 'Signup page viewed' AS stage, COUNT(*) FILTER (WHERE page_at IS NOT NULL) AS users FROM action_stage UNION ALL SELECT 2, 'Signup CTA clicked', COUNT(*) FILTER (WHERE cta_at IS NOT NULL) FROM action_stage UNION ALL SELECT 3, 'Signed up', COUNT(*) FILTER (WHERE signed_up_at IS NOT NULL) FROM action_stage UNION ALL SELECT 4, 'Onboarding started', COUNT(*) FILTER (WHERE started_at IS NOT NULL) FROM action_stage UNION ALL SELECT 5, 'Onboarding step reached', COUNT(*) FILTER (WHERE step_at IS NOT NULL) FROM action_stage UNION ALL SELECT 6, 'Onboarding completed', COUNT(*) FILTER (WHERE completed_at IS NOT NULL) FROM action_stage UNION ALL SELECT 7, 'Entered app', COUNT(*) FILTER (WHERE entered_at IS NOT NULL) FROM action_stage UNION ALL SELECT 8, 'First significant action', COUNT(*) FILTER (WHERE action_at IS NOT NULL) FROM action_stage ORDER BY stage_order`;
 const SIGNUP_METHOD_CONVERSION_SQL = `${FUNNEL_EVENTS_CTE}, clicks AS (SELECT COALESCE(NULLIF(properties::jsonb ->> 'method', ''), 'unknown') AS method, COUNT(DISTINCT funnel_user_key) AS clicks FROM funnel_events WHERE event_name = 'auth.signup_clicked' AND ${FUNNEL_SCOPE_FILTER} GROUP BY 1), signups AS (SELECT COALESCE(NULLIF(properties::jsonb ->> 'signup_method', ''), CASE WHEN lower(properties::jsonb ->> 'auth_provider') = 'google' THEN 'google' ELSE 'unknown' END) AS method, COUNT(DISTINCT funnel_user_key) AS signups FROM funnel_events WHERE event_name = 'signup' AND ${FUNNEL_SCOPE_FILTER} GROUP BY 1), methods AS (SELECT method FROM clicks UNION SELECT method FROM signups) SELECT methods.method, COALESCE(clicks.clicks, 0) AS clicks, COALESCE(signups.signups, 0) AS signups, COALESCE(signups.signups::float / NULLIF(clicks.clicks, 0), 0) AS conversion_rate FROM methods LEFT JOIN clicks ON clicks.method = methods.method LEFT JOIN signups ON signups.method = methods.method ORDER BY clicks DESC NULLS LAST, methods.method`;
 const ONBOARDING_STEP_DROPOFF_SQL = `${ONBOARDING_EVENTS_CTE}, viewers AS (
   SELECT DISTINCT funnel_user_key,
@@ -1374,6 +1377,73 @@ LEFT JOIN first_choice_summary ON first_choice_summary.method_id = method_list.m
 LEFT JOIN selection_summary ON selection_summary.method_id = method_list.method_id
 LEFT JOIN attempt_summary ON attempt_summary.method_id = method_list.method_id
 ORDER BY method_list.method_id`;
+// Each person is assigned to the variant on their first
+// onboarding_experiment_exposed event (fired only when the user was eligible).
+// A downstream event counts only when it carries that same variant and happened
+// at or after the first exposure, so identity-merged users cannot leak into the
+// opposite arm.
+const ONBOARDING_AB_COHORT_SQL = `${ONBOARDING_EVENTS_CTE}, experiment_events AS (
+  SELECT funnel_user_key, event_name, event_date, id,
+    timestamp::timestamptz AS event_at,
+    NULLIF(properties::jsonb ->> 'experiment_variant', '') AS variant,
+    COALESCE(NULLIF(properties::jsonb ->> 'step_id', ''), '') AS step_id,
+    COALESCE(NULLIF(properties::jsonb ->> 'method_id', ''), '') AS method_id,
+    COALESCE(NULLIF(properties::jsonb ->> 'outcome', ''), '') AS outcome
+  FROM onboarding_events
+  WHERE event_name IN ('onboarding_experiment_exposed', 'onboarding_step_skipped', 'onboarding_method_clicked', 'onboarding_method_outcome', 'onboarding_more_info_opened')
+    AND COALESCE(NULLIF(properties::jsonb ->> 'flow', ''), '') = 'first_run'
+    AND COALESCE(NULLIF(properties::jsonb ->> 'experiment_id', ''), '') = 'first_run_builder_credits'
+    AND NULLIF(properties::jsonb ->> 'experiment_variant', '') IS NOT NULL
+    AND funnel_user_key IS NOT NULL
+), ranked_exposures AS (
+  SELECT funnel_user_key, variant, event_date AS exposed_date, event_at AS exposed_at,
+    ROW_NUMBER() OVER (PARTITION BY funnel_user_key ORDER BY event_at, id) AS exposure_number
+  FROM experiment_events
+  WHERE event_name = 'onboarding_experiment_exposed'
+    AND step_id = 'choice'
+), exposed AS (
+  SELECT funnel_user_key, variant, exposed_date, exposed_at
+  FROM ranked_exposures
+  WHERE exposure_number = 1
+), exposed_flags AS (
+  SELECT exposed.funnel_user_key, exposed.variant, exposed.exposed_date,
+    MAX(CASE WHEN e.event_name = 'onboarding_method_clicked' AND e.method_id = 'builder_create_account' THEN 1 ELSE 0 END) AS activated,
+    MAX(CASE WHEN e.event_name = 'onboarding_method_outcome' AND e.outcome IN ('connected', 'already_connected') THEN 1 ELSE 0 END) AS connected,
+    MAX(CASE WHEN e.event_name = 'onboarding_method_clicked' AND e.method_id = 'custom_keys' THEN 1 ELSE 0 END) AS custom_keys,
+    MAX(CASE WHEN e.event_name = 'onboarding_step_skipped' AND e.step_id = 'choice' THEN 1 ELSE 0 END) AS skipped,
+    MAX(CASE WHEN e.event_name = 'onboarding_more_info_opened' AND e.step_id = 'choice' THEN 1 ELSE 0 END) AS more_info
+  FROM exposed
+  LEFT JOIN experiment_events e
+    ON e.funnel_user_key = exposed.funnel_user_key
+    AND e.event_name <> 'onboarding_experiment_exposed'
+    AND e.variant = exposed.variant
+    AND e.event_at >= exposed.exposed_at
+  GROUP BY exposed.funnel_user_key, exposed.variant, exposed.exposed_date
+)`;
+const ONBOARDING_AB_COMPARISON_SQL = `${ONBOARDING_AB_COHORT_SQL}
+SELECT variant,
+  COUNT(*) AS exposed_users,
+  SUM(activated) AS activated_users,
+  SUM(activated)::float / NULLIF(COUNT(*), 0) AS activated_rate,
+  SUM(connected) AS connected_users,
+  SUM(connected)::float / NULLIF(COUNT(*), 0) AS connected_rate,
+  SUM(custom_keys) AS custom_keys_users,
+  SUM(custom_keys)::float / NULLIF(COUNT(*), 0) AS custom_keys_rate,
+  SUM(skipped) AS skipped_users,
+  SUM(skipped)::float / NULLIF(COUNT(*), 0) AS skipped_rate,
+  CASE WHEN variant = 'credits' THEN SUM(more_info) END AS more_info_users,
+  CASE WHEN variant = 'credits' THEN SUM(more_info)::float / NULLIF(COUNT(*), 0) END AS more_info_rate
+FROM exposed_flags
+GROUP BY variant
+ORDER BY variant`;
+const ONBOARDING_AB_CONNECTED_TREND_SQL = `${ONBOARDING_AB_COHORT_SQL}
+SELECT exposed_date AS date, variant,
+  COUNT(*) AS exposed_users,
+  SUM(connected) AS connected_users,
+  SUM(connected)::float / NULLIF(COUNT(*), 0) AS rate
+FROM exposed_flags
+GROUP BY exposed_date, variant
+ORDER BY date, variant`;
 const sqlNameList = (names: readonly string[]) =>
   names.map((name) => `'${name}'`).join(", ");
 /**
@@ -3072,6 +3142,56 @@ const ENTRIES: FirstPartyMetric[] = [
     },
   },
   {
+    key: "onboarding-ab-comparison",
+    title: "Setup A/B: Variant Comparison",
+    chartType: "table",
+    source: "first-party",
+    width: 3,
+    windowed: false,
+    buildSql: fixed(ONBOARDING_AB_COMPARISON_SQL),
+    config: {
+      description:
+        "Experiment first_run_builder_credits. People are assigned to the variant of their first choice-screen view; every rate is that variant's share of exposed people. Connected means a Builder connected or already_connected outcome. Custom keys counts a custom_keys selection, and Opened More info applies to the credits variant only. Events with no experiment variant and test identities are excluded.",
+      columns: [
+        { key: "variant", label: "Variant" },
+        { key: "exposed_users", label: "Exposed", format: "number" },
+        { key: "activated_users", label: "Activated", format: "number" },
+        { key: "activated_rate", label: "Activate rate", format: "percent" },
+        { key: "connected_users", label: "Connected", format: "number" },
+        { key: "connected_rate", label: "Connect rate", format: "percent" },
+        { key: "custom_keys_users", label: "Custom keys", format: "number" },
+        {
+          key: "custom_keys_rate",
+          label: "Custom keys rate",
+          format: "percent",
+        },
+        { key: "skipped_users", label: "Skipped", format: "number" },
+        { key: "skipped_rate", label: "Skip rate", format: "percent" },
+        { key: "more_info_users", label: "Opened More info", format: "number" },
+        { key: "more_info_rate", label: "More info rate", format: "percent" },
+      ],
+    },
+  },
+  {
+    key: "onboarding-ab-connected-trend",
+    title: "Setup A/B: Connected Rate by Day",
+    chartType: "line",
+    source: "first-party",
+    width: 3,
+    windowed: false,
+    buildSql: fixed(ONBOARDING_AB_CONNECTED_TREND_SQL),
+    config: {
+      xKey: "date",
+      yKey: "rate",
+      yFormatter: "percent",
+      pivot: { xKey: "date", seriesKey: "variant", valueKey: "rate" },
+      // guard:allow-raw-color — chart series palette saved in the panel config, not a themed surface
+      colors: ["#64748b", "#10b981"],
+      description:
+        "Share of people first exposed to the choice screen each day who connected, by variant. Recent days keep filling in as people finish setup.",
+    },
+  },
+  {
     key: "chat-readiness-by-app",
     title: "Chat Readiness at Prompt",
     chartType: "table",
@@ -3247,4 +3367,79 @@ export function buildPanel(
     sql,
     config,
   };
+}
+
+export interface FirstPartyDrilldown {
+  sql: string;
+}
+
+const FUNNEL_STAGE_REACHED_AT_SQL = `CASE '{{drillX}}' WHEN 'Signup page viewed' THEN page_at WHEN 'Signup CTA clicked' THEN cta_at WHEN 'Signed up' THEN signed_up_at WHEN 'Onboarding started' THEN started_at WHEN 'Onboarding step reached' THEN step_at WHEN 'Onboarding completed' THEN completed_at WHEN 'Entered app' THEN entered_at WHEN 'First significant action' THEN action_at END`;
+
+const ACTIVATION_FUNNEL_DRILLDOWN_SQL = `${ACTIVATION_FUNNEL_CHAIN}, stage_users AS (
+  SELECT s.*, ${FUNNEL_STAGE_REACHED_AT_SQL} AS stage_reached_at
+  FROM action_stage s
+), visitor_emails AS (
+  SELECT funnel_user_key, MAX(funnel_user_email) AS email
+  FROM funnel_events
+  GROUP BY funnel_user_key
+)
+SELECT COALESCE(v.email, s.funnel_user_key) AS visitor,
+  s.stage_reached_at, s.page_at, s.cta_at, s.signed_up_at, s.started_at,
+  s.step_at, s.completed_at, s.entered_at, s.action_at,
+  s.funnel_user_key, COUNT(*) OVER () AS total_matching
+FROM stage_users s
+LEFT JOIN visitor_emails v ON v.funnel_user_key = s.funnel_user_key
+WHERE s.stage_reached_at IS NOT NULL
+ORDER BY s.stage_reached_at DESC
+LIMIT 500`;
+
+const SIGNUP_DRILLDOWN_SELECT = `SELECT timestamp,
+  COALESCE(NULLIF(user_id, ''), NULLIF(user_key, ''), NULLIF(anonymous_id, '')) AS visitor,
+  ${TEMPLATE_EXPR} AS template,
+  properties::jsonb ->> 'method' AS signup_method,
+  properties::jsonb ->> 'referrer_user' AS referrer_user,
+  anonymous_id, COUNT(*) OVER () AS total_matching
+FROM analytics_events
+WHERE event_name = 'signup'
+  AND ${DASHBOARD_TIME_RANGE_FILTER}
+  AND ${DASHBOARD_EMAIL_FILTER}
+  AND ${FIRST_PARTY_TEMPLATE_FILTER}`;
+
+const DRILLDOWNS: Record<string, FirstPartyDrilldown> = {
+  "activation-funnel": {
+    sql: ACTIVATION_FUNNEL_DRILLDOWN_SQL,
+  },
+  "signups-over-time": {
+    sql: scopeFirstPartyPanelSql(
+      `${SIGNUP_DRILLDOWN_SELECT}
+  AND ${EVENT_DATE_SQL} = '{{drillX}}'
+  AND ('{{drillSeries}}' = '' OR ${TEMPLATE_EXPR} = '{{drillSeries}}')
+ORDER BY timestamp DESC
+LIMIT 500`,
+    ),
+  },
+  "signups-by-template": {
+    sql: scopeFirstPartyPanelSql(
+      `${SIGNUP_DRILLDOWN_SELECT}
+  AND ${TEMPLATE_EXPR} = '{{drillX}}'
+ORDER BY timestamp DESC
+LIMIT 500`,
+    ),
+  },
+};
+
+export function getFirstPartyDrilldown(
+  panelId: string,
+  panelSource: string,
+  panelSql: string,
+): FirstPartyDrilldown | null {
+  if (panelSource !== "first-party") return null;
+
+  const catalogIds = Object.keys(DRILLDOWNS);
+  const catalogId =
+    (catalogIds.includes(panelId) && buildPanel(panelId)?.sql === panelSql
+      ? panelId
+      : catalogIds.find((id) => buildPanel(id)?.sql === panelSql)) ?? null;
+
+  return catalogId ? DRILLDOWNS[catalogId] : null;
 }

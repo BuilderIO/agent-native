@@ -61,23 +61,36 @@ export type TranscriptImportResult =
   | { ok: false; format: TranscriptImportFormat; error: TranscriptImportError };
 
 const TIME = String.raw`(?:\d+:)?\d{1,2}:\d{2}(?:[.,]\d{1,3})?`;
+// Only settings can follow the end time: WebVTT's, such as align:start, or
+// SRT's X1:100 coordinates. Anything else, even "Hi:there", makes a timing
+// this parser can't read, which fails on its line instead of being dropped
+// or becoming cue text.
+const CUE_SETTING = String.raw`(?:vertical|line|position|size|align|region|[XY][12]):\S+`;
 const CUE_TIMING = new RegExp(
-  String.raw`^\s*(${TIME})\s*-->\s*(${TIME})(?:\s+.*)?$`,
+  String.raw`^\s*(${TIME})\s*-->\s*(${TIME})(?:\s+${CUE_SETTING})*\s*$`,
 );
-// A start time right before the arrow: timestamped prose such as
-// "0:05 Use a --> b" is still text, while a cue with a bad end time is SRT
-// and gets SRT's line-specific error.
+// In a cue file, a line that starts with a time and an arrow is a timing.
 const CUE_TIMING_START = new RegExp(String.raw`^\s*${TIME}\s*-->`);
 // Text can follow a closing bracket or bold marker directly, as in
 // "[0:21]The chart."; a bare time needs a space after it, so "3:45pm" in
-// prose isn't read as a start time.
+// prose isn't read as a start time. A separator dash can't start an arrow,
+// so "0:05 --> 0:10" keeps its arrow.
 const TIMESTAMP_LINE = new RegExp(
-  String.raw`^\s*(?:[-*]\s+)?(?:\*\*)?[[(]?(${TIME})(?:[\])](?:\*\*)?|\*\*|(?=\s|$))(?:\s*[-–—:|]?\s*(.*))?$`,
+  String.raw`^\s*(?:[-*]\s+)?(?:\*\*)?[[(]?(${TIME})(?:[\])](?:\*\*)?|\*\*|(?=\s|$))(?:\s*(?:[-–—:|](?!-*>))?\s*(.*))?$`,
 );
-// WebVTT's cue tags and timestamps, and the tags SRT players render. Any
-// other angle bracket is prose, such as "x < 5 and y > 3".
+// WebVTT's cue tags and timestamps, and the font tags SRT players render.
+// Only v and lang take an annotation, so any other angle bracket is prose,
+// such as "x < 5 and y > 3" or "a<b and c>d".
+const CUE_CLASSES = String.raw`(?:\.[^\s.<>]+)*`;
+const FONT_ATTRIBUTE = String.raw`\s+[a-z][\w-]*\s*=\s*(?:"[^"<>]*"|'[^'<>]*'|[^\s"'<>]+)`;
 const CUE_MARKUP = new RegExp(
-  String.raw`<\/?(?:[bciuvs]|ruby|rt|lang|font)(?:[.\s][^<>]*)?>|<${TIME}>`,
+  [
+    String.raw`<\/?(?:[bicus]|ruby|rt)${CUE_CLASSES}>`,
+    String.raw`<(?:v|lang)${CUE_CLASSES}(?:\s[^<>]*)?>`,
+    String.raw`<\/(?:v|lang|font)>`,
+    String.raw`<font(?:${FONT_ATTRIBUTE})*\s*>`,
+    `<${TIME}>`,
+  ].join("|"),
   "gi",
 );
 const VTT_LANGUAGE_HEADER = /^Language:\s*([a-z]{2,3}(?:-[a-z0-9]{1,8})*)$/i;
@@ -87,13 +100,21 @@ const SPOKEN_DURATION =
   /^\d+\s+(?:hours?|minutes?|seconds?)(?:,?\s+\d+\s+(?:hours?|minutes?|seconds?))*$/i;
 
 export function detectTranscriptFormat(text: string): TranscriptImportFormat {
-  const body = stripBom(text);
-  const firstLine = body.trimStart().split(/\r?\n/, 1)[0] ?? "";
-  if (/^WEBVTT(?:\s|$)/.test(firstLine)) return "vtt";
-  if (splitLines(body).some((line) => CUE_TIMING_START.test(line))) {
-    return "srt";
-  }
-  return "text";
+  const [first = "", second = ""] = splitLines(stripBom(text))
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (/^WEBVTT(?:\s|$)/.test(first)) return "vtt";
+  if (CUE_TIMING_START.test(first)) return "srt";
+  // A cue file can also open with an identifier and then its timing. A line
+  // that can't open timestamped text is one when a timing follows it, and a
+  // bare number always is, since it can only be an SRT index, even above a
+  // broken timing. Judging by the opening alone keeps an arrow line further
+  // down a timestamped text file, such as "0:05 --> 0:10 is the range", from
+  // turning the whole file into cues.
+  return !TIMESTAMP_LINE.test(first) &&
+    (/^\d+$/.test(first) || CUE_TIMING_START.test(second))
+    ? "srt"
+    : "text";
 }
 
 export function parseTranscriptImport(
@@ -439,8 +460,9 @@ function decodeEntities(text: string): string {
 
 // Like WebVTT's own parser, a timing line starts a new cue even without a
 // blank line before it, so the next cue is not read as this one's text. A
-// line that only starts like one splits too, so a bad end time gets its
-// line-specific error. An SRT index right above that line moves with it.
+// line that only starts like one splits too, so a bad end time or prose after
+// it gets its line-specific error. An SRT index right above that line moves
+// with it.
 function splitAtCueTimings(
   block: Array<{ text: string; number: number }>,
 ): Array<Array<{ text: string; number: number }>> {

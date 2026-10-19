@@ -102,6 +102,14 @@ O framework descobre automaticamente cada arquivo em `actions/` e o monta na ini
             'Retornado no lugar de um resultado inválido quando outputErrorStrategy é "fallback".',
         },
         {
+          name: "mcpOutputSchema",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            'Anuncia o outputSchema para clientes MCP e valida cada resultado com ele. Exige outputErrorStrategy "strict".',
+        },
+        {
           name: "parallelSafe",
           type: "boolean",
           optional: true,
@@ -217,6 +225,8 @@ O framework descobre automaticamente cada arquivo em `actions/` e o monta na ini
 
 O schema faz dois trabalhos. Ele se converte em JSON Schema para a definição de ferramenta da Claude API, e valida a entrada em tempo de execução antes de `run()` disparar. Entradas inválidas nunca chegam ao seu handler.
 
+Os argumentos validados precisam ser dados simples: objetos, arrays, strings, números, booleanos, `null`, `undefined`, BigInts e Dates válidas. O framework os copia uma vez e calcula o hash dessa cópia, ao qual aprovações e repetições ficam vinculadas. Cada verificação que lê os argumentos, e o próprio `run()`, recebe sua própria cópia, então um handler pode alterar seus `args` com segurança. Se a saída do schema contiver qualquer outra coisa (um getter ou setter, um `Map` ou `Set`, uma instância de classe como `URL` ou `Buffer`, ou uma função), toda chamada falha como inválida antes da aprovação ou de `run()`, com um erro que nomeia o argumento. Transforms no seu schema, ou em um schema de terceiros que você usa, devem retornar dados simples; construa valores mais ricos dentro de `run()`. Essas regras valem para chamadas despachadas pelo loop do agente, pelo modo de planejamento, pelas rotas HTTP de actions e pelo MCP; uma chamada direta a `action.run()`, como uma action chamando outra ou a ponte de actions de desenvolvimento, recebe apenas a validação do schema.
+
 Declare valores de enum e defaults em `.describe()`, mantenha o nome do id principal idêntico em toda uma família de ferramentas (`id`, não uma mistura de `id`/`deckId`), e faça a descrição de uma linha ser suficiente para chamar a ferramenta a partir de um catálogo compacto — a skill `actions` incluída em todo app traz a checklist.
 
 ## Validando o valor de retorno {#output-schema}
@@ -247,6 +257,12 @@ export default defineAction({
 | `"fallback"` | Retorna o valor `outputFallback` fornecido no lugar do resultado inválido.                                               |
 
 Quando `run()` tem sucesso, o framework retorna o valor validado, então quaisquer defaults ou coerções em `outputSchema` entram em vigor, da mesma forma que acontece para a entrada. Quando você não passa um `outputSchema`, o valor de retorno permanece inalterado.
+
+A verificação estrita roda depois de `run()`, então o erro (`ActionOutputContractError`, `errorCode: "output_contract_violation"`) informa o que já aconteceu: `effect` é `"committed"` assim que uma escrita entrou no seu handler, na própria chamada ou em uma action que ela chamou (mesmo a partir de uma action somente leitura), e quem chama não deve repeti-la; caso contrário, é `"none"`. A mensagem lista apenas caminhos de campos declarados e códigos de problema, nunca os valores retornados.
+
+### Anunciar o contrato via MCP {#mcp-output-schema}
+
+Por padrão, clientes MCP não veem nenhum `outputSchema`, porque um schema em `"warn"` não é aplicado. Depois de verificar que todo resultado real corresponde, defina `mcpOutputSchema: true` junto com `outputErrorStrategy: "strict"`. A ferramenta então anuncia o schema no formato que os clientes MCP recebem — uma raiz do tipo array é envolvida como `{ items }`, e actions com `link` ganham `openLink` e `url` — e valida cada `structuredContent` com ele antes de retornar. A raiz precisa ser um objeto, uma união só de objetos ou um array; schemas com transformações não podem aderir. O schema anunciado também considera o que o MCP oculta: campos de ticket de incorporação são removidos e um texto que contenha uma URL de início de incorporação chega como `"[hidden embed URL]"`, então campos obrigatórios continuam obrigatórios. Um schema não pode aderir se usar uma palavra-chave ou um `format` que a verificação não consegue aplicar, como `not`, `$async` ou um formato desconhecido; se a ocultação puder quebrar uma de suas restrições `const`, `enum` ou `uniqueItems`; ou se a ação tiver um `link` e a raiz do schema limitar os nomes ou a quantidade de suas propriedades.
 
 ## Contratos de resultado {#result-contracts}
 
@@ -295,7 +311,7 @@ POST é o padrão, e `http: { method: "GET" }` faz dele um GET. Os ganchos do Re
 - **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`**: o padrão é `POST`. Actions `GET` são automaticamente marcadas como `readOnly`, então uma chamada bem-sucedida não dispara uma atualização por polling da UI.
 - **`http: { path: "..." }`**: sobrescreve a URL montada sob `/_agent-native/actions/`. O padrão é o nome do arquivo. Esse override só muda a URL para chamadores HTTP diretos. `useActionQuery()`, `useActionMutation()` e `callAction()` sempre chamam `/_agent-native/actions/<name>`, independentemente desse override, então sobrescrever o path faz esses ganchos retornarem 404. Use um override de path apenas para chamadores HTTP externos. Note também que segmentos de rota `:param` no path sobrescrito não são parseados para os args de `run()`. Apenas query-string params e campos do corpo JSON são.
 - **`http: false`**: desativa completamente o endpoint HTTP. Apenas o agente e a CLI podem chamar a action.
-- **`readOnly: true`**: pula explicitamente a atualização por polling, mesmo para actions `POST` que não mutam nada. Isso não é controle de acesso. Não restringe quem pode chamar a action, e não afeta `useActionQuery()`, `useActionMutation()` ou qualquer gancho de cliente. Seus únicos efeitos são suprimir o evento de atualização pós-chamada e tirar a action da auditoria de escrita. Para ocultar uma action do modelo, use `agentTool: false`. Para restringir quem pode chamá-la, use as opções de auth e acesso em [Acesso e Autorização](/docs/actions-access-control).
+- **`readOnly: true`**: pula explicitamente a atualização por polling, mesmo para actions `POST` que não mutam nada. Isso não é controle de acesso. Não restringe quem pode chamar a action, e não afeta `useActionQuery()`, `useActionMutation()` ou qualquer gancho de cliente. Seus únicos efeitos são suprimir o evento de atualização pós-chamada e tirar a action da auditoria de escrita. Uma action de escrita que ela chama continua contando como escrita: assim que essa escrita roda, a chamada dispara a atualização, e uma chamada que falha informa `effect: "committed"`. Para ocultar uma action do modelo, use `agentTool: false`. Para restringir quem pode chamá-la, use as opções de auth e acesso em [Acesso e Autorização](/docs/actions-access-control).
 - **`parallelSafe: true`**: permite que uma action de mutação rode ao mesmo tempo que outras chamadas de ferramenta no mesmo turno. Só defina isso quando a action for segura para rodar de forma concorrente e não depender de ordem. Actions de mutação são serializadas por padrão.
 
 ## Falhar uma action {#failing}
@@ -396,7 +412,7 @@ Toda action que o agente pode ver ocupa um slot na lista de ferramentas do model
 - Prefira **uma única action `update` no estilo CRUD** que receba um patch de campos opcionais, em vez de muitas actions por campo como `update-name`, `update-order` e `update-color`. O chamador só envia os campos que mudaram.
 - Antes de adicionar uma nova action de leitura para cada consulta ou filtro, considere primeiro uma opção mais geral: o [trio de API de provedor](/docs/template-dispatch-developers#calling-a-provider-directly) (`provider-api-catalog`, `provider-api-docs` e `provider-api-request`) para dados de provedor, ou a ferramenta dev `db-query` para dados do app.
 - Marque actions apenas de UI ou programáticas como [`agentTool: false`](/docs/actions-access-control#agent-tool). Elas continuam chamáveis a partir do frontend ou por HTTP, sem ocupar um slot na lista de ferramentas do modelo.
-- Marque com `deferLoading: false` o punhado de actions que o agente usa o tempo todo. São esses os schemas enviados na primeira requisição ao modelo; todo o resto carrega sob demanda pelo `tool-search` quando o agente precisa. Assim que uma action se exclui desse jeito, todas as não marcadas passam a ser adiadas, então marque o conjunto inicial inteiro de uma vez em vez de uma action por vez. Isso é sobre quanto custa o primeiro turno, não sobre acesso: uma action adiada é chamável assim que o `tool-search` a retorna. É a forma por action do array `initialToolNames` do plugin, e um app pode usar qualquer uma das duas.
+- Marque com `deferLoading: false` o punhado de actions que o agente usa o tempo todo. São esses os schemas enviados na primeira requisição ao modelo; todo o resto carrega sob demanda pelo `tool-search` quando o agente precisa. Assim que uma action se exclui desse jeito, todas as não marcadas passam a ser adiadas, então marque o conjunto inicial inteiro de uma vez em vez de uma action por vez. Isso é sobre quanto custa o primeiro turno, não sobre acesso: uma action adiada é chamável assim que o `tool-search` a retorna. Actions adiadas ainda aparecem por nome no índice de ferramentas do prompt, agrupadas pelo substantivo após o verbo principal, então nomes no formato `verb-noun`, como `list-dashboards` e `create-dashboard`, são o que permite ao agente encontrá-las. É a forma por action do array `initialToolNames` do plugin, e um app pode usar qualquer uma das duas.
 - Exclua ou oculte actions que a UI não usa mais, em vez de deixá-las expostas ao modelo.
 
 O repositório inclui um helper consultivo, `node scripts/audit-template-actions.mjs [template ...]` (alias `pnpm actions:audit`). Ele varre a pasta `actions/` de um template e sinaliza actions que a UI pode não estar mais usando, além de grupos de actions por campo que poderiam ser combinadas em uma só. Ele sempre sai com código 0 e nunca falha o CI, e suas heurísticas são conservadoras, então trate a saída dele como uma sugestão, não um erro.

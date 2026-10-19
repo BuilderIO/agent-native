@@ -21,10 +21,10 @@ export type MotionNativeStyleJsonValue =
   | { [key: string]: MotionNativeStyleJsonValue };
 
 export interface MotionNativeStyleInstance {
-  /** Discriminates native Figma instances from the local CSS track catalog. */
+  /** Distinguishes imported style instances from the local CSS track catalog. */
   type: typeof MOTION_NATIVE_STYLE_INSTANCE_TYPE;
   styleKey: MotionNativeStyleKey;
-  /** Source identifiers are copied verbatim when Figma supplies them. */
+  /** Source identifiers are preserved exactly when supplied. */
   sourceStyleId?: string;
   sourceInstanceId?: string;
   /** Stable localization key for the instance's display name. */
@@ -35,7 +35,7 @@ export interface MotionNativeStyleInstance {
   timelineOffset: number;
   targetNodeId: string;
   enabled?: boolean;
-  /** Unknown Figma properties are retained as bounded JSON without projection. */
+  /** Unknown source properties are retained as bounded JSON without projection. */
   props: { [key: string]: MotionNativeStyleJsonValue };
 }
 
@@ -68,7 +68,7 @@ export class MotionNativeStyleInstanceError extends TypeError {
   }
 }
 
-/** Validates one native Figma instance without normalizing or projecting it. */
+/** Validates one imported style instance without normalizing or projecting it. */
 export function assertMotionNativeStyleInstance(
   value: unknown,
 ): asserts value is MotionNativeStyleInstance {
@@ -175,7 +175,7 @@ export function assertMotionNativeStyleInstance(
   assertBoundedJsonObject(fields.get("props"), "style instance.props");
 }
 
-/** Validates a bounded collection while keeping Figma instances separate from local styles. */
+/** Validates a bounded collection while keeping imported instances separate from local styles. */
 export function assertMotionNativeStyleInstances(
   value: unknown,
 ): asserts value is MotionNativeStyleInstance[] {

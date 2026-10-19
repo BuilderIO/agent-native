@@ -46,7 +46,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it("shows all eight included services when an app profile omits design intelligence", () => {
+it("shows all nine included services when an app profile omits design intelligence", () => {
   const clipsCapabilities = [
     ...WORKSPACE_SERVICES.filter((service) => service.everyApp).map(
       (service) => ({ ...service.capability, service: service.id }),
@@ -70,7 +70,7 @@ it("shows all eight included services when an app profile omits design intellige
     included.filter(
       (capability) => capability.id !== "llm" && capability.service !== "model",
     ),
-  ).toHaveLength(8);
+  ).toHaveLength(9);
 });
 
 function connectButton(): HTMLButtonElement {
@@ -543,7 +543,7 @@ describe("BuilderConnectPopover", () => {
     ).toEqual([
       "Included free",
       "60 monthly Agent Credits",
-      "LLM credits + 8 more services",
+      "LLM credits + 9 more services",
     ]);
     click(servicesToggle!);
     expect(servicesToggle?.getAttribute("aria-expanded")).toBe("true");

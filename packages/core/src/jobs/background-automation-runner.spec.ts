@@ -2,6 +2,7 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 import type { AgentEngine, EngineEvent } from "../agent/engine/types.js";
+import { auditAttribution } from "../audit/attribution.js";
 
 const pglite = await createTestPglite();
 
@@ -40,7 +41,7 @@ const getThreadMock = vi.hoisted(() =>
     messageCount: 0,
   })),
 );
-const updateThreadDataMock = vi.hoisted(() => vi.fn(async () => {}));
+const updateThreadDataMock = vi.hoisted(() => vi.fn(async () => true));
 const createThreadMock = vi.hoisted(() =>
   vi.fn(async (..._args: unknown[]) => ({ id: "thread-1" })),
 );
@@ -68,7 +69,7 @@ vi.mock("../agent/run-loop-with-resume.js", () => ({
     }
   },
   runAgentLoopDirectWithSoftTimeout: vi.fn(async (opts) => {
-    opts.send?.({
+    await opts.send?.({
       type: "tool_done",
       tool: "send-notification",
       result: "Sent",
@@ -358,6 +359,142 @@ describe("runBackgroundAutomation — confirmed work", () => {
     },
   );
 
+  it("recovers a completed durable step when recovery has no tool_done event", async () => {
+    const runStore = await import("../agent/run-store.js");
+    const history = await import("./run-history.js");
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    const automation = precondition("receipt-without-tool-done");
+    const threadId = "thread-receipt-without-tool-done";
+    const turnId = "turn-receipt-without-tool-done";
+    const historyId = await history.startAutomationRun({
+      owner: automation.resource.owner,
+      automation: automation.name,
+      path: automation.resource.path,
+      runId: "prior-worker",
+      threadId,
+    });
+    getThreadMock.mockResolvedValueOnce({
+      id: threadId,
+      title: "Interrupted",
+      preview: "",
+      messageCount: 1,
+      threadData: JSON.stringify({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Send the report." }],
+            metadata: { custom: { submittedTurnId: turnId } },
+          },
+        ],
+      }),
+    });
+    const persistedEvents = vi
+      .spyOn(runStore, "getCurrentTurnRunEventsForThread")
+      .mockResolvedValue([
+        {
+          runId: "prior-worker",
+          seq: 0,
+          event: {
+            type: "tool_start",
+            id: "send-report-call",
+            tool: "send-report",
+            input: { recipient: "fixture@example.test" },
+          },
+        },
+      ]);
+    const completedSteps = vi
+      .spyOn(runStore, "getCompletedAgentExecutionSteps")
+      .mockResolvedValue([
+        {
+          stepId: "send-report-call",
+          operationId: "send-report-call",
+          toolName: "send-report",
+          inputJson: JSON.stringify({
+            argumentsHash: "a".repeat(64),
+            input: { recipient: "fixture@example.test" },
+          }),
+          resultJson: JSON.stringify({
+            result: "Report delivered",
+            isError: false,
+            completedSideEffect: true,
+          }),
+        },
+      ]);
+    const claim = vi
+      .spyOn(runStore, "tryClaimRunSlot")
+      .mockImplementation(async (id, runId, _staleMs, options) => {
+        await runStore.insertRun(runId, id, options!.turnId!, {
+          dispatchMode: "background",
+          afterInsert: options!.afterInsert,
+        });
+        return { claimed: true, activeRunId: null };
+      });
+    const actionRun = vi.fn(async () => "Report delivered");
+    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+      async (opts) => {
+        expect(opts.recoverCompletedExecutionSteps).toBe(true);
+        expect(JSON.stringify(opts.messages)).toContain("Report delivered");
+        opts.send({ type: "text", text: "The report was delivered." });
+        return usage;
+      },
+    );
+
+    try {
+      await expect(
+        runBackgroundAutomation(
+          runOptions(automation, {
+            historyId,
+            resume: {
+              historyId,
+              threadId,
+              turnId,
+              previousRunId: "prior-worker",
+              hardDeadlineAt: Date.now() + 60_000,
+            },
+          }),
+          {
+            ...standardDeps,
+            getActions: () => ({
+              "send-report": {
+                run: actionRun,
+                confirmsAutomationWork: true,
+              },
+            }),
+          },
+        ),
+      ).resolves.toMatchObject({ status: "success" });
+      expect(persistedEvents).toHaveBeenCalledWith(threadId, turnId);
+      expect(completedSteps).toHaveBeenCalledWith(threadId, turnId, [
+        "send-report-call",
+      ]);
+      expect(actionRun).not.toHaveBeenCalled();
+      expect(await history.getAutomationRun(historyId)).toMatchObject({
+        status: "success",
+      });
+    } finally {
+      persistedEvents.mockRestore();
+      completedSteps.mockRestore();
+      claim.mockRestore();
+    }
+  });
+
+  it("fails the run when its completion transcript was not persisted", async () => {
+    const name = "completion-transcript-not-persisted";
+    updateThreadDataMock
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false);
+
+    await expect(
+      runBackgroundAutomation(runOptions(precondition(name)), standardDeps),
+    ).rejects.toThrow("was not updated while saving run");
+
+    const run = (await pglite
+      .prepare("SELECT status FROM automation_runs WHERE automation = ?")
+      .get(name)) as { status: string };
+    expect(run.status).toBe("error");
+  });
+
   it.each(["nothing-needed", "journal-no-op", "failed-send", "confirmed-work"])(
     "settles a declared no-op: %s",
     async (scenario) => {
@@ -633,7 +770,7 @@ describe("runBackgroundAutomation — confirmed work", () => {
         await import("../agent/run-loop-with-resume.js");
       vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
         async (opts) => {
-          opts.send?.({ type: "text", text });
+          await opts.send?.({ type: "text", text });
           return usage;
         },
       );
@@ -668,21 +805,24 @@ describe("runBackgroundAutomation — confirmed work", () => {
       vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
         async (opts) => {
           if (scenario === "preparation") {
-            opts.send?.({ type: "text", text: "I will gather the digest." });
-            opts.send?.({
+            await opts.send?.({
+              type: "text",
+              text: "I will gather the digest.",
+            });
+            await opts.send?.({
               type: "tool_done",
               tool: "list-events",
               result: "[]",
             });
           } else if (scenario === "action-only") {
-            opts.send?.({
+            await opts.send?.({
               type: "tool_done",
               tool: "send-notification",
               result: "Sent",
               completedSideEffect: true,
             });
           } else if (scenario !== "empty") {
-            opts.send?.({ type: "text", text: "Your weekly digest." });
+            await opts.send?.({ type: "text", text: "Your weekly digest." });
           }
           return usage;
         },
@@ -722,6 +862,141 @@ describe("runBackgroundAutomation — confirmed work", () => {
     },
   );
 
+  it("does not resend after provider acceptance when the delivery receipt write is lost", async () => {
+    const runStore = await import("../agent/run-store.js");
+    const history = await import("./run-history.js");
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    const adapters = await import("../integrations/adapters/index.js");
+    const automation = precondition("delivery-receipt-write-lost", {
+      deliveryPlatform: "slack",
+      deliveryDestination: "example-channel",
+    });
+    const historyId = await history.startAutomationRun({
+      owner: automation.resource.owner,
+      automation: automation.name,
+      path: automation.resource.path,
+    });
+    const finish = vi
+      .spyOn(history, "finishAutomationRun")
+      .mockRejectedValueOnce(new Error("simulated process loss after send"));
+    const sendMessageToTarget = vi.fn(async () => {});
+    const adapter = vi.spyOn(adapters, "getDefaultAdapter").mockReturnValue({
+      formatAgentResponse: (text: string) => ({ text }),
+      sendMessageToTarget,
+    } as any);
+    const completeReceipt = vi
+      .spyOn(runStore, "completeAgentExecutionStep")
+      .mockRejectedValueOnce(new Error("simulated loss before receipt commit"));
+    const runLoop = vi.mocked(runAgentLoopDirectWithSoftTimeout);
+    const writeConfirmedReport = async (
+      opts: Parameters<typeof runLoop>[0],
+    ) => {
+      await opts.send?.({
+        type: "tool_done",
+        id: "report-action",
+        tool: "send-report",
+        result: "Report prepared",
+        completedSideEffect: true,
+      });
+      await opts.send?.({ type: "text", text: "Your weekly report." });
+      return usage;
+    };
+    runLoop.mockImplementationOnce(writeConfirmedReport as any);
+
+    try {
+      await expect(
+        runBackgroundAutomation(runOptions(automation, { historyId }), {
+          ...standardDeps,
+          getActions: () => ({
+            "send-report": { run: vi.fn(), confirmsAutomationWork: true },
+          }),
+        }),
+      ).rejects.toMatchObject({
+        errorCode: "background_automation_history_write_failed",
+      });
+      expect(sendMessageToTarget).toHaveBeenCalledOnce();
+
+      const previous = await history.getAutomationRun(historyId);
+      expect(previous).toMatchObject({
+        threadId: expect.any(String),
+        runId: expect.any(String),
+        status: "running",
+      });
+      finish.mockRestore();
+      const turnId = previous!.runId!;
+      const step = (await pglite
+        .prepare(
+          `SELECT status FROM agent_execution_steps
+           WHERE thread_id = ? AND turn_id = ?
+             AND step_id = 'background-automation-delivery'`,
+        )
+        .get(previous!.threadId, turnId)) as { status: string } | undefined;
+      expect(step).toEqual({ status: "dispatched" });
+
+      getThreadMock.mockResolvedValueOnce({
+        id: previous!.threadId!,
+        title: "Interrupted automation",
+        preview: "",
+        messageCount: 1,
+        threadData: JSON.stringify({
+          messages: [
+            {
+              role: "user",
+              content: [{ type: "text", text: "Send the reminders." }],
+              metadata: { custom: { submittedTurnId: turnId } },
+            },
+          ],
+        }),
+      });
+      runLoop.mockImplementationOnce(async (opts) => {
+        await opts.send?.({
+          type: "tool_done",
+          id: "report-action",
+          tool: "send-report",
+          result: "Report prepared",
+          completedSideEffect: true,
+        });
+        return usage;
+      });
+      await expect(
+        runBackgroundAutomation(
+          runOptions(automation, {
+            historyId,
+            resume: {
+              historyId,
+              threadId: previous!.threadId!,
+              turnId,
+              previousRunId: previous!.runId!,
+              hardDeadlineAt: Date.now() + 60_000,
+            },
+          }),
+          {
+            ...standardDeps,
+            getActions: () => ({
+              "send-report": { run: vi.fn(), confirmsAutomationWork: true },
+            }),
+          },
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "background_automation_delivery_unknown",
+      });
+      expect(sendMessageToTarget).toHaveBeenCalledOnce();
+      const replayedStep = (await pglite
+        .prepare(
+          `SELECT status FROM agent_execution_steps
+           WHERE thread_id = ? AND turn_id = ?
+             AND step_id = 'background-automation-delivery'`,
+        )
+        .get(previous!.threadId, turnId)) as { status: string } | undefined;
+      expect(replayedStep).toEqual({ status: "unknown" });
+    } finally {
+      finish.mockRestore();
+      completeReceipt.mockRestore();
+      adapter.mockRestore();
+    }
+  });
+
   it.each([false, true])(
     "rejects an undelivered digest (successful read: %s)",
     async (readSucceeded) => {
@@ -730,20 +1005,23 @@ describe("runBackgroundAutomation — confirmed work", () => {
       vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
         async (opts) => {
           if (readSucceeded)
-            opts.send?.({
+            await opts.send?.({
               type: "tool_done",
               tool: "list-events",
               result: "[]",
             });
-          opts.send?.({
+          await opts.send?.({
             type: "tool_done",
             tool: "send-digest",
             result: "Slack connection is unavailable",
             isError: true,
             completedSideEffect: false,
           });
-          opts.send?.({ type: "text", text: "No notification was sent." });
-          opts.send?.({ type: "done" });
+          await opts.send?.({
+            type: "text",
+            text: "No notification was sent.",
+          });
+          await opts.send?.({ type: "done" });
           return {
             inputTokens: 0,
             outputTokens: 0,
@@ -867,7 +1145,10 @@ describe("default selection reaches new chats and background runs", () => {
               model: "claude-sonnet-5-5",
               appId: "calendar",
             },
-            { actionName: "manage-agent-engine", caller: "tool" },
+            {
+              actionName: "manage-agent-engine",
+              attribution: auditAttribution({ caller: "tool" }),
+            },
           ),
         ).toMatchObject({
           status: "selected",
@@ -1356,24 +1637,34 @@ function assistantContent() {
 
 describe("runBackgroundAutomation — thread transcript", () => {
   it("persists the prompt and tool-call turn, keeping the Job title", async () => {
+    const { getRunEventsSince } = await import("../agent/run-store.js");
     const { runAgentLoopDirectWithSoftTimeout } =
       await import("../agent/run-loop-with-resume.js");
     vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
       async (opts) => {
-        opts.send?.({ type: "text", text: "Checking Slack." });
-        opts.send?.({
+        await opts.send?.({ type: "text", text: "Checking Slack." });
+        await opts.send?.({
           type: "tool_start",
           id: "tc_1",
           tool: "poll-slack-channel",
           input: { channel: "C123" },
         });
-        opts.send?.({
+        expect(opts.beforeWrite).toEqual(expect.any(Function));
+        await opts.beforeWrite?.();
+        const persistedEvents = await getRunEventsSince(opts.runId!, 0);
+        expect(
+          persistedEvents.some(({ eventData }) => {
+            const event = JSON.parse(eventData) as { type?: string };
+            return event.type === "tool_start";
+          }),
+        ).toBe(true);
+        await opts.send?.({
           type: "tool_done",
           id: "tc_1",
           tool: "poll-slack-channel",
           result: JSON.stringify({ checked: 1 }),
         });
-        opts.send?.({
+        await opts.send?.({
           type: "tool_done",
           tool: "send-notification",
           result: "Sent",
@@ -1442,8 +1733,8 @@ describe("runBackgroundAutomation — thread transcript", () => {
       await import("../agent/run-loop-with-resume.js");
     vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
       async (opts) => {
-        opts.send?.({ type: "text", text: "Started polling." });
-        opts.send?.({ type: "auto_continue", reason: "no_progress" });
+        await opts.send?.({ type: "text", text: "Started polling." });
+        await opts.send?.({ type: "auto_continue", reason: "no_progress" });
         return {
           inputTokens: 0,
           outputTokens: 0,
@@ -1521,8 +1812,8 @@ describe("runBackgroundAutomation — thread transcript", () => {
       await import("../agent/run-loop-with-resume.js");
     vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
       async (opts) => {
-        opts.send?.({ type: "text", text: "Started polling." });
-        opts.send?.({ type: "auto_continue", reason: "no_progress" });
+        await opts.send?.({ type: "text", text: "Started polling." });
+        await opts.send?.({ type: "auto_continue", reason: "no_progress" });
         return {
           inputTokens: 0,
           outputTokens: 0,
@@ -1582,9 +1873,14 @@ describe("runBackgroundAutomation — thread transcript", () => {
   it("persists a partial turn when the hard timeout fires", async () => {
     const { runAgentLoopDirectWithSoftTimeout } =
       await import("../agent/run-loop-with-resume.js");
+    let resolveTextPersisted!: () => void;
+    const textPersisted = new Promise<void>((resolve) => {
+      resolveTextPersisted = resolve;
+    });
     vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
       async (opts) => {
-        opts.send?.({ type: "text", text: "Still working." });
+        await opts.send?.({ type: "text", text: "Still working." });
+        resolveTextPersisted();
         await new Promise<void>((_resolve, reject) => {
           const signal = opts.signal;
           if (signal?.aborted) {
@@ -1659,6 +1955,7 @@ describe("runBackgroundAutomation — thread transcript", () => {
       await vi.waitFor(() => {
         expect(pendingHardTimeouts.length).toBe(1);
       });
+      await textPersisted;
       pendingHardTimeouts[0]!();
 
       await expect(runPromise).rejects.toThrow(/timed out after 2 minutes/);
@@ -1874,11 +2171,14 @@ describe("runBackgroundAutomation — preconditions fail before any thread or ru
 
   async function seedOrg(members: Array<[email: string, role: string]>) {
     await pglite.exec(`
-      CREATE TABLE IF NOT EXISTS "user" (id TEXT PRIMARY KEY, email TEXT UNIQUE);
-      INSERT INTO "user" (id, email) VALUES ('u-alice', 'alice@agent-native.test')
+      CREATE TABLE IF NOT EXISTS "user" (
+      id TEXT PRIMARY KEY, name TEXT, email TEXT UNIQUE,
+      created_at TIMESTAMPTZ, updated_at TIMESTAMPTZ
+    );
+      INSERT INTO "user" (id, name, email, created_at, updated_at) VALUES ('u-alice', 'u-alice', 'alice@agent-native.test', now(), now())
         ON CONFLICT DO NOTHING;
       CREATE TABLE IF NOT EXISTS org_members (
-        org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL,
+        id TEXT, joined_at BIGINT, org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL,
         federation_removal_pending_at BIGINT
       );
       DELETE FROM org_members;
@@ -1886,9 +2186,9 @@ describe("runBackgroundAutomation — preconditions fail before any thread or ru
     for (const [email, role] of members) {
       await pglite
         .prepare(
-          `INSERT INTO org_members (org_id, email, role) VALUES ('acme', ?, ?)`,
+          `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, 'acme', ?, ?, 0)`,
         )
-        .run(email, role);
+        .run(`acme:${email}`, email, role);
     }
   }
 
@@ -2391,7 +2691,7 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
         vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
           async (opts) => {
             expect(JSON.stringify(opts.messages)).toContain("Delivered");
-            opts.send?.({
+            await opts.send?.({
               type: "tool_done",
               tool: "open-ticket",
               result: "Created",
@@ -2830,6 +3130,55 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
     });
   });
 
+  it("settles and records a failure when the execution lease cannot be claimed", async () => {
+    const runStore = await import("../agent/run-store.js");
+    const history = await import("./run-history.js");
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    const automation = precondition("execution-lease-claim-failure");
+    const historyId = await history.startAutomationRun({
+      owner: automation.resource.owner,
+      automation: automation.name,
+      path: automation.resource.path,
+    });
+    const claim = vi
+      .spyOn(runStore, "claimTurnExecutionLease")
+      .mockRejectedValueOnce(new Error("lease store unavailable"));
+    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockClear();
+
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<{ state: "timeout" }>((resolve) => {
+      timeout = setTimeout(() => resolve({ state: "timeout" }), 1_000);
+    });
+    try {
+      const result = await Promise.race([
+        runBackgroundAutomation(
+          runOptions(automation, { historyId, hardTimeoutMs: 100 }),
+          standardDeps,
+        ).then(
+          () => ({ state: "resolved" as const }),
+          (error) => ({ state: "rejected" as const, error }),
+        ),
+        timeoutPromise,
+      ]);
+
+      expect(result.state).toBe("rejected");
+      if (result.state !== "rejected")
+        throw new Error("The automation did not settle after lease failure.");
+      expect(result.error).toMatchObject({
+        errorCode: "aborted_execution-lease-claim-failed",
+      });
+      expect(runAgentLoopDirectWithSoftTimeout).not.toHaveBeenCalled();
+      expect(await history.getAutomationRun(historyId)).toMatchObject({
+        status: "error",
+        errorCode: "aborted_execution-lease-claim-failed",
+      });
+    } finally {
+      if (timeout) clearTimeout(timeout);
+      claim.mockRestore();
+    }
+  });
+
   it("settles an expired recovery deadline with its previous worker's journal evidence", async () => {
     const runStore = await import("../agent/run-store.js");
     const history = await import("./run-history.js");
@@ -2985,14 +3334,14 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
       await import("../agent/run-loop-with-resume.js");
     vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
       async (opts) => {
-        opts.send?.({
+        await opts.send?.({
           type: "tool_done",
           id: "tc_1",
           tool: "provider-api-request",
           result: "hubspot requires an available workspace connection.",
           isError: true,
         });
-        opts.send?.({
+        await opts.send?.({
           type: "connection_required",
           requestId: "request-1",
           provider: "hubspot",

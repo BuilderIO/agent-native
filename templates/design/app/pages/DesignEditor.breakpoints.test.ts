@@ -52,7 +52,7 @@ describe("applyScopedVisualStyleEdit (§6.4 single write path)", () => {
     expect(patch.result.status).toBe("applied");
     expect(patch.content).toContain("<style data-agent-native-breakpoints>");
     expect(patch.content).toContain("@media (max-width: 809px)");
-    expect(patch.content).toContain("left: 137px;");
+    expect(patch.content).toContain("left: 137px !important;");
     expect(patch.content).not.toContain('style="');
   });
 
@@ -119,7 +119,7 @@ describe("applyScopedVisualStyleEdit (§6.4 single write path)", () => {
     expect(patch.content).toContain("<style data-agent-native-breakpoints>");
     expect(patch.content).toContain("@media (max-width: 809px)");
     expect(patch.content).toContain(
-      'background-image: url("https://example.com/fill.png") center / cover no-repeat;',
+      'background-image: url("https://example.com/fill.png") center / cover no-repeat !important;',
     );
     expect(patch.content).not.toContain('style="');
   });
@@ -194,7 +194,7 @@ describe("Fill 'Add layer' single-property commit with a breakpoint active", () 
     expect(patch.result.status).toBe("applied");
     expect(patch.content).toContain("<style data-agent-native-breakpoints>");
     expect(patch.content).toContain("@media (max-width: 809px)");
-    expect(patch.content).toContain("background-color: #ffffff;");
+    expect(patch.content).toContain("background-color: #ffffff !important;");
     expect(patch.content).not.toContain('style="');
   });
 
@@ -230,9 +230,9 @@ describe("Fill 'Add layer' single-property commit with a breakpoint active", () 
       content = patch.content;
     }
     expect(content).toContain("<style data-agent-native-breakpoints>");
-    expect(content).toContain("color: #000000;");
-    expect(content).toContain("background-color: #ffffff;");
-    expect(content).toContain("background-image: none;");
+    expect(content).toContain("color: #000000 !important;");
+    expect(content).toContain("background-color: #ffffff !important;");
+    expect(content).toContain("background-image: none !important;");
     expect(content).not.toContain('style="');
   });
 });
@@ -288,7 +288,7 @@ describe("delete-to-display:none at an active breakpoint (item 7b)", () => {
     expect(patch.result.status).toBe("applied");
     expect(patch.content).toContain("<style data-agent-native-breakpoints>");
     expect(patch.content).toContain("@media (max-width: 809px)");
-    expect(patch.content).toContain("display: none;");
+    expect(patch.content).toContain("display: none !important;");
     expect(patch.content).toContain(
       '<section data-agent-native-node-id="hero" class="text-sm p-4">Hello</section>',
     );

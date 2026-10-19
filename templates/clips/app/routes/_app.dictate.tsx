@@ -5,7 +5,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { useLabState } from "@agent-native/core/client/labs";
-import { CLIPS_WISPRFLOW } from "@shared/labs";
+import { CLIPS_VOICE_DICTATION } from "@shared/labs";
 import {
   IconChevronDown,
   IconChevronRight,
@@ -782,7 +782,7 @@ function DictationEmptyState({
 }
 
 export default function DictateRoute() {
-  const lab = useLabState(CLIPS_WISPRFLOW.key);
+  const lab = useLabState(CLIPS_VOICE_DICTATION.key);
   const t = useT();
   const [searchParams] = useSearchParams();
   const selectedDictationId = searchParams.get("dictationId");

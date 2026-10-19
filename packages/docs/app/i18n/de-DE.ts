@@ -1,6 +1,87 @@
 import enUS from "./en-US";
 
 const deDE = {
+  campaign: {
+    recipes: "Rezepte",
+    waysToUse: "Einsatzmöglichkeiten",
+    recipeWhen: "Wann",
+    recipeNextTime: "Nächstes Mal:",
+    howOften: "Wie oft",
+    worksWith: "Funktioniert mit:",
+    nextJobs: "Was als Nächstes zu tun ist",
+    filterRole: "Rolle",
+    filterAll: "Alle",
+    filterEngineering: "Entwicklung",
+    filterProduct: "Produkt",
+    filterDesign: "Design",
+    filterMarketing: "Marketing",
+    filterRevops: "RevOps",
+    filterSales: "Vertrieb",
+    filterFounders: "Gründer",
+    filterFinance: "Finanzen",
+    filterOften: "Wie oft",
+    filterAny: "Beliebig",
+    filterDaily: "Täglich",
+    filterWeekly: "Wöchentlich",
+    filterPerProject: "Pro Projekt oder Produkteinführung",
+    filterOccasional: "Gelegentlich",
+    filterEmpty: "Keine Anwendungsfälle entsprechen diesen Filtern.",
+    filterClear: "Filter zurücksetzen",
+    browseArticles:
+      "Oder stöbere in den {{articles}} nach Vorlagen und Anleitungen.",
+    articlesLink: "Artikeln",
+    whatItReplaces: "Was es ersetzt",
+    whatYouUse: "Was du verwendest",
+    usedFor: "Wofür",
+    whereItBreaks: "Wo es scheitert",
+    updatedDate: "Aktualisiert am {{date}}",
+    publishedDate: "Veröffentlicht am {{date}}",
+    allArticles: "Alle Artikel",
+    useCases: "Anwendungsfälle",
+    useCasesDescription: "Seiten für wiederkehrende Aufgaben, nach App",
+    useCasesTitle:
+      "Wiederkehrende Arbeit, erledigt mit einer Agent-Native-App und deinem KI-Agenten",
+    useCasesIntro:
+      "Wähle die Arbeit, die du immer wieder erledigst, oder stöbere in den {{articles}} nach Vorlagen und Anleitungen.",
+    nextEyebrow: "Als Nächstes",
+    frequencyLabel: "Wie oft: {{text}}",
+    articles: "Artikel",
+    articlesIntro:
+      "Praktische Antworten zu wiederkehrender Arbeit mit KI-Agenten. Schritt-für-Schritt-Anleitungen für einzelne Aufgaben findest du in den {{useCases}}.",
+    useCasesLink: "Anwendungsfällen",
+    articleCount_one: "{{count}} Artikel",
+    articleCount_other: "{{count}} Artikel",
+    moreOnTopic: "Mehr zu {{topic}}",
+    oldWay: "Der bisherige Weg",
+    newWay: "Der neue Weg",
+    alternative: "Eine Open-Source-Alternative zu {{names}}",
+    usedBefore: "Bisher verwendet: {{names}}",
+    faqs: "Häufige Fragen",
+    faqTitle: "Antworten auf häufige Fragen",
+    goDeeper: "Mehr erfahren",
+    copyPage: "Seite kopieren",
+    copyLink: "Link kopieren",
+    copied: "Kopiert",
+    copyFailed: "Kopieren fehlgeschlagen. Bitte erneut versuchen.",
+    breadcrumb: "Brotkrumennavigation",
+    readTime_one: "{{count}} Min. Lesezeit",
+    readTime_other: "{{count}} Min. Lesezeit",
+    partOf: "Teil von:",
+    relatedResources: "Verwandte Ressourcen",
+    moreArticles: "Weitere {{category}}-Artikel",
+    genericMore: "Weitere Artikel",
+    showMore: "Weitere Artikel anzeigen",
+    allTopics: "Alle Themen",
+    topics: {
+      clips:
+        "Bildschirmaufnahmen, Meetings und Diktate, die dein KI-Agent nutzen kann",
+      design: "Interaktive Prototypen mit deinem KI-Agenten",
+      slides: "Markenkonforme Präsentationen mit deinem KI-Agenten",
+      plans:
+        "Visuelle Pläne und Zusammenfassungen für deinen KI-Coding-Agenten",
+      analytics: "Fragen in Alltagssprache, Diagramme und Dashboards",
+    },
+  },
   agentChat: {
     setup: {
       providerStatusUnavailable:
@@ -655,6 +736,9 @@ const deDE = {
     waitlistUnavailable:
       "Wartelisten-Anmeldungen sind in dieser Umgebung noch nicht verfügbar. Bitte nutze stattdessen die gehostete Dokumentationsseite.",
     launchBuilder: "Builder starten",
+    newAppPrompt: "Erstelle eine neue Agent-Native-App.",
+    customizeTemplatePrompt:
+      "Passe die Agent-Native-Vorlage {{template}} an meinen Arbeitsablauf an.",
   },
   templateCard: {
     pasteIntoTerminal: "In Ihr Terminal einfügen.",

@@ -14,11 +14,13 @@ export const motionPreviewBridgeScript: string = `"use strict";
     var loadedTimelineDurationMs = null;
     var touchedProps = {};
     var originalInlineValues = {};
+    var originalComputedValues = {};
     var touchedAttributes = {};
     var originalAttributes = {};
     var elementCache = {};
     var pathEditingEnabled = false;
     var pathEditingTargetNodeId = null;
+    var pathEditingTrackId = null;
     var pathOverlay = null;
     var activePathDrag = null;
     var originEditingEnabled = false;
@@ -630,10 +632,10 @@ export const motionPreviewBridgeScript: string = `"use strict";
       var local = (timeMs - delay) / span;
       return local < 0 ? 0 : local > 1 ? 1 : local;
     }
-    function pathTrackForTarget(targetNodeId) {
+    function pathTrackForTarget(targetNodeId, trackId) {
       for (var i = 0; i < loadedTracks.length; i++) {
         var track = loadedTracks[i];
-        if (track.targetNodeId === targetNodeId && track.property === "translate" && track.enabled !== false && track.keyframes.length >= 2) {
+        if ((trackId === null || track.id === trackId) && track.targetNodeId === targetNodeId && track.property === "translate" && track.enabled !== false && track.keyframes.length >= 2) {
           return track;
         }
       }
@@ -1056,7 +1058,7 @@ export const motionPreviewBridgeScript: string = `"use strict";
         if (!pathEditingEnabled) removePathOverlay();
         return;
       }
-      var track = pathTrackForTarget(pathEditingTargetNodeId);
+      var track = pathTrackForTarget(pathEditingTargetNodeId, pathEditingTrackId);
       var element = track ? positionTrackElement(track) : null;
       if (!track || !element) {
         removePathOverlay();
@@ -1197,10 +1199,15 @@ export const motionPreviewBridgeScript: string = `"use strict";
       marker.style.touchAction = "none";
       svg.appendChild(marker);
     }
-    function pathMessage(targetNodeId, edits) {
+    function pathMessage(targetNodeId, trackId, edits) {
       if (edits.length === 0) return;
       window.parent.postMessage(
-        { type: "motion-path-edit", targetNodeId, edits },
+        {
+          type: "motion-path-edit",
+          targetNodeId,
+          ...trackId ? { trackId } : {},
+          edits
+        },
         "*"
       );
     }
@@ -1266,7 +1273,7 @@ export const motionPreviewBridgeScript: string = `"use strict";
         return;
       }
       if (keyframeT === null || !Number.isFinite(keyframeT)) return;
-      var track = pathTrackForTarget(pathEditingTargetNodeId);
+      var track = pathTrackForTarget(pathEditingTargetNodeId, pathEditingTrackId);
       if (!track) return;
       var keyframes = [...track.keyframes].sort(function(a, b) {
         return a.t - b.t;
@@ -1287,6 +1294,7 @@ export const motionPreviewBridgeScript: string = `"use strict";
         pointerId: event.pointerId,
         kind,
         targetNodeId: track.targetNodeId,
+        trackId: track.id,
         keyframeIndex,
         startClientX: event.clientX,
         startClientY: event.clientY,
@@ -1404,10 +1412,13 @@ export const motionPreviewBridgeScript: string = `"use strict";
         }
       }
       event.preventDefault();
-      var currentTrack = pathTrackForTarget(drag.targetNodeId);
+      var currentTrack = pathTrackForTarget(
+        drag.targetNodeId,
+        drag.trackId ?? null
+      );
       if (!currentTrack) return;
       applyLocalPathEdits(currentTrack, edits);
-      pathMessage(drag.targetNodeId, edits);
+      pathMessage(drag.targetNodeId, drag.trackId, edits);
       if (lastPreviewT !== null) applyPreview(lastPreviewT);
       renderOriginOverlay();
     }
@@ -1449,9 +1460,79 @@ export const motionPreviewBridgeScript: string = `"use strict";
         touchedAttributes[targetNodeId].push(attribute);
       }
     }
+    function originalComputedTranslate(targetNodeId, element) {
+      if (!originalComputedValues[targetNodeId]) {
+        originalComputedValues[targetNodeId] = {};
+      }
+      if (!("translate" in originalComputedValues[targetNodeId])) {
+        originalComputedValues[targetNodeId] = {
+          ...originalComputedValues[targetNodeId],
+          translate: window.getComputedStyle(element).translate || "none"
+        };
+      }
+      return parsePosition(originalComputedValues[targetNodeId].translate);
+    }
     function applyPreview(t) {
+      var composedTranslateTargets = {};
       for (var i = 0; i < loadedTracks.length; i++) {
         var track = loadedTracks[i];
+        if (track.property === "translate") {
+          var positionTracks = loadedTracks.filter(function(candidate) {
+            return candidate.targetNodeId === track.targetNodeId && candidate.property === "translate";
+          });
+          var additivePosition = positionTracks.length > 1 || positionTracks.some(function(candidate) {
+            return candidate.composition === "add";
+          });
+          if (additivePosition) {
+            if (composedTranslateTargets[track.targetNodeId]) continue;
+            composedTranslateTargets[track.targetNodeId] = true;
+            if (positionTracks.some(function(candidate) {
+              return candidate.keyframes.some(function(keyframe) {
+                return Boolean(keyframe.motionPath);
+              });
+            })) {
+              continue;
+            }
+            var composedElement = resolveTrackElement(track.targetNodeId);
+            if (!composedElement) continue;
+            var offset = { x: 0, y: 0 };
+            var hasEnabledPosition = false;
+            var validPosition = true;
+            for (var positionIndex = 0; positionIndex < positionTracks.length; positionIndex++) {
+              var positionTrack = positionTracks[positionIndex];
+              if (positionTrack.enabled === false) continue;
+              hasEnabledPosition = true;
+              var sampledPosition = parsePosition(
+                interpolate(
+                  positionTrack.keyframes,
+                  trackLocalT(positionTrack, t)
+                )
+              );
+              if (!sampledPosition) {
+                validPosition = false;
+                break;
+              }
+              offset.x += sampledPosition.x;
+              offset.y += sampledPosition.y;
+            }
+            if (!hasEnabledPosition || !validPosition) continue;
+            var basePosition = originalComputedTranslate(
+              track.targetNodeId,
+              composedElement
+            );
+            if (!basePosition) continue;
+            writePreviewStyle(
+              track.targetNodeId,
+              composedElement,
+              "translate",
+              formatPosition({
+                x: basePosition.x + offset.x,
+                y: basePosition.y + offset.y
+              })
+            );
+            continue;
+          }
+        }
         if (track.enabled === false) continue;
         var el = resolveTrackElement(track.targetNodeId);
         if (!el) continue;
@@ -1638,6 +1719,7 @@ export const motionPreviewBridgeScript: string = `"use strict";
       }
       touchedProps = {};
       originalInlineValues = {};
+      originalComputedValues = {};
       touchedAttributes = {};
       originalAttributes = {};
       loadedTracks = [];
@@ -1739,6 +1821,7 @@ export const motionPreviewBridgeScript: string = `"use strict";
       if (e.data.type === "motion-path-editing") {
         pathEditingEnabled = e.data.enabled === true;
         pathEditingTargetNodeId = pathEditingEnabled && typeof e.data.targetNodeId === "string" ? e.data.targetNodeId : null;
+        pathEditingTrackId = pathEditingEnabled && typeof e.data.trackId === "string" ? e.data.trackId : null;
         if (!pathEditingEnabled) activePathDrag = null;
         renderPathOverlay();
         return;

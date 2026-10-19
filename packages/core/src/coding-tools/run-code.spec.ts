@@ -272,10 +272,10 @@ describe("run-code bridge", () => {
       expect.objectContaining({
         ctx: {
           actionName: "web-request",
-          caller: "mcp",
           userEmail: "svc-ci@service.org-1",
           orgId: "org-1",
         },
+        attribution: expect.objectContaining({ caller: "mcp" }),
         status: "error",
         error: expect.objectContaining({ statusCode: 403 }),
       }),
