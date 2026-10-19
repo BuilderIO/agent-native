@@ -2090,10 +2090,6 @@ export default {
     noMatches: "खोज से मेल खाने वाली कोई परिभाषा नहीं है।",
     searchPlaceholder: "परिभाषाएँ खोजें",
     sourceIndex: "स्रोत इंडेक्स",
-    statusApproved: "स्वीकृत",
-    statusSuggested: "सुझाया गया",
-    statusUnreviewed: "बिना समीक्षा",
-    unsourced: "कोई स्रोत नहीं",
   },
   indexPanel: {
     presetDaily: "रोज़ 06:00 बजे",

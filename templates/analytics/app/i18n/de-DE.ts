@@ -2204,10 +2204,6 @@ export default {
     noMatches: "Keine Definitionen passen zur Suche.",
     searchPlaceholder: "Definitionen durchsuchen",
     sourceIndex: "Quellindex",
-    statusApproved: "Freigegeben",
-    statusSuggested: "Vorgeschlagen",
-    statusUnreviewed: "Nicht geprüft",
-    unsourced: "Ohne Quelle",
   },
   indexPanel: {
     presetDaily: "Täglich um 06:00",

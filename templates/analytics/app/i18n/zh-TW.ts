@@ -2019,10 +2019,6 @@ export default {
     noMatches: "沒有符合搜尋的定義。",
     searchPlaceholder: "搜尋定義",
     sourceIndex: "來源索引",
-    statusApproved: "已核准",
-    statusSuggested: "建議",
-    statusUnreviewed: "未審核",
-    unsourced: "無來源",
   },
   indexPanel: {
     presetDaily: "每天 06:00",

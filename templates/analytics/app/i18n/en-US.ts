@@ -2114,10 +2114,6 @@ export default {
     noMatches: "No definitions match your search.",
     searchPlaceholder: "Search definitions",
     sourceIndex: "Source index",
-    statusApproved: "Approved",
-    statusSuggested: "Suggested",
-    statusUnreviewed: "Unreviewed",
-    unsourced: "No source",
   },
   indexPanel: {
     presetDaily: "Daily at 06:00",

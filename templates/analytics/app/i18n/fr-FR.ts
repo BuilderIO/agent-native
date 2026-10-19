@@ -2199,10 +2199,6 @@ export default {
     noMatches: "Aucune définition ne correspond à votre recherche.",
     searchPlaceholder: "Rechercher des définitions",
     sourceIndex: "Index des sources",
-    statusApproved: "Approuvée",
-    statusSuggested: "Suggérée",
-    statusUnreviewed: "Non vérifiée",
-    unsourced: "Sans source",
   },
   indexPanel: {
     presetDaily: "Tous les jours à 06:00",
