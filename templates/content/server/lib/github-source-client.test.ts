@@ -5,9 +5,18 @@ const requests = vi.hoisted(
 );
 const github = vi.hoisted(() => ({
   hang: false,
+  /** Holds requests past their signal, as the client's rate-limit queue can. */
+  stall: false,
+  /** Requests to end as if another caller's signal ended a shared read. */
+  endedElsewhere: 0,
   failure: null as Error | null,
   /** What GitHub answers instead of an empty folder, when set. */
   response: null as null | { status: number; json: unknown },
+  /** How the provider client reports a request a signal ended. */
+  timedOut: () =>
+    Object.assign(new Error("Provider API request timed out after 30000ms"), {
+      cause: new DOMException("This operation was aborted", "AbortError"),
+    }),
 }));
 vi.mock("./provider-api.js", () => ({
   executeGitHubSourceRequest: async (args: {
@@ -16,12 +25,14 @@ vi.mock("./provider-api.js", () => ({
   }) => {
     requests.push(args);
     if (github.failure) throw github.failure;
+    if (github.stall) await new Promise(() => {});
+    if (github.endedElsewhere > 0) {
+      github.endedElsewhere -= 1;
+      throw github.timedOut();
+    }
     if (github.hang) {
-      // How the provider client reports a request its signal ended.
       await new Promise((_, reject) =>
-        args.signal?.addEventListener("abort", () =>
-          reject(new Error("Provider API request timed out after 30000ms")),
-        ),
+        args.signal?.addEventListener("abort", () => reject(github.timedOut())),
       );
     }
     const status = github.response?.status ?? 200;
@@ -54,6 +65,8 @@ const target = { owner: "acme", repo: "site" };
 beforeEach(() => {
   requests.length = 0;
   github.hang = false;
+  github.stall = false;
+  github.endedElsewhere = 0;
   github.failure = null;
   github.response = null;
 });
@@ -98,6 +111,42 @@ describe("GitHub request deadlines", () => {
     expect(requests[0]!.signal).toBe(budget.signal);
     budget.abort();
     await expect(read).rejects.toBeInstanceOf(GitHubSourceDeadlineError);
+    expect(requests).toHaveLength(1);
+  });
+
+  it("stops waiting at its own deadline while the provider client holds the request", async () => {
+    github.stall = true;
+    const budget = new AbortController();
+    const read = readGitHubBlob({
+      ...target,
+      sha: "b10b",
+      signal: budget.signal,
+    });
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    budget.abort();
+    await expect(read).rejects.toBeInstanceOf(GitHubSourceDeadlineError);
+  });
+
+  it("asks again, once, when another caller's deadline ended a read it shared", async () => {
+    github.endedElsewhere = 1;
+    const head = await readGitHubBranchHead({
+      ...target,
+      branch: "main",
+      signal: new AbortController().signal,
+    });
+    expect(head).toMatchObject({ status: "ok", sha: "c0ffee" });
+    expect(requests).toHaveLength(2);
+
+    requests.length = 0;
+    github.endedElsewhere = 2;
+    await expect(
+      readGitHubBranchHead({
+        ...target,
+        branch: "main",
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow("timed out");
+    expect(requests).toHaveLength(2);
   });
 
   it("keeps other failures as they are", async () => {

@@ -93,14 +93,44 @@ function header(response: ProviderResponse, name: string): string | null {
   return null;
 }
 
+/** Settles as the request does, or fails once the caller's time runs out. */
+function untilDeadline<T>(
+  request: Promise<T>,
+  signal: AbortSignal,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const stop = () => reject(new GitHubSourceDeadlineError());
+    if (signal.aborted) return stop();
+    signal.addEventListener("abort", stop, { once: true });
+    request
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener("abort", stop));
+  });
+}
+
+/** How the provider client reports a request that a signal ended. */
+function endedBySignal(error: unknown): boolean {
+  const cause =
+    error instanceof Error ? (error as { cause?: unknown }).cause : undefined;
+  return (
+    !!cause &&
+    typeof cause === "object" &&
+    (cause as { name?: unknown }).name === "AbortError"
+  );
+}
+
 async function githubGet(
   target: GitHubRepositoryTarget,
   path: string,
   options: { etag?: string | null; maxBytes?: number } = {},
 ): Promise<ProviderResponse> {
-  let raw: unknown;
-  try {
-    raw = await executeGitHubSourceRequest({
+  // The provider client can hold a request past this signal: it waits its
+  // turn under GitHub's rate limits, and identical reads in flight share one
+  // request, which the first caller's signal ends. So this read stops waiting
+  // at its own deadline, and while it has time left, asks once more when some
+  // other signal ended it, such as another caller's on a read they shared.
+  const send = () => {
+    const request = executeGitHubSourceRequest({
       provider: "github",
       method: "GET",
       path,
@@ -108,6 +138,16 @@ async function githubGet(
       connectionId: target.connectionId ?? undefined,
       maxBytes: options.maxBytes,
       signal: target.signal,
+    });
+    return target.signal ? untilDeadline(request, target.signal) : request;
+  };
+  let raw: unknown;
+  try {
+    raw = await send().catch((error: unknown) => {
+      if (target.signal && !target.signal.aborted && endedBySignal(error)) {
+        return send();
+      }
+      throw error;
     });
   } catch (error) {
     if (target.signal?.aborted) throw new GitHubSourceDeadlineError();
