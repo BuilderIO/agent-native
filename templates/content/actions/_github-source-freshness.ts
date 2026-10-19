@@ -111,11 +111,24 @@ export function githubSyncChangedRows(result: GitHubSyncResult) {
 }
 
 /**
- * Tells everyone who can read the collection that a sync nobody asked for
- * changed its rows or its status, like a lost connection. It is the event the
- * sync action sends, so open pages, tables, page lists, Trash and the status
- * line update in place.
+ * Tells everyone who can read the collection that its rows or status changed.
+ * It is the event the sync action sends, so open pages, tables, page lists,
+ * Trash and the status line update in place.
  */
+function recordGitHubSyncChange(
+  databaseDocumentId: string,
+  owner: string | null,
+) {
+  recordChange({
+    source: "action",
+    type: "change",
+    key: "sync-github-folder",
+    ...(owner ? { owner } : {}),
+    ...documentChangeResource(databaseDocumentId),
+  });
+}
+
+/** For a sync nobody asked for that changed rows or the status line. */
 async function announceSync(
   link: GitHubLink,
   owner: string | null,
@@ -123,13 +136,22 @@ async function announceSync(
 ) {
   if (result.state === "busy") return;
   if (!githubSyncChangedRows(result) && !(await statusChanged(link))) return;
-  recordChange({
-    source: "action",
-    type: "change",
-    key: "sync-github-folder",
-    ...(owner ? { owner } : {}),
-    ...documentChangeResource(link.databaseDocumentId),
-  });
+  recordGitHubSyncChange(link.databaseDocumentId, owner);
+}
+
+/**
+ * For an action whose sync failed after storing the failure on the link, like
+ * a refresh that reports it as an error. A failed action sends no change event
+ * of its own, so this tells readers when the status line changed.
+ */
+export async function announceFailedGitHubSync(args: {
+  sourceId: string;
+  databaseDocumentId: string;
+  owner: string | null;
+  shownBefore: string;
+}) {
+  if ((await readGitHubStatusShown(args.sourceId)) === args.shownBefore) return;
+  recordGitHubSyncChange(args.databaseDocumentId, args.owner);
 }
 
 async function syncBeforeRead(link: GitHubLink | undefined) {

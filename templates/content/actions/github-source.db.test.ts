@@ -1408,6 +1408,7 @@ describe("GitHub folder freshness", () => {
     const { database } = await linkBaseFolder();
     github.commit({ ...BASE_FILES, "docs/faq.md": EDITED_FAQ });
     github.state.failure = new Error("socket hang up");
+    changes.length = 0;
     await expect(
       as(() => refreshSource.run({ databaseId: database.id })),
     ).rejects.toThrow("socket hang up");
@@ -1415,6 +1416,15 @@ describe("GitHub folder freshness", () => {
     expect(status.source?.metadata.github?.problem).toMatchObject({
       code: "unavailable",
     });
+    // The failed action sends no event of its own, so other readers' status
+    // lines hear about the problem from this one.
+    expect(changes).toEqual([
+      expect.objectContaining({
+        key: "sync-github-folder",
+        resourceType: "document",
+        resourceId: database.documentId,
+      }),
+    ]);
   });
 
   it("tells readers when a background sync finds or clears a problem", async () => {
