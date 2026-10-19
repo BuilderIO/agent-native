@@ -203,6 +203,9 @@ describe("estimate-query-cost action", () => {
     expect(result.panels).toHaveLength(2);
     expect(result.total.estimatedBytes).toBe(191 * GIB);
     expect(result.summary).toContain("2 panels (2 priced)");
+    expect(result.summary).toContain(
+      "over the $1.00/run and the $50.00/month thresholds.",
+    );
     expect(result.summary).toContain("per full refresh");
     expect(result.summary).toContain("if its email reports use these filters");
     expect(result.summary).toContain('"Big"');

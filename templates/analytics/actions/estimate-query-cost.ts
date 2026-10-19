@@ -379,7 +379,7 @@ export default defineAction({
           ? `${panels.length} panel${panels.length === 1 ? "" : "s"}: ${partial ? "none could be priced." : "none read BigQuery, so nothing was priced."}`
           : `${panels.length} panel${panels.length === 1 ? "" : "s"} (${priced} priced): ~${formatBytes(total.estimatedBytes)} and ${formatUsd(total.usdPerRun)} ${totalScope}, ${monthly}.`) +
         (totalOver.length
-          ? ` The dashboard as a whole is over ${totalOver.join(" and ")} threshold${partial ? ", even counting only the priced panels" : ""}.`
+          ? ` The dashboard as a whole is over ${totalOver.join(" and ")} threshold${totalOver.length > 1 ? "s" : ""}${partial ? ", even counting only the priced panels" : ""}.`
           : "") +
         (flagged.length
           ? ` Over threshold: ${flagged.map((panel) => `"${panel.title}" (${describeEstimate(panel)})`).join("; ")}.`
