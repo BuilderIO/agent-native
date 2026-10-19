@@ -3628,7 +3628,6 @@ describe("document editor layout", () => {
       },
     );
 
-    expect(source).toContain("useDbSync({ onEvent: handleFlushRequestEvent })");
     expect(source).toContain('event.source === "app-state"');
     expect(source).toContain(
       'event.key === flushRequestKey || event.key === "*"',

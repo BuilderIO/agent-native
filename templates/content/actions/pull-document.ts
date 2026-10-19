@@ -41,7 +41,7 @@ export default defineAction({
       throw new Error(`Document "${id}" not found`);
     }
 
-    await flushOpenDocumentEditorToSql({
+    const editorFlush = await flushOpenDocumentEditorToSql({
       documentId: id,
       ownerEmail: (access.resource.ownerEmail as string | undefined) || null,
     });
@@ -64,6 +64,7 @@ export default defineAction({
       description: (doc.description as string | null | undefined) ?? "",
       content,
       format,
+      editorFlush,
       deepLink: buildDeepLink({
         app: "content",
         view: "editor",

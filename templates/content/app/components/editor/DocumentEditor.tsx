@@ -38,6 +38,10 @@ import type {
   Document,
   DocumentSyncStatus,
 } from "@shared/api";
+import {
+  editorSaveState,
+  publishesEditorSaveState,
+} from "@shared/editor-save-state";
 import { LIVE_BODY_SHADOW_FLAG } from "@shared/feature-flags";
 import { canonicalizeNfm, docToNfm } from "@shared/nfm";
 import { markdownSuggestionOperations } from "@shared/suggestion-diff";
@@ -117,6 +121,7 @@ import {
   useContentSpaces,
   type ContentSpaceSummary,
 } from "@/hooks/use-content-spaces";
+import { isPrivateDocumentEditorPath } from "@/hooks/use-db-sync";
 import {
   mergeDocumentIntoDocumentCache,
   isDocumentUpdateConflict,
@@ -2966,7 +2971,15 @@ function PageEditorSessionBody({
     },
     [flushRequestKey],
   );
-  useDbSync({ onEvent: handleFlushRequestEvent });
+  // Content's root sync hook already runs the shared transport on editor
+  // pages; this subscribes the flush mailbox to it. Without it a request
+  // reaches an editor with unsaved edits only during a chat run in this tab.
+  useDbSync({
+    onEvent: handleFlushRequestEvent,
+    realtime: isPrivateDocumentEditorPath(location.pathname)
+      ? { reason: "an agent can ask this open editor to save before it reads" }
+      : undefined,
+  });
   const historySessionRef = useRef(createHistorySession());
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const promotedBuilderBodyRef = useRef<string | null>(null);
@@ -2975,7 +2988,9 @@ function PageEditorSessionBody({
   const tryReleaseCreationCollaborationRef = useRef<() => void>(() => {});
   const initialCreationSaveStartedRef = useRef(false);
   const documentSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const queuedDocumentSavesRef = useRef(0);
   const activeContentSavesRef = useRef(0);
+  const publishEditorSaveStateRef = useRef<() => void>(() => undefined);
   const liveMarkdownRef = useRef<string | null>(null);
   const remoteSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const convergedSaveAttemptRef = useRef<string | null>(null);
@@ -3777,7 +3792,7 @@ function PageEditorSessionBody({
     (updates: DocumentUpdates, options: DocumentSaveOptions = {}) => {
       const fields = Object.keys(updates) as (keyof DocumentUpdates)[];
       const request = persistDocumentUpdatesUntracked(updates, options);
-      trackPendingDocumentPersistence(
+      const tracked = trackPendingDocumentPersistence(
         pendingPersistenceRef.current,
         request,
         (result) => {
@@ -3839,6 +3854,9 @@ function PageEditorSessionBody({
           }
         },
       );
+      publishEditorSaveStateRef.current();
+      const publish = () => publishEditorSaveStateRef.current();
+      void tracked.then(publish, publish);
       return request;
     },
     [persistDocumentUpdatesUntracked],
@@ -4596,7 +4614,9 @@ function PageEditorSessionBody({
         (authoredContentIntentRef.current?.editGeneration === editGeneration
           ? authoredContentIntentRef.current
           : undefined);
-      return enqueueDocumentSave(documentSaveQueueRef, () =>
+      queuedDocumentSavesRef.current += 1;
+      publishEditorSaveStateRef.current();
+      const queued = enqueueDocumentSave(documentSaveQueueRef, () =>
         runPageSaveIfSessionActive(
           () =>
             !options.requireActiveEditorSession ||
@@ -4664,6 +4684,12 @@ function PageEditorSessionBody({
             }),
         ),
       );
+      const settle = () => {
+        queuedDocumentSavesRef.current -= 1;
+        publishEditorSaveStateRef.current();
+      };
+      void queued.then(settle, settle);
+      return queued;
     },
     [
       clearRecoveryDraft,
@@ -4679,6 +4705,45 @@ function PageEditorSessionBody({
     null,
   );
   const retryPendingSaveDelayRef = useRef(800);
+  // The server skips an open editor whose reported save is already in SQL, so
+  // every path that starts, queues, or settles a save, or changes the local
+  // title or body, republishes this. Unsaved is published at once; saved only
+  // once the watermarks hold a server-acknowledged revision.
+  publishEditorSaveStateRef.current = () => {
+    const awareness = collabAwarenessRef.current;
+    if (!awareness || isLocalFileDocument || isLinkedLocalSourceDocument)
+      return;
+    const local = awareness.getLocalState();
+    if (!local) return;
+    const state = editorSaveState({
+      saveQueued:
+        saveTimeoutRef.current !== null ||
+        pendingDocumentSaveRef.current !== null ||
+        queuedDocumentSavesRef.current > 0 ||
+        retryPendingSaveTimerRef.current !== null,
+      saveInFlight:
+        activeContentSavesRef.current > 0 ||
+        pendingPersistenceRef.current.size > 0,
+      recoveryPending: reconcileRecoveryStateRef.current !== null,
+      localTitle: localTitleRef.current,
+      localContent: localContentRef.current,
+      savedTitle: lastSavedTitleRef.current,
+      savedContent: lastSavedContentRef.current,
+    });
+    if (publishesEditorSaveState(local, state)) return;
+    awareness.setLocalState({ ...local, ...state });
+  };
+  useEffect(() => {
+    publishEditorSaveStateRef.current();
+  }, [
+    awareness,
+    collabEnabled,
+    document,
+    documentReconcileConflict,
+    editorCanEdit,
+    localContent,
+    localTitle,
+  ]);
   const creationCollaborationReleaseRunningRef = useRef(false);
   const tryReleaseCreationCollaboration = useCallback(async () => {
     if (creationCollaborationReleaseRunningRef.current) return;
@@ -4781,6 +4846,7 @@ function PageEditorSessionBody({
     retryPendingSaveDelayRef.current = Math.min(delay * 2, 30_000);
     retryPendingSaveTimerRef.current = setTimeout(() => {
       retryPendingSaveTimerRef.current = null;
+      publishEditorSaveStateRef.current();
       const snapshot = pendingSaveRetrySnapshot(
         result,
         pending,
@@ -4815,6 +4881,7 @@ function PageEditorSessionBody({
         })
         .catch(handleBackgroundSaveError);
     }, delay);
+    publishEditorSaveStateRef.current();
   };
   const flushPendingDocumentSave = useCallback(
     (pending: PendingDocumentSave) => {
@@ -4917,6 +4984,7 @@ function PageEditorSessionBody({
       if (retryPendingSaveTimerRef.current)
         clearTimeout(retryPendingSaveTimerRef.current);
       retryPendingSaveTimerRef.current = null;
+      publishEditorSaveStateRef.current();
     };
   }, []);
   const prepareHistoryRestore = useCallback(async (): Promise<string> => {
@@ -5075,6 +5143,7 @@ function PageEditorSessionBody({
       });
       pendingDocumentSaveRef.current = pending;
       saveTimeoutRef.current = pending.timeout;
+      publishEditorSaveStateRef.current();
     },
     [
       flushPendingDocumentSave,
@@ -5396,6 +5465,7 @@ function PageEditorSessionBody({
       if (!documentCanonicalMutationsEnabled(editorCanEdit, isSuggesting))
         return;
       localTitleRef.current = newTitle;
+      publishEditorSaveStateRef.current();
       editorEditGenerationRef.current += 1;
       journalCurrentDraft(
         newTitle,
@@ -6900,6 +6970,7 @@ function PageEditorSessionBody({
         candidateContent: newContent,
       };
       localContentRef.current = newContent;
+      publishEditorSaveStateRef.current();
       journalCurrentDraft(
         localTitleRef.current,
         newContent,
@@ -7022,6 +7093,7 @@ function PageEditorSessionBody({
       if (content === localContentRef.current) return;
       contentObservationEpochRef.current += 1;
       localContentRef.current = content;
+      publishEditorSaveStateRef.current();
       setLocalContent(content);
       if (
         !isSuggesting &&
