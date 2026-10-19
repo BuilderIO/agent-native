@@ -142,6 +142,49 @@ describe("GitHub source status line", () => {
     expect(statusLine().className).toContain("border-destructive/30");
   });
 
+  it("announces a problem, not the rest of the line and its clock", () => {
+    renderUi(
+      <GitHubSourceStatusLine
+        source={githubSource({
+          problem: {
+            code: "branch_not_found",
+            message: "Branch main not found",
+            at: new Date().toISOString(),
+          },
+        })}
+      />,
+    );
+    expect(statusLine().getAttribute("role")).toBe(null);
+    expect(statusLine().querySelector('[role="status"]')).toBe(null);
+    expect(
+      statusLine()
+        .querySelector("[data-github-source-problem]")
+        ?.getAttribute("role"),
+    ).toBe("alert");
+  });
+
+  it("lists the skipped files and why from a button, not only on hover", async () => {
+    renderUi(
+      <GitHubSourceStatusLine
+        source={githubSource({
+          skipped: [
+            { path: "demo.mdx", reason: "mdx" },
+            { path: "huge.md", reason: "too-large" },
+          ],
+        })}
+      />,
+    );
+    const skipped = Array.from(statusLine().querySelectorAll("button")).find(
+      (candidate) => candidate.textContent === "2 files skipped",
+    );
+    if (!skipped) throw new Error("No skipped files button");
+    await click(skipped);
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("Not linked");
+    expect(text).toContain("demo.mdxMDX isn’t supported yet");
+    expect(text).toContain("huge.mdLarger than 1 MiB");
+  });
+
   it("shows how far a newer commit has come in", () => {
     renderUi(
       <GitHubSourceStatusLine

@@ -1,15 +1,29 @@
 import { actionErrorMessage } from "@agent-native/core/client/hooks";
-import type { ContentDatabaseSource } from "@shared/api";
+import type {
+  ContentDatabaseSource,
+  ContentGitHubSourceStatus,
+} from "@shared/api";
 import { GITHUB_SOURCE_TYPE, githubFolderLabel } from "@shared/github-source";
 import {
   IconBrandGithub,
   IconExternalLink,
   IconRefresh,
 } from "@tabler/icons-react";
-import { useEffect, useState, type CSSProperties } from "react";
+import {
+  Fragment,
+  useEffect,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
 import {
   useSyncGitHubFolder,
@@ -21,6 +35,7 @@ import {
   githubProblemFromErrorCode,
   githubProblemText,
   githubRelativeTime,
+  githubSkipReasonText,
   shortCommit,
 } from "./github-source-text";
 import { dbText } from "./text";
@@ -81,6 +96,45 @@ function announceSync(result: SyncGitHubFolderResponse) {
   }
 }
 
+/** "2 files skipped", which opens the list of files and why each was skipped. */
+function SkippedFiles({
+  files,
+}: {
+  files: ContentGitHubSourceStatus["skipped"];
+}) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="rounded-sm underline decoration-dotted underline-offset-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        >
+          {files.length === 1
+            ? dbText("githubSkippedFilesOne")
+            : dbText("githubSkippedFiles", { count: files.length })}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-80">
+        <div className="grid min-w-0 gap-2 text-xs">
+          <div className="font-medium">{dbText("githubLinkSkipped")}</div>
+          <ul className="grid max-h-60 min-w-0 gap-1 overflow-y-auto">
+            {files.map((file) => (
+              <li key={file.path} className="flex min-w-0 items-baseline gap-2">
+                <span className="min-w-0 truncate" title={file.path}>
+                  {file.path}
+                </span>
+                <span className="shrink-0 text-muted-foreground">
+                  {githubSkipReasonText(file.reason)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 /**
  * The line above a collection that follows a GitHub folder: which folder and
  * branch, that its pages are view only, the commit they match and when it
@@ -101,7 +155,7 @@ export function GitHubSourceStatusLine({
 
   const problem = status.problem;
   const syncing = !!status.pendingCommitSha && !!status.progress;
-  const details = [
+  const details: ReactNode[] = [
     dbText("githubViewOnly"),
     status.syncedCommitSha && status.syncedAt
       ? dbText("githubSyncedTo", {
@@ -109,15 +163,13 @@ export function GitHubSourceStatusLine({
           time: githubRelativeTime(status.syncedAt, now),
         })
       : dbText("githubNotSyncedYet"),
-    status.skipped.length === 1
-      ? dbText("githubSkippedFilesOne")
-      : status.skipped.length > 1
-        ? dbText("githubSkippedFiles", { count: status.skipped.length })
-        : null,
+    status.skipped.length > 0 ? (
+      <SkippedFiles key="skipped" files={status.skipped} />
+    ) : null,
     status.imagesWaiting > 0 && problem?.code !== "storage_unavailable"
       ? dbText("githubImagesWaiting")
       : null,
-  ].filter((detail): detail is string => !!detail);
+  ].filter((detail) => !!detail);
 
   return (
     <div
@@ -127,7 +179,6 @@ export function GitHubSourceStatusLine({
           ? "border-destructive/30 bg-destructive/5"
           : "border-border bg-muted/35",
       )}
-      role="status"
       data-github-source-status
     >
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
@@ -140,15 +191,13 @@ export function GitHubSourceStatusLine({
                 branch: status.branch,
               })}
             </div>
-            <div
-              className="mt-0.5 break-words text-muted-foreground"
-              title={
-                status.skipped.length > 0
-                  ? status.skipped.map((file) => file.path).join("\n")
-                  : undefined
-              }
-            >
-              {details.join(" · ")}
+            <div className="mt-0.5 break-words text-muted-foreground">
+              {details.map((detail, index) => (
+                <Fragment key={index}>
+                  {index > 0 ? " · " : null}
+                  {detail}
+                </Fragment>
+              ))}
             </div>
           </div>
         </div>
@@ -180,8 +229,11 @@ export function GitHubSourceStatusLine({
         </div>
       </div>
       {problem ? (
+        // Only the problem is announced: the rest of the line holds controls
+        // and a time that moves on every half minute.
         <div
           className="break-words text-destructive"
+          role="alert"
           data-github-source-problem
         >
           {githubProblemText(problem.code)}
