@@ -28,6 +28,7 @@ import {
   parseSpaceIds,
 } from "../server/lib/recordings.js";
 import { hydrateCommentAuthorNames } from "../server/lib/user-identities.js";
+import { getAgentClipReadiness } from "../shared/agent-context.js";
 import { parseBrowserDiagnosticsRow } from "../shared/browser-diagnostics.js";
 import {
   isEmbedBackedRecording,
@@ -61,8 +62,10 @@ function mapRecording(r: any) {
     sourceProvider:
       recordingEmbedProvider(r) ?? (r.sourceAppName === "Loom" ? "loom" : null),
     // Embed-backed clips play in another service's player; Clips has no
-    // frames for them.
-    framesAvailable: !isEmbedBackedRecording(r),
+    // frames for them. A hosted clip has none until it is ready.
+    framesAvailable:
+      !isEmbedBackedRecording(r) &&
+      getAgentClipReadiness(r.status).state === "ready",
     folderId: r.folderId,
     spaceIds: parseSpaceIds(r.spaceIds),
     hasAudio: Boolean(r.hasAudio),

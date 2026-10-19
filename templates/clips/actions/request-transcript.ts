@@ -1027,11 +1027,11 @@ const requestTranscriptAction = defineAction({
   }),
   run: async (args, context?: ActionRunContext) => {
     const access = await assertAccess("recording", args.recordingId, "editor");
-    assertTranscribableRecordingMedia(access.resource);
 
     const db = getDb();
 
     if (context?.caller === "tool" || context?.caller === "frontend") {
+      assertTranscribableRecordingMedia(access.resource);
       const [existingTranscript] = await db
         .select({
           status: schema.recordingTranscripts.status,
@@ -1194,6 +1194,11 @@ const requestTranscriptAction = defineAction({
         });
       }
     }
+
+    // Past here the transcript comes from the recording's audio. A ready
+    // transcript, such as an imported one on a YouTube clip, was kept above,
+    // so the follow-up job import-transcript queues still fills its summary.
+    assertTranscribableRecordingMedia(access.resource);
 
     if (
       !args.force &&
