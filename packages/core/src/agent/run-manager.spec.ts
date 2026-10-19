@@ -3687,6 +3687,66 @@ describe("run manager soft timeout", () => {
     );
   });
 
+  it("fails a SQL reconnect instead of skipping a persisted event sequence", async () => {
+    const capture = vi.fn();
+    const unregister = registerErrorCaptureProvider(
+      "run-manager-sql-sequence-gap-test",
+      capture,
+    );
+    vi.mocked(getRunEventsSince)
+      .mockClear()
+      .mockResolvedValue([
+        {
+          seq: 4,
+          eventData: JSON.stringify({ type: "text", text: "last contiguous" }),
+        },
+        { seq: 6, eventData: JSON.stringify({ type: "done" }) },
+      ]);
+
+    try {
+      const stream = subscribeToRun("run-sql-sequence-gap", 4);
+      const reader = stream!.getReader();
+      const decoder = new TextDecoder();
+      const chunks: string[] = [];
+      while (true) {
+        const next = await reader.read();
+        if (next.done) break;
+        chunks.push(decoder.decode(next.value));
+      }
+
+      const output = chunks.join("");
+      expect(output).toContain(
+        '"text":"last contiguous","seq":4,"eventId":"run-sql-sequence-gap:4"',
+      );
+      expect(output).toContain('"errorCode":"run_subscription_poll_failed"');
+      expect(output).not.toContain('"type":"done","seq":6');
+      expect(getRunEventsSince).toHaveBeenCalledExactlyOnceWith(
+        "run-sql-sequence-gap",
+        4,
+      );
+      expect(capture).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "SqlRunEventIntegrityError",
+          message:
+            "Run run-sql-sequence-gap event sequence gap: expected 5, received 6",
+        }),
+        expect.objectContaining({
+          tags: expect.objectContaining({
+            phase: "sql-subscription-poll",
+            consecutiveFailures: "1",
+          }),
+          extra: expect.objectContaining({
+            runId: "run-sql-sequence-gap",
+            fromSeq: 4,
+            lastSeq: 5,
+          }),
+        }),
+      );
+    } finally {
+      unregister();
+    }
+  });
+
   it("fails a SQL subscription loudly after bounded consecutive polling failures", async () => {
     const capture = vi.fn();
     const unregister = registerErrorCaptureProvider(

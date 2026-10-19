@@ -2139,6 +2139,45 @@ function streamEventWithIdentity(
     : { ...event, seq, eventId: runEventIdentity(runId, seq) };
 }
 
+class SqlRunEventIntegrityError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "SqlRunEventIntegrityError";
+  }
+}
+
+function parseSqlRunEvent(
+  runId: string,
+  expectedSeq: number,
+  persisted: { seq: number; eventData: string },
+): AgentChatEvent {
+  if (!Number.isSafeInteger(persisted.seq) || persisted.seq !== expectedSeq) {
+    throw new SqlRunEventIntegrityError(
+      `Run ${runId} event sequence gap: expected ${expectedSeq}, received ${persisted.seq}`,
+    );
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(persisted.eventData);
+  } catch (cause) {
+    throw new SqlRunEventIntegrityError(
+      `Run ${runId} event ${persisted.seq} contains invalid JSON`,
+      { cause },
+    );
+  }
+  if (
+    !parsed ||
+    typeof parsed !== "object" ||
+    Array.isArray(parsed) ||
+    typeof (parsed as { type?: unknown }).type !== "string"
+  ) {
+    throw new SqlRunEventIntegrityError(
+      `Run ${runId} event ${persisted.seq} is not a typed event`,
+    );
+  }
+  return parsed as AgentChatEvent;
+}
+
 function subscribeInMemory(
   run: ActiveRun,
   fromSeq: number,
@@ -2341,6 +2380,27 @@ function subscribeFromSQL(
         closeStream();
       };
 
+      const publishPersistedEvents = (
+        events: Array<{ seq: number; eventData: string }>,
+      ): boolean => {
+        for (const persisted of events) {
+          const parsed = parseSqlRunEvent(runId, lastSeq, persisted);
+          try {
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify(streamEventWithIdentity(runId, parsed, persisted.seq))}\n\n`,
+              ),
+            );
+          } catch {
+            cancelled = true;
+            return false;
+          }
+          lastSeq = persisted.seq + 1;
+          if (isTerminalRunEvent(parsed)) return true;
+        }
+        return false;
+      };
+
       const poll = async () => {
         if (cancelled) return;
         try {
@@ -2354,31 +2414,11 @@ function subscribeFromSQL(
           if (events.length > 0) {
             activePollUntil = Date.now() + SQL_SUBSCRIPTION_ACTIVE_GRACE_MS;
           }
-          for (const { seq, eventData } of events) {
-            lastSeq = seq + 1;
-            let parsed: any;
-            try {
-              parsed = JSON.parse(eventData);
-            } catch {
-              continue;
-            }
-            try {
-              controller.enqueue(
-                encoder.encode(
-                  `data: ${JSON.stringify(streamEventWithIdentity(runId, parsed, seq))}\n\n`,
-                ),
-              );
-            } catch {
-              cancelled = true;
-              return;
-            }
-
-            if (isTerminalRunEvent(parsed)) {
-              if (pingTimer) clearInterval(pingTimer);
-              controller.close();
-              return;
-            }
+          if (publishPersistedEvents(events)) {
+            closeStream();
+            return;
           }
+          if (cancelled) return;
 
           if (events.length === 0) {
             const now = Date.now();
@@ -2419,30 +2459,11 @@ function subscribeFromSQL(
             }
             if (!run || run.status !== "running") {
               const finalEvents = await getRunEventsSince(runId, lastSeq);
-              for (const { seq, eventData } of finalEvents) {
-                lastSeq = seq + 1;
-                let parsed: any;
-                try {
-                  parsed = JSON.parse(eventData);
-                } catch {
-                  continue;
-                }
-                try {
-                  controller.enqueue(
-                    encoder.encode(
-                      `data: ${JSON.stringify(streamEventWithIdentity(runId, parsed, seq))}\n\n`,
-                    ),
-                  );
-                } catch {
-                  cancelled = true;
-                  return;
-                }
-                if (isTerminalRunEvent(parsed)) {
-                  if (pingTimer) clearInterval(pingTimer);
-                  controller.close();
-                  return;
-                }
+              if (publishPersistedEvents(finalEvents)) {
+                closeStream();
+                return;
               }
+              if (cancelled) return;
               if (run?.status === "aborted") {
                 const existing = await getLastTerminalRunEvent(runId).catch(
                   () => null,
@@ -2606,6 +2627,11 @@ function subscribeFromSQL(
             pollTimer = setTimeout(poll, pollMs);
           }
         } catch (error) {
+          if (error instanceof SqlRunEventIntegrityError) {
+            consecutivePollFailures += 1;
+            failSubscription(error);
+            return;
+          }
           consecutivePollFailures += 1;
           if (
             consecutivePollFailures >= SQL_SUBSCRIPTION_MAX_CONSECUTIVE_FAILURES
