@@ -358,18 +358,20 @@ interface ReviewClientRect {
   height: number;
 }
 
-/** What the pointer is over: a node id to look up, or the box a selector-only hit reported. */
+/**
+ * What the pointer is over: the node id, the selector that finds the element
+ * again, and the box it had when the bridge reported it.
+ */
 interface ReviewHoverTarget {
   nodeId: string | null;
+  selector: string | null;
   box: ReviewFrameNodeGeometry | null;
 }
 
-function hoverTargetFromPayload(
+/** The box a bridge reply carries, or null when the element was not found. */
+function frameBoxFromPayload(
   payload: Record<string, unknown>,
-): ReviewHoverTarget | null {
-  if (typeof payload.nodeId === "string") {
-    return { nodeId: payload.nodeId, box: null };
-  }
+): ReviewFrameNodeGeometry | null {
   const rect = payload.rect as Record<string, unknown> | undefined;
   if (!rect || typeof rect !== "object") return null;
   const box = {
@@ -387,9 +389,20 @@ function hoverTargetFromPayload(
   ) {
     return null;
   }
+  return { rect: box, viewportWidth, viewportHeight };
+}
+
+function hoverTargetFromPayload(
+  payload: Record<string, unknown>,
+): ReviewHoverTarget | null {
+  const nodeId = typeof payload.nodeId === "string" ? payload.nodeId : null;
+  const box = frameBoxFromPayload(payload);
+  if (!nodeId && !box) return null;
   return {
-    nodeId: null,
-    box: { rect: box, viewportWidth, viewportHeight },
+    nodeId,
+    selector:
+      typeof payload.hitSelector === "string" ? payload.hitSelector : null,
+    box,
   };
 }
 
@@ -436,6 +449,27 @@ function nodeClientRect(
         }
       : undefined,
   );
+}
+
+/**
+ * Where a hover target is drawn. A node id may not resolve in the parent (data-loc
+ * and similar ids are not looked up), so the box the bridge reported is the fallback.
+ */
+function hoverTargetClientRect(
+  canvas: HTMLElement,
+  target: ReviewHoverTarget,
+  nodeGeometry: Record<string, ReviewFrameNodeGeometry>,
+): ReviewClientRect | null {
+  const nodeRect = target.nodeId
+    ? nodeClientRect(canvas, target.nodeId, nodeGeometry[target.nodeId])
+    : null;
+  if (nodeRect) return nodeRect;
+  return target.box
+    ? frameRectToClient(canvas, target.box.rect, {
+        width: target.box.viewportWidth,
+        height: target.box.viewportHeight,
+      })
+    : null;
 }
 
 /**
@@ -1469,12 +1503,18 @@ export function ReviewCanvasPins({
       setPopoverHover({ key: popoverKey, target: hoverTargetRef.current });
     }
   }, [popoverKey]);
+  const popoverSnapshot =
+    popoverHover?.key === popoverKey ? popoverHover.target : null;
+  // A layout change re-measures the snapshot's box from this selector.
+  const snapshotSelector = popoverSnapshot?.selector ?? null;
   const highlightTarget: ReviewHoverTarget | null = popoverOpen
     ? popoverNodeId
-      ? { nodeId: popoverNodeId, box: null }
-      : popoverHover?.key === popoverKey
-        ? popoverHover.target
-        : null
+      ? {
+          nodeId: popoverNodeId,
+          selector: snapshotSelector,
+          box: popoverSnapshot?.box ?? null,
+        }
+      : popoverSnapshot
     : hoverTarget;
   const highlightNodeId = highlightTarget?.nodeId ?? null;
 
@@ -1978,6 +2018,7 @@ export function ReviewCanvasPins({
       window.cancelAnimationFrame(hoverFrameRef.current);
       hoverFrameRef.current = null;
     }
+    hoverPointerRef.current = null;
     hoverTargetRef.current = null;
     setHoverTarget(null);
   }, []);
@@ -2026,6 +2067,52 @@ export function ReviewCanvasPins({
     },
     [canvas],
   );
+
+  const requestSelectorBox = useCallback(
+    (
+      selector: string,
+      onBox: (box: ReviewFrameNodeGeometry | null) => void,
+    ) => {
+      const iframe = canvas?.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      if (!iframe?.contentWindow) return;
+      const correlationId = crypto.randomUUID();
+      frameCallbacksRef.current.set(correlationId, (payload) =>
+        onBox(frameBoxFromPayload(payload)),
+      );
+      window.setTimeout(
+        () => frameCallbacksRef.current.delete(correlationId),
+        2_000,
+      );
+      iframe.contentWindow.postMessage(
+        { type: "agent-native:review-selector-rects", correlationId, selector },
+        "*",
+      );
+    },
+    [canvas],
+  );
+
+  // Panning or zooming moves what sits under a still pointer, and moves the boxes
+  // already reported: re-measure both on every layout change.
+  useEffect(() => {
+    const point = hoverPointerRef.current;
+    if (point) scheduleHoverNode(point.x, point.y);
+    if (!popoverKey || !snapshotSelector) return;
+    requestSelectorBox(snapshotSelector, (box) => {
+      setPopoverHover((current) =>
+        current?.key === popoverKey && current.target
+          ? { key: popoverKey, target: { ...current.target, box } }
+          : current,
+      );
+    });
+  }, [
+    layoutTick,
+    popoverKey,
+    requestSelectorBox,
+    scheduleHoverNode,
+    snapshotSelector,
+  ]);
 
   const handlePlacementPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -2534,18 +2621,7 @@ export function ReviewCanvasPins({
     !repromptDraftRequest;
   const highlightRect =
     placementPlaneVisible && canvas && highlightTarget
-      ? highlightTarget.nodeId
-        ? nodeClientRect(
-            canvas,
-            highlightTarget.nodeId,
-            frameNodeGeometry[highlightTarget.nodeId],
-          )
-        : highlightTarget.box
-          ? frameRectToClient(canvas, highlightTarget.box.rect, {
-              width: highlightTarget.box.viewportWidth,
-              height: highlightTarget.box.viewportHeight,
-            })
-          : null
+      ? hoverTargetClientRect(canvas, highlightTarget, frameNodeGeometry)
       : null;
 
   return createPortal(

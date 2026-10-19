@@ -1951,11 +1951,14 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
         reviewPointElement && !reviewPointNodeId
           ? buildSourceEquivalentSelector(reviewPointElement)
           : "";
-      // Selector-only hits have no node id to look up later, so the reply carries their box.
-      var reviewPointBox =
-        reviewPointElement && !reviewPointNodeId
-          ? reviewPointElement.getBoundingClientRect()
-          : null;
+      // Every hit carries its box and a selector: a node id such as data-loc may not resolve
+      // back to an element in the parent, and the selector re-finds the element after layout moves.
+      var reviewPointBox = reviewPointElement
+        ? reviewPointElement.getBoundingClientRect()
+        : null;
+      var reviewPointHitSelector = reviewPointElement
+        ? buildSourceEquivalentSelector(reviewPointElement)
+        : "";
       try {
         (window.parent as Window).postMessage(
           {
@@ -1963,6 +1966,7 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
             correlationId: reviewPointCorrelationId,
             nodeId: reviewPointNodeId || undefined,
             targetSelector: reviewPointSelector || undefined,
+            hitSelector: reviewPointHitSelector || undefined,
             layerName: layerNameForElement(reviewPointElement) || undefined,
             tagName: reviewPointElement?.tagName?.toLowerCase() || undefined,
             rect: reviewPointBox
@@ -1971,6 +1975,40 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
                   top: reviewPointBox.top,
                   width: reviewPointBox.width,
                   height: reviewPointBox.height,
+                }
+              : undefined,
+            viewportWidth: window.innerWidth,
+            viewportHeight: window.innerHeight,
+          },
+          "*",
+        );
+      } catch (_err) {}
+      return;
+    }
+    if (e.data.type === "agent-native:review-selector-rects") {
+      var reviewSelectorCorrelationId: string = e.data.correlationId;
+      var reviewSelector: unknown = e.data.selector;
+      if (!reviewSelectorCorrelationId || typeof reviewSelector !== "string") {
+        return;
+      }
+      var reviewSelectorElement: Element | null = null;
+      try {
+        reviewSelectorElement = document.querySelector(reviewSelector);
+      } catch (_err) {}
+      var reviewSelectorBox = reviewSelectorElement
+        ? reviewSelectorElement.getBoundingClientRect()
+        : null;
+      try {
+        (window.parent as Window).postMessage(
+          {
+            type: "agent-native:review-selector-rects-result",
+            correlationId: reviewSelectorCorrelationId,
+            rect: reviewSelectorBox
+              ? {
+                  left: reviewSelectorBox.left,
+                  top: reviewSelectorBox.top,
+                  width: reviewSelectorBox.width,
+                  height: reviewSelectorBox.height,
                 }
               : undefined,
             viewportWidth: window.innerWidth,
