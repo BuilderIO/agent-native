@@ -4025,7 +4025,7 @@ fn remove_orphaned_segment_files(
         if !segment_id.starts_with("segment-") || live_segment_ids.contains(segment_id) {
             continue;
         }
-        if last_written_before(&entry, cutoff)? {
+        if last_written_before(entry.metadata(), cutoff)? {
             remove_file_if_exists(&entry.path())?;
         }
     }
@@ -4058,12 +4058,14 @@ fn history_entries_present(
 }
 
 fn last_written_before(
-    entry: &std::fs::DirEntry,
+    metadata: std::io::Result<std::fs::Metadata>,
     cutoff: std::time::SystemTime,
 ) -> Result<bool, String> {
-    let metadata = entry
-        .metadata()
-        .map_err(|error| format!("screen memory file metadata failed: {error}"))?;
+    let metadata = match metadata {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(format!("screen memory file metadata failed: {error}")),
+    };
     if !metadata.is_file() {
         return Ok(false);
     }
@@ -4927,20 +4929,31 @@ command = "keep"
         assert!(result.unwrap_err().contains("directory entry failed"));
     }
 
-    // Windows caches DirEntry metadata, so unlinking exercises this failure only on Unix.
+    #[test]
+    fn retention_preserves_metadata_errors_other_than_absence() {
+        let result = last_written_before(
+            Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "injected metadata denial",
+            )),
+            std::time::SystemTime::now(),
+        );
+        assert!(result.unwrap_err().contains("injected metadata denial"));
+    }
+
+    // Windows caches DirEntry metadata, so unlinking exercises this lookup only on Unix.
     #[cfg(unix)]
     #[test]
-    fn retention_reports_metadata_failure_instead_of_treating_a_file_as_recent() {
-        let dir = retention_fixture_dir("metadata-failure");
+    fn retention_treats_a_vanished_file_as_already_removed() {
+        let dir = retention_fixture_dir("vanished-file");
         let path = dir.join("segment-1-0.mov");
         write_aged(&path, 9 * HOUR);
         let entry = std::fs::read_dir(&dir).unwrap().next().unwrap().unwrap();
         std::fs::remove_file(&path).unwrap();
 
         assert!(
-            last_written_before(&entry, std::time::SystemTime::now() - 8 * HOUR)
-                .unwrap_err()
-                .contains("file metadata failed")
+            !last_written_before(entry.metadata(), std::time::SystemTime::now() - 8 * HOUR)
+                .unwrap()
         );
         std::fs::remove_dir_all(dir).unwrap();
     }
