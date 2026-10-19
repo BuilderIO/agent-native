@@ -9,9 +9,10 @@ import {
   AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY,
 } from "@agent-native/agentkit/protocol";
 import { mockEvent } from "h3";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { z } from "zod";
 
+import { actionArgumentsHash } from "../action-arguments-identity.js";
 import {
   AgentActionStopError,
   AgentConnectionRequiredError,
@@ -37,13 +38,16 @@ import {
   pngBase64OfAtLeast,
   PNG_BASE64,
 } from "../file-upload/test-image-fixtures.js";
+import { UnusableSchemaError } from "../json-schema/unusable-schema.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { hashEmail } from "../mcp-client/remote-store.js";
 import * as experiments from "../observability/experiments.js";
 import * as appRoles from "../org/app-roles.js";
+import { createProviderApiRequestAction } from "../provider-api/actions/provider-api.js";
 import { createUrlTools } from "../server/agent-chat/context-tools.js";
 import { createResourceScriptEntries } from "../server/agent-chat/script-entries.js";
 import { __resetAgentsBundleCache } from "../server/agents-bundle.js";
+import { registerErrorCaptureProvider } from "../server/capture-error.js";
 import {
   getRequestRunContext,
   runWithRequestContext,
@@ -51,12 +55,16 @@ import {
 import * as settingsStore from "../settings/store.js";
 import { assertNoInlineImageBytes } from "../shared/inline-bytes.js";
 import { warnAgent } from "./action-warnings.js";
-import { approvalKeyForHistory } from "./approval-key.js";
+import {
+  approvalKeyForHistory,
+  approvalKeyWithArguments,
+} from "./approval-key.js";
 import {
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   AGENT_CHAT_REQUEST_CONTEXT_FIELD,
 } from "./durable-background.js";
 import { PROVIDER_RATE_LIMITED_ERROR_CODE } from "./engine/error-detail.js";
+import * as journalSeed from "./engine/tool-call-journal-seed.js";
 import type {
   AgentEngine,
   EngineContentPart,
@@ -142,15 +150,47 @@ import {
   type ProductionAgentOptions,
 } from "./production-agent.js";
 import type { ActiveRun } from "./run-manager.js";
+import * as runManager from "./run-manager.js";
 import * as runStore from "./run-store.js";
 import { threadDataToEngineMessages } from "./thread-data-builder.js";
 import * as toolApprovalStore from "./tool-approval-store.js";
-import {
-  classifyToolCallJournal,
-  findCompletedJournalEntry,
-} from "./tool-call-journal.js";
+import { classifyToolCallJournal } from "./tool-call-journal.js";
 import { attachToolSearch, searchToolRegistry } from "./tool-search.js";
 import type { AgentChatAttachment, AgentChatEvent, RunEvent } from "./types.js";
+
+/**
+ * Gives this test's continued turns a journal recording the arguments each
+ * earlier call ran with, as `tool_done` records them: a call reused from
+ * history is one that recorded them.
+ */
+function recordEarlierCalls(
+  calls: Record<string, [tool: string, input: Record<string, unknown>]>,
+) {
+  const events = Object.entries(calls).flatMap(
+    ([id, [tool, input]]): AgentChatEvent[] => [
+      { type: "tool_start", id, tool, input },
+      {
+        type: "tool_done",
+        id,
+        tool,
+        input,
+        result: "",
+        argumentsHash: actionArgumentsHash(input),
+      },
+    ],
+  );
+  const read = vi
+    .spyOn(journalSeed, "loadPriorTurnToolCallJournal")
+    .mockResolvedValue({
+      status: "read",
+      events,
+      toolCallJournal: null,
+      priorToolCalls: [],
+      priorToolResults: [],
+      priorToolCallSequence: [],
+    });
+  onTestFinished(() => read.mockRestore());
+}
 
 function createProductionAgentHandler(
   options: Omit<ProductionAgentOptions, "assertAiSetupReady"> &
@@ -169,7 +209,6 @@ const mockGetSlotHoldingRunId = vi.hoisted(() =>
   vi.fn(async (): Promise<string | undefined> => undefined),
 );
 const mockInsertRun = vi.hoisted(() => vi.fn(async () => undefined));
-const mockPersistRunEventsInMemory = vi.hoisted(() => ({ enabled: false }));
 const mockFireInternalDispatch = vi.hoisted(() => vi.fn(async () => undefined));
 
 vi.mock("../db/ddl-guard.js", () => ({
@@ -220,11 +259,10 @@ vi.mock("./run-manager.js", async () => {
   return {
     ...actual,
     startRun: (...args: Parameters<typeof actual.startRun>) => {
-      if (!mockPersistRunEventsInMemory.enabled)
-        return actual.startRun(...args);
       const [runId, threadId, runFn, onComplete, options] = args;
       return actual.startRun(runId, threadId, runFn, onComplete, {
         ...options,
+        executionLease: false,
         persistEvent: async () => {},
       });
     },
@@ -396,7 +434,7 @@ function isLoopBreakerCloseout(options: EngineStreamOptions): boolean {
 async function runToolCallSequence(
   calls: Array<{ name: string; input: Record<string, unknown> }>,
   actions: Record<string, ActionEntry>,
-  options?: { threadId: string; turnId: string },
+  options?: { threadId?: string; turnId?: string; messages?: EngineMessage[] },
 ) {
   let nextCall = 0;
   const events: AgentChatEvent[] = [];
@@ -3126,6 +3164,187 @@ describe("buildUserContentWithAttachments", () => {
     expect(tools[0].inputSchema).toMatchObject({ type: "object", anyOf });
   });
 
+  describe("an app action whose schema cannot be sent", () => {
+    const listNotes = {
+      tool: {
+        description: "List notes",
+        parameters: {
+          type: "object",
+          properties: { q: { type: "string" } },
+        } as any,
+      },
+      run: async () => ({}),
+    };
+
+    it("is left out of the tools, and logged and captured once", () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      const provider = vi.fn(() => "evt_unusable_agent_tool");
+      const unregister = registerErrorCaptureProvider(
+        "agent-unusable-tool-schema-test",
+        provider,
+      );
+      const actions = {
+        "list-notes": listNotes,
+        "link-note": {
+          tool: {
+            description: "Broken reference",
+            parameters: {
+              type: "object",
+              properties: { item: { $ref: "#/$defs/Missing" } },
+            } as any,
+          },
+          run: async () => ({}),
+        },
+        "string-note": {
+          tool: {
+            description: "Not an object",
+            parameters: { type: "string" } as any,
+          },
+          run: async () => ({}),
+        },
+        "false-note": {
+          tool: { description: "Accepts nothing", parameters: false as any },
+          run: async () => ({}),
+        },
+        "tone-note": {
+          tool: {
+            description: "Empty choice",
+            parameters: {
+              type: "object",
+              properties: { tone: { anyOf: [] } },
+            } as any,
+          },
+          run: async () => ({}),
+        },
+      };
+      const toneMessage = `Action "tone-note" is left out of the agent's tools: its input schema declares an empty anyOf, so it accepts no value at /properties/tone.`;
+
+      try {
+        const first = actionsToEngineTools(actions);
+        const second = actionsToEngineTools(actions);
+
+        expect(first.map((tool) => tool.name)).toEqual(["list-notes"]);
+        expect(second.map((tool) => tool.name)).toEqual(["list-notes"]);
+        const logged = consoleError.mock.calls.map(([line]) => line);
+        expect(logged).toEqual([
+          expect.stringMatching(
+            /^\[agent\] Action "link-note" is left out of the agent's tools: its input schema references "#\/\$defs\/Missing", .* at \/properties\/item\.$/,
+          ),
+          `[agent] Action "string-note" is left out of the agent's tools: its input schema is not an object schema at /.`,
+          `[agent] Action "false-note" is left out of the agent's tools: its input schema is not an object schema at /.`,
+          `[agent] ${toneMessage}`,
+        ]);
+        expect(provider).toHaveBeenCalledTimes(4);
+        expect(provider).toHaveBeenLastCalledWith(
+          expect.objectContaining({ message: toneMessage }),
+          expect.objectContaining({
+            tags: expect.objectContaining({
+              source: "agent",
+              failureClass: "unusable-tool-schema",
+            }),
+            extra: expect.objectContaining({
+              action: "tone-note",
+              path: "/properties/tone",
+              reason: "declares an empty anyOf, so it accepts no value",
+            }),
+          }),
+        );
+      } finally {
+        unregister();
+        consoleError.mockRestore();
+      }
+    });
+
+    it("leaves out an action whose parameters cannot be read", () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      try {
+        expect(
+          actionsToEngineTools({
+            "list-notes": listNotes,
+            "pick-note": {
+              tool: {
+                description: "Empty enum",
+                parameters: {
+                  type: "object",
+                  properties: { kind: { enum: [] } },
+                } as any,
+              },
+              run: async () => ({}),
+            },
+            "read-note": {
+              tool: {
+                description: "Unreadable schema",
+                get parameters(): never {
+                  throw new Error("parameters exploded");
+                },
+              },
+              run: async () => ({}),
+            },
+          }).map(({ name }) => name),
+        ).toEqual(["list-notes"]);
+        expect(consoleError.mock.calls).toContainEqual([
+          `[agent] Action "read-note" is left out of the agent's tools: its input schema could not be converted: parameters exploded at /.`,
+        ]);
+      } finally {
+        consoleError.mockRestore();
+      }
+    });
+
+    it("reports a verdict whose reason or path is not text", () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      const withVerdict = (malform: (failure: any) => void) => {
+        const failure = new UnusableSchemaError("/safe", "not usable");
+        malform(failure);
+        return defineAction({
+          description: "Malformed verdict",
+          schema: {
+            "~standard": {
+              version: 1,
+              vendor: "test",
+              validate: (value: unknown) => ({ value }),
+              jsonSchema: {
+                input: () => {
+                  throw failure;
+                },
+              },
+            },
+          } as never,
+          run: async () => ({}),
+        });
+      };
+      try {
+        expect(
+          actionsToEngineTools({
+            "list-notes": listNotes,
+            "number-reason": withVerdict((failure) => (failure.reason = 123)),
+            "number-path": withVerdict((failure) => (failure.path = 123)),
+            "object-reason": withVerdict(
+              (failure) =>
+                (failure.reason = {
+                  replace() {
+                    throw new Error("/_agent-native/embed/start?ticket=x");
+                  },
+                }),
+            ),
+          }).map(({ name }) => name),
+        ).toEqual(["list-notes"]);
+        expect(consoleError.mock.calls.map(([line]) => line)).toEqual([
+          `[agent] Action "number-reason" is left out of the agent's tools: its input schema 123 at /safe.`,
+          `[agent] Action "number-path" is left out of the agent's tools: its input schema not usable at 123.`,
+          `[agent] Action "object-reason" is left out of the agent's tools: its input schema [not text] at /safe.`,
+        ]);
+      } finally {
+        consoleError.mockRestore();
+      }
+    });
+  });
+
   it("keeps the default initial catalog to discovery/runtime tools", () => {
     const tools = actionsToEngineTools(
       attachToolSearch({
@@ -3923,7 +4142,6 @@ describe("createProductionAgentHandler", () => {
     const isTurnAborted = vi
       .spyOn(runStore, "isTurnAborted")
       .mockResolvedValue(false);
-    mockPersistRunEventsInMemory.enabled = true;
     const runAction = vi.fn(async () => "sent");
     let completedRun: ActiveRun | undefined;
     const modelMessages: EngineMessage[][] = [];
@@ -4048,7 +4266,6 @@ describe("createProductionAgentHandler", () => {
         ]),
       );
     } finally {
-      mockPersistRunEventsInMemory.enabled = false;
       resolveApproval.mockRestore();
       consumeApproval.mockRestore();
       isTurnAborted.mockRestore();
@@ -4077,7 +4294,6 @@ describe("createProductionAgentHandler", () => {
     const updateRunHeartbeat = vi
       .spyOn(runStore, "updateRunHeartbeat")
       .mockResolvedValue(undefined);
-    mockPersistRunEventsInMemory.enabled = true;
     const runAction = vi.fn(async () => "sent");
     let completedRun: ActiveRun | undefined;
     const engine: AgentEngine = {
@@ -4192,7 +4408,6 @@ describe("createProductionAgentHandler", () => {
       expect(runAction).toHaveBeenCalledOnce();
       expect(consumeApproval).toHaveBeenCalledOnce();
     } finally {
-      mockPersistRunEventsInMemory.enabled = false;
       resolveApproval.mockRestore();
       consumeApproval.mockRestore();
       claimBackgroundRun.mockRestore();
@@ -4222,7 +4437,6 @@ describe("createProductionAgentHandler", () => {
     const consumeApproval = vi
       .spyOn(toolApprovalStore, "consumeAgentToolApproval")
       .mockResolvedValue(true);
-    mockPersistRunEventsInMemory.enabled = true;
     const onRunComplete = vi.fn();
     const handler = createProductionAgentHandler({
       systemPrompt: "Test",
@@ -4305,7 +4519,6 @@ describe("createProductionAgentHandler", () => {
       expect(outerStream).not.toHaveBeenCalled();
     } finally {
       consumeApproval.mockRestore();
-      mockPersistRunEventsInMemory.enabled = false;
     }
   });
 
@@ -4530,7 +4743,6 @@ describe("createProductionAgentHandler", () => {
       ).rejects.toBe(setupRequired);
 
       expect(assertAiSetupReady).toHaveBeenCalledOnce();
-      expect(getDbExec).not.toHaveBeenCalled();
       expect(readTurnStartedAt).not.toHaveBeenCalled();
       expect(mockTryClaimRunSlot).not.toHaveBeenCalled();
       expect(engine.stream).not.toHaveBeenCalled();
@@ -7260,6 +7472,64 @@ describe("createProductionAgentHandler", () => {
     );
   });
 
+  it("replays the accepted run when onRunPrepared finds an existing submission receipt", async () => {
+    const onRunPrepared = vi.fn(async () => ({
+      duplicateRunId: "run-already-submitted",
+    }));
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.close();
+      },
+    });
+    const subscribeToRun = vi
+      .spyOn(runManager, "subscribeToRun")
+      .mockReturnValue(stream);
+    onTestFinished(() => subscribeToRun.mockRestore());
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "should not start a new run" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      onRunPrepared,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Repeat the queued prompt",
+          queuedMessageId: "queued-duplicate",
+        }),
+      }),
+    );
+
+    const result = await runWithRequestContext(
+      { userEmail: "owner@example.com", run: {} },
+      () => handler(event),
+    );
+
+    expect(result).toBe(stream);
+    expect(subscribeToRun).toHaveBeenCalledWith("run-already-submitted", 0);
+  });
+
   it("anchors retry deadlines to the server request time", async () => {
     const onRunPrepared = vi.fn();
     const engine: AgentEngine = {
@@ -7698,13 +7968,9 @@ describe("runAgentLoop", () => {
       (event) => event.type === "tool_start" || event.type === "tool_done",
     ))
       expect(event.input).toEqual(original);
-    expect(
-      findCompletedJournalEntry(
-        classifyToolCallJournal(persisted),
-        "send-report",
-        original,
-      )?.result,
-    ).toBe(result);
+    expect(classifyToolCallJournal(persisted).completed).toEqual([
+      expect.objectContaining({ tool: "send-report", input: original, result }),
+    ]);
     const read = vi
       .spyOn(runStore, "getCurrentTurnEventsForThread")
       .mockResolvedValue(persisted);
@@ -9959,6 +10225,7 @@ describe("runAgentLoop", () => {
   });
 
   it("does not re-run identical read-only tools already present in continuation history", async () => {
+    recordEarlierCalls({ "tool-original": ["get-document", { id: "doc-1" }] });
     let streamCalls = 0;
     const engine: AgentEngine = {
       name: "test",
@@ -10274,6 +10541,13 @@ describe("runAgentLoop", () => {
   });
 
   it("stops after the third visible duplicate across continuation invocations", async () => {
+    // Each continuation appends its call to `messages`; the journal records
+    // the arguments every one of them ran with.
+    recordEarlierCalls({
+      "original-call": ["get-document", { id: "doc-1" }],
+      "repeat-1": ["get-document", { id: "doc-1" }],
+      "repeat-2": ["get-document", { id: "doc-1" }],
+    });
     const messages: EngineMessage[] = [
       {
         role: "user",
@@ -10609,6 +10883,10 @@ describe("runAgentLoop", () => {
   });
 
   it("keeps the original cached body across a continuation with a pointer-only duplicate result", async () => {
+    recordEarlierCalls({
+      "original-call": ["get-document", { id: "doc-1" }],
+      "pointer-call": ["get-document", { id: "doc-1" }],
+    });
     let streamCalls = 0;
     const engine: AgentEngine = {
       name: "test",
@@ -12251,6 +12529,136 @@ describe("runAgentLoop", () => {
         errorCode: "write_tool_outcome_unknown",
       }),
     );
+  });
+
+  describe("provider-api-request POST retries", () => {
+    const providerRequestAction = (
+      executeRequest: (args: unknown) => Promise<unknown>,
+    ): ActionEntry => ({
+      ...actionEntry({}),
+      ...createProviderApiRequestAction({
+        executeRequest: executeRequest as never,
+      }),
+    });
+    const rejected = {
+      response: { ok: false, status: 400, statusText: "Bad Request", json: {} },
+    };
+    const accepted = {
+      response: { ok: true, status: 200, json: { rows: [] } },
+    };
+
+    it("retries a failed GA4 report with corrected arguments", async () => {
+      const executeRequest = vi
+        .fn()
+        .mockResolvedValueOnce(rejected)
+        .mockResolvedValueOnce(accepted);
+      const report = (dimension: string) => ({
+        provider: "ga4",
+        method: "POST",
+        path: "/properties/{propertyId}:runReport",
+        body: { dimensions: [{ name: dimension }] },
+      });
+
+      const events = await runToolCallSequence(
+        [
+          { name: "provider-api-request", input: report("sessionSourc") },
+          { name: "provider-api-request", input: report("sessionSource") },
+        ],
+        { "provider-api-request": providerRequestAction(executeRequest) },
+      );
+
+      expect(executeRequest).toHaveBeenCalledTimes(2);
+      expect(events).not.toContainEqual(
+        expect.objectContaining({ outcomeUnknown: true }),
+      );
+      expect(events).not.toContainEqual(
+        expect.objectContaining({ errorCode: "write_tool_outcome_unknown" }),
+      );
+    });
+
+    it("still stops after a failed POST that may have written", async () => {
+      const executeRequest = vi.fn().mockResolvedValue(rejected);
+      const create = (email: string) => ({
+        provider: "hubspot",
+        method: "POST",
+        path: "/crm/v3/objects/contacts",
+        body: { properties: { email } },
+      });
+
+      const events = await runToolCallSequence(
+        [
+          { name: "provider-api-request", input: create("a@example.com") },
+          { name: "provider-api-request", input: create("b@example.com") },
+        ],
+        { "provider-api-request": providerRequestAction(executeRequest) },
+      );
+
+      expect(executeRequest).toHaveBeenCalledTimes(1);
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "error",
+          errorCode: "write_tool_outcome_unknown",
+        }),
+      );
+    });
+
+    it("runs the write again when the user replies continue in a new turn", async () => {
+      const executeRequest = vi.fn().mockResolvedValue(accepted);
+      const input = {
+        provider: "hubspot",
+        method: "POST",
+        path: "/crm/v3/objects/contacts",
+        body: { properties: { email: "a@example.com" } },
+      };
+      const messages: EngineMessage[] = [
+        { role: "user", content: [{ type: "text", text: "add the contact" }] },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "earlier-create",
+              name: "provider-api-request",
+              input,
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "earlier-create",
+              toolName: "provider-api-request",
+              content: "Error running provider-api-request: timed out",
+              isError: true,
+              outcome: "unknown",
+            },
+          ],
+        },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "text",
+              text: 'I stopped before running provider-api-request again. Reply "continue" and I will verify it.',
+            },
+          ],
+        },
+        { role: "user", content: [{ type: "text", text: "continue" }] },
+      ];
+
+      const events = await runToolCallSequence(
+        [{ name: "provider-api-request", input }],
+        { "provider-api-request": providerRequestAction(executeRequest) },
+        { messages },
+      );
+
+      expect(executeRequest).toHaveBeenCalledTimes(1);
+      expect(events).not.toContainEqual(
+        expect.objectContaining({ errorCode: "write_tool_outcome_unknown" }),
+      );
+    });
   });
 
   it("resets other tools' repeat-error counts after a successful write", async () => {
@@ -15571,6 +15979,7 @@ describe("runAgentLoop", () => {
         }),
         isError: true,
         completedSideEffect: false,
+        argumentsHash: expect.stringMatching(/^[a-f0-9]{64}$/),
       },
       {
         type: "error",
@@ -16426,6 +16835,7 @@ describe("runAgentLoop", () => {
       result: "Error calling MCP tool mcp__x__fail: boom",
       isError: true,
       completedSideEffect: false,
+      argumentsHash: expect.stringMatching(/^[a-f0-9]{64}$/),
     });
     expect(seenMessages[1].at(-1)).toMatchObject({
       role: "user",
@@ -17604,6 +18014,106 @@ describe("runAgentLoop", () => {
     }
   });
 
+  it("holds back in the main loop a read a custom agent profile left unknown, and no read of other arguments", async () => {
+    const agents = await import("../resources/agents.js");
+    const findProfile = vi
+      .spyOn(agents, "findAccessibleCustomAgent")
+      .mockImplementation(async (_owner, identifier) => ({
+        id: identifier,
+        path: `agents/${identifier}.md`,
+        name: identifier,
+        instructions: "Help out.",
+        model: `${identifier}-model`,
+      }));
+    // The profile runs before the main loop.
+    const modes: Record<string, string[]> = {
+      "reviewer-model": ["check"],
+      "claude-sonnet-5": ["other", "check"],
+    };
+    const calls = new Map<string, number>();
+    const engine: AgentEngine = {
+      ...engineWithUncalledStream(),
+      defaultModel: "claude-sonnet-5",
+      supportedModels: ["claude-sonnet-5", "reviewer-model"],
+      async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        const call = calls.get(opts.model) ?? 0;
+        calls.set(opts.model, call + 1);
+        const mode = modes[opts.model]?.[call];
+        yield {
+          type: "assistant-content",
+          parts: mode
+            ? [
+                {
+                  type: "tool-call",
+                  id: `${opts.model}-${call}`,
+                  name: "check",
+                  input: { mode },
+                },
+              ]
+            : [{ type: "text", text: "Done." }],
+        };
+        yield { type: "stop", reason: mode ? "tool_use" : "end_turn" };
+      },
+    };
+    const ran: string[] = [];
+    const save = defineAction({
+      description: "Save the draft.",
+      schema: z.object({}),
+      run: async () => {
+        throw new Error("Save lost its connection.");
+      },
+    });
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {
+        check: defineAction({
+          description: "Check the draft.",
+          schema: z.object({ mode: z.string() }),
+          readOnly: true,
+          run: async (args, ctx) => {
+            ran.push(args.mode);
+            if (args.mode === "check") await save.run({}, ctx);
+            return "ok";
+          },
+        }) as unknown as ActionEntry,
+      },
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "go",
+          threadId: "thread-profile-unknown",
+          references: [
+            { type: "custom-agent", name: "Reviewer", refId: "reviewer" },
+          ],
+        }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "owner@example.com", run: {} },
+        () => handler(event),
+      );
+      let text = "";
+      if (response instanceof ReadableStream) {
+        const reader = response.getReader();
+        for (let chunk = await reader.read(); !chunk.done; ) {
+          text += new TextDecoder().decode(chunk.value);
+          chunk = await reader.read();
+        }
+      }
+
+      expect(text).toContain("could not recover its result");
+      expect(ran).toEqual(["check", "other"]);
+    } finally {
+      findProfile.mockRestore();
+    }
+  });
+
   it("does not surface the empty-response fallback when text was streamed", async () => {
     const engine: AgentEngine = {
       name: "test",
@@ -18387,7 +18897,7 @@ describe("runAgentLoop", () => {
     );
   });
 
-  it("re-running with approvedToolCalls:[approvalKey] DOES run the action", async () => {
+  it("re-running with the approval key bound to its arguments DOES run the action", async () => {
     const phase1 = approvalEngine();
     const run = vi.fn(async () => "delivered");
     const events1: any[] = [];
@@ -18410,13 +18920,33 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    const approvalKey = events1.find(
+    const approval = events1.find(
       (event) => event.type === "approval_required",
-    )?.approvalKey as string;
+    );
+    const approvalKey = approval?.approvalKey as string;
     expect(approvalKey).toBeTruthy();
     expect(run).not.toHaveBeenCalled();
     expect(events1).toContainEqual(
       expect.objectContaining({ type: "tool_done", approvalPause: true }),
+    );
+
+    // A plain key names the call as sent, not the arguments it runs with, and
+    // with no `consumeApproval` to check those, it approves nothing.
+    const plain: any[] = [];
+    await runAgentLoop({
+      engine: approvalEngine().engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions,
+      approvedToolCalls: [approvalKey],
+      send: (event) => plain.push(event),
+      signal: new AbortController().signal,
+    });
+    expect(run).not.toHaveBeenCalled();
+    expect(plain.some((event) => event.type === "approval_required")).toBe(
+      true,
     );
 
     const phase2 = approvalEngine();
@@ -18429,7 +18959,9 @@ describe("runAgentLoop", () => {
       tools: [],
       messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
       actions,
-      approvedToolCalls: [approvalKey],
+      approvedToolCalls: [
+        approvalKeyWithArguments(approvalKey, approval?.argumentsHash),
+      ],
       send: (event) => events2.push(event),
       signal: new AbortController().signal,
     });
@@ -18604,9 +19136,13 @@ describe("runAgentLoop", () => {
       send: (event) => firstEvents.push(event),
       signal: new AbortController().signal,
     });
-    const approvalKey = firstEvents.find(
+    const approval = firstEvents.find(
       (event) => event.type === "approval_required",
-    ).approvalKey;
+    );
+    const approvalKey = approvalKeyWithArguments(
+      approval.approvalKey,
+      approval.argumentsHash,
+    );
 
     let streamCalls = 0;
     const duplicateEngine: AgentEngine = {
@@ -20539,30 +21075,24 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
   });
 
   it("marks a successfully chained background chunk terminal before the worker returns", async () => {
-    const updateRunStatusIfRunning = vi.fn(async () => true);
-    const setRunError = vi.fn(async () => {});
-    const setRunTerminalReason = vi.fn(async () => {});
+    const updateRunTerminalStateIfRunning = vi.fn(async () => true);
 
     await expect(
       markBackgroundContinuationChunkTerminal({
         runId: "run-old",
         continuationReason: "no_progress",
-        deps: { updateRunStatusIfRunning, setRunError, setRunTerminalReason },
+        deps: { updateRunTerminalStateIfRunning },
       }),
     ).resolves.toBe(true);
 
-    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
-      "run-old",
-      "completed",
-    );
-    expect(setRunTerminalReason).toHaveBeenCalledWith("run-old", "no_progress");
-    expect(setRunError).not.toHaveBeenCalled();
+    expect(updateRunTerminalStateIfRunning).toHaveBeenCalledWith("run-old", {
+      status: "completed",
+      terminalReason: "no_progress",
+    });
   });
 
   it("marks a recoverable error continuation chunk errored with its durable failure details", async () => {
-    const updateRunStatusIfRunning = vi.fn(async () => true);
-    const setRunError = vi.fn(async () => {});
-    const setRunTerminalReason = vi.fn(async () => {});
+    const updateRunTerminalStateIfRunning = vi.fn(async () => true);
 
     await expect(
       markBackgroundContinuationChunkTerminal({
@@ -20575,44 +21105,36 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
           details: "upstream returned 500",
           recoverable: true,
         },
-        deps: { updateRunStatusIfRunning, setRunError, setRunTerminalReason },
+        deps: { updateRunTerminalStateIfRunning },
       }),
     ).resolves.toBe(true);
 
-    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+    expect(updateRunTerminalStateIfRunning).toHaveBeenCalledWith(
       "run-error-boundary",
-      "errored",
-    );
-    expect(setRunTerminalReason).toHaveBeenCalledWith(
-      "run-error-boundary",
-      "error:provider_failed",
-    );
-    expect(setRunError).toHaveBeenCalledWith(
-      "run-error-boundary",
-      "provider_failed",
-      "upstream returned 500",
+      {
+        status: "errored",
+        terminalReason: "error:provider_failed",
+        errorCode: "provider_failed",
+        errorDetail: "upstream returned 500",
+      },
     );
   });
 
   it("does not overwrite terminal reason when another process already finished the chunk", async () => {
-    const updateRunStatusIfRunning = vi.fn(async () => false);
-    const setRunError = vi.fn(async () => {});
-    const setRunTerminalReason = vi.fn(async () => {});
+    const updateRunTerminalStateIfRunning = vi.fn(async () => false);
 
     await expect(
       markBackgroundContinuationChunkTerminal({
         runId: "run-old",
         continuationReason: "run_timeout",
-        deps: { updateRunStatusIfRunning, setRunError, setRunTerminalReason },
+        deps: { updateRunTerminalStateIfRunning },
       }),
     ).resolves.toBe(false);
 
-    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
-      "run-old",
-      "completed",
-    );
-    expect(setRunTerminalReason).not.toHaveBeenCalled();
-    expect(setRunError).not.toHaveBeenCalled();
+    expect(updateRunTerminalStateIfRunning).toHaveBeenCalledWith("run-old", {
+      status: "completed",
+      terminalReason: "run_timeout",
+    });
   });
 });
 
@@ -21126,6 +21648,54 @@ describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
       reason: "worker-never-claimed",
     });
     expect(readClaim).toHaveBeenCalledTimes(4);
+  });
+
+  it("claim throws once then succeeds on retry -> claimed inline", async () => {
+    const readClaim = vi.fn().mockResolvedValue(null);
+    const claim = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("temporary network error"))
+      .mockResolvedValueOnce(true);
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const outcome = await resolveBackgroundDispatchOutcome({
+      ...base,
+      dispatched: false,
+      backgroundRowInserted: true,
+      readClaim,
+      claim,
+      sleep,
+    });
+    expect(outcome).toEqual({
+      action: "inline",
+      reason: "dispatch-failed",
+    });
+    expect(claim).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledWith(250);
+  });
+
+  it("claim throws twice -> subscribe and logs the failure", async () => {
+    const readClaim = vi.fn().mockResolvedValue(null);
+    const claim = vi
+      .fn()
+      .mockRejectedValue(new Error("database connection lost"));
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const consoleErrorSpy = vi.spyOn(console, "error");
+    const outcome = await resolveBackgroundDispatchOutcome({
+      ...base,
+      dispatched: false,
+      backgroundRowInserted: true,
+      readClaim,
+      claim,
+      sleep,
+    });
+    expect(outcome).toEqual({ action: "subscribe" });
+    expect(claim).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledWith(250);
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("inline claim failed twice for runId=run-x"),
+      "database connection lost",
+    );
+    consoleErrorSpy.mockRestore();
   });
 });
 

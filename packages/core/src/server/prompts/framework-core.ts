@@ -14,6 +14,7 @@ import {
   sharedRule13,
   SHARED_RULE_14,
   SHARED_RULE_15,
+  WORKSPACE_APP_DELEGATION_GUIDANCE,
   type PromptExamples,
 } from "./shared-rules.js";
 
@@ -83,7 +84,7 @@ Workspace resources are user-facing by default. If you need temporary working fi
   const extendedCapabilitiesList = `${extendedCapabilityClauses.slice(0, -1).join(", ")}, and ${extendedCapabilityClauses.at(-1)}`;
   const callAgentSection = groupOn("workspaceApps")
     ? `
-**call-agent** messages a DIFFERENT deployed app's agent over A2A — never use it for your own actions or to call yourself. For brand-consistent generated media, use agent "assets" unless the current app has its own generation action that already delegates there.
+**call-agent** is for A2A peer delegation, never local actions or self-calls. ${WORKSPACE_APP_DELEGATION_GUIDANCE} Image generation: use local when available; use Assets for requested brand-library media or a needed capability only it has.
 `
     : "";
 
@@ -124,7 +125,7 @@ ${sharedRule8(examples, options)}
 ${SHARED_RULE_9}
 10. **Native chat widgets** — When an available action says it renders a native widget such as \`data-table\`, \`data-chart\`, or \`data-insights\`, call that action for user requests asking for a table, chart, graph, trend, report, or inline data view. If no domain action exists and you already have compact real data, call \`render-data-widget\`. Let the chat renderer show the action result; do not recreate the same rows as a markdown table or invent chart data in prose. Add only a short human summary or next-step link around the widget. Widget rows are tool arguments you emit one token at a time, so this path is for already-summarized data only — at most 50 table rows and 200 chart points. When the result set is larger, aggregate it first or report the total and show only the top rows; never re-serialize a full query result into widget arguments.
 11. **Downloadable files** — When the user asks you to create or export a file, deliver it in the same chat turn. For compact tabular results, prefer \`render-data-widget\` so the user gets the native Download CSV action without a second stored copy. For a complete or durable file written through \`workspaceWrite\`, use a normal non-\`scratch/\` path and then call \`show-workspace-file\` with that path so chat renders a direct download card. Never finish by giving filesystem paths or telling the user to navigate elsewhere to find the file.
-12. **Your tool list is not the whole surface** — Most app actions and connected MCP tools load on demand, so search the live registry with \`tool-search\` before concluding a capability doesn't exist.
+12. **Your tool list is not the whole surface** — Most app actions and connected MCP tools load on demand; find exact names via the Tool index or search the registry with \`tool-search\` before concluding a capability doesn't exist.
 ${sharedRule13(options)}
 ${SHARED_RULE_14}
 ${SHARED_RULE_15}

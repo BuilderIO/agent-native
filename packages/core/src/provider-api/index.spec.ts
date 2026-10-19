@@ -4282,6 +4282,214 @@ describe("provider API runtime", () => {
     expect(result.content.matches[0].match).toBe("GET /crm/v3/objects/deals");
   });
 
+  describe("docs redirects", () => {
+    const docsRuntime = () =>
+      createProviderApiRuntime({
+        appId: "analytics",
+        providerIds: ["hubspot"],
+        getCredentialContext: () => credentialContext,
+      });
+    const redirect = (location: string | null, status = 308) =>
+      new Response(null, {
+        status,
+        headers: location ? { location } : {},
+      });
+    const docsPage = () =>
+      new Response(
+        `<!doctype html><html><body><main><h1>Moved Deals API</h1><a href="pagination">Pagination</a></main></body></html>`,
+        { status: 200, headers: { "content-type": "text/html" } },
+      );
+
+    it("stops reading at the byte cap and never reads a redirect body", async () => {
+      // An endless body with no Content-Length: reading it to the end would
+      // never finish, so the request only returns if the reader stops.
+      const endless = (status: number, headers: Record<string, string>) => {
+        const chunk = new TextEncoder().encode("x".repeat(600));
+        const body = { pulls: 0, cancelled: false };
+        const response = new Response(
+          new ReadableStream(
+            {
+              pull(controller) {
+                body.pulls++;
+                controller.enqueue(chunk);
+              },
+              cancel() {
+                body.cancelled = true;
+              },
+            },
+            { highWaterMark: 0 },
+          ),
+          { status, headers },
+        );
+        return { response, body };
+      };
+      const hop = endless(308, { location: "/docs/moved" });
+      const page = endless(200, { "content-type": "text/plain" });
+      vi.spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(hop.response)
+        .mockResolvedValueOnce(page.response);
+
+      const result = (await docsRuntime().fetchDocs({
+        provider: "hubspot",
+        url: "https://developers.hubspot.com/docs/old",
+        maxBytes: 1_000,
+        responseMode: "raw",
+      })) as any;
+
+      expect(hop.body).toEqual({ pulls: 0, cancelled: true });
+      expect(page.body).toEqual({ pulls: 2, cancelled: true });
+      expect(result.response).toMatchObject({
+        truncated: true,
+        size: 1_200,
+        sizeIsLowerBound: true,
+      });
+      expect(result.response.text).toHaveLength(1_000);
+    });
+
+    it("follows a public redirect without credentials and reports the final URL", async () => {
+      resolveCredential.mockResolvedValue("hubspot-token");
+      const fetchMock = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(redirect("/docs/reference/api/crm/deals"))
+        .mockResolvedValueOnce(
+          redirect("https://docs.hubspot.example/reference/deals/", 301),
+        )
+        .mockResolvedValueOnce(docsPage());
+
+      const result = (await docsRuntime().fetchDocs({
+        provider: "hubspot",
+        url: "https://developers.hubspot.com/docs/api/crm/deals",
+      })) as any;
+
+      expect(result.request).toEqual({
+        url: "https://developers.hubspot.com/docs/api/crm/deals",
+        finalUrl: "https://docs.hubspot.example/reference/deals/",
+      });
+      expect(result.response).toMatchObject({ status: 200, ok: true });
+      expect(result.content.content).toContain("Moved Deals API");
+      expect(result.content.links).toEqual([
+        {
+          text: "Pagination",
+          url: "https://docs.hubspot.example/reference/deals/pagination",
+        },
+      ]);
+      expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+        "https://developers.hubspot.com/docs/api/crm/deals",
+        "https://developers.hubspot.com/docs/reference/api/crm/deals",
+        "https://docs.hubspot.example/reference/deals/",
+      ]);
+      for (const [, init] of fetchMock.mock.calls) {
+        expect(init?.redirect).toBe("manual");
+        expect(init?.headers).toBeUndefined();
+      }
+      expect(vi.mocked(isBlockedExtensionUrlWithDns).mock.calls).toEqual([
+        ["https://developers.hubspot.com/docs/api/crm/deals"],
+        ["https://developers.hubspot.com/docs/reference/api/crm/deals"],
+        ["https://docs.hubspot.example/reference/deals/"],
+      ]);
+    });
+
+    it("blocks a redirect to a private address before fetching it", async () => {
+      isBlockedExtensionUrlWithDns.mockImplementation(async (url: string) =>
+        url.startsWith("http://127.0.0.1"),
+      );
+      const fetchMock = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(redirect("http://127.0.0.1:8080/admin", 302));
+
+      await expect(
+        docsRuntime().fetchDocs({
+          provider: "hubspot",
+          url: "https://developers.hubspot.com/docs/api/crm/deals",
+        }),
+      ).rejects.toMatchObject({
+        errorCode: "provider_docs_redirect_blocked",
+        message: expect.stringContaining("http://127.0.0.1:8080/admin"),
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("blocks a redirect to a non-http(s) URL", async () => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        redirect("file:///etc/passwd", 302),
+      );
+
+      await expect(
+        docsRuntime().fetchDocs({
+          provider: "hubspot",
+          url: "https://developers.hubspot.com/docs/api/crm/deals",
+        }),
+      ).rejects.toMatchObject({ errorCode: "provider_docs_redirect_blocked" });
+    });
+
+    it("fails after too many redirects", async () => {
+      let hop = 0;
+      const fetchMock = vi
+        .spyOn(globalThis, "fetch")
+        .mockImplementation(async () => redirect(`/docs/hop-${++hop}`));
+
+      await expect(
+        docsRuntime().fetchDocs({
+          provider: "hubspot",
+          url: "https://developers.hubspot.com/docs/api/crm/deals",
+        }),
+      ).rejects.toMatchObject({
+        errorCode: "provider_docs_redirect_too_many_redirects",
+        details: expect.objectContaining({ redirects: 5 }),
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(6);
+    });
+
+    it("fails on a redirect loop", async () => {
+      const fetchMock = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(redirect("/docs/b"))
+        .mockResolvedValueOnce(redirect("/docs/a#top"));
+
+      await expect(
+        docsRuntime().fetchDocs({
+          provider: "hubspot",
+          url: "https://developers.hubspot.com/docs/a",
+        }),
+      ).rejects.toMatchObject({
+        errorCode: "provider_docs_redirect_loop",
+        message: expect.stringContaining("loop"),
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it("fails on a redirect without a Location", async () => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(redirect(null));
+
+      await expect(
+        docsRuntime().fetchDocs({
+          provider: "hubspot",
+          url: "https://developers.hubspot.com/docs/api/crm/deals",
+        }),
+      ).rejects.toMatchObject({
+        errorCode: "provider_docs_redirect_missing_location",
+      });
+    });
+
+    it("does not follow redirects on credentialed provider requests", async () => {
+      resolveCredential.mockResolvedValue("hubspot-token");
+      const fetchMock = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(
+          redirect("https://attacker.example/crm/v3/objects/deals"),
+        );
+
+      const result = (await docsRuntime().executeRequest({
+        provider: "hubspot",
+        path: "/crm/v3/objects/deals",
+      })) as any;
+
+      expect(result.response).toMatchObject({ status: 308, ok: false });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock.mock.calls[0]?.[1]?.redirect).toBe("manual");
+    });
+  });
+
   it("deletes stale Google OAuth grants after permanent refresh failures", async () => {
     resolveSecret.mockImplementation(async (key: string) =>
       key === "GOOGLE_CLIENT_ID"

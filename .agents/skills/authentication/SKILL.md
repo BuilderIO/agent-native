@@ -118,6 +118,15 @@ settings or `PUT /_agent-native/org/auth-provider` with `{ provider: "google" }`
 Enabling it revokes current Better Auth and legacy sessions; password signup,
 password login, and non-Google social sessions are rejected for that org.
 
+Agents manage membership through two core actions in the `orgAdministration`
+tool group. `list-organization-members` reads members, and pending invitations for
+owners and admins. `invite-organization-member` sends one member invitation through the
+same path as Settings > Members. It emails a real person, so it sets
+`needsApproval: true` with `allowPersistentApproval: false`: every call asks the
+user, and "always allow" is not offered. It cannot grant admin; owners invite
+admins from settings. Role changes, removal, and revoking an invitation have no
+agent tool. Keep it that way unless the new tool follows the same approval rule.
+
 The active org flows automatically: `session.orgId` — resolved by `getOrgContext` from `org_members` plus the user's `active-org-id` setting (_not_ from a Better Auth session field) — → `AGENT_ORG_ID` → SQL scoping (see `security` skill).
 
 When an authenticated user has no org memberships, the framework auto-creates a
@@ -239,10 +248,13 @@ names an accountable `ownerEmail`, `team`, `riskTier`, `purpose`, a `lifecycle`
   Tightening it is an explicit admin act.
 - An unreadable record fails closed with a 503. Never map a read failure to
   "ungoverned" or "active".
-- `set-service-principal-policy` and `set-service-principal-lifecycle` are
-  owner/admin only and not agent tool-callable. Suspending or retiring also
-  aborts the principal's in-flight runs. Never let the agent or a service token
-  widen its own grant.
+- `create-org-service-token`, `set-service-principal-policy`, and
+  `set-service-principal-lifecycle` are owner/admin only and set
+  `agentTool: false`, which also keeps them off MCP. `toolCallable: false` only
+  blocks extensions and run-code; it does not take an action out of the
+  agent's tools. Suspending or retiring also aborts the principal's in-flight
+  runs. Never let the agent or a service token mint a credential or widen its
+  own grant.
 
 ## A2A Identity
 

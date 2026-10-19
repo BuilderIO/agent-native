@@ -246,7 +246,7 @@ test("a scoped read-only Content widget body paints in a nested frame", async ({
         contentEditor.locator('[data-block-fields-state="solo"]'),
       ).toBeVisible({ timeout: 5_000 });
       await expect(
-        contentEditor.locator(".notion-editor.ProseMirror"),
+        contentEditor.locator(".content-editor.ProseMirror"),
       ).toContainText(marker, { timeout: 10_000 });
     } catch (error) {
       await captureWidgetFailure(

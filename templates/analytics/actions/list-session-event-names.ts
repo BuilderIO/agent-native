@@ -11,7 +11,7 @@ import { sessionEventBoundSchema } from "../shared/session-events.js";
 
 export default defineAction({
   description:
-    "List event names tracked in Analytics sessions with the number of sessions that tracked each, for building did/didn't event filters on list-session-recordings. Reads Analytics' own session event index. Requires the Sessions triage Lab.",
+    "List event names tracked in Analytics sessions with the number of sessions that tracked each, for building did/didn't event filters on list-session-recordings. Reads Analytics' own session event index; Postgres-only, never queries BigQuery. Requires the Sessions triage Lab.",
   schema: z.object({
     from: sessionEventBoundSchema
       .optional()

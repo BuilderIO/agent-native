@@ -9,28 +9,40 @@ import {
   CHATGPT_SUBSCRIPTION_SCOPES,
 } from "../agent/chatgpt-subscription-contract.js";
 import { CHATGPT_SUBSCRIPTION_LAB } from "../labs/core-labs.js";
-import { _resetLabRegistryForTests, registerLabs } from "../labs/registry.js";
 
 const mocks = vi.hoisted(() => ({
+  getLabDefinition: vi.fn(),
   getUserLabEnabled: vi.fn(),
-  listOAuthAccountsByOwner: vi.fn(),
+  getSetting: vi.fn(),
   getUserSetting: vi.fn(),
+  listOAuthAccountsByOwner: vi.fn(),
+  mutateSetting: vi.fn(),
   putUserSetting: vi.fn(),
   deleteUserSetting: vi.fn(),
   readOAuthCredentialState: vi.fn(),
 }));
 
 vi.mock("../labs/store.js", () => mocks);
+// Lab registration lives on globalThis; pin the registered/unregistered
+// boundary here instead of sharing that process-global map with other specs.
+vi.mock("../labs/registry.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../labs/registry.js")>()),
+  getLabDefinition: mocks.getLabDefinition,
+}));
 // Account reads hit the settings and OAuth tables, which a fresh test database
 // does not have. Each read defaults to "no account"; a test that seeds an
-// account must set the mock itself. The unresolved-scope test asserts that the
-// credential check never reads them; its status call reads them on purpose.
-// The mocked credential reader skips isChatGPTCredential, so seeded credentials
-// must pass that validator by hand.
+// account must set the mock itself. Unsupported unresolved or forwarded scopes
+// must not read those accounts. The mocked credential reader skips
+// isChatGPTCredential, so seeded credentials must pass that validator by hand.
 vi.mock("../oauth-tokens/index.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../oauth-tokens/index.js")>()),
   listOAuthAccountsByOwner: mocks.listOAuthAccountsByOwner,
   readOAuthCredentialState: mocks.readOAuthCredentialState,
+}));
+vi.mock("../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/store.js")>()),
+  getSetting: mocks.getSetting,
+  mutateSetting: mocks.mutateSetting,
 }));
 vi.mock("../settings/user-settings.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../settings/user-settings.js")>()),
@@ -58,12 +70,15 @@ const NONCE = "fresh-test-nonce";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.getLabDefinition.mockImplementation((key: string) =>
+    key === CHATGPT_SUBSCRIPTION_LAB.key ? CHATGPT_SUBSCRIPTION_LAB : null,
+  );
   mocks.getUserLabEnabled.mockResolvedValue(false);
-  mocks.listOAuthAccountsByOwner.mockResolvedValue([]);
+  mocks.getSetting.mockResolvedValue(null);
   mocks.getUserSetting.mockResolvedValue(null);
+  mocks.listOAuthAccountsByOwner.mockResolvedValue([]);
+  mocks.mutateSetting.mockResolvedValue({});
   mocks.readOAuthCredentialState.mockResolvedValue({ kind: "missing" });
-  _resetLabRegistryForTests();
-  registerLabs([CHATGPT_SUBSCRIPTION_LAB]);
 });
 
 describe("ChatGPT subscription OAuth contract", () => {
@@ -130,7 +145,7 @@ describe("ChatGPT subscription OAuth contract", () => {
         ).resolves.toMatchObject({
           supported: false,
           localLoopback: false,
-          supportReason: "requires_local_loopback",
+          supportReason: "scope_unresolved",
           accounts: [],
         });
         expect(mocks.getUserLabEnabled).not.toHaveBeenCalled();
@@ -141,6 +156,31 @@ describe("ChatGPT subscription OAuth contract", () => {
         ).rejects.toThrow("available only from a local app");
       },
     );
+  });
+
+  it("requires personal scope for a verified local request with an org", async () => {
+    await runWithRequestContext(
+      {
+        isLoopbackRequest: true,
+        isDirectLoopbackRequest: true,
+        requestOrigin: "http://127.0.0.1:1455",
+        orgId: "org-1",
+        orgScope: "personal",
+      },
+      async () => {
+        await expect(
+          getChatGPTSubscriptionStatus("alice@example.com"),
+        ).resolves.toMatchObject({
+          supported: false,
+          localLoopback: false,
+          supportReason: "requires_personal_scope",
+          accounts: [],
+        });
+      },
+    );
+    expect(mocks.getUserLabEnabled).not.toHaveBeenCalled();
+    expect(mocks.listOAuthAccountsByOwner).not.toHaveBeenCalled();
+    expect(mocks.getUserSetting).not.toHaveBeenCalled();
   });
 
   it("does not expose saved accounts to a forwarded loopback request", async () => {
@@ -409,7 +449,7 @@ describe("ChatGPT subscription OAuth contract", () => {
   });
 
   it("reports unsupported when the app did not register the ChatGPT lab", async () => {
-    _resetLabRegistryForTests();
+    mocks.getLabDefinition.mockReturnValue(null);
 
     await runWithRequestContext(
       {
@@ -450,6 +490,9 @@ describe("ChatGPT subscription OAuth contract", () => {
           localLoopback: false,
           supportReason: "requires_local_loopback",
         });
+        expect(mocks.getUserLabEnabled).not.toHaveBeenCalled();
+        expect(mocks.listOAuthAccountsByOwner).not.toHaveBeenCalled();
+        expect(mocks.getUserSetting).not.toHaveBeenCalled();
         await expect(
           getChatGPTSubscriptionAccess("alice@example.com"),
         ).rejects.toThrow("available only from a local app");

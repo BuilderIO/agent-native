@@ -182,6 +182,17 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "Datenschutzrichtlinien",
   "onboarding.builderConsentAnd": "und",
   "onboarding.builderExistingAccount": "Ich habe ein Builder.io-Konto",
+  "onboarding.creditsTitle":
+    "Probiere es mit 60 kostenlosen Agent Credits im Monat",
+  "onboarding.creditsTitleClips":
+    "Probiere es mit kostenlosem Videospeicher und 60 Agent Credits im Monat",
+  "onboarding.creditsActivate": "Kostenlose Credits aktivieren",
+  "onboarding.creditsFinePrint":
+    "Dies erstellt ein kostenloses Builder.io-Konto. Mit dem Fortfahren akzeptierst du unsere",
+  "onboarding.creditsConnectExisting": "Vorhandenes Builder.io-Konto verbinden",
+  "onboarding.creditsMoreInfo": "Weitere Informationen",
+  "onboarding.creditsSkipBody":
+    "Falls du auslässt, musst du deine eigenen Schlüssel verbinden, um KI und Speicher zu verwenden.",
   "onboarding.builderConnect": "Builder.io verbinden",
   "onboarding.builderActivating": "Builder.io-Gratiscredits werden aktiviert",
   "onboarding.builderConnecting": "Builder.io-Credits werden eingerichtet",
@@ -220,8 +231,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.why":
     "Semantische Vektoren verbessern die semantische Suche. Die Stichwortsuche funktioniert auch ohne sie.",
   "onboarding.capability.webSearch.label": "Websuche",
-  "onboarding.capability.webSearch.keySummary":
-    "Von Builder verwaltete Websuche",
+  "onboarding.capability.webSearch.keySummary": "Websuche",
   "onboarding.capability.webSearch.why":
     "Durchsuche aktuelle öffentliche Webquellen. Die von Builder verwaltete Suche nutzt enthaltene Builder-KI-Credits, daher ist kein separater Such-API-Schlüssel erforderlich.",
   "onboarding.capability.systemOne.why":
@@ -1953,6 +1963,12 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.agentVia": "Agent über {{protocol}}",
   "settings.audit.allApps": "Alle Apps",
   "settings.audit.app": "App",
+  "settings.audit.approval": "Genehmigung",
+  "settings.audit.approvalAgentChat": "Im Agent-Chat genehmigt",
+  "settings.audit.approvalA2AReview":
+    "Auf der Prüfseite für Agent-Aktionen genehmigt",
+  "settings.audit.approvalMcpClient":
+    "Vom MCP-Client akzeptiert (nicht verifiziert)",
   "settings.audit.changedBy": "Geändert von",
   "settings.audit.close": "Schließen",
   "settings.audit.empty": "Keine Änderungen in diesem Zeitraum.",
@@ -1966,9 +1982,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.last90Days": "Letzte 90 Tage",
   "settings.audit.loadFailed": "Das Audit-Log konnte nicht geladen werden.",
   "settings.audit.loading": "Audit-Log wird geladen",
+  "settings.audit.oauthClient": "OAuth-Client",
   "settings.audit.onBehalfOf": "Im Auftrag von",
   "settings.audit.range": "Zeitraum",
   "settings.audit.refused": "Abgelehnt",
+  "settings.audit.reportedClient": "Selbst gemeldeter Client",
   "settings.audit.result": "Ergebnis",
   "settings.audit.showMore": "{{count}} weitere anzeigen",
   "settings.audit.succeeded": "Erfolgreich",
@@ -3083,6 +3101,10 @@ const messages: ToolkitAgentChatTranslation = {
     "Hier getrennt. Der Zugriff kann in ChatGPT weiterhin aktiv sein.",
   "settingsModel.chatgptLocalOnly":
     "Open-Source-Apps kannst du selbstständig nutzen, wenn du sie lokal mit einem Loopback-Callback startest; ein Partnerantrag ist nicht nötig. Gehostete Apps auf *.agent-native.com benötigen die Freigabe des Betreibers und einen gehosteten Callback.",
+  "settingsModel.chatgptPersonalScopeOnly":
+    "Verwende den ChatGPT-Planzugriff mit einem persönlichen Konto. Setze in der lokalen Entwicklung access.autoCreateDefaultOrg vor der Anmeldung auf false.",
+  "settingsModel.chatgptScopeUnresolved":
+    "Die App konnte den Kontobereich nicht bestätigen. Schließe die lokale Einrichtung ab und lade die Einstellungen neu.",
   "settingsModel.chatgptNoDirectUse":
     "Verbinde dich erneut und erlaube den direkten Modellzugriff, um dieses ChatGPT-Konto zu verwenden.",
   "settingsModel.chatgptReconnect": "Erneut verbinden",

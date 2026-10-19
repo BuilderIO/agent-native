@@ -218,7 +218,6 @@ export function generateActionsPrompt(
   const actionEntries = initialNames
     ? allActionEntries.filter(([name]) => initialNames.has(name))
     : allActionEntries;
-  const omittedActionCount = allActionEntries.length - actionEntries.length;
   const nativeWidgetNote = (entry: ActionEntry) =>
     entry.chatUI && typeof entry.chatUI.renderer === "string"
       ? ` Native chat widget: \`${entry.chatUI.renderer}\`.`
@@ -232,20 +231,9 @@ export function generateActionsPrompt(
           `- \`${name}\` — Native chat widget: \`${entry.chatUI?.renderer ?? ""}\`.`,
       );
 
-    const sections: string[] = [];
-    if (widgetLines.length > 0) {
-      sections.push(
-        `**Actions that render a native chat widget** — call these directly for their table/chart/insights view instead of recreating it in prose:\n\n${widgetLines.join("\n")}`,
-      );
-    }
-    if (omittedActionCount > 0) {
-      sections.push(
-        `${omittedActionCount} less-common app action${omittedActionCount === 1 ? " is" : "s are"} available on demand. Use \`tool-search\` with a specific capability query to load the matching schemas when needed.`,
-      );
-    }
-    if (sections.length === 0) return "";
+    if (widgetLines.length === 0) return "";
 
-    return `\n\n## Available Actions\n\n${sections.join("\n\n")}`;
+    return `\n\n## Available Actions\n\n**Actions that render a native chat widget** — call these directly for their table/chart/insights view instead of recreating it in prose:\n\n${widgetLines.join("\n")}`;
   }
 
   const lines = actionEntries.map(([name, entry]) => {

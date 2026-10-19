@@ -29,8 +29,8 @@ export const NotionBlockColor = Extension.create({
               return {
                 "data-notion-color": color,
                 class: isBg
-                  ? `notion-block-bg notion-block-bg--${base}`
-                  : `notion-block-color notion-block-color--${base}`,
+                  ? `content-block-bg content-block-bg--${base}`
+                  : `content-block-color content-block-color--${base}`,
               };
             },
           },
@@ -131,7 +131,7 @@ export const NotionSyncedBlock = Node.create({
         "data-synced-reference": HTMLAttributes.isReference
           ? "true"
           : undefined,
-        class: "notion-synced-block",
+        class: "content-synced-block",
       }),
       0,
     ];

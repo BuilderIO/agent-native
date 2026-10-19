@@ -157,6 +157,10 @@ export { getPublicFrameworkPathname } from "./framework-request-context.js";
 export interface H3AppShim {
   use(path: string, handler: EventHandler): void;
   use(handler: EventHandler): void;
+  /** Register many mounted routes behind one middleware layer, in order. */
+  useGroup?(
+    entries: ReadonlyArray<{ path: string; handler: EventHandler }>,
+  ): void;
 }
 
 export function markDefaultPluginProvided(nitroApp: any, stem: string): void {
@@ -202,6 +206,9 @@ export function getH3App(nitroApp: any): H3AppShim {
         throw new Error("getH3App.use: handler must be a function");
       }
       registerMiddleware(nitroApp, path, handler);
+    },
+    useGroup(entries) {
+      registerMiddlewareGroup(nitroApp, entries);
     },
   };
 
@@ -636,12 +643,9 @@ export async function awaitPluginsReady(
   }
 }
 
-function registerMiddleware(
-  nitroApp: any,
-  path: string,
-  handler: EventHandler,
-  options: { prepend?: boolean } = {},
-) {
+type MountedMiddleware = (event: H3Event, next: () => any) => Promise<any>;
+
+function requireH3Middleware(nitroApp: any): any[] {
   const h3 = nitroApp.h3;
   if (!h3 || !Array.isArray(h3["~middleware"])) {
     throw new Error(
@@ -649,8 +653,59 @@ function registerMiddleware(
         "Make sure you're calling getH3App() from inside a Nitro plugin.",
     );
   }
+  return h3["~middleware"];
+}
 
-  const middleware = async (event: H3Event, next: () => any) => {
+function registerMiddleware(
+  nitroApp: any,
+  path: string,
+  handler: EventHandler,
+  options: { prepend?: boolean } = {},
+) {
+  const chain = requireH3Middleware(nitroApp);
+  const middleware = createMountedMiddleware(path, handler);
+  if (options.prepend) {
+    chain.unshift(middleware);
+  } else {
+    chain.push(middleware);
+  }
+}
+
+/**
+ * Many routes behind one layer. h3 walks its chain by recursive `next()`
+ * calls, so a request that matches none of N separately registered routes
+ * nests N calls deep; with one layer per action (hundreds of them) that
+ * overflows the stack in dev. The group tries its routes in a loop instead,
+ * in registration order, with the same matching and fall-through behaviour.
+ */
+function registerMiddlewareGroup(
+  nitroApp: any,
+  entries: ReadonlyArray<{ path: string; handler: EventHandler }>,
+) {
+  if (entries.length === 0) return;
+  const chain = requireH3Middleware(nitroApp);
+  const members = entries.map((entry) =>
+    createMountedMiddleware(entry.path, entry.handler),
+  );
+  chain.push(async (event: H3Event, next: () => any) => {
+    for (const member of members) {
+      let passedThrough = false;
+      const result = await member(event, () => {
+        passedThrough = true;
+        return undefined;
+      });
+      // Like h3, an undefined result means "not handled here": keep going.
+      if (!passedThrough && result !== undefined) return result;
+    }
+    return next();
+  });
+}
+
+function createMountedMiddleware(
+  path: string,
+  handler: EventHandler,
+): MountedMiddleware {
+  return async (event: H3Event, next: () => any) => {
     let originalPathname: string | undefined;
     let originalEventPath: string | undefined;
     let hadEventPath = false;
@@ -771,12 +826,6 @@ function registerMiddleware(
       restoreOriginalPath();
     }
   };
-
-  if (options.prepend) {
-    h3["~middleware"].unshift(middleware);
-  } else {
-    h3["~middleware"].push(middleware);
-  }
 }
 
 async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {

@@ -268,7 +268,9 @@ function ConnectedServerTile({
   onRemove: () => void;
 }) {
   const t = useT();
-  const failed = server.status.state === "error";
+  // A connected server can carry an error too: the tools it held back.
+  const hasError =
+    server.status.state !== "unknown" && Boolean(server.status.error);
   const scope =
     server.scope === "user"
       ? t("mcpIntegrations.personal")
@@ -292,7 +294,7 @@ function ConnectedServerTile({
         <span className="block truncate text-xs leading-5 text-muted-foreground">
           {detail}
         </span>
-        {server.status.state === "error" ? (
+        {server.status.state !== "unknown" && server.status.error ? (
           <span
             className="block truncate text-xs leading-5 text-destructive"
             title={server.status.error}
@@ -305,7 +307,7 @@ function ConnectedServerTile({
           </span>
         ) : null}
       </span>
-      {failed || canRemove ? (
+      {hasError || canRemove ? (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -323,13 +325,13 @@ function ConnectedServerTile({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-44">
-            {failed ? (
+            {hasError ? (
               <DropdownMenuItem onSelect={onReconnect}>
                 <IconRefresh className="size-4" aria-hidden="true" />
                 {t("mcpIntegrations.reconnect")}
               </DropdownMenuItem>
             ) : null}
-            {failed && canRemove ? <DropdownMenuSeparator /> : null}
+            {hasError && canRemove ? <DropdownMenuSeparator /> : null}
             {canRemove ? (
               <DropdownMenuItem
                 onSelect={onRemove}
@@ -576,7 +578,8 @@ export function IntegrationsPage({ appName }: IntegrationsPageProps) {
           mcp.reconnectError?.key === key ? mcp.reconnectError.message : null
         }
         onReconnect={() =>
-          server.authMode === "oauth"
+          // A connected server is already authorized; list its tools again.
+          server.authMode === "oauth" && server.status.state === "error"
             ? startMcpOAuthReconnect(server)
             : void mcp.reconnect(server)
         }

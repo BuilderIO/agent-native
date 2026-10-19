@@ -202,7 +202,7 @@ async function chooseWidthMenuItem(page: Page, item: RegExp) {
 }
 
 test.describe("interaction: responsive card with auto layout and constraints", () => {
-  test("step 1-2: Frame tool draws a board frame outside any screen; rename, corner radius, and drop shadow commit via the inspector", async ({
+  test("Frame tool draws a board frame outside any screen; inspector edits commit rename, corner radius, and drop shadow", async ({
     app,
     page,
   }) => {
@@ -325,7 +325,7 @@ test.describe("interaction: responsive card with auto layout and constraints", (
     });
   });
 
-  test("step 3-4 (crossing the screen boundary): Option-dragging a board frame into an in-screen frame drops a copy at the drop point and leaves the original; Shift+Arrow nudges the copy 10px", async ({
+  test("Option-dragging a board frame into an in-screen frame drops a copy at the drop point, keeps the original, and Shift+Arrow nudges the copy 10px", async ({
     app,
     page,
   }) => {
@@ -394,7 +394,8 @@ test.describe("interaction: responsive card with auto layout and constraints", (
     });
   });
 
-  test("steps 7-8: Shift+A wraps the shift-clicked title and creator into a vertical auto-layout frame without moving them, and gap 4 saves on that frame", async ({
+  // Hug-sized children keep their width when Shift+A creates an auto-layout wrapper.
+  test("Shift+A wraps the shift-clicked title and creator in a vertical auto-layout frame without moving them, and saves a gap of 4", async ({
     app,
     page,
   }) => {
@@ -424,6 +425,7 @@ test.describe("interaction: responsive card with auto layout and constraints", (
       top: "40px",
       display: "flex",
       "flex-direction": "column",
+      "align-items": "flex-start",
       gap: "8px",
     });
     expect(styleOf(wrapped.get("title"))).toEqual({
@@ -495,7 +497,7 @@ test.describe("interaction: responsive card with auto layout and constraints", (
     ).toBe(4);
   });
 
-  test("step 9-11: Fill width on a card child stretches it to the card's content box, and min width commits on the card", async ({
+  test("Fill width stretches a card child to the card's content box, and min width commits on the card", async ({
     app,
     page,
   }) => {

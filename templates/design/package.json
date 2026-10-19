@@ -46,6 +46,7 @@
     "h3": "catalog:",
     "image-size": "2.0.4",
     "isbot": "^5",
+    "jose": "^6.2.2",
     "jspdf": "^4.2.1",
     "jszip": "^3.10.1",
     "kiwi-schema": "^0.5.0",

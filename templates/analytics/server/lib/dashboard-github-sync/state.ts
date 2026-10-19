@@ -10,6 +10,8 @@ import type {
 import { getDb, schema } from "../../db/index.js";
 import {
   assertDashboardEditable,
+  assertDashboardMutationApplied,
+  dashboardWritableFilter,
   type DashboardRecord,
 } from "../dashboards-store";
 
@@ -168,10 +170,13 @@ export async function writeDashboardSyncBase(
   await assertDashboardEditable(dashboardId, ctx);
   const githubSyncState =
     base === null ? null : JSON.stringify(dashboardSyncBaseSchema.parse(base));
-  await (getDb() as any)
+  const mutation = await (getDb() as any)
     .update(schema.dashboards)
     .set({ githubSyncState })
-    .where(eq(schema.dashboards.id, dashboardId));
+    .where(
+      and(eq(schema.dashboards.id, dashboardId), dashboardWritableFilter()),
+    );
+  assertDashboardMutationApplied(mutation, dashboardId);
 }
 
 /**

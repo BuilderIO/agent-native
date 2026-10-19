@@ -172,6 +172,7 @@ describe("native agent follow-up publication", () => {
       .spyOn(journal, "loadPriorTurnToolCallJournal")
       .mockResolvedValue({
         status: "read",
+        events: [],
         toolCallJournal: null,
         priorToolCalls: [],
         priorToolCallSequence: [],

@@ -200,7 +200,6 @@ test("partial Screen recreation retry restores each recreated file and membershi
   };
 
   let routeHandlersInstalled = false;
-  let releaseSecondCreateFailure = () => {};
   let firstUndoPress: Promise<void> | undefined;
   let alphaId = "";
   let betaId = "";
@@ -237,18 +236,37 @@ test("partial Screen recreation retry restores each recreated file and membershi
   };
   const failSecondRecreate = async (route: Route) => {
     const body = route.request().postDataJSON() as ActionBody;
-    if (body.designId !== designId || body.filename !== secondRestoreFilename) {
+    if (body.designId !== designId || typeof body.filename !== "string") {
       await route.continue();
       return;
     }
-    secondCreateFailureCount += 1;
-    signalSecondCreateIntercepted();
-    await secondCreateGate;
-    await route.fulfill({
-      status: 500,
-      contentType: "application/json",
-      body: JSON.stringify({ error: "intentional E2E route failure" }),
-    });
+    if (!firstRestoreFilename) {
+      firstRestoreFilename = body.filename;
+      await route.continue();
+      return;
+    }
+    if (!secondRestoreFilename) {
+      secondRestoreFilename = body.filename;
+      secondCreateFailureCount += 1;
+      signalSecondCreateIntercepted();
+      await secondCreateGate;
+      await route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "intentional E2E route failure" }),
+      });
+      return;
+    }
+    if (body.filename === secondRestoreFilename) {
+      secondCreateFailureCount += 1;
+      await route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "intentional E2E route failure" }),
+      });
+      return;
+    }
+    await route.continue();
   };
   const failFirstCleanup = async (route: Route) => {
     const body = route.request().postDataJSON() as ActionBody;
@@ -405,13 +423,11 @@ test("partial Screen recreation retry restores each recreated file and membershi
       }
       throw new Error(`delete-file returned unexpected Screen ${filename}`);
     };
-    const firstRestore = screenDetails(deletedFiles[0]!.filename);
-    const secondRestore = screenDetails(deletedFiles[1]!.filename);
+    let firstRestore = screenDetails(deletedFiles[0]!.filename);
+    let secondRestore = screenDetails(deletedFiles[1]!.filename);
     expect([firstRestore.id, secondRestore.id].sort()).toEqual(
       [alphaId, betaId].sort(),
     );
-    firstRestoreFilename = firstRestore.filename;
-    secondRestoreFilename = secondRestore.filename;
     await expect(page.locator("[data-screen-shell]")).toHaveCount(0);
     await expect
       .poll(async () => {
@@ -472,14 +488,20 @@ test("partial Screen recreation retry restores each recreated file and membershi
       firstCreateResponse,
       secondCreateIntercepted,
     ]);
+    expect(createRequests.slice(-2)).toEqual([
+      firstRestoreFilename,
+      secondRestoreFilename,
+    ]);
+    expect(secondCreateFailureCount).toBe(1);
+    firstRestore = screenDetails(firstRestoreFilename);
+    secondRestore = screenDetails(secondRestoreFilename);
     const confirmedRecreatedFirstId = requireId(
       await firstResponse.json(),
       `recreate ${firstRestore.filename}`,
     );
     recreatedFirstId = confirmedRecreatedFirstId;
     expect(confirmedRecreatedFirstId).not.toBe(firstRestore.id);
-    releaseSecondCreateFailure = releaseSecondCreateGate;
-    releaseSecondCreateFailure();
+    releaseSecondCreateGate();
     const [failedSecond, failedFirstCleanup] = await Promise.all([
       secondCreateFailureResponse,
       firstCleanupFailureResponse,
@@ -696,7 +718,7 @@ test("partial Screen recreation retry restores each recreated file and membershi
       height: 844,
     });
   } finally {
-    releaseSecondCreateFailure();
+    releaseSecondCreateGate();
     if (routeHandlersInstalled) {
       await page.unroute(CREATE_ACTION, failSecondRecreate).catch(() => {});
       await page.unroute(DELETE_ACTION, failFirstCleanup).catch(() => {});

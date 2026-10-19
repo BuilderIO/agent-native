@@ -77,6 +77,18 @@
     {
       "name": "agent-run-auto-continue-of",
       "checksum": "00eb09bcf9ca7fb0"
+    },
+    {
+      "name": "agent-tool-ledger-arguments-hash",
+      "checksum": "495946626eda9dc4"
+    },
+    {
+      "name": "agent-turn-execution-leases-and-steps",
+      "checksum": "bc8cfdc3fc695e2a"
+    },
+    {
+      "name": "agent-run-thread-projection-retry",
+      "checksum": "d564128e21e3b424"
     }
   ],
   "agent_team_run_queue": [
@@ -119,6 +131,10 @@
     {
       "name": "agent-tool-approvals-recovery-index",
       "checksum": "fdca5e603cce164c"
+    },
+    {
+      "name": "arguments-hash",
+      "checksum": null
     }
   ],
   "app_resource_changes": [
@@ -323,6 +339,10 @@
     {
       "name": "chat-thread-shares-notified-at",
       "checksum": "f2a3dce63fe66310"
+    },
+    {
+      "name": "chat-thread-durable-submission-inbox",
+      "checksum": "953882e24b68e4fb"
     }
   ],
   "checkpoints": [

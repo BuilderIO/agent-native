@@ -170,6 +170,16 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "गोपनीयता नीति",
   "onboarding.builderConsentAnd": "और",
   "onboarding.builderExistingAccount": "मेरे पास Builder.io खाता है",
+  "onboarding.creditsTitle": "हर महीने 60 मुफ़्त Agent Credits के साथ आज़माएँ",
+  "onboarding.creditsTitleClips":
+    "मुफ़्त वीडियो स्टोरेज और हर महीने 60 Agent Credits के साथ आज़माएँ",
+  "onboarding.creditsActivate": "मुफ़्त क्रेडिट सक्रिय करें",
+  "onboarding.creditsFinePrint":
+    "यह एक मुफ़्त Builder.io खाता बनाएगा। जारी रखने से आप हमारे",
+  "onboarding.creditsConnectExisting": "मौजूदा Builder.io खाता कनेक्ट करें",
+  "onboarding.creditsMoreInfo": "अधिक जानकारी",
+  "onboarding.creditsSkipBody":
+    "यदि आप छोड़ते हैं, तो आपको AI और स्टोरेज का उपयोग करने के लिए अपनी स्वयं की कुंजियों को कनेक्ट करना होगा।",
   "onboarding.builderConnect": "Builder.io से कनेक्ट करें",
   "onboarding.builderActivating": "Builder.io के मुफ़्त क्रेडिट सक्रिय किए जा रहे हैं",
   "onboarding.builderConnecting": "Builder.io के मुफ़्त क्रेडिट सेट अप हो रहे हैं",
@@ -206,7 +216,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.why":
     "एंबेडिंग अर्थपूर्ण खोज को बेहतर बनाती हैं। इनके बिना भी कीवर्ड खोज काम करती है।",
   "onboarding.capability.webSearch.label": "वेब खोज",
-  "onboarding.capability.webSearch.keySummary": "Builder द्वारा प्रबंधित वेब खोज",
+  "onboarding.capability.webSearch.keySummary": "वेब खोज",
   "onboarding.capability.webSearch.why":
     "वेब पर मौजूदा सार्वजनिक स्रोत खोजें। Builder द्वारा प्रबंधित खोज शामिल Builder AI क्रेडिट का उपयोग करती है, इसलिए अलग खोज API कुंजी की ज़रूरत नहीं है।",
   "onboarding.capability.systemOne.why":
@@ -1826,6 +1836,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.agentVia": "{{protocol}} के ज़रिए एजेंट",
   "settings.audit.allApps": "सभी ऐप",
   "settings.audit.app": "ऐप",
+  "settings.audit.approval": "मंज़ूरी",
+  "settings.audit.approvalAgentChat": "एजेंट चैट में मंज़ूर किया गया",
+  "settings.audit.approvalA2AReview": "एजेंट कार्रवाई समीक्षा पेज पर मंज़ूर किया गया",
+  "settings.audit.approvalMcpClient": "MCP क्लाइंट ने स्वीकार किया (असत्यापित)",
   "settings.audit.changedBy": "बदलने वाला",
   "settings.audit.close": "बंद करें",
   "settings.audit.empty": "इस अवधि में कोई बदलाव नहीं।",
@@ -1838,9 +1852,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.last90Days": "पिछले 90 दिन",
   "settings.audit.loadFailed": "ऑडिट लॉग लोड नहीं हो सका।",
   "settings.audit.loading": "ऑडिट लॉग लोड हो रहा है",
+  "settings.audit.oauthClient": "OAuth क्लाइंट",
   "settings.audit.onBehalfOf": "की ओर से",
   "settings.audit.range": "समय सीमा",
   "settings.audit.refused": "अस्वीकृत",
+  "settings.audit.reportedClient": "स्वयं बताया गया क्लाइंट",
   "settings.audit.result": "परिणाम",
   "settings.audit.showMore": "{{count}} और दिखाएं",
   "settings.audit.succeeded": "सफल",
@@ -2886,6 +2902,10 @@ const messages: ToolkitAgentChatTranslation = {
     "यहाँ डिस्कनेक्ट किया गया। ChatGPT में ऐक्सेस अब भी सक्रिय रह सकता है।",
   "settingsModel.chatgptLocalOnly":
     "ओपन-सोर्स ऐप्स को लोकल रूप से loopback callback के साथ चलाने पर बिना आवेदन के इस्तेमाल किया जा सकता है; पार्टनरशिप के लिए आवेदन की ज़रूरत नहीं है। *.agent-native.com पर होस्ट किए गए ऐप्स के लिए ऑपरेटर की मंज़ूरी और hosted callback ज़रूरी है।",
+  "settingsModel.chatgptPersonalScopeOnly":
+    "ChatGPT प्लान एक्सेस के लिए व्यक्तिगत खाते का उपयोग करें। लोकल डेवलपमेंट में, साइन इन करने से पहले access.autoCreateDefaultOrg को false सेट करें।",
+  "settingsModel.chatgptScopeUnresolved":
+    "ऐप आपके खाते का दायरा सत्यापित नहीं कर सका। स्थानीय सेटअप पूरा करें, फिर सेटिंग्स को दोबारा लोड करें।",
   "settingsModel.chatgptNoDirectUse":
     "इस ChatGPT खाते का उपयोग करने के लिए फिर से कनेक्ट करें और सीधे मॉडल ऐक्सेस की अनुमति दें।",
   "settingsModel.chatgptReconnect": "फिर से कनेक्ट करें",

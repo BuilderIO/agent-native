@@ -41,6 +41,7 @@ import {
   createMotionTrackId,
   MOTION_TIMELINE_DEFAULT_DURATION_MS,
 } from "@shared/motion-timeline";
+import { isRunningAppSourceType } from "@shared/source-mode";
 import { normalizeDesignSourceType } from "@shared/source-mode";
 import { useTheme } from "next-themes";
 import {
@@ -1114,10 +1115,10 @@ export function useEditorLiveEditsAndPresence({
     () =>
       new Set(
         overviewScreens
-          .filter(
-            (screen) =>
-              resolveOverviewScreenSourceType(screen, designSourceType) ===
-              "localhost",
+          .filter((screen) =>
+            isRunningAppSourceType(
+              resolveOverviewScreenSourceType(screen, designSourceType),
+            ),
           )
           .map((screen) => screen.id),
       ),
