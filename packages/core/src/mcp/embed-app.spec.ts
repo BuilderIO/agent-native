@@ -174,10 +174,6 @@ describe("embedApp", () => {
     expect(html).toContain("if (shouldTransplantAppDocument())");
     expect(html).toContain("const embedUrl = withChatBridgeParam(launchUrl)");
     expect(html).toContain("!selfNavigate && isEmbedStartUrl(embedUrl)");
-    expect(html).toContain('typeof data.startUrl !== "string"');
-    expect(html).toContain(
-      "const startUrl = withChatBridgeParam(data.startUrl)",
-    );
     expect(html).toContain("if (selfNavigate)");
     expect(html).toContain('"agentNative.submitChat"');
     expect(html).toContain('"agentNative.mcpHostContext"');
@@ -1930,6 +1926,23 @@ describe("embedApp directory widget restored after a chat reload", () => {
       );
     },
   );
+
+  it("renews from a start URL the server sends in _meta", async () => {
+    const shell = await mountRestoredDirectoryWidget(async () => ({
+      structuredContent: {
+        targetPath: "/deck/deck-1",
+        expiresAt: Date.now() + 15 * 60 * 1000,
+      },
+      _meta: { "agent-native/embedStart": { startUrl: WIDGET_RENEWED_START } },
+    }));
+
+    await shell.postExpiredFrom(WIDGET_APP_ORIGIN);
+
+    expect(shell.bridge.callTool).toHaveBeenCalledTimes(1);
+    expect(shell.frame()?.src).toBe(
+      `${WIDGET_RENEWED_START}&${WIDGET_CHAT_BRIDGE}`,
+    );
+  });
 
   it("does not replay the spent start URL when the host re-syncs after recovery", async () => {
     const shell = await mountRestoredDirectoryWidget(renewed);

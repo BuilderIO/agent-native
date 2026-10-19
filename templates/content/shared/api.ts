@@ -146,6 +146,7 @@ export interface DocumentUpdateRequest {
   editorSessionId?: string;
   editorEditGeneration?: number;
   editorSnapshotTitle?: string;
+  editorSnapshotTitleBase?: string;
   editorSnapshotContent?: string;
   description?: string;
   icon?: IconValue | string | null;

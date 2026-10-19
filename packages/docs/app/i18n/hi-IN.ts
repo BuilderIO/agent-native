@@ -721,6 +721,9 @@ const hiIN = {
     waitlistUnavailable:
       "इस environment में अभी waitlist signups उपलब्ध नहीं हैं. इसके बजाय hosted docs site आज़माएँ.",
     launchBuilder: "Builder लॉन्च करें",
+    newAppPrompt: "एक नया Agent-Native ऐप बनाएँ।",
+    customizeTemplatePrompt:
+      "मेरे काम के तरीके के अनुसार Agent-Native {{template}} टेम्पलेट को कस्टमाइज़ करें।",
   },
   templateCard: {
     pasteIntoTerminal: "अपने टर्मिनल में चिपकाएँ.",

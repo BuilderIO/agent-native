@@ -1,12 +1,25 @@
-import { actionsToEngineTools } from "@agent-native/core/server";
-import { describe, expect, it } from "vitest";
+import { fileURLToPath } from "node:url";
 
-import {
-  buildAnalyticsPromptContext,
-  filterAnalyticsEvalActions,
-  resolveProductionEvalContext,
-} from "./production-context.js";
+import { actionsToEngineTools } from "@agent-native/core/server";
+import { generateActionRegistryForProject } from "@agent-native/core/vite";
+import { beforeAll, describe, expect, it } from "vitest";
+
 import { METADATA_ONLY_ACTION_ALLOWLIST } from "./production-source-cases.eval.js";
+
+let buildAnalyticsPromptContext: typeof import("./production-context.js").buildAnalyticsPromptContext;
+let filterAnalyticsEvalActions: typeof import("./production-context.js").filterAnalyticsEvalActions;
+let resolveProductionEvalContext: typeof import("./production-context.js").resolveProductionEvalContext;
+
+beforeAll(async () => {
+  generateActionRegistryForProject(
+    fileURLToPath(new URL("..", import.meta.url)),
+  );
+  ({
+    buildAnalyticsPromptContext,
+    filterAnalyticsEvalActions,
+    resolveProductionEvalContext,
+  } = await import("./production-context.js"));
+});
 
 describe("Analytics production eval context", () => {
   it("keeps search guidance when Analytics prefetch is degraded", () => {

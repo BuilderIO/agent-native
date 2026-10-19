@@ -36,7 +36,7 @@ function isEditableOrBlockingTarget(target: EventTarget | null): boolean {
 
 function shouldActivateSlideTool(
   event: TextToolShortcutEvent,
-  key: "r" | "t",
+  key: "r" | "t" | "v" | "h" | "k",
   { canEdit, activeElement, blockingSurfaceOpen }: SlideToolShortcutOptions,
 ): boolean {
   if (
@@ -72,4 +72,25 @@ export function shouldActivateRectangleTool(
   options: SlideToolShortcutOptions,
 ): boolean {
   return shouldActivateSlideTool(event, "r", options);
+}
+
+export function shouldActivateMoveTool(
+  event: TextToolShortcutEvent,
+  options: SlideToolShortcutOptions,
+): boolean {
+  return shouldActivateSlideTool(event, "v", options);
+}
+
+export function shouldActivateHandTool(
+  event: TextToolShortcutEvent,
+  options: SlideToolShortcutOptions,
+): boolean {
+  return shouldActivateSlideTool(event, "h", options);
+}
+
+export function shouldActivateScaleTool(
+  event: TextToolShortcutEvent,
+  options: SlideToolShortcutOptions,
+): boolean {
+  return shouldActivateSlideTool(event, "k", options);
 }

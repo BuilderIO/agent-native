@@ -1,6 +1,5 @@
-import { decodeHTML } from "entities/decode";
-
 import { isMcpReadOnlyTool } from "../action-call-classification.js";
+import { vouchedOutcome } from "../action-frame.js";
 import {
   actionCallIntent,
   isActionContractError,
@@ -12,9 +11,12 @@ import {
   type PreparedActionCall,
 } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { AGENT_IMAGES_FIELD } from "../agent/tool-result-images.js";
 import {
+  MCP_ACTION_RESULT_MARKER,
   type McpActionResult,
   isMcpActionResult,
+  mcpActionResultText,
 } from "../mcp-client/app-result.js";
 import {
   assertServicePrincipalMayCall,
@@ -36,7 +38,9 @@ import {
   EMBED_RESULT_SENSITIVE_KEYS,
   HIDDEN_EMBED_URL,
   isEmbedCredentialKey,
-  isEmbedStartUrl,
+  readString,
+  redactEmbedText,
+  type StringReading,
 } from "./embed-redaction.js";
 import { MCP_OAUTH_SCOPES, hasMcpOAuthScope } from "./oauth-token.js";
 
@@ -118,278 +122,247 @@ export function isActionVisibleForOAuthScope(
   return hasMcpOAuthScope(scopes, required);
 }
 
-/** The embed start route's last two segments, letters only. */
-const EMBED_START_LETTERS = "embedstart";
-const MAX_DECODE_ROUNDS = 8;
-
-const PERCENT_ESCAPE = /%([0-9a-f]{2})/gi;
-// Every JavaScript string escape, which covers every JSON one. A `\u` or `\x`
-// without its hex digits is not an escape, and stays for a later layer.
-const STRING_ESCAPE =
-  /\\(?:u\{([0-9a-f]{1,6})\}|u([0-9a-f]{4})|x([0-9a-f]{2})|([0-3][0-7]{0,2}|[4-7][0-7]?)|([^ux]))/gi;
-const SINGLE_CHARACTER_ESCAPES: Record<string, string> = {
-  b: "\b",
-  f: "\f",
-  n: "\n",
-  r: "\r",
-  t: "\t",
-  v: "\v",
-};
-const LINE_SEPARATOR = /^[\p{Zl}\p{Zp}]$/u;
+// An embed ticket is 43 characters. A shorter value is too likely to be an
+// ordinary word to hide wherever it appears.
+const MIN_HIDDEN_CREDENTIAL_LENGTH = 8;
+// A ticket is base64url, so a ticket that ends a sentence is read without
+// the punctuation after it.
+const TICKET_PARAMETER = /[?&#;]ticket=([A-Za-z0-9_-]+)/gi;
+// Image bytes, plain or as an image data URL. They can run to megabytes, and
+// cannot hold a start URL: its `?` and `_` are in neither form.
+const IMAGE_BYTES = /^(?:data:image\/[a-z0-9.+-]+;base64,)?[A-Za-z0-9+/=\s]*$/i;
+const TICKET_RUN = /^[A-Za-z0-9_-]+/;
 
 /**
- * Removes one layer of escaping. Decoding a percent or HTML escape never takes
- * away a character a path reads, so those go first. Decoding a JavaScript
- * escape can take away a backslash a path reads as a slash, so a JavaScript
- * layer goes only once nothing else is left, after the text has been read
- * with it in place.
+ * The ticket parameters in one layer of a string. A URL's own are read as
+ * its parser reads them. The text is searched as well, because a start URL
+ * can sit unparsed in another URL's query or fragment, or in prose.
  */
-function decodeOnce(text: string): string {
-  const revealed = decodeHTML(
-    text.replace(PERCENT_ESCAPE, (_, hex: string) =>
-      String.fromCharCode(Number.parseInt(hex, 16)),
-    ),
+function ticketsIn(text: string): string[] {
+  const tickets = [...text.matchAll(TICKET_PARAMETER)].map(
+    ([, ticket]) => ticket!,
   );
-  if (revealed !== text) return revealed;
-  return text.replace(
-    STRING_ESCAPE,
-    (match, braced, unicode, hex, octal, single: string | undefined) => {
-      if (single !== undefined) {
-        if (LINE_SEPARATOR.test(single)) return "";
-        return SINGLE_CHARACTER_ESCAPES[single] ?? single;
-      }
-      const code =
-        octal !== undefined
-          ? Number.parseInt(octal, 8)
-          : Number.parseInt(braced ?? unicode ?? hex, 16);
-      return code <= 0x10ffff ? String.fromCodePoint(code) : match;
-    },
-  );
+  const url = text.startsWith("/")
+    ? URL.parse(text, "http://agent-native.invalid")
+    : URL.parse(text);
+  for (const value of url?.searchParams.getAll("ticket") ?? []) {
+    const ticket = TICKET_RUN.exec(value)?.[0];
+    if (ticket) tickets.push(ticket);
+  }
+  return tickets;
 }
 
-// What is left of an escape once decoding stops: an HTML reference or a
-// backslash escape that no decoder above reads.
-const UNREAD_ESCAPE =
-  /&[a-z0-9#]+;|\\(?:u\{[0-9a-f]*\}|u[0-9a-f]{4}|x[0-9a-f]{2}|[0-7]{1,3}|[\s\S])/g;
-const NOT_LETTER_OR_DIGIT = /[^\p{L}\p{N}]+/gu;
-const DOT_SEGMENT = /^(?:\.|%2e)$/i;
-const DOUBLE_DOT_SEGMENT = /^(?:\.|%2e){2}$/i;
-
-/** The path a browser resolves from each run of `text` up to a `?` or `#`. */
-function resolvedPaths(text: string): string {
-  return text
-    .split(/[?#]/)
-    .map((run) => {
-      const resolved: string[] = [];
-      for (const segment of run.replace(/\\/g, "/").split("/")) {
-        if (DOUBLE_DOT_SEGMENT.test(segment)) resolved.pop();
-        else if (!DOT_SEGMENT.test(segment)) resolved.push(segment);
-      }
-      return resolved.join("/");
-    })
-    .join("?");
+/** What one call produced, read for embed credentials. */
+export interface EmbedCredentialGuard {
+  /** Something the call produced names the start route or an embed field. */
+  embedContext: boolean;
+  /** Credential values to hide wherever a kept string echoes them. */
+  credentials: readonly string[];
+  /** Every string the call produced, keys included, read to its last layer. */
+  readable: boolean;
 }
 
 /**
- * The letters and digits of `text`, as written and with its paths resolved,
- * each read two ways. The exact reading only folds case, so its paths resolve
- * as a browser's do. The loose reading also folds compatibility forms such as
- * full-width letters and drops every escape still in the text, so an escape
- * nothing here decodes cannot keep the letters on either side of it apart.
+ * `redactEmbedCredentials` could not read everything a call produced, so
+ * none of its result may be shown. The caller withholds the result whole, as
+ * it does one that is not JSON data.
  */
-function readings(text: string): string[] {
-  const exact = text.toLowerCase();
-  const loose = text.normalize("NFKC").toLowerCase().replace(UNREAD_ESCAPE, "");
-  return (loose === exact ? [exact] : [exact, loose])
-    .flatMap((variant) =>
-      // Resolving changes a path's letters only through `..` or `%2e`.
-      /\.\.|%2e/.test(variant) ? [variant, resolvedPaths(variant)] : [variant],
-    )
-    .map((reading) => reading.replace(NOT_LETTER_OR_DIGIT, ""));
+export class UnreadableResultError extends Error {
+  constructor() {
+    super("The result could not be checked for embed credentials.");
+    this.name = "UnreadableResultError";
+  }
 }
 
-/**
- * The sanitized path's credential test: whether `embed/start` can be read
- * anywhere in a string, under any layering of percent, JavaScript string and
- * HTML escaping. It is loose on purpose. Any string whose letters run
- * `embedstart` counts, prose about an embed start included, because a missed
- * credential costs more than a hidden sentence.
- */
-function mentionsEmbedStartRoute(text: string): boolean {
-  let current = text;
-  for (let round = 0; round < MAX_DECODE_ROUNDS; round += 1) {
-    // A URL parser drops these anywhere in a URL before reading anything else.
-    current = current.replace(/[\t\n\r]/g, "");
-    if (
-      readings(current).some((reading) => reading.includes(EMBED_START_LETTERS))
-    ) {
-      return true;
+function memoizedReader(): (text: string) => StringReading {
+  const read = new Map<string, StringReading>();
+  return (text) => {
+    let reading = read.get(text);
+    if (reading === undefined) {
+      reading = readString(text);
+      read.set(text, reading);
     }
-    const decoded = decodeOnce(current);
-    if (decoded === current) return false;
-    current = decoded;
-  }
-  // Escaped more deeply than any real nesting: treated as carrying a
-  // credential rather than passed through unread.
-  return true;
-}
-
-/**
- * Recursively redact embed-ticket-bearing URLs from any value before it gets
- * serialized into a model-visible text payload. Embed start URLs carry a
- * single-use ticket that grants iframe access to the user's session — they
- * MUST stay in `_meta` (where the embed runtime can consume them) and never
- * appear in `content[].text` for the LLM. This is the generic safety net for
- * actions that return `{ embedStartUrl, ... }` without declaring
- * `mcpApp.resource` (the resource path already strips them via
- * `mcpAppStructuredContent`).
- *
- * Circular structures are replaced with a marker. Strings that embed an
- * `isEmbedStartUrl` substring (e.g. a longer message that includes the URL)
- * are replaced with `[hidden embed URL]`. Credential-like `ticket` fields are
- * removed only inside an embed-signaled object/branch, so ordinary business
- * fields from unrelated read actions remain faithful.
- */
-function containsEmbedRoutingSignal(
-  value: unknown,
-  seen = new WeakSet<object>(),
-): boolean {
-  if (typeof value === "string") return isEmbedStartUrl(value);
-  if (!value || typeof value !== "object") return false;
-  if (seen.has(value)) return false;
-  seen.add(value);
-  if (Array.isArray(value)) {
-    const result = value.some((item) => containsEmbedRoutingSignal(item, seen));
-    seen.delete(value);
-    return result;
-  }
-  for (const [key, val] of Object.entries(value)) {
-    if (EMBED_RESULT_SENSITIVE_KEYS.has(key)) {
-      seen.delete(value);
-      return true;
-    }
-    if (containsEmbedRoutingSignal(val, seen)) {
-      seen.delete(value);
-      return true;
-    }
-  }
-  seen.delete(value);
-  return false;
-}
-
-export function purgeEmbedStartUrls(
-  value: unknown,
-  seen = new WeakSet<object>(),
-  embedContext = false,
-  maskUrlFields = false,
-): unknown {
-  if (typeof value === "string") {
-    return isEmbedStartUrl(value) ? HIDDEN_EMBED_URL : value;
-  }
-  if (Array.isArray(value)) {
-    if (seen.has(value)) return CIRCULAR_RESULT;
-    seen.add(value);
-    // An embed marker in one array item puts the whole result in the embed
-    // routing context. Credential fields in sibling items must not survive
-    // just because the marker lives elsewhere in the array.
-    const arrayEmbedContext = embedContext || containsEmbedRoutingSignal(value);
-    const out = value.map((item) =>
-      purgeEmbedStartUrls(item, seen, arrayEmbedContext, maskUrlFields),
-    );
-    seen.delete(value);
-    return out;
-  }
-  if (value && typeof value === "object") {
-    if (seen.has(value)) return CIRCULAR_RESULT;
-    seen.add(value);
-    const entries = Object.entries(value as Record<string, unknown>);
-    const localEmbedContext = embedContext || containsEmbedRoutingSignal(value);
-    const out: Record<string, unknown> = {};
-    for (const [key, val] of entries) {
-      if (
-        EMBED_RESULT_SENSITIVE_KEYS.has(key) ||
-        (localEmbedContext && isEmbedCredentialKey(key))
-      ) {
-        continue;
-      }
-      // A field holding an embed URL is deleted, or masked in place where an
-      // output contract may require the field.
-      if (typeof val === "string" && isEmbedStartUrl(val) && !maskUrlFields) {
-        continue;
-      }
-      out[key] = purgeEmbedStartUrls(
-        val,
-        seen,
-        localEmbedContext,
-        maskUrlFields,
-      );
-    }
-    seen.delete(value);
-    return out;
-  }
-  return value;
-}
-
-/**
- * The sanitized path's redaction. It reads the fresh JSON tree `toJsonData`
- * returns, which has no cycles or shared nodes. Unlike `purgeEmbedStartUrls`,
- * it finds the embed start route anywhere in a string
- * (`mentionsEmbedStartRoute`), treats object keys as values that can carry a
- * credential, and keeps every other key, `__proto__` included. Whether a
- * subtree holds an embed signal is worked out once per node, so the walk stays
- * linear in the size of the result however deeply it nests.
- */
-function redactEmbedCredentials(json: unknown): unknown {
-  const mentioned = new Map<string, boolean>();
-  const mentions = (text: string): boolean => {
-    let found = mentioned.get(text);
-    if (found === undefined) {
-      found = mentionsEmbedStartRoute(text);
-      mentioned.set(text, found);
-    }
-    return found;
+    return reading;
   };
-  const signalByNode = new WeakMap<object, boolean>();
-  const holdsSignal = (value: unknown): boolean => {
-    if (typeof value === "string") return mentions(value);
-    if (!value || typeof value !== "object") return false;
-    let found = signalByNode.get(value);
-    if (found === undefined) {
-      found = Array.isArray(value)
-        ? value.some(holdsSignal)
-        : Object.entries(value).some(
-            ([key, val]) =>
-              EMBED_RESULT_SENSITIVE_KEYS.has(key) ||
-              mentions(key) ||
-              holdsSignal(val),
-          );
-      signalByNode.set(value, found);
+}
+
+/** Each call reads more of what one call produced and returns the guard over all of it. */
+function guardOf(
+  read: (text: string) => StringReading,
+): (data: unknown) => EmbedCredentialGuard {
+  let embedContext = false;
+  let readable = true;
+  const tickets = new Set<string>();
+  const fieldValues = new Set<string>();
+  const collect = (text: string) => {
+    const { layers, complete, mentionsRoute } = read(text);
+    if (!complete) readable = false;
+    if (!mentionsRoute) return;
+    embedContext = true;
+    for (const layer of layers) {
+      for (const ticket of ticketsIn(layer)) tickets.add(ticket);
     }
-    return found;
   };
-  // An embed signal anywhere in an object or array puts all of it in the embed
-  // routing context, so credential fields beside the signal are dropped too.
-  const redact = (value: unknown, embedContext: boolean): unknown => {
+  const visit = (value: unknown, credentialField: boolean, image = false) => {
     if (typeof value === "string") {
-      return mentions(value) ? "[hidden embed URL]" : value;
+      if (credentialField) {
+        for (const layer of read(value).layers) fieldValues.add(layer);
+      }
+      collect(value);
+    } else if (Array.isArray(value)) {
+      for (const item of value) visit(item, credentialField, image);
+    } else if (value && typeof value === "object") {
+      for (const [key, val] of Object.entries(value)) {
+        if (EMBED_RESULT_SENSITIVE_KEYS.has(key)) embedContext = true;
+        collect(key);
+        // An image's bytes teach the guard nothing; the final check still
+        // compares the ones it sends with the call's credentials.
+        if (
+          image &&
+          key === "data" &&
+          typeof val === "string" &&
+          IMAGE_BYTES.test(val)
+        ) {
+          continue;
+        }
+        visit(
+          val,
+          credentialField || isEmbedCredentialKey(key),
+          key === AGENT_IMAGES_FIELD,
+        );
+      }
+    }
+  };
+  return (data) => {
+    visit(data, false);
+    return {
+      embedContext,
+      credentials: [...tickets, ...(embedContext ? fieldValues : [])].filter(
+        (value) => value.length >= MIN_HIDDEN_CREDENTIAL_LENGTH,
+      ),
+      readable,
+    };
+  };
+}
+
+/**
+ * Reads everything one call produced, `_meta` included, as JSON. The call is
+ * in embed context when any of it names the start route or an embed field,
+ * and its credentials are the ticket of every start URL in it and, in embed
+ * context, the value of every `ticket` field. `redactEmbedCredentials` hides
+ * them in a field that holds no start URL itself, such as a proxy's text
+ * beside its `_meta`. Both are read from every escaped layer of a string, a
+ * URL's ticket in the base64url alphabet a minted ticket uses, so the
+ * credentials are the ones the call minted or was handed, in any spelling
+ * `StringReading` decodes, not a transformed copy of one.
+ */
+export function embedCredentialGuard(
+  ...sources: unknown[]
+): EmbedCredentialGuard {
+  return embedCredentialSources()(...sources);
+}
+
+/**
+ * `embedCredentialGuard` for a call still producing values: each call adds
+ * them, read once, and returns the guard over everything added so far. A
+ * value that is not JSON data throws and adds nothing.
+ */
+export function embedCredentialSources(): (
+  ...sources: unknown[]
+) => EmbedCredentialGuard {
+  const add = guardOf(memoizedReader());
+  return (...sources) => add(toJsonData(sources, true));
+}
+
+/**
+ * Removes embed session credentials from a value before any of it reaches a
+ * model, for the direct and shared MCP call paths alike. An embed start URL
+ * carries a single-use ticket that signs its holder in as the user, so it may
+ * travel only in `_meta`, where the embed runtime reads it. The value is read
+ * as JSON first, so a `toJSON` method or getter cannot add anything after the
+ * walk. A string that mentions the start route (`StringReading`) becomes
+ * `[hidden embed URL]`, and an object drops a key that mentions it or holds
+ * such a string; with `maskUrlFields`, for a result whose output contract may
+ * require the field, it keeps the field as `[hidden embed URL]`. In embed context, which the value or the call's `guard`
+ * sets, every `ticket` field is dropped as well. A string that echoes a
+ * credential in any of its escaped layers becomes `[hidden embed ticket]`,
+ * and a key that does is dropped. Every other key is kept, `__proto__`
+ * included.
+ *
+ * It hides accidental echoes: a credential the call holds, repeated raw or
+ * under any escaping `StringReading` decodes. A result it cannot fully read,
+ * because it is not JSON data or a string in it or in the call's `guard` is
+ * escaped past `MAX_DECODE_ROUNDS`, is withheld whole: this throws. The
+ * direct adapter then reports a write, told by its effect and not by whether
+ * it notifies, as a success, as it does any failure after the action ran,
+ * unless its upstream reported failure or its status could not be read; a
+ * read fails. An action that transforms a credential on purpose, by encoding
+ * it as base64, splitting or reversing it, is out of scope: action code is
+ * trusted, and could send the credential anywhere anyway.
+ */
+export function redactEmbedCredentials(
+  value: string,
+  guard?: EmbedCredentialGuard,
+): string;
+export function redactEmbedCredentials(
+  value: unknown,
+  guard?: EmbedCredentialGuard,
+  options?: { maskUrlFields?: boolean },
+): unknown;
+export function redactEmbedCredentials(
+  value: unknown,
+  guard?: EmbedCredentialGuard,
+  options: { maskUrlFields?: boolean } = {},
+): unknown {
+  const read = memoizedReader();
+  const data =
+    value && typeof value === "object" ? toJsonData(value, true) : value;
+  const own = guardOf(read)(data);
+  if (!own.readable || guard?.readable === false) {
+    throw new UnreadableResultError();
+  }
+  const embedContext = own.embedContext || guard?.embedContext === true;
+  // One search per layer, however many credentials there are.
+  const credentials = [
+    ...new Set([...own.credentials, ...(guard?.credentials ?? [])]),
+  ];
+  const credentialPattern =
+    credentials.length > 0
+      ? new RegExp(
+          credentials
+            .map((credential) =>
+              credential.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+            )
+            .join("|"),
+        )
+      : undefined;
+  const echoesCredential = (text: string): boolean =>
+    credentialPattern !== undefined &&
+    read(text).layers.some((layer) => credentialPattern.test(layer));
+  const redact = (value: unknown): unknown => {
+    if (typeof value === "string") {
+      if (read(value).mentionsRoute) return HIDDEN_EMBED_URL;
+      return echoesCredential(value) ? "[hidden embed ticket]" : value;
     }
     if (!value || typeof value !== "object") return value;
-    const context = embedContext || holdsSignal(value);
-    if (Array.isArray(value)) return value.map((item) => redact(item, context));
+    if (Array.isArray(value)) return value.map(redact);
     const out: Record<string, unknown> = {};
     for (const [key, val] of Object.entries(value)) {
       if (
         EMBED_RESULT_SENSITIVE_KEYS.has(key) ||
-        (context && isEmbedCredentialKey(key)) ||
-        mentions(key) ||
-        (typeof val === "string" && mentions(val))
+        (embedContext && isEmbedCredentialKey(key)) ||
+        read(key).mentionsRoute ||
+        echoesCredential(key) ||
+        (typeof val === "string" &&
+          read(val).mentionsRoute &&
+          !options.maskUrlFields)
       ) {
         continue;
       }
       // Assigning a `__proto__` key replaces the prototype instead of adding
       // the key, so every kept key is defined.
       Object.defineProperty(out, key, {
-        value: redact(val, context),
+        value: redact(val),
         enumerable: true,
         writable: true,
         configurable: true,
@@ -397,7 +370,7 @@ function redactEmbedCredentials(json: unknown): unknown {
     }
     return out;
   };
-  return redact(json, false);
+  return redact(data);
 }
 
 /** The contract error code a caller should see; generic failures have none. */
@@ -421,6 +394,60 @@ export function isReportedProxyError(
     typeof mcpResult.raw === "object" &&
     (mcpResult.raw as Record<string, unknown>).isError === true
   );
+}
+
+/** What a proxied tool's upstream reported, or that it could not be read. */
+export type UpstreamStatus = "succeeded" | "failed" | "unknown";
+
+/**
+ * What a call returned, classified once, before anything can fail, with
+ * `isMcpActionResult`'s reads. A proxied tool's result gives its `text`, its
+ * `raw` as `result`, what its upstream reported and its other own enumerable
+ * `fields`, which only the guard reads, in that order, each read once here;
+ * any other value is `result` itself. The response normalizes those parts,
+ * and the change marker's resource hint reads `result`. Copying `raw` as JSON
+ * reads an enumerable `raw.isError` again, but only this read classifies. A
+ * status read that throws leaves the status unknown; any other read that
+ * throws leaves the value `unread`, kept for the hint alone.
+ */
+export function returnedResult(value: unknown): {
+  upstream: UpstreamStatus;
+  result: unknown;
+  text?: string;
+  fields?: Record<string, unknown>;
+  unread?: true;
+} {
+  let read: ReturnType<typeof returnedResult> = {
+    upstream: "unknown",
+    result: value,
+    unread: true,
+  };
+  try {
+    const text = mcpActionResultText(value);
+    if (text === undefined) return { upstream: "succeeded", result: value };
+    const raw = (value as McpActionResult).raw;
+    read = { ...read, result: raw };
+    // The status is read before the fields, whose getters could rewrite it.
+    try {
+      const reported = (raw as { isError?: unknown } | null | undefined)
+        ?.isError;
+      read = { ...read, upstream: reported === true ? "failed" : "succeeded" };
+    } catch {
+      // coercion-ok: a status that cannot be read is "unknown", reported as such.
+    }
+    // Null-prototype, so a `__proto__` field is kept as JSON keeps it.
+    const fields: Record<string, unknown> = Object.create(null);
+    for (const key of Object.keys(value as object)) {
+      if (key === MCP_ACTION_RESULT_MARKER || key === "text" || key === "raw") {
+        continue;
+      }
+      fields[key] = (value as Record<string, unknown>)[key];
+    }
+    return { upstream: read.upstream, result: raw, text, fields };
+  } catch {
+    // coercion-ok: a result that cannot be read whole is `unread`, so withheld.
+    return read;
+  }
 }
 
 /** What one MCP caller may do, fixed for the lifetime of its server. */
@@ -447,7 +474,7 @@ export interface McpActionCall {
   /** The actions this caller can reach in its catalog. */
   callable: Record<string, ActionEntry>;
   /** Adapter-specific facts to attach to the action's audit context. */
-  actionRunContext?: (clientAccepted: boolean) => Partial<ActionRunContext>;
+  actionRunContext?: Partial<ActionRunContext>;
   approval?: McpActionApprovalResponse;
 }
 
@@ -471,9 +498,9 @@ export interface McpActionApprovalRequest {
  * grant refused the call before the action was invoked, and `approval` failed
  * before the action ran; in both, nothing ran. `action` means the action was
  * invoked and threw, so it may have done part of its work. `result` means the
- * action finished but its value could not be made into JSON, so its work is
- * done even though the caller gets no value. No stage says whether partial
- * work was committed.
+ * action finished but its value could not be made into JSON or checked for
+ * embed credentials, so its work is done even though the caller gets no
+ * value. No stage says whether partial work was committed.
  */
 export type McpActionCallFailureStage =
   | "authorization"
@@ -523,14 +550,14 @@ export async function executeMcpActionCall(
       return Object.freeze({
         status: outcome.status,
         approval: Object.freeze({
-          actionName: redactText(outcome.approval.actionName),
+          actionName: redactEmbedText(outcome.approval.actionName),
           expiresAt: outcome.approval.expiresAt,
         }),
       });
     default:
       return Object.freeze({
         status: outcome.status,
-        message: redactText(outcome.message),
+        message: redactEmbedText(outcome.message),
       });
   }
 }
@@ -586,6 +613,7 @@ export async function runMcpActionCallUnredacted(
     appId: context.appId,
     caller: "mcp",
     actionName: name,
+    ...call.actionRunContext,
   };
   try {
     // One preparation: approval decides on, and the run executes, the
@@ -594,7 +622,6 @@ export async function runMcpActionCallUnredacted(
     if (!prepared.valid) {
       // Recorded and reported as the action's own validation failure was,
       // with no path to its handler.
-      Object.assign(runContext, call.actionRunContext?.(false));
       await recordInvalidActionCall(
         entry,
         callArgs,
@@ -617,10 +644,6 @@ export async function runMcpActionCallUnredacted(
       prepared,
     );
     if (authorization.status !== "authorized") return authorization;
-    Object.assign(
-      runContext,
-      call.actionRunContext?.(authorization.clientAccepted),
-    );
 
     const execution: ActionExecutionOutcome = { refused: false };
     try {
@@ -628,7 +651,12 @@ export async function runMcpActionCallUnredacted(
         entry,
         prepared,
         runContext,
-        execution,
+        vouchedOutcome(
+          execution,
+          authorization.clientAccepted
+            ? { mcpClientAccepted: true }
+            : undefined,
+        ),
       );
       return { status: "ran", entry, result, execution };
     } catch (error) {
@@ -639,9 +667,32 @@ export async function runMcpActionCallUnredacted(
   }
 }
 
-function toJsonData(value: unknown): unknown {
+/**
+ * `value` as JSON data. With `markCycles`, as the direct path has always
+ * allowed, an object nested inside itself becomes a marker; without it, the
+ * call fails. Anything else JSON cannot hold, such as a BigInt, fails either
+ * way.
+ */
+export function toJsonData(value: unknown, markCycles = false): unknown {
   if (value === undefined) return undefined;
-  const json = JSON.stringify(value);
+  const path: unknown[] = [];
+  const onPath = new Set<unknown>();
+  const json = JSON.stringify(
+    value,
+    markCycles
+      ? function (this: unknown, _key: string, val: unknown) {
+          // `this` holds `val`, so everything below it on the path is done.
+          while (path.length > 0 && path[path.length - 1] !== this) {
+            onPath.delete(path.pop());
+          }
+          if (!val || typeof val !== "object") return val;
+          if (onPath.has(val)) return CIRCULAR_RESULT;
+          path.push(val);
+          onPath.add(val);
+          return val;
+        }
+      : undefined,
+  );
   if (json === undefined) {
     throw new TypeError("The action returned a value that is not JSON data.");
   }
@@ -712,10 +763,6 @@ async function refuseOutsideServiceGrant(
   }
 }
 
-function redactText(text: string): string {
-  return mentionsEmbedStartRoute(text) ? "[hidden embed URL]" : text;
-}
-
 function failedOutcome(
   stage: McpActionCallFailureStage,
   error: unknown,
@@ -726,7 +773,7 @@ function failedOutcome(
     const raw = error instanceof Error ? error.message : error;
     message =
       typeof raw === "string"
-        ? redactText(raw)
+        ? redactEmbedText(raw)
         : "The call failed without an error message.";
     // A service-principal refusal carries a typed code the direct adapter
     // never prints, so only this path reads it.
@@ -737,7 +784,7 @@ function failedOutcome(
     if (code !== undefined && typeof code !== "string") {
       throw new TypeError("The error code is not a string.");
     }
-    errorCode = code === undefined ? undefined : redactText(code);
+    errorCode = code === undefined ? undefined : redactEmbedText(code);
   } catch {
     message = "The call failed, and its error could not be read.";
     errorCode = undefined;

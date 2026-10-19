@@ -28,6 +28,7 @@ import {
 } from "@agent-native/core/client/mcp-app-host";
 import { useOrg } from "@agent-native/core/client/org";
 import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
+import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import { useGuidedQuestionFlow } from "@agent-native/toolkit/app/chat/agentkit-chat";
 import {
@@ -155,7 +156,6 @@ import {
   useSlideComments,
   type CommentThread,
 } from "@/hooks/use-slide-comments";
-import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status";
 import { useUndoSelection } from "@/hooks/use-undo-selection";
 import { getAspectRatioDims } from "@/lib/aspect-ratios";
 import { downloadDeckBackup, parseDeckBackup } from "@/lib/deck-backup";
@@ -255,6 +255,9 @@ import {
 import { TAB_ID } from "@/lib/tab-id";
 import {
   shouldActivateRectangleTool,
+  shouldActivateScaleTool,
+  shouldActivateHandTool,
+  shouldActivateMoveTool,
   shouldActivateTextTool,
 } from "@/lib/text-tool-shortcut";
 import {
@@ -997,6 +1000,8 @@ export default function DeckEditor() {
   const [drawMode, setDrawMode] = useState(false);
   const [pinMode, setPinMode] = useState(false);
   const [textBoxMode, setTextBoxMode] = useState(false);
+  const [handMode, setHandMode] = useState(false);
+  const [scaleMode, setScaleMode] = useState(false);
   const [shapeType, setShapeType] = useState<SlideShapeType | null>(null);
   const [selectedCommentThreadId, setSelectedCommentThreadId] = useState<
     string | null
@@ -1049,6 +1054,32 @@ export default function DeckEditor() {
     setAnimationTargets(NO_ANIMATION_TARGETS);
     setLayersOpen((open) => !open);
   }, [layersOpen]);
+
+  // Move, Hand and Scale are one family: arming any of them drops the
+  // placement and annotation tools, and arming one releases the others.
+  const selectMoveTool = useCallback((tool: "move" | "hand" | "scale") => {
+    setDrawMode(false);
+    setPinMode(false);
+    setTextBoxMode(false);
+    setShapeType(null);
+    setHandMode(tool === "hand");
+    setScaleMode(tool === "scale");
+  }, []);
+  const changeHandMode = useCallback(
+    (active: boolean) => selectMoveTool(active ? "hand" : "move"),
+    [selectMoveTool],
+  );
+  const changeScaleMode = useCallback(
+    (active: boolean) => selectMoveTool(active ? "scale" : "move"),
+    [selectMoveTool],
+  );
+  // Any other tool taking over releases Hand and Scale, whichever path armed it.
+  useEffect(() => {
+    if (drawMode || pinMode || textBoxMode || shapeType) {
+      setHandMode(false);
+      setScaleMode(false);
+    }
+  }, [drawMode, pinMode, textBoxMode, shapeType]);
 
   useEffect(() => {
     setClientAppState(
@@ -1106,6 +1137,10 @@ export default function DeckEditor() {
     }
     setTextBoxMode(next);
   }, [textBoxMode]);
+
+  const armTextBox = useCallback(() => {
+    if (!textBoxMode) toggleTextBoxMode();
+  }, [textBoxMode, toggleTextBoxMode]);
 
   const selectShape = useCallback((type: SlideShapeType) => {
     trackEvent("slide_tool_selected", {
@@ -1213,8 +1248,10 @@ export default function DeckEditor() {
   }, []);
 
   const uploadInputRef = useRef<HTMLInputElement>(null);
+  // Image and video uploads go through core `uploadFile`; the slides
+  // `/api/uploads/status` flag covers reference files and is always true locally.
+  const storageQuery = useFileUploadStatus();
   const insertMediaInputRef = useRef<HTMLInputElement>(null);
-  const storageQuery = useSlideFileStorageStatus();
   const fileStorageConfigured =
     storageQuery.data?.configured === true && !storageQuery.isError;
   const [showUploadStorageSetup, setShowUploadStorageSetup] = useState(false);
@@ -4112,6 +4149,19 @@ export default function DeckEditor() {
         return;
       }
 
+      const moveTool = shouldActivateScaleTool(event, options)
+        ? "scale"
+        : shouldActivateHandTool(event, options)
+          ? "hand"
+          : shouldActivateMoveTool(event, options)
+            ? "move"
+            : null;
+      if (moveTool) {
+        event.preventDefault();
+        selectMoveTool(moveTool);
+        return;
+      }
+
       if (!shouldActivateRectangleTool(event, options)) return;
       event.preventDefault();
       selectShape("rectangle");
@@ -4120,7 +4170,7 @@ export default function DeckEditor() {
     document.addEventListener("keydown", handleSlideToolShortcut);
     return () =>
       document.removeEventListener("keydown", handleSlideToolShortcut);
-  }, [canEdit, selectShape]);
+  }, [canEdit, selectMoveTool, selectShape]);
 
   useEffect(() => {
     const handleCommentShortcut = (event: KeyboardEvent) => {
@@ -5949,6 +5999,7 @@ export default function DeckEditor() {
             }}
             onDropImage={uploadAndApplyImage}
             onDropVideo={uploadAndApplyVideo}
+            fileStorageConfigured={fileStorageConfigured}
             onDropImageUrl={dropImageUrlOnSlide}
             onToggleObjectFit={toggleObjectFit}
             onChangeObjectPosition={updateObjectPosition}
@@ -5968,6 +6019,12 @@ export default function DeckEditor() {
             }
             recentEdits={deckRecentEdits}
             onComment={openCommentComposer}
+            handMode={handMode}
+            onHandModeChange={changeHandMode}
+            scaleMode={scaleMode}
+            onScaleModeChange={changeScaleMode}
+            onArmTextBox={armTextBox}
+            onArmShape={selectShape}
             drawMode={drawMode}
             onExitDrawMode={() => setDrawMode(false)}
             onToggleLayers={toggleLayers}
@@ -5981,6 +6038,11 @@ export default function DeckEditor() {
             layersOpen={layersOpen}
             onCloseLayers={() => setLayersOpen(false)}
             onOpenAnimations={openAnimationsForTarget}
+            onToggleAnimations={toggleAnimations}
+            commentsOpen={commentsOpen}
+            onToggleComments={toggleComments}
+            onTogglePinMode={togglePinMode}
+            onToggleDrawMode={toggleDrawMode}
             onSelectedAnimationTargetsChange={setAnimationTargets}
             slideId={currentSlide.id}
             presentUsers={slidePresence.get(currentSlide.id) ?? []}

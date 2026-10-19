@@ -736,6 +736,9 @@ const deDE = {
     waitlistUnavailable:
       "Wartelisten-Anmeldungen sind in dieser Umgebung noch nicht verfügbar. Bitte nutze stattdessen die gehostete Dokumentationsseite.",
     launchBuilder: "Builder starten",
+    newAppPrompt: "Erstelle eine neue Agent-Native-App.",
+    customizeTemplatePrompt:
+      "Passe die Agent-Native-Vorlage {{template}} an meinen Arbeitsablauf an.",
   },
   templateCard: {
     pasteIntoTerminal: "In Ihr Terminal einfügen.",

@@ -25,7 +25,11 @@ import {
   ranCallEmitsChange,
   runPreparedActionCall,
 } from "../action.js";
-import type { ActionExecutionOutcome, ActionRunContext } from "../action.js";
+import type {
+  ActionCaller,
+  ActionExecutionOutcome,
+  ActionRunContext,
+} from "../action.js";
 import {
   LLM_CREDENTIAL_KEYS,
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
@@ -36,8 +40,10 @@ import { isTransientDatabaseError } from "../db/client.js";
 import { declaresFeatureFlagDelegation } from "../feature-flags/a2a-action-route.js";
 import { isFeatureFlagAdminEmail } from "../feature-flags/permissions.js";
 import {
+  hasOrgScopeResolutionUnavailable,
   isFederationMembershipValidatedForEvent,
   resolveOrgIdForEmail,
+  resolveOrgScopeForEmail,
 } from "../org/context.js";
 import {
   isWorkspaceAppAccessUnavailable,
@@ -147,6 +153,7 @@ import { isLoopbackRequest, registerAuthPublicPaths } from "./auth.js";
 import { getH3App } from "./framework-request-handler.js";
 import { isDirectLoopbackRequest } from "./loopback.js";
 import {
+  getVerifiedMcpCredentialFromEvent,
   getVerifiedServiceIdentityFromEvent,
   getRequestIdentityAuthenticatedAtMs,
   getRequestIdentitySessionToken,
@@ -665,6 +672,12 @@ function mountActionRoutesInternal(
 ) {
   const mounted: string[] = [];
   const app = getH3App(nitroApp);
+  // One layer for every action (see registerMiddlewareGroup): a separate
+  // layer per action makes unmatched requests recurse through all of them.
+  const routeEntries: Array<{
+    path: string;
+    handler: ReturnType<typeof defineEventHandler>;
+  }> = [];
 
   if (!options?.caller && !options?.forcePost && !options?.routePrefix) {
     bindActionBatch({ fetch: (request) => nitroApp.fetch(request), actions });
@@ -706,9 +719,9 @@ function mountActionRoutesInternal(
       registerAuthPublicPaths([routePath], app);
     }
 
-    app.use(
-      routePath,
-      defineEventHandler(async (event) => {
+    routeEntries.push({
+      path: routePath,
+      handler: defineEventHandler(async (event) => {
         const requestAuthenticationStartedAtMs = Date.now();
         setHttpRequestTelemetryActionName(event, name, routeTemplate);
         const reqMethod = getMethod(event);
@@ -1111,9 +1124,14 @@ function mountActionRoutesInternal(
         // getSession-backed) is deliberately NOT consulted — a request can
         // carry both a valid A2A bearer and an unrelated same-origin browser
         // cookie, and the cookie user's org must not become the org the
-        // token caller's actions execute under. Non-adapter callers keep the
-        // original resolveOrgId-only behavior.
+        // token caller's actions execute under. Cookie callers fall back to
+        // confirmed membership scope when resolveOrgId has no org.
         let orgId: string | undefined;
+        let orgScope: "personal" | undefined = hasExplicitPersonalOrgScope(
+          event,
+        )
+          ? "personal"
+          : undefined;
         if (
           (directoryWidgetReadAllowed || directoryWidgetWriteAllowed) &&
           embedSession
@@ -1135,10 +1153,43 @@ function mountActionRoutesInternal(
             : undefined;
           if (!hasExplicitPersonalOrgScope(event) && !orgId && userEmail) {
             orgId = await storedActiveOrgId(userEmail);
+            if (!orgId) {
+              try {
+                const scope = await resolveOrgScopeForEmail(userEmail);
+                if (scope.status === "organization") {
+                  orgId = normalizeOrgId(scope.orgId);
+                } else if (
+                  scope.status === "personal" &&
+                  !hasOrgScopeResolutionUnavailable(event)
+                ) {
+                  orgScope = "personal";
+                }
+              } catch (error) {
+                if (!isFirstBootMissingOrgTableError(error)) throw error;
+              }
+            }
           }
         }
-        const frontendCaller =
-          !options?.caller && !resolvedCaller && isFrontendActionRequest(event);
+        // A verified MCP credential names the source; the frontend header is
+        // only the client's claim.
+        const verifiedMcpCredential = getVerifiedMcpCredentialFromEvent(event);
+        const mcpCredential =
+          !resolvedCaller &&
+          verifiedMcpCredential &&
+          verifiedMcpCredential.userEmail.toLowerCase() ===
+            userEmail?.trim().toLowerCase()
+            ? verifiedMcpCredential
+            : undefined;
+        const requestCaller: ActionCaller =
+          options?.caller ??
+          (resolvedCaller
+            ? "a2a"
+            : mcpCredential
+              ? "mcp"
+              : isFrontendActionRequest(event)
+                ? "frontend"
+                : "http");
+        const frontendCaller = requestCaller === "frontend";
         if (
           entry.uiOnly === true &&
           (!frontendCaller ||
@@ -1187,9 +1238,7 @@ function mountActionRoutesInternal(
             ...(authUserId ? { authUserId } : {}),
             userName,
             orgId,
-            ...(hasExplicitPersonalOrgScope(event)
-              ? { orgScope: "personal" as const }
-              : {}),
+            ...(orgScope ? { orgScope } : {}),
             authCapability,
             timezone,
             browserSessionId,
@@ -1394,12 +1443,7 @@ function mountActionRoutesInternal(
                 ? "mcp-widget"
                 : directoryWidgetWriteAllowed
                   ? "mcp-widget-write"
-                  : (options?.caller ??
-                    (resolvedCaller
-                      ? "a2a"
-                      : isFrontendActionRequest(event)
-                        ? "frontend"
-                        : "http"));
+                  : requestCaller;
               runContext = {
                 userEmail,
                 orgId: orgId ?? null,
@@ -1430,6 +1474,13 @@ function mountActionRoutesInternal(
                   : {}),
                 ...(event.req?.signal ? { signal: event.req.signal } : {}),
                 actionName: name,
+                ...(caller === "mcp" && mcpCredential?.oauthClientId
+                  ? {
+                      mcpClient: {
+                        oauthClientId: mcpCredential.oauthClientId,
+                      },
+                    }
+                  : {}),
                 ...(resolvedCaller?.delegationJti
                   ? {
                       networkProtocol: "a2a" as const,
@@ -1583,13 +1634,7 @@ function mountActionRoutesInternal(
                   : (explicitStatus ?? (markedExpected ? 409 : 500));
               setResponseStatus(event, status);
 
-              const failureCaller =
-                options?.caller ??
-                (resolvedCaller
-                  ? "a2a"
-                  : isFrontendActionRequest(event)
-                    ? "frontend"
-                    : "http");
+              const failureCaller = requestCaller;
               countActionFailure({
                 action: name,
                 status,
@@ -1703,9 +1748,15 @@ function mountActionRoutesInternal(
           },
         );
       }),
-    );
+    });
 
     mounted.push(`${method} ${routePath}`);
+  }
+
+  if (app.useGroup) {
+    app.useGroup(routeEntries);
+  } else {
+    for (const entry of routeEntries) app.use(entry.path, entry.handler);
   }
 
   if (mounted.length > 0 && process.env.DEBUG)

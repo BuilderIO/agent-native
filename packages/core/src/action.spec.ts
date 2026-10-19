@@ -32,6 +32,7 @@ import {
   runPreparedActionCall,
   validateActionArgs,
 } from "./action.js";
+import * as publicAction from "./action.js";
 import {
   actionsToEngineTools,
   createPlanModeActionRegistry,
@@ -82,6 +83,24 @@ describe("ActionContractError", () => {
       errorCode: "SCHEMA_REVISION_CONFLICT",
       details: { expected: "before", actual: "after" },
     });
+  });
+});
+
+describe("the public action entry", () => {
+  it("exposes no frame-evidence helpers", () => {
+    for (const name of [
+      "runActionInvocation",
+      "vouchedOutcome",
+      "takeVouchedEvidence",
+      "holdInvocationEvidence",
+      "currentInvocationEvidence",
+      "runOutsideActionInvocation",
+      "actionExecutionStorage",
+    ]) {
+      expect(publicAction).not.toHaveProperty(name);
+    }
+    // No evidence parameter after `entry`.
+    expect(runActionWithExecutionOutcome).toHaveLength(5);
   });
 });
 

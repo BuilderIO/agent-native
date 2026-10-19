@@ -18,6 +18,7 @@ import {
   getUploadedImageAgentOptions,
   isSourceImprovementRequest,
   requestedSlideCount,
+  SLIDE_AUTHORING_OWNERSHIP_INSTRUCTION,
   startDeckGeneration,
 } from "./create-deck-generation";
 
@@ -1644,6 +1645,7 @@ describe("startDeckGeneration", () => {
     expect(context).toContain(
       "When no reference deck or hydrated design system is available, choose a subject-appropriate editorial direction",
     );
+    expect(context).toContain(SLIDE_AUTHORING_OWNERSHIP_INSTRUCTION);
   });
 
   it("keeps the generic fallback when no reference is attached", async () => {

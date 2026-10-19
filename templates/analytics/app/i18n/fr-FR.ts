@@ -850,6 +850,7 @@ export default {
     bigQueryHealthUnavailable:
       "Impossible de vérifier la pression Analytics propriétaire. Rechargez la page avant de changer de backend.",
     analyticsEventCount: "Événements observés",
+    analyticsRecentEventCount: "Événements observés (30 derniers jours)",
     slowQueries24h: "Requêtes lentes (24 h)",
     maxQueryDuration: "Durée maximale de requête",
     defaultKeyName: "Modèles hébergés",
@@ -1352,6 +1353,10 @@ export default {
     dashboardActions: "Détails et actions du tableau de bord",
     certifyForAi: "Certifier pour les requêtes IA",
     certifiedForAi: "Certifié pour les requêtes IA",
+    duplicateToCustomize: "Dupliquer pour personnaliser",
+    duplicateToCustomizeHint:
+      "Les tableaux de bord intégrés sont mis à jour à chaque version d'Analytics. Créez votre propre copie pour modifier celui-ci.",
+    duplicateFailed: "Impossible de dupliquer ce tableau de bord.",
     certificationSaved: "Tableau certifié pour les requêtes IA",
     certificationFailed: "Impossible de certifier le tableau : {{message}}",
     details: "Details",
@@ -1479,6 +1484,24 @@ export default {
     columnShowHidden: "Afficher les colonnes masquées",
     columnName: "Nom de la colonne",
     columnResize: "Redimensionner la colonne",
+    rowBreakdownBy: "Ventiler par",
+    rowBreakdownAll: "Tous",
+    rowBreakdownOther: "Autres",
+    rowBreakdownOtherHint:
+      "Groupes plus petits, et toute personne que le SQL de ce panneau exclut",
+    rowBreakdownSmallGroup: "Moins de {{count}} : lisez les taux avec prudence",
+    rowBreakdownNoValue: "(aucun)",
+    rowBreakdownEmpty: "Aucune ligne pour cette ventilation.",
+    rowBreakdownUnavailable:
+      "Le SQL de ce panneau n'a pas de ventilation par {{column}}.",
+    rowBreakdownFromPanel: "Issu des lignes de ce panneau. Rien n'a été lu.",
+    rowBreakdownFromCache: "Issu du cache. Rien n'a été lu.",
+    rowBreakdownAlreadyLoaded: "Déjà chargé. Rien n'a été lu.",
+    rowBreakdownBytesRead: "{{bytes}} lus",
+    rowBreakdownOverByteCap:
+      "Cette ventilation lirait plus de {{gib}} Gio, elle n'a donc pas été exécutée. Restreignez les filtres ou la période du tableau de bord, puis réessayez.",
+    rowBreakdownTruncated:
+      "Le résultat a été tronqué : certains groupes manquent ou sont comptés dans Autres.",
     deleteSectionTitle: "Supprimer la rubrique ?",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "Supprimer le panneau ?",
@@ -2176,10 +2199,6 @@ export default {
     noMatches: "Aucune définition ne correspond à votre recherche.",
     searchPlaceholder: "Rechercher des définitions",
     sourceIndex: "Index des sources",
-    statusApproved: "Approuvée",
-    statusSuggested: "Suggérée",
-    statusUnreviewed: "Non vérifiée",
-    unsourced: "Sans source",
   },
   indexPanel: {
     presetDaily: "Tous les jours à 06:00",
