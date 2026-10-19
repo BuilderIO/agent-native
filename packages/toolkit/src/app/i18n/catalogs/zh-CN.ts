@@ -2692,6 +2692,8 @@ const messages: ToolkitAgentChatTranslation = {
     "已在此处断开连接。在 ChatGPT 中，访问权限可能仍然有效。",
   "settingsModel.chatgptLocalOnly":
     "开源应用在本地使用 loopback callback 运行时，无需申请合作伙伴资格即可使用 ChatGPT 计划。托管在 *.agent-native.com 上的应用需要运营方批准，并配置托管 callback。",
+  "settingsModel.chatgptPersonalScopeOnly":
+    "使用个人账户访问 ChatGPT 方案。在本地开发时，请在登录前将 access.autoCreateDefaultOrg 设为 false。",
   "settingsModel.chatgptNoDirectUse":
     "重新连接并允许直接访问模型，才能使用此 ChatGPT 账户。",
   "settingsModel.chatgptReconnect": "重新连接",

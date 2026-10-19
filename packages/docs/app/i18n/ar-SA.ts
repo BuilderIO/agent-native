@@ -730,6 +730,9 @@ const arSA = {
     waitlistUnavailable:
       "لا تتوفر عمليات التسجيل في قائمة الانتظار هنا بعد. يُرجى تجربة موقع المستندات المستضاف بدلًا من ذلك.",
     launchBuilder: "شغّل Builder",
+    newAppPrompt: "أنشئ تطبيقًا جديدًا باستخدام Agent-Native.",
+    customizeTemplatePrompt:
+      "خصّص قالب Agent-Native {{template}} ليناسب طريقة عملي.",
   },
   templateCard: {
     pasteIntoTerminal: "لصق في المحطة الخاصة بك.",

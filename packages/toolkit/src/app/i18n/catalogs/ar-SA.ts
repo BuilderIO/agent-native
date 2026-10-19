@@ -3080,6 +3080,8 @@ const messages: ToolkitAgentChatTranslation = {
     "تم قطع الاتصال هنا. قد يظل الوصول نشطًا في ChatGPT.",
   "settingsModel.chatgptLocalOnly":
     "يمكن استخدام تطبيقات المصدر المفتوح ذاتيًا عند تشغيلها محليًا باستخدام loopback callback، ولا حاجة إلى تقديم طلب شراكة. تحتاج التطبيقات المستضافة على *.agent-native.com إلى موافقة المشغّل وإلى hosted callback.",
+  "settingsModel.chatgptPersonalScopeOnly":
+    "استخدم الوصول إلى خطة ChatGPT من حساب شخصي. في بيئة التطوير المحلية، اضبط access.autoCreateDefaultOrg على false قبل تسجيل الدخول.",
   "settingsModel.chatgptNoDirectUse":
     "أعِد الاتصال واسمح بالوصول المباشر إلى النماذج لاستخدام حساب ChatGPT هذا.",
   "settingsModel.chatgptReconnect": "إعادة الاتصال",

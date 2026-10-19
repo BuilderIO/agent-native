@@ -38,6 +38,7 @@ import { isFeatureFlagAdminEmail } from "../feature-flags/permissions.js";
 import {
   isFederationMembershipValidatedForEvent,
   resolveOrgIdForEmail,
+  resolveOrgScopeForEmail,
 } from "../org/context.js";
 import {
   isWorkspaceAppAccessUnavailable,
@@ -1111,9 +1112,14 @@ function mountActionRoutesInternal(
         // getSession-backed) is deliberately NOT consulted — a request can
         // carry both a valid A2A bearer and an unrelated same-origin browser
         // cookie, and the cookie user's org must not become the org the
-        // token caller's actions execute under. Non-adapter callers keep the
-        // original resolveOrgId-only behavior.
+        // token caller's actions execute under. Cookie callers fall back to
+        // confirmed membership scope when resolveOrgId has no org.
         let orgId: string | undefined;
+        let orgScope: "personal" | undefined = hasExplicitPersonalOrgScope(
+          event,
+        )
+          ? "personal"
+          : undefined;
         if (
           (directoryWidgetReadAllowed || directoryWidgetWriteAllowed) &&
           embedSession
@@ -1135,6 +1141,18 @@ function mountActionRoutesInternal(
             : undefined;
           if (!hasExplicitPersonalOrgScope(event) && !orgId && userEmail) {
             orgId = await storedActiveOrgId(userEmail);
+            if (!orgId) {
+              try {
+                const scope = await resolveOrgScopeForEmail(userEmail);
+                if (scope.status === "organization") {
+                  orgId = normalizeOrgId(scope.orgId);
+                } else if (scope.status === "personal") {
+                  orgScope = "personal";
+                }
+              } catch (error) {
+                if (!isFirstBootMissingOrgTableError(error)) throw error;
+              }
+            }
           }
         }
         const frontendCaller =
@@ -1187,9 +1205,7 @@ function mountActionRoutesInternal(
             ...(authUserId ? { authUserId } : {}),
             userName,
             orgId,
-            ...(hasExplicitPersonalOrgScope(event)
-              ? { orgScope: "personal" as const }
-              : {}),
+            ...(orgScope ? { orgScope } : {}),
             authCapability,
             timezone,
             browserSessionId,

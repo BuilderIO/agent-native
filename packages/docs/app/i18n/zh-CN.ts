@@ -704,6 +704,9 @@ const zhCN = {
     submitError: "无法加入候补名单。请重试。",
     waitlistUnavailable: "此环境暂不支持加入候补名单。请改用托管的文档网站。",
     launchBuilder: "启动 Builder",
+    newAppPrompt: "创建一个新的 Agent-Native 应用。",
+    customizeTemplatePrompt:
+      "根据我的工作流程定制 Agent-Native {{template}} 模板。",
   },
   templateCard: {
     pasteIntoTerminal: "粘贴到您的终端中。",

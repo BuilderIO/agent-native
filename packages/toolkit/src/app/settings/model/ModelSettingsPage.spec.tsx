@@ -1602,6 +1602,25 @@ describe("ModelSettingsPage", () => {
     expect(buttons(chatgpt)).toEqual([]);
   });
 
+  it("explains when ChatGPT plan access needs a personal account", async () => {
+    state.chatgpt = {
+      supported: false,
+      supportReason: "requires_personal_scope",
+      connected: false,
+      reconnectRequired: false,
+      activeAccountId: null,
+      activeAccount: null,
+      accounts: [],
+      legacyRegistrationCleanupAvailable: false,
+    };
+    await render();
+
+    expect(row("chatgpt-subscription").textContent).toContain(
+      "Use ChatGPT plan access from a personal account. In local development, set access.autoCreateDefaultOrg to false before signing in.",
+    );
+    expect(buttons(row("chatgpt-subscription"))).toEqual([]);
+  });
+
   it("saves Max iterations for admins and refuses a value out of range", async () => {
     loopMock.save.mockResolvedValue({ ...state.loop, maxIterations: 250 });
     await render();
