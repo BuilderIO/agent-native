@@ -1148,23 +1148,50 @@ export function CommentsSidebar({
   const pendingFocus = displayedPendingComment?.focus;
   useEffect(() => {
     if (!pendingFocus || presentation !== "inline") return;
-    const timer = setTimeout(() => {
+    // A new comment has no saved caret yet. It takes focus from the page,
+    // which keeps it through the toolbar click or shortcut that opened the
+    // comment, so typing goes into the comment. A restored draft only takes
+    // focus nobody else holds.
+    const isNew = pendingFocus.current?.start === undefined;
+    let movedAway = false;
+    const relinquish = (event: FocusEvent) => {
+      if (!pendingCardRef.current?.contains(event.target as Node))
+        movedAway = true;
+    };
+    document.addEventListener("focusin", relinquish);
+    let attempts = 0;
+    let frame = 0;
+    const focusComposer = () => {
       const input = pendingInputRef.current;
+      const card = pendingCardRef.current;
       const saved = pendingFocus.current;
-      if (!input || !saved) return;
-      const active = document.activeElement;
-      if (
-        active &&
-        active !== document.body &&
-        active !== document.documentElement &&
-        active.isConnected
-      )
-        return;
-      input.focus();
-      if (saved.start !== undefined && saved.end !== undefined)
-        input.setSelection(saved.start, saved.end, saved.direction);
-    }, 50);
-    return () => clearTimeout(timer);
+      if (!saved || movedAway) return;
+      if (input && card) {
+        if (card.contains(document.activeElement)) return;
+        const active = document.activeElement;
+        if (
+          !isNew &&
+          active &&
+          active !== document.body &&
+          active !== document.documentElement &&
+          active.isConnected
+        )
+          return;
+        input.focus();
+        if (saved.start !== undefined && saved.end !== undefined)
+          input.setSelection(saved.start, saved.end, saved.direction);
+        if (card.contains(document.activeElement)) return;
+      }
+      // The composer may still be mounting, or hidden while its popover is
+      // positioned; focus can't land until it's on screen.
+      if (++attempts < 30) frame = requestAnimationFrame(focusComposer);
+    };
+    const timer = setTimeout(focusComposer, 50);
+    return () => {
+      clearTimeout(timer);
+      cancelAnimationFrame(frame);
+      document.removeEventListener("focusin", relinquish);
+    };
   }, [pendingFocus, presentation]);
 
   const handlePendingSubmit = async (
