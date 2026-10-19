@@ -19,7 +19,9 @@ describe("source-equivalent selectors", () => {
     const target = doc.getElementById("target");
     const selector = buildSourceEquivalentSelector(target);
 
-    expect(selector).toBe("body > main:nth-of-type(1) > p:nth-of-type(2)");
+    expect(selector).toBe(
+      "source-equivalent:v1:body > main:nth-of-type(1) > p:nth-of-type(2)",
+    );
     expect(resolveSourceEquivalentSelector(doc, selector)).toBe(target);
   });
 
@@ -30,7 +32,9 @@ describe("source-equivalent selectors", () => {
     const target = doc.getElementById("target");
     const selector = buildSourceEquivalentSelector(target);
 
-    expect(selector).toBe("body > main:nth-of-type(1) > p:nth-of-type(1)");
+    expect(selector).toBe(
+      "source-equivalent:v1:body > main:nth-of-type(1) > p:nth-of-type(1)",
+    );
     expect(resolveSourceEquivalentSelector(doc, selector)).toBe(target);
   });
 
@@ -42,12 +46,34 @@ describe("source-equivalent selectors", () => {
     );
   });
 
+  it("keeps old counted selectors on native sibling semantics", () => {
+    const doc = documentWith(
+      "<div id='before'></div><template></template><div id='clone'></div><div id='target'></div><div id='after'></div>",
+    );
+    const clone = doc.getElementById("clone") as Element;
+    const template = doc.querySelector("template") as HTMLTemplateElement & {
+      _x_lookup: Map<unknown, Element>;
+    };
+    template._x_lookup = new Map([["item", clone]]);
+    const target = doc.getElementById("target");
+
+    expect(
+      resolveSourceEquivalentSelector(doc, "body > div:nth-of-type(3)"),
+    ).toBe(target);
+    const newSelector = buildSourceEquivalentSelector(target);
+    expect(newSelector).toBe("source-equivalent:v1:body > div:nth-of-type(2)");
+    expect(resolveSourceEquivalentSelector(doc, newSelector)).toBe(target);
+  });
+
   it("resolves tag names with underscores or dots", () => {
     const doc = documentWith("<main><my_panel id='panel'>a</my_panel></main>");
 
-    expect(resolveSourceEquivalentSelector(doc, "body > main > my_panel")).toBe(
-      doc.getElementById("panel"),
-    );
+    expect(
+      resolveSourceEquivalentSelector(
+        doc,
+        "source-equivalent:v1:body > main > my_panel",
+      ),
+    ).toBe(doc.getElementById("panel"));
   });
 
   it("returns null for a path that no longer exists", () => {
@@ -56,7 +82,10 @@ describe("source-equivalent selectors", () => {
     expect(
       resolveSourceEquivalentSelector(doc, "body > main > p:nth-of-type(3)"),
     ).toBeNull();
-    expect(resolveSourceEquivalentSelector(doc, "main > p")).toBeNull();
+    expect(resolveSourceEquivalentSelector(doc, "main > p")).toBe(
+      doc.querySelector("main > p"),
+    );
+    expect(resolveSourceEquivalentSelector(doc, "main >> p")).toBeNull();
   });
 
   it("treats a source location as shared, and a plain id as not", () => {

@@ -11,6 +11,10 @@ import {
   type NodeRewriteTarget,
 } from "@shared/node-rewrite";
 import {
+  SOURCE_EQUIVALENT_SELECTOR_PREFIX,
+  resolveSourceEquivalentSelector,
+} from "@shared/source-equivalent-selector";
+import {
   IconCheck,
   IconChevronLeft,
   IconChevronRight,
@@ -70,6 +74,13 @@ function findProposalElement(
       `[data-agent-native-node-rewrite-proposal="${escapeSelectorValue(proposalId)}"]`,
     );
     if (marked) return marked;
+    if (target.selector?.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)) {
+      const bySourceSelector = resolveSourceEquivalentSelector(
+        document,
+        target.selector,
+      );
+      if (bySourceSelector) return bySourceSelector;
+    }
     if (target.nodeId) {
       const id = escapeSelectorValue(target.nodeId);
       const byId = document.querySelector(
@@ -77,7 +88,9 @@ function findProposalElement(
       );
       if (byId) return byId;
     }
-    return target.selector ? document.querySelector(target.selector) : null;
+    return target.selector
+      ? resolveSourceEquivalentSelector(document, target.selector)
+      : null;
   } catch {
     return null;
   }

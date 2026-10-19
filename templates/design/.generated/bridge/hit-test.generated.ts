@@ -5,6 +5,7 @@
 export const hitTestBridgeScript: string = `"use strict";
 (() => {
   // shared/source-equivalent-selector.ts
+  var SOURCE_EQUIVALENT_SELECTOR_PREFIX = "source-equivalent:v1:";
   function alpineGeneratedChildrenOf(parent) {
     const generated = [];
     const children = parent.children;
@@ -67,10 +68,17 @@ export const hitTestBridgeScript: string = `"use strict";
     }
     if (!node) return "";
     parts.unshift("body");
-    return parts.join(" > ");
+    return \`\${SOURCE_EQUIVALENT_SELECTOR_PREFIX}\${parts.join(" > ")}\`;
   }
   function resolveSourceEquivalentSelector(doc, selector) {
-    const parts = selector.split(" > ");
+    if (!selector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)) {
+      try {
+        return doc.querySelector(selector);
+      } catch {
+        return null;
+      }
+    }
+    const parts = selector.slice(SOURCE_EQUIVALENT_SELECTOR_PREFIX.length).split(" > ");
     if (parts[0] !== "body") return null;
     let current = doc.body;
     for (let partIndex = 1; partIndex < parts.length; partIndex += 1) {
@@ -1280,7 +1288,7 @@ export const hitTestBridgeScript: string = `"use strict";
       var current = element;
       while (current && current !== document.body && current !== document.documentElement) {
         if (current.matches(
-          "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[id]"
+          "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[data-loc],[id]"
         )) {
           identifiedAncestor = current;
           break;
@@ -1434,19 +1442,10 @@ export const hitTestBridgeScript: string = `"use strict";
         if (!reviewSelectorCorrelationId || typeof reviewSelector !== "string") {
           return;
         }
-        var reviewSelectorElement = null;
-        if (reviewSelector.indexOf("body > ") === 0) {
-          reviewSelectorElement = resolveSourceEquivalentSelector(
-            document,
-            reviewSelector
-          );
-        } else {
-          try {
-            reviewSelectorElement = document.querySelector(reviewSelector);
-          } catch (_err) {
-            reviewSelectorElement = null;
-          }
-        }
+        var reviewSelectorElement = resolveSourceEquivalentSelector(
+          document,
+          reviewSelector
+        );
         if (reviewSelectorElement === document.body) reviewSelectorElement = null;
         var reviewSelectorBox = reviewSelectorElement ? reviewSelectorElement.getBoundingClientRect() : null;
         window.parent.postMessage(

@@ -14359,6 +14359,7 @@ it(
     <h1 data-agent-native-node-id="hero-title" data-loc="src:hero-title" data-agent-native-layer-name="Hero title" style="margin:40px;width:320px;height:80px">Hello</h1>
     <div style="position:absolute;left:500px;top:100px;width:200px;height:100px"><span style="display:block;width:160px;height:60px">Nested layer</span></div>
     <div data-agent-native-node-id="nested-parent" style="position:absolute;left:700px;top:100px;width:160px;height:100px"><span data-agent-native-node-id="nested-child" style="display:block;width:120px;height:60px">Nested identity</span></div>
+    <section data-loc="src:nested-source" style="position:absolute;left:500px;top:300px;width:200px;height:100px"><span style="display:block;width:160px;height:60px">Nested source location</span></section>
   </body>
 </html>`);
       await page.addScriptTag({ content: hydratedHitTestBridgeScript() });
@@ -14406,6 +14407,15 @@ it(
           },
           "agent-native:review-anchor-at-point-result",
         );
+        const sourceLocationAnchor = await request(
+          {
+            type: "agent-native:review-anchor-at-point",
+            correlationId: "review-source-location-point",
+            x: 520,
+            y: 320,
+          },
+          "agent-native:review-anchor-at-point-result",
+        );
         const rects = await request(
           {
             type: "agent-native:review-node-rects",
@@ -14434,6 +14444,7 @@ it(
           anchor,
           selectorAnchor,
           nestedAnchor,
+          sourceLocationAnchor,
           rects,
           selectorRects,
           focus,
@@ -14446,11 +14457,17 @@ it(
         tagName: "h1",
       });
       expect(result.selectorAnchor).toMatchObject({
-        targetSelector: "body > div:nth-of-type(1) > span:nth-of-type(1)",
+        targetSelector:
+          "source-equivalent:v1:body > div:nth-of-type(1) > span:nth-of-type(1)",
         tagName: "span",
       });
       expect(result.selectorAnchor.nodeId).toBeUndefined();
       expect(result.nestedAnchor).toMatchObject({ nodeId: "nested-child" });
+      expect(result.sourceLocationAnchor).toMatchObject({
+        nodeId: "src:nested-source",
+        hitSelector: "source-equivalent:v1:body > section:nth-of-type(1)",
+        tagName: "section",
+      });
       expect(result.rects).toMatchObject({
         rects: {
           "hero-title": { left: 40, top: 40, width: 320, height: 80 },

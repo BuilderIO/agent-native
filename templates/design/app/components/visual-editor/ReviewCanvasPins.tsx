@@ -510,9 +510,8 @@ function isRenderedElement(value: unknown): value is HTMLElement | SVGElement {
 }
 
 /**
- * The element a saved selector names. A source-equivalent path (body > ...) resolves the
- * way the bridge built it; any other selector, such as the [data-loc] attribute selector a
- * reprompt target carries, is a native selector.
+ * Resolves versioned source paths with their matching sibling rules and leaves
+ * unversioned persisted selectors on their original native CSS semantics.
  */
 function selectorElement(
   canvas: HTMLElement,
@@ -523,14 +522,6 @@ function selectorElement(
   );
   const doc = iframe?.contentDocument;
   if (!doc) return null;
-  if (!selector.startsWith("body > ")) {
-    try {
-      return doc.querySelector(selector);
-      // coercion-ok: a selector the browser cannot parse names no element.
-    } catch {
-      return null;
-    }
-  }
   return resolveSourceEquivalentSelector(doc, selector);
 }
 
@@ -2006,19 +1997,23 @@ export function ReviewCanvasPins({
           ) {
             return current;
           }
+          const anchor = {
+            ...current.anchor,
+            ...(nodeId ? { nodeId } : {}),
+            point: current.anchor.point,
+          };
+          if (nodeFoundById) delete anchor.selector;
+          else if (anchorSelector) anchor.selector = anchorSelector;
+          const metadata = { ...current.metadata };
+          if (nodeFoundById) delete metadata.targetSelector;
+          else if (targetSelector) metadata.targetSelector = targetSelector;
           return {
             ...current,
-            anchor: {
-              ...current.anchor,
-              ...(nodeId ? { nodeId } : {}),
-              ...(anchorSelector ? { selector: anchorSelector } : {}),
-              point: current.anchor.point,
-            },
+            anchor,
             metadata: {
-              ...current.metadata,
+              ...metadata,
               ...(layerName ? { layerName } : {}),
               ...(tagName ? { tagName } : {}),
-              ...(targetSelector ? { targetSelector } : {}),
             },
           };
         });
@@ -2303,7 +2298,7 @@ export function ReviewCanvasPins({
       const targetSelector =
         typeof pin.metadata.targetSelector === "string"
           ? pin.metadata.targetSelector
-          : undefined;
+          : resolved?.anchor.selector;
       if (
         !instruction.trim() ||
         (!nodeId && !targetSelector) ||
@@ -2405,7 +2400,7 @@ export function ReviewCanvasPins({
       const targetSelector =
         typeof pin.metadata.targetSelector === "string"
           ? pin.metadata.targetSelector
-          : undefined;
+          : resolved?.anchor.selector;
       if (
         !instruction.trim() ||
         (!nodeId && !targetSelector) ||

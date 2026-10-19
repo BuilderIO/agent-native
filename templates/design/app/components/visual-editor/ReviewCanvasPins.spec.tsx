@@ -238,7 +238,11 @@ function MockReviewCommentComposer(props: {
       ) : null}
       {props.showAgentAction
         ? (props.agentAction ?? (
-            <button type="button" data-review-test-agent-action />
+            <button
+              type="button"
+              data-review-test-agent-action
+              onClick={() => submit("agent")}
+            />
           ))
         : null}
     </div>
@@ -1802,7 +1806,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     ).not.toBeNull();
   });
 
-  it("enriches opaque iframe clicks with a bridge-resolved node anchor", async () => {
+  it("clears a structural guess when the bridge resolves a source-location ID", async () => {
     const iframe = document.createElement("iframe");
     iframe.setAttribute("data-design-preview-iframe", "");
     iframe.getBoundingClientRect = () =>
@@ -1821,7 +1825,11 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     Object.defineProperty(iframe, "clientHeight", { value: 600 });
     canvas.appendChild(iframe);
     iframe.contentDocument!.body.innerHTML =
-      '<h1 data-agent-native-node-id="hero-title">Hello</h1>';
+      '<h1 data-loc="src:hero-title">Hello</h1>';
+    Object.defineProperty(iframe.contentDocument, "elementsFromPoint", {
+      configurable: true,
+      value: () => [iframe.contentDocument!.querySelector("h1")],
+    });
     const postMessage = vi.fn();
     Object.defineProperty(iframe.contentWindow, "postMessage", {
       configurable: true,
@@ -1869,7 +1877,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
           data: {
             type: "agent-native:review-anchor-at-point-result",
             correlationId: bridgeRequest?.correlationId,
-            nodeId: "hero-title",
+            nodeId: "src:hero-title",
             hitSelector: "body > h1:nth-of-type(1)",
             layerName: "Hero title",
             tagName: "h1",
@@ -1892,13 +1900,16 @@ describe("ReviewCanvasPins persisted thread popover", () => {
 
     expect(mocks.createMutate.mock.calls[0]?.[0]).toMatchObject({
       anchor: {
-        nodeId: "hero-title",
+        nodeId: "src:hero-title",
         point: { xPct: 50, yPct: 50 },
       },
       metadata: { layerName: "Hero title", tagName: "h1" },
     });
     expect(mocks.createMutate.mock.calls[0]?.[0]?.anchor).not.toHaveProperty(
       "selector",
+    );
+    expect(mocks.createMutate.mock.calls[0]?.[0]?.metadata).not.toHaveProperty(
+      "targetSelector",
     );
   });
 
@@ -1988,6 +1999,139 @@ describe("ReviewCanvasPins persisted thread popover", () => {
         selector: "body > main > section:nth-of-type(2)",
       },
     });
+  });
+
+  it("uses the saved instance selector for a repeated-source reprompt", async () => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    iframe.getBoundingClientRect = () =>
+      ({
+        x: 0,
+        y: 0,
+        left: 0,
+        top: 0,
+        right: 800,
+        bottom: 600,
+        width: 800,
+        height: 600,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    Object.defineProperty(iframe, "clientWidth", { value: 800 });
+    Object.defineProperty(iframe, "clientHeight", { value: 600 });
+    canvas.appendChild(iframe);
+    iframe.contentDocument!.body.innerHTML =
+      '<main><section data-loc="src:1">First</section><section data-loc="src:1">Second</section></main>';
+    Object.defineProperty(iframe.contentDocument, "elementsFromPoint", {
+      configurable: true,
+      value: () => [],
+    });
+    const postMessage = vi.fn();
+    Object.defineProperty(iframe.contentWindow, "postMessage", {
+      configurable: true,
+      value: postMessage,
+    });
+
+    await act(async () => {
+      root.render(
+        <ReviewCanvasPins
+          active
+          onClose={vi.fn()}
+          canvasSelector=".review-test-canvas"
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          canPost
+          canResolve
+          onDispatchCommentToAgent={vi.fn()}
+          sourceType="inline"
+          sourceVersionHash="hash-1"
+        />,
+      );
+    });
+    await act(async () => {
+      document
+        .querySelector<HTMLElement>("[data-review-click-plane]")
+        ?.dispatchEvent(
+          new MouseEvent("click", {
+            bubbles: true,
+            clientX: 400,
+            clientY: 300,
+          }),
+        );
+    });
+
+    const bridgeRequest = postMessage.mock.calls
+      .map(([message]) => message as Record<string, unknown>)
+      .find(
+        (message) => message.type === "agent-native:review-anchor-at-point",
+      );
+    expect(bridgeRequest).toBeDefined();
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source: iframe.contentWindow,
+          data: {
+            type: "agent-native:review-anchor-at-point-result",
+            correlationId: bridgeRequest?.correlationId,
+            nodeId: "src:1",
+            hitSelector:
+              "source-equivalent:v1:body > main:nth-of-type(1) > section:nth-of-type(2)",
+            tagName: "section",
+          },
+        }),
+      );
+      document
+        .querySelector<HTMLButtonElement>("[data-review-test-type]")
+        ?.click();
+    });
+    const modeMenuTrigger = document.querySelector<HTMLButtonElement>(
+      '[aria-label="designEditor.nodeRewrite.agentModeOptions"]',
+    );
+    await act(async () => {
+      modeMenuTrigger?.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+      modeMenuTrigger?.click();
+    });
+    const previewMode = Array.from(
+      document.querySelectorAll<HTMLElement>("[role='menuitemradio']"),
+    ).find((item) =>
+      item.textContent?.includes("designEditor.nodeRewrite.modeRegenerate"),
+    );
+    await act(async () => previewMode?.click());
+    await act(async () => {
+      Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
+        .find((button) =>
+          button.textContent?.includes(
+            "designEditor.nodeRewrite.modeRegenerate",
+          ),
+        )
+        ?.click();
+    });
+
+    expect(mocks.createMutate).not.toHaveBeenCalled();
+    expect(mocks.callAction).toHaveBeenCalledWith(
+      "begin-node-rewrite-request",
+      expect.objectContaining({
+        target: {
+          nodeId: "src:1",
+          selector:
+            "source-equivalent:v1:body > main:nth-of-type(1) > section:nth-of-type(2)",
+        },
+      }),
+    );
+    expect(mocks.sendToAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: expect.stringContaining(
+          '<section data-loc="src:1">Second</section>',
+        ),
+      }),
+      { timeoutMs: 10_000 },
+    );
   });
 
   it("anchors to a bridge-resolved layer selector instead of the body", async () => {

@@ -1726,7 +1726,7 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
     ) {
       if (
         current.matches(
-          "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[id]",
+          "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[data-loc],[id]",
         )
       ) {
         identifiedAncestor = current;
@@ -1926,20 +1926,11 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
       if (!reviewSelectorCorrelationId || typeof reviewSelector !== "string") {
         return;
       }
-      // Mirrors the parent's selectorElement: body paths use the source walk, any other selector is native.
-      var reviewSelectorElement: Element | null = null;
-      if (reviewSelector.indexOf("body > ") === 0) {
-        reviewSelectorElement = resolveSourceEquivalentSelector(
-          document,
-          reviewSelector,
-        );
-      } else {
-        try {
-          reviewSelectorElement = document.querySelector(reviewSelector);
-        } catch (_err) {
-          reviewSelectorElement = null;
-        }
-      }
+      // Unversioned selectors retain native CSS matching; new source paths use the filtered walk.
+      var reviewSelectorElement = resolveSourceEquivalentSelector(
+        document,
+        reviewSelector,
+      );
       if (reviewSelectorElement === document.body) reviewSelectorElement = null;
       var reviewSelectorBox = reviewSelectorElement
         ? reviewSelectorElement.getBoundingClientRect()

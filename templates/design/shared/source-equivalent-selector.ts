@@ -1,11 +1,19 @@
 /**
- * Source-equivalent selectors name an element by its place in the source tree.
- * The design bridge builds them inside the preview frame, and the parent canvas
+ * Versioned source-equivalent selectors name an element by its place in the source
+ * tree. The design bridge builds them inside the preview frame, and the parent canvas
  * resolves them again after layout moves. Both sides must skip the same siblings:
  * Alpine's generated template instances and the editor's own injected overlays are
  * not in the source, so native querySelector, which counts them, can land on a
  * different element. This module is compiled into the bridge, so keep it dependency-free.
  */
+
+export const SOURCE_EQUIVALENT_SELECTOR_PREFIX = "source-equivalent:v1:";
+
+export function sourceEquivalentSelectorPath(selector: string): string {
+  return selector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)
+    ? selector.slice(SOURCE_EQUIVALENT_SELECTOR_PREFIX.length)
+    : selector;
+}
 
 export function alpineGeneratedChildrenOf(parent: Element): Element[] {
   const generated: Element[] = [];
@@ -78,19 +86,26 @@ export function buildSourceEquivalentSelector(el: Element | null): string {
   }
   if (!node) return "";
   parts.unshift("body");
-  return parts.join(" > ");
+  return `${SOURCE_EQUIVALENT_SELECTOR_PREFIX}${parts.join(" > ")}`;
 }
 
 /**
- * Walks a source-equivalent selector the way buildSourceEquivalentSelector counted it.
- * A segment without :nth-of-type is accepted too: selectors persisted before the count
- * was written leave it out when a tag had a single sibling, which means the first one.
+ * Resolves new versioned paths with source sibling rules and older selectors with native
+ * CSS matching so previously saved anchors keep their original sibling counts.
  */
 export function resolveSourceEquivalentSelector(
   doc: Document,
   selector: string,
 ): Element | null {
-  const parts = selector.split(" > ");
+  const sourcePath = sourceEquivalentSelectorPath(selector);
+  if (sourcePath === selector) {
+    try {
+      return doc.querySelector(selector);
+    } catch {
+      return null;
+    }
+  }
+  const parts = sourcePath.split(" > ");
   if (parts[0] !== "body") return null;
   let current: Element | null = doc.body;
   for (let partIndex = 1; partIndex < parts.length; partIndex += 1) {
