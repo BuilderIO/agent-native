@@ -131,11 +131,26 @@ export async function estimateBigQuerySql(
         };
   }
   if (dryRun.error !== null) {
-    return {
-      status: "failed",
-      failure: dryRun.timedOut ? "timeout" : "invalid_sql",
-      error: describeError(dryRun.error),
-    };
+    if (dryRun.timedOut) {
+      return {
+        status: "failed",
+        failure: "timeout",
+        error: describeError(dryRun.error),
+      };
+    }
+    // Only a 400 means BigQuery rejected the SQL; auth, quota, and server
+    // errors say nothing about the query.
+    return dryRun.status === undefined || dryRun.status === 400
+      ? {
+          status: "failed",
+          failure: "invalid_sql",
+          error: describeError(dryRun.error),
+        }
+      : {
+          status: "failed",
+          failure: "no_estimate",
+          error: `BigQuery couldn't run the dry run (HTTP ${dryRun.status}). Try again later or check the BigQuery connection in Settings → Data sources.`,
+        };
   }
   if (
     dryRun.totalBytesProcessed === undefined ||

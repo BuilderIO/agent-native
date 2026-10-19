@@ -1628,26 +1628,32 @@ export async function renderFirstPartyAnalyticsBigQueryEstimateSql(
   } catch (error) {
     return { target: "invalid", error };
   }
+  // Backend and table lookups stay outside the try blocks: their failures are
+  // load errors, while everything that inspects the SQL means invalid SQL.
   const backend = await getFirstPartyAnalyticsBackend(scope, signal);
-  if (firstPartyAnalyticsQueryTarget(sql, backend.sink) !== "bigquery") {
-    return { target: "sql-store" };
-  }
   let scoped: ReturnType<typeof scopedAnalyticsSql>;
   try {
+    if (firstPartyAnalyticsQueryTarget(sql, backend.sink) !== "bigquery") {
+      return { target: "sql-store" };
+    }
     validateAnalyticsSqlFunctions(shaped, "bigquery");
     scoped = scopedAnalyticsSql(sql, scope);
   } catch (error) {
     return { target: "invalid", error };
   }
   const table = await getFirstPartyAnalyticsTable(backend.table, signal);
-  return {
-    target: "bigquery",
-    sql: renderFirstPartyAnalyticsBigQueryRequestSql(
-      scoped.sql,
-      scoped.args,
-      table,
-    ),
-  };
+  try {
+    return {
+      target: "bigquery",
+      sql: renderFirstPartyAnalyticsBigQueryRequestSql(
+        scoped.sql,
+        scoped.args,
+        table,
+      ),
+    };
+  } catch (error) {
+    return { target: "invalid", error };
+  }
 }
 
 export async function queryFirstPartyAnalytics(

@@ -456,7 +456,7 @@ export async function countEnabledDashboardReportSubscriptions(
           ? eq(schema.dashboardReportSubscriptions.orgId, ctx.orgId)
           : and(
               isNull(schema.dashboardReportSubscriptions.orgId),
-              eq(schema.dashboardReportSubscriptions.ownerEmail, ctx.email),
+              sql`lower(${schema.dashboardReportSubscriptions.ownerEmail}) = ${ctx.email.toLowerCase()}`,
             ),
       ),
     );

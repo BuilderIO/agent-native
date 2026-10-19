@@ -1137,6 +1137,8 @@ const BIGQUERY_NOT_CONFIGURED_PATTERN =
 export interface DryRunQueryResult {
   error: string | null;
   timedOut?: true;
+  /** HTTP status of a failed dry-run request; 400 means BigQuery rejected the SQL. */
+  status?: number;
   /** Absent when BigQuery's dry-run response carried no schema. */
   schema?: { name: string; type: string }[];
   /** Absent when BigQuery's dry-run response carried no byte estimate. */
@@ -1263,12 +1265,15 @@ export async function dryRunQuerySchema(
         error?: { message?: string };
       };
       const msg = parsed.error?.message?.trim();
-      if (msg) return { error: msg };
+      if (msg) return { error: msg, status: res.status };
       // coercion-ok: malformed BigQuery error bodies use the status fallback below.
     } catch {
       // Fall through
     }
-    return { error: `BigQuery validation failed (${res.status})` };
+    return {
+      error: `BigQuery validation failed (${res.status})`,
+      status: res.status,
+    };
   } catch (error) {
     if (timedOut) return { error: timeoutMessage, timedOut: true };
     throw error;

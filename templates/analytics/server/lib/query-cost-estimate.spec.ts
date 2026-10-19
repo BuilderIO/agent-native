@@ -134,6 +134,24 @@ describe("estimateBigQuerySql", () => {
     });
   });
 
+  it("keeps provider failures apart from invalid SQL", async () => {
+    mocks.dryRun.mockResolvedValueOnce({
+      error: "Syntax error: Unexpected keyword",
+      status: 400,
+    });
+    await expect(
+      estimateBigQuerySql("SELECT 1 FROM", null),
+    ).resolves.toMatchObject({
+      failure: "invalid_sql",
+    });
+    for (const status of [403, 429, 503]) {
+      mocks.dryRun.mockResolvedValueOnce({ error: "quota", status });
+      await expect(
+        estimateBigQuerySql("SELECT 1", null),
+      ).resolves.toMatchObject({ failure: "no_estimate" });
+    }
+  });
+
   it("treats a missing byte count as no estimate, never as free", async () => {
     mocks.dryRun.mockResolvedValueOnce({ error: null });
     await expect(estimateBigQuerySql("SELECT 1", null)).resolves.toMatchObject({
