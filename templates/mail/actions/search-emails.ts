@@ -2,7 +2,10 @@ import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail, buildDeepLink } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
 import { track } from "@agent-native/core/tracking";
-import { emailMessageMatchesSearch } from "@shared/search.js";
+import {
+  emailMessageMatchesSearch,
+  searchQueryNeedsAttachmentMetadata,
+} from "@shared/search.js";
 import { z } from "zod";
 
 import { buildGmailEmailSearchQuery } from "../server/lib/gmail-query.js";
@@ -12,7 +15,7 @@ import {
   listGmailMessages,
   gmailToEmailMessage,
   fetchGmailLabelMap,
-  getClients,
+  getClientsWithErrors,
   isConnected,
 } from "../server/lib/google-auth.js";
 import { retryAfterSecondsFromErrors } from "../server/lib/list-inbox-emails.js";
@@ -108,7 +111,13 @@ export default defineAction({
       ])
       .optional()
       .describe("Limit search to a view (default: all)"),
-    limit: z.coerce.number().optional().describe("Max results (default: 25)"),
+    limit: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(500)
+      .optional()
+      .describe("Max results (default: 25, max: 500)"),
     account: z
       .string()
       .optional()
@@ -213,7 +222,17 @@ export default defineAction({
       return JSON.stringify(payload, null, 2);
     }
 
-    const clients = await getClients(ownerEmail);
+    const { clients, errors: clientErrors } = await getClientsWithErrors(
+      ownerEmail,
+      accountFilter ? [accountFilter] : undefined,
+    );
+    if (clientErrors.length > 0) {
+      throw new Error(
+        clientErrors
+          .map((error) => `${error.email}: ${error.error}`)
+          .join("; "),
+      );
+    }
     if (clients.length === 0) throw new Error("No Google account connected.");
     await assertGmailNotCoolingDown(clients.map((client) => client.email));
 
@@ -234,18 +253,18 @@ export default defineAction({
       limit,
       ownerEmail,
       undefined,
-      { mode: "threads", threadCandidateLimit: 500 },
+      {
+        mode: "threads",
+        threadFormat:
+          !compact || searchQueryNeedsAttachmentMetadata(args.q)
+            ? "full"
+            : "metadata",
+        threadCandidateLimit: Math.min(500, Math.max(40, limit + 1)),
+        ...(accountFilter && { accountEmails: [accountFilter] }),
+      },
     );
-    if (errors.length > 0 && messages.length === 0) {
-      const failedAccounts = new Set(
-        errors.map((error) => error.email.toLowerCase()),
-      );
-      if (
-        errors.every((error) => error.isQuotaError) &&
-        clients.every((client) =>
-          failedAccounts.has(client.email.toLowerCase()),
-        )
-      ) {
+    if (errors.length > 0) {
+      if (errors.every((error) => error.isQuotaError)) {
         throw new GmailQuotaCooldownError(
           retryAfterSecondsFromErrors(errors) * 1000,
         );

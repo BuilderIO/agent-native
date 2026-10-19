@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import * as schema from "../db/schema";
 import { EXTERNAL_DASHBOARD_MIGRATION_SQL } from "../lib/bi-migration/external-dashboards-store";
+import { BUILTIN_DASHBOARD_CHECKS_MIGRATION_SQL } from "../lib/builtin-dashboard-checks-migration";
 import { DATA_NOTES_MIGRATION_SQL } from "../lib/data-notes-migration";
 import { KEY_DATES_MIGRATION_SQL } from "../lib/key-dates-migration";
 import { SOURCE_INDEX_RUNS_MIGRATION_SQL } from "../lib/source-index-runs";
@@ -42,6 +43,7 @@ const migrationHistorySource = [
   EXTERNAL_DASHBOARD_MIGRATION_SQL.join("\n"),
   KEY_DATES_MIGRATION_SQL.join("\n"),
   DATA_NOTES_MIGRATION_SQL.join("\n"),
+  BUILTIN_DASHBOARD_CHECKS_MIGRATION_SQL.join("\n"),
 ].join("\n");
 
 interface DrizzleColumn {

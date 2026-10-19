@@ -156,6 +156,7 @@ import {
   validateFirstPartyAnalyticsSql,
 } from "./first-party-analytics";
 import { withFirstPartyCache } from "./first-party-analytics-cache";
+import { FirstPartyAnalyticsValidationError } from "./first-party-analytics-errors.js";
 import {
   buildOnboardingJourneyEventsSql,
   buildOnboardingJourneyFollowupSql,
@@ -898,6 +899,43 @@ describe("recordAnalyticsEvents", () => {
 });
 
 describe("validateFirstPartyAnalyticsSql", () => {
+  it("tags source and function validation failures for safe action guidance", () => {
+    const capture = (sql: string) => {
+      try {
+        validateFirstPartyAnalyticsSql(sql);
+      } catch (error) {
+        return error;
+      }
+      return undefined;
+    };
+    const sourceError = capture("SELECT user_id FROM dbt_mart.dim_users_core");
+    const functionError = capture(
+      "SELECT DIV(COUNT(*), 2) FROM analytics_event_daily_rollups",
+    );
+
+    expect(sourceError).toBeInstanceOf(FirstPartyAnalyticsValidationError);
+    expect(sourceError).toMatchObject({ code: "disallowed_source" });
+    expect(functionError).toBeInstanceOf(FirstPartyAnalyticsValidationError);
+    expect(functionError).toMatchObject({ code: "unsupported_function" });
+  });
+
+  it.each([
+    "UPDATE analytics_events SET event_name = 'private'",
+    "SELECT event_name FROM analytics_events; SELECT event_name FROM analytics_events",
+    "SELECT event_name FROM analytics_events, analytics_user_days",
+    "SELECT event_name FROM analytics_events WHERE event_name = $1",
+  ])("tags rejected query shape for safe recovery guidance: %s", (sql) => {
+    let error: unknown;
+    try {
+      validateFirstPartyAnalyticsSql(sql);
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(FirstPartyAnalyticsValidationError);
+    expect(error).toMatchObject({ code: "invalid_shape" });
+  });
+
   it("rejects PostgreSQL-style bind placeholders outside string literals", () => {
     expect(() =>
       validateFirstPartyAnalyticsSql(
@@ -985,6 +1023,7 @@ describe("validateFirstPartyAnalyticsSql", () => {
       "SELECT ts_stat('SELECT * FROM analytics_events') FROM session_recordings LIMIT 1",
       "SELECT pg_sleep(1) FROM analytics_events",
       "SELECT public.sum(event_count) FROM analytics_event_daily_rollups",
+      "SELECT DIV(COUNT(*), NULLIF(COUNT(*), 0)) FROM analytics_event_daily_rollups",
     ]) {
       expect(() => validateFirstPartyAnalyticsSql(sql)).toThrow(
         "cannot call unapproved SQL function",
@@ -1001,6 +1040,11 @@ describe("validateFirstPartyAnalyticsSql", () => {
     expect(() =>
       validateFirstPartyAnalyticsSql(
         "SELECT CASE WHEN COUNT(*) = 0 THEN 0 ELSE 1.0 * COUNT(*) FILTER (WHERE event_date IS NOT NULL) / COUNT(*) END AS rate FROM analytics_events",
+      ),
+    ).not.toThrow();
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        "SELECT 100.0 * COUNT(*) FILTER (WHERE event_name = 'signup') / NULLIF(COUNT(*), 0) AS rate FROM analytics_event_daily_rollups",
       ),
     ).not.toThrow();
     expect(() =>
@@ -1694,6 +1738,31 @@ describe("scopedAnalyticsSql", () => {
 });
 
 describe("queryFirstPartyAnalytics", () => {
+  it.each([false, true])(
+    "preserves BigQuery execution metadata through the scoped query on cache hit %s",
+    async (cached) => {
+      backendMocks.get.mockResolvedValueOnce({ sink: "bigquery" });
+      const result = {
+        rows: [{ events: 1 }],
+        schema: [{ name: "events", type: "number" }],
+        bytesProcessed: 4096,
+        cached,
+        providerCacheHit: false,
+        fetchedAt: "2026-10-14T12:00:00.000Z",
+        truncated: false,
+      };
+      backendMocks.query.mockResolvedValueOnce(result);
+      await expect(
+        queryFirstPartyAnalytics(
+          "SELECT COUNT(*) AS events FROM analytics_events",
+          { userEmail: "example@example.test", orgId: "example-org" },
+          { cache: true },
+        ),
+      ).resolves.toEqual(result);
+      expect(backendMocks.query).toHaveBeenCalledTimes(1);
+      expect(execute).not.toHaveBeenCalled();
+    },
+  );
   it.each([
     "now()",
     "to_char(CURRENT_DATE, 'YYYY-MM-DD')",
@@ -1966,12 +2035,16 @@ describe("queryFirstPartyAnalytics", () => {
       backfillCompleted: true,
     });
 
-    await expect(
-      queryFirstPartyAnalytics(
-        "SELECT COUNT(*) FROM analytics_events JOIN session_recordings ON true",
-        { userEmail: "alice@example.com", orgId: "org_123" },
-      ),
-    ).rejects.toThrow("Cross-backend joins are not supported");
+    const error = await queryFirstPartyAnalytics(
+      "SELECT COUNT(*) FROM analytics_events JOIN session_recordings ON true",
+      { userEmail: "alice@example.com", orgId: "org_123" },
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(FirstPartyAnalyticsValidationError);
+    expect(error).toMatchObject({ code: "cross_backend_join" });
+    expect(error).toMatchObject({
+      message: expect.stringContaining("Cross-backend joins are not supported"),
+    });
   });
 
   it("rejects unapproved functions before executing SQL-store queries", async () => {
@@ -2250,8 +2323,15 @@ describe("queryFirstPartyAnalytics", () => {
     try {
       const query = "SELECT COUNT(*) AS count FROM analytics_events";
       const scope = { userEmail: "cached@example.com", orgId: null };
-      await queryFirstPartyAnalytics(query, scope, { cache: true });
-      await queryFirstPartyAnalytics(query, scope, { cache: true });
+      const first = await queryFirstPartyAnalytics(query, scope, {
+        cache: true,
+      });
+      const cached = await queryFirstPartyAnalytics(query, scope, {
+        cache: true,
+      });
+      expect(first.cached).toBe(false);
+      expect(first.fetchedAt).toEqual(expect.any(String));
+      expect(cached).toEqual({ ...first, cached: true });
     } finally {
       random.mockRestore();
     }
@@ -2278,6 +2358,35 @@ describe("queryFirstPartyAnalytics", () => {
     );
     expect(execute.mock.calls[2][0].timeoutMs).toBeLessThanOrEqual(1_000);
   });
+
+  it.each([true, false])(
+    "preserves L2 metadata and the original age through L1, with fetch time present %s",
+    async (withFetchTime) => {
+      const saved = {
+        rows: [{ events: 1 }],
+        schema: [{ name: "events", type: "number" }],
+        ...(withFetchTime ? { fetchedAt: "2026-10-14T12:00:00.000Z" } : {}),
+      };
+      execute.mockResolvedValue({
+        rows: [{ result: JSON.stringify(saved) }],
+        rowsAffected: 0,
+      });
+      const scope = {
+        userEmail: `cache-${withFetchTime}@example.test`,
+        orgId: null,
+      };
+      const sql = "SELECT COUNT(*) AS events FROM analytics_events";
+      const first = await queryFirstPartyAnalytics(sql, scope, { cache: true });
+      expect(first).toEqual({ ...saved, cached: true });
+      expect(first).not.toHaveProperty("bytesProcessed");
+      const cached = await queryFirstPartyAnalytics(sql, scope, {
+        cache: true,
+      });
+      expect(cached).toEqual(first);
+      if (!withFetchTime) expect(cached).not.toHaveProperty("fetchedAt");
+      expect(execute).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("shares one deadline between the cache read and panel query", async () => {
     let now = 1_000;
@@ -2794,6 +2903,8 @@ describe("queryFirstPartyAnalytics", () => {
     ).resolves.toEqual({
       rows: [{ count: "1" }],
       schema: [{ name: "count", type: "string" }],
+      cached: false,
+      fetchedAt: expect.any(String),
     });
   });
 });

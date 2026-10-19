@@ -1,5 +1,9 @@
 import { useParams } from "react-router";
 
+import {
+  DesignStylesheetsContext,
+  designStylesheetsKey,
+} from "@/components/design/design-canvas/linked-stylesheets";
 import { useContainHorizontalOverscroll } from "@/hooks/use-contain-horizontal-overscroll";
 
 import { renderDesignEditorView } from "./design-editor/design-editor-view";
@@ -256,27 +260,33 @@ function DesignEditor() {
     editorLayerActions,
     editorSourceAndSync,
   });
-  return renderDesignEditorView({
-    editorCore,
-    editorHistory,
-    editorGenerationAndAccess,
-    editorFilesAndSaving,
-    editorActiveScreenAndGeometry,
-    editorCanvasAndScreens,
-    editorLiveEditsAndPresence,
-    editorContentAndComponents,
-    editorToolsAndVectors,
-    editorSelectionAndStyles,
-    editorScreenChangeHandlers,
-    editorClipboard,
-    editorLayoutAndStructure,
-    editorEditCommands,
-    editorModes,
-    editorExportAndHandoff,
-    editorLayerModels,
-    editorScreenInspector,
-    editorLayerActions,
-    editorSourceAndSync,
-    editorScreenRendering,
-  });
+  return (
+    <DesignStylesheetsContext.Provider
+      value={designStylesheetsKey(editorFilesAndSaving.files)}
+    >
+      {renderDesignEditorView({
+        editorCore,
+        editorHistory,
+        editorGenerationAndAccess,
+        editorFilesAndSaving,
+        editorActiveScreenAndGeometry,
+        editorCanvasAndScreens,
+        editorLiveEditsAndPresence,
+        editorContentAndComponents,
+        editorToolsAndVectors,
+        editorSelectionAndStyles,
+        editorScreenChangeHandlers,
+        editorClipboard,
+        editorLayoutAndStructure,
+        editorEditCommands,
+        editorModes,
+        editorExportAndHandoff,
+        editorLayerModels,
+        editorScreenInspector,
+        editorLayerActions,
+        editorSourceAndSync,
+        editorScreenRendering,
+      })}
+    </DesignStylesheetsContext.Provider>
+  );
 }

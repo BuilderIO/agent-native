@@ -616,6 +616,10 @@ export const hitTestBridgeScript: string = `"use strict";
       }
       return true;
     }
+    function isOutOfFlow(el) {
+      var position = window.getComputedStyle(el).position;
+      return position === "absolute" || position === "fixed";
+    }
     function isAbsolutePrimitiveContainer(el) {
       if (!el || el.nodeType !== 1) return false;
       if (BRIDGE_REPLACED_TAGS[(el.tagName || "").toLowerCase()]) return false;
@@ -643,7 +647,7 @@ export const hitTestBridgeScript: string = `"use strict";
         }
         hasChild = true;
       }
-      return hasChild || window.getComputedStyle(el).position !== "static";
+      return hasChild || el === document.body || window.getComputedStyle(el).position !== "static";
     }
     function hasAbsolutePositionedChild(el) {
       var kids = el.children;
@@ -954,7 +958,7 @@ export const hitTestBridgeScript: string = `"use strict";
       while (cursor && cursor !== document.body) {
         if (isLayerInteractionBlocked(cursor)) return null;
         var parent = cursor.parentElement;
-        if (parent && isAutoLayoutElement(parent)) {
+        if (parent && isAutoLayoutElement(parent) && !isOutOfFlow(cursor)) {
           if (!hasKnownFlexMainAxis(parent)) return null;
           var emptyGridCell = gridEmptyCellInsertionTarget(
             parent,

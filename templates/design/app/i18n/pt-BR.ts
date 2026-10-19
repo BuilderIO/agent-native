@@ -916,6 +916,10 @@ export default {
       animations: "Animações",
       pathEditAmbiguous:
         "Esta camada tem várias animações de posição, então não é possível editar o caminho com precisão.",
+      pathEditPositionConflict:
+        "Esta camada já tem outra animação de posição, então o caminho dela não pode ser curvado.",
+      positionStyleConflict:
+        "Esta camada já tem uma animação de posição que não pode ser combinada com outra.",
       animationStyles: {
         title: "Animações",
         createTitle: "Criar novo estilo de animação",
@@ -1031,6 +1035,51 @@ export default {
         tooMany: "Um estilo pode incluir até 24 animações.",
         limit: "Este design atingiu o limite de 64 estilos de animação.",
       },
+      builtInRecipes: {
+        tempo: { fast: "Rápido", medium: "Médio", slow: "Lento" },
+        enter: {
+          recipe01: "Entrada Builder 01",
+          recipe02: "Entrada Builder 02",
+          recipe03: "Entrada Builder 03",
+          recipe04: "Entrada Builder 04",
+          recipe05: "Entrada Builder 05",
+          recipe06: "Entrada Builder 06",
+          recipe07: "Entrada Builder 07",
+          recipe08: "Entrada Builder 08",
+          recipe09: "Entrada Builder 09",
+          recipe10: "Entrada Builder 10",
+          recipe11: "Entrada Builder 11",
+          recipe12: "Entrada Builder 12",
+        },
+        cycle: {
+          recipe01: "Ciclo Builder 01",
+          recipe02: "Ciclo Builder 02",
+          recipe03: "Ciclo Builder 03",
+          recipe04: "Ciclo Builder 04",
+          recipe05: "Ciclo Builder 05",
+          recipe06: "Ciclo Builder 06",
+          recipe07: "Ciclo Builder 07",
+          recipe08: "Ciclo Builder 08",
+          recipe09: "Ciclo Builder 09",
+          recipe10: "Ciclo Builder 10",
+          recipe11: "Ciclo Builder 11",
+          recipe12: "Ciclo Builder 12",
+        },
+        exit: {
+          recipe01: "Saída Builder 01",
+          recipe02: "Saída Builder 02",
+          recipe03: "Saída Builder 03",
+          recipe04: "Saída Builder 04",
+          recipe05: "Saída Builder 05",
+          recipe06: "Saída Builder 06",
+          recipe07: "Saída Builder 07",
+          recipe08: "Saída Builder 08",
+          recipe09: "Saída Builder 09",
+          recipe10: "Saída Builder 10",
+          recipe11: "Saída Builder 11",
+          recipe12: "Saída Builder 12",
+        },
+      },
       tabLabel: "Movimento",
       transform: "Transformação",
       layout: "Layout",
@@ -1064,6 +1113,8 @@ export default {
         "O Motion não pode ler esta animação sem alterar seu comportamento.",
       sourceWriteUnavailable:
         "No momento, o código de movimento só pode ser gravado em designs HTML inline.",
+      unresolvedStylesheets:
+        "Resolva as folhas de estilo externas antes de editar ou adicionar Motion.",
       sourceConflict:
         "O código do Motion mudou enquanto esta linha do tempo tinha alterações não salvas. Recarregue o código para descartá-las e usar a fonte atual.",
       reloadFromSource: "Recarregar código",
@@ -1145,17 +1196,20 @@ export default {
       },
       nativeTextStagger: {
         create: "Texto escalonado",
-        animationDirection: "Direção da animação",
+        animationDirection: "Direção",
         enter: "Entrada",
         exit: "Saída",
-        grouping: "Agrupar por",
+        grouping: "Cada",
         order: "Ordem",
         overlap: "Sobreposição",
+        ignoreSpaces: "Ignorar espaços",
         positionDirection: "Direção da posição",
         rotationDirection: "Direção da rotação",
         orderOptions: {
           leftToRight: "Da esquerda para a direita",
           rightToLeft: "Da direita para a esquerda",
+          centerOut: "Do centro para fora",
+          random: "Aleatório",
           topToBottom: "De cima para baixo",
           bottomToTop: "De baixo para cima",
         },
@@ -1175,6 +1229,12 @@ export default {
       addKeyframe: "Adicionar quadro-chave",
       trackExists:
         'Uma faixa de "{{property}}" já existe para {{label}}. Edite os quadros-chave na linha do tempo.',
+      recipeDoesNotFit:
+        "Não há espaço suficiente para adicionar esta animação na posição atual da linha do tempo.",
+      textSyncUnsupported:
+        "Não é possível sincronizar estas configurações de movimento do texto.",
+      textPropertyAlreadyAnimated:
+        "Uma animação de texto no código já controla esta propriedade.",
       layerAnimationSpan: "Intervalo de animação de {{label}}",
       keyframeAt: "Quadro-chave em {{ms}}ms",
       deleteKeyframe: "Excluir quadro-chave",
@@ -1793,6 +1853,8 @@ export default {
         "Escolha uma rota para adicionar como novo quadro, ou digite um caminho.",
       searchPlaceholder: "Buscar rotas…",
       noRoutes: "Nenhuma rota encontrada",
+      noDiscoveredRoutes:
+        "Nenhuma rota foi encontrada neste app. Digite um caminho para adicionar uma tela.",
       useCustomPath: 'Adicionar "{{path}}"',
       viewportDesktop: "Desktop",
       viewportMobile: "Celular",
@@ -2070,8 +2132,8 @@ export default {
         title: "Renderizado pelo servidor local",
       },
       fusion: {
-        label: "Fusion remoto",
-        title: "Renderizado pelo Fusion",
+        label: "Builder remoto",
+        title: "Renderizado pelo Builder",
       },
       inline: {
         label: "Embutido",

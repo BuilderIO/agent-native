@@ -7,8 +7,15 @@ import {
   ensureTableExists,
 } from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
+import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
 import { hashAgentToolApprovalKey } from "./approval-key.js";
+import { withFencedExecutionWrite } from "./execution-fence.js";
 import {
+  AGENT_TOOL_APPROVAL_MIGRATIONS,
+  AGENT_TOOL_APPROVAL_MIGRATIONS_TABLE,
+} from "./tool-approval-migrations.js";
+import {
+  AGENT_TOOL_APPROVAL_ARGUMENTS_HASH_COLUMN_SQL,
   AGENT_TOOL_APPROVAL_INDEX_SQL,
   AGENT_TOOL_APPROVAL_LOGICAL_INDEX_SQL,
   AGENT_TOOL_APPROVAL_POLICY_INDEX_SQL,
@@ -58,6 +65,20 @@ export const agentToolApprovalsStore = defineStore({
         );
       },
     },
+    ...fromMigrationEntries(
+      AGENT_TOOL_APPROVAL_MIGRATIONS_TABLE,
+      AGENT_TOOL_APPROVAL_MIGRATIONS.filter((entry) => entry.version <= 3),
+    ),
+    {
+      name: "arguments-hash",
+      run: async () => {
+        await ensureColumnExists(
+          "agent_tool_approvals",
+          "arguments_hash",
+          AGENT_TOOL_APPROVAL_ARGUMENTS_HASH_COLUMN_SQL,
+        );
+      },
+    },
   ],
 });
 
@@ -91,6 +112,10 @@ export const agentToolApprovalPoliciesStore = defineStore({
         );
       },
     },
+    ...fromMigrationEntries(
+      AGENT_TOOL_APPROVAL_MIGRATIONS_TABLE,
+      AGENT_TOOL_APPROVAL_MIGRATIONS.filter((entry) => entry.version === 4),
+    ),
   ],
 });
 
@@ -108,6 +133,8 @@ export interface AgentToolApprovalBinding {
   toolRevision?: string | null;
   callId: string;
   approvalKey: string;
+  /** Fingerprint of the arguments the call runs with; consuming requires the same. */
+  argumentsHash?: string | null;
   approvalId?: string;
   expiresAt?: number;
 }
@@ -305,27 +332,35 @@ export async function createAgentToolApproval(
   const now = Date.now();
   const expiresAt = binding.expiresAt ?? now + APPROVAL_TTL_MS;
   const id = `agent-tool-approval-${randomUUID()}`;
-  await getDbExec().execute({
-    sql: `INSERT INTO agent_tool_approvals
-      (id, owner_email, org_id, thread_id, turn_id, tool_name, tool_revision,
-       call_id, approval_key_hash, status, expires_at, consumed_at, created_at,
-       updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL, ?, ?)`,
-    args: [
-      id,
-      binding.ownerEmail,
-      binding.orgId ?? null,
-      binding.threadId ?? null,
-      binding.turnId ?? null,
-      binding.toolName,
-      binding.toolRevision ?? null,
-      binding.callId,
-      hashAgentToolApprovalKey(binding.approvalKey),
-      expiresAt,
-      now,
-      now,
-    ],
-  });
+  await withFencedExecutionWrite(
+    (tx) =>
+      tx.execute({
+        sql: `INSERT INTO agent_tool_approvals
+          (id, owner_email, org_id, thread_id, turn_id, tool_name, tool_revision,
+           call_id, approval_key_hash, status, expires_at, consumed_at, created_at,
+           updated_at, arguments_hash)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL, ?, ?, ?)`,
+        args: [
+          id,
+          binding.ownerEmail,
+          binding.orgId ?? null,
+          binding.threadId ?? null,
+          binding.turnId ?? null,
+          binding.toolName,
+          binding.toolRevision ?? null,
+          binding.callId,
+          hashAgentToolApprovalKey(binding.approvalKey),
+          expiresAt,
+          now,
+          now,
+          binding.argumentsHash ?? null,
+        ],
+      }),
+    {
+      threadId: binding.threadId ?? undefined,
+      turnId: binding.turnId ?? undefined,
+    },
+  );
 
   try {
     await getDbExec().execute({
@@ -357,10 +392,12 @@ export async function consumeAgentToolApproval(
   const now = Date.now();
   const exactApprovalFilter = binding.approvalId ? "AND id = ?" : "";
   const approvalIdArgs = binding.approvalId ? [binding.approvalId] : [];
-  const result = await getDbExec().execute({
-    sql: `UPDATE agent_tool_approvals
-      SET status = 'consumed', consumed_at = ?, updated_at = ?
-      WHERE id = (
+  const result = await withFencedExecutionWrite(
+    (tx) =>
+      tx.execute({
+        sql: `UPDATE agent_tool_approvals
+          SET status = 'consumed', consumed_at = ?, updated_at = ?
+          WHERE id = (
         SELECT MIN(id) FROM agent_tool_approvals
         WHERE owner_email = ?
           AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = CAST(? AS TEXT))
@@ -369,29 +406,37 @@ export async function consumeAgentToolApproval(
           AND tool_name = ?
           AND ((tool_revision IS NULL AND CAST(? AS TEXT) IS NULL) OR tool_revision = ?)
           AND approval_key_hash = ?
+          AND ((arguments_hash IS NULL AND CAST(? AS TEXT) IS NULL) OR arguments_hash = ?)
           ${exactApprovalFilter}
           AND status = 'pending'
           AND expires_at > ?
         HAVING COUNT(*) = 1
-      )
-      AND status = 'pending'`,
-    args: [
-      now,
-      now,
-      binding.ownerEmail,
-      binding.orgId ?? null,
-      binding.orgId ?? null,
-      binding.threadId ?? null,
-      binding.threadId ?? null,
-      binding.turnId ?? null,
-      binding.turnId ?? null,
-      binding.toolName,
-      binding.toolRevision ?? null,
-      binding.toolRevision ?? null,
-      hashAgentToolApprovalKey(binding.approvalKey),
-      ...approvalIdArgs,
-      now,
-    ],
-  });
+          )
+          AND status = 'pending'`,
+        args: [
+          now,
+          now,
+          binding.ownerEmail,
+          binding.orgId ?? null,
+          binding.orgId ?? null,
+          binding.threadId ?? null,
+          binding.threadId ?? null,
+          binding.turnId ?? null,
+          binding.turnId ?? null,
+          binding.toolName,
+          binding.toolRevision ?? null,
+          binding.toolRevision ?? null,
+          hashAgentToolApprovalKey(binding.approvalKey),
+          binding.argumentsHash ?? null,
+          binding.argumentsHash ?? null,
+          ...approvalIdArgs,
+          now,
+        ],
+      }),
+    {
+      threadId: binding.threadId ?? undefined,
+      turnId: binding.turnId ?? undefined,
+    },
+  );
   return result.rowsAffected === 1;
 }

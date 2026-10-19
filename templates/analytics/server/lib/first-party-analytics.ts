@@ -23,6 +23,7 @@ import { and, eq, getTableName, isNull, lt, or, sql } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 
 import { FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
+import type { SqlQueryExecutionMetadata } from "../../shared/sql-query-contract.js";
 import { getDb, schema } from "../db/index.js";
 import {
   EXCEPTION_EVENT_NAME,
@@ -52,6 +53,7 @@ import {
   firstPartyAnalyticsDeliveryFallbackKey,
   isFirstPartyAnalyticsDeliveryQueueMissingError,
 } from "./first-party-analytics-delivery.js";
+import { FirstPartyAnalyticsValidationError } from "./first-party-analytics-errors.js";
 import {
   classifyFirstPartyAnalyticsQuery,
   queryOutcomeFromError,
@@ -97,10 +99,9 @@ export interface IncomingAnalyticsEvent {
   timestamp?: string | number | Date | null;
 }
 
-export interface AnalyticsQueryResult {
+export interface AnalyticsQueryResult extends SqlQueryExecutionMetadata {
   rows: Record<string, unknown>[];
   schema: { name: string; type: string }[];
-  truncated?: boolean;
 }
 
 export interface AnalyticsQueryOptions {
@@ -996,12 +997,16 @@ function validateFirstPartyAnalyticsSqlShape(sql: string): AgentSqlQuery {
     tokens[0]?.kind !== "word" ||
     !["select", "with"].includes(tokens[0].value)
   ) {
-    throw new Error(
+    throw new FirstPartyAnalyticsValidationError(
+      "invalid_shape",
       "First-party analytics queries must start with SELECT or WITH",
     );
   }
   if (tokens.some((token) => token.text === ";")) {
-    throw new Error("Only a single SELECT statement is allowed");
+    throw new FirstPartyAnalyticsValidationError(
+      "invalid_shape",
+      "Only a single SELECT statement is allowed",
+    );
   }
   const mutations = new Set([
     "insert",
@@ -1019,13 +1024,20 @@ function validateFirstPartyAnalyticsSqlShape(sql: string): AgentSqlQuery {
   if (
     tokens.some((token) => token.kind === "word" && mutations.has(token.value))
   ) {
-    throw new Error("Only read-only SELECT queries are allowed");
+    throw new FirstPartyAnalyticsValidationError(
+      "invalid_shape",
+      "Only read-only SELECT queries are allowed",
+    );
   }
   if (tokens.some((token) => token.kind === "parameter")) {
-    throw new Error("Bind placeholders are not supported in dashboard SQL");
+    throw new FirstPartyAnalyticsValidationError(
+      "invalid_shape",
+      "Bind placeholders are not supported in dashboard SQL",
+    );
   }
   if (tokens.some((token) => token.kind === "word" && token.value === "only")) {
-    throw new Error(
+    throw new FirstPartyAnalyticsValidationError(
+      "invalid_shape",
       "ONLY-qualified table sources are not supported in first-party analytics queries",
     );
   }
@@ -1036,7 +1048,8 @@ function validateFirstPartyAnalyticsSqlShape(sql: string): AgentSqlQuery {
         token.value.toLowerCase() === "session_replay_chunks",
     )
   ) {
-    throw new Error(
+    throw new FirstPartyAnalyticsValidationError(
+      "disallowed_source",
       "First-party analytics queries cannot read session replay chunks",
     );
   }
@@ -1044,7 +1057,8 @@ function validateFirstPartyAnalyticsSqlShape(sql: string): AgentSqlQuery {
   const query = readAgentSqlQuery(sql, { dialect: "postgres" });
   for (const cte of query.ctes) {
     if (FIRST_PARTY_QUERY_TABLES.has(cte.name.toLowerCase())) {
-      throw new Error(
+      throw new FirstPartyAnalyticsValidationError(
+        "disallowed_source",
         `First-party analytics queries can only read ${FIRST_PARTY_QUERY_TABLE_LIST} (found CTE ${cte.name})`,
       );
     }
@@ -1052,7 +1066,8 @@ function validateFirstPartyAnalyticsSqlShape(sql: string): AgentSqlQuery {
   let usesAllowedTable = false;
   for (const source of query.sources) {
     if (source.commaSeparated) {
-      throw new Error(
+      throw new FirstPartyAnalyticsValidationError(
+        "invalid_shape",
         "Comma-separated table sources are not supported in first-party analytics queries; use an explicit JOIN",
       );
     }
@@ -1063,25 +1078,40 @@ function validateFirstPartyAnalyticsSqlShape(sql: string): AgentSqlQuery {
       FIRST_PARTY_QUERY_TABLES.has(source.name)
     ) {
       if (source.quoted) {
-        throw new Error(
+        throw new FirstPartyAnalyticsValidationError(
+          "invalid_shape",
           "Quoted table identifiers are not supported in first-party analytics queries",
         );
       }
       usesAllowedTable = true;
       continue;
     }
-    throw new Error(
+    throw new FirstPartyAnalyticsValidationError(
+      "disallowed_source",
       `First-party analytics queries can only read ${FIRST_PARTY_QUERY_TABLE_LIST} (found ${ref})`,
     );
   }
   if (!usesAllowedTable) {
-    throw new Error(`Query must read from ${FIRST_PARTY_QUERY_TABLE_LIST}`);
+    throw new FirstPartyAnalyticsValidationError(
+      "disallowed_source",
+      `Query must read from ${FIRST_PARTY_QUERY_TABLE_LIST}`,
+    );
   }
   return query;
 }
 
 export function validateFirstPartyAnalyticsSql(sql: string): void {
-  validateAnalyticsSqlFunctions(validateFirstPartyAnalyticsSqlShape(sql));
+  try {
+    validateAnalyticsSqlFunctions(validateFirstPartyAnalyticsSqlShape(sql));
+  } catch (error) {
+    if (error instanceof FirstPartyAnalyticsValidationError) throw error;
+    throw new FirstPartyAnalyticsValidationError(
+      "invalid_query",
+      error instanceof Error
+        ? error.message
+        : "First-party Analytics query validation failed",
+    );
+  }
 }
 
 // The identity column each source can be filtered on. Daily event rollups
@@ -1212,7 +1242,8 @@ function assertNoSessionRecordingFilterTables(sql: string): void {
       (token.kind === "word" || token.kind === "quoted-identifier") &&
       SESSION_RECORDING_FILTER_TABLES.has(token.value)
     ) {
-      throw new Error(
+      throw new FirstPartyAnalyticsValidationError(
+        "disallowed_source",
         `First-party analytics queries cannot reference ${token.value}`,
       );
     }
@@ -1501,7 +1532,8 @@ function firstPartyAnalyticsQueryTarget(
     (source) => source.name !== "session_recordings",
   );
   if (usesSessionRecordings && usesEventTables) {
-    throw new Error(
+    throw new FirstPartyAnalyticsValidationError(
+      "cross_backend_join",
       "Cross-backend joins are not supported; query first-party event tables in BigQuery and session_recordings in the Analytics SQL store separately.",
     );
   }
@@ -1795,6 +1827,8 @@ export async function queryFirstPartyAnalytics(
         return {
           rows,
           schema: inferSchema(rows),
+          cached: false,
+          fetchedAt: new Date().toISOString(),
           ...(truncated ? { truncated: true } : {}),
         };
       } catch (error) {

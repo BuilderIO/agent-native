@@ -89,11 +89,11 @@ const jobTimeout = workflow.jobs?.e2e?.["timeout-minutes"];
 assert.equal(jobTimeout, 55);
 assert.equal(
   workflow.jobs?.e2e?.name,
-  "${{ matrix.shard == 'runtime-budget' && 'Runtime budget' || github.event_name == 'pull_request' && 'Design PR E2E' || format('Shard {0}/8', matrix.shard) }}",
+  "${{ matrix.shard == 'runtime-budget' && 'Runtime budget' || github.event_name == 'pull_request' && 'Design PR E2E' || format('Shard {0}/16', matrix.shard) }}",
 );
 assert.equal(
   workflow.jobs?.e2e?.strategy?.matrix?.shard,
-  "${{ github.event_name == 'pull_request' && fromJSON('[1]') || fromJSON('[1, 2, 3, 4, 5, 6, 7, 8]') }}",
+  "${{ github.event_name == 'pull_request' && fromJSON('[1]') || fromJSON('[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]') }}",
 );
 assert.deepEqual(workflow.jobs?.e2e?.strategy?.matrix?.include, [
   { shard: "runtime-budget" },
@@ -112,7 +112,7 @@ assert.equal(
     '  E2E_RUN_ID="${base_run_id}-exports" pnpm exec playwright test e2e/url-export-font.spec.ts e2e/single-screen-pdf-export.spec.ts e2e/imported-html-export.spec.ts e2e/private-screenshot-preview.spec.ts',
     '  E2E_RUN_ID="${base_run_id}-marquee" pnpm exec playwright test e2e/marquee-reachability.spec.ts --grep "marquee reachability"',
     "else",
-    '  E2E_RUN_ID="${base_run_id}-shard" pnpm exec playwright test --shard=${{ matrix.shard }}/8',
+    '  E2E_RUN_ID="${base_run_id}-shard" pnpm exec playwright test --shard=${{ matrix.shard }}/16',
     "fi",
   ].join("\n") + "\n",
 );

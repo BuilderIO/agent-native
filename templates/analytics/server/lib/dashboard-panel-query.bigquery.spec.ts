@@ -37,4 +37,24 @@ describe("dashboard-panel-query: BigQuery source", () => {
       signal,
     });
   });
+
+  it("returns the BigQuery freshness and cache metadata with the panel result", async () => {
+    const result = {
+      rows: [],
+      schema: [],
+      bytesProcessed: 4096,
+      cached: true,
+      fetchedAt: "2026-10-14T12:00:00.000Z",
+      providerCacheHit: false,
+    };
+    mocks.runQuery.mockResolvedValue(result);
+
+    await expect(
+      runDashboardPanelQuery({
+        source: "bigquery",
+        query: "SELECT 1",
+        ctx: { userEmail: "alice@example.com", orgId: "org-1" },
+      }),
+    ).resolves.toEqual(result);
+  });
 });

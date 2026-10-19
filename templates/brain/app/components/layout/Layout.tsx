@@ -18,7 +18,11 @@ import {
   SheetDescription,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { brainAskThreadPath, isBrainAskPath } from "@/lib/brain";
+import {
+  BRAIN_MCP_SUGGESTION_EXCLUDED_INTEGRATION_IDS,
+  brainAskThreadPath,
+  isBrainAskPath,
+} from "@/lib/brain";
 import { TAB_ID } from "@/lib/tab-id";
 
 const SIDEBAR_COLLAPSE_KEY = "brain.sidebar.collapsed";
@@ -147,6 +151,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
         openOnChatRunning={chatHomeHandoffActive}
         onFullscreenRequest={openAskAgentFullscreen}
         emptyStateText={t("chat.emptyState")}
+        mcpSuggestionExcludedIntegrationIds={
+          BRAIN_MCP_SUGGESTION_EXCLUDED_INTEGRATION_IDS
+        }
         agentPageHref="/settings/agent"
         suggestions={[
           t("chat.suggestionSecurity"),

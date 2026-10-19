@@ -31,6 +31,7 @@ writing the query is always faster than debugging a wrong result.
 
 Before writing SQL, use the highest-confidence source available:
 
+0. `query-dbt-semantic-metric` for an exact owner-defined dbt metric. Its definition outranks any table; if it is not ready, check `get-dbt-connection`.
 1. `find-data` with a focused metric or entity question.
 2. Existing dashboard SQL or saved analyses that already answer the same metric.
 3. `search-bigquery-schema` metadata for exact datasets, tables, and columns.
@@ -39,12 +40,12 @@ Before writing SQL, use the highest-confidence source available:
 Do not invent dataset, table, or column names. BigQuery is a warehouse, not one
 table; `BIGQUERY_PROJECT_ID` is only the default project.
 
-## Table Priority Order (CRITICAL)
+## Warehouse Table Priority (CRITICAL)
 
-**Always prefer dbt tables before raw source tables:**
+**Always prefer dbt-built warehouse tables before raw source tables.** They are warehouse data, not owner-approved Semantic Layer definitions; for an owner-defined metric, use step 0 of the source order first.
 
-1. `dbt_mart.*` — first choice for business-level data (deals, contracts, subscriptions, customers, companies).
-2. `dbt_analytics.*` — first choice for reporting views and aggregated metrics.
+1. `dbt_mart.*` — dbt-built, first choice for business-level data (deals, contracts, subscriptions, customers, companies).
+2. `dbt_analytics.*` — dbt-built, first choice for reporting views and aggregated metrics.
 3. `dbt_staging_bigquery.*` — for raw staged data (pageviews, signups) when dbt_mart/analytics don't have it.
 4. `dbt_intermediate.*` — for joins/transforms when no mart or analytics table exists.
 5. `analytics.*` / `amplitude.*` / raw tables — last resort only, when no dbt equivalent exists.
@@ -72,13 +73,15 @@ Never label a current partial-month snapshot as last month's completed usage.
 
 ## Actions
 
-| Action                                  | Use                                                                 |
-| --------------------------------------- | ------------------------------------------------------------------- |
-| `data-source-status --key bigquery`     | Check whether BigQuery credentials and project are configured.      |
-| `find-data --question <topic>` | Find ranked metric definitions and saved query examples before SQL. |
-| `search-bigquery-schema`                | List datasets, list tables in a dataset, or describe table columns. |
-| `estimate-query-cost --sql "<sql>"`     | Free dry run: bytes, $ per run, and $ per month for scheduled runs. |
-| `bigquery --sql "<sql>"`                | Run a real warehouse query after table/column names are known.      |
+| Action                                                    | Use                                                                  |
+| --------------------------------------------------------- | -------------------------------------------------------------------- |
+| `data-source-status --key bigquery`                       | Check whether BigQuery credentials and project are configured.       |
+| `find-data --question <topic>`                            | Find ranked metric definitions and saved query examples before SQL.  |
+| `search-bigquery-schema`                                  | List datasets, list tables in a dataset, or describe table columns.  |
+| `estimate-query-cost --sql "<sql>"`                       | Free dry run: bytes, $ per run, and $ per month for scheduled runs.  |
+| `bigquery --sql "<sql>"`                                  | Run a real warehouse query after table/column names are known.       |
+| `query-dbt-semantic-metric --metricName <exact dbt name>` | Run an owner-defined dbt Semantic Layer metric before warehouse SQL. |
+| `get-dbt-connection`                                      | Check dbt readiness (`readiness`) and the missing setup step.        |
 
 ## Check Cost Before Big Queries
 

@@ -19,6 +19,7 @@ import {
   ensureTableExists,
 } from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
+import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -30,6 +31,10 @@ import {
   workspaceUserGroupsIncludeUser,
 } from "./groups.js";
 import { notifyWorkspaceConnectionLifecycle } from "./lifecycle.js";
+import {
+  WORKSPACE_CONNECTIONS_MIGRATIONS,
+  WORKSPACE_CONNECTIONS_MIGRATIONS_TABLE,
+} from "./migrations.js";
 
 export type WorkspaceConnectionStatus =
   | "connected"
@@ -560,6 +565,10 @@ export const workspaceConnectionsStore = defineStore({
         );
       },
     },
+    ...fromMigrationEntries(
+      WORKSPACE_CONNECTIONS_MIGRATIONS_TABLE,
+      WORKSPACE_CONNECTIONS_MIGRATIONS.filter((entry) => entry.version <= 7),
+    ),
   ],
 });
 
@@ -1505,6 +1514,48 @@ export async function resolveWorkspaceConnectionForApp({
       ? `No available ${provider} workspace connection was found for ${normalizedAppId}.`
       : `No available workspace connection was found for ${normalizedAppId}.`,
   };
+}
+
+export interface ResolveWorkspaceConnectionsForAppOptions {
+  appId: string;
+  provider: string;
+  includeDisabled?: boolean;
+}
+
+// Every connection the request user may use for an app, loaded once: one
+// connection list, one user-scope filter, one grant list. A row the user cannot
+// reach or the app is not granted is absent, the same rule that
+// resolveWorkspaceConnectionForApp applies to a single id.
+export async function resolveWorkspaceConnectionsForApp({
+  appId,
+  provider,
+  includeDisabled = false,
+}: ResolveWorkspaceConnectionsForAppOptions): Promise<
+  WorkspaceConnectionForApp[]
+> {
+  const normalizedAppId = normalizeRequiredString(
+    appId,
+    "resolveWorkspaceConnectionsForApp appId",
+  );
+  const scope = requireWorkspaceConnectionScope();
+  const requestedConnections = await listWorkspaceConnections({
+    provider,
+    includeDisabled,
+  });
+  const userConnections = await filterWorkspaceConnectionsForUser(
+    requestedConnections,
+    scope,
+  );
+  const grants = await listWorkspaceConnectionGrants({
+    provider,
+    appId: normalizedAppId,
+  });
+  return userConnections
+    .map((connection) => connectionForApp(connection, normalizedAppId, grants))
+    .filter((connection) => connection.appAccess.available)
+    .filter(
+      (connection) => includeDisabled || connection.status !== "disabled",
+    );
 }
 
 async function getGrantedConnectionIdsForApp(

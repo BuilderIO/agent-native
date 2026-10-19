@@ -371,7 +371,16 @@ export function addFillLayerPatch(params: {
 
 export function removeBaseFillPatch(
   fillProperty: "color" | "backgroundColor" | "fill",
+  inlineStyles: Record<string, string> = {},
 ): Record<string, string> {
+  const image = inlineStyles.backgroundImage?.trim() ?? "";
+  if (
+    fillProperty === "backgroundColor" &&
+    inlineStyles.backgroundColor &&
+    (image === "" || image === "none" || image === "initial")
+  ) {
+    return { background: "", backgroundColor: "" };
+  }
   return { [fillProperty]: "transparent" };
 }
 

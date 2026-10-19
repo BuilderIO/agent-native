@@ -325,9 +325,19 @@ function ConnectedRow({
       }
       description={
         server.status.state === "connected"
-          ? `${scope} · ${t("mcpIntegrations.toolsAvailable", {
-              count: server.status.toolCount,
-            })}`
+          ? [
+              scope,
+              t("mcpIntegrations.toolsAvailable", {
+                count: server.status.toolCount,
+              }),
+              ...(server.status.error
+                ? [
+                    t("mcpIntegrations.connectionErrorReason", {
+                      reason: server.status.error,
+                    }),
+                  ]
+                : []),
+            ].join(" · ")
           : server.status.state === "error"
             ? t("mcpIntegrations.connectionErrorReason", {
                 reason: server.status.error,

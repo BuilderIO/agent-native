@@ -166,6 +166,8 @@ export default defineAction({
 
 对于旧式的 `parameters` 写法的 action 和基于 schema 的 action,这个机制的工作方式完全相同。对于应用内代理、子代理、A2A 和 MCP 调用者,它的工作方式也完全相同,因为每一个代理界面都会经过同一个循环。
 
+通过 [HTTP API](/docs/http-api) 使用 bearer token 或 API 密钥发起的调用会跳过审批卡片:路由会直接运行 action,就像应用自己的界面那样。如果希望代理的调用需要审批,请通过 [MCP](/docs/external-agents) 连接它,而不是调用 HTTP 路由。
+
 ### 循环如何暂停 {#loop}
 
 当代理调用一个被门控的 action,并且这一次具体的调用**尚未**获得批准时,循环**不会**执行 `run()`。它会转而:

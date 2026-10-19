@@ -8,7 +8,6 @@ const cornerOf = (element: Locator) =>
     return { radius: style.borderTopLeftRadius, overflow: style.overflow };
   });
 
-// oracle: none — the frame's computed corner at each device is the assertion.
 test("the Interact frame is rounded for its device and clips the page to it", async ({
   page,
 }) => {

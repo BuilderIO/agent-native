@@ -32,9 +32,16 @@ import type { MotionAudioClip } from "@shared/motion-code";
 import type { MotionEasingVariable } from "@shared/motion-easing";
 import type { MotionNativeStyleInstance } from "@shared/motion-native-style";
 import { motionNativeStylesToTracks } from "@shared/motion-native-style-runtime";
-import type { MotionTextDocument } from "@shared/motion-text-code";
+import {
+  MOTION_TEXT_SOURCE_VERSION,
+  type MotionTextDocument,
+} from "@shared/motion-text-code";
 import type { MotionPlaybackMode } from "@shared/motion-timeline";
-import { MOTION_TIMELINE_DEFAULT_DURATION_MS } from "@shared/motion-timeline";
+import {
+  createMotionTrackId,
+  MOTION_TIMELINE_DEFAULT_DURATION_MS,
+} from "@shared/motion-timeline";
+import { isRunningAppSourceType } from "@shared/source-mode";
 import { normalizeDesignSourceType } from "@shared/source-mode";
 import { useTheme } from "next-themes";
 import {
@@ -1108,10 +1115,10 @@ export function useEditorLiveEditsAndPresence({
     () =>
       new Set(
         overviewScreens
-          .filter(
-            (screen) =>
-              resolveOverviewScreenSourceType(screen, designSourceType) ===
-              "localhost",
+          .filter((screen) =>
+            isRunningAppSourceType(
+              resolveOverviewScreenSourceType(screen, designSourceType),
+            ),
           )
           .map((screen) => screen.id),
       ),
@@ -1192,9 +1199,7 @@ export function useEditorLiveEditsAndPresence({
   const pendingActiveFileEntry = activeFile?.id
     ? pendingLocalFileContentsSnapshot.get(activeFile.id)
     : undefined;
-  const acceptedActiveContent = pendingActiveFileEntry
-    ? pendingActiveFileEntry.baseContent
-    : acceptedActiveFile?.content;
+  const acceptedActiveContent = acceptedActiveFile?.content;
   const hasSelectedComponent = Boolean(
     selectedComponentNodeId &&
     ((selectedCodeLayerNode && isComponentInstance(selectedCodeLayerNode)) ||
@@ -1238,7 +1243,8 @@ export function useEditorLiveEditsAndPresence({
       activeCodeLayerProjection.nodes.some(matchesSelectedComponent),
     );
     if (!hasSelectedComponent || !selectedNodeIsOptimistic) return true;
-    if (pendingActiveFileEntry && !acceptedComponentProjection) return false;
+    // A pending save can still add or remove this node on the server.
+    if (pendingActiveFileEntry) return false;
     if (!acceptedComponentProjection) return true;
     return acceptedComponentProjection.nodes.some(matchesSelectedComponent);
   }, [
@@ -1298,6 +1304,7 @@ export function useEditorLiveEditsAndPresence({
       }
       return motionNativeStylesToTracks([style]).map((track) => ({
         ...track,
+        id: `native-motion-${index}`,
         nativeStyleIndex: index,
       }));
     });
@@ -1306,6 +1313,42 @@ export function useEditorLiveEditsAndPresence({
     );
     return [...authoredTracks, ...nativePreviewTracks];
   }, [motionDockOpen, motionNativeStyles, motionTracks]);
+
+  const motionPathTrackSelection = useMemo(() => {
+    const selectedPositionTrack = motionTracksWire.find(
+      (track) =>
+        track.id === motionDockLiveState.selectedTrackId &&
+        track.property === "translate",
+    );
+    if (selectedPositionTrack?.id) {
+      return {
+        targetNodeId: selectedPositionTrack.targetNodeId,
+        trackId: selectedPositionTrack.id,
+      };
+    }
+    const targetNodeId = motionSelectedTarget?.nodeId;
+    if (!targetNodeId) return null;
+    const positionTracks = motionTracksWire.filter(
+      (track) =>
+        track.targetNodeId === targetNodeId && track.property === "translate",
+    );
+    const authoredTracks = positionTracks.filter(
+      (track) => track.nativeStyleIndex === undefined,
+    );
+    const uniqueTrack =
+      authoredTracks.length === 1
+        ? authoredTracks[0]
+        : authoredTracks.length > 1 || positionTracks.length !== 1
+          ? null
+          : positionTracks[0];
+    return uniqueTrack?.id ? { targetNodeId, trackId: uniqueTrack.id } : null;
+  }, [
+    motionDockLiveState.selectedTrackId,
+    motionSelectedTarget?.nodeId,
+    motionTracksWire,
+  ]);
+  const motionPathTargetNodeId = motionPathTrackSelection?.targetNodeId ?? null;
+  const motionPathTrackId = motionPathTrackSelection?.trackId ?? null;
 
   const syncLiveScreenSnapshotPreview = useCallback(
     (screenId: string, html: string) => {
@@ -1365,6 +1408,7 @@ export function useEditorLiveEditsAndPresence({
           .filter((track) => nodeIdMap.has(track.targetNodeId))
           .map((track) => ({
             ...track,
+            id: createMotionTrackId(),
             targetNodeId: nodeIdMap.get(track.targetNodeId)!,
           }));
         if (cloned.length === 0) return current;
@@ -1376,7 +1420,7 @@ export function useEditorLiveEditsAndPresence({
       }));
       if (remappedTextAnimations.length > 0) {
         setMotionTextDocument((current) => ({
-          version: 1,
+          version: MOTION_TEXT_SOURCE_VERSION,
           animations: [
             ...(current?.animations ?? []),
             ...remappedTextAnimations,
@@ -1569,6 +1613,8 @@ export function useEditorLiveEditsAndPresence({
     motionOriginEditing,
     setMotionOriginEditing,
     motionTracksWire,
+    motionPathTargetNodeId,
+    motionPathTrackId,
     replacePreviewContent,
     syncLiveScreenSnapshotPreview,
     deleteRuntimeElement,

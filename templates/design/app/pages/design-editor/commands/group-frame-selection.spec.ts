@@ -36,6 +36,7 @@ function makeSelectionArgs() {
     boardFileId: undefined,
     contentHistorySelectionAfterRef: { current: new Map() },
     contentUndoStackRef: { current: [] },
+    localContentUndoStackRef: { current: [] },
     files: [],
     getFreshActiveContent: () => content,
     overviewSelectedScreenIds: [],

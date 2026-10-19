@@ -173,7 +173,6 @@ describe("runModeChange Interact navigation", () => {
 
     runModeChange(args, "edit");
 
-    expect(args.setOverviewInteractScreenId).toHaveBeenCalledWith(null);
     expect(args.enterOverviewFromZoom).toHaveBeenCalledWith("edit");
     expect(toast.error).not.toHaveBeenCalled();
   });

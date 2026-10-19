@@ -402,7 +402,7 @@ describe("CanvasContextMenu component instance layout", () => {
 });
 
 describe("CanvasContextMenu single layer layout", () => {
-  it("follows the Figma order with Arrange and Transform submenus", async () => {
+  it("places Arrange and Transform at the end of the menu", async () => {
     const view = await renderContextMenu({
       selectedCount: 1,
       onAction: vi.fn(),
