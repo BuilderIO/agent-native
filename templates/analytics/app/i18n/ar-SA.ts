@@ -2106,10 +2106,6 @@ export default {
     noMatches: "لا توجد تعريفات تطابق بحثك.",
     searchPlaceholder: "ابحث في التعريفات",
     sourceIndex: "فهرس المصادر",
-    statusApproved: "معتمد",
-    statusSuggested: "مقترح",
-    statusUnreviewed: "غير مُراجَع",
-    unsourced: "بلا مصدر",
   },
   indexPanel: {
     presetDaily: "يوميًا في 06:00",

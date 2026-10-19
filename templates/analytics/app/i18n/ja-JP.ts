@@ -2166,10 +2166,6 @@ export default {
     noMatches: "検索に一致する定義はありません。",
     searchPlaceholder: "定義を検索",
     sourceIndex: "ソースインデックス",
-    statusApproved: "承認済み",
-    statusSuggested: "提案",
-    statusUnreviewed: "未確認",
-    unsourced: "ソースなし",
   },
   indexPanel: {
     presetDaily: "毎日 06:00",

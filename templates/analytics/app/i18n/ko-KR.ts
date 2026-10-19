@@ -2115,10 +2115,6 @@ export default {
     noMatches: "검색과 일치하는 정의가 없습니다.",
     searchPlaceholder: "정의 검색",
     sourceIndex: "소스 인덱스",
-    statusApproved: "승인됨",
-    statusSuggested: "제안됨",
-    statusUnreviewed: "검토 전",
-    unsourced: "소스 없음",
   },
   indexPanel: {
     presetDaily: "매일 06:00",

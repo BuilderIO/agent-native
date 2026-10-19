@@ -2026,10 +2026,6 @@ export default {
     noMatches: "没有与搜索匹配的定义。",
     searchPlaceholder: "搜索定义",
     sourceIndex: "来源索引",
-    statusApproved: "已批准",
-    statusSuggested: "建议",
-    statusUnreviewed: "未审核",
-    unsourced: "无来源",
   },
   indexPanel: {
     presetDaily: "每天 06:00",
