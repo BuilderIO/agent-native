@@ -3,6 +3,30 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-19
+
+### Changed
+
+- Apps no longer keep server functions and databases warm by default; set `AGENT_NATIVE_ENABLE_KEEP_WARM=1` to opt in.
+
+## 2026-10-18
+
+### Improved
+
+- Block text and background colors use Content's own palette, and colored backgrounds are now readable in dark mode
+
+## 2026-10-17
+
+### Improved
+
+- Connected AI assistants can read a page with the edits still open in your editor
+
+## 2026-10-16
+
+### Fixed
+
+- Reopening a page after someone else renamed it no longer adds a copy of your edits to Version History
+
 ## 2026-10-12
 
 ### Improved
