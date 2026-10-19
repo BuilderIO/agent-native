@@ -50,6 +50,17 @@ function stepIntent(
   };
 }
 
+function waitForContinue(): Promise<void> {
+  return new Promise((resolve) => {
+    process.stdin.once("data", () => {
+      process.stdin.pause();
+      process.stdin.destroy();
+      resolve();
+    });
+    process.stdin.resume();
+  });
+}
+
 async function main(): Promise<void> {
   const databaseUrl = process.env.AGENT_RUN_POSTGRES_TEST_URL; // config-ok: isolated integration-test database selector, not app runtime config
   if (!databaseUrl) throw new Error("AGENT_RUN_POSTGRES_TEST_URL is required");
@@ -91,10 +102,7 @@ async function main(): Promise<void> {
       }
       if (mode === "wait-stale-write") {
         writeSync(1, `${JSON.stringify({ ready: true, fence })}\n`);
-        process.stdin.resume();
-        await new Promise<void>((resolve) => {
-          process.stdin.once("data", () => resolve());
-        });
+        await waitForContinue();
         await withExecutionFence(fence, () =>
           insertRunEvent(
             runId,
@@ -115,10 +123,7 @@ async function main(): Promise<void> {
           stepIntent(fence, stepId ?? "step-1", replayPolicy),
         );
         writeSync(1, `${JSON.stringify({ ready: true, fence, admission })}\n`);
-        process.stdin.resume();
-        await new Promise<void>((resolve) => {
-          process.stdin.once("data", () => resolve());
-        });
+        await waitForContinue();
         await sql`
           INSERT INTO agent_harness_test_effects (effect_id, effect_count)
           VALUES (${stepId}, 1)

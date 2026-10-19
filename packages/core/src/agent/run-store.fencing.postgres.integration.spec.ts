@@ -129,6 +129,15 @@ function startBarrierWorker(...args: string[]): BarrierWorker {
     resolveReady = resolve;
     rejectReady = reject;
   });
+  const readyTimeout = setTimeout(() => {
+    if (readySettled) return;
+    readySettled = true;
+    rejectReady(
+      new Error(
+        `Execution worker did not reach its barrier: ${output.stderr || output.stdout || "no output"}`,
+      ),
+    );
+  }, 15_000);
   const closed = new Promise<BarrierWorkerResult>((resolve) => {
     child.once("close", (exitCode, signal) => {
       resolve({ ...output, exitCode, signal });
@@ -147,6 +156,7 @@ function startBarrierWorker(...args: string[]): BarrierWorker {
         const value = JSON.parse(line) as Record<string, unknown>;
         if (value.ready === true) {
           readySettled = true;
+          clearTimeout(readyTimeout);
           resolveReady(value);
           return;
         }
@@ -162,11 +172,13 @@ function startBarrierWorker(...args: string[]): BarrierWorker {
   child.once("error", (error) => {
     if (readySettled) return;
     readySettled = true;
+    clearTimeout(readyTimeout);
     rejectReady(error);
   });
   child.once("close", (exitCode) => {
     if (readySettled) return;
     readySettled = true;
+    clearTimeout(readyTimeout);
     rejectReady(
       new Error(
         `Execution worker exited before its barrier (exit ${exitCode}): ${output.stderr || output.stdout}`,
