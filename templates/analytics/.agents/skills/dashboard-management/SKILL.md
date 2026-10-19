@@ -950,7 +950,9 @@ unavailable" placeholder.
   is a free dry run; tell the user any panel flagged over $1 per run or $50 per
   month. Dashboard estimates count email reports but not alert rules: before
   adding an alert, estimate an `analytics_events` query with the alert's
-  filters using `--source first-party` (alerts run as first-party SQL) and
+  filters and its window's `timestamp` bounds (the dry run prices only the
+  dates a query can read) using `--source first-party` (alerts run as
+  first-party SQL) and
   `--runsPerMonth` set from the poll interval (8640 for every 5 minutes).
 - Use `first-party` for `/track` data and `query-agent-native-analytics` for ad-hoc first-party event questions.
 - Use `update-dashboard` for new dashboard config saves and full config
