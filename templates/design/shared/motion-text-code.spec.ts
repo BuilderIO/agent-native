@@ -190,20 +190,27 @@ class FakeElement {
 }
 
 const mutationCallbacks: Array<() => void> = [];
+const mutationObservers: FakeMutationObserver[] = [];
 
 class FakeMutationObserver {
+  disconnected = false;
+
   constructor(
     private readonly callback: (
       records: unknown[],
       observer: FakeMutationObserver,
     ) => void,
-  ) {}
+  ) {
+    mutationObservers.push(this);
+  }
 
   observe(): void {
     mutationCallbacks.push(() => this.callback([], this));
   }
 
-  disconnect(): void {}
+  disconnect(): void {
+    this.disconnected = true;
+  }
 }
 
 function sourceForRuntime(markup: string): string {
@@ -1627,6 +1634,30 @@ describe("Motion Text source and runtime", () => {
         unit.animations.map((animation) => animation.handle),
       );
 
+    it("disconnects the observer of a crop that a rerun no longer asks for", () => {
+      mutationObservers.length = 0;
+      const target = textTarget("AB");
+      target.style.clipPath = "";
+      executeRuntime(
+        compileMotionTextRuntime(
+          { version: 2, animations: [{ ...rotating, clipContent: true }] },
+          "once",
+        ),
+        target,
+      );
+      const [cropObserver] = mutationObservers;
+      executeRuntime(
+        compileMotionTextRuntime(
+          { version: 2, animations: [rotating] },
+          "once",
+        ),
+        target,
+      );
+
+      expect(cropObserver?.disconnected).toBe(true);
+      expect(target.style.clipPath).toBe("");
+    });
+
     it("lifts the crop once a move that plays once has finished", async () => {
       const target = textTarget("AB");
       target.style.clipPath = "";
@@ -1655,6 +1686,22 @@ describe("Motion Text source and runtime", () => {
         target,
       );
 
+      await settle();
+      expect(target.style.clipPath).toBe("inset(0)");
+    });
+
+    it("keeps the crop of a looping move after its animations are cancelled", async () => {
+      const target = textTarget("AB");
+      target.style.clipPath = "";
+      executeRuntime(
+        compileMotionTextRuntime(
+          { version: 2, animations: [{ ...rotating, clipContent: true }] },
+          "loop",
+        ),
+        target,
+      );
+
+      handlesOf(target).forEach((handle) => handle.cancel());
       await settle();
       expect(target.style.clipPath).toBe("inset(0)");
     });

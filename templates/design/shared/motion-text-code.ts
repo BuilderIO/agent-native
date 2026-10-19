@@ -1347,6 +1347,7 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
         owner.observer.observe(target, { childList: true, subtree: true });
       }
     } else if (cropOwner) {
+      if (cropOwner.observer) cropOwner.observer.disconnect();
       target.style.clipPath = cropOwner.original;
       delete target.__anMotionCrop;
     }
