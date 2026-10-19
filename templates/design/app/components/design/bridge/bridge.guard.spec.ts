@@ -14356,7 +14356,7 @@ it(
       await page.setContent(`<!doctype html>
 <html>
   <body style="margin:0">
-    <h1 data-agent-native-node-id="hero-title" data-agent-native-layer-name="Hero title" style="margin:40px;width:320px;height:80px">Hello</h1>
+    <h1 data-agent-native-node-id="hero-title" data-loc="src:hero-title" data-agent-native-layer-name="Hero title" style="margin:40px;width:320px;height:80px">Hello</h1>
     <div style="position:absolute;left:500px;top:100px;width:200px;height:100px"><span style="display:block;width:160px;height:60px">Nested layer</span></div>
     <div data-agent-native-node-id="nested-parent" style="position:absolute;left:700px;top:100px;width:160px;height:100px"><span data-agent-native-node-id="nested-child" style="display:block;width:120px;height:60px">Nested identity</span></div>
   </body>
@@ -14414,6 +14414,14 @@ it(
           },
           "agent-native:review-node-rects-result",
         );
+        const selectorRects = await request(
+          {
+            type: "agent-native:review-selector-rects",
+            correlationId: "review-selector-rects",
+            selector: '[data-loc="src:hero-title"]',
+          },
+          "agent-native:review-selector-rects-result",
+        );
         const focus = await request(
           {
             type: "agent-native:review-focus",
@@ -14422,7 +14430,14 @@ it(
           },
           "agent-native:review-focus-result",
         );
-        return { anchor, selectorAnchor, nestedAnchor, rects, focus };
+        return {
+          anchor,
+          selectorAnchor,
+          nestedAnchor,
+          rects,
+          selectorRects,
+          focus,
+        };
       });
 
       expect(result.anchor).toMatchObject({
@@ -14442,6 +14457,9 @@ it(
         },
         viewportWidth: 900,
         viewportHeight: 700,
+      });
+      expect(result.selectorRects).toMatchObject({
+        rect: { left: 40, top: 40, width: 320, height: 80 },
       });
       expect(result.focus).toMatchObject({ focused: true });
       expect(pageErrors).toEqual([]);
