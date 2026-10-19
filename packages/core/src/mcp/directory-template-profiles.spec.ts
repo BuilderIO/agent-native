@@ -1318,6 +1318,12 @@ describe("ChatGPT directory template profiles", () => {
         directoryProfile: { connectorCatalog: ["disabled-group"] },
       }),
     ).toThrow(/not registered or is not exposed to MCP/);
+    expect(() =>
+      validateMcpDirectoryProfile({
+        ...config,
+        externalAgents: { denyActions: ["mcp-only"] },
+      }),
+    ).toThrow(/not registered or is not exposed to MCP/);
   });
 
   it("requires scoped widget reads to be bounded GET actions", () => {

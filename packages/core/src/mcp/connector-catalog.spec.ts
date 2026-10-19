@@ -1123,6 +1123,92 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
     expect(names).not.toContain("public-read");
   });
 
+  describe("externalAgents.denyActions without a connector catalog", () => {
+    const compactAction = (description: string) => ({
+      tool: { description },
+      readOnly: true,
+      mcpApp: { compactCatalog: true },
+      run: async () => ({ ok: true }),
+    });
+    const actions = {
+      ...fullActions,
+      "compact-board": compactAction("Show the compact plan board"),
+      "compact-widget": compactAction("Show the compact plan widget"),
+      "tool-search": {
+        tool: {
+          description: "Discover callable tools",
+          parameters: {
+            type: "object",
+            properties: { query: { type: "string" } },
+          },
+        },
+        readOnly: true,
+        run: async () => ({ results: [] }),
+      },
+    };
+    const denyConfig = {
+      ...connectorConfig,
+      connectorCatalog: undefined,
+      actions,
+      productionActions: actions,
+      externalAgents: { denyActions: ["compact-widget", "db-exec"] },
+    };
+
+    async function listAndCall(name: string, args = {}) {
+      const token = await signA2AToken("alice@example.com");
+      const listed = await call(
+        { jsonrpc: "2.0", id: 70, method: "tools/list", params: {} },
+        {
+          headers: { authorization: `Bearer ${token}` },
+          mcpConfig: denyConfig,
+        },
+      );
+      const called = await call(
+        {
+          jsonrpc: "2.0",
+          id: 71,
+          method: "tools/call",
+          params: { name, arguments: args },
+        },
+        {
+          headers: { authorization: `Bearer ${token}` },
+          mcpConfig: denyConfig,
+        },
+      );
+      return {
+        names: listed.result.tools.map((t: any) => t.name) as string[],
+        called: called.result,
+      };
+    }
+
+    it("keeps a denied action out of the compact catalog and its calls", async () => {
+      const { names, called } = await listAndCall("compact-widget");
+      expect(names).toContain("compact-board");
+      expect(names).not.toContain("compact-widget");
+      expect(called.isError).toBe(true);
+      expect(called.content[0].text).toContain("Unknown tool");
+    });
+
+    it("keeps a denied action out of tool-search", async () => {
+      const { called } = await listAndCall("tool-search", {
+        query: "compact plan",
+      });
+      expect(called.isError).toBeFalsy();
+      const text = JSON.stringify(called.content);
+      expect(text).toContain("compact-board");
+      expect(text).not.toContain("compact-widget");
+    });
+
+    it("keeps a denied action out of the full catalog and its calls", async () => {
+      process.env.AGENT_NATIVE_MCP_FULL_CATALOG = "1";
+      const { names, called } = await listAndCall("db-exec");
+      expect(names).toContain("seed-kitchen-sink");
+      expect(names).not.toContain("db-exec");
+      expect(called.isError).toBe(true);
+      expect(called.content[0].text).toContain("Unknown tool");
+    });
+  });
+
   it("keeps explicitly cataloged writes behind ask_app in auto-read mode", async () => {
     const autoConfig = {
       ...connectorConfig,

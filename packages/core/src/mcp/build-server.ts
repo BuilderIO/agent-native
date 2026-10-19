@@ -415,12 +415,17 @@ function scopeToolSearchToAdvertised(
   };
 }
 
+// The operator's `denyActions` veto lives here with the action's own opt-out,
+// so no catalog branch, `tool-search` or `tools/call` path has to remember it.
 function withoutExternalOptOuts(
+  config: MCPConfig,
   actions: Record<string, ActionEntry>,
 ): Record<string, ActionEntry> {
+  const denyNames = externalAgentDenySet(config);
   return Object.fromEntries(
-    Object.entries(actions).filter(([, entry]) =>
-      isActionExposedToExternalAgents(entry),
+    Object.entries(actions).filter(
+      ([name, entry]) =>
+        !denyNames.has(name) && isActionExposedToExternalAgents(entry),
     ),
   );
 }
@@ -537,7 +542,10 @@ export function validateMcpDirectoryProfile(
     );
   }
 
-  const actions = withoutExternalOptOuts(withoutToolSearch(sourceActions));
+  const actions = withoutExternalOptOuts(
+    config,
+    withoutToolSearch(sourceActions),
+  );
   const reserved = new Set([
     ...COMPACT_MCP_APP_CATALOG_BUILTINS,
     "ask-agent",
@@ -2877,6 +2885,7 @@ export async function createMCPServerForRequest(
       ? baseActions
       : mergeBuiltinTools(config, baseActions, requestMeta);
   const actions = withoutExternalOptOuts(
+    config,
     flatCatalog ? withoutToolSearch(mergedActions) : mergedActions,
   );
   const {
@@ -2932,7 +2941,6 @@ export async function createMCPServerForRequest(
         ...declaredMcpToolNames(visibleActions),
         ...autoReadNames,
       ]);
-  const denyNames = externalAgentDenySet(config);
   const automaticConnectorPolicyActive =
     config.externalAgents?.authenticatedReads === "auto";
   const connectorCatalogActive =
@@ -2943,22 +2951,18 @@ export async function createMCPServerForRequest(
       automaticConnectorPolicyActive);
   const writesAreAskAppOnly = externalAgentWritesAreAskAppOnly(config);
   const advertisedActionsBeforeToolSearchScope = appCatalog
-    ? Object.fromEntries(
-        Object.entries(visibleActions).filter(([name]) => !denyNames.has(name)),
-      )
+    ? visibleActions
     : directoryCatalog
       ? Object.fromEntries(
           Object.entries(visibleActions).filter(
             ([name, entry]) =>
               connectorNames.has(name) &&
-              !denyNames.has(name) &&
               (!writesAreAskAppOnly || isMcpReadOnlyTool(entry)),
           ),
         )
       : connectorCatalogActive
         ? Object.fromEntries(
             Object.entries(visibleActions).filter(([name, entry]) => {
-              if (denyNames.has(name)) return false;
               if (COMPACT_MCP_APP_CATALOG_BUILTINS.has(name)) return true;
               if (!connectorNames.has(name)) return false;
               if (writesAreAskAppOnly && !isMcpReadOnlyTool(entry)) {
