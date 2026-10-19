@@ -402,7 +402,7 @@ const reply = useActionMutation("reply-to-email", {
 
 그러니 상태는 장식이 아닙니다. `404`로 보낸 거부는 왕복 한 번이면 됩니다. 같은 거부를 `500`으로 보내거나 맨 throw로 던지면 왕복 네 번과 중복 오류 보고 네 건이 듭니다.
 
-에이전트 호출자는 상태를 보지 않습니다. 에이전트는 `run()`을 프로세스 안에서 실행하므로 타입과 무관하게 메시지를 `Error running <action>: <message>` 형태로 그대로 받습니다. 기본값 `action_failed`가 아닌 `errorCode`는 `(errorCode: not_found)`로 덧붙어, 모델이 문장을 파싱하지 않고 분기할 수 있습니다. `details`는 별도의 줄에 압축된 JSON으로 이어지며(예: `Error details: {"importId":"imp_1"}`), 모델이 다음 호출에 필요한 ID를 메시지에 적지 않아도 됩니다. MCP를 통한 외부 에이전트도 같은 텍스트를 받으며, `structuredContent.error`에도 같은 details가 담깁니다. details는 2,000자로 제한되며, 이를 넘으면 작은 최상위 항목은 유지하고 나머지는 생략된 항목으로 나열합니다. 메시지와 details 속 비밀 값은 먼저 가려지고, 반복 오류에 대한 에이전트 자체 차단기가 재시도 횟수를 제한합니다.
+에이전트 호출자는 상태를 보지 않습니다. 에이전트는 `run()`을 프로세스 안에서 실행하므로 타입과 무관하게 메시지를 `Error running <action>: <message>` 형태로 그대로 받습니다. 기본값 `action_failed`가 아닌 `errorCode`는 `(errorCode: not_found)`로 덧붙어, 모델이 문장을 파싱하지 않고 분기할 수 있습니다. `details`는 별도의 줄에 압축된 JSON으로 이어지며(예: `Error details: {"importId":"imp_1"}`), 모델이 다음 호출에 필요한 ID를 메시지에 적지 않아도 됩니다. MCP를 통한 외부 에이전트도 같은 텍스트를 받으며, `structuredContent.error`에도 같은 details가 담깁니다. 출력 스키마를 공개하는 도구(`mcpOutputSchema: true`)는 텍스트만 반환합니다. 클라이언트가 오류 결과도 그 스키마로 검증할 수 있기 때문입니다. details는 2,000자로 제한되며, 이를 넘으면 작은 최상위 항목은 유지하고 나머지는 생략된 항목으로 나열합니다. 메시지와 details 속 비밀 값은 먼저 가려지고, 반복 오류에 대한 에이전트 자체 차단기가 재시도 횟수를 제한합니다.
 
 ## Action 표면을 작게 유지하기 {#small-surface}
 
