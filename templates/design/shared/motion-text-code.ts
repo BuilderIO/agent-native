@@ -1315,17 +1315,26 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
         ? lineGroups(fragments)
         : fragments.map(function (unit) { return { unit: unit, index: Number(unit.getAttribute("data-agent-native-motion-text-unit")) }; });
     }
+    // Each run is its own script, so the crop owner is kept on the element. Only the current owner may lift the crop.
+    var cropOwner = target.__anMotionCrop;
     if (targetGroup.animations.some(function (track) { return track.clipContent === true; })) {
-      var previousClipPath = target.style.clipPath || "";
+      var owner = { original: cropOwner ? cropOwner.original : (target.style.clipPath || "") };
+      target.__anMotionCrop = owner;
       target.style.clipPath = "inset(0)";
       // The editor preview rewrites the units in place instead of reloading, so lift the crop once they are gone.
+      // A paragraph target is its own unit, so it never counts as contained and any rewrite of its content lifts the crop.
       if (typeof MutationObserver === "function") {
         new MutationObserver(function (records, observer) {
-          if (entries.some(function (entry) { return target.contains(entry.unit); })) return;
-          target.style.clipPath = previousClipPath;
+          if (target.__anMotionCrop !== owner) { observer.disconnect(); return; }
+          if (entries.some(function (entry) { return entry.unit !== target && target.contains(entry.unit); })) return;
+          target.style.clipPath = owner.original;
+          delete target.__anMotionCrop;
           observer.disconnect();
         }).observe(target, { childList: true, subtree: true });
       }
+    } else if (cropOwner) {
+      target.style.clipPath = cropOwner.original;
+      delete target.__anMotionCrop;
     }
     var groupCount = entries.reduce(function (count, entry) { return Math.max(count, entry.index + 1); }, 0);
     if (groupCount > ${MAX_RUNTIME_UNITS}) throw new Error("Motion text target exceeds the ${MAX_RUNTIME_UNITS}-unit runtime limit.");

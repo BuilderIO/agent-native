@@ -646,9 +646,11 @@ export function renderDesignEditorView({
     });
   };
   const menuProperties = motionMenuProperties(motionMenuElements);
+  // Motion writes only land in inline sources; the menu must not offer them elsewhere.
   const motionMenu =
     editorLiveEditsAndPresence.motionLabEnabled &&
     canEditActiveVisualScreen &&
+    activeCanvasSourceType === "inline" &&
     canWriteMotion &&
     menuProperties
       ? { ...menuProperties, onSelect: handleMotionMenuSelect }

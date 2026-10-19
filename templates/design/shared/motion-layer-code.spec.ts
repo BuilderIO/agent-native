@@ -6,7 +6,10 @@ import {
   motionLayersData,
   type MotionLayerCodeSource,
 } from "./motion-layer-code";
-import { createMotionNativeStyleInstance } from "./motion-native-style-runtime";
+import {
+  createMotionNativeStyleInstance,
+  motionNativeStylesToTextAnimations,
+} from "./motion-native-style-runtime";
 
 const source: MotionLayerCodeSource = {
   tracks: [
@@ -112,6 +115,36 @@ describe("motionAnimatedNodeIds", () => {
     });
     expect([...ids].sort()).toEqual(["badge", "card", "hero", "title"]);
   });
+
+  it("ignores disabled tracks and styles", () => {
+    const ids = motionAnimatedNodeIds({
+      ...source,
+      tracks: [{ ...source.tracks[0]!, enabled: false }, source.tracks[1]!],
+      nativeStyles: [
+        {
+          ...createMotionNativeStyleInstance({
+            styleKey: "Scale",
+            targetNodeId: "badge",
+          }),
+          enabled: false,
+        },
+      ],
+    });
+    expect([...ids]).toEqual(["card"]);
+  });
+
+  it("lists a layer whose only motion is a ready-made text stagger", () => {
+    const stagger = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "title",
+    });
+    const ids = motionAnimatedNodeIds({
+      ...source,
+      tracks: [],
+      nativeStyles: [stagger],
+    });
+    expect([...ids]).toEqual(["title"]);
+  });
 });
 
 describe("motionLayersData", () => {
@@ -133,5 +166,51 @@ describe("motionLayersData", () => {
         { t: 1, value: "1" },
       ],
     });
+  });
+
+  it("omits disabled tracks from a layer's data", () => {
+    const data = JSON.parse(
+      motionLayersData(
+        { ...source, tracks: [{ ...source.tracks[0]!, enabled: false }] },
+        [{ nodeId: "hero", label: "Hero" }],
+      ),
+    );
+    expect(data[0].tracks).toEqual([]);
+  });
+
+  it("writes a ready-made text stagger as the layer's text animation", () => {
+    const stagger = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "title",
+    });
+    const data = JSON.parse(
+      motionLayersData({ ...source, tracks: [], nativeStyles: [stagger] }, [
+        { nodeId: "title", label: "Title" },
+      ]),
+    );
+    expect(data[0].textAnimations).toEqual(
+      motionNativeStylesToTextAnimations([stagger]),
+    );
+  });
+
+  it("writes an authored text animation once in place of the matching stagger", () => {
+    const stagger = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "title",
+    });
+    const projected = motionNativeStylesToTextAnimations([stagger])[0]!;
+    const authored = { ...projected, staggerMs: 90 };
+    const data = JSON.parse(
+      motionLayersData(
+        {
+          ...source,
+          tracks: [],
+          nativeStyles: [stagger],
+          textAnimations: [authored],
+        },
+        [{ nodeId: "title", label: "Title" }],
+      ),
+    );
+    expect(data[0].textAnimations).toEqual([authored]);
   });
 });

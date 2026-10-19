@@ -1,7 +1,10 @@
 import { compile } from "./motion-compiler";
 import type { MotionEasingVariable } from "./motion-easing";
 import type { MotionNativeStyleInstance } from "./motion-native-style";
-import { motionNativeStyleTrackGroups } from "./motion-native-style-runtime";
+import {
+  motionNativeStyleTrackGroups,
+  motionNativeStylesToTextAnimations,
+} from "./motion-native-style-runtime";
 import type { MotionTextAnimation } from "./motion-text-code";
 import type {
   MotionEase,
@@ -26,31 +29,59 @@ export interface MotionLayerCss {
   steps: string;
 }
 
-function layerTracks(
-  source: MotionLayerCodeSource,
-  nodeId: string,
-): MotionTrack[] {
+/** Every track the CSS and Data output draws from: enabled, with keyframes. */
+function activeTracks(source: MotionLayerCodeSource): MotionTrack[] {
   const native = motionNativeStyleTrackGroups(source.nativeStyles, {
     trackIds: true,
   }).flat();
   return [...source.tracks, ...native].filter(
-    (track) =>
-      track.targetNodeId === nodeId &&
-      track.enabled !== false &&
-      track.keyframes.length > 0,
+    (track) => track.enabled !== false && track.keyframes.length > 0,
   );
 }
 
-/** Layer ids that have motion of their own, in any form the timeline holds. */
+function layerTracks(
+  source: MotionLayerCodeSource,
+  nodeId: string,
+): MotionTrack[] {
+  return activeTracks(source).filter((track) => track.targetNodeId === nodeId);
+}
+
+/**
+ * Text animations one layer plays: authored ones, plus the TextStagger styles
+ * the runtime projects for it. As in the runtime, an authored animation on the
+ * same target and property replaces the projection.
+ */
+function layerTextAnimations(
+  source: MotionLayerCodeSource,
+  nodeId: string,
+): MotionTextAnimation[] {
+  const authored = source.textAnimations.filter(
+    (animation) => animation.targetNodeId === nodeId,
+  );
+  const projected = motionNativeStylesToTextAnimations(
+    source.nativeStyles,
+  ).filter(
+    (animation) =>
+      animation.targetNodeId === nodeId &&
+      !source.textAnimations.some(
+        (authoredAnimation) =>
+          authoredAnimation.targetNodeId === animation.targetNodeId &&
+          authoredAnimation.property === animation.property,
+      ),
+  );
+  return [...authored, ...projected];
+}
+
+/** Layer ids with motion the CSS or Data output would write. */
 export function motionAnimatedNodeIds(
   source: MotionLayerCodeSource,
 ): Set<string> {
   return new Set([
-    ...source.tracks
-      .filter((track) => track.keyframes.length > 0)
-      .map((track) => track.targetNodeId),
-    ...source.nativeStyles.map((style) => style.targetNodeId),
+    ...activeTracks(source).map((track) => track.targetNodeId),
     ...source.textAnimations.map((animation) => animation.targetNodeId),
+    ...motionNativeStylesToTextAnimations(source.nativeStyles).map(
+      (animation) => animation.targetNodeId,
+    ),
   ]);
 }
 
@@ -118,9 +149,7 @@ export function motionLayersData(
         })),
       }),
     ),
-    textAnimations: source.textAnimations.filter(
-      (animation) => animation.targetNodeId === nodeId,
-    ),
+    textAnimations: layerTextAnimations(source, nodeId),
   }));
   return JSON.stringify(data, null, 2);
 }

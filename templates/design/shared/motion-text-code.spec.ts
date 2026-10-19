@@ -1543,6 +1543,61 @@ describe("Motion Text source and runtime", () => {
       expect(target.style.clipPath).toBe("");
     });
 
+    it("keeps the crop a newer run requested when an older run's observer fires", () => {
+      mutationCallbacks.length = 0;
+      const target = textTarget("AB");
+      target.style.clipPath = "";
+      const animations = compileMotionTextRuntime({
+        version: 2,
+        animations: [{ ...rotating, clipContent: true }],
+      });
+      executeRuntime(animations, target);
+      target.replaceChildren(new FakeTextNode("AB"));
+      executeRuntime(animations, target);
+
+      mutationCallbacks.forEach((notify) => notify());
+      expect(target.style.clipPath).toBe("inset(0)");
+    });
+
+    it("lifts the crop of a paragraph target once its content is rewritten", () => {
+      mutationCallbacks.length = 0;
+      const target = new FakeElement("p");
+      target.setAttribute("data-agent-native-node-id", "headline");
+      target.appendChild(new FakeTextNode("AB"));
+      target.style.clipPath = "";
+      executeRuntime(
+        compileMotionTextRuntime({
+          version: 2,
+          animations: [{ ...rotating, unit: "paragraph", clipContent: true }],
+        }),
+        target,
+      );
+      expect(target.style.clipPath).toBe("inset(0)");
+
+      target.replaceChildren(new FakeTextNode("CD"));
+      mutationCallbacks.forEach((notify) => notify());
+      expect(target.style.clipPath).toBe("");
+    });
+
+    it("lifts the crop when a rerun no longer asks for it", () => {
+      const target = textTarget("AB");
+      target.style.clipPath = "";
+      executeRuntime(
+        compileMotionTextRuntime({
+          version: 2,
+          animations: [{ ...rotating, clipContent: true }],
+        }),
+        target,
+      );
+      expect(target.style.clipPath).toBe("inset(0)");
+
+      executeRuntime(
+        compileMotionTextRuntime({ version: 2, animations: [rotating] }),
+        target,
+      );
+      expect(target.style.clipPath).toBe("");
+    });
+
     it("leaves the target uncropped and the pivot untouched by default", () => {
       const target = textTarget("AB");
       executeRuntime(
