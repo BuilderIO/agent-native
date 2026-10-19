@@ -20831,30 +20831,24 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
   });
 
   it("marks a successfully chained background chunk terminal before the worker returns", async () => {
-    const updateRunStatusIfRunning = vi.fn(async () => true);
-    const setRunError = vi.fn(async () => {});
-    const setRunTerminalReason = vi.fn(async () => {});
+    const updateRunTerminalStateIfRunning = vi.fn(async () => true);
 
     await expect(
       markBackgroundContinuationChunkTerminal({
         runId: "run-old",
         continuationReason: "no_progress",
-        deps: { updateRunStatusIfRunning, setRunError, setRunTerminalReason },
+        deps: { updateRunTerminalStateIfRunning },
       }),
     ).resolves.toBe(true);
 
-    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
-      "run-old",
-      "completed",
-    );
-    expect(setRunTerminalReason).toHaveBeenCalledWith("run-old", "no_progress");
-    expect(setRunError).not.toHaveBeenCalled();
+    expect(updateRunTerminalStateIfRunning).toHaveBeenCalledWith("run-old", {
+      status: "completed",
+      terminalReason: "no_progress",
+    });
   });
 
   it("marks a recoverable error continuation chunk errored with its durable failure details", async () => {
-    const updateRunStatusIfRunning = vi.fn(async () => true);
-    const setRunError = vi.fn(async () => {});
-    const setRunTerminalReason = vi.fn(async () => {});
+    const updateRunTerminalStateIfRunning = vi.fn(async () => true);
 
     await expect(
       markBackgroundContinuationChunkTerminal({
@@ -20867,44 +20861,36 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
           details: "upstream returned 500",
           recoverable: true,
         },
-        deps: { updateRunStatusIfRunning, setRunError, setRunTerminalReason },
+        deps: { updateRunTerminalStateIfRunning },
       }),
     ).resolves.toBe(true);
 
-    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+    expect(updateRunTerminalStateIfRunning).toHaveBeenCalledWith(
       "run-error-boundary",
-      "errored",
-    );
-    expect(setRunTerminalReason).toHaveBeenCalledWith(
-      "run-error-boundary",
-      "error:provider_failed",
-    );
-    expect(setRunError).toHaveBeenCalledWith(
-      "run-error-boundary",
-      "provider_failed",
-      "upstream returned 500",
+      {
+        status: "errored",
+        terminalReason: "error:provider_failed",
+        errorCode: "provider_failed",
+        errorDetail: "upstream returned 500",
+      },
     );
   });
 
   it("does not overwrite terminal reason when another process already finished the chunk", async () => {
-    const updateRunStatusIfRunning = vi.fn(async () => false);
-    const setRunError = vi.fn(async () => {});
-    const setRunTerminalReason = vi.fn(async () => {});
+    const updateRunTerminalStateIfRunning = vi.fn(async () => false);
 
     await expect(
       markBackgroundContinuationChunkTerminal({
         runId: "run-old",
         continuationReason: "run_timeout",
-        deps: { updateRunStatusIfRunning, setRunError, setRunTerminalReason },
+        deps: { updateRunTerminalStateIfRunning },
       }),
     ).resolves.toBe(false);
 
-    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
-      "run-old",
-      "completed",
-    );
-    expect(setRunTerminalReason).not.toHaveBeenCalled();
-    expect(setRunError).not.toHaveBeenCalled();
+    expect(updateRunTerminalStateIfRunning).toHaveBeenCalledWith("run-old", {
+      status: "completed",
+      terminalReason: "run_timeout",
+    });
   });
 });
 

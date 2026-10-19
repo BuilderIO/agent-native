@@ -8521,6 +8521,18 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 queuedMessageId: receipt.messageId,
                 queuedMessageClaimId: claimId,
                 message: claimedMessage.text,
+                ...(claimedMessage.attachments !== undefined
+                  ? { attachments: claimedMessage.attachments }
+                  : {}),
+                ...(claimedMessage.requestAttachments !== undefined
+                  ? { requestAttachments: claimedMessage.requestAttachments }
+                  : {}),
+                ...(claimedMessage.metadata !== undefined
+                  ? { metadata: claimedMessage.metadata }
+                  : {}),
+                ...(claimedMessage.options !== undefined
+                  ? { options: claimedMessage.options }
+                  : {}),
                 history: [],
                 scope: thread.scope,
               },

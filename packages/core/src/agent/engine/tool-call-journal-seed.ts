@@ -191,7 +191,7 @@ function durableStepToolDone(
   };
 }
 
-async function overlayCompletedExecutionStepOutcomes(
+export async function overlayCompletedExecutionStepOutcomes(
   threadId: string,
   turnId: string,
   events: AgentChatEvent[],

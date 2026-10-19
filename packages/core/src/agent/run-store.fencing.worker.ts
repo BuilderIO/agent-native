@@ -8,6 +8,7 @@ import { withExecutionFence, type ExecutionFence } from "./execution-fence.js";
 import {
   beginAgentExecutionStep,
   claimTurnExecutionLease,
+  completeAgentExecutionStep,
   ensureRunTables,
   insertRun,
   insertRunEvent,
@@ -88,9 +89,48 @@ async function main(): Promise<void> {
       if (admission.status !== "execute") {
         throw new Error(`Expected initial execution, got ${admission.status}`);
       }
+      if (mode === "wait-stale-write") {
+        writeSync(1, `${JSON.stringify({ ready: true, fence })}\n`);
+        process.stdin.resume();
+        await new Promise<void>((resolve) => {
+          process.stdin.once("data", () => resolve());
+        });
+        await withExecutionFence(fence, () =>
+          insertRunEvent(
+            runId,
+            77,
+            JSON.stringify({ type: "text", text: "late live worker write" }),
+            { requireInserted: true },
+          ),
+        );
+        writeSync(1, JSON.stringify({ status: "unexpected-write" }));
+        return;
+      }
       if (mode === "crash-before-dispatch") {
         writeSync(1, JSON.stringify({ fence, admission }));
         process.exit(81);
+      }
+      if (mode === "dispatch-barrier") {
+        await markAgentExecutionStepDispatched(
+          stepIntent(fence, stepId ?? "step-1", replayPolicy),
+        );
+        writeSync(1, `${JSON.stringify({ ready: true, fence, admission })}\n`);
+        process.stdin.resume();
+        await new Promise<void>((resolve) => {
+          process.stdin.once("data", () => resolve());
+        });
+        await sql`
+          INSERT INTO agent_harness_test_effects (effect_id, effect_count)
+          VALUES (${stepId}, 1)
+          ON CONFLICT (effect_id) DO UPDATE SET
+            effect_count = agent_harness_test_effects.effect_count + 1
+        `;
+        await completeAgentExecutionStep(
+          stepIntent(fence, stepId ?? "step-1", replayPolicy),
+          JSON.stringify({ result: "completed", completedSideEffect: true }),
+        );
+        writeSync(1, JSON.stringify({ status: "completed" }));
+        return;
       }
       if (mode === "crash-after-effect") {
         await markAgentExecutionStepDispatched(

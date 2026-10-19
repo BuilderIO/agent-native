@@ -1560,6 +1560,95 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     expect(persistedRunEventIds).not.toContain("run-task-reclaimed-a1-c0");
   });
 
+  it("replays a committed side effect when a reclaimed task restarts from its description", async () => {
+    let announceCommittedEffect!: () => void;
+    let releaseCrashedWorker!: () => void;
+    const committedEffect = new Promise<void>((resolve) => {
+      announceCommittedEffect = resolve;
+    });
+    const crashedWorkerGate = new Promise<void>((resolve) => {
+      releaseCrashedWorker = resolve;
+    });
+    let sideEffectCommits = 0;
+    const durableReceipt = { result: "message sent" };
+
+    runAgentLoopMock
+      .mockImplementationOnce(async () => {
+        sideEffectCommits += 1;
+        announceCommittedEffect();
+        // Model a worker crash after the provider committed but before tool_done.
+        await crashedWorkerGate;
+      })
+      .mockImplementationOnce(async (opts: any) => {
+        expect(opts).toMatchObject({
+          threadId: "thread-1",
+          turnId: "run-task-reclaimed-after-commit",
+          recoverCompletedExecutionSteps: true,
+        });
+        expect(opts.messages).toEqual([
+          {
+            role: "user",
+            content: [{ type: "text", text: "do the thing" }],
+          },
+        ]);
+
+        // The durable journal gives the successor the committed receipt; it
+        // projects that result instead of invoking the provider again.
+        await opts.send({
+          type: "tool_start",
+          id: "send-message-1",
+          tool: "send-message",
+          input: { text: "hello" },
+        });
+        await opts.send({
+          type: "tool_done",
+          id: "send-message-1",
+          tool: "send-message",
+          input: { text: "hello" },
+          result: `Recovered: ${durableReceipt.result}`,
+          completedSideEffect: true,
+          replayed: true,
+        });
+        await opts.send({ type: "text", text: "Message sent." });
+      });
+
+    await seedTask("reclaimed-after-commit");
+    const crashedAttempt = processAgentTeamRun({
+      taskId: "reclaimed-after-commit",
+      mode: "start",
+      resolveConfig: async () => resolveConfig(),
+    });
+    await committedEffect;
+
+    const row = queueRows.find(
+      (candidate) => candidate.task_id === "reclaimed-after-commit",
+    );
+    if (!row) throw new Error("missing claimed task row");
+    row.updated_at = Date.now() - queue.RUN_DISPATCH_STUCK_AFTER_MS - 1;
+
+    await processAgentTeamRun({
+      taskId: "reclaimed-after-commit",
+      mode: "start",
+      resolveConfig: async () => resolveConfig(),
+    });
+
+    expect(sideEffectCommits).toBe(1);
+    expect(runAgentLoopMock.mock.calls).toHaveLength(2);
+    expect(
+      instrumentAgentLoopMock.mock.calls.map(([options]) => options.runId),
+    ).toEqual([
+      "run-task-reclaimed-after-commit-a1-c0",
+      "run-task-reclaimed-after-commit-a2-c0",
+    ]);
+    expect(appState.get("agent-task:reclaimed-after-commit")).toMatchObject({
+      status: "completed",
+      summary: "Message sent.",
+    });
+
+    releaseCrashedWorker();
+    await crashedAttempt;
+  });
+
   it("reapplies the persisted action surface in the durable processor", async () => {
     actionsToEngineToolsMock.mockImplementation((actions: any) =>
       Object.keys(actions).map((name) => ({ name })),

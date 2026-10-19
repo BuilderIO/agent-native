@@ -52,10 +52,21 @@ export async function foldReapedRunIntoThread(
       });
     }
   }
-  const assistant = buildAssistantMessage(events, runId, {
-    turnId: run.turnId,
-    suppressInternalContinuation: run.continuedInTurn,
-  });
+  const { overlayCompletedExecutionStepOutcomes } =
+    await import("./engine/tool-call-journal-seed.js");
+  const projectedEvents = await overlayCompletedExecutionStepOutcomes(
+    run.threadId,
+    run.turnId,
+    events.map(({ event }) => event),
+  );
+  const assistant = buildAssistantMessage(
+    projectedEvents.map((event, seq) => ({ seq, event })),
+    runId,
+    {
+      turnId: run.turnId,
+      suppressInternalContinuation: run.continuedInTurn,
+    },
+  );
   if (!assistant) return;
   await withThreadDataLock(run.threadId, async () => {
     const thread = await getThread(run.threadId);
@@ -76,6 +87,30 @@ export async function foldReapedRunIntoThread(
       folded.messages.length,
       {
         beforeUpdate: async (tx) => {
+          await tx.execute({
+            sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+            args: [
+              `agent-native:turn-execution-lease:${run.threadId}:${run.turnId}`,
+            ],
+          });
+          const leaseResult = await tx.execute({
+            sql: `SELECT owner_run_id, generation
+                  FROM agent_execution_leases
+                  WHERE thread_id = ? AND turn_id = ? FOR UPDATE`,
+            args: [run.threadId, run.turnId],
+          });
+          const lease = leaseResult.rows[0] as
+            | { owner_run_id?: string; generation?: number | string }
+            | undefined;
+          if (
+            (run.workerGeneration !== null && !lease) ||
+            (lease &&
+              (lease.owner_run_id !== runId ||
+                (run.workerGeneration !== null &&
+                  String(lease.generation) !== run.workerGeneration)))
+          ) {
+            return false;
+          }
           const { rows } = await tx.execute({
             sql: `SELECT thread_data FROM chat_threads
                   WHERE id = ? AND owner_email = ? FOR UPDATE`,

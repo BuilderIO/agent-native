@@ -2596,6 +2596,9 @@ export async function processAgentTeamRun(
                   const agentLoopOpts = {
                     engine: config.engine,
                     model: config.model,
+                    threadId: task.threadId,
+                    turnId,
+                    recoverCompletedExecutionSteps: claimedAttempts > 1,
                     maxOutputTokens: resolveMainChatMaxOutputTokens(
                       config.model,
                     ),

@@ -177,6 +177,31 @@ describe("queued submission inbox recurring sweep", () => {
   it("admits a queued receipt once through the authenticated sweep", async () => {
     const threadId = `thread-${randomUUID()}`;
     const messageId = `queued-${randomUUID()}`;
+    const storedPayload = {
+      attachments: [
+        {
+          type: "file",
+          name: "report.pdf",
+          mediaType: "application/pdf",
+          url: "https://files.example.test/report.pdf",
+        },
+      ],
+      requestAttachments: [
+        {
+          type: "image",
+          name: "chart.png",
+          contentType: "image/png",
+          url: "https://files.example.test/chart.png",
+        },
+      ],
+      metadata: { engine: "openai", source: "queued-inbox" },
+      options: {
+        model: "gpt-4.1",
+        reasoningEffort: "high",
+        mode: "plan",
+        metadata: { engine: "anthropic" },
+      },
+    };
     const actor = { email: "inbox-owner@example.com", anonymous: false };
     await createThread(actor.email, { id: threadId });
     await mutateThreadQueuedMessages(
@@ -187,6 +212,7 @@ describe("queued submission inbox recurring sweep", () => {
           id: messageId,
           threadId,
           text: "Continue the report",
+          ...storedPayload,
         },
       },
       { actor },
@@ -200,6 +226,7 @@ describe("queued submission inbox recurring sweep", () => {
         agentKitMessageId: messageId,
         queuedMessageId: messageId,
         message: "Continue the report",
+        ...storedPayload,
       });
       expect(body.queuedMessageClaimId).toEqual(expect.any(String));
       const receipt = await getQueuedSubmissionReceipt(threadId, messageId);
@@ -264,6 +291,7 @@ describe("queued submission inbox recurring sweep", () => {
       agentKitMessageId: messageId,
       queuedMessageId: messageId,
       message: "Continue the report",
+      ...storedPayload,
     });
     expect(await getQueuedSubmissionReceipt(threadId, messageId)).toMatchObject(
       {

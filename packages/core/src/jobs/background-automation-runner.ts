@@ -12,6 +12,7 @@ import {
   resolveEngine,
 } from "../agent/engine/index.js";
 import { resolveMainChatMaxOutputTokens } from "../agent/engine/output-tokens.js";
+import { overlayCompletedExecutionStepOutcomes } from "../agent/engine/tool-call-journal-seed.js";
 import type { AgentEngine, EngineMessage } from "../agent/engine/types.js";
 import {
   currentExecutionFence,
@@ -1230,10 +1231,20 @@ async function executeBackgroundAutomation(
             "background_automation_resume_context_missing",
           );
         executionPrompt = originalPrompt;
-        const events = await readAutomationRecoveryEvents(thread.id, turnId);
-        priorEvents = events.map(({ event }) => event);
+        const persistedEvents = await readAutomationRecoveryEvents(
+          thread.id,
+          turnId,
+        );
+        const events = await withAutomationRecoveryStorage(() =>
+          overlayCompletedExecutionStepOutcomes(
+            thread.id,
+            turnId,
+            persistedEvents.map(({ event }) => event),
+          ),
+        );
+        priorEvents = events;
         const partial = buildAssistantMessage(
-          events,
+          events.map((event, seq) => ({ event, seq })),
           options.resume.previousRunId,
           { turnId, suppressInternalContinuation: true },
         );
@@ -1251,7 +1262,7 @@ async function executeBackgroundAutomation(
           { includeToolCalls: true },
         );
         const journalNote = buildResumeJournalNote(
-          classifyToolCallJournal(events.map(({ event }) => event)),
+          classifyToolCallJournal(events),
         );
         appendAgentLoopContinuation(
           resumed,
@@ -1429,6 +1440,9 @@ async function executeBackgroundAutomation(
               appId: deps.appId,
               actionCaller: options.actionCaller,
               automation: options.actionAutomation,
+              ...(options.resume
+                ? { recoverCompletedExecutionSteps: true }
+                : {}),
               runId,
               turnId,
               maxIterations: automation.meta.maxIterations,

@@ -1,4 +1,8 @@
-import { execFile } from "node:child_process";
+import {
+  execFile,
+  spawn,
+  type ChildProcessWithoutNullStreams,
+} from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -61,6 +65,17 @@ interface WorkerResult {
   stderr: string;
 }
 
+interface BarrierWorkerResult extends WorkerResult {
+  signal: NodeJS.Signals | null;
+}
+
+interface BarrierWorker {
+  child: ChildProcessWithoutNullStreams;
+  ready: Promise<Record<string, unknown>>;
+  closed: Promise<BarrierWorkerResult>;
+  output: { stdout: string; stderr: string };
+}
+
 function runWorker(...args: string[]): Promise<WorkerResult> {
   return new Promise((resolveResult) => {
     execFile(
@@ -79,6 +94,80 @@ function runWorker(...args: string[]): Promise<WorkerResult> {
       },
     );
   });
+}
+
+function startBarrierWorker(...args: string[]): BarrierWorker {
+  const child = spawn(
+    process.execPath,
+    ["--import", "tsx", workerPath, ...args],
+    {
+      cwd: repositoryRoot,
+      env: process.env,
+      stdio: "pipe",
+    },
+  );
+  const output = { stdout: "", stderr: "" };
+  let lineBuffer = "";
+  let readySettled = false;
+  let resolveReady!: (value: Record<string, unknown>) => void;
+  let rejectReady!: (error: Error) => void;
+  const ready = new Promise<Record<string, unknown>>((resolve, reject) => {
+    resolveReady = resolve;
+    rejectReady = reject;
+  });
+  const closed = new Promise<BarrierWorkerResult>((resolve) => {
+    child.once("close", (exitCode, signal) => {
+      resolve({ ...output, exitCode, signal });
+    });
+  });
+
+  child.stdout.setEncoding("utf8");
+  child.stdout.on("data", (chunk: string) => {
+    output.stdout += chunk;
+    lineBuffer += chunk;
+    const lines = lineBuffer.split("\n");
+    lineBuffer = lines.pop() ?? "";
+    if (readySettled) return;
+    for (const line of lines) {
+      try {
+        const value = JSON.parse(line) as Record<string, unknown>;
+        if (value.ready === true) {
+          readySettled = true;
+          resolveReady(value);
+          return;
+        }
+      } catch {
+        // Startup output may precede the worker's explicit ready message.
+      }
+    }
+  });
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk: string) => {
+    output.stderr += chunk;
+  });
+  child.once("error", (error) => {
+    if (readySettled) return;
+    readySettled = true;
+    rejectReady(error);
+  });
+  child.once("close", (exitCode) => {
+    if (readySettled) return;
+    readySettled = true;
+    rejectReady(
+      new Error(
+        `Execution worker exited before its barrier (exit ${exitCode}): ${output.stderr || output.stdout}`,
+      ),
+    );
+  });
+
+  return { child, ready, closed, output };
+}
+
+async function stopBarrierWorker(worker: BarrierWorker): Promise<void> {
+  if (worker.child.exitCode === null && worker.child.signalCode === null) {
+    worker.child.kill("SIGKILL");
+  }
+  await worker.closed;
 }
 
 function workerJson<T>(result: WorkerResult): T {
@@ -247,6 +336,50 @@ describe.skipIf(!databaseUrl)(
         SELECT seq FROM agent_run_events WHERE run_id = ${firstFence.runId} AND seq = 77
       `;
         expect(staleEvents).toHaveLength(0);
+      });
+    }, 45_000);
+
+    it("rejects a live worker's first write after its lease is taken over", async () => {
+      await withTestDatabase(async (sql, prefix) => {
+        const threadId = `${prefix}:live-worker-thread`;
+        const turnId = `${prefix}:live-worker-turn`;
+        const runId = `${prefix}:live-worker-run`;
+        const worker = startBarrierWorker(
+          "wait-stale-write",
+          threadId,
+          turnId,
+          runId,
+        );
+        try {
+          const ready = await worker.ready;
+          const oldFence = ready.fence as ExecutionFence;
+          expect(oldFence.runId).toBe(runId);
+
+          await forceLeaseExpiry(sql, threadId, turnId);
+          const successorFence = await claimInProcess(
+            sql,
+            threadId,
+            turnId,
+            `${prefix}:live-worker-successor`,
+          );
+          expect(BigInt(successorFence.generation)).toBe(
+            BigInt(oldFence.generation) + 1n,
+          );
+
+          worker.child.stdin.write("continue\n");
+          const stopped = await worker.closed;
+          expect(stopped.exitCode).toBe(1);
+          expect(workerJson(stopped)).toMatchObject({
+            code: "stale_execution_fence",
+          });
+          const staleEvents = await sql`
+            SELECT seq FROM agent_run_events
+            WHERE run_id = ${runId} AND seq = 77
+          `;
+          expect(staleEvents).toHaveLength(0);
+        } finally {
+          await stopBarrierWorker(worker);
+        }
       });
     }, 45_000);
 
@@ -519,6 +652,90 @@ describe.skipIf(!databaseUrl)(
         expect(effects[0]?.effect_count).toBe(1);
       });
     }, 45_000);
+
+    it.each(["never", "retry-safe"] as const)(
+      "applies %s replay policy after SIGKILL following the durable dispatch marker",
+      async (replayPolicy) => {
+        await withTestDatabase(async (sql, prefix) => {
+          const threadId = `${prefix}:dispatch-crash-thread`;
+          const turnId = `${prefix}:dispatch-crash-turn`;
+          const stepId = `${prefix}:dispatch-crash-step`;
+          const worker = startBarrierWorker(
+            "dispatch-barrier",
+            threadId,
+            turnId,
+            `${prefix}:dispatch-crash-run`,
+            stepId,
+            replayPolicy,
+          );
+          try {
+            const ready = await worker.ready;
+            expect(ready.admission).toMatchObject({
+              status: "execute",
+              wasDispatched: false,
+            });
+            const [dispatched] = await sql`
+              SELECT status FROM agent_execution_steps
+              WHERE thread_id = ${threadId} AND turn_id = ${turnId}
+                AND step_id = ${stepId}
+            `;
+            expect(dispatched.status).toBe("dispatched");
+
+            worker.child.kill("SIGKILL");
+            const stopped = await worker.closed;
+            expect(stopped.signal).toBe("SIGKILL");
+          } finally {
+            await stopBarrierWorker(worker);
+          }
+
+          const [beforeRecovery] = await sql`
+            SELECT effect_count FROM agent_harness_test_effects
+            WHERE effect_id = ${stepId}
+          `;
+          expect(beforeRecovery).toBeUndefined();
+
+          await forceLeaseExpiry(sql, threadId, turnId);
+          const recoveryFence = await claimInProcess(
+            sql,
+            threadId,
+            turnId,
+            `${prefix}:dispatch-crash-recovery`,
+          );
+          const intent = stepIntent(recoveryFence, stepId, replayPolicy);
+          const admission = await withExecutionFence(recoveryFence, () =>
+            beginAgentExecutionStep(intent),
+          );
+
+          if (replayPolicy === "never") {
+            expect(admission).toEqual({ status: "unknown" });
+            return;
+          }
+
+          expect(admission).toEqual({
+            status: "execute",
+            wasDispatched: true,
+          });
+          await withExecutionFence(recoveryFence, async () => {
+            await markAgentExecutionStepDispatched(intent);
+            await sql`
+              INSERT INTO agent_harness_test_effects (effect_id, effect_count)
+              VALUES (${stepId}, 1)
+              ON CONFLICT (effect_id) DO UPDATE SET
+                effect_count = agent_harness_test_effects.effect_count + 1
+            `;
+            await completeAgentExecutionStep(
+              intent,
+              JSON.stringify({ result: "replayed", completedSideEffect: true }),
+            );
+          });
+          const [afterRecovery] = await sql`
+            SELECT effect_count FROM agent_harness_test_effects
+            WHERE effect_id = ${stepId}
+          `;
+          expect(afterRecovery.effect_count).toBe(1);
+        });
+      },
+    );
 
     it("permits retry-safe replay but keeps a failed receipt commit ambiguous", async () => {
       await withTestDatabase(async (sql, prefix) => {

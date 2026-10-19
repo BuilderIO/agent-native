@@ -2972,6 +2972,43 @@ export async function updateRunStatusIfRunning(
   return (rowsAffected ?? 0) > 0;
 }
 
+export async function updateRunTerminalStateIfRunning(
+  runId: string,
+  terminal: {
+    status: "completed" | "truncated" | "errored" | "aborted";
+    terminalReason: string;
+    errorCode?: string;
+    errorDetail?: string;
+  },
+): Promise<boolean> {
+  await ensureRunTables();
+  const terminalReason = terminal.terminalReason.slice(0, 200);
+  const status =
+    terminal.status === "completed" &&
+    isContinuationTerminalReason(terminalReason)
+      ? "truncated"
+      : terminal.status;
+  const { rowsAffected } = await withFencedExecutionWrite(
+    (tx) =>
+      tx.execute({
+        sql: `UPDATE agent_runs
+              SET status = ?, completed_at = ?, dispatch_payload = NULL,
+                  error_code = ?, error_detail = ?, terminal_reason = ?
+              WHERE id = ? AND status = 'running'`,
+        args: [
+          status,
+          Date.now(),
+          terminal.errorCode ?? null,
+          terminal.errorDetail?.slice(0, 2000) ?? null,
+          terminalReason,
+          runId,
+        ],
+      }),
+    { runId },
+  );
+  return (rowsAffected ?? 0) > 0;
+}
+
 export async function failRunBeforeDispatch(
   runId: string,
   errorCode: string,
@@ -3604,6 +3641,7 @@ export async function readStoppedRunForThreadFold(runId: string): Promise<{
   threadId: string;
   turnId: string;
   startedAt: number;
+  workerGeneration: string | null;
   events: RunEvent[];
   continuedInTurn: boolean;
   laterTurnStarted: boolean;
@@ -3612,7 +3650,7 @@ export async function readStoppedRunForThreadFold(runId: string): Promise<{
   const client = getDbExec();
   const { rows } = await client.execute({
     sql: `SELECT r.thread_id, COALESCE(r.turn_id, r.id) AS turn_id,
-                 r.status, r.started_at,
+                 r.status, r.started_at, r.worker_generation,
                  EXISTS (
                    SELECT 1 FROM agent_runs later
                    WHERE later.thread_id = r.thread_id
@@ -3636,6 +3674,7 @@ export async function readStoppedRunForThreadFold(runId: string): Promise<{
         turn_id: string;
         status: string;
         started_at: number | string;
+        worker_generation: number | string | null;
         continued_in_turn: boolean | string;
         later_turn_started: boolean | string;
       }
@@ -3651,6 +3690,8 @@ export async function readStoppedRunForThreadFold(runId: string): Promise<{
     threadId: row.thread_id,
     turnId: row.turn_id,
     startedAt: Number(row.started_at),
+    workerGeneration:
+      row.worker_generation == null ? null : String(row.worker_generation),
     events,
     continuedInTurn:
       row.continued_in_turn === true || row.continued_in_turn === "t",

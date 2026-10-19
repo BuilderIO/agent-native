@@ -43,6 +43,7 @@ const {
   ensureRunTables,
   insertRun,
   renewTaskExecutionLease,
+  updateRunTerminalStateIfRunning,
 } = await import("./run-store.js");
 
 beforeAll(async () => {
@@ -211,5 +212,73 @@ describe("task execution leases", () => {
     expect(
       (receipt.rows[0] as { result_json: string | null }).result_json,
     ).toBeNull();
+  });
+
+  it("commits terminal status and failure details before a successor claims", async () => {
+    const threadId = "thread-terminal-state-fence";
+    const turnId = "terminal-state-fence";
+    const runId = "run-terminal-state-fence";
+    await insertRun(runId, threadId, turnId, {
+      dispatchMode: "background",
+      dispatchPayload: JSON.stringify({ message: "continue" }),
+    });
+    const fence = await claimTurnExecutionLease(threadId, turnId, runId);
+
+    await expect(
+      withExecutionFence(fence, () =>
+        updateRunTerminalStateIfRunning(runId, {
+          status: "errored",
+          terminalReason: "error:provider_failed",
+          errorCode: "provider_failed",
+          errorDetail: "upstream unavailable",
+        }),
+      ),
+    ).resolves.toBe(true);
+
+    const terminal = await pglite.query(
+      `SELECT status, error_code, error_detail, terminal_reason, dispatch_payload
+         FROM agent_runs WHERE id = ?`,
+      [runId],
+    );
+    expect(terminal.rows[0]).toMatchObject({
+      status: "errored",
+      error_code: "provider_failed",
+      error_detail: "upstream unavailable",
+      terminal_reason: "error:provider_failed",
+      dispatch_payload: null,
+    });
+
+    const successorId = `${runId}-successor`;
+    await insertRun(successorId, threadId, turnId);
+    const successorFence = await claimTurnExecutionLease(
+      threadId,
+      turnId,
+      successorId,
+    );
+    expect(BigInt(successorFence.generation)).toBe(
+      BigInt(fence.generation) + 1n,
+    );
+
+    const continuationRunId = `${runId}-continuation`;
+    await insertRun(continuationRunId, threadId, `${turnId}-continuation`);
+    const continuationFence = await claimTurnExecutionLease(
+      threadId,
+      `${turnId}-continuation`,
+      continuationRunId,
+    );
+    await withExecutionFence(continuationFence, () =>
+      updateRunTerminalStateIfRunning(continuationRunId, {
+        status: "completed",
+        terminalReason: "no_progress",
+      }),
+    );
+    const continuation = await pglite.query(
+      `SELECT status, terminal_reason FROM agent_runs WHERE id = ?`,
+      [continuationRunId],
+    );
+    expect(continuation.rows[0]).toMatchObject({
+      status: "truncated",
+      terminal_reason: "no_progress",
+    });
   });
 });

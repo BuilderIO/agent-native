@@ -382,6 +382,7 @@ import {
   markRunAborted,
   updateRunHeartbeat,
   updateRunStatusIfRunning,
+  updateRunTerminalStateIfRunning,
   setRunError,
   setRunTerminalReason,
   claimBackgroundRun,
@@ -10681,16 +10682,12 @@ export async function markBackgroundContinuationChunkTerminal(opts: {
   continuationReason: AgentLoopContinuationReason;
   terminalEvent?: AgentChatEvent;
   deps?: {
-    updateRunStatusIfRunning?: typeof updateRunStatusIfRunning;
-    setRunError?: typeof setRunError;
-    setRunTerminalReason?: typeof setRunTerminalReason;
+    updateRunTerminalStateIfRunning?: typeof updateRunTerminalStateIfRunning;
   };
 }): Promise<boolean> {
-  const updateStatus =
-    opts.deps?.updateRunStatusIfRunning ?? updateRunStatusIfRunning;
-  const persistError = opts.deps?.setRunError ?? setRunError;
-  const setTerminalReason =
-    opts.deps?.setRunTerminalReason ?? setRunTerminalReason;
+  const persistTerminalState =
+    opts.deps?.updateRunTerminalStateIfRunning ??
+    updateRunTerminalStateIfRunning;
   const terminalEvent = opts.terminalEvent;
   const isTerminalFailure =
     terminalEvent?.type === "error" ||
@@ -10701,27 +10698,21 @@ export async function markBackgroundContinuationChunkTerminal(opts: {
       : terminalEvent?.type === "missing_api_key"
         ? "missing_api_key"
         : opts.continuationReason;
-  const updated = await updateStatus(
-    opts.runId,
-    isTerminalFailure ? "errored" : "completed",
-  );
-  if (updated) {
-    await setTerminalReason(opts.runId, terminalReason);
-    if (terminalEvent?.type === "error") {
-      await persistError(
-        opts.runId,
-        terminalEvent.errorCode,
-        terminalEvent.details || terminalEvent.error,
-      );
-    } else if (terminalEvent?.type === "missing_api_key") {
-      await persistError(
-        opts.runId,
-        LLM_MISSING_CREDENTIALS_ERROR_CODE,
-        LLM_MISSING_CREDENTIALS_MESSAGE,
-      );
-    }
-  }
-  return updated;
+  return persistTerminalState(opts.runId, {
+    status: isTerminalFailure ? "errored" : "completed",
+    terminalReason,
+    ...(terminalEvent?.type === "error"
+      ? {
+          errorCode: terminalEvent.errorCode,
+          errorDetail: terminalEvent.details || terminalEvent.error,
+        }
+      : terminalEvent?.type === "missing_api_key"
+        ? {
+            errorCode: LLM_MISSING_CREDENTIALS_ERROR_CODE,
+            errorDetail: LLM_MISSING_CREDENTIALS_MESSAGE,
+          }
+        : {}),
+  });
 }
 
 export async function claimBackgroundWorkerRunEarly(opts: {

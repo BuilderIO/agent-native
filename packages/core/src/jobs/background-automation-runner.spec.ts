@@ -358,6 +358,126 @@ describe("runBackgroundAutomation — confirmed work", () => {
     },
   );
 
+  it("recovers a completed durable step when recovery has no tool_done event", async () => {
+    const runStore = await import("../agent/run-store.js");
+    const history = await import("./run-history.js");
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    const automation = precondition("receipt-without-tool-done");
+    const threadId = "thread-receipt-without-tool-done";
+    const turnId = "turn-receipt-without-tool-done";
+    const historyId = await history.startAutomationRun({
+      owner: automation.resource.owner,
+      automation: automation.name,
+      path: automation.resource.path,
+      runId: "prior-worker",
+      threadId,
+    });
+    getThreadMock.mockResolvedValueOnce({
+      id: threadId,
+      title: "Interrupted",
+      preview: "",
+      messageCount: 1,
+      threadData: JSON.stringify({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Send the report." }],
+            metadata: { custom: { submittedTurnId: turnId } },
+          },
+        ],
+      }),
+    });
+    const persistedEvents = vi
+      .spyOn(runStore, "getCurrentTurnRunEventsForThread")
+      .mockResolvedValue([
+        {
+          runId: "prior-worker",
+          seq: 0,
+          event: {
+            type: "tool_start",
+            id: "send-report-call",
+            tool: "send-report",
+            input: { recipient: "fixture@example.test" },
+          },
+        },
+      ]);
+    const completedSteps = vi
+      .spyOn(runStore, "getCompletedAgentExecutionSteps")
+      .mockResolvedValue([
+        {
+          stepId: "send-report-call",
+          operationId: "send-report-call",
+          toolName: "send-report",
+          inputJson: JSON.stringify({
+            argumentsHash: "a".repeat(64),
+            input: { recipient: "fixture@example.test" },
+          }),
+          resultJson: JSON.stringify({
+            result: "Report delivered",
+            isError: false,
+            completedSideEffect: true,
+          }),
+        },
+      ]);
+    const claim = vi
+      .spyOn(runStore, "tryClaimRunSlot")
+      .mockImplementation(async (id, runId, _staleMs, options) => {
+        await runStore.insertRun(runId, id, options!.turnId!, {
+          dispatchMode: "background",
+          afterInsert: options!.afterInsert,
+        });
+        return { claimed: true, activeRunId: null };
+      });
+    const actionRun = vi.fn(async () => "Report delivered");
+    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+      async (opts) => {
+        expect(opts.recoverCompletedExecutionSteps).toBe(true);
+        expect(JSON.stringify(opts.messages)).toContain("Report delivered");
+        opts.send({ type: "text", text: "The report was delivered." });
+        return usage;
+      },
+    );
+
+    try {
+      await expect(
+        runBackgroundAutomation(
+          runOptions(automation, {
+            historyId,
+            resume: {
+              historyId,
+              threadId,
+              turnId,
+              previousRunId: "prior-worker",
+              hardDeadlineAt: Date.now() + 60_000,
+            },
+          }),
+          {
+            ...standardDeps,
+            getActions: () => ({
+              "send-report": {
+                run: actionRun,
+                confirmsAutomationWork: true,
+              },
+            }),
+          },
+        ),
+      ).resolves.toMatchObject({ status: "success" });
+      expect(persistedEvents).toHaveBeenCalledWith(threadId, turnId);
+      expect(completedSteps).toHaveBeenCalledWith(threadId, turnId, [
+        "send-report-call",
+      ]);
+      expect(actionRun).not.toHaveBeenCalled();
+      expect(await history.getAutomationRun(historyId)).toMatchObject({
+        status: "success",
+      });
+    } finally {
+      persistedEvents.mockRestore();
+      completedSteps.mockRestore();
+      claim.mockRestore();
+    }
+  });
+
   it("fails the run when its completion transcript was not persisted", async () => {
     const name = "completion-transcript-not-persisted";
     updateThreadDataMock
