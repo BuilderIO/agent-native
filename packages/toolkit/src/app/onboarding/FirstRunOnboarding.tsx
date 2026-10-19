@@ -1062,7 +1062,9 @@ export function FirstRunOnboarding({
                 type="button"
                 data-testid="first-run-credits-learn-more"
                 aria-expanded={moreInfoOpen}
-                aria-controls="first-run-credits-details"
+                aria-controls={
+                  moreInfoOpen ? "first-run-credits-details" : undefined
+                }
                 className="rounded-sm underline underline-offset-2 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onClick={toggleMoreInfo}
               >
@@ -1119,7 +1121,9 @@ export function FirstRunOnboarding({
                 type="button"
                 data-testid="first-run-credits-more-info"
                 aria-expanded={moreInfoOpen}
-                aria-controls="first-run-credits-details"
+                aria-controls={
+                  moreInfoOpen ? "first-run-credits-details" : undefined
+                }
                 className="inline-flex min-h-8 items-center gap-1 rounded-full border border-border px-3 text-xs font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onClick={toggleMoreInfo}
               >
