@@ -86,7 +86,7 @@ export interface ShadowLayer {
 // guard:allow-raw-color — authored shadows need a concrete CSS color fallback.
 const DEFAULT_DROP_SHADOW_COLOR = "rgba(0, 0, 0, 0.25)";
 
-function defaultDropShadowLayer(index: number): ShadowLayer {
+export function defaultDropShadowLayer(index: number): ShadowLayer {
   return {
     id: `shadow-${index}`,
     x: 0,

@@ -916,6 +916,24 @@ export default {
     motion: {
       openDock: "モーション",
       animations: "アニメーション",
+      code: {
+        list: "リスト",
+        code: "コード",
+        format: "コード形式",
+        css: "CSS",
+        data: "データ",
+        styles: "スタイル",
+        keyframes: "キーフレーム",
+        copy: "コピー",
+        copyAll: "すべてコピー",
+        copied: "コピーしました",
+        copyFailed: "コピーできませんでした",
+        showMore: "もっと見る",
+        openInTimeline: "タイムラインで開く",
+        nothingToList: "一覧表示するアニメーション行がありません",
+        nothingToShow: "コードとして表示するモーションがありません",
+        unavailable: "このモーションのコードは表示できません",
+      },
       pathEditAmbiguous:
         "このレイヤーには複数の位置アニメーションがあるため、パスを一意に編集できません。",
       pathEditPositionConflict:
@@ -1158,6 +1176,14 @@ export default {
       emptyStateNoSelection:
         "キャンバス上で要素を選択し、トラックを追加してアニメーションを設定します。",
       addMotion: "アニメーションを追加",
+      addMenu: {
+        strokeColor: "線の色",
+        strokeWeight: "線の太さ",
+        readyMade: "アニメーションスタイル",
+        outermostFrame: "最上位のフレームはアニメーションできません",
+        allStylesAdded:
+          "この選択にはすべてのアニメーションスタイルが追加済みです",
+      },
       text: "テキスト",
       textAnimation: {
         title: "テキストアニメーション",
@@ -1223,6 +1249,22 @@ export default {
           blur: "ぼかし",
           distance: "距離",
           amount: "量",
+        },
+      },
+      textStaggerControls: {
+        settings: "設定",
+        effects: "エフェクト",
+        addEffect: "エフェクトを追加",
+        crop: "トリミング",
+        showDetails: "詳細を表示",
+        hideDetails: "詳細を非表示",
+        removeEffect: "エフェクトを削除",
+        effectNames: {
+          move: "移動",
+          growShrink: "拡大または縮小",
+          spin: "回転",
+          fade: "フェード",
+          soften: "やわらげる",
         },
       },
       selectElementFirst: "まずキャンバス上で要素を選択してください",

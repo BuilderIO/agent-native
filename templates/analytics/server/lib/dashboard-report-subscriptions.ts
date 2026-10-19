@@ -434,6 +434,36 @@ export async function listDashboardReportSubscriptions(
   return rows.map(rowToSubscription);
 }
 
+/**
+ * Enabled daily report schedules on a dashboard in the caller's tenant: every
+ * owner's in the caller's org, or only the caller's own without an org. Each
+ * one re-runs the dashboard's panels once a day on its owner's BigQuery
+ * connection, so other tenants' schedules bill other tenants and never count.
+ * Only the number is returned, never the subscriptions themselves.
+ */
+export async function countEnabledDashboardReportSubscriptions(
+  dashboardId: string,
+  ctx: AccessCtx,
+): Promise<number> {
+  const db = getDb() as any;
+  const [row] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(schema.dashboardReportSubscriptions)
+    .where(
+      and(
+        eq(schema.dashboardReportSubscriptions.dashboardId, dashboardId),
+        eq(schema.dashboardReportSubscriptions.enabled, true),
+        ctx.orgId
+          ? eq(schema.dashboardReportSubscriptions.orgId, ctx.orgId)
+          : and(
+              isNull(schema.dashboardReportSubscriptions.orgId),
+              sql`lower(${schema.dashboardReportSubscriptions.ownerEmail}) = ${ctx.email.toLowerCase()}`,
+            ),
+      ),
+    );
+  return Number(row?.count ?? 0);
+}
+
 export async function getDashboardReportSubscription(
   id: string,
   ctx: AccessCtx,

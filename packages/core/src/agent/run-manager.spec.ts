@@ -346,6 +346,7 @@ describe("run manager soft timeout", () => {
     vi.mocked(getRunStatus).mockResolvedValue("running");
     vi.mocked(getRunById).mockResolvedValue(null);
     vi.mocked(getRunEventsSince).mockResolvedValue([]);
+    vi.mocked(claimTurnExecutionLease).mockClear();
     vi.mocked(insertRun).mockResolvedValue(undefined);
     vi.mocked(insertRunEvent).mockResolvedValue(undefined);
     vi.mocked(markRunAborted).mockClear();
@@ -533,6 +534,30 @@ describe("run manager soft timeout", () => {
       run.runId,
       "execution-lease-busy",
     );
+  });
+
+  it("does not start a run when an execution lease returns no fence", async () => {
+    vi.mocked(claimTurnExecutionLease).mockResolvedValueOnce(
+      undefined as never,
+    );
+    const runBody = vi.fn(async () => {});
+    const run = startRun(
+      "run-lease-missing-fence",
+      "thread-lease-missing-fence",
+      runBody,
+      undefined,
+      {
+        softTimeoutMs: 0,
+        noProgressTimeoutMs: 0,
+        executionLease: true,
+      },
+    );
+
+    await expect(run.finalized).rejects.toThrow(
+      "Execution lease was requested without an execution fence",
+    );
+
+    expect(runBody).not.toHaveBeenCalled();
   });
 
   it("does not start a leased run when abort wins during lease acquisition", async () => {

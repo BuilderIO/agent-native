@@ -10,7 +10,10 @@ import {
 import { getDbExec } from "@agent-native/core/db";
 import { getOrgSetting } from "@agent-native/core/settings";
 
-import type { SourceGenerationUnavailableReason } from "../../shared/source-generation.js";
+import type {
+  SourceGenerationResult,
+  SourceGenerationUnavailableReason,
+} from "../../shared/source-generation.js";
 import type {
   FirstPartyEventsModelSkipReason,
   FirstPartyEventsSource,
@@ -1862,6 +1865,34 @@ const MODEL_MISSING_SKIP_REASONS: Partial<
 };
 
 /**
+ * Check that a planned events model is there to read. A failed lookup still
+ * reads the model under an unknown generation; only a model that is not there
+ * to read sends the query to the raw table.
+ */
+export async function settleFirstPartyEventsSource(
+  eventsSource: FirstPartyEventsSource | undefined,
+  signal?: AbortSignal,
+): Promise<{
+  eventsSource: FirstPartyEventsSource | undefined;
+  sourceGeneration: SourceGenerationResult | undefined;
+}> {
+  const sourceGeneration =
+    eventsSource?.source === "model"
+      ? await resolveSourceGeneration([eventsSource.table], { signal })
+      : undefined;
+  const modelMissing =
+    sourceGeneration?.status === "unavailable"
+      ? MODEL_MISSING_SKIP_REASONS[sourceGeneration.reason]
+      : undefined;
+  return {
+    eventsSource: modelMissing
+      ? { source: "raw", modelSkipped: modelMissing }
+      : eventsSource,
+    sourceGeneration,
+  };
+}
+
+/**
  * Choose where a first-party query reads `analytics_events`: the events model
  * when one is configured and the query reads nothing the model lacks, the raw
  * table otherwise, with the reason the model was skipped.
@@ -1975,19 +2006,9 @@ export async function queryFirstPartyAnalyticsInBigQuery(
   try {
     // Read the generation before the job, so rows are never labeled newer
     // than the model they read.
-    const sourceGeneration =
-      eventsSource?.source === "model"
-        ? await resolveSourceGeneration([eventsSource.table], { signal })
-        : undefined;
-    // A failed lookup still reads the model under an unknown generation; only
-    // a model that is not there to read sends the query to the raw table.
-    const modelMissing =
-      sourceGeneration?.status === "unavailable"
-        ? MODEL_MISSING_SKIP_REASONS[sourceGeneration.reason]
-        : undefined;
-    if (modelMissing) {
-      eventsSource = { source: "raw", modelSkipped: modelMissing };
-    }
+    const settled = await settleFirstPartyEventsSource(eventsSource, signal);
+    eventsSource = settled.eventsSource;
+    const { sourceGeneration } = settled;
     result = await runQuery(
       renderFirstPartyAnalyticsBigQueryRequestSql(scopedSql, args, table, {
         eventDateRange: options.eventDateRange,
