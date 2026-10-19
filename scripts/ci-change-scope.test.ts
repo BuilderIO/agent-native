@@ -2960,6 +2960,7 @@ test("scopes Content DB tests to Content and shared database runtime changes", (
     "templates/content/actions/update-document.ts",
     "templates/content/server/db/schema.ts",
     "templates/content/app/routes/page.$id.tsx",
+    "packages/core/src/application-state/store.ts",
     "packages/core/src/db/client.ts",
     "packages/core/src/db/migrations.ts",
     "packages/core/src/db/schema-snapshot.generated.ts",

@@ -170,6 +170,7 @@ const PRE_AUTH_SESSION_REPLAY_E2E_FILES = new Set([
 ]);
 
 const CONTENT_DB_CORE_FILES = new Set([
+  "packages/core/src/application-state/store.ts",
   "packages/core/src/server/database-identity.ts",
   "packages/core/src/server/release-migrations.ts",
   "packages/core/src/server/release-schema.ts",
