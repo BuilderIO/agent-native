@@ -606,6 +606,8 @@ export function renderEditorCanvasArea({
           <div
             ref={canvasContainerRef}
             data-design-canvas-container
+            data-an-native-preview-inset-left={chromeInsetLeft}
+            data-an-native-preview-inset-right={chromeInsetRight}
             className="relative min-w-0 flex-1 overflow-hidden bg-[var(--design-editor-canvas-bg)]"
             style={
               {

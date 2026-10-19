@@ -2,7 +2,10 @@ import tailwindRuntimeUrl from "@tailwindcss/browser?url";
 import alpineRuntimeUrl from "alpinejs/dist/cdn.min.js?url";
 
 import { ensureGroupRuntime } from "../../../../shared/group-runtime";
-import { replaceForeignShaderRuntime } from "../../../../shared/shader-fills";
+import {
+  ensureNativeShaderRuntime,
+  replaceForeignShaderRuntime,
+} from "../../../../shared/shader-fills";
 import { runtimeSrcSpans } from "./runtime-src-spans";
 
 function absolute(url: string): string {
@@ -34,4 +37,18 @@ export function withLocalRuntimes(
     cursor = span.end;
   }
   return out + html.slice(cursor);
+}
+
+const NATIVE_MANIFEST_TAG =
+  /<script\b[^>]*\btype\s*=\s*(?:"application\/x-agent-native-effects"|'application\/x-agent-native-effects')[^>]*>/i;
+
+export function withNativeShaderRuntime(
+  document: string,
+  always = false,
+): string {
+  return always ||
+    NATIVE_MANIFEST_TAG.test(document) ||
+    document.includes("data-agent-native-native-shader-runtime")
+    ? ensureNativeShaderRuntime(document)
+    : document;
 }

@@ -95,7 +95,7 @@ vi.mock("../server/db/index.js", async () => {
     import("drizzle-orm/pg-core"),
   ]);
   const { PGlite } = createRequire(
-    new URL("../../../../packages/core/package.json", import.meta.url),
+    new URL("../../../packages/core/package.json", import.meta.url),
   )("@electric-sql/pglite");
   const designs = pgCore.pgTable("designs", {
     id: pgCore.text("id").primaryKey(),

@@ -202,6 +202,7 @@ export function ColorInput({
   pickerKey,
   glslShaderContext,
   fillShader,
+  shaderDisplayOpacity,
   authoredValue,
   bindTokens = false,
   boundToken,
@@ -255,6 +256,8 @@ export function ColorInput({
   glslShaderContext?: GlslShaderPanelContext;
   /** The shader painted as this fill: the picker opens on its controls. */
   fillShader?: { name: string } | null;
+  /** Native shader opacity for the Shader field; CSS layers keep their own alpha. */
+  shaderDisplayOpacity?: number;
   /** The color as written in the design, for the field to read as written. */
   authoredValue?: string;
   /** Offers the design's color tokens in the picker's Libraries pane; picking one writes `var(--token)`. */
@@ -667,6 +670,9 @@ export function ColorInput({
       onBlendModeChange={onBlendModeChange}
       showBlendMode={Boolean(onBlendModeChange)}
       paintType={selectedPaintType}
+      opacity={
+        selectedPaintType === "shader" ? shaderDisplayOpacity : undefined
+      }
       onPaintTypeChange={handlePaintTypeChange}
       gradientType={activeGradient?.type}
       onGradientTypeChange={handleGradientTypeChange}

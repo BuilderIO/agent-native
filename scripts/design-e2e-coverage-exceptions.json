@@ -36,6 +36,38 @@
       "action": "lane-move",
       "from": {
         "shard": "inspector-4b",
+        "file": "vector-live-edit-acceptance.spec.ts",
+        "title": "closing an edited pasted SVG restores authored fill opacity through history and reload"
+      },
+      "to": {
+        "shard": "inspector-1b",
+        "file": "vector-live-edit-acceptance.spec.ts",
+        "title": "closing an edited pasted SVG restores authored fill opacity through history and reload"
+      },
+      "reason": "Move the longest local inspector-4b case to inspector-1b, which already runs this SVG spec and has CI headroom.",
+      "evidence": "PR #7841 inspector-4b job 118260656130 reached eight passes at its seven-minute limit; isolated local case took 18.6 seconds.",
+      "owner": "design-infra"
+    },
+    {
+      "action": "lane-move",
+      "from": {
+        "shard": "inspector-4a",
+        "file": "pasted-svg-image-inspector.spec.ts",
+        "title": "stroke gradient edits stay on the selected nested pasted-SVG shape"
+      },
+      "to": {
+        "shard": "inspector-3a",
+        "file": "pasted-svg-image-inspector.spec.ts",
+        "title": "stroke gradient edits stay on the selected nested pasted-SVG shape"
+      },
+      "reason": "Balance the nine-minute core jobs by moving nested SVG stroke editing from inspector-4a to inspector-3a.",
+      "evidence": "PR #7841 head 0d6a5dc: inspector-1b reached the seven-minute test cap after both pasted-SVG cases reached screenshots; inspector-3a completed in 4m08s.",
+      "owner": "design-infra"
+    },
+    {
+      "action": "lane-move",
+      "from": {
+        "shard": "inspector-4b",
         "file": "inspector-styles.spec.ts",
         "title": "style layer row actions stay visible and toggle visibility state"
       },
@@ -63,6 +95,22 @@
       "reason": "inspector-4b exceeded its nine-minute job cap after its eight specs passed. Move three pins that no required core coverage names to a new inspector-4c shard so inspector-4b stays under the cap.",
       "evidence": "CI run 39304892117, job 118240614249 (design core regression inspector-4b): eight specs passed in 6.5 minutes after about three minutes of setup; the job was cancelled at the nine-minute cap.",
       "owner": "Steve Sewell"
+    },
+    {
+      "action": "lane-move",
+      "from": {
+        "shard": "inspector-4b",
+        "file": "text-range-visibility.spec.ts",
+        "title": "multi-selected text leaves share inspector styles, edits save to both, and one undo restores both"
+      },
+      "to": {
+        "shard": "inspector-1a",
+        "file": "text-range-visibility.spec.ts",
+        "title": "multi-selected text leaves share inspector styles, edits save to both, and one undo restores both"
+      },
+      "reason": "Move text-selection inspector coverage to the lighter inspector-1a shard while balancing the nine-minute core job.",
+      "evidence": "PR #7841 inspector-4b job 118275980310: seven tests passed in 6m06s, but the nine-minute outer job was cancelled after successful cleanup.",
+      "owner": "design-infra"
     }
   ],
   "quarantine": []

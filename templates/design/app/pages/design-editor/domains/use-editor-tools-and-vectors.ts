@@ -1,7 +1,6 @@
 import {
   setAgentChatContextItem,
   removeAgentChatContextItem,
-  useAgentChatContext,
 } from "@agent-native/core/client/agent-chat";
 import type { ReviewComment } from "@agent-native/core/review";
 import { type PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
@@ -14,6 +13,7 @@ import {
   removeCodeLayerNodeFromHtml,
 } from "@shared/code-layer";
 import { getOverviewScreenFileIds } from "@shared/design-files";
+import { pruneDeletedNativeEffects } from "@shared/native-effect-pruning";
 import {
   setPenNodeCornerRadius,
   type PenGeometry,
@@ -550,8 +550,9 @@ export function useEditorToolsAndVectors({
       if (!node) return "node-absent";
       const hasContent = (node.textSnippet ?? "").trim().length > 0;
       if (hasContent) return "kept-has-content";
-      const nextContent = removeCodeLayerNodeFromHtml(content, node);
-      if (!nextContent || nextContent === content) return "remove-failed";
+      const removedContent = removeCodeLayerNodeFromHtml(content, node);
+      if (!removedContent || removedContent === content) return "remove-failed";
+      const nextContent = pruneDeletedNativeEffects(content, removedContent);
       const finalizedCreation = prepareTextCreationFinalization(
         screenId,
         [nodeId, node.id, node.dataAttributes["data-agent-native-node-id"]],
@@ -1581,14 +1582,6 @@ export function useEditorToolsAndVectors({
   const sentSelectionIdRef = useRef<string | null>(null);
   const composerContextHasOurKeyRef = useRef(true);
 
-  const composerContextItemsForBookkeeping =
-    useAgentChatContext(isSignedIn).items;
-  useEffect(() => {
-    const key = "design:selected-element";
-    composerContextHasOurKeyRef.current =
-      composerContextItemsForBookkeeping.some((item) => item.key === key);
-  }, [composerContextItemsForBookkeeping]);
-
   useEffect(
     () =>
       runMirrorSelectionToAgentChat({
@@ -1750,6 +1743,7 @@ export function useEditorToolsAndVectors({
   );
 
   return {
+    composerContextHasOurKeyRef,
     shapeTool,
     vectorEditingState,
     setVectorEditingState,

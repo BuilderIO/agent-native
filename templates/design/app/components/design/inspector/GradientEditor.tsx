@@ -332,6 +332,13 @@ export interface GradientEditorProps {
   renderColorPicker?: RenderNestedColorPicker;
   disabled?: boolean;
   className?: string;
+  /** Omits gradient-only type and direction controls for stop-based fields. */
+  stopsOnly?: boolean;
+  /** Palette stops are ordered colors with synthetic positions, not gradient handles. */
+  paletteMode?: boolean;
+  minStops?: number;
+  maxStops?: number;
+  showReverseStops?: boolean;
 }
 
 const PIN_SIZE = 20;
@@ -430,6 +437,7 @@ function StopRow({
   stop,
   selected,
   canRemove,
+  paletteMode = false,
   disabled,
   renderColorPicker,
   onSelect,
@@ -441,6 +449,7 @@ function StopRow({
   stop: GradientStopValue;
   selected: boolean;
   canRemove: boolean;
+  paletteMode?: boolean;
   disabled: boolean;
   renderColorPicker?: RenderNestedColorPicker;
   onSelect: () => void;
@@ -466,15 +475,19 @@ function StopRow({
         onPointerDownCapture={onSelect}
         onFocusCapture={onSelect}
         className={cn(
-          "grid h-8 grid-cols-[3.5rem_minmax(0,1fr)_1.5rem] items-center gap-2 px-3 focus-visible:outline-none",
+          paletteMode
+            ? "grid h-8 grid-cols-[minmax(0,1fr)_1.5rem] items-center gap-2 px-3 focus-visible:outline-none"
+            : "grid h-8 grid-cols-[3.5rem_minmax(0,1fr)_1.5rem] items-center gap-2 px-3 focus-visible:outline-none",
           selected && "bg-primary/10",
         )}
       >
-        <StopPositionField
-          position={stop.position}
-          disabled={disabled}
-          onCommit={onPosition}
-        />
+        {!paletteMode && (
+          <StopPositionField
+            position={stop.position}
+            disabled={disabled}
+            onCommit={onPosition}
+          />
+        )}
         <div className={cn(FIELD, "gap-2 px-1.5")}>
           <button
             type="button"
@@ -535,6 +548,11 @@ export function GradientEditor({
   renderColorPicker,
   disabled = false,
   className,
+  stopsOnly = false,
+  paletteMode = false,
+  minStops = 2,
+  maxStops = Number.POSITIVE_INFINITY,
+  showReverseStops = true,
 }: GradientEditorProps) {
   const t = useT();
   const barRef = useRef<HTMLDivElement>(null);
@@ -542,19 +560,25 @@ export function GradientEditor({
   const stopDragMovedRef = useRef(false);
   const barClickRef = useRef<{ moved: boolean; startX: number } | null>(null);
   const pinRefs = useRef(new Map<string, HTMLButtonElement>());
-  // The pin that should hold focus once it is on screen: one just added, or
-  // the one a removal selected.
-  const focusPinRef = useRef<string | null>(null);
+  // The stop that should hold focus once it is on screen after an add or removal.
+  const focusStopRef = useRef<string | null>(null);
 
   useEffect(() => {
-    const id = focusPinRef.current;
-    const pin = id ? pinRefs.current.get(id) : undefined;
-    if (!pin) return;
-    focusPinRef.current = null;
-    pin.focus({ preventScroll: true });
+    const id = focusStopRef.current;
+    if (!id) return;
+    const pin = pinRefs.current.get(id);
+    const row = Array.from(
+      editorRootRef.current?.querySelectorAll<HTMLElement>("[data-stop-row]") ??
+        [],
+    ).find((element) => element.dataset.stopId === id);
+    const target = pin ?? row;
+    if (!target) return;
+    focusStopRef.current = null;
+    target.focus({ preventScroll: true });
   });
 
   const [angleInput, setAngleInput] = useState<string | null>(null);
+  const editorRootRef = useRef<HTMLDivElement>(null);
 
   const positionFromPointer = (clientX: number): number => {
     const rect = barRef.current?.getBoundingClientRect();
@@ -581,14 +605,24 @@ export function GradientEditor({
   };
 
   const addStopAt = (position: number, focusPin = false) => {
+    if (value.stops.length >= maxStops) return;
     const newStop: GradientStopValue = {
       id: nextStopId(),
       color: colorAtPosition(value.stops, position),
       position,
     };
-    onChange({ ...value, stops: [...value.stops, newStop] });
+    const stops = [...value.stops, newStop];
+    onChange({
+      ...value,
+      stops: paletteMode
+        ? stops.map((stop, index) => ({
+            ...stop,
+            position: (index / Math.max(1, stops.length - 1)) * 100,
+          }))
+        : stops,
+    });
     onSelectStop(newStop.id);
-    if (focusPin) focusPinRef.current = newStop.id;
+    if (focusPin || paletteMode || stopsOnly) focusStopRef.current = newStop.id;
     onCommit?.();
   };
 
@@ -657,12 +691,18 @@ export function GradientEditor({
   };
 
   // A gradient keeps at least two stops.
-  const canRemoveStop = value.stops.length > 2;
+  const canRemoveStop = value.stops.length > minStops;
   const removeStop = (id: string) => {
     if (!canRemoveStop) return;
     const removed = value.stops.find((stop) => stop.id === id);
     if (!removed) return;
-    const nextStops = value.stops.filter((stop) => stop.id !== id);
+    const filteredStops = value.stops.filter((stop) => stop.id !== id);
+    const nextStops = paletteMode
+      ? filteredStops.map((stop, index) => ({
+          ...stop,
+          position: (index / Math.max(1, filteredStops.length - 1)) * 100,
+        }))
+      : filteredStops;
     onChange({ ...value, stops: nextStops });
     const nextSelected =
       selectedStopId === id
@@ -671,7 +711,7 @@ export function GradientEditor({
     if (selectedStopId === id) onSelectStop(nextSelected);
     // The focused pin or button is gone. Focus on the body would let the next
     // Backspace through to the canvas, so it moves to the stop now selected.
-    focusPinRef.current = nextSelected;
+    focusStopRef.current = nextSelected;
     onCommit?.();
   };
 
@@ -710,12 +750,20 @@ export function GradientEditor({
   const showAngle = value.kind === "linear" || value.kind === "angular";
 
   return (
-    <div className={cn("select-none", className)} onKeyDown={handleKeyDown}>
+    <div
+      ref={editorRootRef}
+      className={cn("select-none", className)}
+      onKeyDown={handleKeyDown}
+    >
       {/* ── Type, angle, reverse, rotate ─────────────────────────────────────── */}
-      <div className="flex items-center gap-2 px-3 pt-3">
-        <div className="w-[136px] min-w-0 shrink">{typeControl}</div>
-        <div className="flex-1" />
-        {showAngle && (
+      <div className={cn("flex items-center gap-2 px-3 pt-3")}>
+        {!stopsOnly && (
+          <>
+            <div className="w-[136px] min-w-0 shrink">{typeControl}</div>
+            <div className="flex-1" />
+          </>
+        )}
+        {!stopsOnly && !paletteMode && showAngle && (
           <div className={cn(FIELD, "w-14 shrink-0")}>
             <input
               type="number"
@@ -746,26 +794,30 @@ export function GradientEditor({
             </span>
           </div>
         )}
-        <button
-          type="button"
-          disabled={disabled}
-          aria-label={t("editPanel.colorPicker.reverseStops")}
-          title={t("editPanel.colorPicker.reverseStops")}
-          onClick={reverseStops}
-          className={ICON_BUTTON}
-        >
-          <IconSwitchHorizontal className="size-4" />
-        </button>
-        <button
-          type="button"
-          disabled={disabled || !showAngle}
-          aria-label={t("editPanel.colorPicker.rotateGradient")}
-          title={t("editPanel.colorPicker.rotateGradient")}
-          onClick={rotate}
-          className={ICON_BUTTON}
-        >
-          <IconRotate2 className="size-4" />
-        </button>
+        {!stopsOnly && !paletteMode && showReverseStops && (
+          <button
+            type="button"
+            disabled={disabled}
+            aria-label={t("editPanel.colorPicker.reverseStops")}
+            title={t("editPanel.colorPicker.reverseStops")}
+            onClick={reverseStops}
+            className={ICON_BUTTON}
+          >
+            <IconSwitchHorizontal className="size-4" />
+          </button>
+        )}
+        {!stopsOnly && !paletteMode && (
+          <button
+            type="button"
+            disabled={disabled || !showAngle}
+            aria-label={t("editPanel.colorPicker.rotateGradient")}
+            title={t("editPanel.colorPicker.rotateGradient")}
+            onClick={rotate}
+            className={ICON_BUTTON}
+          >
+            <IconRotate2 className="size-4" />
+          </button>
+        )}
       </div>
 
       {/* ── Pins above the bar; clicking the bar adds one ────────────────────── */}
@@ -773,7 +825,7 @@ export function GradientEditor({
         <div
           className="relative"
           style={{ height: TRACK_HEIGHT }}
-          onPointerMove={handleBarPointerMove}
+          onPointerMove={paletteMode ? undefined : handleBarPointerMove}
         >
           <div
             className="absolute left-0 right-0 rounded-md"
@@ -790,10 +842,11 @@ export function GradientEditor({
             ref={barRef}
             role="group"
             aria-label={"Gradient stops" /* i18n-ignore */}
-            onPointerDown={handleBarPointerDown}
-            onPointerUp={(e) => handleBarClick(e)}
+            onPointerDown={paletteMode ? undefined : handleBarPointerDown}
+            onPointerUp={paletteMode ? undefined : (e) => handleBarClick(e)}
             className={cn(
-              "absolute left-0 right-0 cursor-copy rounded-md border border-border/50",
+              "absolute left-0 right-0 rounded-md border border-border/50",
+              !paletteMode && "cursor-copy",
               disabled && "cursor-not-allowed opacity-60",
             )}
             style={{
@@ -803,75 +856,76 @@ export function GradientEditor({
             }}
           />
 
-          {value.stops.map((stop) => {
-            const isSelected = stop.id === selectedStopId;
-            const solidColor = withCssColorAlpha(stop.color, 1) ?? stop.color;
+          {!paletteMode &&
+            value.stops.map((stop) => {
+              const isSelected = stop.id === selectedStopId;
+              const solidColor = withCssColorAlpha(stop.color, 1) ?? stop.color;
 
-            return (
-              <button
-                key={stop.id}
-                ref={(node) => {
-                  if (node) pinRefs.current.set(stop.id, node);
-                  else pinRefs.current.delete(stop.id);
-                }}
-                type="button"
-                aria-label={`${stop.color} at ${Math.round(stop.position)}%`}
-                aria-pressed={isSelected}
-                disabled={disabled}
-                onPointerDown={(e) => startStopDrag(e, stop.id)}
-                onPointerMove={handleStopPointerMove}
-                onPointerUp={endStopDrag}
-                onPointerCancel={endStopDrag}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onSelectStop(stop.id);
-                }}
-                onDoubleClick={(e) => {
-                  e.stopPropagation();
-                  removeStop(stop.id);
-                }}
-                onKeyDown={(e) => {
-                  if (disabled) return;
-                  if (e.key === "Delete" || e.key === "Backspace") {
-                    e.preventDefault();
+              return (
+                <button
+                  key={stop.id}
+                  ref={(node) => {
+                    if (node) pinRefs.current.set(stop.id, node);
+                    else pinRefs.current.delete(stop.id);
+                  }}
+                  type="button"
+                  aria-label={`${stop.color} at ${Math.round(stop.position)}%`}
+                  aria-pressed={isSelected}
+                  disabled={disabled}
+                  onPointerDown={(e) => startStopDrag(e, stop.id)}
+                  onPointerMove={handleStopPointerMove}
+                  onPointerUp={endStopDrag}
+                  onPointerCancel={endStopDrag}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSelectStop(stop.id);
+                  }}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
                     removeStop(stop.id);
-                    return;
-                  }
-                  if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
-                    e.preventDefault();
-                    const step = e.shiftKey ? 10 : 1;
-                    const delta = e.key === "ArrowRight" ? step : -step;
-                    updateStopPosition(
-                      stop.id,
-                      clamp(stop.position + delta, 0, 100),
-                    );
-                    onCommit?.();
-                  }
-                }}
-                className={cn(
-                  PIN_CLASS,
-                  "focus-visible:outline-none",
-                  isSelected
-                    ? "z-10 shadow-[0_0_0_1.5px_var(--primary),0_1px_3px_rgba(0,0,0,0.35)]"
-                    : "shadow-[0_0_0_1px_rgba(0,0,0,0.25),0_1px_3px_rgba(0,0,0,0.25)]",
-                )}
-                style={{
-                  width: PIN_SIZE,
-                  height: PIN_SIZE,
-                  left: `${stop.position}%`,
-                  transform: "translateX(-50%)",
-                  backgroundColor: solidColor,
-                }}
-              >
-                {isSelected && (
-                  <span
-                    aria-hidden="true"
-                    className="absolute left-1/2 top-full mt-0.75 size-0 -translate-x-1/2 border-x-4 border-t-4 border-x-transparent border-t-primary"
-                  />
-                )}
-              </button>
-            );
-          })}
+                  }}
+                  onKeyDown={(e) => {
+                    if (disabled) return;
+                    if (e.key === "Delete" || e.key === "Backspace") {
+                      e.preventDefault();
+                      removeStop(stop.id);
+                      return;
+                    }
+                    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+                      e.preventDefault();
+                      const step = e.shiftKey ? 10 : 1;
+                      const delta = e.key === "ArrowRight" ? step : -step;
+                      updateStopPosition(
+                        stop.id,
+                        clamp(stop.position + delta, 0, 100),
+                      );
+                      onCommit?.();
+                    }
+                  }}
+                  className={cn(
+                    PIN_CLASS,
+                    "focus-visible:outline-none",
+                    isSelected
+                      ? "z-10 shadow-[0_0_0_1.5px_var(--primary),0_1px_3px_rgba(0,0,0,0.35)]"
+                      : "shadow-[0_0_0_1px_rgba(0,0,0,0.25),0_1px_3px_rgba(0,0,0,0.25)]",
+                  )}
+                  style={{
+                    width: PIN_SIZE,
+                    height: PIN_SIZE,
+                    left: `${stop.position}%`,
+                    transform: "translateX(-50%)",
+                    backgroundColor: solidColor,
+                  }}
+                >
+                  {isSelected && (
+                    <span
+                      aria-hidden="true"
+                      className="absolute left-1/2 top-full mt-0.75 size-0 -translate-x-1/2 border-x-4 border-t-4 border-x-transparent border-t-primary"
+                    />
+                  )}
+                </button>
+              );
+            })}
         </div>
       </div>
 
@@ -882,10 +936,18 @@ export function GradientEditor({
         </span>
         <button
           type="button"
-          disabled={disabled}
+          disabled={disabled || value.stops.length >= maxStops}
           aria-label={t("editPanel.colorPicker.addStop")}
           title={t("editPanel.colorPicker.addStop")}
-          onClick={() => addStopAt(nextStopPosition(value.stops))}
+          onClick={() =>
+            addStopAt(
+              paletteMode
+                ? value.stops.length
+                  ? 100
+                  : 0
+                : nextStopPosition(value.stops),
+            )
+          }
           className={ICON_BUTTON}
         >
           <IconPlus className="size-4" />
@@ -898,6 +960,7 @@ export function GradientEditor({
             stop={stop}
             selected={stop.id === selectedStopId}
             canRemove={canRemoveStop}
+            paletteMode={paletteMode}
             disabled={disabled}
             renderColorPicker={renderColorPicker}
             onSelect={() => onSelectStop(stop.id)}
