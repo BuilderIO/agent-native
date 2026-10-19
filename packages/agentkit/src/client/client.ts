@@ -4205,6 +4205,21 @@ export class AgentKitClient implements AgentKitController {
       this.queuedMessageReservationIds.delete(optimisticMessage.id);
       this.queuedMessageReservationCallbacks.delete(optimisticMessage.id);
       this.pendingQueueMessageIds.delete(optimisticMessage.id);
+      const submittedRunId = isAgentKitRunSlotBusyError(error)
+        ? error.submittedRunId
+        : undefined;
+      if (submittedRunId) {
+        const submittedMessage =
+          this.getThread(input.threadId).queuedMessages.find(
+            (message) => message.id === optimisticMessage.id,
+          ) ?? optimisticMessage;
+        this.markQueueMessageSubmitted(input.threadId, submittedMessage);
+        return {
+          ...submittedMessage,
+          alreadySubmitted: true,
+          submittedRunId,
+        };
+      }
       const thread = this.getThread(input.threadId);
       const queuedMessages = thread.queuedMessages.filter(
         (message) => message.id !== optimisticMessage.id,
@@ -4219,9 +4234,7 @@ export class AgentKitClient implements AgentKitController {
           removedIds: override.removedIds,
         });
       }
-      if (!isAgentKitRunSlotBusyError(error) || !error.submittedRunId) {
-        this.scheduleQueuePromotionIfIdle(input.threadId);
-      }
+      this.scheduleQueuePromotionIfIdle(input.threadId);
       throw error;
     }
   }

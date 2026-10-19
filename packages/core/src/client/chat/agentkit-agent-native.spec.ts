@@ -14,6 +14,7 @@ import {
   upsertUserMessage,
 } from "../../agent/thread-data-builder.js";
 import { projectRootAssistantMessages } from "../../agent/thread-message-projection.js";
+import { RUN_NOT_STARTED_METADATA_KEY } from "../../shared/agent-chat-run-not-started.js";
 import { AGENT_CHAT_THREAD_ABSENCE_HEADER } from "../../shared/agent-chat.js";
 import { agentTroubleCauseForCode } from "../../shared/analytics-events.js";
 import {
@@ -8816,6 +8817,163 @@ describe("createAgentNativeAgentKitTransport", () => {
       error: { code: "run_state_unavailable", retryable: true },
     });
     await client.shutdown();
+    await transport.dispose();
+  });
+
+  it("projects SQL lifecycle fields while preserving protocol state and confirmed missing rows", async () => {
+    const threadId = "thread-sql-run-lifecycles";
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) => {
+        if (String(input).includes("/runs/active")) {
+          return json({ active: false, status: "idle" });
+        }
+        return json({
+          id: threadId,
+          runLifecycles: {
+            queriedRunIds: [
+              "run-sql-failure",
+              "run-awaiting-approval",
+              "run-continuation-abort",
+              "run-no-sql-row",
+            ],
+            runs: [
+              {
+                id: "run-sql-failure",
+                status: "errored",
+                startedAt: 1000,
+                completedAt: 2000,
+                errorCode: "run_timeout",
+                abortReason: null,
+                terminalReason: "run_timeout",
+              },
+              {
+                id: "run-awaiting-approval",
+                status: "aborted",
+                startedAt: 3000,
+                completedAt: null,
+                errorCode: null,
+                abortReason: "user_cancelled",
+                terminalReason: "user_cancelled",
+              },
+              {
+                id: "run-continuation-abort",
+                status: "aborted",
+                startedAt: 5000,
+                completedAt: 6000,
+                errorCode: null,
+                abortReason: "run_timeout",
+                terminalReason: "aborted:run_timeout",
+              },
+            ],
+          },
+          threadData: JSON.stringify({
+            messages: [
+              {
+                message: {
+                  id: "run-not-started-notice",
+                  role: "assistant",
+                  status: { type: "complete" },
+                  content: [{ type: "text", text: "The run did not start." }],
+                  metadata: {
+                    runId: "run-sql-failure",
+                    custom: { [RUN_NOT_STARTED_METADATA_KEY]: true },
+                  },
+                },
+              },
+            ],
+            agentKit: {
+              messages: [],
+              runs: [
+                {
+                  id: "run-sql-failure",
+                  threadId,
+                  status: "completed",
+                  lastSequence: 8,
+                  activeMessageId: "assistant-sql-failure",
+                  startedAt: "2026-09-01T00:00:00.000Z",
+                  completedAt: "2026-09-01T00:01:00.000Z",
+                  metadata: { custom: { preserved: true } },
+                },
+                {
+                  id: "run-awaiting-approval",
+                  threadId,
+                  status: "awaiting_approval",
+                  lastSequence: 4,
+                  startedAt: "2026-09-02T00:00:00.000Z",
+                  completedAt: "2026-09-02T00:01:00.000Z",
+                  error: { code: "stale_error", message: "Old failure" },
+                },
+                {
+                  id: "run-continuation-abort",
+                  threadId,
+                  status: "cancelled",
+                  lastSequence: 6,
+                },
+                {
+                  id: "run-no-sql-row",
+                  threadId,
+                  status: "failed",
+                  lastSequence: 3,
+                  startedAt: "2026-09-03T00:00:00.000Z",
+                  error: { code: "legacy_failure", message: "Legacy state" },
+                },
+              ],
+            },
+          }),
+        });
+      }) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({ threadId });
+
+    expect(snapshot?.messages.map((message) => message.id)).not.toContain(
+      "run-not-started-notice",
+    );
+    expect(snapshot?.runs).toContainEqual(
+      expect.objectContaining({
+        id: "run-sql-failure",
+        status: "failed",
+        lastSequence: 8,
+        activeMessageId: "assistant-sql-failure",
+        startedAt: new Date(1000).toISOString(),
+        completedAt: new Date(2000).toISOString(),
+        metadata: { custom: { preserved: true } },
+        error: expect.objectContaining({
+          code: "run_timeout",
+          metadata: { terminalReason: "run_timeout" },
+        }),
+      }),
+    );
+    expect(snapshot?.runs).toContainEqual(
+      expect.objectContaining({
+        id: "run-awaiting-approval",
+        status: "awaiting_approval",
+        startedAt: new Date(3000).toISOString(),
+      }),
+    );
+    const awaitingApproval = snapshot?.runs?.find(
+      (run) => run.id === "run-awaiting-approval",
+    );
+    expect(awaitingApproval).not.toHaveProperty("completedAt");
+    expect(awaitingApproval).not.toHaveProperty("error");
+    expect(snapshot?.runs).toContainEqual(
+      expect.objectContaining({
+        id: "run-continuation-abort",
+        status: "failed",
+        error: expect.objectContaining({
+          code: "run_timeout",
+          retryable: true,
+        }),
+      }),
+    );
+    expect(snapshot?.runs).toContainEqual(
+      expect.objectContaining({
+        id: "run-no-sql-row",
+        status: "failed",
+        startedAt: "2026-09-03T00:00:00.000Z",
+        error: { code: "legacy_failure", message: "Legacy state" },
+      }),
+    );
     await transport.dispose();
   });
 

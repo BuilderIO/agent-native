@@ -4072,19 +4072,35 @@ export interface AgentRunSummary {
 
 export async function listRunsForThread(
   threadId: string,
-  options: { limit?: number } = {},
+  options: { limit?: number; runIds?: readonly string[] } = {},
 ): Promise<AgentRunSummary[]> {
   await ensureRunTables();
   const limit = Math.min(Math.max(options.limit ?? 10, 1), 50);
-  const client = getDbExec();
-  let { rows } = await client.execute({
-    sql: `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, error_code, abort_reason, dispatch_mode, terminal_reason, diag_stage
-          FROM agent_runs
-          WHERE thread_id = ?
-          ORDER BY started_at DESC
-          LIMIT ?`,
-    args: [threadId, limit],
+  const runIds =
+    options.runIds === undefined ? undefined : [...new Set(options.runIds)];
+  if (runIds?.length === 0) return [];
+  const runIdBatches: (string[] | undefined)[] = runIds
+    ? Array.from({ length: Math.ceil(runIds.length / 500) }, (_, index) =>
+        runIds.slice(index * 500, index * 500 + 500),
+      )
+    : [undefined];
+  const runQueries = runIdBatches.map((batch) => {
+    const runIdFilter = batch
+      ? ` AND id IN (${batch.map(() => "?").join(", ")})`
+      : "";
+    return {
+      sql: `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, error_code, abort_reason, dispatch_mode, terminal_reason, diag_stage
+            FROM agent_runs
+            WHERE thread_id = ?${runIdFilter}${batch ? "" : " ORDER BY started_at DESC LIMIT ?"}`,
+      args: [threadId, ...(batch ?? []), ...(batch ? [] : [limit])],
+    };
   });
+  const client = getDbExec();
+  const readRows = async () =>
+    (
+      await Promise.all(runQueries.map((query) => client.execute(query)))
+    ).flatMap(({ rows }) => rows);
+  let rows = await readRows();
   const reconcileCandidateIds: string[] = [];
   for (const r of rows) {
     const row = r as {
@@ -4102,21 +4118,11 @@ export async function listRunsForThread(
     reconcileCandidateIds.push(runId);
   }
   const reconcileResults = await Promise.all(
-    reconcileCandidateIds.map((runId) =>
-      reconcileTerminalRunFromEvents(runId).catch(() => false),
-    ),
+    reconcileCandidateIds.map((runId) => reconcileTerminalRunFromEvents(runId)),
   );
   const repairedTerminalRow = reconcileResults.some(Boolean);
   if (repairedTerminalRow) {
-    const refreshed = await client.execute({
-      sql: `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, error_code, abort_reason, dispatch_mode, terminal_reason, diag_stage
-            FROM agent_runs
-            WHERE thread_id = ?
-            ORDER BY started_at DESC
-            LIMIT ?`,
-      args: [threadId, limit],
-    });
-    rows = refreshed.rows;
+    rows = await readRows();
   }
   return rows.map((r) => {
     const row = r as {

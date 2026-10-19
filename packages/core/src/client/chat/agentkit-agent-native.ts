@@ -98,6 +98,7 @@ interface StoredThread {
   updatedAt?: unknown;
   threadData?: unknown;
   metadata?: unknown;
+  runLifecycles?: unknown;
 }
 
 interface ActiveRunStatus {
@@ -262,6 +263,209 @@ function timestamp(value: unknown, fallback: string): string {
     return new Date(value).toISOString();
   }
   return fallback;
+}
+
+function strictTimestamp(value: unknown, field: string): string {
+  const milliseconds =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Number(value)
+        : Number.NaN;
+  if (!Number.isFinite(milliseconds)) {
+    throw new TypeError(`Agent run lifecycle ${field} must be a timestamp.`);
+  }
+  const date = new Date(milliseconds);
+  if (Number.isNaN(date.getTime())) {
+    throw new TypeError(`Agent run lifecycle ${field} must be a timestamp.`);
+  }
+  return date.toISOString();
+}
+
+function runLifecycleStatus(
+  status: string,
+  terminalReason: string | null,
+  abortReason: string | null,
+): AgentRunSnapshot["status"] {
+  switch (status) {
+    case "running":
+      return "running";
+    case "completed":
+      return terminalReason && terminalReason !== "done"
+        ? "failed"
+        : "completed";
+    case "truncated":
+    case "errored":
+      return "failed";
+    case "aborted": {
+      const reason =
+        abortReason ??
+        (terminalReason?.startsWith("aborted:")
+          ? terminalReason.slice("aborted:".length)
+          : terminalReason) ??
+        "user";
+      return runOutcomeForCode(`aborted_${reason}`) === "stopped"
+        ? "cancelled"
+        : "failed";
+    }
+    default:
+      throw new TypeError(`Agent run lifecycle status is invalid: ${status}`);
+  }
+}
+
+function runLifecycleError(
+  status: AgentRunSnapshot["status"],
+  sqlStatus: string,
+  errorCode: string | null,
+  terminalReason: string | null,
+  abortReason: string | null,
+): AgentError | undefined {
+  if (status !== "failed") return undefined;
+  const normalizedTerminalReason = terminalReason?.startsWith("aborted:")
+    ? terminalReason.slice("aborted:".length)
+    : terminalReason;
+  const terminalCode = normalizedTerminalReason?.startsWith("error:")
+    ? normalizedTerminalReason.slice("error:".length)
+    : normalizedTerminalReason;
+  const normalizedAbortReason =
+    abortReason ??
+    (terminalReason?.startsWith("aborted:")
+      ? terminalReason.slice("aborted:".length)
+      : terminalReason);
+  const code =
+    errorCode ??
+    (sqlStatus === "aborted" ? normalizedAbortReason : undefined) ??
+    (terminalCode && terminalCode !== "done" ? terminalCode : undefined) ??
+    (sqlStatus === "truncated" ? "run_truncated" : "run_failed");
+  const truncated =
+    sqlStatus === "truncated" ||
+    (sqlStatus === "completed" &&
+      terminalReason !== null &&
+      terminalReason !== "done");
+  const interruptedAbort =
+    sqlStatus === "aborted" &&
+    runOutcomeForCode(`aborted_${normalizedAbortReason ?? "user"}`) ===
+      "interrupted";
+  const metadata = {
+    ...(terminalReason ? { terminalReason } : {}),
+    ...(abortReason ? { abortReason } : {}),
+  };
+  return {
+    code,
+    message:
+      code === "run_timeout"
+        ? "The run reached its time limit before completion was confirmed."
+        : truncated
+          ? "The server stopped the run before it confirmed completion."
+          : "The server reported that this run failed.",
+    ...(truncated || interruptedAbort ? { retryable: true } : {}),
+    ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
+  };
+}
+
+function projectRunLifecycles(
+  runs: AgentRunSnapshot[] | undefined,
+  value: unknown,
+): AgentRunSnapshot[] | undefined {
+  if (value === undefined) return runs;
+  const projection = asRecord(value);
+  if (
+    !projection ||
+    !Array.isArray(projection.queriedRunIds) ||
+    !Array.isArray(projection.runs)
+  ) {
+    throw new TypeError("Agent chat run lifecycle projection is invalid.");
+  }
+  const queriedRunIds = new Set<string>();
+  for (const runId of projection.queriedRunIds) {
+    if (typeof runId !== "string" || !runId) {
+      throw new TypeError(
+        "Agent chat queried run IDs must be non-empty strings.",
+      );
+    }
+    queriedRunIds.add(runId);
+  }
+  const summaries = new Map<
+    string,
+    {
+      status: string;
+      startedAt: unknown;
+      completedAt: unknown;
+      errorCode: string | null;
+      abortReason: string | null;
+      terminalReason: string | null;
+    }
+  >();
+  for (const rawSummary of projection.runs) {
+    const summary = asRecord(rawSummary);
+    if (
+      !summary ||
+      typeof summary.id !== "string" ||
+      !summary.id ||
+      typeof summary.status !== "string" ||
+      typeof summary.startedAt !== "number" ||
+      !Number.isFinite(summary.startedAt) ||
+      (summary.completedAt !== null &&
+        (typeof summary.completedAt !== "number" ||
+          !Number.isFinite(summary.completedAt))) ||
+      (summary.errorCode !== null && typeof summary.errorCode !== "string") ||
+      (summary.abortReason !== null &&
+        typeof summary.abortReason !== "string") ||
+      (summary.terminalReason !== null &&
+        typeof summary.terminalReason !== "string")
+    ) {
+      throw new TypeError("Agent chat run lifecycle summary is invalid.");
+    }
+    if (!queriedRunIds.has(summary.id) || summaries.has(summary.id)) {
+      throw new TypeError("Agent chat run lifecycle summary is unexpected.");
+    }
+    summaries.set(summary.id, {
+      status: summary.status,
+      startedAt: summary.startedAt,
+      completedAt: summary.completedAt,
+      errorCode: summary.errorCode,
+      abortReason: summary.abortReason,
+      terminalReason: summary.terminalReason,
+    });
+  }
+  if (runs === undefined) return runs;
+  return runs.map((run) => {
+    if (!queriedRunIds.has(run.id)) return run;
+    const summary = summaries.get(run.id);
+    if (!summary) return run;
+    // Protocol approval/input requests can outlive the Core turn row while
+    // retaining their own resumable event stream.
+    const status =
+      run.status === "awaiting_approval" || run.status === "awaiting_input"
+        ? run.status
+        : runLifecycleStatus(
+            summary.status,
+            summary.terminalReason,
+            summary.abortReason,
+          );
+    const error = runLifecycleError(
+      status,
+      summary.status,
+      summary.errorCode,
+      summary.terminalReason,
+      summary.abortReason,
+    );
+    const {
+      completedAt: _completedAt,
+      error: _error,
+      startedAt: _startedAt,
+      ...protocolFields
+    } = run;
+    return {
+      ...protocolFields,
+      status,
+      startedAt: strictTimestamp(summary.startedAt, "startedAt"),
+      ...(summary.completedAt !== null
+        ? { completedAt: strictTimestamp(summary.completedAt, "completedAt") }
+        : {}),
+      ...(error ? { error } : {}),
+    };
+  });
 }
 
 function messagePart(
@@ -2544,13 +2748,10 @@ export function createAgentNativeAgentKitTransport(
     const updatedAt = timestamp(stored.updatedAt, createdAt);
     const repository = storedRepository(stored);
     const agentKit = asRecord(repository.agentKit);
-    const failedRunIds = failedRunIdsWithError(agentKit?.runs);
     const storedMessageProjection = storedMessages(
       repository.messages,
       now,
       options.adapter?.textFormat,
-    ).filter(
-      (message) => !isRenderedRunNotStartedNotice(message, failedRunIds),
     );
     const queuedMessages = storedQueue(
       repository.queuedMessages,
@@ -2613,14 +2814,26 @@ export function createAgentNativeAgentKitTransport(
           annotations: agentKit.annotations,
         })
       : undefined;
-    const durableMessages = storedMessageProjection;
-    const messages = protocolSnapshot?.messages
+    const runSnapshots = projectRunLifecycles(
+      protocolSnapshot?.runs,
+      stored.runLifecycles,
+    );
+    const failedRunIds = failedRunIdsWithError(
+      runSnapshots ?? protocolSnapshot?.runs,
+    );
+    const durableMessages = storedMessageProjection.filter(
+      (message) => !isRenderedRunNotStartedNotice(message, failedRunIds),
+    );
+    const protocolMessages = protocolSnapshot?.messages?.filter(
+      (message) => !isRenderedRunNotStartedNotice(message, failedRunIds),
+    );
+    const messages = protocolMessages
       ? reconcileDurableMessages(
-          protocolSnapshot.messages,
+          protocolMessages,
           durableMessages,
-          protocolSnapshot.events,
-          protocolSnapshot.runs,
-          protocolSnapshot.toolCalls ?? [],
+          protocolSnapshot?.events ?? [],
+          runSnapshots ?? protocolSnapshot?.runs,
+          protocolSnapshot?.toolCalls ?? [],
         )
       : durableMessages;
     const actionWidgets = storedActionWidgets(repository.messages);
@@ -2709,7 +2922,7 @@ export function createAgentNativeAgentKitTransport(
       messages,
       queuedMessages,
       ...(protocolSnapshot?.events ? { events: protocolSnapshot.events } : {}),
-      ...(protocolSnapshot?.runs ? { runs: protocolSnapshot.runs } : {}),
+      ...(runSnapshots ? { runs: runSnapshots } : {}),
       ...(protocolSnapshot?.activeRunIds
         ? { activeRunIds: protocolSnapshot.activeRunIds }
         : {}),
@@ -3007,14 +3220,16 @@ export function createAgentNativeAgentKitTransport(
               )
               .map((run) => run.id)
           : [];
-    const failedRunIds = failedRunIdsWithError(runs);
+    const authoritativeRuns =
+      projectRunLifecycles(runs, stored.runLifecycles) ?? runs;
+    const failedRunIds = failedRunIdsWithError(authoritativeRuns);
     const messages = reconcileDurableMessages(
       thread.messages,
       durableMessages.filter(
         (message) => !isRenderedRunNotStartedNotice(message, failedRunIds),
       ),
       thread.events,
-      runs,
+      authoritativeRuns,
       thread.toolCalls,
     );
     const replayFromStart = [
@@ -3049,7 +3264,7 @@ export function createAgentNativeAgentKitTransport(
       // Replay starts at sequence zero, so rebuild an active assistant instead
       // of appending the same prefix to its persisted partial projection.
       messages: messagesForReplay,
-      runs,
+      runs: authoritativeRuns,
       activeRunIds,
     };
   }

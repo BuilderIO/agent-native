@@ -8293,6 +8293,69 @@ describe("AgentKitClient", () => {
     }
   });
 
+  it("returns a submitted-run receipt from a direct queue append conflict", async () => {
+    const finishRun = Promise.withResolvers<void>();
+    const subscriptionStarted = Promise.withResolvers<void>();
+    let submittedMessageId: string | undefined;
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      async ({ id }) => {
+        submittedMessageId = id;
+        throw new AgentKitRunSlotBusyError("run-active", "run-submitted");
+      },
+    );
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { messageQueue: true },
+        queueMessage,
+        async *subscribeToRun({ threadId, runId }) {
+          yield {
+            ...protocolEvent(1, { type: "run.started" }),
+            threadId,
+            runId,
+          };
+          subscriptionStarted.resolve();
+          await finishRun.promise;
+          yield {
+            ...protocolEvent(2, { type: "run.completed" }),
+            threadId,
+            runId,
+          };
+        },
+      },
+    });
+
+    try {
+      const submitted = await client.queueMessage({
+        threadId: "thread-1",
+        text: "Already accepted directly",
+      });
+      await subscriptionStarted.promise;
+
+      expect(submitted).toMatchObject({
+        id: submittedMessageId,
+        alreadySubmitted: true,
+        submittedRunId: "run-submitted",
+      });
+      expect(client.getThread("thread-1")).toMatchObject({
+        activeRunIds: ["run-submitted"],
+        messages: [
+          expect.objectContaining({
+            role: "user",
+            status: "complete",
+            parts: [{ type: "text", text: "Already accepted directly" }],
+          }),
+        ],
+        queuedMessages: [],
+      });
+
+      finishRun.resolve();
+    } finally {
+      finishRun.resolve();
+      await client.shutdown();
+    }
+  });
+
   it("returns the submitted run when queue append is already consumed", async () => {
     const finishActiveRun = Promise.withResolvers<void>();
     const activeRunStarted = Promise.withResolvers<void>();

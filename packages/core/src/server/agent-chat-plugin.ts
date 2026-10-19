@@ -7545,6 +7545,98 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return { error: "Thread not found" };
           };
 
+          const runLifecycleProjectionForThread = async (
+            thread: ChatThread,
+          ) => {
+            let repository: unknown;
+            try {
+              repository = JSON.parse(thread.threadData);
+            } catch {
+              throw new Error(
+                `Stored thread ${thread.id} has invalid JSON while reading run lifecycles`,
+              );
+            }
+            if (
+              !repository ||
+              typeof repository !== "object" ||
+              Array.isArray(repository)
+            ) {
+              throw new Error(
+                `Stored thread ${thread.id} has an invalid root while reading run lifecycles`,
+              );
+            }
+            const agentKit = (repository as Record<string, unknown>).agentKit;
+            if (agentKit === undefined) {
+              return { queriedRunIds: [], runs: [] };
+            }
+            if (
+              !agentKit ||
+              typeof agentKit !== "object" ||
+              Array.isArray(agentKit)
+            ) {
+              throw new Error(
+                `Stored thread ${thread.id} has invalid AgentKit state while reading run lifecycles`,
+              );
+            }
+            const snapshots = (agentKit as Record<string, unknown>).runs;
+            if (snapshots === undefined) {
+              return { queriedRunIds: [], runs: [] };
+            }
+            if (!Array.isArray(snapshots)) {
+              throw new Error(
+                `Stored thread ${thread.id} has invalid run snapshots while reading run lifecycles`,
+              );
+            }
+            const runIds = [
+              ...new Set(
+                snapshots.map((snapshot) => {
+                  if (
+                    !snapshot ||
+                    typeof snapshot !== "object" ||
+                    Array.isArray(snapshot) ||
+                    typeof (snapshot as Record<string, unknown>).id !==
+                      "string" ||
+                    !(snapshot as Record<string, unknown>).id
+                  ) {
+                    throw new Error(
+                      `Stored thread ${thread.id} has a run snapshot without an ID`,
+                    );
+                  }
+                  return (snapshot as Record<string, string>).id;
+                }),
+              ),
+            ];
+            if (runIds.length === 0) return { queriedRunIds: runIds, runs: [] };
+
+            const { listRunsForThread } = await import("../agent/run-store.js");
+            const runs = await runWithRequestContext(
+              { userEmail: owner, orgId },
+              () => listRunsForThread(thread.id, { runIds }),
+            );
+            return {
+              queriedRunIds: runIds,
+              runs: runs.map(
+                ({
+                  id,
+                  status,
+                  startedAt,
+                  completedAt,
+                  errorCode,
+                  abortReason,
+                  terminalReason,
+                }) => ({
+                  id,
+                  status,
+                  startedAt,
+                  completedAt,
+                  errorCode,
+                  abortReason,
+                  terminalReason,
+                }),
+              ),
+            };
+          };
+
           // ── Specific thread: GET/PUT/DELETE /threads/:id ──
           if (threadId) {
             if (method === "GET") {
@@ -7557,7 +7649,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               if (!thread || !threadMatchesRequestedScope(thread)) {
                 return threadNotFound();
               }
-              return thread;
+              return {
+                ...thread,
+                runLifecycles: await runLifecycleProjectionForThread(thread),
+              };
             }
 
             if (method === "PUT") {

@@ -214,13 +214,17 @@ const mockDb: any = {
         rawSql,
       ) &&
       /WHERE thread_id = \?/i.test(rawSql) &&
-      /LIMIT \?/i.test(rawSql)
+      (/LIMIT \?/i.test(rawSql) || /AND id IN \(/i.test(rawSql))
     ) {
-      const rows =
+      const selectedRows =
         refreshedRunListRows && runListSelectCount > 0
           ? refreshedRunListRows
           : runListRows;
       runListSelectCount++;
+      const runIds = rawSql.includes("AND id IN (") ? args.slice(1) : null;
+      const rows = runIds
+        ? selectedRows.filter((row) => runIds.includes(row.id))
+        : selectedRows;
       return { rows, rowsAffected: 0 };
     }
     if (
@@ -1066,6 +1070,73 @@ describe("run store", () => {
           /SET status = \?/i.test(call.sql),
       ),
     ).toBe(false);
+  });
+
+  it("lists only the requested run lifecycle rows without a table-wide read", async () => {
+    runListRows = [
+      {
+        id: "run-lifecycle-one",
+        thread_id: "thread-lifecycle",
+        turn_id: "turn-one",
+        status: "completed",
+        started_at: 1000,
+        heartbeat_at: 1500,
+        completed_at: 1600,
+        last_progress_at: 1500,
+        error_code: null,
+        abort_reason: null,
+        dispatch_mode: "background-processing",
+        terminal_reason: "done",
+        diag_stage: null,
+      },
+      {
+        id: "run-lifecycle-two",
+        thread_id: "thread-lifecycle",
+        turn_id: "turn-two",
+        status: "errored",
+        started_at: 2000,
+        heartbeat_at: 2500,
+        completed_at: 2600,
+        last_progress_at: 2500,
+        error_code: "run_timeout",
+        abort_reason: null,
+        dispatch_mode: "background-processing",
+        terminal_reason: "run_timeout",
+        diag_stage: null,
+      },
+    ];
+
+    const runs = await listRunsForThread("thread-lifecycle", {
+      runIds: ["run-lifecycle-two", "missing-run", "run-lifecycle-two"],
+    });
+
+    expect(runs.map((run) => run.id)).toEqual(["run-lifecycle-two"]);
+    expect(runs[0]).toMatchObject({
+      status: "errored",
+      errorCode: "run_timeout",
+      completedAt: 2600,
+    });
+    expect(execCalls.at(-1)?.sql).toContain("AND id IN (?, ?)");
+    expect(execCalls.at(-1)?.args).toEqual([
+      "thread-lifecycle",
+      "run-lifecycle-two",
+      "missing-run",
+    ]);
+  });
+
+  it("splits large lifecycle projections into bounded SQL batches", async () => {
+    const runIds = Array.from({ length: 501 }, (_, index) => `run-${index}`);
+
+    await listRunsForThread("thread-large-lifecycle", { runIds });
+
+    const queries = execCalls.filter((call) =>
+      /FROM agent_runs\s+WHERE thread_id = \? AND id IN \(/i.test(call.sql),
+    );
+    expect(queries).toHaveLength(2);
+    expect(queries.map((query) => query.args.length)).toEqual([501, 2]);
+    expect(
+      queries.every((query) => query.args[0] === "thread-large-lifecycle"),
+    ).toBe(true);
   });
 
   it("reconciles multiple stale candidate runs in parallel, not sequentially", async () => {
