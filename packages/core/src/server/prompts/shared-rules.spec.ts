@@ -5,11 +5,23 @@ import { buildFrameworkCore } from "./framework-core.js";
 import { RESPONSE_TYPOGRAPHY_GUIDANCE, sharedRule8 } from "./shared-rules.js";
 
 describe("shared framework prompt rules", () => {
-  it("keeps Assets delegation conditional on native generators not already delegating", () => {
+  it("uses Assets only for requested media that needs its peer-owned capability", () => {
     for (const prompt of [buildFrameworkCore(), buildFrameworkCoreCompact()]) {
       expect(prompt).toContain(
-        "unless the current app has its own generation action that already delegates there",
+        "Use Assets only for requested brand media unavailable here.",
       );
+    }
+  });
+
+  it("keeps peer delegation necessary and local artifact authorship in both prompts", () => {
+    for (const prompt of [buildFrameworkCore(), buildFrameworkCoreCompact()]) {
+      expect(prompt).toContain(
+        "Default to local actions. Delegate only on request or when the outcome needs peer-exclusive data, credentials, or capability",
+      );
+      expect(prompt).toContain(
+        "availability or enrichment alone is insufficient.",
+      );
+      expect(prompt).toContain("Keep artifact authorship here.");
     }
   });
 

@@ -3258,6 +3258,15 @@ const FEEDBACK_ATTACHMENT_COVERAGE_REGEX_CASES = [
   [false, "I attached a screenshot to the report."],
   [false, "Please inspect the image before reproducing the bug."],
 ];
+const A2A_OVERDELEGATION_RE =
+  /\b(?:way too|too|so|overly)\s+(?:eager|quick|frequent|often|ready|inclined)\b[^.!?\n]{0,80}\b(?:a2a|delegat\w*|handoff\w*)\b|\b(?:a2a|delegat\w*|handoff\w*)\b[^.!?\n]{0,80}\b(?:irrelevant|unnecessary|not relevant|too eager|too much)\b|\b(?:don['’]?t|do not|shouldn['’]?t|should not)\s+(?:delegate|call|use)\b[^.!?\n]{0,80}\b(?:a2a|call-agent|peer|another app|design(?: app)?)\b/i;
+const A2A_OVERDELEGATION_REGEX_CASES = [
+  [true, "We are being way too eager to use A2A when it is not relevant."],
+  [true, "Slides should not delegate to Design for slide generation."],
+  [true, "A2A delegation is unnecessary for work this app can do."],
+  [false, "Call a peer when it owns the credentials required for the task."],
+  [false, "The Design app is available in this workspace."],
+];
 
 if (process.argv.includes("--self-test")) {
   const failures = FEEDBACK_REGEX_CASES.filter(
@@ -3291,6 +3300,11 @@ if (process.argv.includes("--self-test")) {
     ...FEEDBACK_ATTACHMENT_COVERAGE_REGEX_CASES.filter(
       ([expected, message]) =>
         FEEDBACK_ATTACHMENT_COVERAGE_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
+    ...A2A_OVERDELEGATION_REGEX_CASES.filter(
+      ([expected, message]) => A2A_OVERDELEGATION_RE.test(message) !== expected,
     ),
   );
   const stressMessage = "reply and but ".repeat(7_000);
@@ -3582,7 +3596,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length + FEEDBACK_REPLY_DETAIL_REGEX_CASES.length + FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES.length + FEEDBACK_CHANNEL_COVERAGE_REGEX_CASES.length + 1} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length + FEEDBACK_REPLY_DETAIL_REGEX_CASES.length + FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES.length + FEEDBACK_CHANNEL_COVERAGE_REGEX_CASES.length + A2A_OVERDELEGATION_REGEX_CASES.length + 1} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -3937,6 +3951,13 @@ const PATTERNS = [
     fixedBy:
       "external-agents skill + initialToolNames→MCP instructions (2026-09-05)",
     re: /\b(?:use|call) (?:the )?(?:right |correct |named )?tool\b|\bwrong tool\b|\bdon['’]t (?:use|call) ask_app\b|\b(?:write|author) (?:it|the (?:content|copy|text|deck|slide|design)) yourself\b|\bdon['’]t delegate (?:this|that|authoring)\b|\bstop waiting (?:on|for) the (?:in-app agent|app['’]s agent)\b/i,
+  },
+  {
+    key: "a2a-overdelegation",
+    label: "Had to turn down unnecessary A2A delegation",
+    fixedBy:
+      "local-first A2A threshold in runtime prompts, app instructions, and A2A skills (2026-10-19)",
+    re: A2A_OVERDELEGATION_RE,
   },
   {
     key: "text-heavy-ui",

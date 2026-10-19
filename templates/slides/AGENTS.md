@@ -17,12 +17,8 @@ Read relevant guides before deeper work:
 - `.agents/skills/creative-context/SKILL.md` — for source reuse and context.
 - `.agents/skills/analytics-data-for-decks/SKILL.md` — for delegated data requests.
 
-`.agents/skills/actions/SKILL.md`, `.agents/skills/adding-a-feature/SKILL.md`, `.agents/skills/storing-data/SKILL.md`, `.agents/skills/security/SKILL.md`,
-`.agents/skills/secrets/SKILL.md`, `.agents/skills/sharing/SKILL.md`, `.agents/skills/frontend-design/SKILL.md`, `.agents/skills/shadcn-ui/SKILL.md`,
-`.agents/skills/real-time-sync/SKILL.md`, `.agents/skills/context-awareness/SKILL.md`, `.agents/skills/delegate-to-agent/SKILL.md`, `.agents/skills/agent-native-docs/SKILL.md`,
-`.agents/skills/agent-native-toolkit/SKILL.md`, `.agents/skills/customizing-agent-native/SKILL.md`, `.agents/skills/client-side-routing/SKILL.md`, `.agents/skills/reliable-mutations/SKILL.md`,
-`.agents/skills/performance/SKILL.md`, `.agents/skills/external-agents/SKILL.md`, `.agents/skills/portability/SKILL.md`, `.agents/skills/self-modifying-code/SKILL.md`,
-`.agents/skills/turn-into-skill/SKILL.md`, `.agents/skills/workspace-conventions/SKILL.md`.
+For shared framework conventions, read the matching skill under `.agents/skills/`;
+workspace instructions list the shared guides.
 
 ## Framework Docs
 
@@ -47,6 +43,7 @@ For framework questions, use local docs: `pnpm action docs-search --query "<topi
 - Use actions for deck/slide writes; keep large files in configured file storage, not SQL/settings/resources. Never hardcode secrets or private/customer data; use obvious placeholders.
 - For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
 - Scale work to the request: a blank slide, rename, reorder, or delete is one action call. Skip skill reads, `manage-progress`, retitling, and fit/contrast audits for it, even when an earlier turn in the thread carried generation instructions.
+- Slides authors decks through Slides actions. Use Design by A2A only for a user-requested Design-owned input or a capability only Design provides; keep deck creation and edits in Slides.
 - Use `view-screen` when the active deck/slide/layout is unclear, and on every turn that says "this"/"here"/"selected". Preserve requested structure; do not restyle imports marked partial or with `imagesSkipped` without reporting the warning.
 - Slide HTML layout, card, no-SVG, and freeform-id rules: `slide-editing`.
 - Import attachments only on request or via Import. `sourceImport` records provenance; structural edits clear it. Read preloaded new-deck attachments before deciding whether to import.
