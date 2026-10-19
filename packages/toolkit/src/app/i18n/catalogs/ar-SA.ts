@@ -177,10 +177,21 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.creditsActivate": "تفعيل الأرصدة المجانية",
   "onboarding.creditsFinePrint":
     "سيؤدي هذا إلى إنشاء حساب Builder.io مجاني. بالمتابعة، فأنت توافق على",
-  "onboarding.creditsConnectExisting": "الاتصال بحساب Builder.io موجود",
   "onboarding.creditsMoreInfo": "المزيد من المعلومات",
-  "onboarding.creditsSkipBody":
-    "إذا تخطيت، ستحتاج إلى توصيل مفاتيحك الخاصة لاستخدام الذكاء الاصطناعي والتخزين.",
+  "onboarding.creditsSubtitle":
+    "احصل على أرصدة مجانية لنماذج LLM وJev والتخزين والمزيد لهذا التطبيق بنقرة واحدة من Builder.io.",
+  "onboarding.creditsLearnMore": "اعرف المزيد",
+  "onboarding.creditsSkip": "تخطي",
+  "onboarding.creditsSkipConfirmTitle": "هل أنت متأكد؟",
+  "onboarding.creditsSkipConfirmBody":
+    "تحتاج تطبيقات Agent-Native إلى نموذج LLM متصل لاستخدام معظم الميزات. لن تعمل معظم الوظائف بدونه.",
+  "onboarding.creditsSkipGoBack": "رجوع",
+  "onboarding.creditsSkipAnyway": "تخطي على أي حال",
+  "onboarding.creditsUseCustomKeys": "استخدام مفاتيحك الخاصة",
+  "onboarding.creditsAboutLabel": "حول الأرصدة المجانية",
+  "onboarding.creditsActivating": "جارٍ تفعيل الأرصدة المجانية",
+  "onboarding.creditsActivatingTooltip":
+    "توفر Builder أرصدة مجانية لنماذج LLM وJev والتخزين والمزيد، لتتمكن من استخدام ميزات الذكاء الاصطناعي في هذا التطبيق دون الحاجة إلى مفاتيحك الخاصة.",
   "onboarding.builderConnect": "الاتصال بـ Builder.io",
   "onboarding.builderActivating": "جارٍ تفعيل أرصدة Builder.io المجانية",
   "onboarding.builderConnecting": "جارٍ إعداد أرصدة Builder.io المجانية",
@@ -217,7 +228,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.why":
     "تُحسّن التضمينات البحث الدلالي. يظل البحث بالكلمات المفتاحية يعمل من دونها.",
   "onboarding.capability.webSearch.label": "البحث على الويب",
-  "onboarding.capability.webSearch.keySummary": "بحث على الويب مُدار من Builder",
+  "onboarding.capability.webSearch.keySummary": "البحث على الويب",
   "onboarding.capability.webSearch.why":
     "ابحث في المصادر العامة الحديثة على الويب. يستخدم البحث المُدار من Builder أرصدة Builder AI المضمنة، لذلك لا تحتاج إلى مفتاح بحث منفصل.",
   "onboarding.capability.systemOne.why":

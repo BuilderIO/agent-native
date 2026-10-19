@@ -9,27 +9,65 @@ export interface ExecutionFence {
   generation: string;
 }
 
-export class StaleExecutionFenceError extends Error {
-  readonly code = "stale_execution_fence";
+interface ExecutionFenceContext {
+  fences: ExecutionFence[];
+  executionLeaseRequested: boolean;
+}
 
-  constructor(fence: ExecutionFence) {
-    super(
-      `Execution lease generation ${fence.generation} for turn ${fence.turnId} is no longer current`,
-    );
-    this.name = "StaleExecutionFenceError";
+export class ExecutionFenceError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = new.target.name;
   }
 }
 
-const executionFenceStorage = new AsyncLocalStorage<ExecutionFence[]>();
+export class StaleExecutionFenceError extends ExecutionFenceError {
+  constructor(fence: ExecutionFence) {
+    super(
+      "stale_execution_fence",
+      `Execution lease generation ${fence.generation} for turn ${fence.turnId} is no longer current`,
+    );
+  }
+}
+
+export class MissingExecutionFenceError extends ExecutionFenceError {
+  constructor() {
+    super(
+      "missing_execution_fence",
+      "Execution lease was requested without an execution fence",
+    );
+  }
+}
+
+const executionFenceStorage = new AsyncLocalStorage<ExecutionFenceContext>();
 
 export function currentExecutionFence(): ExecutionFence | undefined {
-  const fences = executionFenceStorage.getStore();
-  return fences?.at(-1);
+  const context = executionFenceStorage.getStore();
+  const fence = context?.fences.at(-1);
+  if (!fence && context?.executionLeaseRequested) {
+    throw new MissingExecutionFenceError();
+  }
+  return fence;
+}
+
+export function withExecutionLeaseRequested<T>(work: () => T): T {
+  const current = executionFenceStorage.getStore();
+  return executionFenceStorage.run(
+    {
+      fences: current?.fences ?? [],
+      executionLeaseRequested: true,
+    },
+    work,
+  );
 }
 
 export function withExecutionFence<T>(fence: ExecutionFence, work: () => T): T {
-  const current = executionFenceStorage.getStore() ?? [];
-  const sameFence = current.some(
+  const current = executionFenceStorage.getStore();
+  const fences = current?.fences ?? [];
+  const sameFence = fences.some(
     (candidate) =>
       candidate.threadId === fence.threadId &&
       candidate.turnId === fence.turnId &&
@@ -37,7 +75,10 @@ export function withExecutionFence<T>(fence: ExecutionFence, work: () => T): T {
       candidate.generation === fence.generation,
   );
   return executionFenceStorage.run(
-    sameFence ? current : [...current, fence],
+    {
+      fences: sameFence ? fences : [...fences, fence],
+      executionLeaseRequested: true,
+    },
     work,
   );
 }
@@ -45,7 +86,7 @@ export function withExecutionFence<T>(fence: ExecutionFence, work: () => T): T {
 export async function lockAndAssertCurrentExecutionFences(
   tx: DbExec,
 ): Promise<void> {
-  const fences = executionFenceStorage.getStore() ?? [];
+  const fences = executionFenceStorage.getStore()?.fences ?? [];
   for (const activeFence of fences) {
     const { rows } = await tx.execute({
       sql: `SELECT generation
@@ -71,10 +112,15 @@ export async function withFencedExecutionWrite<T>(
   write: (tx: DbExec) => Promise<T>,
   scope?: { runId?: string; threadId?: string; turnId?: string },
 ): Promise<T> {
-  const fences = executionFenceStorage.getStore() ?? [];
+  const context = executionFenceStorage.getStore();
+  const fences = context?.fences ?? [];
   const fence = fences.at(-1);
   const client = getDbExec();
-  if (!fence) return write(client);
+  if (!fence) {
+    if (context?.executionLeaseRequested)
+      throw new MissingExecutionFenceError();
+    return write(client);
+  }
   // A nested task/run write can target either active scope; both leases still gate it.
   const scopedFence = fences.find(
     (candidate) =>

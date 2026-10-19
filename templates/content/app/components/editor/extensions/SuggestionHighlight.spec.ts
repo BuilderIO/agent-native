@@ -711,20 +711,20 @@ describe("SuggestionHighlight", () => {
     });
 
     expect(css).toMatch(
-      /\.notion-editor \.suggestion-delete\s*\{[^}]*color: hsl\(var\(--muted-foreground\)\);[^}]*text-decoration: line-through;/,
+      /\.content-editor \.suggestion-delete\s*\{[^}]*color: hsl\(var\(--muted-foreground\)\);[^}]*text-decoration: line-through;/,
     );
     expect(css).toMatch(
-      /\.notion-editor \.suggestion-delete:hover,[\s\S]*?\.notion-editor \.suggestion-delete-widget:focus-visible\s*\{[^}]*color: hsl\(var\(--foreground\)\);[^}]*text-decoration: none;/,
+      /\.content-editor \.suggestion-delete:hover,[\s\S]*?\.content-editor \.suggestion-delete-widget:focus-visible\s*\{[^}]*color: hsl\(var\(--foreground\)\);[^}]*text-decoration: none;/,
     );
     expect(css).toMatch(
-      /\.notion-editor \.suggestion-delete\.suggestion-highlight--active,[\s\S]*?\.notion-editor \.suggestion-delete-widget\.suggestion-highlight--active\s*\{[^}]*color: hsl\(var\(--foreground\)\);[^}]*text-decoration: none;/,
+      /\.content-editor \.suggestion-delete\.suggestion-highlight--active,[\s\S]*?\.content-editor \.suggestion-delete-widget\.suggestion-highlight--active\s*\{[^}]*color: hsl\(var\(--foreground\)\);[^}]*text-decoration: none;/,
     );
 
     const pointerAndFocusState = css.match(
-      /\.notion-editor \.suggestion-delete:hover,[\s\S]*?\.notion-editor \.suggestion-delete-widget:focus-visible\s*\{([^}]*)\}/,
+      /\.content-editor \.suggestion-delete:hover,[\s\S]*?\.content-editor \.suggestion-delete-widget:focus-visible\s*\{([^}]*)\}/,
     )?.[1];
     const selectedState = css.match(
-      /\.notion-editor \.suggestion-delete\.suggestion-highlight--active,[\s\S]*?\.notion-editor \.suggestion-delete-widget\.suggestion-highlight--active\s*\{([^}]*)\}/,
+      /\.content-editor \.suggestion-delete\.suggestion-highlight--active,[\s\S]*?\.content-editor \.suggestion-delete-widget\.suggestion-highlight--active\s*\{([^}]*)\}/,
     )?.[1];
     expect(`${pointerAndFocusState}\n${selectedState}`).not.toMatch(
       /(?:font-size|line-height|margin|padding|border-width):/,
@@ -754,7 +754,7 @@ describe("SuggestionHighlight", () => {
       encoding: "utf8",
     });
     expect(css).toMatch(
-      /\.notion-editor \.suggestion-inline-widget\[data-suggestion-widget\]\s*\{[^}]*white-space: break-spaces;/,
+      /\.content-editor \.suggestion-inline-widget\[data-suggestion-widget\]\s*\{[^}]*white-space: break-spaces;/,
     );
 
     const editorState = setSpecs(state(), [
@@ -874,10 +874,10 @@ describe("SuggestionHighlight", () => {
       encoding: "utf8",
     });
     expect(css).toMatch(
-      /\.notion-editor \.suggestion-proposed-text,[\s\S]*?\.notion-editor \.suggestion-deleted-text\s*\{[^}]*cursor: text;/,
+      /\.content-editor \.suggestion-proposed-text,[\s\S]*?\.content-editor \.suggestion-deleted-text\s*\{[^}]*cursor: text;/,
     );
     expect(css).toMatch(
-      /\.notion-editor \.suggestion-inline-widget\[data-suggestion-widget\]\s*\{[^}]*margin: 0;[^}]*padding: 0;[^}]*font: inherit;[^}]*letter-spacing: inherit;[^}]*line-height: inherit;[^}]*vertical-align: baseline;/,
+      /\.content-editor \.suggestion-inline-widget\[data-suggestion-widget\]\s*\{[^}]*margin: 0;[^}]*padding: 0;[^}]*font: inherit;[^}]*letter-spacing: inherit;[^}]*line-height: inherit;[^}]*vertical-align: baseline;/,
     );
 
     const editorState = setSpecs(state(), [
@@ -1075,7 +1075,7 @@ describe("SuggestionHighlight", () => {
     expect(inserted.className).toContain("suggestion-proposed-text");
     expect(deleted.className).toContain("suggestion-deleted-text");
     expect(css).toMatch(
-      /\.notion-editor \.suggestion-inline-widget\[data-suggestion-widget\] code\s*\{[^}]*color: inherit;/,
+      /\.content-editor \.suggestion-inline-widget\[data-suggestion-widget\] code\s*\{[^}]*color: inherit;/,
     );
   });
 

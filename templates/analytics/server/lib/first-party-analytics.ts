@@ -42,6 +42,7 @@ import {
   getFirstPartyAnalyticsTable,
   insertFirstPartyAnalyticsRows,
   insertFirstPartyAnalyticsRowsWithResults,
+  planFirstPartyEventsSource,
   queryFirstPartyAnalyticsInBigQuery,
   renderFirstPartyAnalyticsBigQueryRequestSql,
 } from "./first-party-analytics-backend.js";
@@ -104,7 +105,15 @@ export interface AnalyticsQueryResult extends SqlQueryExecutionMetadata {
   schema: { name: string; type: string }[];
 }
 
+export type FirstPartyAnalyticsQueryBackend = "postgres" | "bigquery";
+
+export interface FirstPartyAnalyticsQueryResultWithBackend extends AnalyticsQueryResult {
+  backend: FirstPartyAnalyticsQueryBackend;
+}
+
 export interface AnalyticsQueryOptions {
+  /** Fail before running anything when the query would read another backend. */
+  requireBackend?: "postgres";
   cache?: boolean;
   timeoutMs?: number;
   maxBytesBilled?: number;
@@ -118,12 +127,30 @@ export interface AnalyticsQueryOptions {
   >;
   /** Debugging only: metrics exclude test identities by default. */
   includeTestIdentities?: boolean;
+  /**
+   * Read the raw event table even when an events model is configured, for
+   * callers that need events newer than the model's last build.
+   */
+  eventsSource?: "raw";
 }
 
 export class FirstPartyAnalyticsQueryTimeoutError extends Error {
   constructor() {
     super("First-party analytics query timed out");
     this.name = "FirstPartyAnalyticsQueryTimeoutError";
+  }
+}
+
+export class FirstPartyAnalyticsBackendNotPostgresError extends Error {
+  readonly code = "first_party_backend_not_postgres";
+  readonly bigQueryTables: string[];
+
+  constructor(bigQueryTables: string[]) {
+    super(
+      `Not run: this scope reads ${bigQueryTables.join(", ")} from BigQuery, not Postgres. Only session_recordings is read from Postgres. Tell the user, and rerun without backend: "postgres" only if they accept a BigQuery query.`,
+    );
+    this.name = "FirstPartyAnalyticsBackendNotPostgresError";
+    this.bigQueryTables = bigQueryTables;
   }
 }
 
@@ -1517,27 +1544,63 @@ function inferSchema(rows: Record<string, unknown>[]): {
   }));
 }
 
+function firstPartyAnalyticsTableBackend(
+  table: string,
+  sink: FirstPartyAnalyticsSink,
+): FirstPartyAnalyticsQueryBackend {
+  return sink === "bigquery" && table !== "session_recordings"
+    ? "bigquery"
+    : "postgres";
+}
+
+/** Where queries over each first-party table run for a scope's sink. */
+export function firstPartyAnalyticsTableBackends(
+  sink: FirstPartyAnalyticsSink,
+): Record<
+  (typeof FIRST_PARTY_QUERY_TABLE_NAMES)[number],
+  FirstPartyAnalyticsQueryBackend
+> {
+  return Object.fromEntries(
+    FIRST_PARTY_QUERY_TABLE_NAMES.map((table) => [
+      table,
+      firstPartyAnalyticsTableBackend(table, sink),
+    ]),
+  ) as Record<
+    (typeof FIRST_PARTY_QUERY_TABLE_NAMES)[number],
+    FirstPartyAnalyticsQueryBackend
+  >;
+}
+
 function firstPartyAnalyticsQueryTarget(
   sql: string,
   sink: FirstPartyAnalyticsSink,
-): "sql-store" | "bigquery" {
-  if (sink !== "bigquery") return "sql-store";
-  const sources = readAgentSqlQuery(sql, {
-    dialect: "postgres",
-  }).sources.filter((source) => !source.cte);
-  const usesSessionRecordings = sources.some(
-    (source) => source.name === "session_recordings",
-  );
-  const usesEventTables = sources.some(
-    (source) => source.name !== "session_recordings",
-  );
-  if (usesSessionRecordings && usesEventTables) {
+  requireBackend?: FirstPartyAnalyticsQueryBackend,
+): FirstPartyAnalyticsQueryBackend {
+  const sourceBackends = new Map<string, FirstPartyAnalyticsQueryBackend>();
+  for (const source of readAgentSqlQuery(sql, { dialect: "postgres" })
+    .sources) {
+    if (source.cte) continue;
+    sourceBackends.set(
+      source.name,
+      firstPartyAnalyticsTableBackend(source.name, sink),
+    );
+  }
+  if (requireBackend) {
+    const elsewhere = [...sourceBackends]
+      .filter(([, backend]) => backend !== requireBackend)
+      .map(([table]) => table);
+    if (elsewhere.length > 0) {
+      throw new FirstPartyAnalyticsBackendNotPostgresError(elsewhere);
+    }
+  }
+  const backends = new Set(sourceBackends.values());
+  if (backends.size > 1) {
     throw new FirstPartyAnalyticsValidationError(
       "cross_backend_join",
       "Cross-backend joins are not supported; query first-party event tables in BigQuery and session_recordings in the Analytics SQL store separately.",
     );
   }
-  return usesSessionRecordings ? "sql-store" : "bigquery";
+  return backends.has("bigquery") ? "bigquery" : "postgres";
 }
 
 async function withVerifiedPostgresQuery<T>(
@@ -1661,6 +1724,16 @@ export async function queryFirstPartyAnalytics(
   scope: AnalyticsScope,
   options: AnalyticsQueryOptions = {},
 ): Promise<AnalyticsQueryResult> {
+  const { backend: _backend, ...result } =
+    await queryFirstPartyAnalyticsWithBackend(sql, scope, options);
+  return result;
+}
+
+export async function queryFirstPartyAnalyticsWithBackend(
+  sql: string,
+  scope: AnalyticsScope,
+  options: AnalyticsQueryOptions = {},
+): Promise<FirstPartyAnalyticsQueryResultWithBackend> {
   validateFirstPartyAnalyticsSqlShape(sql);
   const timeoutMs = options.timeoutMs ?? FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS;
   if (
@@ -1711,7 +1784,11 @@ export async function queryFirstPartyAnalytics(
       getFirstPartyAnalyticsBackend(scope, signal),
       signal,
     );
-    const queryTarget = firstPartyAnalyticsQueryTarget(sql, backend.sink);
+    const queryTarget = firstPartyAnalyticsQueryTarget(
+      sql,
+      backend.sink,
+      options.requireBackend,
+    );
     if (queryTarget === "bigquery") {
       const recordBigQueryPressure = async (
         outcome: ReturnType<typeof queryOutcomeFromError> | "success",
@@ -1739,15 +1816,21 @@ export async function queryFirstPartyAnalytics(
           signal,
         );
         const scoped = scopedAnalyticsSql(sql, scope, undefined, scopeOptions);
+        const renderOptions = {
+          eventDateRange: options.eventDateRange,
+          scopedEventsSingleScan: options.scopedEventsSingleScan === true,
+          scopedEventsProjection: options.scopedEventsProjection,
+          scopedEventsSourceProjections: options.scopedEventsSourceProjections,
+        };
         const result = await raceWithAbort(
           queryFirstPartyAnalyticsInBigQuery(scoped.sql, scoped.args, table, {
+            ...renderOptions,
+            eventsSource: planFirstPartyEventsSource(sql, backend.modelTable, {
+              ...renderOptions,
+              eventsSource: options.eventsSource,
+            }),
             maxBytesBilled: options.maxBytesBilled,
             timeoutMs: remainingTime(),
-            eventDateRange: options.eventDateRange,
-            scopedEventsSingleScan: options.scopedEventsSingleScan === true,
-            scopedEventsProjection: options.scopedEventsProjection,
-            scopedEventsSourceProjections:
-              options.scopedEventsSourceProjections,
             signal,
           }),
           signal,
@@ -1756,7 +1839,7 @@ export async function queryFirstPartyAnalytics(
           throw new FirstPartyAnalyticsQueryTimeoutError();
         }
         await recordBigQueryPressure("success");
-        return result;
+        return { ...result, backend: "bigquery" };
       } catch (error) {
         const failure = normalizeFailure(error);
         if (!options.signal?.aborted) {
@@ -1863,7 +1946,7 @@ export async function queryFirstPartyAnalytics(
         throw failure;
       }
     };
-    if (!options.cache) return await compute();
+    if (!options.cache) return { ...(await compute()), backend: "postgres" };
     await withVerifiedPostgresQuery(
       statement,
       remainingTime(),
@@ -1871,7 +1954,7 @@ export async function queryFirstPartyAnalytics(
       signal,
     );
     remainingTime();
-    return await raceWithAbort(
+    const result = await raceWithAbort(
       withFirstPartyCache(cacheKey, wrappedSql, compute, {
         timeoutMs,
         deadlineAt,
@@ -1879,6 +1962,7 @@ export async function queryFirstPartyAnalytics(
       }),
       signal,
     );
+    return { ...result, backend: "postgres" };
   } catch (error) {
     throw normalizeFailure(error);
   } finally {

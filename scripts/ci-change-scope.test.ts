@@ -2875,8 +2875,24 @@ test("selects the Content two-tab convergence lane for its runtime dependencies"
     "templates/content/e2e/convergence-summary.ts",
     "templates/content/e2e/global-setup.ts",
     "templates/content/e2e/playwright.config.ts",
+    "packages/core/src/application-state/emitter.ts",
     "packages/core/src/collab/client.ts",
+    "packages/core/src/collab/routes.ts",
+    "packages/core/src/client/client-status-requests.ts",
+    "packages/core/src/client/use-db-sync.ts",
     "packages/core/src/client/use-session.ts",
+    "packages/core/src/db/client.ts",
+    "packages/core/src/db/ddl-guard.ts",
+    "packages/core/src/db/migration-policy.ts",
+    "packages/core/src/db/request-pool-context.ts",
+    "packages/core/src/db/store-registry.ts",
+    "packages/core/src/server/collab-plugin.ts",
+    "packages/core/src/server/core-routes-plugin.ts",
+    "packages/core/src/server/http-route.ts",
+    "packages/core/src/server/poll-events.ts",
+    "packages/core/src/server/poll.ts",
+    "packages/core/src/server/request-context.ts",
+    "packages/core/src/sharing/access.ts",
     "packages/toolkit/src/editor/useCollabReconcile.ts",
     "packages/toolkit/src/collab-ui/lead-client.ts",
     "packages/toolkit/package.json",
@@ -2885,12 +2901,19 @@ test("selects the Content two-tab convergence lane for its runtime dependencies"
     assert.equal(scope.checks.content_convergence, true, path);
   }
 
-  // A toolkit-only change starts Content DB tests through this check alone.
+  // Shared editor changes keep convergence coverage without starting the DB suite.
   const toolkit = classifyChangedPaths([
     "packages/toolkit/src/editor/RichMarkdownEditor.tsx",
   ]);
   assert.equal(toolkit.checks.content, false);
+  assert.equal(toolkit.checks.content_db, false);
   assert.equal(toolkit.checks.content_convergence, true);
+
+  const coreCollaboration = classifyChangedPaths([
+    "packages/core/src/collab/client.ts",
+  ]);
+  assert.equal(coreCollaboration.checks.content_db, false);
+  assert.equal(coreCollaboration.checks.content_convergence, true);
 
   for (const path of [
     "templates/content/app/components/editor/comment-anchors.spec.ts",
@@ -2901,6 +2924,13 @@ test("selects the Content two-tab convergence lane for its runtime dependencies"
     "templates/content/evals/editing.eval.ts",
     "templates/content/docs/product/capabilities/content.author.document-editor.md",
     "templates/content/README.md",
+    "packages/core/src/client/client-status-requests.spec.ts",
+    "packages/core/src/collab/routes.payload.spec.ts",
+    "packages/core/src/server/poll-events.spec.ts",
+    "packages/core/src/client/use-db-sync.spec.ts",
+    "packages/core/src/db/client.spec.ts",
+    "packages/core/src/application-state/store.ts",
+    "packages/core/src/onboarding/workspace-services.ts",
     "templates/design/app/components/MultiScreenCanvas.tsx",
     "packages/toolkit/src/composer/PromptComposer.tsx",
     "packages/toolkit/src/editor/useCollabReconcile.spec.ts",
@@ -2935,6 +2965,62 @@ test("selects the Content two-tab convergence lane for its runtime dependencies"
   }
 });
 
+test("scopes Content DB tests to Content and shared database runtime changes", () => {
+  for (const path of [
+    "templates/content/actions/update-document.ts",
+    "templates/content/server/db/schema.ts",
+    "templates/content/app/routes/page.$id.tsx",
+    "packages/core/src/application-state/store.ts",
+    "packages/core/src/db/client.ts",
+    "packages/core/src/db/migrations.ts",
+    "packages/core/src/db/schema-snapshot.generated.ts",
+    "packages/core/src/server/database-identity.ts",
+    "packages/core/src/server/release-migrations.ts",
+    "packages/core/src/server/release-schema.ts",
+    "packages/core/src/server/request-context.ts",
+    "packages/core/src/sharing/indexes.ts",
+  ]) {
+    assert.equal(classifyChangedPaths([path]).checks.content_db, true, path);
+  }
+
+  for (const path of [
+    "packages/core/src/db/client.spec.ts",
+    "packages/core/src/server/request-context.spec.ts",
+    "packages/core/src/onboarding/workspace-services.ts",
+  ]) {
+    assert.equal(classifyChangedPaths([path]).checks.content_db, false, path);
+  }
+
+  const pr7825Paths = [
+    ".changeset/web-search-onboarding-label.md",
+    "packages/core/src/onboarding/app-profile.spec.ts",
+    "packages/core/src/onboarding/workspace-services.ts",
+    ...[
+      "ar-SA",
+      "de-DE",
+      "en-US",
+      "es-ES",
+      "fr-FR",
+      "hi-IN",
+      "ja-JP",
+      "ko-KR",
+      "pt-BR",
+      "zh-CN",
+      "zh-TW",
+    ].map((locale) => `packages/toolkit/src/app/i18n/catalogs/${locale}.ts`),
+    "templates/analytics/server/plugins/agent-chat.spec.ts",
+  ];
+  const pr7825 = classifyChangedPaths(pr7825Paths);
+  assert.equal(pr7825.checks.content_db, false);
+  assert.equal(pr7825.checks.content_convergence, false);
+
+  for (const path of [".github/workflows/ci.yml", "pnpm-lock.yaml"]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.full, true, path);
+    assert.equal(scope.checks.content_db, true, path);
+  }
+});
+
 test("runs shared coverage when core changes", () => {
   const scope = classifyChangedPaths(["packages/core/src/agent/engine/run.ts"]);
 
@@ -2948,6 +3034,8 @@ test("runs shared coverage when core changes", () => {
     "!./community-templates/**",
   ]);
   assert.equal(scope.checks.content, true);
+  assert.equal(scope.checks.content_db, false);
+  assert.equal(scope.checks.content_convergence, false);
   assert.equal(scope.checks.core_integration, true);
   assert.equal(scope.checks.plan_e2e, true);
   assert.equal(scope.checks.brain_evals, true);

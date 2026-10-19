@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { isActionExposedToExternalAgents } from "../../action.js";
+
 const mintOrgServiceTokenMock = vi.fn();
 const { OrgServiceTokenAppUrlError } = vi.hoisted(() => ({
   OrgServiceTokenAppUrlError: class extends Error {},
@@ -114,7 +116,9 @@ describe("create-org-service-token", () => {
     ).toBe(false);
   });
 
-  it("is not callable from the sandboxed agent tool loop", () => {
+  it("is not an agent or MCP tool, so an agent cannot mint a credential", () => {
+    expect(createAction.agentTool).toBe(false);
+    expect(isActionExposedToExternalAgents(createAction)).toBe(false);
     expect(createAction.toolCallable).toBe(false);
     expect(revokeAction.toolCallable).toBe(false);
   });

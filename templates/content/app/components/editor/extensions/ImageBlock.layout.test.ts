@@ -10,10 +10,10 @@ describe("image block layout", () => {
     );
 
     expect(css).toMatch(
-      /\.notion-editor \.node-image \.media-block\s*\{\s*width: 100%;\s*\}/,
+      /\.content-editor \.node-image \.media-block\s*\{\s*width: 100%;\s*\}/,
     );
     expect(css).toMatch(
-      /\.notion-editor \.node-image \.media-block__content\s*\{\s*width: 100%;\s*\}/,
+      /\.content-editor \.node-image \.media-block__content\s*\{\s*width: 100%;\s*\}/,
     );
     const sharedMediaBlock = css.match(
       /(?:^|\n)\.media-block\s*\{[^}]*\}/,
