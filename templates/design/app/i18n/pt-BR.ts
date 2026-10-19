@@ -2121,7 +2121,6 @@ export default {
     fork: "Ramificar",
     fullView: "Vista completa",
     preview: "Prévia",
-    focusScreen: "Focar tela",
     openAndDuplicate:
       "Selecione {{display}}. Use Interagir para rolagem focada.",
     openAndPreview: "Selecione {{display}}. Use Interagir para rolagem focada.",
