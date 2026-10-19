@@ -73,6 +73,54 @@ describe("extensions/actions", () => {
     vi.restoreAllMocks();
   });
 
+  it("reads an extension's org data as a read-only action", async () => {
+    const execute = vi.fn(async (_query: { sql: string; args: unknown[] }) => ({
+      rows: [
+        {
+          id: "panels",
+          data: '{"version":1}',
+          scope: "org",
+          owner_email: "thomas@example.com",
+          updated_at: "2026-10-19T00:00:00.000Z",
+        },
+      ],
+    }));
+    mockExtensionModules({
+      store: { ensureExtensionsTables: vi.fn(async () => {}) },
+      resolveAccessRole: "viewer",
+    });
+    vi.doMock("../db/client.js", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("../db/client.js")>()),
+      getDbExec: () => ({ execute }),
+    }));
+
+    const { createExtensionActionEntries } = await import("./actions.js");
+    const actions = createExtensionActionEntries();
+
+    expect(actions["extension-data-get"].readOnly).toBe(true);
+    await runWithRequestContext(
+      { userEmail: "viewer@example.com", orgId: "org-1", run: {} },
+      async () => {
+        const result = (await actions["extension-data-get"].run({
+          extensionId: "ext-zoom",
+          collection: "rhp",
+          itemId: "panels",
+          scope: "org",
+        })) as any;
+
+        expect(result).toMatchObject({ found: true, id: "panels" });
+      },
+    );
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(execute.mock.calls[0][0].sql).toMatch(/^\s*SELECT/);
+    expect(execute.mock.calls[0][0].args).toEqual([
+      "ext-zoom",
+      "rhp",
+      "panels",
+      "org-1",
+    ]);
+  });
+
   it("lists visible extensions through the extension store instead of raw SQL", async () => {
     const listExtensions = vi.fn(async () => [extensionRow]);
     const getHiddenExtensionIdsForCurrentUser = vi.fn(

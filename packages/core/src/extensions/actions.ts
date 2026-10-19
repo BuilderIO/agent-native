@@ -1108,6 +1108,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
           items: result.rows ?? [],
         };
       },
+      readOnly: true,
     },
 
     "delete-extension": {
