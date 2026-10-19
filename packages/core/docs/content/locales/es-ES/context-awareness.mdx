@@ -359,6 +359,22 @@ cambios. Para comandos que puedan llegar mientras se transmite el chat, confirme
 con `navigate(path, { replace: true, flushSync: true })` en lugar de envolverlo
 en una transición de vista para que la barra de direcciones y la página visible permanezcan juntas.
 
+## La pantalla sobre la que trabaja un turno {#turn-screen}
+
+Cada mensaje de chat lleva los valores `navigation`, `__url__`, `settings-view` y `selection` de su pestaña tal como estaban en el momento en que el usuario lo envió. Durante todo el turno (incluido un mensaje en cola que empieza más tarde, las ejecuciones en segundo plano y las continuaciones), las lecturas del servidor de esas claves para esa pestaña devuelven los valores enviados. `<current-screen>`, `view-screen` y cualquier acción que use por defecto el elemento "actual" coinciden con lo que vio el usuario, aunque haga clic en otro lugar mientras el agente trabaja. Los registros se siguen leyendo actualizados; solo se mantiene la posición en pantalla.
+
+Registre una vez en `app/root.tsx` las claves de pantalla por pestaña propias de la aplicación, como una selección del editor:
+
+```ts
+import { registerAgentScreenStateKeys } from "@agent-native/core/client/application-state";
+
+registerAgentScreenStateKeys(["design-selection"]);
+```
+
+La clave debe escribirse como `<key>:<tabId>`. Omita el estado que deba mantenerse en vivo, como la posición de reproducción, los paneles abiertos o el progreso.
+
+El turno vuelve a leer el estado en vivo en cuanto escribe `navigate` o `__set_url__` para esa pestaña, o escribe él mismo una clave registrada. Hasta que la pestaña aplique un comando `navigate`, una lectura inmediatamente posterior todavía puede mostrar la pantalla anterior.
+
 ## El gancho useNavigationState {#use-navigation-state}
 
 `useNavigationState` es **el gancho de su aplicación, no una importación de marco.** Cada plantilla envía una en `app/hooks/use-navigation-state.ts` y la llama una vez desde el shell de la aplicación (`root.tsx`). Es el único lugar que conecta la navegación en ambas direcciones:

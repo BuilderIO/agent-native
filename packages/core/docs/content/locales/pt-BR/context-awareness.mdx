@@ -361,6 +361,22 @@ mudanças. Para comandos que podem chegar durante o streaming do chat, confirme 
 com `navigate(path, { replace: true, flushSync: true })` em vez de envolvê-lo
 em uma transição de visualização para que a barra de endereço e a página visível permaneçam juntas.
 
+## A tela em que um turno trabalha {#turn-screen}
+
+Cada mensagem de chat carrega os valores `navigation`, `__url__`, `settings-view` e `selection` da sua aba como estavam no momento em que o usuário a enviou. Durante todo o turno — incluindo uma mensagem enfileirada que começa depois, execuções em segundo plano e continuações — as leituras do servidor dessas chaves para essa aba retornam os valores enviados. `<current-screen>`, `view-screen` e qualquer ação que use por padrão o item "atual" concordam com o que o usuário viu, mesmo que ele clique em outro lugar enquanto o agente trabalha. Os registros continuam sendo lidos atualizados; apenas a posição da tela é mantida.
+
+Registre uma vez em `app/root.tsx` as chaves de tela por aba pertencentes ao aplicativo, como uma seleção do editor:
+
+```ts
+import { registerAgentScreenStateKeys } from "@agent-native/core/client/application-state";
+
+registerAgentScreenStateKeys(["design-selection"]);
+```
+
+A chave deve ser escrita como `<key>:<tabId>`. Deixe de fora o estado que deve permanecer ao vivo, como a posição de reprodução, painéis abertos ou progresso.
+
+O turno volta a ler o estado ao vivo assim que escreve `navigate` ou `__set_url__` para essa aba, ou escreve ele mesmo uma chave registrada. Até que a aba aplique um comando `navigate`, uma leitura logo depois ainda pode mostrar a tela anterior.
+
 ## O gancho useNavigationState {#use-navigation-state}
 
 `useNavigationState` é **o gancho do seu aplicativo, não uma importação de estrutura.** Cada modelo envia um em `app/hooks/use-navigation-state.ts` e o chama uma vez no shell do aplicativo (`root.tsx`). É o único lugar que conecta a navegação em ambas as direções:

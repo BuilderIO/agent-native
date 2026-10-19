@@ -359,6 +359,22 @@ await writeAppState("navigate", { view: "inbox", threadId: "thread-123" });
 使用 `navigate(path, { replace: true, flushSync: true })` 而不是包裝它
 在檢視轉換中，使地址欄和可見頁面保持在一起。
 
+## 回合所處理的畫面 {#turn-screen}
+
+每則聊天訊息都會攜帶使用者送出時其所在分頁的 `navigation`、`__url__`、`settings-view` 和 `selection` 值。在整個回合中（包括稍後才開始的排隊訊息、背景執行和接續），伺服器針對該分頁讀取這些鍵時傳回的都是送出時的值。`<current-screen>`、`view-screen` 以及任何預設作用於“目前”項目的操作，都與使用者看到的內容一致，即使使用者在代理工作時點選了別處。記錄仍會即時讀取；只有畫面位置會被保留。
+
+在 `app/root.tsx` 中一次性註冊應用程式自有的各分頁畫面鍵，例如編輯器選取範圍：
+
+```ts
+import { registerAgentScreenStateKeys } from "@agent-native/core/client/application-state";
+
+registerAgentScreenStateKeys(["design-selection"]);
+```
+
+鍵必須寫成 `<key>:<tabId>`。不要包含應保持即時的狀態，例如播放位置、開啟的面板或進度。
+
+一旦該回合為該分頁寫入 `navigate` 或 `__set_url__`，或自行寫入某個已註冊的鍵，就會重新讀取即時狀態。在分頁套用 `navigate` 命令之前，緊接其後的讀取仍可能顯示先前的畫面。
+
 ## useNavigationState 掛鉤 {#use-navigation-state}
 
 `useNavigationState` 是 **您的應用程式的鉤子，而不是框架匯入。** 每個範本都在 `app/hooks/use-navigation-state.ts` 上發布一個，並從應用程式 shell (`root.tsx`) 呼叫它一次。這是連線兩個方向導覽的單一位置：

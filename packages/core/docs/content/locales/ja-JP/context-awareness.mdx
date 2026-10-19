@@ -361,6 +361,22 @@ UI 側では、このキーを手動でポーリングしたり削除したり�
 ラップする代わりに `navigate(path, { replace: true, flushSync: true })` を使用
 ビューの遷移では、アドレス バーと表示されているページが一緒に保たれます。
 
+## ターンが対象とする画面 {#turn-screen}
+
+各チャットメッセージは、ユーザーが送信した時点のタブの `navigation`、`__url__`、`settings-view`、`selection` の値を保持します。ターン全体を通じて (後から開始されるキュー内のメッセージ、バックグラウンド実行、継続を含む)、そのタブに対するこれらのキーのサーバー側の読み取りは送信時の値を返します。`<current-screen>`、`view-screen`、および「現在の」アイテムをデフォルトとするアクションはすべて、エージェントの作業中にユーザーが別の場所をクリックしても、ユーザーが見ていた内容と一致します。レコードは引き続き最新の状態で読み取られます。保持されるのは画面の位置だけです。
+
+エディターの選択など、アプリ独自のタブごとの画面キーは、`app/root.tsx` で一度だけ登録します:
+
+```ts
+import { registerAgentScreenStateKeys } from "@agent-native/core/client/application-state";
+
+registerAgentScreenStateKeys(["design-selection"]);
+```
+
+キーは `<key>:<tabId>` の形式で書き込む必要があります。再生位置、開いているパネル、進行状況など、ライブのままにすべき状態は含めないでください。
+
+ターンは、そのタブに対して `navigate` または `__set_url__` を書き込むか、登録済みのキーを自ら書き込んだ時点で、再びライブの状態を読み取ります。タブが `navigate` コマンドを適用するまでは、その直後の読み取りでまだ前の画面が表示される場合があります。
+
 ## useNavigationState フック {#use-navigation-state}
 
 `useNavigationState` は **アプリのフックであり、フレームワーク インポートではありません。** すべてのテンプレートは `app/hooks/use-navigation-state.ts` に 1 つ付属しており、アプリ シェル (`root.tsx`) から 1 回呼び出します。これは、ナビゲーションを両方向に接続する単一の場所です:
