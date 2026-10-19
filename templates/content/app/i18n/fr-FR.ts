@@ -15,6 +15,8 @@ const database = {
   githubLinkColumns: "Colonnes issues du frontmatter",
   githubLinkNoColumns:
     "Ces fichiers n’ont pas de frontmatter : le titre est la seule colonne.",
+  githubLinkColumnsSampled:
+    "Lues dans {{count}} fichiers sur {{total}}. Les autres fichiers peuvent ajouter des colonnes ou changer leur type.",
   githubLinkPages: "Pages",
   githubLinkSkipped: "Non liés",
   githubSkipMdx: "MDX n’est pas encore pris en charge",

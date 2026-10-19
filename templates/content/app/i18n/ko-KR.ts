@@ -14,6 +14,8 @@ const database = {
   githubLinkNoFiles: "이 폴더에는 연결할 Markdown 파일이 없습니다.",
   githubLinkColumns: "프런트매터에서 가져온 열",
   githubLinkNoColumns: "이 파일들에는 프런트매터가 없어 제목만 열이 됩니다.",
+  githubLinkColumnsSampled:
+    "{{total}}개 파일 중 {{count}}개에서 읽었습니다. 나머지 파일이 열을 추가하거나 유형을 바꿀 수 있습니다.",
   githubLinkPages: "페이지",
   githubLinkSkipped: "연결되지 않음",
   githubSkipMdx: "MDX는 아직 지원되지 않습니다",

@@ -15,6 +15,8 @@ const database = {
   githubLinkColumns: "أعمدة من frontmatter",
   githubLinkNoColumns:
     "لا تحتوي هذه الملفات على frontmatter، لذا العنوان هو العمود الوحيد.",
+  githubLinkColumnsSampled:
+    "تمت قراءتها من {{count}} من أصل {{total}} ملف. يمكن لبقية الملفات إضافة أعمدة أو تغيير أنواعها.",
   githubLinkPages: "الصفحات",
   githubLinkSkipped: "غير مرتبطة",
   githubSkipMdx: "MDX غير مدعوم بعد",

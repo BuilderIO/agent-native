@@ -136,6 +136,15 @@ export function GitHubFolderPreviewView({
               ))}
             </ul>
           )}
+          {/* Columns come from the first files only; later ones can differ. */}
+          {preview.sampledFiles < preview.markdownFiles ? (
+            <p className="text-xs text-muted-foreground">
+              {dbText("githubLinkColumnsSampled", {
+                count: preview.sampledFiles,
+                total: preview.markdownFiles,
+              })}
+            </p>
+          ) : null}
         </PreviewSection>
       ) : null}
 

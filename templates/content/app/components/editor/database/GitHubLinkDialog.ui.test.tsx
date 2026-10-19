@@ -161,7 +161,20 @@ describe("GitHub link dialog", () => {
     expect(text).toContain(
       "Images in this folder show once file storage is set up.",
     );
+    expect(text).not.toContain("Read from");
     expect(button("Link folder").disabled).toBe(false);
+  });
+
+  it("says the columns come from the files it read when the folder has more", async () => {
+    renderDialog();
+    await previewFolder(
+      dryRun({ preview: { ...preview, markdownFiles: 300, sampledFiles: 25 } }),
+    );
+    const text =
+      document.querySelector("[data-github-folder-preview]")?.textContent ?? "";
+    expect(text).toContain(
+      "Read from 25 of 300 files. The other files can add columns or change their types.",
+    );
   });
 
   it("links the previewed folder, then closes", async () => {

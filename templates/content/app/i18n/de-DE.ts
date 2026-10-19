@@ -16,6 +16,8 @@ const database = {
   githubLinkColumns: "Spalten aus dem Frontmatter",
   githubLinkNoColumns:
     "Diese Dateien haben kein Frontmatter, daher ist der Titel die einzige Spalte.",
+  githubLinkColumnsSampled:
+    "Aus {{count}} von {{total}} Dateien gelesen. Die übrigen Dateien können Spalten hinzufügen oder ihren Typ ändern.",
   githubLinkPages: "Seiten",
   githubLinkSkipped: "Nicht verknüpft",
   githubSkipMdx: "MDX wird noch nicht unterstützt",

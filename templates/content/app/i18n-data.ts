@@ -19,6 +19,8 @@ const databaseMessages = {
   githubLinkColumns: "Columns from frontmatter",
   githubLinkNoColumns:
     "These files have no frontmatter, so the title is the only column.",
+  githubLinkColumnsSampled:
+    "Read from {{count}} of {{total}} files. The other files can add columns or change their types.",
   githubLinkPages: "Pages",
   githubLinkSkipped: "Not linked",
   githubSkipMdx: "MDX isn’t supported yet",

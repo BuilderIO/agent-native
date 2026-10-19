@@ -14,6 +14,8 @@ const database = {
   githubLinkNoFiles: "此文件夹中没有可关联的 Markdown 文件。",
   githubLinkColumns: "来自 frontmatter 的列",
   githubLinkNoColumns: "这些文件没有 frontmatter，因此标题是唯一的列。",
+  githubLinkColumnsSampled:
+    "读取自 {{total}} 个文件中的 {{count}} 个。其余文件可能会添加列或更改列的类型。",
   githubLinkPages: "页面",
   githubLinkSkipped: "未关联",
   githubSkipMdx: "暂不支持 MDX",

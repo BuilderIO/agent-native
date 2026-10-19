@@ -15,6 +15,8 @@ const database = {
   githubLinkColumns: "Columnas del frontmatter",
   githubLinkNoColumns:
     "Estos archivos no tienen frontmatter, así que el título es la única columna.",
+  githubLinkColumnsSampled:
+    "Leídas de {{count}} de {{total}} archivos. El resto de los archivos puede añadir columnas o cambiar su tipo.",
   githubLinkPages: "Páginas",
   githubLinkSkipped: "No vinculados",
   githubSkipMdx: "MDX aún no es compatible",

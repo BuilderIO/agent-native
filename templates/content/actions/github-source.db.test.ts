@@ -445,12 +445,47 @@ describe("GitHub folder source", () => {
     expect(preview.summary).toContain(
       "1 skipped: demo.mdx (MDX isn't supported)",
     );
+    expect(preview.summary).not.toContain("is read from");
     expect(await rows(database.id)).toHaveLength(0);
     const [source] = await getDb()
       .select()
       .from(schema.contentDatabaseSources)
       .where(eq(schema.contentDatabaseSources.databaseId, database.id));
     expect(source).toBeUndefined();
+  });
+
+  it("says a preview of a big folder reads its columns from the first files", async () => {
+    github.commit(
+      Object.fromEntries(
+        Array.from({ length: 27 }, (_, index) => {
+          const name = String(index + 1).padStart(2, "0");
+          const frontmatter = index === 26 ? "owner: Ada" : "status: Draft";
+          return [
+            `docs/page-${name}.md`,
+            `---\n${frontmatter}\n---\n# Page ${name}\n`,
+          ];
+        }),
+      ),
+    );
+    const database = await newCollection();
+    const preview = await as(() =>
+      linkFolder.run({
+        databaseId: database.id,
+        url: FOLDER_URL,
+        dryRun: true,
+      }),
+    );
+    expect(preview.preview).toMatchObject({
+      markdownFiles: 27,
+      sampledFiles: 25,
+    });
+    // The last file's column isn't in the preview, and the summary says why.
+    expect(preview.preview.fields.map((field) => field.key)).toEqual([
+      "status",
+    ]);
+    expect(preview.summary).toContain(
+      "That frontmatter is read from 25 of its 27 files, so the others can add columns or change their types.",
+    );
   });
 
   it("links an empty collection: rows, titles, typed columns, images and links", async () => {

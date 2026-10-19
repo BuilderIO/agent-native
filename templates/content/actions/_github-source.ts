@@ -2117,6 +2117,11 @@ export function githubPreviewSummary(preview: GitHubFolderPreview) {
         ),
       )}.`
     : " It has no frontmatter columns.";
+  // Columns come from the first files only; later ones can differ.
+  const sampled =
+    preview.sampledFiles < preview.markdownFiles
+      ? ` That frontmatter is read from ${preview.sampledFiles} of its ${preview.markdownFiles} files, so the others can add columns or change their types.`
+      : "";
   const skipped = preview.skipped.length
     ? ` ${preview.skipped.length} skipped: ${listWithMore(
         preview.skipped.map(
@@ -2128,7 +2133,7 @@ export function githubPreviewSummary(preview: GitHubFolderPreview) {
     preview.images > 0 && !preview.storageReady
       ? ` Its ${preview.images === 1 ? "image won't" : `${preview.images} images won't`} show until file storage is set up in Settings → File uploads.`
       : "";
-  return `${preview.label} at ${preview.commitSha.slice(0, 7)} has ${preview.markdownFiles} Markdown ${preview.markdownFiles === 1 ? "file" : "files"}.${columns}${skipped}${images}`;
+  return `${preview.label} at ${preview.commitSha.slice(0, 7)} has ${preview.markdownFiles} Markdown ${preview.markdownFiles === 1 ? "file" : "files"}.${columns}${sampled}${skipped}${images}`;
 }
 
 export function githubSyncSummary(label: string, result: GitHubSyncResult) {

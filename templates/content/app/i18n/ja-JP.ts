@@ -16,6 +16,8 @@ const database = {
   githubLinkColumns: "フロントマターからの列",
   githubLinkNoColumns:
     "これらのファイルにはフロントマターがないため、列はタイトルだけです。",
+  githubLinkColumnsSampled:
+    "{{total}} 件中 {{count}} 件のファイルから読み取りました。残りのファイルによって列が追加されたり、型が変わったりすることがあります。",
   githubLinkPages: "ページ",
   githubLinkSkipped: "リンクされないファイル",
   githubSkipMdx: "MDX はまだサポートされていません",

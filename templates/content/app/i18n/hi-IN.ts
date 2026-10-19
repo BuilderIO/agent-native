@@ -14,6 +14,8 @@ const database = {
   githubLinkNoFiles: "इस फ़ोल्डर में लिंक करने के लिए कोई Markdown फ़ाइल नहीं है।",
   githubLinkColumns: "फ़्रंटमैटर से कॉलम",
   githubLinkNoColumns: "इन फ़ाइलों में फ़्रंटमैटर नहीं है, इसलिए शीर्षक ही एकमात्र कॉलम है।",
+  githubLinkColumnsSampled:
+    "{{total}} में से {{count}} फ़ाइलों से पढ़े गए। बाकी फ़ाइलें कॉलम जोड़ सकती हैं या उनका प्रकार बदल सकती हैं।",
   githubLinkPages: "पेज",
   githubLinkSkipped: "लिंक नहीं हुईं",
   githubSkipMdx: "MDX अभी समर्थित नहीं है",

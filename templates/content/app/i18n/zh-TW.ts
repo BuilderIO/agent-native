@@ -1170,6 +1170,8 @@ const overrides = {
     githubLinkNoFiles: "此資料夾中沒有可連結的 Markdown 檔案。",
     githubLinkColumns: "來自 frontmatter 的欄位",
     githubLinkNoColumns: "這些檔案沒有 frontmatter，因此標題是唯一的欄位。",
+    githubLinkColumnsSampled:
+      "讀取自 {{total}} 個檔案中的 {{count}} 個。其餘檔案可能會新增欄位或變更欄位類型。",
     githubLinkPages: "頁面",
     githubLinkSkipped: "未連結",
     githubSkipMdx: "尚不支援 MDX",
