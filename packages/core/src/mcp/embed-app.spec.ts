@@ -682,9 +682,8 @@ describe("embedApp", () => {
         ),
       );
       const postBody = JSON.parse(fetch.mock.calls[0][1].body as string);
-      expect(postBody.url).toBe(
-        "https://app.example.com/crm/_agent-native/embed/start",
-      );
+      expect(postBody.url).toBe("https://app.example.com");
+      expect(JSON.stringify(postBody)).not.toContain("/crm/");
       expect(JSON.stringify(postBody)).not.toContain("ticket");
       expect(JSON.stringify(postBody)).not.toContain("private-fragment");
       expect(JSON.stringify(postBody)).not.toContain("demo-user");
@@ -720,7 +719,7 @@ describe("embedApp", () => {
         return reportEmbedError;`,
       )(
         "",
-        "https://demo-user:demo-pass@app.example.com/crm/records/123?secret=1#details",
+        "https://demo-user:demo-pass@app.example.com/crm/private-record-id-123/token-abc?secret=1#details",
         "",
         {
           location: {
@@ -743,7 +742,10 @@ describe("embedApp", () => {
         expect.objectContaining({ method: "POST", credentials: "omit" }),
       );
       const postBody = JSON.parse(fetch.mock.calls[0][1].body as string);
-      expect(postBody.url).toBe("https://app.example.com/crm/records/123");
+      expect(postBody.url).toBe("https://app.example.com");
+      expect(JSON.stringify(postBody)).not.toContain("/crm/");
+      expect(JSON.stringify(postBody)).not.toContain("private-record-id-123");
+      expect(JSON.stringify(postBody)).not.toContain("token-abc");
       expect(JSON.stringify(postBody)).not.toContain("demo-user");
       expect(JSON.stringify(postBody)).not.toContain("demo-pass");
     });

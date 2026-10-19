@@ -1372,11 +1372,10 @@ export function embedApp(
         let embedUrl = "";
         if (contextUrl) {
           const url = new URL(contextUrl, window.location.href);
-          url.username = "";
-          url.password = "";
-          url.search = "";
-          url.hash = "";
-          embedUrl = url.href;
+          // Embed paths can contain private resource identifiers.
+          if (url.protocol === "http:" || url.protocol === "https:") {
+            embedUrl = url.origin;
+          }
         }
         let renderMode = "";
         try { renderMode = renderModeSource().mode || ""; } catch {}

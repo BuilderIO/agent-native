@@ -68,8 +68,6 @@ const SENSITIVE_FRAMEWORK_TABLES = new Set([
   "session",
   "sessions",
   "chat_threads",
-  "agent_run_events",
-  "agent_runs",
   "account",
   "accounts",
   "verification",

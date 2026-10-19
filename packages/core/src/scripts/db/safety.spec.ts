@@ -261,24 +261,6 @@ describe("sensitive framework tables", () => {
     ).toThrow(/Sensitive framework table "chat_threads"/);
   });
 
-  it.each([
-    ["agent_run_events", "event_data"],
-    ["agent_runs", "dispatch_payload"],
-  ])(
-    "keeps the %s run payload out of every raw database tool",
-    (table, payload) => {
-      expect(() =>
-        readRawDbReadStatement(`SELECT ${payload} FROM ${table}`),
-      ).toThrow(new RegExp(`Sensitive framework table "${table}"`));
-      expect(() =>
-        readRawDbWriteStatement(`UPDATE ${table} SET ${payload} = NULL`),
-      ).toThrow(new RegExp(`Sensitive framework table "${table}"`));
-      expect(() => assertNoSensitiveFrameworkTables(table, "patch")).toThrow(
-        new RegExp(`Sensitive framework table "${table}"`),
-      );
-    },
-  );
-
   it("ignores the names inside strings and comments", () => {
     expect(() =>
       readRawDbReadStatement(
