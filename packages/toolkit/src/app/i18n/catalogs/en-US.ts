@@ -182,6 +182,9 @@ const messages = {
     "This will create a free Builder.io account. By continuing, you agree to our",
   "onboarding.creditsConnectExisting": "Connect an existing Builder.io account",
   "onboarding.creditsMoreInfo": "More info",
+  "onboarding.creditsSubtitle":
+    "Get free credits for LLMs, Jev, storage, and more in one click for this app from Builder.io.",
+  "onboarding.creditsLearnMore": "Learn more",
   "onboarding.creditsSkipBody":
     "If you skip, you'll need to connect your own keys to use AI and storage.",
   "onboarding.builderActivating": "Activating Builder.io free credits",

@@ -3037,6 +3037,23 @@ describe("FirstRunOnboarding", () => {
       expect(q("first-run-open-key-settings")).toBeNull();
     });
 
+    it("opens the same More info panel from the Learn more link beside the subtitle", () => {
+      mocks.useBuilderConnectFlow.mockReturnValue(flow());
+      openChoice();
+      expect(q("first-run-credits-offer")?.textContent).toContain(
+        "Get free credits for LLMs, Jev, storage, and more in one click for this app from Builder.io.",
+      );
+      click("first-run-credits-learn-more");
+      expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+        "onboarding_more_info_opened",
+        { flow: "first_run", step_id: "choice" },
+      );
+      expect(
+        q("first-run-credits-more-info")?.getAttribute("aria-expanded"),
+      ).toBe("true");
+      expect(q("first-run-builder-create-account")).not.toBeNull();
+    });
+
     it("holds a skeleton until Builder status is known", () => {
       mocks.useBuilderConnectFlow.mockReturnValue(
         flow({ hasFetchedStatus: false }),

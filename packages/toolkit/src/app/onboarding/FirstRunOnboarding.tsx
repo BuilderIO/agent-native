@@ -991,9 +991,16 @@ export function FirstRunOnboarding({
     );
 
     if (creditsEligible) {
-      const linkClass =
-        "rounded-sm underline underline-offset-2 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60";
       const MoreInfoChevron = moreInfoOpen ? IconChevronUp : IconChevronDown;
+      const toggleMoreInfo = () => {
+        if (!moreInfoOpen && !previewMode) {
+          trackOnboardingEvent("onboarding_more_info_opened", {
+            flow: "first_run",
+            step_id: "choice",
+          });
+        }
+        setMoreInfoOpen((open) => !open);
+      };
       return (
         <OnboardingShell
           profile={profile}
@@ -1005,11 +1012,29 @@ export function FirstRunOnboarding({
             data-testid="first-run-credits-offer"
             className="mx-auto flex w-full flex-col items-center gap-5 pt-[max(0rem,6vh)] text-center"
           >
-            <h1 className="max-w-lg text-balance text-[28px] font-bold leading-tight tracking-[-0.02em] text-foreground">
+            <h1
+              className={cn(
+                "text-balance text-[28px] font-bold leading-tight tracking-[-0.02em] text-foreground",
+                profile.appId === "clips" ? "max-w-lg" : "max-w-sm",
+              )}
+            >
               {profile.appId === "clips"
                 ? t("agentChat.onboarding.creditsTitleClips")
                 : t("agentChat.onboarding.creditsTitle")}
             </h1>
+            <p className="max-w-sm text-sm leading-6 text-muted-foreground">
+              {t("agentChat.onboarding.creditsSubtitle")}{" "}
+              <button
+                type="button"
+                data-testid="first-run-credits-learn-more"
+                aria-expanded={moreInfoOpen}
+                aria-controls="first-run-credits-details"
+                className="rounded-sm underline underline-offset-2 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={toggleMoreInfo}
+              >
+                {t("agentChat.onboarding.creditsLearnMore")}
+              </button>
+            </p>
             <div className="flex w-full max-w-sm flex-col items-center gap-3">
               <button
                 type="button"
@@ -1022,6 +1047,15 @@ export function FirstRunOnboarding({
                 disabled={connectFlow.connecting}
               >
                 {t("agentChat.onboarding.creditsActivate")}
+              </button>
+              <button
+                type="button"
+                data-testid="first-run-credits-connect-existing"
+                className={cn(mutedButtonClass, "min-h-11 w-full text-sm")}
+                onClick={() => handleBuilder(false)}
+                disabled={connectFlow.connecting}
+              >
+                {t("agentChat.onboarding.builderExistingAccount")}
               </button>
               <p className="text-xs leading-5 text-muted-foreground">
                 {t("agentChat.onboarding.creditsFinePrint")}{" "}
@@ -1046,31 +1080,14 @@ export function FirstRunOnboarding({
               </p>
             </div>
             {builderStatusError}
-            <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
-              <button
-                type="button"
-                data-testid="first-run-credits-connect-existing"
-                className={linkClass}
-                onClick={() => handleBuilder(false)}
-                disabled={connectFlow.connecting}
-              >
-                {t("agentChat.onboarding.creditsConnectExisting")}
-              </button>
+            <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2">
               <button
                 type="button"
                 data-testid="first-run-credits-more-info"
                 aria-expanded={moreInfoOpen}
                 aria-controls="first-run-credits-details"
-                className="inline-flex min-h-8 items-center gap-1 rounded-full border border-border px-3 font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                onClick={() => {
-                  if (!moreInfoOpen && !previewMode) {
-                    trackOnboardingEvent("onboarding_more_info_opened", {
-                      flow: "first_run",
-                      step_id: "choice",
-                    });
-                  }
-                  setMoreInfoOpen((open) => !open);
-                }}
+                className="inline-flex min-h-8 items-center gap-1 rounded-full border border-border px-3 text-xs font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={toggleMoreInfo}
               >
                 {t("agentChat.onboarding.creditsMoreInfo")}
                 <MoreInfoChevron size={14} aria-hidden />
