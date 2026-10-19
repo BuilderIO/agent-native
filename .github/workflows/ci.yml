@@ -444,8 +444,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.design_canvas_core_regression == 'true'
     runs-on: ubuntu-latest
-    # Setup alone takes about 3 minutes; inspector-4b's 8 specs then took 6.5 minutes, and the old 9-minute cap cut it off after they passed.
-    timeout-minutes: 12
+    timeout-minutes: 9
     strategy:
       fail-fast: false
       matrix:
