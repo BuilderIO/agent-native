@@ -263,7 +263,8 @@ export const YouTubeEmbedPlayer = forwardRef<
           height: "100%",
           playerVars: {
             autoplay: autoPlay ? 1 : 0,
-            // Browsers only autoplay muted video.
+            // Browsers only autoplay muted video. YouTube honors `mute` but
+            // doesn't document it, so onReady mutes through the API too.
             mute: autoPlay ? 1 : 0,
             controls: 0,
             disablekb: 1,
@@ -284,6 +285,7 @@ export const YouTubeEmbedPlayer = forwardRef<
               const rates = target.getAvailablePlaybackRates();
               if (rates.length) setSpeedOptions(rates);
               readPlayerDuration(target);
+              if (autoPlay) target.mute();
               const shouldPlay = autoPlay || playWhenReadyRef.current;
               playWhenReadyRef.current = false;
               const startAtMs = cuedStartMsRef.current;
