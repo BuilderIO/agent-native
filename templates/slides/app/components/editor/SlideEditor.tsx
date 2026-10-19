@@ -5155,20 +5155,39 @@ export default function SlideEditor({
               left: left + box.left - first.left,
               top: top + box.top - first.top,
               width: box.width,
+              height: box.height,
             }
-          : { left, top, width: anchorRect.width * slideScale.x };
+          : {
+              left,
+              top,
+              width: anchorRect.width * slideScale.x,
+              height: undefined,
+            };
       };
       const objectIds: string[] = [];
       for (const [index, element] of pasted.entries()) {
-        const promotedFromFlow =
-          window.getComputedStyle(element).position !== "absolute";
-        const box = promotedFromFlow ? targetBox(index) : undefined;
-        if (promotedFromFlow) {
-          element.style.position = "absolute";
+        // The pasted element is still detached, so its own insets are the
+        // only positioning it carries; computed style would read as static.
+        const box = targetBox(index);
+        element.style.position = "absolute";
+        if (box) {
           // Unrounded: a text object one pixel narrower rewraps.
-          if (box && !element.style.width && box.width > 0) {
+          if (!element.style.width && box.width > 0) {
             element.style.width = `${box.width}px`;
           }
+          // Insets came from the source containing block. `left`/`top` and the
+          // size now place the object, so a kept `right`/`bottom` would
+          // stretch it against its new parent.
+          if (
+            element.style.top &&
+            element.style.bottom &&
+            !element.style.height &&
+            box.height
+          ) {
+            element.style.height = `${box.height}px`;
+          }
+          element.style.removeProperty("right");
+          element.style.removeProperty("bottom");
         }
         applySlideObjectContext(
           element,
