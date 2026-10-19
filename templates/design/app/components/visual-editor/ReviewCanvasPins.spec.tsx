@@ -361,6 +361,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
           resourceId="design-1"
           targetId="screen-1"
           canPost
+          canResolve={false}
         />,
       );
     });
@@ -386,6 +387,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
           resourceId="design-1"
           targetId="screen-1"
           canPost
+          canResolve={false}
           currentUserEmail="reviewer@example.com"
         />,
       );
