@@ -198,6 +198,7 @@ vi.mock("./social-og-image.js", () => ({
 import { extractA2APersistedMutationReceipts } from "../a2a/artifact-response.js";
 import { EngineError } from "../agent/engine/types.js";
 import { replayCompletedTurn } from "../agent/run-manager.js";
+import { markRunAborted } from "../agent/run-store.js";
 import { loadActionsFromStaticRegistry } from "./action-discovery.js";
 import {
   assembleA2AFinalResponse,
@@ -463,6 +464,38 @@ describe("A2A shared run lifecycle", () => {
             "aborted_canceled-by-task-claim",
       ),
     ).toBe(true);
+  });
+
+  it("does not durably abort a replacement run after losing the task lease", async () => {
+    vi.mocked(markRunAborted).mockClear();
+    const taskController = new AbortController();
+    let runnerSignal: AbortSignal | undefined;
+    const runner = vi.fn(
+      (options: any) =>
+        new Promise<typeof usage>((resolve) => {
+          runnerSignal = options.signal;
+          options.signal.addEventListener("abort", () => resolve(usage), {
+            once: true,
+          });
+        }),
+    );
+    const claimLost = Object.assign(new Error("A2A task claim was lost"), {
+      code: "a2a_task_claim_lost",
+    });
+
+    const pending = runA2AAgentLoopWithRunManager(
+      runOptions("task-replacement-lease-loss", () => {}),
+      {},
+      { backgroundFunction: false },
+      { runner: runner as any },
+      taskController.signal,
+    );
+    await vi.waitFor(() => expect(runner).toHaveBeenCalledOnce());
+    taskController.abort(claimLost);
+
+    await expect(pending).rejects.toBe(claimLost);
+    expect(runnerSignal?.aborted).toBe(true);
+    expect(markRunAborted).not.toHaveBeenCalled();
   });
 
   it("propagates the persisted terminal error code back to the A2A task", async () => {

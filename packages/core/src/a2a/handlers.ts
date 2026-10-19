@@ -64,6 +64,7 @@ import {
   touchProcessingA2ATask,
   pauseProcessingA2ATask,
   MAX_A2A_IDEMPOTENCY_KEY_CHARS,
+  A2A_TASK_CLAIM_LOST_ERROR_CODE,
   A2A_PERSONAL_OWNER_SCOPE,
   A2A_ORG_ID_OWNER_SCOPE_PREFIX,
 } from "./task-store.js";
@@ -355,18 +356,39 @@ export async function processA2ATaskFromQueue(
     await withExecutionFence(fence, async () => {
       if (!(await touchProcessingA2ATask(taskId))) return;
       const workerAbort = new AbortController();
+      const abortForLostClaim = async (error: unknown) => {
+        try {
+          const task = await getTask(taskId);
+          if (task?.status.state === "canceled") {
+            workerAbort.abort("user");
+            return;
+          }
+        } catch (readError) {
+          console.error(
+            "[a2a] Failed to read task after losing its claim:",
+            readError,
+          );
+        }
+        const claimLostError = Object.assign(
+          new Error("A2A task claim was lost"),
+          { code: A2A_TASK_CLAIM_LOST_ERROR_CODE, cause: error },
+        );
+        workerAbort.abort(claimLostError);
+      };
       const heartbeat = setInterval(() => {
         renewTaskExecutionLease(fence)
           .then(async () => {
             const touched = await touchProcessingA2ATask(taskId);
             if (!touched) {
-              workerAbort.abort(new Error("A2A task claim was lost"));
+              await abortForLostClaim(
+                new Error("A2A task is no longer processing"),
+              );
             }
           })
-          .catch((error) => {
+          .catch(async (error) => {
             console.error("[a2a] Failed to heartbeat async task:", error);
             if (error?.code === "stale_execution_fence") {
-              workerAbort.abort(error);
+              await abortForLostClaim(error);
             }
           });
       }, A2A_PROCESSING_HEARTBEAT_MS);

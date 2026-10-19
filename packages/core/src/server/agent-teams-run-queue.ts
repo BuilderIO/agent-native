@@ -3,7 +3,11 @@ import {
   StaleExecutionFenceError,
   type ExecutionFence,
 } from "../agent/execution-fence.js";
-import { ensureRunTables } from "../agent/run-store.js";
+import {
+  ensureRunTables,
+  lockTaskExecutionLease,
+  revokeTaskExecutionLease,
+} from "../agent/run-store.js";
 import { getDbExec, withDbExec, type DbExec } from "../db/client.js";
 import {
   ensureColumnExists,
@@ -266,6 +270,7 @@ export async function withCurrentAgentTeamRunAttempt<T>(
   options: {
     statuses?: readonly AgentTeamRunQueueStatus[];
     expectedUpdatedAt?: number;
+    revokeExecutionLease?: boolean;
   } = {},
 ): Promise<{ current: false } | { current: true; value: T }> {
   await ensureTable();
@@ -300,6 +305,16 @@ export async function withCurrentAgentTeamRunAttempt<T>(
         throw new StaleExecutionFenceError(fence);
       }
       await assertExecutionFenceCurrent(tx, fence);
+    }
+
+    if (options.revokeExecutionLease) {
+      const turnId = queuePayloadTurnId(row.payload);
+      if (!turnId) {
+        throw new Error("Agent Teams queue payload is unreadable.");
+      }
+      const threadId = String(row.thread_id);
+      await lockTaskExecutionLease(tx, threadId, turnId);
+      await revokeTaskExecutionLease(tx, threadId, turnId);
     }
 
     const value = await withDbExec(tx, write);

@@ -23,6 +23,8 @@ export function a2aTaskLeaseThreadId(taskId: string): string {
   return `a2a-task:${taskId}`;
 }
 
+export const A2A_TASK_CLAIM_LOST_ERROR_CODE = "a2a_task_claim_lost";
+
 export interface A2ATaskListCursor {
   createdAt: number;
   id: string;
@@ -742,6 +744,9 @@ export async function failStuckQueuedA2ATask(
 ): Promise<boolean> {
   assertA2APersistablePayload(reason, "A2A task failure status");
   await ensureTable();
+  const { ensureRunTables, lockTaskExecutionLease, revokeTaskExecutionLease } =
+    await import("../agent/run-store.js");
+  await ensureRunTables();
   const client = getDbExec();
   const now = Date.now();
   const timestamp = new Date().toISOString();
@@ -749,19 +754,76 @@ export async function failStuckQueuedA2ATask(
     role: "agent",
     parts: [{ type: "text", text: reason }],
   };
-  const result = await client.execute({
-    sql: `UPDATE a2a_tasks
-            SET status_state = 'failed',
-                status_message = ?,
-                status_timestamp = ?,
-                updated_at = ?
-          WHERE id = ?
-            AND status_state IN ('submitted', 'working')
-            AND created_at <= ?`,
-    args: [JSON.stringify(message), timestamp, now, id, createdAtCutoff],
+  return withDbTransaction(client, async (tx) => {
+    const leaseThreadId = a2aTaskLeaseThreadId(id);
+    await lockTaskExecutionLease(tx, leaseThreadId, id);
+    const result = await tx.execute({
+      sql: `UPDATE a2a_tasks
+              SET status_state = 'failed',
+                  status_message = ?,
+                  status_timestamp = ?,
+                  updated_at = ?
+            WHERE id = ?
+              AND status_state IN ('submitted', 'working')
+              AND created_at <= ?`,
+      args: [JSON.stringify(message), timestamp, now, id, createdAtCutoff],
+    });
+    const affected = getAffectedRowCount(result);
+    if (affected === 1) {
+      await revokeTaskExecutionLease(tx, leaseThreadId, id);
+    }
+    return affected !== 0;
   });
-  const affected = getAffectedRowCount(result);
-  return affected !== 0;
+}
+
+/** Fail an abandoned task and revoke any worker lease in the same transaction. */
+export async function failStaleA2ATask(
+  id: string,
+  staleBefore: number,
+  reason: string,
+  errorCode: string,
+): Promise<boolean> {
+  assertA2APersistablePayload(reason, "A2A task failure status");
+  await ensureTable();
+  const { ensureRunTables, lockTaskExecutionLease, revokeTaskExecutionLease } =
+    await import("../agent/run-store.js");
+  await ensureRunTables();
+  const client = getDbExec();
+  const now = Date.now();
+  const timestamp = new Date(now).toISOString();
+  const message: Message = {
+    role: "agent",
+    parts: [{ type: "text", text: reason }],
+    metadata: { errorCode },
+  };
+  return withDbTransaction(client, async (tx) => {
+    const leaseThreadId = a2aTaskLeaseThreadId(id);
+    await lockTaskExecutionLease(tx, leaseThreadId, id);
+    const result = await tx.execute({
+      sql: `UPDATE a2a_tasks
+              SET status_state = 'failed',
+                  status_message = ?,
+                  status_timestamp = ?,
+                  updated_at = ?
+            WHERE id = ?
+              AND status_state IN ('submitted', 'working', 'processing')
+              AND created_at < ?
+              AND updated_at < ?`,
+      args: [
+        JSON.stringify(message),
+        timestamp,
+        now,
+        id,
+        staleBefore,
+        staleBefore,
+      ],
+    });
+    const affected = getAffectedRowCount(result);
+    if (affected === 1) {
+      await revokeTaskExecutionLease(tx, leaseThreadId, id);
+    }
+    return affected !== 0;
+  });
 }
 
 export async function getTask(

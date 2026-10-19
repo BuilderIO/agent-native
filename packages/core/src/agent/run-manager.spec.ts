@@ -453,6 +453,54 @@ describe("run manager soft timeout", () => {
     expect(waitUntil).toHaveBeenCalledWith(expect.any(Promise));
   });
 
+  it("replaces an in-memory retry without durably aborting the shared run row", async () => {
+    let oldStarted!: () => void;
+    let replacementStarted!: () => void;
+    const startedOld = new Promise<void>((resolve) => {
+      oldStarted = resolve;
+    });
+    const startedReplacement = new Promise<void>((resolve) => {
+      replacementStarted = resolve;
+    });
+
+    const oldRun = startRun(
+      "run-same-id-replacement",
+      "thread-same-id-replacement",
+      async (_send, signal) => {
+        oldStarted();
+        await new Promise<void>((resolve) =>
+          signal.addEventListener("abort", () => resolve(), { once: true }),
+        );
+      },
+      undefined,
+      { softTimeoutMs: 0, noProgressTimeoutMs: 0, executionLease: true },
+    );
+    await startedOld;
+    vi.mocked(markRunAborted).mockClear();
+
+    const replacement = startRun(
+      "run-same-id-replacement",
+      "thread-same-id-replacement",
+      async (_send, signal) => {
+        replacementStarted();
+        await new Promise<void>((resolve) =>
+          signal.addEventListener("abort", () => resolve(), { once: true }),
+        );
+      },
+      undefined,
+      { softTimeoutMs: 0, noProgressTimeoutMs: 0, executionLease: true },
+    );
+
+    await Promise.all([startedReplacement, oldRun.finalized]);
+    expect(oldRun.abort.signal.aborted).toBe(true);
+    expect(markRunAborted).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    expect(getRun("run-same-id-replacement")).toBe(replacement);
+    abortRun("run-same-id-replacement");
+    await replacement.finalized;
+  });
+
   it("emits an internal continuation signal and aborts the run chunk", async () => {
     const events: AgentChatEvent[] = [];
     let aborted = false;

@@ -43,6 +43,7 @@ import {
 import {
   createA2AApproval,
   a2aTaskLeaseThreadId,
+  A2A_TASK_CLAIM_LOST_ERROR_CODE,
   updateTaskStatusMessage,
 } from "../a2a/task-store.js";
 import type {
@@ -867,10 +868,19 @@ export async function runA2AAgentLoopWithRunManager(
 
   let cancellation: Promise<boolean> = Promise.resolve(false);
   const abortFromTask = () => {
-    cancellation = abortRunDurably(
-      runId,
-      clientAbortReason(taskSignal?.reason),
-    );
+    const reason = taskSignal?.reason;
+    const reasonCode =
+      reason && typeof reason === "object" && "code" in reason
+        ? (reason as { code?: unknown }).code
+        : undefined;
+    if (
+      reasonCode === "stale_execution_fence" ||
+      reasonCode === A2A_TASK_CLAIM_LOST_ERROR_CODE
+    ) {
+      run.abort.abort("execution_lease_lost");
+      return;
+    }
+    cancellation = abortRunDurably(runId, clientAbortReason(reason));
   };
   if (taskSignal?.aborted) {
     abortFromTask();

@@ -18,12 +18,15 @@ const rawClient = {
     }
     const stmt = await pglite.prepare(input.sql);
     const args = (input.args ?? []) as unknown[];
-    if (/^\s*select/i.test(input.sql)) {
-      return { rows: await stmt.all(...args), rowsAffected: 0 };
+    if (/^\s*select/i.test(input.sql) || /\breturning\b/i.test(input.sql)) {
+      const rows = await stmt.all(...args);
+      return { rows, rowsAffected: rows.length };
     }
     const info = await stmt.run(...args);
     return { rows: [] as unknown[], rowsAffected: info.changes };
   }),
+  transaction: async <T>(fn: (tx: any) => Promise<T>): Promise<T> =>
+    fn(rawClient),
 };
 
 vi.mock(import("../db/client.js"), async (importOriginal) => {
@@ -195,6 +198,29 @@ describe("reapStaleA2ATasks", () => {
     await expect(reapStaleA2ATasks({ now: NOW })).resolves.toBe(0);
   });
 
+  it("revokes the worker lease in the same stale-task transition", async () => {
+    const { a2aTaskLeaseThreadId, ensureTable } =
+      await import("../a2a/task-store.js");
+    const { claimTaskExecutionLease, renewTaskExecutionLease } =
+      await import("../agent/run-store.js");
+    await ensureTable();
+    await insertTask(
+      "stale-processing-lease",
+      "processing",
+      STALE_A2A_TASK_AFTER_MS + HOUR,
+    );
+    const fence = await claimTaskExecutionLease(
+      a2aTaskLeaseThreadId("stale-processing-lease"),
+      "stale-processing-lease",
+      "a2a:stale-processing-lease",
+    );
+
+    await expect(reapStaleA2ATasks({ now: NOW })).resolves.toBe(1);
+    await expect(renewTaskExecutionLease(fence)).rejects.toMatchObject({
+      code: "stale_execution_fence",
+    });
+  });
+
   it("fails abandoned tasks with a typed reason and leaves live ones alone", async () => {
     const { ensureTable } = await import("../a2a/task-store.js");
     await ensureTable();
@@ -262,7 +288,7 @@ describe("reapStaleA2ATasks", () => {
           typeof input !== "string" && input.sql.startsWith("UPDATE a2a_tasks"),
       );
     expect(update?.sql).toMatch(
-      /WHERE status_state IN \('submitted', 'working', 'processing'\)\s+AND created_at < \? AND updated_at < \?\s+AND id IN/i,
+      /WHERE id = \?\s+AND status_state IN \('submitted', 'working', 'processing'\)\s+AND created_at < \?\s+AND updated_at < \?/i,
     );
   });
 

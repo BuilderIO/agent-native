@@ -82,7 +82,6 @@ import {
   bumpAgentTeamContinuation,
   requeueAgentTeamRunContinuation,
   completeAgentTeamRun,
-  completeAgentTeamRunIfCurrent,
   withCurrentAgentTeamRunAttempt,
   persistAgentTeamRunEventIfCurrent,
   getAgentTeamRunDispatchState,
@@ -909,6 +908,7 @@ async function failReconciledTask(
         ...(checkExpectedUpdatedAt
           ? { expectedUpdatedAt: expectedDispatch.updatedAt }
           : {}),
+        revokeExecutionLease: true,
       },
     );
     if (!result.current || !result.value) return task;
@@ -997,10 +997,20 @@ async function reconcileTaskWithRun(
   if (task.status !== "running") {
     if (dispatch?.status === "queued" || dispatch?.status === "running") {
       try {
-        await completeAgentTeamRunIfCurrent(
+        await withCurrentAgentTeamRunAttempt(
           task.taskId,
-          task.status === "completed" ? "done" : "failed",
-          dispatch,
+          dispatch.attempts,
+          () =>
+            completeAgentTeamRun(
+              task.taskId,
+              task.status === "completed" ? "done" : "failed",
+              dispatch.attempts,
+            ),
+          {
+            statuses: [dispatch.status],
+            expectedUpdatedAt: dispatch.updatedAt,
+            revokeExecutionLease: true,
+          },
         );
       } catch (error) {
         console.warn(
@@ -1147,11 +1157,31 @@ export async function reconcileStaleAgentTeamRuns(
             if (task) {
               await reconcileTaskWithRun(task, event);
             } else {
-              await completeAgentTeamRun(
+              const dispatch = await getAgentTeamRunDispatchState(
                 candidate.taskId,
-                "failed",
-                claimedAttempts,
               );
+              if (
+                !dispatch ||
+                (dispatch.status !== "queued" && dispatch.status !== "running")
+              ) {
+                return false;
+              }
+              const settled = await withCurrentAgentTeamRunAttempt(
+                candidate.taskId,
+                claimedAttempts,
+                () =>
+                  completeAgentTeamRun(
+                    candidate.taskId,
+                    "failed",
+                    claimedAttempts,
+                  ),
+                {
+                  statuses: [dispatch.status],
+                  expectedUpdatedAt: dispatch.updatedAt,
+                  revokeExecutionLease: true,
+                },
+              );
+              return settled.current && settled.value;
             }
           },
         );
@@ -2859,7 +2889,32 @@ export async function processAgentTeamRun(
               describeDbError(error),
             );
           })
-          .then(resolve);
+          .then(async () => {
+            if (
+              startedRun.abortReason === "execution-lease-busy" ||
+              startedRun.abortReason === "execution-lease-claim-failed"
+            ) {
+              try {
+                await withCurrentAgentTeamRunAttempt(
+                  task.taskId,
+                  claimedAttempts,
+                  () =>
+                    requeueAgentTeamRunContinuation(
+                      task.taskId,
+                      claimedAttempts,
+                      payload,
+                    ),
+                  { revokeExecutionLease: true },
+                );
+              } catch (error) {
+                console.warn(
+                  `[agent-teams] could not requeue task ${task.taskId} after its execution lease claim failed:`,
+                  describeDbError(error),
+                );
+              }
+            }
+            resolve();
+          });
       });
       if (continuationDispatch) {
         try {

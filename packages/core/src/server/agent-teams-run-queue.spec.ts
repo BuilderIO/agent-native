@@ -311,6 +311,17 @@ vi.mock("../db/ddl-guard.js", () => ({
 
 vi.mock("../agent/run-store.js", () => ({
   ensureRunTables: vi.fn().mockResolvedValue(undefined),
+  lockTaskExecutionLease: vi.fn().mockResolvedValue(undefined),
+  revokeTaskExecutionLease: vi.fn(
+    async (_tx: unknown, threadId: string, turnId: string) => {
+      if (
+        executionLease?.threadId === threadId &&
+        executionLease.turnId === turnId
+      ) {
+        executionLease.expiresAt = Date.now();
+      }
+    },
+  ),
 }));
 
 const queue = await import("./agent-teams-run-queue.js");
@@ -632,6 +643,33 @@ describe("agent_team_run_queue", () => {
     ).resolves.toBe(false);
     await expect(
       queue.getAgentTeamRunDispatchState("fenced"),
+    ).resolves.toMatchObject({ status: "failed" });
+  });
+
+  it("revokes the task run lease while settling a stale queue attempt", async () => {
+    await enqueue("stale-lease-settlement");
+    const claimed = await queue.claimAgentTeamRun("stale-lease-settlement");
+    if (!claimed) throw new Error("run was not claimed");
+    executionLease = {
+      threadId: claimed.threadId,
+      turnId: claimed.payload.turnId,
+      runId: "stale-worker-run",
+      generation: "4",
+      expiresAt: Date.now() + 60_000,
+    };
+
+    const settled = await queue.withCurrentAgentTeamRunAttempt(
+      claimed.taskId,
+      claimed.attempts,
+      () =>
+        queue.completeAgentTeamRun(claimed.taskId, "failed", claimed.attempts),
+      { revokeExecutionLease: true },
+    );
+
+    expect(settled).toEqual({ current: true, value: true });
+    expect(executionLease.expiresAt).toBeLessThanOrEqual(Date.now());
+    await expect(
+      queue.getAgentTeamRunDispatchState(claimed.taskId),
     ).resolves.toMatchObject({ status: "failed" });
   });
 

@@ -499,6 +499,7 @@ const persistedRunEventIds: string[] = [];
 const persistedTerminalRunEventIds: string[] = [];
 let heldToolStartEventWrite: Promise<void> | null = null;
 let persistedToolStartEventWrites = 0;
+let failNextExecutionLeaseClaim = false;
 const startRunWork: Promise<void>[] = [];
 const activeRunMocks = new Map<string, any>();
 vi.mock("../agent/run-manager.js", () => ({
@@ -509,6 +510,21 @@ vi.mock("../agent/run-manager.js", () => ({
     onComplete?: (run: any) => Promise<void>,
     options?: any,
   ) => {
+    if (options?.executionLease && failNextExecutionLeaseClaim) {
+      failNextExecutionLeaseClaim = false;
+      return {
+        runId,
+        threadId,
+        turnId: options?.turnId ?? runId,
+        events: [],
+        status: "aborted",
+        abortReason: "execution-lease-busy",
+        subscribers: new Set(),
+        abort: new AbortController(),
+        startedAt: Date.now(),
+        finalized: Promise.resolve(),
+      };
+    }
     const work = (async () => {
       const events: any[] = [];
       const pendingEventWrites: Promise<unknown>[] = [];
@@ -610,6 +626,8 @@ const getRunEventsSinceMock = vi.fn(async () => []);
 vi.mock("../agent/run-store.js", () => ({
   ensureRunTables: vi.fn(async () => undefined),
   getRunEventsSince: getRunEventsSinceMock,
+  lockTaskExecutionLease: vi.fn(async () => undefined),
+  revokeTaskExecutionLease: vi.fn(async () => undefined),
 }));
 
 const actionsToEngineToolsMock = vi.fn(() => [] as Array<{ name: string }>);
@@ -832,6 +850,7 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     persistedTerminalRunEventIds.length = 0;
     heldToolStartEventWrite = null;
     persistedToolStartEventWrites = 0;
+    failNextExecutionLeaseClaim = false;
     subscribeToRunMock.mockReset();
     getRunEventsSinceMock.mockReset();
     getRunEventsSinceMock.mockResolvedValue([]);
@@ -877,6 +896,27 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     );
     expect(threadData.get("thread-1")).toContain("the result");
   }, 20_000);
+
+  it("requeues a team attempt when its execution lease claim is busy", async () => {
+    failNextExecutionLeaseClaim = true;
+    await seedTask("lease-claim-busy");
+
+    await expect(
+      processAgentTeamRun({
+        taskId: "lease-claim-busy",
+        mode: "start",
+        resolveConfig: async () => resolveConfig(),
+      }),
+    ).resolves.toEqual({ ok: true });
+
+    await expect(
+      queue.getAgentTeamRunDispatchState("lease-claim-busy"),
+    ).resolves.toMatchObject({ status: "queued", attempts: 1 });
+    expect(appState.get("agent-task:lease-claim-busy")).toMatchObject({
+      status: "running",
+    });
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+  });
 
   it("flushes tool_start persistence before dispatching a write", async () => {
     let releaseToolStartWrite!: () => void;

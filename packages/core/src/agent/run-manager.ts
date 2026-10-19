@@ -713,7 +713,14 @@ export function startRun(
 ): StartedRun {
   const existingRunId = threadToRun.get(threadId);
   if (existingRunId) {
-    abortRun(existingRunId);
+    if (existingRunId === runId) {
+      const existingRun = activeRuns.get(existingRunId);
+      if (existingRun?.status === "running") {
+        abortInMemoryRun(existingRun, "superseded");
+      }
+    } else {
+      abortRun(existingRunId);
+    }
   }
 
   const abort = new AbortController();
@@ -1973,9 +1980,11 @@ export function startRun(
         }
       }
       setTimeout(() => {
-        activeRuns.delete(runId);
-        if (threadToRun.get(threadId) === runId) {
-          threadToRun.delete(threadId);
+        if (activeRuns.get(runId) === run) {
+          activeRuns.delete(runId);
+          if (threadToRun.get(threadId) === runId) {
+            threadToRun.delete(threadId);
+          }
         }
       }, CLEANUP_DELAY_MS);
       cleanupOldRuns(
