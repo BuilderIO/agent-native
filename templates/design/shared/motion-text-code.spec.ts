@@ -1598,6 +1598,32 @@ describe("Motion Text source and runtime", () => {
       expect(target.style.clipPath).toBe("");
     });
 
+    it("restores a paragraph pivot once a later run stops setting it", () => {
+      const target = new FakeElement("p");
+      target.setAttribute("data-agent-native-node-id", "headline");
+      target.appendChild(new FakeTextNode("AB"));
+      target.style.transformOrigin = "10% 10%";
+      executeRuntime(
+        compileMotionTextRuntime({
+          version: 2,
+          animations: [
+            { ...rotating, unit: "paragraph", originX: 0, originY: 100 },
+          ],
+        }),
+        target,
+      );
+      expect(target.style.transformOrigin).toBe("0% 100%");
+
+      executeRuntime(
+        compileMotionTextRuntime({
+          version: 2,
+          animations: [{ ...rotating, unit: "paragraph" }],
+        }),
+        target,
+      );
+      expect(target.style.transformOrigin).toBe("10% 10%");
+    });
+
     it("leaves the target uncropped and the pivot untouched by default", () => {
       const target = textTarget("AB");
       executeRuntime(

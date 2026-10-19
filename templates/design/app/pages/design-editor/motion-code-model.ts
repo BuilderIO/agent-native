@@ -20,6 +20,8 @@ export interface MotionCodeLayer extends MotionCodeLayerRef {
   css: MotionLayerCss | null;
   /** Animated layers beneath a layer that has no motion of its own. */
   animatedBelow: MotionCodeLayerRef[];
+  /** The layer has motion of its own. Text-only motion is animated but has no CSS. */
+  animated: boolean;
 }
 
 export interface MotionCodeModel {
@@ -71,14 +73,20 @@ export function buildMotionCodeModel(args: {
       layerId: node?.id ?? target.nodeId,
       label: target.label,
     };
-    if (!node) return { ...ref, css: null, animatedBelow: [] };
+    if (!node) return { ...ref, css: null, animatedBelow: [], animated: false };
     return animated.has(target.nodeId)
       ? {
           ...ref,
           css: motionLayerCss(args.source, target.nodeId, node.style),
           animatedBelow: [],
+          animated: true,
         }
-      : { ...ref, css: null, animatedBelow: animatedBelow(node) };
+      : {
+          ...ref,
+          css: null,
+          animatedBelow: animatedBelow(node),
+          animated: false,
+        };
   });
 
   const dataLayers = new Map<string, { nodeId: string; label: string }>();

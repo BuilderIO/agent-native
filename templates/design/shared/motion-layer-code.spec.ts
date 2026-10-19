@@ -86,6 +86,21 @@ describe("motionLayerCss", () => {
     expect(css?.steps).toContain("@keyframes");
   });
 
+  it("keeps the easing variables and the reduced-motion override with the styles", () => {
+    const css = motionLayerCss(
+      {
+        ...source,
+        easingVariables: [{ id: "smooth", name: "Smooth", value: "ease-out" }],
+      },
+      "hero",
+    );
+    expect(css?.styles).toContain(":root {");
+    expect(css?.styles).toContain("@media (prefers-reduced-motion: reduce)");
+    expect(css?.styles).toContain('[data-agent-native-node-id="hero"] {');
+    expect(css?.styles).not.toContain("card");
+    expect(css?.steps).not.toContain(":root");
+  });
+
   it("returns null for a layer without track motion", () => {
     expect(motionLayerCss(source, "missing")).toBeNull();
   });

@@ -220,6 +220,10 @@ function CssCode({
                 t={t}
               />
             </>
+          ) : layer.animated ? (
+            <p className="px-1 text-[11px] text-muted-foreground">
+              {t("designEditor.motion.code.unavailable")}
+            </p>
           ) : null}
         </div>
       ))}

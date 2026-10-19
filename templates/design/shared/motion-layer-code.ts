@@ -121,8 +121,20 @@ export function motionLayerCss(
     .filter((property) => resting[property])
     .map((property) => `  ${property}: ${resting[property]};`);
   const [selector = "", ...declarations] = rule.split("\n");
+  // Timing functions can name easing variables declared on :root, and the
+  // reduced-motion override is what stops this layer for users who ask for less motion.
+  // Both belong with the layer's styles so a copied snippet works on its own.
+  const support = blocks.filter(
+    (block) =>
+      block.startsWith(":root") ||
+      block.startsWith("@media (prefers-reduced-motion"),
+  );
   return {
-    styles: [selector, ...restingLines, ...declarations].join("\n"),
+    styles: [
+      ...support.filter((block) => block.startsWith(":root")),
+      [selector, ...restingLines, ...declarations].join("\n"),
+      ...support.filter((block) => !block.startsWith(":root")),
+    ].join("\n\n"),
     steps: blocks
       .filter((block) => block.startsWith("@keyframes"))
       .join("\n\n"),

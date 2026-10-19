@@ -129,6 +129,32 @@ describe("MotionCodeView", () => {
     expect(container.querySelector('[data-testid="list"]')).not.toBeNull();
   });
 
+  it("explains text-only motion instead of showing an empty CSS pane", async () => {
+    await render({
+      input: {
+        source: {
+          ...source,
+          tracks: [],
+          textAnimations: [
+            {
+              targetNodeId: "motion-card",
+              unit: "word",
+              direction: "forward",
+              staggerMs: 30,
+              property: "opacity",
+              durationMs: 500,
+              keyframes: [{ t: 0, value: "0" }],
+            },
+          ],
+        },
+      },
+    });
+    expect(container.querySelector("pre")).toBeNull();
+    expect(container.textContent).toContain(
+      "designEditor.motion.code.unavailable",
+    );
+  });
+
   it("refreshes the text when the motion changes", async () => {
     await render();
     await openCode();
@@ -224,10 +250,11 @@ describe("MotionCodeView", () => {
       },
     });
     const before = container.querySelectorAll("pre")[1]!.textContent!;
-    const showMore = Array.from(container.querySelectorAll("button")).find(
+    // The styles section can be long too, so reveal every section, not just the first one.
+    const showMores = Array.from(container.querySelectorAll("button")).filter(
       (button) => button.textContent === "designEditor.motion.code.showMore",
-    )!;
-    await act(async () => showMore.click());
+    );
+    await act(async () => showMores.forEach((button) => button.click()));
     const after = container.querySelectorAll("pre")[1]!.textContent!;
     expect(after.split("\n").length).toBeGreaterThan(before.split("\n").length);
     expect(after.trimEnd().endsWith("}")).toBe(true);

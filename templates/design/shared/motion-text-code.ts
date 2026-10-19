@@ -1291,6 +1291,13 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
     if (spring) return springToLinear(Number(spring[1]), Number(spring[2] || 1));
     return resolved;
   }
+  // Pivots from an earlier run go back to their authored values before this run sets its own. This also covers a
+  // target whose pivot track was removed, since it is no longer in the groups below.
+  allTargets.forEach(function (candidate) {
+    if (!candidate.__anMotionPivots) return;
+    candidate.__anMotionPivots.forEach(function (pivot) { pivot.unit.style.transformOrigin = pivot.original; });
+    delete candidate.__anMotionPivots;
+  });
   var targetGroups = [];
   animations.forEach(function (animation) {
     var group = targetGroups.find(function (candidate) { return candidate.targetNodeId === animation.targetNodeId; });
@@ -1352,7 +1359,14 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
       if (entries.length && (!Number.isFinite(animationSpanMs) || animationSpanMs > 120000)) throw new Error("Motion text animation span exceeds the 120000ms runtime limit.");
       entries.forEach(function (entry) {
         if (typeof entry.unit.animate !== "function") throw new Error("Motion text requires the Web Animations API.");
-        if (typeof track.originX === "number") entry.unit.style.transformOrigin = track.originX + "% " + track.originY + "%";
+        if (typeof track.originX === "number") {
+          // A paragraph target can be its own unit, so its authored pivot is recorded before it is changed.
+          if (!target.__anMotionPivots) target.__anMotionPivots = [];
+          if (!target.__anMotionPivots.some(function (pivot) { return pivot.unit === entry.unit; })) {
+            target.__anMotionPivots.push({ unit: entry.unit, original: entry.unit.style.transformOrigin || "" });
+          }
+          entry.unit.style.transformOrigin = track.originX + "% " + track.originY + "%";
+        }
         var delayIndex = orderRanks[entry.index] === undefined ? entry.index : orderRanks[entry.index];
         var animateOut = track.animationDirection === "out";
         var keyframes = (animateOut ? track.keyframes.slice().reverse() : track.keyframes).map(function (keyframe, keyframeIndex) {

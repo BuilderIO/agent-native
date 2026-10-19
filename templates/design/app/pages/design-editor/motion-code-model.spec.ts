@@ -111,7 +111,17 @@ describe("buildMotionCodeModel", () => {
       targets: [target("title", "Title")],
     });
     expect(model.layers[0]?.css).toBeNull();
+    expect(model.layers[0]?.animated).toBe(true);
     expect(model.animatedCount).toBe(1);
+  });
+
+  it("marks a layer without motion as not animated", () => {
+    const model = buildMotionCodeModel({
+      source,
+      nodes,
+      targets: [target("plain", "Plain")],
+    });
+    expect(model.layers[0]?.animated).toBe(false);
   });
 
   it("includes styles that were added from the add menu", () => {
