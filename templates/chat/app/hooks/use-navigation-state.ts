@@ -49,8 +49,9 @@ export function commandPathForNavigation(command: NavigationState): string {
       : publicPath.slice(0, publicPathSuffixIndex);
   const publicViewPath = appPathFromLocalRoute(pathForView(command?.view));
   if (
-    matchesPathPrefix(pathname, publicViewPath) ||
-    (declaredPublicPath && declaredPublicPath === pathname)
+    matchesPathPrefix(pathname, basePath) &&
+    (matchesPathPrefix(pathname, publicViewPath) ||
+      (declaredPublicPath && declaredPublicPath === pathname))
   ) {
     return `${pathname.slice(basePath.length) || "/"}${suffix}`;
   }

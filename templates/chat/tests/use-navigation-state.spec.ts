@@ -93,6 +93,21 @@ describe("commandPathForNavigation", () => {
     ).toBe("/rooms/123?week=2026-10-05");
   });
 
+  it("preserves declared paths outside the app mount prefix", () => {
+    vi.stubEnv("VITE_APP_BASE_PATH", "/chat");
+    vi.stubGlobal("window", {
+      location: { pathname: "/chat/settings" },
+    });
+
+    expect(
+      commandPathForNavigation({
+        view: "settings",
+        path: "/settings",
+        publicPath: "/settings",
+      }),
+    ).toBe("/settings");
+  });
+
   it("preserves path-only local chat routes under the mount prefix", () => {
     vi.stubEnv("VITE_APP_BASE_PATH", "/chat");
     vi.stubGlobal("window", {
