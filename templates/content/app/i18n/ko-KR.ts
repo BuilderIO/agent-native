@@ -30,6 +30,7 @@ const database = {
   githubConnect: "GitHub 연결",
   githubLinkSubmit: "폴더 연결",
   githubLinkedToast: "{{folder}} 연결됨",
+  githubLinkedSyncFailed: "{{folder}} 연결됨. 하지만 첫 동기화에 실패했습니다",
   githubFollows: "{{branch}} 브랜치의 {{folder}}를 따름",
   githubViewOnly: "보기 전용: 파일은 GitHub에서 편집하세요",
   githubSyncedTo: "{{commit}}(으)로 동기화됨 {{time}}",

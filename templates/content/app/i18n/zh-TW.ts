@@ -1178,6 +1178,7 @@ const overrides = {
     githubConnect: "連接 GitHub",
     githubLinkSubmit: "連結資料夾",
     githubLinkedToast: "已連結 {{folder}}",
+    githubLinkedSyncFailed: "已連結 {{folder}}，但首次同步失敗",
     githubFollows: "跟隨 {{branch}} 分支上的 {{folder}}",
     githubViewOnly: "唯讀：請在 GitHub 中編輯檔案",
     githubSyncedTo: "已同步至 {{commit}}（{{time}}）",

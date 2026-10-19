@@ -33,6 +33,8 @@ const database = {
   githubConnect: "GitHub を接続",
   githubLinkSubmit: "フォルダーをリンク",
   githubLinkedToast: "{{folder}} をリンクしました",
+  githubLinkedSyncFailed:
+    "{{folder}} をリンクしましたが、最初の同期に失敗しました",
   githubFollows: "{{branch}} の {{folder}} に連動",
   githubViewOnly: "閲覧専用：ファイルは GitHub で編集してください",
   githubSyncedTo: "{{commit}} に同期済み（{{time}}）",

@@ -25,6 +25,7 @@ import { useLinkGitHubFolder } from "@/hooks/use-github-folder";
 import {
   githubBlockedText,
   githubProblemFromErrorCode,
+  githubProblemText,
   githubSkipReasonText,
   shortCommit,
 } from "./github-source-text";
@@ -259,9 +260,19 @@ export function GitHubLinkDialog({
       { databaseId, url: result.url },
       {
         onSuccess: (response) => {
-          toast.success(
-            dbText("githubLinkedToast", { folder: response.preview.label }),
-          );
+          const folder = response.preview.label;
+          const sync = response.dryRun ? null : response.sync;
+          // The link is saved even when its first sync fails; say both, and
+          // the status line keeps showing the problem after this closes.
+          if (sync?.state === "error") {
+            toast.error(dbText("githubLinkedSyncFailed", { folder }), {
+              description: sync.problem
+                ? githubProblemText(sync.problem.code)
+                : dbText("githubProblemUnavailable"),
+            });
+          } else {
+            toast.success(dbText("githubLinkedToast", { folder }));
+          }
           onOpenChange(false);
           setUrl("");
           reset();

@@ -35,6 +35,7 @@ const databaseMessages = {
   githubConnect: "Connect GitHub",
   githubLinkSubmit: "Link folder",
   githubLinkedToast: "Linked {{folder}}",
+  githubLinkedSyncFailed: "Linked {{folder}}, but its first sync failed",
   githubFollows: "Follows {{folder}} on {{branch}}",
   githubViewOnly: "View only: edit the files in GitHub",
   githubSyncedTo: "Synced to {{commit}} {{time}}",

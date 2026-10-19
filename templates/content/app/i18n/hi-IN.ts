@@ -29,6 +29,7 @@ const database = {
   githubConnect: "GitHub कनेक्ट करें",
   githubLinkSubmit: "फ़ोल्डर लिंक करें",
   githubLinkedToast: "{{folder}} लिंक हो गया",
+  githubLinkedSyncFailed: "{{folder}} लिंक हो गया, लेकिन उसका पहला सिंक विफल रहा",
   githubFollows: "{{branch}} पर {{folder}} का अनुसरण करता है",
   githubViewOnly: "केवल देखने के लिए: फ़ाइलें GitHub में संपादित करें",
   githubSyncedTo: "{{commit}} तक सिंक हुआ {{time}}",

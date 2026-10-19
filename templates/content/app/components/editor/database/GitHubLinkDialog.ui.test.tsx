@@ -113,6 +113,7 @@ describe("GitHub link dialog", () => {
     onOpenChange.mockReset();
     oauth.start.mockReset();
     toasts.toast.success.mockReset();
+    toasts.toast.error.mockReset();
   });
 
   function renderDialog() {
@@ -194,6 +195,38 @@ describe("GitHub link dialog", () => {
     );
     expect(toasts.toast.success).toHaveBeenCalledWith(
       "Linked acme/handbook/docs",
+    );
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("says when a folder linked but its first sync failed", async () => {
+    renderDialog();
+    await previewFolder();
+    await click(button("Link folder"));
+    const { act } = await import("react");
+    await act(async () =>
+      lastCall()[1].onSuccess?.({
+        dryRun: false,
+        database: {} as LinkGitHubFolderResponse["database"],
+        preview,
+        source: null,
+        summary: "",
+        sync: {
+          state: "error",
+          commitSha: null,
+          created: 0,
+          updated: 0,
+          renamed: 0,
+          trashed: 0,
+          remaining: 0,
+          problem: { code: "connection", message: "Reconnect GitHub." },
+        },
+      }),
+    );
+    expect(toasts.toast.success).not.toHaveBeenCalled();
+    expect(toasts.toast.error).toHaveBeenCalledWith(
+      "Linked acme/handbook/docs, but its first sync failed",
+      { description: expect.stringContaining("GitHub") },
     );
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });

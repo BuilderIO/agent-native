@@ -32,6 +32,8 @@ const database = {
   githubConnect: "Connecter GitHub",
   githubLinkSubmit: "Lier le dossier",
   githubLinkedToast: "{{folder}} lié",
+  githubLinkedSyncFailed:
+    "{{folder}} lié, mais sa première synchronisation a échoué",
   githubFollows: "Suit {{folder}} sur {{branch}}",
   githubViewOnly: "Lecture seule : modifiez les fichiers dans GitHub",
   githubSyncedTo: "Synchronisé avec {{commit}} {{time}}",

@@ -30,6 +30,7 @@ const database = {
   githubConnect: "ربط GitHub",
   githubLinkSubmit: "ربط المجلد",
   githubLinkedToast: "تم ربط {{folder}}",
+  githubLinkedSyncFailed: "تم ربط {{folder}}، لكن فشلت مزامنته الأولى",
   githubFollows: "يتبع {{folder}} على {{branch}}",
   githubViewOnly: "للعرض فقط: عدّل الملفات في GitHub",
   githubSyncedTo: "متزامن مع {{commit}} {{time}}",

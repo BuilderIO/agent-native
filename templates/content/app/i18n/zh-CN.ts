@@ -28,6 +28,7 @@ const database = {
   githubConnect: "连接 GitHub",
   githubLinkSubmit: "关联文件夹",
   githubLinkedToast: "已关联 {{folder}}",
+  githubLinkedSyncFailed: "已关联 {{folder}}，但首次同步失败",
   githubFollows: "跟随 {{branch}} 分支上的 {{folder}}",
   githubViewOnly: "只读：请在 GitHub 中编辑文件",
   githubSyncedTo: "已同步到 {{commit}}（{{time}}）",
