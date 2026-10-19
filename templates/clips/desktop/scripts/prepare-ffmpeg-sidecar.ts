@@ -187,13 +187,21 @@ function verifyBinary(binary, triple) {
     }
 
     const strings = run("strings", [binary], { quiet: true });
-    const missing = [
-      ...REQUIRED_FILTERS,
-      ...REQUIRED_ENCODERS,
-      ...REQUIRED_MUXERS,
-    ].filter((name) => !strings.includes(name));
-    if (missing.length > 0) {
-      fail(`${binary} is missing required features: ${missing.join(", ")}`);
+    const stringLines = strings.split(/\r?\n/);
+    const missing = [...REQUIRED_FILTERS, ...REQUIRED_ENCODERS].filter(
+      (name) => !strings.includes(name),
+    );
+    // Match whole muxer names so `f32le` cannot match the `pcm_f32le` encoder.
+    const missingMuxers = REQUIRED_MUXERS.filter(
+      (name) =>
+        !stringLines.some(
+          (line) => line === name || line.split(",").includes(name),
+        ),
+    );
+    if (missing.length > 0 || missingMuxers.length > 0) {
+      fail(
+        `${binary} is missing required features: ${[...missing, ...missingMuxers].join(", ")}`,
+      );
     }
 
     if (strings.includes("--enable-nonfree")) {
