@@ -126,3 +126,34 @@ test("token file import continues after an oversized selection", async ({
   });
   await expect(toast).toContainText("files: 1");
 });
+
+test("DTCG JSON import updates the token list and shows success feedback", async ({
+  page,
+}) => {
+  await page.getByRole("button", { name: "Tokens", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Import tokens", exact: true })
+    .click();
+  const fileChooserPromise = page.waitForEvent("filechooser");
+  await page.getByRole("menuitem", { name: "DTCG file…" }).click();
+  const fileChooser = await fileChooserPromise;
+
+  await waitForAction(page, "import-design-tokens", () =>
+    fileChooser.setFiles({
+      name: "tokens.json",
+      mimeType: "application/json",
+      buffer: Buffer.from(
+        JSON.stringify({
+          color: { primary: { $type: "color", $value: "#2563eb" } },
+        }),
+      ),
+    }),
+  );
+
+  await expect(
+    page.getByText("Imported 1 tokens", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Edit Color Primary", exact: true }),
+  ).toBeVisible();
+});

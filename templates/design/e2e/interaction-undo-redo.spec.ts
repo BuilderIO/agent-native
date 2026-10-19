@@ -189,8 +189,7 @@ test("one drag-move is exactly one undo step, and redo re-applies the exact drop
   ).toEqual([dropped.left, dropped.top]);
 });
 
-// fixme: product bug, intermittent: the screen rotate gesture sometimes leaves rotation at 0 before the undo (failed 2 of 3 local runs and both CI attempts)
-test.fixme("rotating a screen then undoing immediately restores persisted geometry", async ({
+test("rotating a screen then undoing immediately restores persisted geometry", async ({
   page,
 }) => {
   const id = await newDesign(page);

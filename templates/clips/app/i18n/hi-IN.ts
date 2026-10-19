@@ -1,5 +1,22 @@
 const messages = {
   meetingAsk: { resizeOrDismissAnswers: "जवाबों का आकार बदलें या बंद करें" },
+  meetingBrowserConfirmation:
+    "Clips इस ब्राउज़र में माइक्रोफ़ोन गतिविधि देखता है, लेकिन यह नहीं पहचान सकता कि मीटिंग किस टैब में है।",
+  meetingReplacement: {
+    title: "मीटिंग नोट्स पर ध्यान देना ज़रूरी है",
+    description:
+      "पिछली मीटिंग के नोट्स सेव नहीं हो सके। यह मीटिंग शुरू करने से पहले उन्हें कॉपी करें।",
+    copyAndStart: "नोट्स कॉपी करके शुरू करें",
+    actionFailed: "मीटिंग की बहाली जारी नहीं हो सकी। फिर से कोशिश करें।",
+  },
+  quitRecovery: {
+    title: "Clips अभी मीटिंग को पूरा कर रहा है",
+    body: "Clips इस मीटिंग को रोककर सेव करना पूरा नहीं कर पाया है। अभी बंद करने पर सबसे नई ट्रांसक्रिप्ट खो सकती है।",
+    keepOpen: "Clips खुला रखें",
+    quitAnyway: "फिर भी बंद करें",
+    actionFailed:
+      "Clips बंद करने की रिकवरी स्थिति अपडेट नहीं कर सका। फिर से कोशिश करें।",
+  },
   lookbackContext: {
     includeLast: "पिछले शामिल करें",
     whatIsThis: "यह क्या है?",
@@ -926,8 +943,8 @@ const messages = {
     labVideoEditingDescription: "नया वीडियो संपादक आज़माएँ।",
     labMeetings: "मीटिंग और ट्रांसक्रिप्शन",
     labMeetingsDescription: "स्वचालित मीटिंग कैप्चर और ट्रांसक्रिप्शन आज़माएँ।",
-    labWisprFlow: "वॉइस डिक्टेशन",
-    labWisprFlowDescription: "Clips Desktop में वॉइस डिक्टेशन दिखाएँ या छिपाएँ।",
+    labVoiceDictation: "वॉइस डिक्टेशन",
+    labVoiceDictationDescription: "Clips Desktop में वॉइस डिक्टेशन दिखाएँ या छिपाएँ।",
     labLookbackContext: "पहले का स्क्रीन समय शामिल करें",
     labLookbackContextDescription:
       "रिकॉर्डिंग से पहले के पाँच मिनट तक का स्क्रीन समय स्वचालित संदर्भ के रूप में जोड़ें।",
@@ -1566,6 +1583,9 @@ const messages = {
     disconnected: "माइक्रोफ़ोन डिस्कनेक्ट हो गया।",
   },
   storageSetup: {
+    builderStorageOffer:
+      "Builder.io के मुफ़्त प्लान में वीडियो स्टोरेज शामिल है, जिसे एक क्लिक में सेट अप किया जा सकता है।",
+    customKeys: "कस्टम कुंजियाँ",
     builderConnectPopupError:
       "Builder.io नहीं खुल सका। अगर यह ऐप किसी चैट में एम्बेड है, तो इसे ब्राउज़र टैब में खोलें; अन्यथा फिर कोशिश करें।",
     builderConnectError:
@@ -1585,8 +1605,7 @@ const messages = {
     builderTimeout: "पुष्टि नहीं हो सकी कि Builder.io स्टोरेज तैयार है। फिर कोशिश करें।",
     builderConnected: "Builder.io कनेक्ट है",
     waitingForBuilder: "Builder की प्रतीक्षा...",
-    description:
-      "रिकॉर्ड किए गए वीडियो को Builder.io या S3-संगत स्टोरेज में सहेजें। Builder.io में मुफ़्त होस्टिंग और AI क्रेडिट शामिल हैं।",
+    description: "चुनें कि रिकॉर्ड किए गए वीडियो कहाँ सहेजने हैं।",
     createBuilderAccount: "Builder.io इस्तेमाल करें",
     signInWithBuilderAccount: "Builder.io खाते से साइन इन करें",
     free: "मुफ्त",
@@ -1614,15 +1633,31 @@ const messages = {
     placeholder: "Clip title (स्थानीयकृत)",
     editLabel: "Edit clip title (स्थानीयकृत)",
   },
+  chapterList: {
+    add: "अध्याय जोड़ें",
+    editLabel: "अध्याय संपादित करें",
+    placeholder: "0:00 परिचय\n1:30 अगला भाग",
+    errorLineShape:
+      'पंक्ति {{line}}: पहले समय, फिर शीर्षक लिखें, जैसे "0:48 नोट की तारीखें सहेजी गईं"।',
+    errorBadTime: 'पंक्ति {{line}}: "{{value}}" 0:48 जैसा समय नहीं है।',
+    errorDuplicate: "पंक्ति {{line}}: {{value}} पर पहले से एक अध्याय है।",
+    errorPastEnd: "पंक्ति {{line}}: {{value}} क्लिप के अंत के बाद है।",
+    changedWhileEditing:
+      "आपके संपादन के दौरान अध्याय बदल गए। अपनी पंक्तियाँ जाँचें, फिर बदलने के लिए दोबारा सहेजें।",
+  },
   chapters: {
-    title: "Chapters (स्थानीयकृत)",
-    addHere: "Add here (स्थानीयकृत)",
-    empty: "No chapters yet. (स्थानीयकृत)",
-    remove: "Remove chapter (स्थानीयकृत)",
-    saveFailed: "Failed to save chapters (स्थानीयकृत)",
-    duplicateAtPoint: "A chapter already exists at this point (स्थानीयकृत)",
-    defaultTitle: "Chapter {{count}} (स्थानीयकृत)",
-    seekTo: "Seek to {{time}} (स्थानीयकृत)",
+    title: "अध्याय",
+    addHere: "यहाँ जोड़ें",
+    empty: "अभी कोई अध्याय नहीं है।",
+    remove: "अध्याय हटाएँ",
+    saveFailed: "अध्याय सहेजे नहीं जा सके",
+    changedElsewhere:
+      "अध्याय कहीं और बदल दिए गए, इसलिए आपका पिछला बदलाव सहेजा नहीं गया।",
+    unreadable:
+      "कुछ सहेजे गए अध्याय पढ़े नहीं जा सकते, इसलिए यहाँ बदलाव सहेजे नहीं जा सकते। एजेंट से अध्याय बदलने को कहें।",
+    duplicateAtPoint: "इस बिंदु पर पहले से एक अध्याय है",
+    defaultTitle: "अध्याय {{count}}",
+    seekTo: "{{time}} पर जाएँ",
   },
   editorToolbar: {
     undoTooltip: "Undo (Cmd/Ctrl+Z) (स्थानीयकृत)",
@@ -2048,6 +2083,32 @@ const messages = {
     copy: "कॉपी करें",
     copied: "कॉपी हो गया",
     copyFailed: "कॉपी नहीं हो सका",
+    flowStarting: "डिक्टेशन शुरू हो रहा है…",
+    flowFinalizing: "डिक्टेशन पूरा हो रहा है…",
+    flowBusy: "पिछला डिक्टेशन पूरा किया जा रहा है…",
+    flowTranscribing: "आवाज़ को टेक्स्ट में बदला जा रहा है…",
+    flowCleaning: "टेक्स्ट साफ़ किया जा रहा है…",
+    flowPasting: "टेक्स्ट पेस्ट हो रहा है…",
+    flowSavingHistory: "इतिहास में सेव हो रहा है…",
+    flowPasted: "पेस्ट हो गया",
+    flowCopied: "क्लिपबोर्ड पर कॉपी हो गया",
+    flowPastedHistoryFailed: "पेस्ट हो गया, लेकिन इतिहास में सेव नहीं हुआ",
+    flowCopiedHistoryFailed: "कॉपी हो गया, लेकिन इतिहास में सेव नहीं हुआ",
+    flowHistoryNotSaved: "डिक्टेशन इतिहास में सेव नहीं हुआ",
+    flowPermissionFailed: "माइक्रोफ़ोन की अनुमति बंद है",
+    flowMicrophoneUnavailable: "माइक्रोफ़ोन उपलब्ध नहीं है",
+    flowProviderFailed: "आवाज़ को टेक्स्ट में नहीं बदला जा सका",
+    flowMeetingCaptureActive: "डिक्टेशन शुरू करने से पहले मीटिंग रिकॉर्डिंग रोकें",
+    flowPasteFailed: "ट्रांसक्रिप्ट पेस्ट नहीं हो सका",
+    flowCancelled: "डिक्टेशन रद्द किया गया",
+    flowRetryHistory: "इतिहास सेव करने की फिर कोशिश करें",
+    flowDismiss: "बंद करें",
+    flowTranscriptRecovery: "ट्रांसक्रिप्ट रिकवरी",
+    flowOriginalTranscript: "मूल ट्रांसक्रिप्ट दिखाएँ",
+    flowCleanupSkipped: "टेक्स्ट की सफ़ाई छोड़ी गई; मूल टेक्स्ट रखा गया",
+    flowBacktrackSkipped: "टेक्स्ट संपादन छोड़ा गया; पहचाना गया टेक्स्ट रखा गया",
+    flowCancelDictation: "डिक्टेशन रद्द करें",
+    flowCopying: "ट्रांसक्रिप्ट कॉपी हो रहा है…",
     aiProcessed: "AI द्वारा प्रोसेस किया गया",
     aiCleaned: "AI से साफ़ किया गया",
     original: "मूल",

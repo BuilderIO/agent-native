@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -24,6 +24,11 @@ import {
 import { booleanParam } from "./lib/cli-params.js";
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   description:
     "Import a transcript file for a recording instead of transcribing its audio: WebVTT, SRT, or timestamped text (a 0:21 or [0:21] start on each line or line pair, as copied from YouTube's transcript panel). Stores the file's own timings, labels the transcript as imported, and automatic transcription never replaces it. Importing over a ready transcript fails with transcript_exists, so nothing is replaced by accident; when the user wants this file to replace it, call again with replace: true and the replaceImportId the error names. The replaced transcript is kept: pass the result's savedVersionId to restore-transcript-version to bring it back. Leaves chapters alone; set those with set-chapters.",
   // Advertised up front like create-recording-upload: an outside agent holding a
@@ -69,6 +74,7 @@ export default defineAction({
       .select({
         status: schema.recordings.status,
         durationMs: schema.recordings.durationMs,
+        mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
       })
       .from(schema.recordings)
       .where(eq(schema.recordings.id, args.recordingId))
@@ -112,6 +118,26 @@ export default defineAction({
       updatedAt: now,
     };
     const outcome = await db.transaction(async (tx) => {
+      const [locked] = await tx
+        .select({ id: schema.recordings.id })
+        .from(schema.recordings)
+        .where(
+          and(
+            eq(schema.recordings.id, args.recordingId),
+            eq(schema.recordings.mediaUpdatedAt, rec.mediaUpdatedAt),
+          ),
+        )
+        .for("update");
+      if (!locked) {
+        fail(
+          "The Clip media changed while the transcript was being imported. Try again.",
+          {
+            errorCode: "recording_media_changed",
+            statusCode: 409,
+          },
+        );
+      }
+
       // Locked, so the checks below see the transcript this write replaces: one
       // that becomes ready meanwhile is never replaced without `replace`, and a
       // replace never reaches a newer import than the one it named.

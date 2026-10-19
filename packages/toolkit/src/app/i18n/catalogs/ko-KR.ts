@@ -172,6 +172,16 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "개인정보 처리방침",
   "onboarding.builderConsentAnd": "및",
   "onboarding.builderExistingAccount": "Builder.io 계정이 있어요",
+  "onboarding.creditsTitle": "매달 무료 Agent Credits 60개로 사용해 보세요",
+  "onboarding.creditsTitleClips":
+    "무료 비디오 저장소와 매달 Agent Credits 60개로 사용해 보세요",
+  "onboarding.creditsActivate": "무료 크레딧 활성화",
+  "onboarding.creditsFinePrint":
+    "이렇게 하면 무료 Builder.io 계정이 생성됩니다. 계속하면 당사의",
+  "onboarding.creditsConnectExisting": "기존 Builder.io 계정 연결",
+  "onboarding.creditsMoreInfo": "자세한 정보",
+  "onboarding.creditsSkipBody":
+    "건너뛰면 AI와 저장소를 사용하기 위해 자신의 키를 연결해야 합니다.",
   "onboarding.builderConnect": "Builder.io 연결",
   "onboarding.builderActivating": "Builder.io 무료 크레딧 활성화 중",
   "onboarding.builderConnecting": "Builder.io 무료 크레딧 설정 중",
@@ -207,6 +217,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "임베딩",
   "onboarding.capability.embeddings.why":
     "임베딩은 의미 검색을 개선합니다. 임베딩 없이도 키워드 검색은 작동합니다.",
+  "onboarding.capability.webSearch.label": "웹 검색",
+  "onboarding.capability.webSearch.keySummary": "웹 검색",
+  "onboarding.capability.webSearch.why":
+    "웹의 최신 공개 자료를 검색합니다. Builder 관리 검색은 포함된 Builder AI 크레딧을 사용하므로 별도의 검색 API 키가 필요하지 않습니다.",
   "onboarding.capability.systemOne.why":
     "Jev는 에이전트의 첫 모델 요청 전에 관련 도구와 스킬을 선택하도록 돕는 선택형 의사결정 모델입니다.",
   "onboarding.capability.assetsImageGeneration.label": "이미지 생성",
@@ -1818,6 +1832,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.agentVia": "{{protocol}}를 통한 에이전트",
   "settings.audit.allApps": "모든 앱",
   "settings.audit.app": "앱",
+  "settings.audit.approval": "승인",
+  "settings.audit.approvalAgentChat": "에이전트 채팅에서 승인됨",
+  "settings.audit.approvalA2AReview": "에이전트 작업 검토 페이지에서 승인됨",
+  "settings.audit.approvalMcpClient": "MCP 클라이언트가 수락함(확인되지 않음)",
   "settings.audit.changedBy": "변경한 사람",
   "settings.audit.close": "닫기",
   "settings.audit.empty": "이 기간에는 변경 사항이 없습니다.",
@@ -1831,9 +1849,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.last90Days": "지난 90일",
   "settings.audit.loadFailed": "감사 로그를 불러올 수 없습니다.",
   "settings.audit.loading": "감사 로그 불러오는 중",
+  "settings.audit.oauthClient": "OAuth 클라이언트",
   "settings.audit.onBehalfOf": "요청한 사람",
   "settings.audit.range": "기간",
   "settings.audit.refused": "거부됨",
+  "settings.audit.reportedClient": "자체 보고된 클라이언트",
   "settings.audit.result": "결과",
   "settings.audit.showMore": "{{count}}개 더 보기",
   "settings.audit.succeeded": "성공",
@@ -2598,6 +2618,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.search.appDefaultModel": "앱 기본 모델",
   "settingsShell.search.backgroundAgents": "백그라운드 에이전트",
   "settingsShell.search.browserAutomation": "브라우저 자동화",
+  "settingsShell.search.webSearch": "웹 검색",
   "settingsShell.search.connectedAgents": "연결된 에이전트",
   "settingsShell.search.database": "데이터베이스",
   "settingsShell.search.defaultModel": "기본 모델",
@@ -2732,6 +2753,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyBackground": "프로덕션에서 코드를 변경합니다.",
   "settingsInfra.whyBrowser":
     "에이전트가 프로덕션에서 브라우저를 사용할 수 있게 합니다.",
+  "settingsInfra.whyWebSearch": "최신 공개 정보와 공식 문서를 찾습니다.",
   "settingsInfra.provider": "제공업체",
   "settingsInfra.keyOrg": "조직의 {{provider}} 키를 사용합니다.",
   "settingsInfra.manageKey": "키 관리",
@@ -2893,6 +2915,10 @@ const messages: ToolkitAgentChatTranslation = {
     "여기서는 연결을 해제했습니다. ChatGPT에서는 액세스가 계속 유지될 수 있습니다.",
   "settingsModel.chatgptLocalOnly":
     "오픈 소스 앱은 loopback callback을 사용해 로컬에서 실행하면 신청 없이 이용할 수 있으며, 파트너 신청은 필요하지 않습니다. *.agent-native.com에서 호스팅되는 앱에는 운영자 승인과 호스팅 callback이 필요합니다.",
+  "settingsModel.chatgptPersonalScopeOnly":
+    "ChatGPT 플랜 액세스에는 개인 계정을 사용하세요. 로컬 개발에서는 로그인하기 전에 access.autoCreateDefaultOrg를 false로 설정하세요.",
+  "settingsModel.chatgptScopeUnresolved":
+    "앱에서 계정 범위를 확인할 수 없습니다. 로컬 설정을 완료한 다음 설정을 새로고침하세요.",
   "settingsModel.chatgptNoDirectUse":
     "이 ChatGPT 계정을 사용하려면 다시 연결하고 모델 직접 액세스를 허용하세요.",
   "settingsModel.chatgptReconnect": "다시 연결",

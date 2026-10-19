@@ -18,7 +18,7 @@ describe("SYNTHETIC Analytics retrieval benchmark", () => {
     expect(checkedIn).toBe(`${renderSyntheticBenchmarkCsv()}\n`);
   });
 
-  it("covers aliases, panel SQL, trust, roster grain, activity, and active-member scope", () => {
+  it("covers aliases, panel SQL, trust, roster grain, activity, and active-user clarification", () => {
     const rows = computeSyntheticBenchmark();
 
     expect(rows.every((row) => row.fixtureRevision === FIXTURE_REVISION)).toBe(
@@ -38,33 +38,65 @@ describe("SYNTHETIC Analytics retrieval benchmark", () => {
       "bare-active-members-vs-product-events",
       "negated-count-instruction-keeps-membership-rows",
       "metadata-only-roster-keeps-membership-grain",
+      "weekly-active-builder-users-by-org-vs-membership-and-publishing",
+      "weekly-agent-native-app-opens-vs-builder-activity",
+      "weekly-active-users-keeps-membership-clarifier",
+      "time-qualified-organization-roles-keeps-membership-grain",
     ]);
-    expect(rows.map((row) => row.afterExpectedRank)).toEqual(
-      Array.from({ length: 12 }, () => "1"),
-    );
+    expect(rows.map((row) => row.afterExpectedRank)).toEqual([
+      ...Array.from({ length: 14 }, () => "1"),
+      "2",
+      "1",
+    ]);
     expect(rows.map((row) => row.baselineExpectedRank)).toEqual([
-      "1",
-      "1",
-      "1",
-      "1",
-      "2",
-      "2",
-      "2",
+      ...Array.from({ length: 12 }, () => "1"),
+      "",
       "1",
       "",
       "",
-      "2",
-      "2",
     ]);
     expect(summarizeSyntheticBenchmark(rows)).toMatchObject({
-      cases: 12,
-      baselineTop1: "5/12",
-      baselineHitAt5: "10/12",
-      baselineMrr: 7.5 / 12,
-      afterTop1: "12/12",
-      afterHitAt5: "12/12",
-      afterMrr: 1,
+      cases: 16,
+      baselineTop1: "13/16",
+      baselineHitAt5: "13/16",
+      baselineMrr: 13 / 16,
+      afterTop1: "15/16",
+      afterHitAt5: "16/16",
+      afterMrr: 15.5 / 16,
     });
+
+    const ambiguousActiveUsers = rows.find(
+      (row) => row.caseId === "weekly-active-users-keeps-membership-clarifier",
+    );
+    expect(ambiguousActiveUsers?.baselineCandidateIds).not.toContain(
+      "dictionary:synthetic-weekly-active-organization-members",
+    );
+    expect(ambiguousActiveUsers?.afterCandidateIds.split(";")).toEqual(
+      expect.arrayContaining([
+        "dictionary:synthetic-weekly-active-organization-members",
+        "dictionary:synthetic-weekly-active-product-users",
+        "dictionary:synthetic-weekly-analytics-app-opens",
+        "dictionary:synthetic-monthly-organization-user-seats",
+      ]),
+    );
+
+    const activeUsersByRole = rows.find(
+      (row) =>
+        row.caseId ===
+        "time-qualified-organization-roles-keeps-membership-grain",
+    );
+    expect(activeUsersByRole?.baselineTopCandidateId).toBe(
+      "dictionary:synthetic-weekly-product-activity-by-role",
+    );
+    expect(activeUsersByRole?.afterTopCandidateId).toBe(
+      "dictionary:synthetic-weekly-members-by-role",
+    );
+    expect(activeUsersByRole?.afterCandidateIds.split(";")).toEqual(
+      expect.arrayContaining([
+        "dictionary:synthetic-weekly-members-by-role",
+        "dictionary:synthetic-weekly-product-activity-by-role",
+      ]),
+    );
   });
 
   it("records the measured origin/main revision with every baseline row", () => {

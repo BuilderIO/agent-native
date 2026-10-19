@@ -2743,6 +2743,8 @@ describe("design connect bridge endpoints", () => {
       };
       nodePrototype.appendChild(externalIframe);
       expect(iframeUrls).toHaveLength(1);
+      nodePrototype.appendChild({ ...sameOriginIframe, value: null });
+      expect(iframeUrls).toHaveLength(1);
       const inlineSvgStyle = {
         nodeType: 1,
         tagName: "STYLE",

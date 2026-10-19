@@ -60,6 +60,7 @@ import {
   normalizeContentSpaceEmail,
   resolveContentSpaceAccess,
 } from "./_content-space-access.js";
+import { readOpenCommentSummaries } from "./_database-comment-summary.js";
 import {
   databaseRowRevision,
   getDatabaseMutationContract,
@@ -1075,6 +1076,7 @@ export async function getContentDatabasePageResponse(
     filesProjection,
     queuedBodyHydrationItemIds,
     workspaceMemberships,
+    commentSummaries,
   ] = await Promise.all([
     database.systemRole === "favorites"
       ? new Set(documentIds)
@@ -1142,6 +1144,7 @@ export async function getContentDatabasePageResponse(
             ),
           )
       : [],
+    readOpenCommentSummaries(documentIds),
   ]);
   const shareRoleByDocumentId = new Map<string, ShareRole>();
   for (const row of shareRows) {
@@ -1180,7 +1183,9 @@ export async function getContentDatabasePageResponse(
     const document = documentById.get(item.documentId);
     if (!document) continue;
     const bodyHydrationQueued = queuedBodyHydrationItemIds.has(item.id);
+    const comments = commentSummaries.get(document.id);
     serializedCandidateItems.push({
+      ...(comments ? { comments } : {}),
       id: item.id,
       databaseId: item.databaseId,
       document: serializeDocument(

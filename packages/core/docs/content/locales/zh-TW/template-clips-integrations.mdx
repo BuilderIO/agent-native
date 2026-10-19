@@ -29,11 +29,12 @@ description: "剪輯如何連接到調度和其他應用程式、代理可讀的
 
 大多數能檢視圖片的代理都能自行處理這件事，包括 ChatGPT、Claude Code、Cursor 和 Codex。少數純文字聊天可以讀取逐字稿，但無法讀取畫格，這種情況請在支援圖片的代理中開啟剪輯。
 
-| 端點                                              | 代理可以取得的內容                                                            |
-| ------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `/api/agent-context.json?id=<recordingId>`        | 剪輯中繼資料、逐字稿狀態、章節、CTA、推薦畫格，以及指向逐字稿/畫格 API 的連結 |
-| `/api/agent-transcript.json?id=<recordingId>`     | 帶有 `startMs`、`endMs`、可讀時間戳、文字和可選來源標籤的時間戳逐字稿片段     |
-| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | 以原始影片時間戳從影片中擷取的 JPEG 畫格                                      |
+| 端點                                                                     | 代理可以取得的內容                                                               |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------------------------- |
+| `/api/agent-context.json?id=<recordingId>`                               | 剪輯中繼資料、逐字稿狀態、章節、CTA、推薦畫格，以及指向逐字稿/畫格 API 的連結    |
+| `/api/agent-transcript.json?id=<recordingId>`                            | 帶有 `startMs`、`endMs`、可讀時間戳、文字和可選來源標籤的時間戳逐字稿片段        |
+| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>`                        | 以原始影片時間戳從影片中擷取的 JPEG 畫格                                         |
+| `/api/agent-frames.jpg?id=<recordingId>&startMs=<ms>&endMs=<ms>&fps=<n>` | 一張 JPEG 縮圖表，包含時間範圍內最多 36 個連續影格，可在一張圖片中查看動畫或轉場 |
 
 這些端點遵循與分享頁面相同的公開/密碼/到期規則，或是接受來自臨時代理連結、範圍受限的 `agent_access` 權杖。受密碼保護的剪輯需要輸入密碼一次；成功的回應會回傳短期有效的標記化連結，因此下游代理不需要明文密碼。
 
@@ -101,6 +102,50 @@ description: "剪輯如何連接到調度和其他應用程式、代理可讀的
     "description": "image/jpeg frame"
   }
 ]}>
+
+</Endpoint>
+
+<Endpoint id="doc-block-clips-agent-frames" title="時間範圍的連續影格縮圖表" method="GET" path="/api/agent-frames.jpg" summary="將時間範圍內的連續影格放進一張 JPEG 縮圖表" params={[
+  {
+    "name": "id",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "Recording id"
+  },
+  {
+    "name": "startMs",
+    "in": "query",
+    "type": "integer",
+    "required": true,
+    "description": "Time of the first frame in milliseconds"
+  },
+  {
+    "name": "endMs",
+    "in": "query",
+    "type": "integer",
+    "required": false,
+    "description": "End of the range in milliseconds (exclusive); without it, the sheet holds up to 36 frames from startMs, stopping at 60 seconds or the end of the clip"
+  },
+  {
+    "name": "fps",
+    "in": "query",
+    "type": "number",
+    "required": false,
+    "description": "Frames per second, up to 60; without it, the video's own frame rate"
+  }
+]} responses={[
+  {
+    "status": "200",
+    "description": "image/jpeg sheet read left to right, then top to bottom; the X-Clips-Frame-Sheet-Times header lists each cell's time"
+  },
+  {
+    "status": "400",
+    "description": "failureKind=request when the range needs more than 36 frames or spans more than 60 seconds; nextStep names a request that fits"
+  }
+]}>
+
+第 _i_ 格顯示 `startMs + i × 1000 / fps` 時畫面上的影格。省略 `fps` 時，影片的每個影格都會出現。
 
 </Endpoint>
 

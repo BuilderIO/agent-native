@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockSelectRows = vi.hoisted(() => ({
   queue: [] as Array<Array<Record<string, unknown>>>,
+  lockedRows: null as Array<Array<Record<string, unknown>>> | null,
+  lockedWhereConditions: [] as unknown[],
 }));
 const mockInsertReturning = vi.hoisted(() =>
   vi.fn(async () => [{ recordingId: "rec_native" }]),
@@ -29,20 +31,47 @@ const mockUpdateSet = vi.hoisted(() =>
 );
 const mockDb = vi.hoisted(() => ({
   select: vi.fn(() => ({
-    from: vi.fn(() => ({
-      where: vi.fn(() => ({
+    from: vi.fn((table: Record<string, unknown>) => {
+      let whereCondition: unknown;
+      const queryResult = {
         limit: vi.fn(async () => mockSelectRows.queue.shift() ?? []),
-        for: vi.fn(async () => mockSelectRows.queue.shift() ?? []),
-      })),
-    })),
+        for: vi.fn(async () => {
+          if (!("mediaUpdatedAt" in table))
+            return mockSelectRows.queue.shift() ?? [];
+          mockSelectRows.lockedWhereConditions.push(whereCondition);
+          return mockSelectRows.lockedRows === null
+            ? [{ id: "rec_native" }]
+            : (mockSelectRows.lockedRows.shift() ?? []);
+        }),
+      };
+      return {
+        where: vi.fn((condition: unknown) => {
+          whereCondition = condition;
+          return queryResult;
+        }),
+        leftJoin: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(async () => {
+              const rows = mockSelectRows.queue.shift() ?? [];
+              return rows.length
+                ? rows.map((row) => ({
+                    mediaUpdatedAt: "media-1",
+                    ...row,
+                  }))
+                : [{ mediaUpdatedAt: "media-1" }];
+            }),
+          })),
+        })),
+      };
+    }),
   })),
-  transaction: vi.fn((run: (tx: unknown) => unknown) => run(mockDb)),
   insert: vi.fn(() => ({
     values: mockInsertValues,
   })),
   update: vi.fn(() => ({
     set: mockUpdateSet,
   })),
+  transaction: vi.fn(async (run: (tx: any) => Promise<unknown>) => run(mockDb)),
 }));
 const mockWriteAppState = vi.hoisted(() => vi.fn());
 const mockFetchLoomTranscript = vi.hoisted(() => vi.fn());
@@ -108,6 +137,7 @@ vi.mock("../server/db/index.js", () => ({
     recordings: {
       id: "recordings.id",
       ownerEmail: "recordings.ownerEmail",
+      mediaUpdatedAt: "recordings.mediaUpdatedAt",
       title: "recordings.title",
       titleSource: "recordings.titleSource",
       description: "recordings.description",
@@ -479,6 +509,8 @@ describe("requestTranscript regeneration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSelectRows.queue = [];
+    mockSelectRows.lockedRows = null;
+    mockSelectRows.lockedWhereConditions = [];
     mockResolveHasBuilderGatewayCredential.mockResolvedValue(true);
     mockAssertAccess.mockResolvedValue({ role: "editor" });
     mockPrepareRecordingTranscriptionAudio.mockResolvedValue({
@@ -617,6 +649,46 @@ describe("requestTranscript regeneration", () => {
       "private detail",
     );
     expect(JSON.stringify(mockTrack.mock.calls)).not.toContain("Private title");
+  });
+
+  it("does not save a transcript generated from media replaced during transcription", async () => {
+    mockSelectRows.queue = [
+      [{ status: "failed", retryCount: 0 }],
+      [{ recordingId: "rec_native" }],
+      [
+        {
+          mediaUpdatedAt: "media-1",
+          videoUrl: "https://cdn.example.com/recording.webm",
+          videoFormat: "webm",
+          hasAudio: true,
+          durationMs: 1200,
+          title: "Clip",
+        },
+      ],
+      [],
+      [{ mediaUpdatedAt: "media-2" }],
+      [{ recordingId: "rec_native" }],
+    ];
+    mockSelectRows.lockedRows = [[{ id: "rec_native" }], [], []];
+
+    await expect(
+      requestTranscript.run({ recordingId: "rec_native" }),
+    ).rejects.toMatchObject({ errorCode: "recording_media_changed" });
+
+    expect(mockTranscribeWithBuilder).toHaveBeenCalledOnce();
+    expect(mockInsertValues).not.toHaveBeenCalled();
+    expect(
+      mockUpdateSet.mock.calls.some(([row]) => (row as any).status === "ready"),
+    ).toBe(false);
+    expect(
+      mockUpdateSet.mock.calls.some(
+        ([row]) => (row as any).status === "failed",
+      ),
+    ).toBe(false);
+    expect(mockSelectRows.lockedWhereConditions.at(-1)).toContainEqual({
+      column: "recordings.mediaUpdatedAt",
+      value: "media-1",
+    });
   });
 
   it("fails a multi-part recording as CHUNK_FAILED without saving a partial transcript", async () => {
@@ -1047,6 +1119,7 @@ describe("requestTranscript regeneration", () => {
       importId: "import_1",
     };
     const recordingRow = {
+      mediaUpdatedAt: "media-1",
       videoUrl: "https://cdn.example.com/recording.mp4",
       videoFormat: "mp4",
       hasAudio: true,
@@ -1274,6 +1347,46 @@ describe("requestTranscript regeneration", () => {
         startedFrom,
         { reason: "regenerate", replacedBy: null },
       );
+    });
+
+    it("keeps a restored import when an earlier regeneration finishes", async () => {
+      const startedFrom = {
+        ...importedRow,
+        updatedAt: "2026-07-09T00:00:00.000Z",
+      };
+      const restored = {
+        ...startedFrom,
+        updatedAt: "2026-07-09T00:01:00.000Z",
+      };
+      mockSelectRows.queue = [
+        [startedFrom],
+        [recordingRow],
+        [{ recordingId: "rec_imported" }],
+        [restored],
+        [titleRow],
+      ];
+      mockUpdateReturning.mockImplementationOnce(async () => {
+        const calls = mockUpdateWhere.mock.calls;
+        const conditions = calls[calls.length - 1][0] as Array<{
+          column?: string;
+          value?: unknown;
+        }>;
+        const revision = conditions.find(
+          (condition) => condition?.column === "recordingTranscripts.updatedAt",
+        );
+        return !revision || revision.value === restored.updatedAt
+          ? [{ recordingId: "rec_imported" }]
+          : [];
+      });
+
+      const result = await requestTranscript.run({
+        recordingId: "rec_imported",
+        force: true,
+        regenerate: true,
+      });
+
+      expect(result).toMatchObject({ status: "ready", preserved: true });
+      expect(mockSaveTranscriptVersion).not.toHaveBeenCalled();
     });
 
     it("lets a regenerate replace only the import it started from, not an identical re-import", async () => {
@@ -1572,6 +1685,7 @@ describe("importLoomTranscriptForRecording", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSelectRows.queue = [];
+    mockSelectRows.lockedRows = null;
     mockFetchLoomTranscript.mockRejectedValue(
       new Error("temporary Loom error"),
     );
@@ -1601,6 +1715,7 @@ describe("importLoomTranscriptForRecording", () => {
       recordingId: "rec_loom",
       ownerEmail: "owner@example.com",
       recording: {
+        mediaUpdatedAt: "media-1",
         videoUrl: "https://www.loom.com/embed/abcDEF_123456",
         sourceAppName: "Loom",
         sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",
@@ -1631,6 +1746,7 @@ describe("importLoomTranscriptForRecording", () => {
       recordingId: "rec_loom",
       ownerEmail: "owner@example.com",
       recording: {
+        mediaUpdatedAt: "media-1",
         videoUrl: "https://www.loom.com/embed/abcDEF_123456",
         sourceAppName: "Loom",
         sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",

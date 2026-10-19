@@ -51,7 +51,11 @@ import {
 } from "@shared/share-attribution";
 import { isDefaultTitle } from "@shared/title-source";
 import { isTranscriptExistsError } from "@shared/transcript-import";
-import type { WorkflowKind } from "@shared/workflow";
+import {
+  isRecentWorkflowGeneration,
+  type WorkflowKind,
+  workflowGenerationStaleAt,
+} from "@shared/workflow";
 import {
   IconCalendar,
   IconAlertTriangle,
@@ -95,6 +99,7 @@ import {
   VIEWER_PREVIEW_BROWSER_DIAGNOSTICS,
   VIEWER_PREVIEW_DIAGNOSTICS_DURATION_MS,
 } from "@/components/player/browser-diagnostics.fixture";
+import { ChapterList } from "@/components/player/chapter-list";
 import { useClipAgentWebMcp } from "@/components/player/clip-agent-webmcp";
 import { ClipsShareTrigger } from "@/components/player/clips-share-trigger";
 import {
@@ -1378,6 +1383,16 @@ export default function RecordingPage() {
     generatedWorkflowQ.data?.recordingId === recording?.id
       ? generatedWorkflowQ.data
       : null;
+  const workflowGenerationExpiry = workflowGenerationStaleAt(generatedWorkflow);
+  const [, refreshWorkflowGeneration] = useState(0);
+  useEffect(() => {
+    if (workflowGenerationExpiry === null) return;
+    const timer = window.setTimeout(
+      () => refreshWorkflowGeneration((value) => value + 1),
+      Math.max(0, workflowGenerationExpiry - Date.now()),
+    );
+    return () => window.clearTimeout(timer);
+  }, [refreshWorkflowGeneration, workflowGenerationExpiry]);
   const aiRequestStatus = aiRequestStatusQ.data?.kind
     ? aiRequestStatusQ.data
     : null;
@@ -2035,7 +2050,7 @@ export default function RecordingPage() {
   }
   function handleGenerateWorkflow(kind: WorkflowKind) {
     if (!recording) return;
-    if (aiRequestBusy || generatedWorkflow?.status === "generating") return;
+    if (aiRequestBusy || isRecentWorkflowGeneration(generatedWorkflow)) return;
     setEditing(false);
     openAgentPanel();
     workflowLifecycleActiveRef.current = true;
@@ -2049,7 +2064,7 @@ export default function RecordingPage() {
   }
 
   const workflowBusy =
-    generateWorkflow.isPending || generatedWorkflow?.status === "generating";
+    generateWorkflow.isPending || isRecentWorkflowGeneration(generatedWorkflow);
   const backgroundAiBusy = aiRequestBusy || workflowBusy;
 
   useEffect(() => {
@@ -3287,6 +3302,19 @@ export default function RecordingPage() {
                         ) : null}
                       </div>
                     ) : null}
+                    {isImage ? null : (
+                      <ChapterList
+                        key={recording.id}
+                        recordingId={recording.id}
+                        chapters={chapters}
+                        mediaUpdatedAt={recording.mediaUpdatedAt ?? ""}
+                        updatedAt={recording.updatedAt ?? ""}
+                        editsJson={recording.editsJson}
+                        durationMs={recording.durationMs}
+                        canEdit={canEdit}
+                        onSeek={(ms) => playerRef.current?.seek(ms)}
+                      />
+                    )}
                     <RecordingTagsBar
                       recordingId={recording.id}
                       tags={playerDataQ.data?.tags ?? []}

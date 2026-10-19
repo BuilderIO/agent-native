@@ -16,7 +16,6 @@ import {
 import { getOverviewScreenFileIds } from "@shared/design-files";
 import {
   setPenNodeCornerRadius,
-  translatePenPath,
   type PenGeometry,
   type PenPath,
 } from "@shared/pen-path";
@@ -31,6 +30,8 @@ import { isKeyboardShortcutsDialogTarget } from "@/components/design/KeyboardSho
 import type {
   CanvasPrimitiveInsert,
   MultiScreenCanvasTool,
+  PrimitiveCreateOptions,
+  PrimitiveCreateResult,
   ScreenProjectionNodeIdentity,
   VectorEditOverlayState,
 } from "@/components/design/multi-screen/types";
@@ -48,11 +49,16 @@ import { sendToDesignAgentChat } from "@/lib/agent-chat";
 import { uniqueLayerId } from "../canvas-primitive-insert";
 import { createPrimitiveInsertFromSpec } from "../canvas-primitives";
 import {
+  penPathForVectorEditCommit,
   writeBackPrimitiveAsVector,
   writeBackVectorEditedPenPath,
+  type PenPathVectorEditSourceMapping,
 } from "../clone-and-pen-edit";
 import { runCreatePrimitive } from "../commands/create-primitive";
-import { runPrimitiveCreated } from "../commands/primitive-created";
+import {
+  runPrimitiveCreated,
+  type PrimitiveCreatedHistorySelectionArgs,
+} from "../commands/primitive-created";
 import { runScaleSelection } from "../commands/scale-selection";
 import { runSendOverviewAnnotations } from "../commands/send-overview-annotations";
 import { runTweakPromptSubmit } from "../commands/tweak-prompt-submit";
@@ -68,6 +74,13 @@ import { buildSignInHrefForComment } from "../editor-helpers";
 import { runMirrorSelectionToAgentChat } from "../effects/mirror-selection-to-agent-chat";
 import { runPublishAgentSelectionContext } from "../effects/publish-agent-selection-context";
 import { loadDesignSystemGenerationContext } from "../generation-prompt-directives";
+import {
+  captureContentUndoStackTop,
+  captureYjsUndoHistoryUpdate,
+  captureYjsUndoStackTop,
+  stampContentHistorySelectionAfterEntry,
+  type ContentUndoStackTop,
+} from "../history";
 import { getScreenFrameOriginCanvas } from "../overview-camera";
 import { blurActiveDesignEditableTarget } from "../png-export-render";
 import {
@@ -124,6 +137,7 @@ export function useEditorToolsAndVectors({
     shellMode,
     embedded,
     embedChromeRequested,
+    widgetEmbed,
     mode,
     setMode,
     activeTool,
@@ -160,9 +174,13 @@ export function useEditorToolsAndVectors({
     activeBreakpointWidthState,
     activeBreakpointWidthStateRef,
     selectedLayerIdsStateRef,
+    localContentUndoStackRef,
     overviewSelectedScreenIdsRef,
     explicitOverviewScreenSelectionRef,
     prepareTextCreationFinalization,
+    captureCurrentSelection,
+    contentUndoStackRef,
+    undoManagerRef,
   } = editorHistory;
   const {
     persistedSelectionStateRef,
@@ -229,8 +247,11 @@ export function useEditorToolsAndVectors({
     motionPlaybackMode,
     motionTimelineId,
   } = editorLiveEditsAndPresence;
-  const { applyLocalContentUpdate, applyFileContentUpdate } =
-    editorContentAndComponents;
+  const {
+    applyLocalContentUpdate,
+    applyFileContentUpdate,
+    contentHistorySelectionAfterRef,
+  } = editorContentAndComponents;
 
   const [shapeTool, setShapeTool] = useState<ShapeTool>("rect");
   const [vectorEditingState, setVectorEditingState] = useState<{
@@ -240,6 +261,7 @@ export function useEditorToolsAndVectors({
     path: PenPath;
     selectedAnchorIndex: number | null;
     sourceOffset: { x: number; y: number };
+    sourceMapping: PenPathVectorEditSourceMapping | null;
     primitiveSource: {
       geometry: PenGeometry;
       fill: string;
@@ -258,6 +280,9 @@ export function useEditorToolsAndVectors({
   const [activeCodeFile, setActiveCodeFile] =
     useState<CodeWorkbenchActiveFile | null>(null);
   const pendingTextEditNodeIdRef = useRef<string | null>(null);
+  const overviewPrimitiveHistoryByScreenRef = useRef(
+    new Map<string, Map<string, { entry?: ContentUndoStackTop }>>(),
+  );
   const pendingEmptyTextEditRef = useRef<{
     screenId: string | null;
     nodeId: string;
@@ -549,8 +574,8 @@ export function useEditorToolsAndVectors({
     [
       applyFileContentUpdate,
       codeLayerSourceForScreen,
-      prepareTextCreationFinalization,
       getScreenContent,
+      prepareTextCreationFinalization,
     ],
   );
 
@@ -577,6 +602,14 @@ export function useEditorToolsAndVectors({
     [removeEmptyTextNodeIfUntouched],
   );
 
+  const removeEmptyTextNodeWithRetryRef = useRef(removeEmptyTextNodeWithRetry);
+  removeEmptyTextNodeWithRetryRef.current = removeEmptyTextNodeWithRetry;
+  const removeEmptyTextNodeWithRetryLatest = useCallback(
+    (screenId: string | null, nodeId: string) =>
+      removeEmptyTextNodeWithRetryRef.current(screenId, nodeId),
+    [],
+  );
+
   const handlePrimitiveCreated = useCallback(
     (
       screenId: string,
@@ -585,6 +618,7 @@ export function useEditorToolsAndVectors({
         nextTool?: "move" | "pen";
         preserveActiveTool?: boolean;
       },
+      historySelection?: PrimitiveCreatedHistorySelectionArgs,
     ) =>
       runPrimitiveCreated(
         {
@@ -596,7 +630,7 @@ export function useEditorToolsAndVectors({
           pendingOverviewScreenSelectionRef,
           pendingTextEditNodeIdRef,
           layersRevealedForFirstCreateRef,
-          removeEmptyTextNodeWithRetry,
+          removeEmptyTextNodeWithRetry: removeEmptyTextNodeWithRetryLatest,
           setActiveFileId,
           setActiveLeftPanel,
           setActiveTool,
@@ -610,13 +644,115 @@ export function useEditorToolsAndVectors({
         screenId,
         nodeId,
         options,
+        historySelection,
       ),
     [
       activeLeftPanel,
       boardFileId,
       clearPendingOverviewLayerSelectionTimer,
-      removeEmptyTextNodeWithRetry,
+      removeEmptyTextNodeWithRetryLatest,
     ],
+  );
+
+  const handleOverviewCreatePrimitive = useCallback(
+    (
+      screenId: string,
+      primitive: CanvasPrimitiveInsert,
+      options?: PrimitiveCreateOptions,
+    ): PrimitiveCreateResult => {
+      const topBefore = captureContentUndoStackTop(contentUndoStackRef.current);
+      const result = handleCreatePrimitive(screenId, primitive, options);
+      if (result && screenId !== boardFileId && screenId !== "__board__") {
+        const nodeId =
+          typeof result === "string"
+            ? result
+            : typeof result === "object"
+              ? result.nodeId
+              : primitive.nodeId;
+        if (nodeId) {
+          const topAfter = captureContentUndoStackTop(
+            contentUndoStackRef.current,
+          );
+          const byNodeId =
+            overviewPrimitiveHistoryByScreenRef.current.get(screenId) ??
+            new Map<string, { entry?: ContentUndoStackTop }>();
+          byNodeId.set(nodeId, {
+            entry: topAfter !== topBefore ? topAfter : undefined,
+          });
+          overviewPrimitiveHistoryByScreenRef.current.set(screenId, byNodeId);
+        }
+      }
+      return result;
+    },
+    [boardFileId, contentUndoStackRef, handleCreatePrimitive],
+  );
+
+  const handleOverviewPrimitivesCreated = useCallback(
+    (
+      created: ReadonlyArray<{ screenId: string; nodeId: string }>,
+      selected?: { screenId: string; nodeId: string },
+      options?: {
+        nextTool?: "move" | "pen";
+        preserveActiveTool?: boolean;
+      },
+    ) => {
+      const pendingEntries = created.flatMap(({ screenId, nodeId }) => {
+        const byNodeId =
+          overviewPrimitiveHistoryByScreenRef.current.get(screenId);
+        const pending = byNodeId?.get(nodeId);
+        byNodeId?.delete(nodeId);
+        if (byNodeId?.size === 0) {
+          overviewPrimitiveHistoryByScreenRef.current.delete(screenId);
+        }
+        return pending?.entry
+          ? [{ screenId, nodeId, entry: pending.entry }]
+          : [];
+      });
+      const finalSelection = selected ?? created[created.length - 1];
+      if (!finalSelection) return;
+
+      handlePrimitiveCreated(
+        finalSelection.screenId,
+        finalSelection.nodeId,
+        options,
+      );
+      const finalSnapshot = captureCurrentSelection();
+      for (const { screenId, nodeId, entry } of pendingEntries) {
+        stampContentHistorySelectionAfterEntry(
+          contentHistorySelectionAfterRef.current,
+          entry,
+          {
+            ...finalSnapshot,
+            activeFileId: screenId,
+            overviewSelectedScreenIds: [],
+            selectedLayerIds: [nodeId],
+          },
+        );
+      }
+    },
+    [
+      captureCurrentSelection,
+      contentHistorySelectionAfterRef,
+      handlePrimitiveCreated,
+    ],
+  );
+
+  const handleOverviewPrimitiveCreated = useCallback(
+    (
+      screenId: string,
+      nodeId: string,
+      options?: {
+        nextTool?: "move" | "pen";
+        preserveActiveTool?: boolean;
+      },
+    ) => {
+      handleOverviewPrimitivesCreated(
+        [{ screenId, nodeId }],
+        { screenId, nodeId },
+        options,
+      );
+    },
+    [handleOverviewPrimitivesCreated],
   );
 
   useEffect(() => {
@@ -638,6 +774,9 @@ export function useEditorToolsAndVectors({
       },
     ) => {
       if (!boardFileId || !canEditDesign) return false;
+      const contentUndoStackTopBefore = captureContentUndoStackTop(
+        contentUndoStackRef.current,
+      );
       const result = handleCreatePrimitive(
         boardFileId,
         primitive,
@@ -653,7 +792,12 @@ export function useEditorToolsAndVectors({
             ? result.nodeId
             : primitive.nodeId;
       if (nodeId) {
-        handlePrimitiveCreated(boardFileId, nodeId, options);
+        handlePrimitiveCreated(boardFileId, nodeId, options, {
+          contentUndoStackRef,
+          contentHistorySelectionAfterRef,
+          contentUndoStackTopBefore,
+          captureCurrentSelection,
+        });
       }
 
       return typeof result === "object"
@@ -662,7 +806,15 @@ export function useEditorToolsAndVectors({
           ? result
           : true;
     },
-    [boardFileId, canEditDesign, handleCreatePrimitive, handlePrimitiveCreated],
+    [
+      boardFileId,
+      canEditDesign,
+      captureCurrentSelection,
+      contentHistorySelectionAfterRef,
+      contentUndoStackRef,
+      handleCreatePrimitive,
+      handlePrimitiveCreated,
+    ],
   );
 
   const handleSingleScreenCreatePrimitive = useCallback(
@@ -671,20 +823,71 @@ export function useEditorToolsAndVectors({
       const nodeId = uniqueLayerId(spec.tool === "pen" ? "path" : spec.tool);
       const primitive = createPrimitiveInsertFromSpec(spec, nodeId);
       if (!primitive) return false;
-      const result = handleCreatePrimitive(activeFile.id, primitive);
+      const yjsUndoStackTopBefore = captureYjsUndoStackTop(
+        undoManagerRef.current,
+      );
+      const yjsSelectionBefore = {
+        selectedElement,
+        selectedLayerIds: selectedLayerIdsState,
+      };
+      const contentUndoStackTopBefore = captureContentUndoStackTop(
+        contentUndoStackRef.current,
+      );
+      const localContentUndoStackTopBefore =
+        localContentUndoStackRef.current[
+          localContentUndoStackRef.current.length - 1
+        ];
+      const yjsHistoryUpdate = captureYjsUndoHistoryUpdate(
+        undoManagerRef.current,
+        () => handleCreatePrimitive(activeFile.id, primitive),
+      );
+      const result = yjsHistoryUpdate.result;
       if (!result) return false;
       const resultNodeId = typeof result === "string" ? result : nodeId;
-      handlePrimitiveCreated(activeFile.id, resultNodeId, {
-        nextTool:
-          spec.nextTool ??
-          (spec.tool === "pen" && spec.preserveActiveTool !== false
-            ? "pen"
-            : undefined),
-        preserveActiveTool: spec.preserveActiveTool,
-      });
+      handlePrimitiveCreated(
+        activeFile.id,
+        resultNodeId,
+        {
+          nextTool:
+            spec.nextTool ??
+            (spec.tool === "pen" && spec.preserveActiveTool !== false
+              ? "pen"
+              : undefined),
+          preserveActiveTool: spec.preserveActiveTool,
+        },
+        {
+          contentUndoStackRef,
+          contentHistorySelectionAfterRef,
+          contentUndoStackTopBefore,
+          captureCurrentSelection,
+          yjsUndoSelection: {
+            undoManagerRef,
+            undoStackTopBefore: yjsUndoStackTopBefore,
+            selectionBefore: yjsSelectionBefore,
+            recorded: yjsHistoryUpdate.recorded,
+          },
+          localContentUndoSelection: {
+            undoStackRef: localContentUndoStackRef,
+            undoStackTopBefore: localContentUndoStackTopBefore,
+            selectionBefore: yjsSelectionBefore,
+          },
+        },
+      );
       return resultNodeId;
     },
-    [activeFile, canEditDesign, handleCreatePrimitive, handlePrimitiveCreated],
+    [
+      activeFile,
+      canEditDesign,
+      captureCurrentSelection,
+      contentHistorySelectionAfterRef,
+      contentUndoStackRef,
+      handleCreatePrimitive,
+      handlePrimitiveCreated,
+      localContentUndoStackRef,
+      selectedElement,
+      selectedLayerIdsState,
+      undoManagerRef,
+    ],
   );
 
   const handleUpdatePenPath = useCallback(
@@ -721,10 +924,10 @@ export function useEditorToolsAndVectors({
           return false;
         }
 
-        const sourcePath = translatePenPath(
+        const sourcePath = penPathForVectorEditCommit(
           nextPath,
-          -current.sourceOffset.x,
-          -current.sourceOffset.y,
+          current.sourceOffset,
+          current.sourceMapping,
         );
         const nextContent = current.primitiveSource
           ? writeBackPrimitiveAsVector(
@@ -804,10 +1007,10 @@ export function useEditorToolsAndVectors({
             toast.error(t("designEditor.toasts.vectorEditUnsupported"));
             return current;
           }
-          const sourcePath = translatePenPath(
+          const sourcePath = penPathForVectorEditCommit(
             nextPath,
-            -current.sourceOffset.x,
-            -current.sourceOffset.y,
+            current.sourceOffset,
+            current.sourceMapping,
           );
           const nextContent = writeBackVectorEditedPenPath(
             baseContent,
@@ -1515,6 +1718,7 @@ export function useEditorToolsAndVectors({
                 height: geometry.height as number,
               },
             }).camera,
+            revealOnly: !widgetEmbed,
             nonce: cameraCommandNonceRef.current,
           });
         }
@@ -1531,6 +1735,7 @@ export function useEditorToolsAndVectors({
       overviewInteractScreenIdRef,
       setOverviewInteractScreenId,
       setCameraCommand,
+      widgetEmbed,
     ],
   );
 
@@ -1563,6 +1768,9 @@ export function useEditorToolsAndVectors({
     reviewCommentsPanelProps,
     handleCreatePrimitive,
     handlePrimitiveCreated,
+    handleOverviewCreatePrimitive,
+    handleOverviewPrimitiveCreated,
+    handleOverviewPrimitivesCreated,
     handleBoardDrawPrimitive,
     handleSingleScreenCreatePrimitive,
     handleUpdatePenPath,

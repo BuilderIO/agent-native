@@ -77,6 +77,18 @@
     {
       "name": "agent-run-auto-continue-of",
       "checksum": "00eb09bcf9ca7fb0"
+    },
+    {
+      "name": "agent-tool-ledger-arguments-hash",
+      "checksum": "495946626eda9dc4"
+    },
+    {
+      "name": "agent-turn-execution-leases-and-steps",
+      "checksum": "bc8cfdc3fc695e2a"
+    },
+    {
+      "name": "agent-run-thread-projection-retry",
+      "checksum": "d564128e21e3b424"
     }
   ],
   "agent_team_run_queue": [
@@ -119,6 +131,10 @@
     {
       "name": "agent-tool-approvals-recovery-index",
       "checksum": "fdca5e603cce164c"
+    },
+    {
+      "name": "arguments-hash",
+      "checksum": null
     }
   ],
   "app_resource_changes": [
@@ -151,6 +167,10 @@
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "mcp-client-attribution",
+      "checksum": "bc0ea72722e10241"
     }
   ],
   "auth_sessions": [
@@ -239,6 +259,52 @@
       "checksum": null
     }
   ],
+  "better_auth": [
+    {
+      "name": "better-auth-core-tables",
+      "checksum": "75b2ff3e3f1ac565"
+    },
+    {
+      "name": "better-auth-repair-user-columns",
+      "checksum": "27d1d3f6cf568efa"
+    },
+    {
+      "name": "legacy-auth-sessions-table",
+      "checksum": "d67c1d034b1b3611"
+    },
+    {
+      "name": "better-auth-jwks-key-rotation-recovery",
+      "checksum": null
+    },
+    {
+      "name": "better-auth-add-onboarding-role",
+      "checksum": "0027c79db097e5a1"
+    },
+    {
+      "name": "better-auth-user-lower-email-index",
+      "checksum": "897b1ce483af6484"
+    },
+    {
+      "name": "better-auth-enterprise-sso-scim-tables",
+      "checksum": "78ba4bda1e35307e"
+    },
+    {
+      "name": "better-auth-identity-rekey-ledger",
+      "checksum": "308592b25b569305"
+    },
+    {
+      "name": "better-auth-jwks-alg-crv-columns",
+      "checksum": "3037835edbd46471"
+    },
+    {
+      "name": "better-auth-two-factor-tables",
+      "checksum": "4ecf3fcd74e022cd"
+    },
+    {
+      "name": "better-auth-user-first-touch-attribution",
+      "checksum": "dc221b676c0dc61d"
+    }
+  ],
   "browser_sessions": [
     {
       "name": "baseline",
@@ -273,6 +339,10 @@
     {
       "name": "chat-thread-shares-notified-at",
       "checksum": "f2a3dce63fe66310"
+    },
+    {
+      "name": "chat-thread-durable-submission-inbox",
+      "checksum": "953882e24b68e4fb"
     }
   ],
   "checkpoints": [

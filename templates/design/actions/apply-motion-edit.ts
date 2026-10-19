@@ -106,6 +106,7 @@ import {
   withMotionTrackIdsFromExisting,
   withTimelinePlaybackMode,
 } from "../shared/motion-timeline.js";
+import { sourceContentHash } from "../shared/source-workspace.js";
 import {
   isBridgeSha256VersionHash,
   MotionLocalSourceError,
@@ -603,6 +604,7 @@ async function persistFileContent(
   },
   content: string,
   expectedVersionHash: string,
+  expectedWorkingCopyHash: string,
 ): Promise<string> {
   agentEnterDocument(file.id);
   try {
@@ -620,6 +622,7 @@ async function persistFileContent(
       file: workspaceFile,
       content,
       expectedVersionHash,
+      expectedWorkingCopyHash,
     });
     return result.updatedAt;
   } finally {
@@ -737,7 +740,7 @@ export default defineAction({
       )
       .optional()
       .describe(
-        "Lossless native Figma Motion style instances stored in the versioned " +
+        "Lossless imported Motion style instances stored in the versioned " +
           "source metadata. Omit to preserve existing instances; provide an " +
           "array to replace them or [] to clear them.",
       ),
@@ -1202,7 +1205,7 @@ export default defineAction({
       fail(
         error instanceof MotionNativeStyleInstanceError
           ? `${error.message}${error.path ? ` (${error.path})` : ""}`
-          : "Invalid native Figma Motion styles.",
+          : "Invalid imported Motion styles.",
         {
           errorCode: "motion_native_style_invalid",
           statusCode: 422,
@@ -1739,6 +1742,7 @@ export default defineAction({
         },
         patchedContent,
         baseVersionHash,
+        sourceContentHash(currentContent),
       );
     }
 

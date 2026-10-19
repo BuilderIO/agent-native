@@ -35,7 +35,10 @@ export default defineAction({
     const db = getDb();
 
     const [rec] = await db
-      .select({ status: schema.recordings.status })
+      .select({
+        status: schema.recordings.status,
+        mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
+      })
       .from(schema.recordings)
       .where(eq(schema.recordings.id, args.recordingId))
       .limit(1);
@@ -49,6 +52,22 @@ export default defineAction({
     const t = schema.recordingTranscripts;
     const v = schema.recordingTranscriptVersions;
     const outcome = await db.transaction(async (tx) => {
+      const [locked] = await tx
+        .select({ id: schema.recordings.id })
+        .from(schema.recordings)
+        .where(
+          and(
+            eq(schema.recordings.id, args.recordingId),
+            eq(schema.recordings.mediaUpdatedAt, rec.mediaUpdatedAt),
+          ),
+        )
+        .for("update");
+      if (!locked) {
+        fail(
+          "The Clip media changed while the transcript was being restored. Try again.",
+          { errorCode: "recording_media_changed", statusCode: 409 },
+        );
+      }
       // The transcript row is locked before any version, the same order an
       // import takes, so a restore and an import cannot deadlock.
       const [current] = await tx

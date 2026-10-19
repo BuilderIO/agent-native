@@ -3,6 +3,12 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-16
+
+### Fixed
+
+- The menu bar shows only the Clips icon while idle.
+
 ## 2026-10-15
 
 ### Added
@@ -11,7 +17,6 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
-- Clips stays labeled in the menu bar while idle
 - The recording countdown starts when it appears and plays smoothly while Clips prepares a recording.
 
 ### Fixed

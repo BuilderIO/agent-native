@@ -905,6 +905,10 @@ export default {
       animations: "애니메이션",
       pathEditAmbiguous:
         "이 레이어에는 위치 애니메이션이 여러 개 있어 경로를 명확하게 편집할 수 없습니다.",
+      pathEditPositionConflict:
+        "이 레이어에는 다른 위치 애니메이션이 있어 경로를 곡선으로 만들 수 없습니다.",
+      positionStyleConflict:
+        "이 레이어에는 다른 애니메이션과 결합할 수 없는 위치 애니메이션이 이미 있습니다.",
       animationStyles: {
         title: "애니메이션",
         createTitle: "새 애니메이션 스타일 만들기",
@@ -1831,6 +1835,8 @@ export default {
       description: "새 프레임으로 추가할 경로를 선택하거나 경로를 입력하세요.",
       searchPlaceholder: "경로 검색…",
       noRoutes: "일치하는 경로가 없습니다",
+      noDiscoveredRoutes:
+        "이 앱에서 경로를 찾지 못했습니다. 화면을 추가하려면 경로를 입력하세요.",
       useCustomPath: '"{{path}}" 추가',
       viewportDesktop: "데스크톱",
       viewportMobile: "모바일",
@@ -2104,8 +2110,8 @@ export default {
         title: "로컬 개발 서버에서 렌더링됨",
       },
       fusion: {
-        label: "Fusion 원격",
-        title: "Fusion에서 렌더링됨",
+        label: "Builder 원격",
+        title: "Builder에서 렌더링됨",
       },
       inline: {
         label: "인라인",

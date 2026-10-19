@@ -925,6 +925,10 @@ export default {
       animations: "Animationen",
       pathEditAmbiguous:
         "Diese Ebene hat mehrere Positionsanimationen. Ihr Pfad kann daher nicht eindeutig bearbeitet werden.",
+      pathEditPositionConflict:
+        "Diese Ebene hat bereits eine andere Positionsanimation, daher kann ihr Pfad nicht gekrümmt werden.",
+      positionStyleConflict:
+        "Diese Ebene hat bereits eine Positionsanimation, die sich nicht mit einer weiteren kombinieren lässt.",
       animationStyles: {
         title: "Animationen",
         createTitle: "Neuen Animationsstil erstellen",
@@ -1864,6 +1868,8 @@ export default {
         "Wähle eine Route als neuen Rahmen aus oder gib einen Pfad ein.",
       searchPlaceholder: "Routen durchsuchen…",
       noRoutes: "Keine passenden Routen",
+      noDiscoveredRoutes:
+        "Für diese App wurden keine Routen gefunden. Gib einen Pfad ein, um einen Screen hinzuzufügen.",
       useCustomPath: "„{{path}}“ hinzufügen",
       viewportDesktop: "Desktop",
       viewportMobile: "Mobil",
@@ -2148,8 +2154,8 @@ export default {
         title: "Vom lokalen Entwicklungsserver gerendert",
       },
       fusion: {
-        label: "Fusion remote",
-        title: "Von Fusion gerendert",
+        label: "Builder remote",
+        title: "Von Builder gerendert",
       },
       inline: {
         label: "Eingebettet",

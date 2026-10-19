@@ -32,40 +32,48 @@ function parseSegmentsArray(raw: string | null | undefined) {
 export function readSegmentEntries(
   raw: string | null | undefined,
 ): Array<Record<string, unknown> & { startMs: number; endMs: number }> | null {
-  const entries = parseSegmentsArray(raw)?.map((entry) => ({
-    ...entry,
-    startMs: Number(entry?.startMs),
-    endMs: Number(entry?.endMs),
-  }));
-  return entries?.every(
-    (entry) => Number.isFinite(entry.startMs) && Number.isFinite(entry.endMs),
-  )
-    ? entries
-    : null;
+  try {
+    const entries = parseSegmentsArray(raw)?.map((entry) => ({
+      ...entry,
+      startMs: Number(entry?.startMs),
+      endMs: Number(entry?.endMs),
+    }));
+    return entries?.every(
+      (entry) => Number.isFinite(entry.startMs) && Number.isFinite(entry.endMs),
+    )
+      ? entries
+      : null;
+  } catch {
+    return null; // coercion-ok: null marks unreadable stored timings, distinct from an empty array
+  }
 }
 
 export function parseTranscriptSegments(
   raw: string | null | undefined,
 ): TranscriptSegment[] {
-  return (parseSegmentsArray(raw) ?? [])
-    .map((segment) => ({
-      startMs: Number(segment?.startMs),
-      endMs: Number(segment?.endMs),
-      text: typeof segment?.text === "string" ? segment.text.trim() : "",
-      source:
-        segment?.source === "mic" || segment?.source === "system"
-          ? segment.source
-          : undefined,
-      speaker:
-        typeof segment?.speaker === "string" ? segment.speaker : undefined,
-    }))
-    .filter(
-      (segment) =>
-        Number.isFinite(segment.startMs) &&
-        Number.isFinite(segment.endMs) &&
-        segment.endMs > segment.startMs &&
-        segment.text,
-    );
+  try {
+    return (parseSegmentsArray(raw) ?? [])
+      .map((segment) => ({
+        startMs: Number(segment?.startMs),
+        endMs: Number(segment?.endMs),
+        text: typeof segment?.text === "string" ? segment.text.trim() : "",
+        source:
+          segment?.source === "mic" || segment?.source === "system"
+            ? segment.source
+            : undefined,
+        speaker:
+          typeof segment?.speaker === "string" ? segment.speaker : undefined,
+      }))
+      .filter(
+        (segment) =>
+          Number.isFinite(segment.startMs) &&
+          Number.isFinite(segment.endMs) &&
+          segment.endMs > segment.startMs &&
+          segment.text,
+      );
+  } catch {
+    return []; // coercion-ok: the player tolerates unreadable cues; writers use readSegmentEntries
+  }
 }
 
 export function buildCaptionSegmentsFromText(

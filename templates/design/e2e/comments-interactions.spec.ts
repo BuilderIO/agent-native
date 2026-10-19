@@ -23,6 +23,7 @@ type SavedComment = {
   body: string;
   anchor: {
     nodeId: string;
+    screenPoint: { xPct: number; yPct: number };
     relativePoint: { xPct: number; yPct: number };
   } | null;
 };
@@ -58,7 +59,6 @@ async function openThreadsPanel(page: Page): Promise<void> {
   await expect(page.locator("[data-review-comments-panel]")).toBeVisible();
 }
 
-// oracle: none — verifies the comment flow, not measured Figma behavior.
 test("the Pin comment tool opens the Threads panel", async ({ app }) => {
   const page = app.page;
   await app.open(await app.seed(COMMENT_SCREEN));
@@ -71,9 +71,7 @@ test("the Pin comment tool opens the Threads panel", async ({ app }) => {
   await expect(page.locator("[data-review-comments-panel]")).toBeVisible();
 });
 
-// oracle: none — verifies the comment flow, not measured Figma behavior.
-// fixme: product bug: (1) The pin is drawn centred at (412,263) for a click at (491,274): about 79px left, at roughly the button's left edge, as if the
-test.fixme("comments toolbar opens an anchored composer", async ({ app }) => {
+test("comments toolbar opens an anchored composer", async ({ app }) => {
   const page = app.page;
   const id = await app.seed(COMMENT_SCREEN);
   let listQuery = "";
@@ -160,8 +158,9 @@ test.fixme("comments toolbar opens an anchored composer", async ({ app }) => {
     { label: "alice+e2e", email: E2E_MENTION_EMAIL, id: null },
   ]);
   expect(created.anchor?.nodeId).toBe("deep-button");
-  // The pin point is a percentage of the 1440px screen: 40px body padding + 24px card padding + 90% of 200px.
-  expect(created.anchor?.relativePoint.xPct).toBeCloseTo((244 / 1440) * 100, 1);
+  // On the 1440px screen the click sits at 40px body padding + 24px card padding + 90% of the 200px button.
+  expect(created.anchor?.screenPoint.xPct).toBeCloseTo((244 / 1440) * 100, 1);
+  expect(created.anchor?.relativePoint.xPct).toBeCloseTo(90, 1);
   await expect(composer).toBeHidden();
   await expect
     .soft(page.locator("[data-review-pin]"), "one thread draws one pin")
@@ -246,7 +245,7 @@ test.fixme("comments toolbar opens an anchored composer", async ({ app }) => {
         parentCommentId: created.id,
         status: "open",
         body: "Browser comment reply",
-        nodeId: null,
+        nodeId: "deep-button",
       },
     ]);
   await page.locator("[data-review-pin]").first().click();

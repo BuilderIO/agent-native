@@ -1,3 +1,7 @@
+// A thread read or save that sends this header with "typed" gets { absent: true }
+// for a thread no run has saved yet, instead of a 404.
+export const AGENT_CHAT_THREAD_ABSENCE_HEADER = "x-agent-native-thread-absence";
+
 export interface AgentChatMessage {
   message: string;
   context?: string;
@@ -39,6 +43,7 @@ export interface AgentChatCallOptions {
   context?: string;
   timeout?: number;
   framePort?: number;
+  signal?: AbortSignal;
 }
 
 export interface AgentChatResponse {
@@ -64,6 +69,12 @@ async function call(
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
+  const abortFromCaller = () => controller.abort(options?.signal?.reason);
+  if (options?.signal?.aborted) {
+    abortFromCaller();
+  } else {
+    options?.signal?.addEventListener("abort", abortFromCaller, { once: true });
+  }
 
   try {
     const res = await fetch(`http://localhost:${port}/api/chat`, {
@@ -81,6 +92,7 @@ async function call(
     return (await res.json()) as AgentChatResponse;
   } finally {
     clearTimeout(timer);
+    options?.signal?.removeEventListener("abort", abortFromCaller);
   }
 }
 

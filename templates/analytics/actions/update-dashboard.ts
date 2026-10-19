@@ -20,6 +20,11 @@ import {
   interpolate,
   interpolateDashboardPanelSql,
 } from "../app/pages/adhoc/sql-dashboard/interpolate";
+import {
+  MAX_PANEL_HEIGHT,
+  MIN_PANEL_HEIGHT,
+  PANEL_HEIGHT_UNIT_PX,
+} from "../app/pages/adhoc/sql-dashboard/types";
 import { dryRunQuery } from "../server/lib/bigquery";
 import {
   dashboardNoopReceipt,
@@ -483,6 +488,24 @@ function collectDashboardConfigIssues(
         );
       }
     }
+    if (isSection && p.height !== undefined) {
+      issue(
+        "height",
+        `height is ${JSON.stringify(p.height)}; section panels do not support height; remove height.`,
+      );
+    } else if (
+      p.height !== undefined &&
+      (typeof p.height !== "number" ||
+        !Number.isFinite(p.height) ||
+        p.height < MIN_PANEL_HEIGHT ||
+        p.height > MAX_PANEL_HEIGHT ||
+        Math.floor(p.height) !== p.height)
+    ) {
+      issue(
+        "height",
+        `height is ${JSON.stringify(p.height)}; set height to an integer ${MIN_PANEL_HEIGHT}-${MAX_PANEL_HEIGHT} (each unit is ${PANEL_HEIGHT_UNIT_PX}px).`,
+      );
+    }
     if (
       !isSection &&
       !isExtension &&
@@ -575,6 +598,141 @@ function firstPartyScope() {
 
 export interface ValidatePanelSqlOptions {
   signal?: AbortSignal;
+}
+
+function isDashboardRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function panelSqlValidationInput(
+  panel: Record<string, unknown>,
+): Record<string, unknown> {
+  const config = isDashboardRecord(panel.config) ? panel.config : {};
+  return {
+    sql: panel.sql,
+    source: panel.source,
+    chartType: panel.chartType,
+    timeScope: config.timeScope,
+  };
+}
+
+export function changedPanelIdsForSqlValidation(
+  config: Record<string, unknown>,
+  baseline: Record<string, unknown> | null,
+): ReadonlySet<string> | undefined {
+  if (!baseline) return undefined;
+  if (
+    stableStringify(config.filters) !== stableStringify(baseline.filters) ||
+    stableStringify(config.variables) !== stableStringify(baseline.variables)
+  ) {
+    return undefined;
+  }
+
+  const previousPanels = Array.isArray(baseline.panels)
+    ? baseline.panels.filter(isDashboardRecord)
+    : [];
+  const nextPanels = Array.isArray(config.panels)
+    ? config.panels.filter(isDashboardRecord)
+    : [];
+  const previousById = new Map<string, Record<string, unknown>>();
+  for (const panel of previousPanels) {
+    if (typeof panel.id === "string") {
+      previousById.set(panel.id, panel);
+    }
+  }
+  const changedPanelIds = new Set<string>();
+  for (const panel of nextPanels) {
+    if (typeof panel.id !== "string") return undefined;
+    const previous = previousById.get(panel.id);
+    if (
+      !previous ||
+      stableStringify(panelSqlValidationInput(panel)) !==
+        stableStringify(panelSqlValidationInput(previous))
+    ) {
+      changedPanelIds.add(panel.id);
+    }
+  }
+  return changedPanelIds;
+}
+
+function panelTimeScopeValidationInput(
+  panel: Record<string, unknown>,
+): Record<string, unknown> {
+  const config = isDashboardRecord(panel.config) ? panel.config : {};
+  return {
+    ...panelSqlValidationInput(panel),
+    title: panel.title,
+    description: config.description,
+  };
+}
+
+export function changedPanelIdsForTimeScopeValidation(
+  config: Record<string, unknown>,
+  baseline: Record<string, unknown> | null,
+): ReadonlySet<string> | undefined {
+  if (!baseline) return undefined;
+  if (
+    stableStringify(config.filters) !== stableStringify(baseline.filters) ||
+    stableStringify(config.variables) !== stableStringify(baseline.variables)
+  ) {
+    return undefined;
+  }
+
+  const previousPanels = Array.isArray(baseline.panels)
+    ? baseline.panels.filter(isDashboardRecord)
+    : [];
+  const nextPanels = Array.isArray(config.panels)
+    ? config.panels.filter(isDashboardRecord)
+    : [];
+  const previousById = new Map<string, Record<string, unknown>>();
+  for (const panel of previousPanels) {
+    if (typeof panel.id === "string") {
+      previousById.set(panel.id, panel);
+    }
+  }
+
+  const changedPanelIds = new Set<string>();
+  for (const panel of nextPanels) {
+    if (typeof panel.id !== "string") return undefined;
+    const previous = previousById.get(panel.id);
+    if (
+      !previous ||
+      stableStringify(panelTimeScopeValidationInput(panel)) !==
+        stableStringify(panelTimeScopeValidationInput(previous))
+    ) {
+      changedPanelIds.add(panel.id);
+    }
+  }
+  return changedPanelIds;
+}
+
+export function validateChangedPanelTimeScopes(
+  config: Record<string, unknown>,
+  baseline: Record<string, unknown> | null,
+): string | null {
+  const panelIds = changedPanelIdsForTimeScopeValidation(config, baseline);
+  const panels = config.panels;
+  if (!Array.isArray(panels)) return null;
+
+  for (let index = 0; index < panels.length; index += 1) {
+    const panel = panels[index];
+    if (!isDashboardRecord(panel)) continue;
+    if (panelIds && (typeof panel.id !== "string" || !panelIds.has(panel.id))) {
+      continue;
+    }
+    if (
+      panel.source !== "first-party" ||
+      panel.chartType === "section" ||
+      panel.chartType === "extension" ||
+      typeof panel.sql !== "string" ||
+      !panel.sql.trim()
+    ) {
+      continue;
+    }
+    const error = validateFirstPartyDashboardTimeScope(panel, config, index);
+    if (error) return error;
+  }
+  return null;
 }
 
 export async function validatePanelSql(
@@ -851,9 +1009,9 @@ export { isAgentCaller };
 export default defineAction({
   description:
     "Save or replace a SQL dashboard full config (scope-aware) atomically in ONE call. " +
-    "For existing dashboard panel/layout edits, use `mutate-dashboard` instead; it has the typed `dashboard.*` API for moves, inserts, deletes, duplicates, SQL/title/config edits, and bulk edits without JSON-pointer index math. " +
+    "For existing dashboard panel/layout edits, use `mutate-dashboard` instead; it has the typed `dashboard.*` API for moves, inserts, deletes, duplicates, SQL/title/width/height/config edits, and bulk edits without JSON-pointer index math. " +
     "Use this action when creating a brand-new dashboard from a complete config, for the UI full-config save path, or for an explicitly requested low-level JSON-pointer compatibility edit. " +
-    "Do not use `ops` or `panelOrder` for ordinary agent edits like moving charts, adding panels to an existing dashboard, changing widths, or updating panel config; call `mutate-dashboard` once with the full edit script. " +
+    "Do not use `ops` or `panelOrder` for ordinary agent edits like moving charts, adding panels to an existing dashboard, changing widths or heights, or updating panel config; call `mutate-dashboard` once with the full edit script. " +
     "When this action is appropriate, provide only one of `ops`, `panelOrder`, or `config`; `config` replaces the whole dashboard config. " +
     "First-party event panels must bind to a declared dashboard time filter with `{{timeRange}}` or date-range variables. Intentional fixed-window, cohort-history, and all-time exceptions must be explicit in `panel.config.timeScope`; unbounded first-party SQL is rejected at save time. " +
     "The result is compact by default: `panelCount`, `appliedOps`, `panelOrder`, `firstPanelIds`, and `summary`. Set `returnConfig: true` only when you truly need the full config in the tool result. " +
@@ -941,8 +1099,22 @@ export default defineAction({
       assertValidDashboardConfig(args.config, {
         baseline: before ? before.config : null,
       });
-      const sqlError = await validatePanelSql(args.config);
-      if (sqlError) fail(sqlError);
+      const timeScopeError = validateChangedPanelTimeScopes(
+        args.config,
+        before ? before.config : null,
+      );
+      if (timeScopeError) fail(timeScopeError);
+      const panelIdsToValidate = changedPanelIdsForSqlValidation(
+        args.config,
+        before ? before.config : null,
+      );
+      if (!panelIdsToValidate || panelIdsToValidate.size > 0) {
+        const sqlError = await validatePanelSql(
+          args.config,
+          panelIdsToValidate,
+        );
+        if (sqlError) fail(sqlError);
+      }
       const verdict = agentCaller
         ? await verifyPanelWrite({
             base: before ? before.config : null,
@@ -1111,6 +1283,8 @@ export default defineAction({
         }
 
         assertValidDashboardConfig(root, { baseline });
+        const timeScopeError = validateChangedPanelTimeScopes(root, baseline);
+        if (timeScopeError) fail(timeScopeError);
         if (args.ops!.some((op) => opCanChangePanelSql(op as JsonOp))) {
           const sqlError = await validatePanelSql(root);
           if (sqlError) fail(sqlError);

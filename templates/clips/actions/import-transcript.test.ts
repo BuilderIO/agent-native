@@ -135,7 +135,8 @@ beforeEach(async () => {
   db = drizzle(client);
   await client.query(`CREATE TABLE recordings (
     id TEXT PRIMARY KEY, status TEXT NOT NULL, duration_ms INTEGER,
-    title TEXT NOT NULL, title_source TEXT, description TEXT
+    title TEXT NOT NULL, title_source TEXT, description TEXT,
+    media_updated_at TEXT NOT NULL DEFAULT 'media-1'
   )`);
   await client.query(`CREATE TABLE recording_transcripts (
     recording_id TEXT PRIMARY KEY,
@@ -446,6 +447,31 @@ describe("restore-transcript-version", () => {
         automatic.language,
       ],
     );
+  });
+
+  it("keeps both transcripts when the media changes before the restore locks it", async () => {
+    const imported = await run({ text: VTT, replace: true });
+    const current = await readFullTranscript();
+    const versions = await readVersions();
+    const transaction = db.transaction.bind(db);
+    const spy = vi
+      .spyOn(db, "transaction")
+      .mockImplementationOnce(async (run) => {
+        await client.query(
+          "UPDATE recordings SET media_updated_at = 'media-redacted' WHERE id = 'rec_1'",
+        );
+        return transaction(run);
+      });
+    try {
+      await expect(restore(imported.savedVersionId)).rejects.toMatchObject({
+        errorCode: "recording_media_changed",
+        statusCode: 409,
+      });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await readFullTranscript()).toEqual(current);
+    expect(await readVersions()).toEqual(versions);
   });
 
   it("brings back exactly the transcript an import replaced", async () => {

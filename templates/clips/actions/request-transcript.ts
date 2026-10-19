@@ -5,7 +5,7 @@ import { resolveHasBuilderGatewayCredential } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import { transcribeWithBuilder } from "@agent-native/core/transcription/builder";
-import { and, eq, or } from "drizzle-orm";
+import { and, eq, isNull, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -65,6 +65,7 @@ import regenerateSummary from "./regenerate-summary.js";
 import regenerateTitle from "./regenerate-title.js";
 
 type RecordingMediaRow = {
+  mediaUpdatedAt?: string;
   videoUrl: string | null;
   storageMode?: "own" | "hosted" | null;
   videoFormat?: "webm" | "mp4" | null;
@@ -75,7 +76,10 @@ type RecordingMediaRow = {
   durationMs?: number | null;
 };
 
-type StartedFromTranscript = { importId: string | null };
+type StartedFromTranscript = {
+  importId: string | null;
+  updatedAt: string | null;
+};
 
 function recordingTrackingSource(
   ownerEmail: string,
@@ -106,6 +110,15 @@ function builderErrorText(error: unknown): string {
     return `${error.message} ${cause ? builderErrorText(cause) : ""}`.trim();
   }
   return String(error);
+}
+
+function isRecordingMediaChanged(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "errorCode" in error &&
+    error.errorCode === "recording_media_changed"
+  );
 }
 
 export function isBuilderModelAvailabilityError(error: unknown): boolean {
@@ -606,6 +619,7 @@ export async function importLoomTranscriptForRecording({
           segmentsJson: JSON.stringify(transcript.segments),
           fullText: transcript.fullText,
           now,
+          mediaUpdatedAt: recording.mediaUpdatedAt,
           replaceTranscript,
         });
         if (kept) return kept;
@@ -634,6 +648,7 @@ export async function importLoomTranscriptForRecording({
         };
       }
     } catch (err) {
+      if (isRecordingMediaChanged(err)) throw err;
       console.warn(
         `[clips] Loom transcript import failed for ${recordingId}:`,
         (err as Error)?.message ?? String(err),
@@ -646,6 +661,7 @@ export async function importLoomTranscriptForRecording({
     db,
     recordingId,
     ownerEmail,
+    mediaUpdatedAt: recording.mediaUpdatedAt,
   });
   if (preserved) return preserved;
 
@@ -657,6 +673,7 @@ export async function importLoomTranscriptForRecording({
     segmentsJson: "[]",
     fullText: "",
     now,
+    mediaUpdatedAt: recording.mediaUpdatedAt,
   });
   if (kept) return kept;
   await writeAppState("refresh-signal", { ts: Date.now() });
@@ -675,6 +692,7 @@ async function failAudioOnlyPreparation({
   err,
   now,
   currentRetryCount,
+  mediaUpdatedAt,
 }: {
   db: ReturnType<typeof getDb>;
   recordingId: string;
@@ -682,6 +700,7 @@ async function failAudioOnlyPreparation({
   err: unknown;
   now: string;
   currentRetryCount: number;
+  mediaUpdatedAt?: string;
 }): Promise<
   | {
       recordingId: string;
@@ -701,6 +720,7 @@ async function failAudioOnlyPreparation({
     db,
     recordingId,
     ownerEmail,
+    mediaUpdatedAt,
   });
   if (preserved) return preserved;
 
@@ -719,6 +739,7 @@ async function failAudioOnlyPreparation({
     segmentsJson: "[]",
     fullText: "",
     now,
+    mediaUpdatedAt,
     ...(transient ? { retryCount: nextRetryCount } : {}),
   });
   if (kept) return kept;
@@ -790,6 +811,7 @@ async function completeReadyTranscript({
   ownerEmail,
   fullText,
   segmentsJson,
+  mediaUpdatedAt,
   imported,
   preserved = false,
 }: {
@@ -798,6 +820,7 @@ async function completeReadyTranscript({
   ownerEmail: string;
   fullText: string;
   segmentsJson?: string | null;
+  mediaUpdatedAt?: string;
   /** An imported file's cues are the transcript of record, never rewritten. */
   imported: boolean;
   preserved?: boolean;
@@ -813,6 +836,7 @@ async function completeReadyTranscript({
 }> {
   const [recForTitle] = await db
     .select({
+      mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
       title: schema.recordings.title,
       titleSource: schema.recordings.titleSource,
       description: schema.recordings.description,
@@ -849,6 +873,7 @@ async function completeReadyTranscript({
         segmentsJson: normalizedSegmentsJson,
         fullText,
         now: new Date().toISOString(),
+        mediaUpdatedAt: mediaUpdatedAt ?? recForTitle?.mediaUpdatedAt,
       });
       if (kept) return kept;
       segmentsJson = normalizedSegmentsJson;
@@ -910,11 +935,13 @@ async function preserveReadyTranscriptIfAvailable({
   db,
   recordingId,
   ownerEmail,
+  mediaUpdatedAt,
   allowLikelyLanguageMismatch = true,
 }: {
   db: ReturnType<typeof getDb>;
   recordingId: string;
   ownerEmail: string;
+  mediaUpdatedAt?: string;
   allowLikelyLanguageMismatch?: boolean;
 }): Promise<{
   recordingId: string;
@@ -958,6 +985,7 @@ async function preserveReadyTranscriptIfAvailable({
       ownerEmail,
       fullText: current.fullText,
       segmentsJson: current.segmentsJson,
+      mediaUpdatedAt,
       imported: current.source === IMPORTED_TRANSCRIPT_SOURCE,
       preserved: true,
     });
@@ -1090,8 +1118,9 @@ const requestTranscriptAction = defineAction({
       return audioMediaPromise;
     };
 
-    const [existingNativeTranscript] = await db
+    const [recordingState] = await db
       .select({
+        mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
         status: schema.recordingTranscripts.status,
         fullText: schema.recordingTranscripts.fullText,
         segmentsJson: schema.recordingTranscripts.segmentsJson,
@@ -1101,9 +1130,23 @@ const requestTranscriptAction = defineAction({
         source: schema.recordingTranscripts.source,
         importId: schema.recordingTranscripts.importId,
       })
-      .from(schema.recordingTranscripts)
-      .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
+      .from(schema.recordings)
+      .leftJoin(
+        schema.recordingTranscripts,
+        eq(schema.recordingTranscripts.recordingId, schema.recordings.id),
+      )
+      .where(eq(schema.recordings.id, args.recordingId))
       .limit(1);
+    if (!recordingState) {
+      fail(`Recording not found: ${args.recordingId}`, {
+        errorCode: "recording_not_found",
+        statusCode: 404,
+      });
+    }
+    const mediaUpdatedAt = recordingState.mediaUpdatedAt;
+    const existingNativeTranscript = recordingState.status
+      ? recordingState
+      : undefined;
 
     const currentRetryCount = existingNativeTranscript?.retryCount ?? 0;
     const regeneratingReadyTranscript = Boolean(
@@ -1118,6 +1161,7 @@ const requestTranscriptAction = defineAction({
               args.replaceImportId !== undefined
                 ? args.replaceImportId
                 : (existingNativeTranscript?.importId ?? null),
+            updatedAt: existingNativeTranscript?.updatedAt ?? null,
           }
         : undefined;
     if (args.retryAttempt !== undefined) {
@@ -1148,6 +1192,7 @@ const requestTranscriptAction = defineAction({
           ownerEmail,
           fullText: existingNativeTranscript.fullText,
           segmentsJson: existingNativeTranscript.segmentsJson,
+          mediaUpdatedAt,
           imported:
             existingNativeTranscript.source === IMPORTED_TRANSCRIPT_SOURCE,
         });
@@ -1178,6 +1223,7 @@ const requestTranscriptAction = defineAction({
           status: "pending",
           failureReason: null,
           now,
+          mediaUpdatedAt,
         });
         if (kept) return kept;
         await writeAppState("refresh-signal", { ts: Date.now() });
@@ -1185,6 +1231,7 @@ const requestTranscriptAction = defineAction({
 
       const [rec] = await db
         .select({
+          mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
           videoUrl: schema.recordings.videoUrl,
           storageMode: schema.recordings.storageMode,
           videoFormat: schema.recordings.videoFormat,
@@ -1204,6 +1251,7 @@ const requestTranscriptAction = defineAction({
           db,
           recordingId: args.recordingId,
           ownerEmail,
+          mediaUpdatedAt,
         });
         if (preserved) return preserved;
         const kept = await writeTranscriptOrKeepImport(db, {
@@ -1212,6 +1260,7 @@ const requestTranscriptAction = defineAction({
           status: "failed",
           failureReason: reason,
           now,
+          mediaUpdatedAt,
         });
         if (kept) return kept;
         await writeAppState("refresh-signal", { ts: Date.now() });
@@ -1249,6 +1298,7 @@ const requestTranscriptAction = defineAction({
           err,
           now,
           currentRetryCount,
+          mediaUpdatedAt,
         });
       }
 
@@ -1293,6 +1343,7 @@ const requestTranscriptAction = defineAction({
             db,
             recordingId: args.recordingId,
             ownerEmail,
+            mediaUpdatedAt,
             allowLikelyLanguageMismatch: false,
           });
           if (preserved) return preserved;
@@ -1317,6 +1368,7 @@ const requestTranscriptAction = defineAction({
             segmentsJson: JSON.stringify(normalizedTranscript.segments),
             fullText,
             now,
+            mediaUpdatedAt,
             replaceTranscript: regeneratingFrom,
           });
           if (kept) return kept;
@@ -1379,6 +1431,23 @@ const requestTranscriptAction = defineAction({
           };
         }
       } catch (err) {
+        if (isRecordingMediaChanged(err)) {
+          if (!regeneratingReadyTranscript) {
+            const kept = await writeTranscriptOrKeepImport(db, {
+              recordingId: args.recordingId,
+              ownerEmail,
+              status: "failed",
+              failureReason: transcriptFailureMessage("CLOUD_FAILED"),
+              failureCode: "CLOUD_FAILED",
+              now,
+              mediaUpdatedAt,
+              retryCount: currentRetryCount + 1,
+            });
+            if (kept) return kept;
+            await writeAppState("refresh-signal", { ts: Date.now() });
+          }
+          throw err;
+        }
         const reason = (err as Error).message;
         const details = serializeError(err);
         const chunkErr = err instanceof ChunkTranscriptionError ? err : null;
@@ -1423,6 +1492,7 @@ const requestTranscriptAction = defineAction({
       db,
       recordingId: args.recordingId,
       ownerEmail,
+      mediaUpdatedAt,
     });
     if (preserved) return preserved;
 
@@ -1440,6 +1510,7 @@ const requestTranscriptAction = defineAction({
       failureReason: reason,
       failureCode: builderError ? builderFailureCode : "CLOUD_UNCONFIGURED",
       now,
+      mediaUpdatedAt,
       ...(cloudTransient ? { retryCount: cloudNextRetryCount } : {}),
     });
     if (kept) return kept;
@@ -1484,6 +1555,7 @@ async function writeTranscriptOrKeepImport(
     db,
     recordingId: row.recordingId,
     ownerEmail: row.ownerEmail,
+    mediaUpdatedAt: row.mediaUpdatedAt,
   });
   // An import is always ready, so a refused write with nothing to keep means
   // the row was deleted; carrying on would report work that wasn't saved.
@@ -1508,6 +1580,7 @@ async function upsertTranscriptRow(
     segmentsJson?: string;
     fullText?: string;
     now: string;
+    mediaUpdatedAt?: string;
     retryCount?: number;
     /**
      * Set only by an explicit regenerate: the transcript it started from. It
@@ -1517,6 +1590,22 @@ async function upsertTranscriptRow(
     replaceTranscript?: StartedFromTranscript;
   },
 ): Promise<boolean> {
+  let expectedMediaUpdatedAt = row.mediaUpdatedAt;
+  if (!expectedMediaUpdatedAt) {
+    const [recording] = await db
+      .select({ mediaUpdatedAt: schema.recordings.mediaUpdatedAt })
+      .from(schema.recordings)
+      .where(eq(schema.recordings.id, row.recordingId))
+      .limit(1);
+    if (!recording) {
+      fail(`Recording not found: ${row.recordingId}`, {
+        errorCode: "recording_not_found",
+        statusCode: 404,
+      });
+    }
+    expectedMediaUpdatedAt = recording.mediaUpdatedAt;
+  }
+
   const retryCount = row.status === "ready" ? 0 : (row.retryCount ?? undefined);
   const updatedAt = new Date().toISOString();
   const t = schema.recordingTranscripts;
@@ -1538,6 +1627,26 @@ async function upsertTranscriptRow(
     : notImportedTranscript();
 
   return db.transaction(async (tx) => {
+    const [locked] = await tx
+      .select({ id: schema.recordings.id })
+      .from(schema.recordings)
+      .where(
+        and(
+          eq(schema.recordings.id, row.recordingId),
+          eq(schema.recordings.mediaUpdatedAt, expectedMediaUpdatedAt),
+        ),
+      )
+      .for("update");
+    if (!locked) {
+      fail(
+        "The Clip media changed while transcription was running. Retry transcription.",
+        {
+          errorCode: "recording_media_changed",
+          statusCode: 409,
+        },
+      );
+    }
+
     const lockCurrent = () =>
       tx
         .select()
@@ -1574,7 +1683,17 @@ async function upsertTranscriptRow(
     const updated = await tx
       .update(t)
       .set(set)
-      .where(and(eq(t.recordingId, row.recordingId), replaceable))
+      .where(
+        and(
+          eq(t.recordingId, row.recordingId),
+          replaceable,
+          row.replaceTranscript
+            ? row.replaceTranscript.updatedAt === null
+              ? isNull(t.updatedAt)
+              : eq(t.updatedAt, row.replaceTranscript.updatedAt)
+            : undefined,
+        ),
+      )
       .returning({ recordingId: t.recordingId });
     if (updated.length === 0) return false;
     // An explicit regenerate replaces the whole transcript, like an import,
