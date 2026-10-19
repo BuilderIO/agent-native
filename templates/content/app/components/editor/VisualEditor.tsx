@@ -927,7 +927,39 @@ function normalizeTableHeaderCells(
     return rowChanged ? row.copy(Fragment.fromArray(normalizedCells)) : row;
   });
 
-  return changed ? table.copy(Fragment.fromArray(normalizedRows)) : table;
+  // Saved tables keep their headers only in these attributes, so update them
+  // whenever they no longer produce the header cells, e.g. after a header
+  // toggle or after deleting the header row.
+  const isHeaderAt = (
+    headerRow: boolean,
+    headerColumn: boolean,
+    rowIndex: number,
+    columnIndex: number,
+  ) => (headerRow && rowIndex === 0) || (headerColumn && columnIndex === 0);
+  const savedHeaderRow = table.attrs.headerRow === true;
+  const savedHeaderColumn = table.attrs.headerColumn === true;
+  const attrsMatchCells = rows.every((row, rowIndex) =>
+    getNodeChildren(row).every(
+      (_cell, columnIndex) =>
+        isHeaderAt(savedHeaderRow, savedHeaderColumn, rowIndex, columnIndex) ===
+        isHeaderAt(hasHeaderRow, hasHeaderColumn, rowIndex, columnIndex),
+    ),
+  );
+
+  if (!changed && attrsMatchCells) return table;
+
+  const content = changed ? Fragment.fromArray(normalizedRows) : table.content;
+  return attrsMatchCells
+    ? table.copy(content)
+    : table.type.create(
+        {
+          ...table.attrs,
+          headerRow: hasHeaderRow,
+          headerColumn: hasHeaderColumn,
+        },
+        content,
+        table.marks,
+      );
 }
 
 const normalizeTableHeadersPluginKey = new PluginKey("normalizeTableHeaders");
@@ -949,11 +981,20 @@ function buildNormalizeTableHeadersTransaction(state: CoreEditor["state"]) {
       tableHeaderType,
     );
     if (normalizedTable !== node) {
-      transaction = transaction.replaceWith(
-        pos,
-        pos + node.nodeSize,
-        normalizedTable,
-      );
+      // When only the header attributes change, keep the cells, and the
+      // selection inside them, in place.
+      transaction =
+        normalizedTable.content === node.content
+          ? transaction.setNodeMarkup(
+              transaction.mapping.map(pos),
+              undefined,
+              normalizedTable.attrs,
+            )
+          : transaction.replaceWith(
+              transaction.mapping.map(pos),
+              transaction.mapping.map(pos + node.nodeSize),
+              normalizedTable,
+            );
       changed = true;
     }
 

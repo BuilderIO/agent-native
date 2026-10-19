@@ -11,6 +11,7 @@ import {
   IconTrash,
 } from "@tabler/icons-react";
 import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { TextSelection } from "@tiptap/pm/state";
 import { findTable } from "@tiptap/pm/tables";
 import { Editor } from "@tiptap/react";
 import {
@@ -139,14 +140,24 @@ function getLastRowCell(table: HTMLElement) {
   return cells[0] ?? null;
 }
 
+// A reference preview renders its own read-only editor, tables included,
+// inside this one. Those tables aren't in this editor's document.
+function isInEditor(root: HTMLElement, element: Element) {
+  return element.closest(".ProseMirror") === root;
+}
+
+export function getEditorTables(root: HTMLElement) {
+  return (Array.from(root.querySelectorAll("table")) as HTMLElement[]).filter(
+    (table) => isInEditor(root, table),
+  );
+}
+
 function getCellAddress(editor: Editor, cell: HTMLElement) {
   const table = cell.closest("table") as HTMLElement | null;
   const row = cell.closest("tr") as HTMLTableRowElement | null;
   if (!table || !row) return null;
 
-  const tables = Array.from(
-    editor.view.dom.querySelectorAll("table"),
-  ) as HTMLElement[];
+  const tables = getEditorTables(editor.view.dom);
   const tableIndex = tables.indexOf(table);
   const rowIndex = getRows(table).indexOf(row);
   const columnIndex = getCells(row).indexOf(cell);
@@ -236,6 +247,26 @@ function getChildren(node: ProseMirrorNode) {
   const children: ProseMirrorNode[] = [];
   node.forEach((child) => children.push(child));
   return children;
+}
+
+// Where a cell starts in a table that starts at tablePos.
+function getCellPos(
+  table: ProseMirrorNode,
+  tablePos: number,
+  address: SelectedCellAddress,
+) {
+  const row = table.maybeChild(address.rowIndex);
+  if (!row || address.columnIndex >= row.childCount) return null;
+
+  let pos = tablePos + 1;
+  for (let index = 0; index < address.rowIndex; index += 1) {
+    pos += table.child(index).nodeSize;
+  }
+  pos += 1;
+  for (let index = 0; index < address.columnIndex; index += 1) {
+    pos += row.child(index).nodeSize;
+  }
+  return pos;
 }
 
 function findTableNodeByIndex(
@@ -339,7 +370,7 @@ function getHoveredTableEdges(editor: Editor, target: EventTarget | null) {
   }
 
   const cell = targetElement.closest("td, th") as HTMLElement | null;
-  if (!cell || !view.dom.contains(cell)) {
+  if (!cell || !isInEditor(view.dom, cell)) {
     return { columnTable: null, rowTable: null };
   }
 
@@ -477,9 +508,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
       return;
     }
 
-    const liveTables = Array.from(
-      view.dom.querySelectorAll("table"),
-    ) as HTMLElement[];
+    const liveTables = getEditorTables(view.dom);
     const nextSelectedCell =
       (selectedCellRef.current?.isConnected
         ? selectedCellRef.current
@@ -552,8 +581,8 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     if (element?.closest(".content-table-axis-trigger, [role='menu']")) return;
 
     const cell = element?.closest("td, th") as HTMLElement | null;
-    const nextCell =
-      cell && getMountedEditorView(editor)?.dom.contains(cell) ? cell : null;
+    const root = getMountedEditorView(editor)?.dom;
+    const nextCell = cell && root && isInEditor(root, cell) ? cell : null;
     if (hoveredCellRef.current === nextCell) return;
 
     hoveredCellRef.current = nextCell;
@@ -635,11 +664,14 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     return { address, table };
   };
 
+  // The header switches keep their menu open, and the menu isn't modal, so
+  // focusing the editor would close it. Closing it focuses the editor instead.
   const replaceTable = (
     tablePos: number,
     oldTable: ProseMirrorNode,
     nextTable: ProseMirrorNode,
     nextAddress: SelectedCellAddress,
+    { keepMenuFocus = false } = {},
   ) => {
     const transaction = editor.state.tr.replaceWith(
       tablePos,
@@ -647,13 +679,22 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
       nextTable,
     );
 
+    // Replacing the table moves the selection out of it, and the controls
+    // follow the selected cell: they would unmount, menu and all, until the
+    // next frame selects the cell again.
+    const cellPos = getCellPos(nextTable, tablePos, nextAddress);
+    if (cellPos !== null) {
+      transaction.setSelection(
+        TextSelection.near(transaction.doc.resolve(cellPos + 1)),
+      );
+    }
     transaction.setMeta(LOCAL_FILE_USER_EDIT_META, true);
     editor.view.dispatch(transaction.scrollIntoView());
-    editor.view.focus();
+    if (!keepMenuFocus) editor.view.focus();
 
     requestAnimationFrame(() => {
       const nextCell = getCellAtAddress(
-        Array.from(editor.view.dom.querySelectorAll("table")) as HTMLElement[],
+        getEditorTables(editor.view.dom),
         nextAddress,
       );
 
@@ -662,7 +703,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
         ? getCellAddress(editor, nextCell)
         : nextAddress;
       if (nextCell) {
-        selectCellForCommand(nextCell);
+        selectCellForCommand(nextCell, !keepMenuFocus);
       } else {
         syncOverlay();
       }
@@ -799,6 +840,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
       table.node,
       table.node.copy(Fragment.fromArray(nextRows)),
       address,
+      { keepMenuFocus: true },
     );
   };
 
@@ -840,6 +882,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
       table.node,
       table.node.copy(Fragment.fromArray(nextRows)),
       address,
+      { keepMenuFocus: true },
     );
   };
 
@@ -1011,7 +1054,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
 
       const cell = target.closest("td, th") as HTMLElement | null;
 
-      if (cell && view.dom.contains(cell)) {
+      if (cell && isInEditor(view.dom, cell)) {
         closeTableMenus();
         selectedCellRef.current = cell;
         selectedCellAddressRef.current = getCellAddress(editor, cell);
@@ -1039,7 +1082,8 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
 
     const handleKeyUp = () => {
       const cell = getCellFromEditorSelection(editor);
-      selectedCellRef.current = cell && view.dom.contains(cell) ? cell : null;
+      selectedCellRef.current =
+        cell && isInEditor(view.dom, cell) ? cell : null;
       selectedCellAddressRef.current = selectedCellRef.current
         ? getCellAddress(editor, selectedCellRef.current)
         : null;
@@ -1053,7 +1097,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
       }
 
       const cell = getCellFromEditorSelection(editor);
-      if (cell && view.dom.contains(cell)) {
+      if (cell && isInEditor(view.dom, cell)) {
         selectedCellRef.current = cell;
         selectedCellAddressRef.current = getCellAddress(editor, cell);
       } else if (!selectedCellRef.current?.isConnected) {
@@ -1280,7 +1324,11 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
         <>
           <DropdownMenu
             open={columnMenuOpen}
-            onOpenChange={setColumnMenuOpen}
+            onOpenChange={(open) => {
+              // Enter, Space and ArrowDown open the menu without a pointer.
+              if (open) selectHoveredCell();
+              setColumnMenuOpen(open);
+            }}
             modal={false}
           >
             <DropdownMenuTrigger asChild>
@@ -1427,7 +1475,11 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
 
           <DropdownMenu
             open={rowMenuOpen}
-            onOpenChange={setRowMenuOpen}
+            onOpenChange={(open) => {
+              // Enter, Space and ArrowDown open the menu without a pointer.
+              if (open) selectHoveredCell();
+              setRowMenuOpen(open);
+            }}
             modal={false}
           >
             <DropdownMenuTrigger asChild>

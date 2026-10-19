@@ -29,6 +29,13 @@ function caretCell(page: Page) {
   });
 }
 
+/** Whether keyboard focus is still inside the open menu. */
+function focusIsInMenu(page: Page) {
+  return page.evaluate(
+    () => !!document.activeElement?.closest("[role='menu']"),
+  );
+}
+
 /** Rows of the saved table, in Markdown or the HTML a browser save writes. */
 async function savedTableRows(page: Page, id: string) {
   const { content = "" } = await getDocument(page, id);
@@ -131,6 +138,65 @@ test.describe("inline table controls", () => {
     await page.reload();
     await expect(page.getByText("After the table.")).toBeVisible();
     await expect(page.locator(`${EDITOR} table`)).toHaveCount(0);
+  });
+
+  test("a menu opened from the keyboard acts on the hovered row", async ({
+    page,
+  }) => {
+    await openTablePage(page, "Table keyboard menu");
+    await cell(page, "Alpha").click();
+
+    await cell(page, "Ready").hover();
+    await page.getByRole("button", { name: "Row options" }).focus();
+    await page.keyboard.press("ArrowDown");
+    await page.getByRole("menuitem", { name: "Delete row" }).click();
+    await expect(cell(page, "Beta")).toHaveCount(0);
+    await expect(cell(page, "Alpha")).toBeVisible();
+  });
+
+  test("the header switches keep their menu open and are saved", async ({
+    page,
+  }) => {
+    const id = await openTablePage(page, "Table headers");
+    const savedContent = async () => (await getDocument(page, id)).content;
+
+    await cell(page, "Item").hover();
+    await page.getByRole("button", { name: "Row options" }).click();
+    await page.getByRole("menuitem", { name: "Header row" }).click();
+    await expect(page.getByTestId("header-row-switch")).toHaveAttribute(
+      "data-state",
+      "unchecked",
+    );
+    await expect(page.getByRole("menu")).toBeVisible();
+    await expect.poll(() => focusIsInMenu(page)).toBe(true);
+
+    // From the keyboard too: on, then off again, without the menu closing.
+    const headerRowSwitch = page.getByTestId("header-row-switch");
+    await page.keyboard.press("Enter");
+    await expect(headerRowSwitch).toHaveAttribute("data-state", "checked");
+    await page.keyboard.press("Enter");
+    await expect(headerRowSwitch).toHaveAttribute("data-state", "unchecked");
+    await expect.poll(() => focusIsInMenu(page)).toBe(true);
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("menu")).toHaveCount(0);
+    await expect.poll(savedContent).toContain("<table>");
+
+    await cell(page, "Alpha").hover();
+    await page.getByRole("button", { name: "Column options" }).click();
+    await page.getByRole("menuitem", { name: "Header column" }).click();
+    await expect(page.getByTestId("header-column-switch")).toHaveAttribute(
+      "data-state",
+      "checked",
+    );
+    await expect(page.getByRole("menu")).toBeVisible();
+    await expect.poll(() => focusIsInMenu(page)).toBe(true);
+    await expect.poll(savedContent).toContain('<table header-column="true">');
+
+    await page.reload();
+    await expect(cell(page, "Item")).toBeVisible();
+    await expect(
+      page.locator(`${EDITOR} .content-table-header-cell`),
+    ).toHaveText(["Item", "Alpha", "Beta"]);
   });
 
   test("a table wider than a phone keeps its add-column control on screen", async ({
