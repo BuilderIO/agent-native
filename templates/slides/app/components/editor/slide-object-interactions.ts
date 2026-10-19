@@ -5106,10 +5106,11 @@ export function resolveProportionalScale(
   const projected =
     (width * size.width + height * size.height) /
     (size.width * size.width + size.height * size.height);
+  // A box already under the minimum can't shrink further, but must not be
+  // forced to grow.
   const factor = Math.max(
     projected,
-    minSize / size.width,
-    minSize / size.height,
+    Math.min(1, Math.max(minSize / size.width, minSize / size.height)),
   );
   return {
     factor,

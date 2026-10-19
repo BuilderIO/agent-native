@@ -76,6 +76,22 @@ describe("proportional corner scale", () => {
     expect(rect.height / rect.width).toBeCloseTo(box.height / box.width, 6);
   });
 
+  it("does not force a thin object to grow on a near-zero drag", () => {
+    const line = { width: 240, height: 4 };
+    const result = resolveProportionalScale(
+      line,
+      { x: 0, y: 0 },
+      { handle: "se" },
+    )!;
+    expect(result.factor).toBeCloseTo(1, 6);
+    const shrunk = resolveProportionalScale(
+      line,
+      { x: -50, y: -1 },
+      { handle: "se" },
+    )!;
+    expect(shrunk.factor).toBeLessThanOrEqual(1);
+  });
+
   it("leaves edge handles to the regular resize", () => {
     expect(
       resolveProportionalScale(box, { x: 10, y: 0 }, { handle: "e" }),

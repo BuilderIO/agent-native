@@ -1,4 +1,4 @@
-import { useRef, useState, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -13,9 +13,40 @@ interface HandPanLayerProps {
 export function HandPanLayer({ scrollRef }: HandPanLayerProps) {
   const [panning, setPanning] = useState(false);
   const lastPoint = useRef<{ x: number; y: number } | null>(null);
+  const layerRef = useRef<HTMLDivElement>(null);
+
+  // Native listener: React's wheel handler is passive and can't cancel the
+  // default, which would also scroll the page around the canvas.
+  useEffect(() => {
+    const layer = layerRef.current;
+    if (!layer) return;
+    const onWheel = (event: WheelEvent) => {
+      // Ctrl/cmd-wheel is canvas zoom, handled elsewhere.
+      if (event.ctrlKey || event.metaKey) return;
+      const scroll = scrollRef.current;
+      if (!scroll) return;
+      event.preventDefault();
+      const unitX =
+        event.deltaMode === WheelEvent.DOM_DELTA_LINE
+          ? 16
+          : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+            ? scroll.clientWidth
+            : 1;
+      const unitY =
+        event.deltaMode === WheelEvent.DOM_DELTA_LINE
+          ? 16
+          : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+            ? scroll.clientHeight
+            : 1;
+      scroll.scrollBy(event.deltaX * unitX, event.deltaY * unitY);
+    };
+    layer.addEventListener("wheel", onWheel, { passive: false });
+    return () => layer.removeEventListener("wheel", onWheel);
+  }, [scrollRef]);
 
   return (
     <div
+      ref={layerRef}
       data-hand-pan-layer="true"
       className={cn(
         "absolute inset-0 z-10 touch-none",
@@ -43,25 +74,6 @@ export function HandPanLayer({ scrollRef }: HandPanLayerProps) {
       onPointerCancel={() => {
         lastPoint.current = null;
         setPanning(false);
-      }}
-      onWheel={(event) => {
-        // Ctrl/cmd-wheel is canvas zoom, handled elsewhere.
-        if (event.ctrlKey || event.metaKey) return;
-        const scroll = scrollRef.current;
-        if (!scroll) return;
-        const unitX =
-          event.deltaMode === WheelEvent.DOM_DELTA_LINE
-            ? 16
-            : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
-              ? scroll.clientWidth
-              : 1;
-        const unitY =
-          event.deltaMode === WheelEvent.DOM_DELTA_LINE
-            ? 16
-            : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
-              ? scroll.clientHeight
-              : 1;
-        scroll.scrollBy(event.deltaX * unitX, event.deltaY * unitY);
       }}
       onContextMenu={(event) => event.preventDefault()}
     />
