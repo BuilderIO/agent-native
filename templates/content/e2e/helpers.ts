@@ -158,7 +158,12 @@ export class Markers {
 }
 
 /** Open a page and wait until its editor accepts input. */
-export async function gotoEditor(page: Page, id: string): Promise<void> {
+export async function gotoEditor(
+  page: Page,
+  id: string,
+  { tabs, label = "editor" }: { tabs?: TabSet; label?: string } = {},
+): Promise<void> {
+  if (tabs) await tabs.track(label, page);
   await page.goto(`/page/${id}`, { waitUntil: "domcontentloaded" });
   await expectEditorReady(page);
 }
@@ -436,6 +441,12 @@ export class TabSet {
 
   async open(label: string, id: string, page?: Page): Promise<Page> {
     const tab = page ?? (await this.context.newPage());
+    await this.track(label, tab);
+    await gotoEditor(tab, id);
+    return tab;
+  }
+
+  async track(label: string, tab: Page): Promise<void> {
     this.tabs.set(tab, emptyTab(label));
     tab.on("load", () => {
       const record = this.tabs.get(tab);
@@ -452,8 +463,6 @@ export class TabSet {
     });
     await cdp.send("Page.enable");
     tab.on("close", () => this.leaveDocument(tab));
-    await gotoEditor(tab, id);
-    return tab;
   }
 
   record(page: Page): TabRecord {
