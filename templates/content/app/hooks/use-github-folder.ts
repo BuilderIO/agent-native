@@ -59,7 +59,8 @@ export interface SyncGitHubFolderResponse {
 /**
  * Linking or syncing a folder changes rows, Page lists and Trash. Other tabs
  * refresh from the action's change event, but a tab ignores its own events,
- * so this tab refreshes the same queries that event would.
+ * so this tab refreshes the same queries that event would. It does so after a
+ * failure too: a link can be saved before its first sync fails.
  */
 function useGitHubFolderMutation<TData, TVariables>(
   actionName: GitHubFolderAction,
@@ -69,7 +70,7 @@ function useGitHubFolderMutation<TData, TVariables>(
   const { pathname } = useLocation();
   return useActionMutation<TData, TVariables>(actionName, {
     skipActionQueryInvalidation: true,
-    onSuccess: (_data, variables) => {
+    onSettled: (_data, _error, variables) => {
       if (!changesRows(variables as TVariables)) return;
       const spoiled = contentSyncInvalidatePredicate(queryClient, pathname);
       const events = [{ source: "action", key: actionName }];

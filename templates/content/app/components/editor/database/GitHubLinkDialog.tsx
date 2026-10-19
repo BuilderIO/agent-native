@@ -215,7 +215,12 @@ export function GitHubLinkDialog({
 
   function handleError(cause: unknown) {
     const code = (cause as { errorCode?: unknown } | null)?.errorCode;
-    if (githubProblemFromErrorCode(code) === "connection") {
+    // A missing or ungranted connection comes from the shared provider
+    // runtime as `connection_required`; a rejected one, from GitHub.
+    if (
+      code === "connection_required" ||
+      githubProblemFromErrorCode(code) === "connection"
+    ) {
       setNeedsConnection(true);
       setError(null);
       return;

@@ -209,28 +209,29 @@ describe("GitHub link dialog", () => {
     expect(button("Link folder").disabled).toBe(true);
   });
 
-  it("offers to connect GitHub when there's no connection to read with", async () => {
-    renderDialog();
-    await typeInto(urlInput(), FOLDER_URL);
-    await click(button("Preview"));
-    const { act } = await import("react");
-    await act(async () =>
-      lastCall()[1].onError?.(
-        Object.assign(new Error("Connect GitHub"), {
-          errorCode: "GITHUB_CONNECTION",
-        }),
-      ),
-    );
-    expect(document.body.textContent).toContain(
-      "Connect GitHub so Content can read this repository.",
-    );
+  it.each(["connection_required", "GITHUB_CONNECTION"])(
+    "offers to connect GitHub when the preview fails with %s",
+    async (errorCode) => {
+      renderDialog();
+      await typeInto(urlInput(), FOLDER_URL);
+      await click(button("Preview"));
+      const { act } = await import("react");
+      await act(async () =>
+        lastCall()[1].onError?.(
+          Object.assign(new Error("Connect GitHub"), { errorCode }),
+        ),
+      );
+      expect(document.body.textContent).toContain(
+        "Connect GitHub so Content can read this repository.",
+      );
 
-    await click(button("Connect GitHub"));
-    expect(oauth.start).toHaveBeenCalledWith(
-      "github",
-      expect.objectContaining({ appId: "content", scope: "user" }),
-    );
-  });
+      await click(button("Connect GitHub"));
+      expect(oauth.start).toHaveBeenCalledWith(
+        "github",
+        expect.objectContaining({ appId: "content", scope: "user" }),
+      );
+    },
+  );
 
   it("starts over when the link changes after a preview", async () => {
     renderDialog();

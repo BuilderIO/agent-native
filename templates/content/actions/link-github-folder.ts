@@ -181,8 +181,9 @@ export default defineAction({
     });
     const sync = await syncGitHubSource({
       sourceId,
+      // The link is saved by now, so a lost connection is reported on it
+      // rather than thrown, which would leave the caller thinking it failed.
       budgetMs: FIRST_SYNC_BUDGET_MS,
-      throwConnectionErrors: true,
     });
     await writeAppState("refresh-signal", { ts: Date.now() });
     const source = await getContentDatabaseSourceSnapshot(database);

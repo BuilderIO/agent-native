@@ -518,6 +518,33 @@ describe("GitHub folder source", () => {
     ).rejects.toThrow("already has rows");
   });
 
+  it("keeps the link and reports it when the first sync loses the GitHub connection", async () => {
+    github.commit(BASE_FILES);
+    const database = await newCollection();
+    const { GitHubSourceError } =
+      await import("../server/lib/github-source-client.js");
+    // The preview reads with the connection; it fails once the link is saved.
+    github.state.duringBlobRead = async () => {
+      github.state.failure = new GitHubSourceError(
+        "connection",
+        "GitHub no longer accepts the saved connection. Reconnect GitHub.",
+        401,
+      );
+    };
+
+    const linked = await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    expect(linked).toMatchObject({
+      dryRun: false,
+      sync: { state: "error", problem: { code: "connection" } },
+    });
+    const status = await as(() => getSource.run({ databaseId: database.id }));
+    expect(status.source?.metadata.github?.problem).toMatchObject({
+      code: "connection",
+    });
+  });
+
   it("refuses the link when a row arrives while it reads GitHub", async () => {
     github.commit(BASE_FILES);
     const database = await newCollection();
