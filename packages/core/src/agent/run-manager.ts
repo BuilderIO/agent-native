@@ -34,6 +34,7 @@ import {
   insertRunEvents,
   updateRunStatusIfRunning,
   markRunAborted,
+  markRunAbortedAtSafeBoundary,
   getRunAbortState,
   getRunStatus,
   getRunEventsSince,
@@ -2991,6 +2992,19 @@ export async function abortRunDurably(
     );
   }
   return abortedInMemory;
+}
+
+/** Abort after the durable run store confirms no model or tool work is in flight. */
+export async function abortRunAtSafeBoundaryDurably(
+  runId: string,
+  reason: string = "user",
+): Promise<boolean> {
+  const run = activeRuns.get(runId);
+  await flushRunEventsBeforeAbort(run);
+  const aborted = await markRunAbortedAtSafeBoundary(runId, reason);
+  if (!aborted) return false;
+  if (run) abortInMemoryRun(run, reason);
+  return true;
 }
 
 export async function abortTurnByRefDurably(

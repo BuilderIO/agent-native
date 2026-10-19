@@ -40,9 +40,11 @@ const {
   claimTaskExecutionLease,
   claimTurnExecutionLease,
   clearLedgerForThread,
+  completeAgentExecutionStep,
   finalizeClaimedBackgroundRunFailure,
   getLastTerminalRunEvent,
   markAgentExecutionStepDispatched,
+  markRunAbortedAtSafeBoundary,
   recordLateAgentExecutionStepOutcome,
   ensureRunTables,
   insertRun,
@@ -332,6 +334,77 @@ describe("task execution leases", () => {
       status: "truncated",
       terminal_reason: "no_progress",
     });
+  });
+
+  it("keeps safe-boundary abort behind dispatched work and fences later dispatch", async () => {
+    const threadId = "thread-safe-abort-boundary";
+    const turnId = "turn-safe-abort-boundary";
+    const runId = "run-safe-abort-boundary";
+    await insertRun(runId, threadId, turnId);
+    const fence = await claimTurnExecutionLease(threadId, turnId, runId);
+    const dispatchedIntent = {
+      ...fence,
+      stepId: "already-dispatched",
+      operationId: "test:safe-abort",
+      toolName: "write",
+      inputJson: "{}",
+      replayPolicy: "never" as const,
+    };
+    const pendingIntent = {
+      ...fence,
+      stepId: "not-yet-dispatched",
+      operationId: "test:safe-abort-next",
+      toolName: "write",
+      inputJson: "{}",
+      replayPolicy: "never" as const,
+    };
+
+    await withExecutionFence(fence, async () => {
+      await expect(beginAgentExecutionStep(dispatchedIntent)).resolves.toEqual({
+        status: "execute",
+        wasDispatched: false,
+      });
+      await markAgentExecutionStepDispatched(dispatchedIntent);
+      await expect(beginAgentExecutionStep(pendingIntent)).resolves.toEqual({
+        status: "execute",
+        wasDispatched: false,
+      });
+    });
+
+    await expect(markRunAbortedAtSafeBoundary(runId, "user")).resolves.toBe(
+      false,
+    );
+    const running = await pglite.query(
+      "SELECT status, in_flight_since FROM agent_runs WHERE id = ?",
+      [runId],
+    );
+    expect(running.rows[0]).toMatchObject({
+      status: "running",
+      in_flight_since: null,
+    });
+
+    await withExecutionFence(fence, () =>
+      completeAgentExecutionStep(
+        dispatchedIntent,
+        JSON.stringify({ result: "done" }),
+      ),
+    );
+    await expect(markRunAbortedAtSafeBoundary(runId, "user")).resolves.toBe(
+      true,
+    );
+    const aborted = await pglite.query(
+      "SELECT status, in_flight_since FROM agent_runs WHERE id = ?",
+      [runId],
+    );
+    expect(aborted.rows[0]).toMatchObject({
+      status: "aborted",
+      in_flight_since: null,
+    });
+    await expect(
+      withExecutionFence(fence, () =>
+        markAgentExecutionStepDispatched(pendingIntent),
+      ),
+    ).rejects.toMatchObject({ code: "stale_execution_fence" });
   });
 
   it("does not let a late process failure overwrite the reaper's terminal result", async () => {

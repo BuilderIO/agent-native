@@ -87,6 +87,7 @@ vi.mock("./run-store.js", () => ({
     Promise.resolve({ claimed: true, activeRunId: null }),
   ),
   markRunAborted: vi.fn(() => Promise.resolve()),
+  markRunAbortedAtSafeBoundary: vi.fn(() => Promise.resolve(false)),
   markTurnAborted: vi.fn(() => Promise.resolve()),
   isRunAborted: vi.fn(() => Promise.resolve(false)),
   getRunAbortState: vi.fn(() => Promise.resolve({ aborted: false })),
@@ -205,6 +206,7 @@ import { isInBackgroundFunctionRuntime } from "./durable-background.js";
 import {
   abortRun,
   abortRunDurably,
+  abortRunAtSafeBoundaryDurably,
   abortTurnByRefDurably,
   endsAfterToolResultWithoutAssistantFinal,
   engineRequestShapeTags,
@@ -253,6 +255,7 @@ import {
   getRunEventsSince,
   getCurrentTurnRunEventsForThread,
   markRunAborted,
+  markRunAbortedAtSafeBoundary,
   markTurnAborted,
   updateRunStatus,
   updateRunStatusIfRunning,
@@ -1517,6 +1520,35 @@ describe("run manager soft timeout", () => {
     persistAbort?.();
     await expect(abortPromise).resolves.toBe(false);
     expect(resolved).toBe(true);
+  });
+
+  it("does not abort the in-memory run when safe-boundary admission is denied", async () => {
+    const waitForAbort = (signal: AbortSignal) =>
+      new Promise<void>((resolve) => {
+        signal.addEventListener("abort", () => resolve(), { once: true });
+      });
+    const run = startRun(
+      "run-safe-boundary-abort",
+      "thread-safe-boundary-abort",
+      async (_send, signal) => waitForAbort(signal),
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    vi.mocked(markRunAbortedAtSafeBoundary).mockResolvedValueOnce(false);
+
+    await expect(
+      abortRunAtSafeBoundaryDurably(run.runId, "user"),
+    ).resolves.toBe(false);
+    expect(run.status).toBe("running");
+    expect(run.abort.signal.aborted).toBe(false);
+
+    vi.mocked(markRunAbortedAtSafeBoundary).mockResolvedValueOnce(true);
+    await expect(
+      abortRunAtSafeBoundaryDurably(run.runId, "user"),
+    ).resolves.toBe(true);
+    expect(run.status).toBe("aborted");
+    expect(run.abort.signal.aborted).toBe(true);
+    await run.finalized;
   });
 
   it("aborts the in-process run before a turn-reference abort resolves", async () => {

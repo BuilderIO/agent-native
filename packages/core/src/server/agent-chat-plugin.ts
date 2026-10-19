@@ -102,6 +102,7 @@ import {
   normalizeAgentActionSurfaceResolution,
   getActiveRunForThreadAsync,
   abortRunDurably,
+  abortRunAtSafeBoundaryDurably,
   abortTurnByRefDurably,
   abortTurnDurably,
   subscribeToRun,
@@ -7030,11 +7031,23 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               return { error: "Run not found" };
             }
             let reason = "user";
+            let safeBoundary = false;
             try {
               const body = await readBody(event);
               reason = clientAbortReason(body?.reason);
+              safeBoundary = body?.safeBoundary === true;
             } catch {
               // Empty/invalid body — keep the default user abort reason.
+            }
+            if (safeBoundary) {
+              const aborted = await abortRunAtSafeBoundaryDurably(
+                runId,
+                reason,
+              );
+              if (aborted && USER_STOP_ABORT_REASONS.has(reason)) {
+                await abortTurnDurably(runId, reason);
+              }
+              return { ok: true, aborted };
             }
             // Recovery starts as soon as this response resolves, so wait for
             // the cross-isolate abort + terminal event to be durable. Returning
@@ -7278,12 +7291,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               // comment (run-manager.ts) and the THREE-SITE INVARIANT comments in
               // agent-chat-plugin.ts / production-agent.ts / agent-chat-adapter.ts.
               awaitingRedispatch: run.awaitingRedispatch === true,
-              // True exactly when this run holds an open tool call or A2A
-              // `agent_call` delegation (`in_flight_since` set — the same
+              // True exactly when this run has an open model stream, tool
+              // call, or A2A `agent_call` delegation (`in_flight_since` set — the same
               // marker `reapIfStale` reads to grant its bounded stale-reap
               // grace, see run-store.ts). This is the server-authoritative
               // signal for "would aborting this run right now destroy live
-              // work" — RunStuckBanner's Retry gating should prefer this
+              // work" — RunStuckBanner's Retry gating and queued steering
+              // should prefer this
               // field over its client-side proxy (unresolved `tool-call`
               // content parts in the local message list), which can go stale
               // after a reconnect or reader-mode replay. NOTE: this response
@@ -8606,7 +8620,26 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 result.deferred += 1;
                 continue;
               }
-              await abortRunDurably(active.runId, "user");
+              const aborted = await abortRunAtSafeBoundaryDurably(
+                active.runId,
+                "user",
+              );
+              if (!aborted) {
+                await retryQueuedSubmissionReceipt(
+                  receipt.threadId,
+                  receipt.messageId,
+                  Date.now() + 10_000,
+                  { claimId },
+                );
+                await mutateThreadQueuedMessages(receipt.threadId, {
+                  type: "release",
+                  messageId: receipt.messageId,
+                  claimId,
+                });
+                claimId = undefined;
+                result.deferred += 1;
+                continue;
+              }
               await abortTurnDurably(active.runId, "user");
               if (!(await waitForStableIdle(receipt.threadId))) {
                 await retryQueuedSubmissionReceipt(

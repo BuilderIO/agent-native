@@ -3314,6 +3314,22 @@ export async function markRunAborted(
   runId: string,
   reason?: string,
 ): Promise<void> {
+  await updateRunAborted(runId, reason, false);
+}
+
+/** Abort only when no model or tool work has crossed its dispatch boundary. */
+export async function markRunAbortedAtSafeBoundary(
+  runId: string,
+  reason?: string,
+): Promise<boolean> {
+  return updateRunAborted(runId, reason, true);
+}
+
+async function updateRunAborted(
+  runId: string,
+  reason: string | undefined,
+  requireSafeBoundary: boolean,
+): Promise<boolean> {
   await ensureRunTables();
   const client = getDbExec();
   if (!client.transaction) {
@@ -3321,8 +3337,34 @@ export async function markRunAborted(
   }
   const rowsAffected = await client.transaction(async (tx) => {
     await lockExecutionLeasesForRuns(tx, [runId]);
+    if (requireSafeBoundary) {
+      const run = await tx.execute({
+        sql: `SELECT thread_id, COALESCE(turn_id, id) AS turn_id
+              FROM agent_runs WHERE id = ?`,
+        args: [runId],
+      });
+      const runRef = run.rows[0] as
+        | { thread_id?: string; turn_id?: string }
+        | undefined;
+      if (runRef) {
+        if (
+          typeof runRef.thread_id !== "string" ||
+          typeof runRef.turn_id !== "string"
+        ) {
+          throw new Error(`Run ${runId} has an invalid thread or turn ID`);
+        }
+        const dispatchedStep = await tx.execute({
+          sql: `SELECT 1 FROM agent_execution_steps
+                WHERE thread_id = ? AND turn_id = ? AND status = 'dispatched'
+                  AND run_id = ?
+                LIMIT 1`,
+          args: [runRef.thread_id, runRef.turn_id, runId],
+        });
+        if (dispatchedStep.rows.length > 0) return 0;
+      }
+    }
     const result = await tx.execute({
-      sql: `UPDATE agent_runs SET status = 'aborted', abort_reason = ?, completed_at = ?, terminal_reason = ? WHERE id = ? AND status = 'running'`,
+      sql: `UPDATE agent_runs SET status = 'aborted', abort_reason = ?, completed_at = ?, terminal_reason = ? WHERE id = ? AND status = 'running'${requireSafeBoundary ? " AND in_flight_since IS NULL" : ""}`,
       args: [
         reason ?? "user",
         Date.now(),
@@ -3342,6 +3384,7 @@ export async function markRunAborted(
       "mark-aborted",
     );
   }
+  return (rowsAffected ?? 0) > 0;
 }
 
 async function lockExecutionLeasesForRuns(

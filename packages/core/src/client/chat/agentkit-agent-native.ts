@@ -106,6 +106,7 @@ interface ActiveRunStatus {
   status?: unknown;
   runId?: unknown;
   awaitingRedispatch?: unknown;
+  hasInFlightWork?: unknown;
   terminalReason?: unknown;
   turnId?: unknown;
 }
@@ -118,6 +119,7 @@ interface SnapshotAnnotationConflict {
 
 const RUN_SLOT_POLL_INTERVAL_MS = 150;
 const RUN_SLOT_STABLE_POLLS = 2;
+const SAFE_BOUNDARY_POLL_INTERVAL_MS = 500;
 const MAX_READINESS_SOURCES = 128;
 const MAX_THREAD_SNAPSHOT_REQUEST_BYTES = 4 * 1024 * 1024;
 const MAX_THREAD_SNAPSHOT_RETRIES = 2;
@@ -2960,6 +2962,30 @@ export function createAgentNativeAgentKitTransport(
     return value;
   }
 
+  async function abortRunAtSafeBoundary(
+    threadId: string,
+    runId: string,
+  ): Promise<boolean> {
+    const requestHeaders = await headers({ sessionId: threadId });
+    requestHeaders.set("content-type", "application/json");
+    const response = await fetcher(
+      `${apiUrl}/runs/${encodeURIComponent(runId)}/abort`,
+      {
+        method: "POST",
+        headers: requestHeaders,
+        body: JSON.stringify({ reason: "user", safeBoundary: true }),
+      },
+    );
+    if (!response.ok) throw await responseError(response);
+    const value = asRecord(await response.json());
+    if (typeof value?.aborted !== "boolean") {
+      throw new TypeError(
+        "Agent chat safe-boundary abort response must include aborted.",
+      );
+    }
+    return value.aborted;
+  }
+
   async function activeRunSnapshot(
     threadId: string,
     value: ActiveRunStatus,
@@ -4277,6 +4303,7 @@ export function createAgentNativeAgentKitTransport(
           }
           throw error;
         }
+        let claimHeld = true;
         try {
           if (claim.submissionExpired) {
             clearPromotionClaimId(threadId, messageId);
@@ -4285,19 +4312,92 @@ export function createAgentNativeAgentKitTransport(
           if (!claim.claimedMessage) {
             throw new TypeError("Agent chat queue claim response is invalid.");
           }
+          let claimedMessage = claim.claimedMessage;
+          const releaseClaim = async () => {
+            if (!claimHeld) return;
+            await persistQueueMutation(threadId, {
+              type: "release",
+              messageId,
+              claimId,
+            });
+            claimHeld = false;
+          };
           if (interruptActiveRun) {
-            const activeRun = await activeRunStatus(threadId);
-            if (runIsInFlight(activeRun)) {
+            const initialActiveRun = await activeRunStatus(threadId);
+            const targetTurnId =
+              typeof initialActiveRun.turnId === "string"
+                ? initialActiveRun.turnId
+                : undefined;
+            const targetRunId =
+              typeof initialActiveRun.runId === "string"
+                ? initialActiveRun.runId
+                : undefined;
+            let activeRun = initialActiveRun;
+            while (runIsInFlight(activeRun)) {
+              const sameTargetRun = targetTurnId
+                ? activeRun.turnId === targetTurnId
+                : activeRun.runId === targetRunId;
+              if (!sameTargetRun) {
+                throw new AgentKitRunSlotBusyError(
+                  typeof activeRun.runId === "string"
+                    ? activeRun.runId
+                    : undefined,
+                );
+              }
               if (typeof activeRun.runId !== "string" || !activeRun.runId) {
                 throw new TypeError(
                   "Agent chat active-run response must include an active run ID.",
                 );
               }
-              await transport.cancelRun({
-                threadId,
-                runId: activeRun.runId,
+              let aborted: boolean;
+              if (serverBackedCapabilities) {
+                aborted = await abortRunAtSafeBoundary(
+                  threadId,
+                  activeRun.runId,
+                );
+              } else if (activeRun.hasInFlightWork === false) {
+                await transport.cancelRun({
+                  threadId,
+                  runId: activeRun.runId,
+                });
+                aborted = true;
+              } else {
+                aborted = false;
+              }
+              if (aborted) {
+                await waitForRunSlot(threadId, RUN_SLOT_STABLE_POLLS * 4);
+                break;
+              }
+              await releaseClaim();
+              await new Promise((resolve) =>
+                setTimeout(resolve, SAFE_BOUNDARY_POLL_INTERVAL_MS),
+              );
+              activeRun = await activeRunStatus(threadId);
+            }
+            if (!claimHeld) {
+              claim = await persistQueueMutation(threadId, {
+                type: "claim",
+                messageId,
+                claimId,
               });
-              await waitForRunSlot(threadId, RUN_SLOT_STABLE_POLLS * 4);
+              if (claim.submissionExpired) {
+                clearPromotionClaimId(threadId, messageId);
+                return { alreadyRemoved: true as const };
+              }
+              if (claim.alreadySubmitted && claim.submittedRunId) {
+                clearPromotionClaimId(threadId, messageId);
+                return {
+                  runId: claim.submittedRunId,
+                  alreadySubmitted: true as const,
+                };
+              }
+              if (!claim.claimedMessage) {
+                throw new TypeError(
+                  "Agent chat queue claim response is invalid.",
+                );
+              }
+              claimedMessage = claim.claimedMessage;
+              claimHeld = true;
             }
           }
           const thread = await snapshot(threadId);
@@ -4311,19 +4411,19 @@ export function createAgentNativeAgentKitTransport(
                   (message) => message.id !== queued.id,
                 ),
                 {
-                  id: queued.id,
+                  id: claimedMessage.id,
                   role: "user",
                   parts: [
-                    { type: "text", text: queued.text },
-                    ...(queued.attachments ?? []),
+                    { type: "text", text: claimedMessage.text },
+                    ...(claimedMessage.attachments ?? []),
                   ],
-                  createdAt: queued.createdAt,
-                  metadata: queued.metadata,
+                  createdAt: claimedMessage.createdAt,
+                  metadata: claimedMessage.metadata,
                 },
               ],
-              requestAttachments: queued.requestAttachments,
-              options: queued.options,
-              metadata: queued.metadata,
+              requestAttachments: claimedMessage.requestAttachments,
+              options: claimedMessage.options,
+              metadata: claimedMessage.metadata,
               queuePromotion: {
                 messageId,
                 claimId,
@@ -4372,17 +4472,19 @@ export function createAgentNativeAgentKitTransport(
             clearPromotionClaimId(threadId, messageId);
             return { alreadyRemoved: true as const };
           }
-          try {
-            await persistQueueMutation(threadId, {
-              type: "release",
-              messageId,
-              claimId,
-            });
-          } catch (releaseError) {
-            throw new AggregateError(
-              [error, releaseError],
-              "Queue promotion failed and its lease could not be released.",
-            );
+          if (claimHeld) {
+            try {
+              await persistQueueMutation(threadId, {
+                type: "release",
+                messageId,
+                claimId,
+              });
+            } catch (releaseError) {
+              throw new AggregateError(
+                [error, releaseError],
+                "Queue promotion failed and its lease could not be released.",
+              );
+            }
           }
           throw error;
         }

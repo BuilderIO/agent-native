@@ -13,6 +13,8 @@ const sweepHarness = vi.hoisted(() => ({
 const inboxHarness = vi.hoisted(() => ({
   admissions: [] as Array<Record<string, unknown>>,
   admit: null as ((body: Record<string, any>) => Promise<string>) | null,
+  activeRun: null as Record<string, unknown> | null,
+  safeAbort: null as (() => Promise<boolean>) | null,
 }));
 
 vi.mock("./framework-request-handler.js", async (importOriginal) => {
@@ -69,7 +71,13 @@ vi.mock("../agent/production-agent.js", async (importOriginal) => {
       }
       return {};
     },
-    getActiveRunForThreadAsync: vi.fn(async () => null),
+    getActiveRunForThreadAsync: vi.fn(async () => inboxHarness.activeRun),
+    abortRunAtSafeBoundaryDurably: vi.fn(async () => {
+      const aborted = await inboxHarness.safeAbort?.();
+      if (aborted) inboxHarness.activeRun = null;
+      return aborted ?? true;
+    }),
+    abortTurnDurably: vi.fn(async () => {}),
   };
 });
 
@@ -164,6 +172,8 @@ describe("queued submission inbox recurring sweep", () => {
     sweepHarness.closeHooks.length = 0;
     inboxHarness.admissions.length = 0;
     inboxHarness.admit = null;
+    inboxHarness.activeRun = null;
+    inboxHarness.safeAbort = null;
   });
 
   afterEach(async () => {
@@ -311,5 +321,85 @@ describe("queued submission inbox recurring sweep", () => {
       },
     });
     expect(inboxHarness.admissions).toHaveLength(1);
+  });
+
+  it("defers an interrupt request while the active run still owns dispatched work", async () => {
+    const threadId = `thread-${randomUUID()}`;
+    const messageId = `queued-${randomUUID()}`;
+    const actor = { email: "inbox-owner@example.com", anonymous: false };
+    await createThread(actor.email, { id: threadId });
+    await mutateThreadQueuedMessages(
+      threadId,
+      {
+        type: "append",
+        message: {
+          id: messageId,
+          threadId,
+          text: "Steer after the current action",
+          interruptActiveRun: true,
+        },
+      },
+      { actor },
+    );
+    inboxHarness.activeRun = {
+      runId: "active-run-with-dispatched-tool",
+      threadId,
+      turnId: "active-turn",
+      status: "running",
+      inFlight: true,
+      hasInFlightWork: true,
+    };
+    inboxHarness.safeAbort = vi.fn(async () => false);
+    inboxHarness.admit = async () => {
+      throw new Error("A dispatched tool must finish before promotion");
+    };
+
+    const h3App = createApp();
+    createAgentChatPlugin({
+      actions: () => ({}),
+      a2aAgentDelegation: false,
+      frameworkTools: "minimal",
+      leanPrompt: true,
+      mcp: { enabled: false },
+    })({
+      h3App,
+      hooks: {
+        hook(name, callback) {
+          if (name === "close") sweepHarness.closeHooks.push(callback);
+        },
+      },
+    });
+    await sweepHarness.initPromises.at(-1);
+
+    const response = await h3App.fetch(
+      new Request(`http://example.test${RECURRING_JOBS_SWEEP_PATH}`, {
+        method: "GET",
+        headers: { authorization: "Bearer sweep-test-secret" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      queuedSubmissionDrain: {
+        scanned: 1,
+        claimed: 1,
+        submitted: 0,
+        deferred: 1,
+        failed: 0,
+      },
+    });
+    expect(inboxHarness.safeAbort).toHaveBeenCalledOnce();
+    expect(inboxHarness.admissions).toHaveLength(0);
+    expect(await getQueuedSubmissionReceipt(threadId, messageId)).toMatchObject(
+      { state: "queued" },
+    );
+    const storedThread = await getDbExec().execute({
+      sql: "SELECT thread_data FROM chat_threads WHERE id = ?",
+      args: [threadId],
+    });
+    const threadData = JSON.parse(
+      (storedThread.rows[0] as { thread_data: string }).thread_data,
+    );
+    expect(threadData.queuedMessages[0]).not.toHaveProperty("promotionClaim");
   });
 });
