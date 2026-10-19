@@ -291,6 +291,7 @@ Options:
   );
 
   const generatedFiles: string[] = [];
+  let successfulVariations = 0;
 
   for (const settled of variantResults) {
     if (settled.status === "rejected") {
@@ -301,6 +302,7 @@ Options:
       continue;
     }
     const { i, result } = settled.value;
+    successfulVariations++;
     if (outputPrefix) {
       const filePath = `${outputPrefix}-v${i + 1}.png`;
       writeFileSync(filePath, result.imageData);
@@ -324,6 +326,12 @@ Options:
     for (const f of generatedFiles) {
       console.log(`  ${f}`);
     }
+  }
+
+  if (successfulVariations === 0) {
+    console.error("No image variations were generated successfully.");
+    process.exitCode = 1;
+    return;
   }
 
   console.log("\nDone!");

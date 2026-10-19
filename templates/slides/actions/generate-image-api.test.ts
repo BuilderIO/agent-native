@@ -92,9 +92,15 @@ describe("generate-image-api", () => {
       url: "https://cdn.example.com/local.png",
     });
 
-    const result = await action.run({ prompt: "a sunset" });
+    const result = await action.run({
+      prompt: "a sunset",
+      slideContent: "<div>Quarterly revenue growth</div>",
+    });
 
     expect(mockDelegateImageGenerationToAssets).not.toHaveBeenCalled();
+    expect(mockProviderGenerate).toHaveBeenCalledWith("a sunset", [], {
+      slideContent: "<div>Quarterly revenue growth</div>",
+    });
     expect(result).toMatchObject({
       source: "slides-local",
       prompt: "a sunset",
@@ -187,20 +193,24 @@ describe("generate-image-api", () => {
       ],
     });
 
-    expect(mockProviderGenerate).toHaveBeenCalledWith("a brand hero image", [
-      {
-        data: Buffer.from("default-style-bytes").toString("base64"),
-        mimeType: "image/png",
-      },
-      {
-        data: Buffer.from("style-1-bytes").toString("base64"),
-        mimeType: "image/png",
-      },
-      {
-        data: Buffer.from("style-2-bytes").toString("base64"),
-        mimeType: "image/png",
-      },
-    ]);
+    expect(mockProviderGenerate).toHaveBeenCalledWith(
+      "a brand hero image",
+      [
+        {
+          data: Buffer.from("default-style-bytes").toString("base64"),
+          mimeType: "image/png",
+        },
+        {
+          data: Buffer.from("style-1-bytes").toString("base64"),
+          mimeType: "image/png",
+        },
+        {
+          data: Buffer.from("style-2-bytes").toString("base64"),
+          mimeType: "image/png",
+        },
+      ],
+      undefined,
+    );
     expect(result).toMatchObject({
       source: "slides-fallback",
       fallbackReason: "Assets offline",
@@ -209,6 +219,18 @@ describe("generate-image-api", () => {
       showToUser: "![a brand hero image](https://cdn.example.com/fallback.png)",
       model: "gemini",
     });
+  });
+
+  it("fails when Assets is unavailable without a reason", async () => {
+    mockDelegateImageGenerationToAssets.mockResolvedValue({
+      status: "unavailable",
+      reason: "  ",
+    });
+
+    await expect(
+      action.run({ prompt: "a brand hero image", useBrandLibrary: true }),
+    ).rejects.toThrow("without a reason");
+    expect(mockGetProvider).not.toHaveBeenCalled();
   });
 
   it("inserts and verifies an Assets image when requested", async () => {

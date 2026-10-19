@@ -233,7 +233,16 @@ export default defineAction({
         );
       }
 
-      assetsUnavailableReason = delegation.reason;
+      assetsUnavailableReason = delegation.reason.trim();
+      if (!assetsUnavailableReason) {
+        fail(
+          "Assets reported that image generation is unavailable without a reason; no local fallback was attempted.",
+          {
+            errorCode: "assets_unavailability_reason_missing",
+            statusCode: 424,
+          },
+        );
+      }
     }
 
     const { getProvider } =
@@ -251,7 +260,10 @@ export default defineAction({
       if (r) refImages.push(r);
     }
 
-    const result = await provider.generate(prompt, refImages);
+    const context = args.slideContent
+      ? { slideContent: args.slideContent }
+      : undefined;
+    const result = await provider.generate(prompt, refImages, context);
     const uploaded = await uploadFile({
       data: result.imageData,
       filename: `slides-generated-${Date.now()}.png`,
