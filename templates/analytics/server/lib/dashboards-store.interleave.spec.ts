@@ -91,6 +91,7 @@ const state = vi.hoisted(() => ({
   updateAttempts: 0,
   peerAfterNextUpdate: false,
   inTransaction: false,
+  saveBeforeNextTransaction: false,
   legacySettings: null as Record<string, unknown> | null,
   writes: [] as Array<{ table: string; inTransaction: boolean }>,
 }));
@@ -433,6 +434,14 @@ vi.mock("../db/index.js", () => {
       }),
     }),
     transaction: async (callback: (transactionDb: any) => unknown) => {
+      if (state.saveBeforeNextTransaction) {
+        state.saveBeforeNextTransaction = false;
+        state.dashboard = {
+          ...state.dashboard,
+          config: JSON.stringify({ name: "Traffic", panels: [panel("peer")] }),
+          updatedAt: "2026-07-09T00:00:00.001Z",
+        };
+      }
       state.inTransaction = true;
       try {
         return await callback(db);
@@ -496,10 +505,24 @@ beforeEach(() => {
   state.updateAttempts = 0;
   state.peerAfterNextUpdate = false;
   state.inTransaction = false;
+  state.saveBeforeNextTransaction = false;
   state.writes = [];
 });
 
 describe("dashboards-store concurrency", () => {
+  it("snapshots the version read under the lock after a concurrent save", async () => {
+    state.saveBeforeNextTransaction = true;
+
+    await createDashboardRevisionSnapshot("traffic", ctx);
+
+    expect(state.revisions).toHaveLength(1);
+    expect(
+      JSON.parse(state.revisions[0].config).panels.map((p: any) => p.id),
+    ).toEqual(["peer"]);
+    expect(state.writes).toEqual([
+      { table: "dashboardRevisions", inTransaction: true },
+    ]);
+  });
   it.each([
     ["save", () => upsertDashboard("traffic", "sql", { name: "Changed" }, ctx)],
     ["edit preflight", () => assertDashboardEditable("traffic", ctx)],

@@ -19,6 +19,7 @@ import {
   withoutInstallTimes,
   type BuiltinDashboardInstall,
 } from "./builtin-dashboards";
+import { materializeLegacyBuiltinDashboardSettings } from "./legacy-builtin-dashboard-settings";
 import {
   nativeV2DashboardManifests,
   type NativeV2Binding,
@@ -47,11 +48,14 @@ export type KeepReason =
   | "in_folder"
   | "shared"
   | "saved_views"
+  | "revisions"
+  | "conflicting_install"
   | "report_subscriptions"
   | "data_notes";
 
 export interface BuiltinDashboardPassResult {
   dryRun: boolean;
+  legacySettings: { scanned: number; materialized: number };
   checked: number;
   hidden: number;
   kept: number;
@@ -167,6 +171,9 @@ function candidateFilter() {
       sql`${d.id} LIKE 'native-%'`,
       eq(d.id, "risk-meeting"),
       inArray(d.id, [...SEED_BUILTIN_DASHBOARD_IDS]),
+      ...SEED_BUILTIN_DASHBOARD_IDS.map(
+        (id) => sql`${d.id} LIKE ${`${id}-legacy-%`}`,
+      ),
     ),
   );
 }
@@ -174,6 +181,7 @@ function candidateFilter() {
 interface DashboardReferences {
   shared: Set<string>;
   views: Set<string>;
+  revisions: Set<string>;
   subscriptions: Set<string>;
   notes: Set<string>;
 }
@@ -186,6 +194,7 @@ function addReferenceReasons(
   const references = [
     [refs.shared, "shared"],
     [refs.views, "saved_views"],
+    [refs.revisions, "revisions"],
     [refs.subscriptions, "report_subscriptions"],
     [refs.notes, "data_notes"],
   ] as const;
@@ -198,7 +207,7 @@ async function referencedIds(
   ids: string[],
   db = getDb() as any,
 ): Promise<DashboardReferences> {
-  const [shares, views, subscriptions] = await Promise.all([
+  const [shares, views, revisions, subscriptions] = await Promise.all([
     db
       .select({ id: schema.dashboardShares.resourceId })
       .from(schema.dashboardShares)
@@ -207,6 +216,10 @@ async function referencedIds(
       .select({ id: schema.dashboardViews.dashboardId })
       .from(schema.dashboardViews)
       .where(inArray(schema.dashboardViews.dashboardId, ids)),
+    db
+      .select({ id: schema.dashboardRevisions.dashboardId })
+      .from(schema.dashboardRevisions)
+      .where(inArray(schema.dashboardRevisions.dashboardId, ids)),
     db
       .select({ id: schema.dashboardReportSubscriptions.dashboardId })
       .from(schema.dashboardReportSubscriptions)
@@ -226,6 +239,7 @@ async function referencedIds(
   return {
     shared: idSet(shares),
     views: idSet(views),
+    revisions: idSet(revisions),
     subscriptions: idSet(subscriptions),
     notes,
   };
@@ -238,6 +252,7 @@ export async function runBuiltinDashboardPass(
   const db = getDb() as any;
   const result: BuiltinDashboardPassResult = {
     dryRun,
+    legacySettings: await materializeLegacyBuiltinDashboardSettings(options),
     checked: 0,
     hidden: 0,
     kept: 0,
@@ -315,12 +330,29 @@ export async function runBuiltinDashboardPass(
       }
       addReferenceReasons(reasons, refs, row.id);
 
+      const checkInstall = async () => {
+        if (!install?.bindings && !install?.programIds) return;
+        const current = await loadBuiltinDashboard(builtinId, {
+          email: row.ownerEmail,
+          orgId: row.orgId ?? null,
+        });
+        if (
+          current &&
+          built &&
+          stable(withoutInstallTimes(current.config)) !==
+            stable(withoutInstallTimes(built.config)) &&
+          !reasons.includes("conflicting_install")
+        )
+          reasons.push("conflicting_install");
+      };
+      await checkInstall();
+
       let outcome: "hidden" | "kept" = reasons.length === 0 ? "hidden" : "kept";
       const persisted =
         dryRun ||
         (await db.transaction(async (tx: any) => {
           if (outcome === "hidden") {
-            // Saved-view writes lock the parent without changing its version.
+            // Reference writers lock the parent without changing its version.
             const [locked] = await tx
               .select({ id: schema.dashboards.id })
               .from(schema.dashboards)
@@ -338,6 +370,7 @@ export async function runBuiltinDashboardPass(
               await referencedIds([row.id], tx),
               row.id,
             );
+            await checkInstall();
             if (reasons.length > 0) outcome = "kept";
           }
           if (outcome === "hidden") {

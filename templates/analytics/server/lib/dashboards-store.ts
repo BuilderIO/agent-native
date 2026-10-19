@@ -1774,10 +1774,9 @@ export async function createDashboardRevisionSnapshot(
   chatContext?: AnalyticsRevisionChatContext,
 ): Promise<string | null> {
   await assertDashboardEditable(dashboardId, ctx);
-  const dashboard = await getDashboard(dashboardId, ctx);
-  if (!dashboard) return null;
   return (getDb() as any).transaction(async (tx: any) => {
-    await lockWritableDashboard(tx, dashboardId);
+    const row = await lockWritableDashboard(tx, dashboardId);
+    const dashboard = rowToDashboard(row);
     return snapshotDashboardRevision(
       tx,
       dashboard,
@@ -1840,14 +1839,18 @@ export function assertDashboardMutationApplied(
   if (affected === 0) throw new DashboardConflictError(id);
 }
 
-async function lockWritableDashboard(db: any, id: string): Promise<void> {
+async function lockWritableDashboard(
+  db: any,
+  id: string,
+): Promise<typeof schema.dashboards.$inferSelect> {
   const [row] = await db
-    .select({ id: schema.dashboards.id, hiddenBy: schema.dashboards.hiddenBy })
+    .select()
     .from(schema.dashboards)
     .where(eq(schema.dashboards.id, id))
     .for("update");
   if (!row) throw new DashboardConflictError(id);
   assertNotBuiltinDashboard(id, row);
+  return row;
 }
 
 export interface DashboardUpsertOutcome {

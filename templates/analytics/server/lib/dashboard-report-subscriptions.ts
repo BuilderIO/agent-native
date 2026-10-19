@@ -4,11 +4,13 @@ import { recordChange } from "@agent-native/core/server";
 import { EMBED_TOKEN_QUERY_PARAM } from "@agent-native/core/shared";
 import { and, asc, eq, isNull, lte, or, sql } from "drizzle-orm";
 
+import { BUILTIN_DASHBOARD_HIDDEN_BY } from "../../shared/builtin-dashboard-ids.js";
 import { getDb, schema } from "../db/index.js";
 import type { AnnotationScope } from "./annotation-scope";
 import { repairKnownFirstPartyDashboardQueries } from "./canonical-first-party-dashboard-repair";
 import { storedDashboardAnnotationScope } from "./dashboard-annotation-scope";
-import { openDashboard } from "./open-dashboard";
+import { DashboardConflictError } from "./dashboards-store";
+import { openDashboard, type OpenedDashboard } from "./open-dashboard";
 
 export interface ReportSubscriptionInput {
   id?: string;
@@ -72,7 +74,18 @@ export async function getReportDashboard(
   dashboardId: string,
   ctx: AccessCtx,
 ): Promise<ReportDashboard | null> {
-  const opened = await openDashboard(dashboardId, ctx);
+  return reportDashboardFromOpened(
+    await openDashboard(dashboardId, ctx),
+    dashboardId,
+    ctx,
+  );
+}
+
+function reportDashboardFromOpened(
+  opened: OpenedDashboard | null,
+  dashboardId: string,
+  ctx: AccessCtx,
+): ReportDashboard | null {
   const dashboard = opened?.saved;
   if (dashboard?.kind === "sql") {
     const config = repairKnownFirstPartyDashboardQueries(
@@ -437,7 +450,8 @@ export async function saveDashboardReportSubscription(
   input: ReportSubscriptionInput,
   ctx: AccessCtx,
 ): Promise<DashboardReportSubscription> {
-  const dashboard = await getReportDashboard(input.dashboardId, ctx);
+  const opened = await openDashboard(input.dashboardId, ctx);
+  const dashboard = reportDashboardFromOpened(opened, input.dashboardId, ctx);
   if (!dashboard) {
     throw Object.assign(new Error("Dashboard not found"), { statusCode: 404 });
   }
@@ -455,51 +469,75 @@ export async function saveDashboardReportSubscription(
   const db = getDb() as any;
   const id = input.id || randomUUID();
 
-  if (input.id) {
-    const existing = await getDashboardReportSubscription(input.id, ctx);
-    if (!existing) {
-      throw Object.assign(new Error("Report subscription not found"), {
-        statusCode: 404,
-      });
+  const saved = await db.transaction(async (tx: any) => {
+    // The deploy pass locks this parent before rechecking subscription references.
+    const [parent] = await tx
+      .select({
+        id: schema.dashboards.id,
+        hiddenBy: schema.dashboards.hiddenBy,
+      })
+      .from(schema.dashboards)
+      .where(eq(schema.dashboards.id, input.dashboardId))
+      .for("update");
+    if (
+      opened?.saved &&
+      (!parent || parent.hiddenBy === BUILTIN_DASHBOARD_HIDDEN_BY)
+    ) {
+      throw new DashboardConflictError(input.dashboardId);
     }
-    await db
-      .update(schema.dashboardReportSubscriptions)
-      .set({
+    if (input.id) {
+      const [existing] = await tx
+        .select()
+        .from(schema.dashboardReportSubscriptions)
+        .where(ownerWhere(ctx, undefined, input.id));
+      if (!existing) {
+        throw Object.assign(new Error("Report subscription not found"), {
+          statusCode: 404,
+        });
+      }
+      await tx
+        .update(schema.dashboardReportSubscriptions)
+        .set({
+          dashboardId: input.dashboardId,
+          name,
+          recipients: JSON.stringify(recipients),
+          slackWebhookUrl,
+          filters: JSON.stringify(filters),
+          timeOfDay,
+          timezone,
+          enabled: input.enabled,
+          nextRunAt,
+          updatedAt,
+          lastError: null,
+        })
+        .where(ownerWhere(ctx, undefined, id));
+    } else {
+      await tx.insert(schema.dashboardReportSubscriptions).values({
+        id,
         dashboardId: input.dashboardId,
         name,
         recipients: JSON.stringify(recipients),
         slackWebhookUrl,
         filters: JSON.stringify(filters),
+        frequency: "daily",
         timeOfDay,
         timezone,
         enabled: input.enabled,
         nextRunAt,
+        createdAt: updatedAt,
         updatedAt,
-        lastError: null,
-      })
-      .where(ownerWhere(ctx, undefined, id));
-  } else {
-    await db.insert(schema.dashboardReportSubscriptions).values({
-      id,
-      dashboardId: input.dashboardId,
-      name,
-      recipients: JSON.stringify(recipients),
-      slackWebhookUrl,
-      filters: JSON.stringify(filters),
-      frequency: "daily",
-      timeOfDay,
-      timezone,
-      enabled: input.enabled,
-      nextRunAt,
-      createdAt: updatedAt,
-      updatedAt,
-      ownerEmail: ctx.email,
-      orgId: ctx.orgId,
-    });
-  }
+        ownerEmail: ctx.email,
+        orgId: ctx.orgId,
+      });
+    }
 
-  const saved = await getDashboardReportSubscription(id, ctx);
-  if (!saved) throw new Error("Failed to save report subscription");
+    const [savedRow] = await tx
+      .select()
+      .from(schema.dashboardReportSubscriptions)
+      .where(ownerWhere(ctx, undefined, id));
+    if (!savedRow) throw new Error("Failed to save report subscription");
+    return rowToSubscription(savedRow);
+  });
   recordChange({
     source: "dashboard-report-subscriptions",
     type: "change",

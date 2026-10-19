@@ -73,6 +73,7 @@ import {
 } from "./native-v2-dashboards.js";
 
 const TABLES = [
+  `CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
   `CREATE TABLE dashboards (
     id TEXT PRIMARY KEY, kind TEXT NOT NULL, title TEXT NOT NULL,
     config TEXT NOT NULL, certification TEXT,
@@ -83,6 +84,7 @@ const TABLES = [
   )`,
   `CREATE TABLE dashboard_shares (id TEXT PRIMARY KEY, resource_id TEXT NOT NULL)`,
   `CREATE TABLE dashboard_views (id TEXT PRIMARY KEY, dashboard_id TEXT NOT NULL)`,
+  `CREATE TABLE dashboard_revisions (id TEXT PRIMARY KEY, dashboard_id TEXT NOT NULL)`,
   `CREATE TABLE dashboard_report_subscriptions (id TEXT PRIMARY KEY, dashboard_id TEXT NOT NULL)`,
   ...DATA_NOTES_MIGRATION_SQL,
   ...BUILTIN_DASHBOARD_CHECKS_MIGRATION_SQL,
@@ -226,6 +228,56 @@ describe("built-in dashboard deploy pass", () => {
       `SELECT * FROM analytics_builtin_dashboard_checks`,
     );
     expect(checks.rows).toEqual([]);
+  });
+
+  it("keeps a restored shipped config with revision history", async () => {
+    const id = "demo-node-exporter-00000001";
+    await insertCopy(id, legacyDemoConfig());
+    await client.query(`INSERT INTO dashboard_revisions VALUES ('r1', $1)`, [
+      id,
+    ]);
+
+    expect(await runBuiltinDashboardPass()).toMatchObject({
+      hidden: 0,
+      kept: 1,
+      keptByReason: { revisions: 1 },
+    });
+    expect((await row(id)).hidden_at).toBeNull();
+  });
+
+  it("keeps pristine copies whose bindings differ from the org install", async () => {
+    for (const suffix of ["0000000001", "0000000002"]) {
+      const config = compileNativeV2Dashboard(
+        getNativeV2DashboardManifest("customer-roi-v2"),
+        {
+          "roi.kpi": { programId: `dp-${suffix}-kpi` },
+          "roi.trend": { programId: `dp-${suffix}-trend` },
+          "roi.detail": { programId: `dp-${suffix}-detail` },
+        },
+        UPDATED_AT,
+      ) as unknown as Record<string, unknown>;
+      await insertCopy(`native-customer-roi-v2-${suffix}`, config, {
+        org_id: "org-1",
+        visibility: "org",
+      });
+    }
+
+    expect(await runBuiltinDashboardPass()).toMatchObject({
+      hidden: 1,
+      kept: 1,
+      keptByReason: { conflicting_install: 1 },
+    });
+    expect((await row("native-customer-roi-v2-0000000001")).hidden_by).toBe(
+      BUILTIN_DASHBOARD_HIDDEN_BY,
+    );
+    expect(
+      (await row("native-customer-roi-v2-0000000002")).hidden_at,
+    ).toBeNull();
+    const builtin = await loadBuiltinDashboard("builtin-customer-roi-v2", {
+      email: "alice@example.test",
+      orgId: "org-1",
+    });
+    expect(JSON.stringify(builtin?.config)).toContain("dp-0000000001-trend");
   });
 
   it("does not load or list a demo deleted by the reader", async () => {
@@ -434,51 +486,58 @@ describe("built-in dashboard deploy pass", () => {
     });
   });
 
-  it("keeps a copy when a saved view is added after the reference scan", async () => {
-    const id = "native-customer-roi-v2-0123456789";
-    const config = compileNativeV2Dashboard(
-      getNativeV2DashboardManifest("customer-roi-v2"),
-      {
-        "roi.kpi": { programId: "dp-roi-kpi" },
-        "roi.trend": { programId: "dp-roi-trend" },
-        "roi.detail": { programId: "dp-roi-detail" },
-      },
-      UPDATED_AT,
-    ) as unknown as Record<string, unknown>;
-    await insertCopy(id, config, { org_id: "org-1", visibility: "org" });
-    const db = mocks.getDb();
-    const transaction = db.transaction.bind(db);
-    vi.spyOn(db, "transaction").mockImplementationOnce(
-      async (callback: any) => {
-        await client.query(
-          `INSERT INTO dashboard_views VALUES ('concurrent-view', $1)`,
-          [id],
-        );
-        return transaction(callback);
-      },
-    );
+  it.each([
+    ["dashboard_views", "saved_views"],
+    ["dashboard_revisions", "revisions"],
+    ["dashboard_report_subscriptions", "report_subscriptions"],
+  ])(
+    "keeps a copy when %s is added after the reference scan",
+    async (table, reason) => {
+      const id = "native-customer-roi-v2-0123456789";
+      const config = compileNativeV2Dashboard(
+        getNativeV2DashboardManifest("customer-roi-v2"),
+        {
+          "roi.kpi": { programId: "dp-roi-kpi" },
+          "roi.trend": { programId: "dp-roi-trend" },
+          "roi.detail": { programId: "dp-roi-detail" },
+        },
+        UPDATED_AT,
+      ) as unknown as Record<string, unknown>;
+      await insertCopy(id, config, { org_id: "org-1", visibility: "org" });
+      const db = mocks.getDb();
+      const transaction = db.transaction.bind(db);
+      vi.spyOn(db, "transaction").mockImplementationOnce(
+        async (callback: any) => {
+          await client.query(
+            `INSERT INTO ${table} VALUES ('concurrent-reference', $1)`,
+            [id],
+          );
+          return transaction(callback);
+        },
+      );
 
-    expect(await runBuiltinDashboardPass()).toMatchObject({
-      checked: 1,
-      hidden: 0,
-      kept: 1,
-      skippedConcurrent: 0,
-      keptByReason: { saved_views: 1 },
-      byBuiltin: { "builtin-customer-roi-v2": { hidden: 0, kept: 1 } },
-    });
-    expect(await row(id)).toMatchObject({
-      hidden_at: null,
-      updated_at: UPDATED_AT,
-    });
-    expect(mocks.settings.size).toBe(0);
-    expect(
-      (
-        await client.query(
-          `SELECT outcome, reasons FROM analytics_builtin_dashboard_checks`,
-        )
-      ).rows,
-    ).toEqual([{ outcome: "kept", reasons: '["saved_views"]' }]);
-  });
+      expect(await runBuiltinDashboardPass()).toMatchObject({
+        checked: 1,
+        hidden: 0,
+        kept: 1,
+        skippedConcurrent: 0,
+        keptByReason: { [reason]: 1 },
+        byBuiltin: { "builtin-customer-roi-v2": { hidden: 0, kept: 1 } },
+      });
+      expect(await row(id)).toMatchObject({
+        hidden_at: null,
+        updated_at: UPDATED_AT,
+      });
+      expect(mocks.settings.size).toBe(0);
+      expect(
+        (
+          await client.query(
+            `SELECT outcome, reasons FROM analytics_builtin_dashboard_checks`,
+          )
+        ).rows,
+      ).toEqual([{ outcome: "kept", reasons: JSON.stringify([reason]) }]);
+    },
+  );
 
   it.each(SEED_BUILTIN_DASHBOARD_IDS)(
     "keeps the hidden %s seed discoverable in its org's built-in list",
