@@ -1465,7 +1465,12 @@ function httpResponseExclusionEnd(
     (operator?.text === "!=" || operator?.text === "<>") &&
     literal?.kind === "string"
   ) {
-    return HTTP_RESPONSE_LITERAL.test(literal.text) ? index + 3 : -1;
+    // String comparison is case-sensitive, so only the exact event name
+    // excludes it; the case-insensitive match elsewhere only keeps SQL raw.
+    return literal.text.slice(1, -1) === "http.response" &&
+      PLAIN_STRING_LITERAL.test(literal.text)
+      ? index + 3
+      : -1;
   }
   if (!isWord(operator, "in") || literal?.text !== "(") return -1;
   let cursor = index + 3;

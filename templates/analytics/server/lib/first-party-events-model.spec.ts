@@ -153,6 +153,10 @@ describe("events model eligibility", () => {
       "http_response_not_excluded",
     ],
     [
+      "SELECT COUNT(*) FROM analytics_events WHERE event_name != 'HTTP.RESPONSE'",
+      "http_response_not_excluded",
+    ],
+    [
       "SELECT COUNT(*) FROM analytics_events WHERE event_name IN ('a', '''http.response''')",
       "http_response_not_excluded",
     ],
