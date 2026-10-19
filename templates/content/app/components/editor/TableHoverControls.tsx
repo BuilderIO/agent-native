@@ -1074,10 +1074,25 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
         syncOverlay();
       }
     };
+    // The pointer keeps an edge handle shown while it's on the handle.
+    const updateEdgesFromTarget = (target: EventTarget | null) => {
+      if (getTargetElement(target)?.closest("[data-table-edge-control]")) {
+        return;
+      }
+      updateHoveredEdges(getHoveredTableEdges(editor, target));
+    };
     const handleHoverPointerMove = (event: PointerEvent) => {
       if (pointerResizeRef.current) return;
-      updateHoveredEdges(getHoveredTableEdges(editor, event.target));
+      // Touch has no hover. A finger that moves during a tap would show a
+      // handle under it before the tap lands, so taps use handleTapEdges.
+      if (event.pointerType !== "touch") updateEdgesFromTarget(event.target);
       updateHoveredCell(event.target);
+    };
+    // Once a tap has placed the caret, the cell it landed on shows its edge
+    // handles, so a second tap can use them.
+    const handleTapEdges = (event: MouseEvent) => {
+      if (pointerResizeRef.current) return;
+      updateEdgesFromTarget(event.target);
     };
 
     const handleKeyUp = () => {
@@ -1129,6 +1144,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     document.addEventListener("mousedown", handlePointerDown, true);
     document.addEventListener("click", handlePointerDown, true);
     document.addEventListener("pointermove", handleHoverPointerMove, true);
+    document.addEventListener("click", handleTapEdges, true);
     window.addEventListener("resize", handleGeometryChange);
     window.addEventListener("scroll", handleScroll, true);
     view.dom.addEventListener("keyup", handleKeyUp);
@@ -1139,6 +1155,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
       document.removeEventListener("mousedown", handlePointerDown, true);
       document.removeEventListener("click", handlePointerDown, true);
       document.removeEventListener("pointermove", handleHoverPointerMove, true);
+      document.removeEventListener("click", handleTapEdges, true);
       window.removeEventListener("resize", handleGeometryChange);
       window.removeEventListener("scroll", handleScroll, true);
       window.removeEventListener("pointermove", handlePointerMove);
@@ -1637,6 +1654,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
         const bottom = rect.bottom - wrapperRect.top;
         const visibleCenter =
           (visibleLeft + visibleRight) / 2 - wrapperRect.left;
+        // A hidden handle lets clicks through to the cell under it.
         const isColumnHandleVisible = hoveredEdges.columnTable === table;
         const isRowHandleVisible = hoveredEdges.rowTable === table;
 
@@ -1649,7 +1667,9 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                   className={cn(
                     handleClass,
                     "cursor-col-resize -translate-y-1/2",
-                    isColumnHandleVisible && "opacity-100",
+                    isColumnHandleVisible
+                      ? "opacity-100"
+                      : "pointer-events-none",
                   )}
                   data-table-edge-control
                   data-table-edge="column"
@@ -1690,7 +1710,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                   className={cn(
                     handleClass,
                     "cursor-row-resize -translate-x-1/2",
-                    isRowHandleVisible && "opacity-100",
+                    isRowHandleVisible ? "opacity-100" : "pointer-events-none",
                   )}
                   data-table-edge-control
                   data-table-edge="row"

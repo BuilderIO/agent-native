@@ -234,7 +234,7 @@ test.describe("inline table controls", () => {
     );
     expect(edgeCell).not.toBeNull();
     const edgeBox = (await cell(page, edgeCell!).boundingBox())!;
-    await page.mouse.move(380, edgeBox.y + edgeBox.height / 2);
+    await page.mouse.move(edgeBox.x + 5, edgeBox.y + edgeBox.height / 2);
 
     const addColumn = page.getByTestId("table-column-handle");
     const addBox = (await addColumn.boundingBox())!;
@@ -243,5 +243,54 @@ test.describe("inline table controls", () => {
     await expect(
       page.locator(`${EDITOR} tr:first-child :is(td, th)`),
     ).toHaveCount(7);
+  });
+});
+
+test.describe("inline table controls on a touch screen", () => {
+  test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });
+
+  test("a tap on the cell under the hidden add-column control edits that cell", async ({
+    page,
+  }) => {
+    const columns = ["Item", "State", "Owner", "Due", "Notes", "Link"];
+    await openTablePage(
+      page,
+      "Table touch",
+      [
+        `| ${columns.join(" | ")} |`,
+        `| ${columns.map(() => "---").join(" | ")} |`,
+        `| Alpha | Draft | Someone | Friday | A longer note | first |`,
+        `| Beta | Ready | Someone | Monday | Another note | second |`,
+      ].join("\n"),
+    );
+    const headerCells = page.locator(`${EDITOR} tr:first-child :is(td, th)`);
+    const addColumn = page.getByTestId("table-column-handle");
+
+    // The control sits half over the cell the scrollport's edge cuts through.
+    const addBox = (await addColumn.boundingBox())!;
+    const tap = { x: addBox.x + 3, y: addBox.y + addBox.height / 2 };
+    const tappedCell = await page.evaluate(
+      ({ editor, x, y }) => {
+        const cells = document.querySelectorAll(`${editor} td, ${editor} th`);
+        const hit = [...cells].find((td) => {
+          const box = td.getBoundingClientRect();
+          return (
+            box.left <= x && x <= box.right && box.top <= y && y <= box.bottom
+          );
+        });
+        return hit?.textContent ?? null;
+      },
+      { editor: EDITOR, ...tap },
+    );
+    expect(tappedCell).not.toBeNull();
+
+    await page.touchscreen.tap(tap.x, tap.y);
+    await expect.poll(() => caretCell(page)).toBe(tappedCell);
+    await expect(headerCells).toHaveCount(6);
+
+    // The tap shows the control beside that cell, and tapping it adds a column.
+    await expect(addColumn).toHaveCSS("opacity", "1");
+    await addColumn.tap();
+    await expect(headerCells).toHaveCount(7);
   });
 });
