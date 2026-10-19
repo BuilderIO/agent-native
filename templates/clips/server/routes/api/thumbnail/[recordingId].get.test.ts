@@ -663,5 +663,35 @@ describe("/api/thumbnail/:recordingId route", () => {
       });
       expect(fetch).not.toHaveBeenCalled();
     });
+
+    it("is read from the footage's storage, with the clip owner's credentials", async () => {
+      mockGetDb.mockReturnValue(
+        createDbWithSelectSequence(
+          [{ recordingId: "clip-1" }],
+          [{ ...footageRow, storageMode: "own" }],
+        ),
+      );
+      mockResolveAccess.mockResolvedValue({
+        role: "viewer",
+        resource: makeRow({
+          id: "clip-1",
+          storageMode: "hosted",
+          ownerEmail: "owner@example.com",
+        }),
+      });
+      mockFetchS3ObjectByUrl.mockResolvedValue(imageResponse());
+
+      const result = await handler(makeEvent() as any);
+
+      expect(await (result as Response).text()).toBe("thumbnail");
+      expect(mockFetchS3ObjectByUrl).toHaveBeenCalledWith(
+        "https://cdn.example.com/footage-thumb.jpg",
+        expect.objectContaining({ recordingId: "rec-1", storageMode: "own" }),
+      );
+      expect(mockRunWithRequestContext).toHaveBeenCalledWith(
+        expect.objectContaining({ userEmail: "owner@example.com" }),
+        expect.any(Function),
+      );
+    });
   });
 });

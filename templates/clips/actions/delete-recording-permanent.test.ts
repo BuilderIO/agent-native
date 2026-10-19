@@ -46,7 +46,7 @@ const mockRecordingMediaUrls = vi.hoisted(() =>
 );
 const mockSelectWhere = vi.hoisted(() => vi.fn());
 const mockLockRecording = vi.hoisted(() =>
-  vi.fn(async (_strength: string) => [{ id: "rec_1" }]),
+  vi.fn(async (_strength: string): Promise<unknown[]> => []),
 );
 const mockContextItemsWhere = vi.hoisted(() => vi.fn());
 const mockContextItemsTable = vi.hoisted(() => ({
@@ -235,9 +235,12 @@ describe("delete-recording-permanent", () => {
     mockGetHostedClipRecordingAllowance.mockResolvedValue(
       mockHostedAllowance.value,
     );
+    mockLockRecording.mockImplementation(async () => [mockExistingRecording]);
     mockAdjustHostedClipRecordingBytes.mockResolvedValue({ ok: true });
     mockReleaseHostedClipRecording.mockResolvedValue({ ok: true });
+    // A test that stops before the transaction leaves its reads queued.
     mockSelectWhere
+      .mockReset()
       .mockResolvedValueOnce([mockExistingRecording])
       .mockResolvedValueOnce([]);
     mockContextItemsWhere.mockResolvedValue([]);
@@ -404,7 +407,7 @@ describe("delete-recording-permanent", () => {
     );
   });
 
-  it("releases a pending hosted reservation only after media cleanup succeeds", async () => {
+  it("releases a pending hosted reservation once the row is gone", async () => {
     mockExistingRecording.storageMode = "hosted";
     mockHostedAllowance.value.status = "reserved";
 
@@ -414,7 +417,76 @@ describe("delete-recording-permanent", () => {
       recordingId: "rec_1",
       userId: "user_1",
     });
+    expect(mockDbDelete.mock.invocationCallOrder.at(-1)).toBeLessThan(
+      mockReleaseHostedClipRecording.mock.invocationCallOrder[0],
+    );
     expect(mockAdjustHostedClipRecordingBytes).not.toHaveBeenCalled();
+  });
+
+  it("releases a pending hosted reservation even when files are left", async () => {
+    // Nothing else can reach the reservation once the row is gone.
+    mockExistingRecording.storageMode = "hosted";
+    mockHostedAllowance.value.status = "reserved";
+    mockDeleteRecordingMediaObjects.mockResolvedValueOnce({
+      attempted: 2,
+      deleted: 1,
+      skipped: 1,
+      external: 0,
+      errors: [],
+    });
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await deleteRecordingPermanent.run({ id: "rec_1" });
+
+    expect(mockReleaseHostedClipRecording).toHaveBeenCalledWith({
+      recordingId: "rec_1",
+      userId: "user_1",
+    });
+    expect(logged).toHaveBeenCalled();
+    logged.mockRestore();
+  });
+
+  it("frees the bytes of an upload that finished while the delete ran", async () => {
+    mockExistingRecording.storageMode = "hosted";
+    mockGetHostedClipRecordingAllowance
+      .mockResolvedValueOnce({
+        ...mockHostedAllowance.value,
+        status: "reserved",
+      })
+      .mockResolvedValueOnce({
+        ...mockHostedAllowance.value,
+        status: "consumed",
+      });
+
+    await deleteRecordingPermanent.run({ id: "rec_1" });
+
+    expect(mockGetHostedClipRecordingAllowance).toHaveBeenLastCalledWith({
+      recordingId: "rec_1",
+      userId: "user_1",
+    });
+    expect(mockAdjustHostedClipRecordingBytes).toHaveBeenCalledWith({
+      recordingId: "rec_1",
+      userId: "user_1",
+      retainedBytes: 0,
+    });
+    expect(mockReleaseHostedClipRecording).not.toHaveBeenCalled();
+  });
+
+  it("cleans up the media the row holds under the lock, not the first read", async () => {
+    const replaced = {
+      ...mockExistingRecording,
+      videoUrl: "https://cdn.example.com/media/clips/rec_1-v2.mp4",
+    };
+    mockLockRecording.mockResolvedValueOnce([replaced]);
+
+    await deleteRecordingPermanent.run({ id: "rec_1" });
+
+    expect(mockDeleteRecordingMediaObjects).toHaveBeenCalledWith(replaced, {
+      protectedUrls: new Set(),
+    });
+    expect(mockLockRecording.mock.invocationCallOrder[0]).toBeLessThan(
+      mockSelectWhere.mock.invocationCallOrder[1],
+    );
   });
 
   it("deletes granular view rows during permanent cleanup", async () => {
@@ -536,12 +608,16 @@ describe("delete-recording-permanent", () => {
       mockContextItemsWhere.mockResolvedValue([
         { mediaRecordingId: "media_1", pendingMediaRecordingId: null },
       ]);
-      // The row, the references to its media, then the re-read before any
-      // footage is trashed.
+      // The row, the references to its unredacted files, the re-read before
+      // any footage is trashed, then the references under the lock.
       mockSelectWhere
         .mockResolvedValueOnce([shot])
         .mockResolvedValueOnce([])
-        .mockImplementationOnce(claimedRow);
+        .mockImplementationOnce(claimedRow)
+        .mockResolvedValueOnce([]);
+      mockLockRecording.mockImplementation(async () => [
+        { ...shot, ...(await claimedRow())[0] },
+      ]);
       // What the real list adds for a screenshot: its leftovers, and a
       // refusal when the edits cannot be read.
       const { screenshotLeftoverUrls } =

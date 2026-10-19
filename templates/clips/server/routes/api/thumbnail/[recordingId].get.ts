@@ -355,6 +355,7 @@ async function loadRecording(recordingId: string, event: H3Event) {
     .select({
       thumbnailUrl: schema.recordings.thumbnailUrl,
       animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
+      storageMode: schema.recordings.storageMode,
       trashedAt: schema.recordings.trashedAt,
     })
     .from(schema.recordings)
@@ -371,6 +372,9 @@ async function loadRecording(recordingId: string, event: H3Event) {
       thumbnailUrl: footage.thumbnailUrl,
       animatedThumbnailUrl: footage.animatedThumbnailUrl,
       baseImageUrl: null,
+      // Its files sit where the footage was stored; only the access and the
+      // owner credentials come from the Clip.
+      storageMode: footage.storageMode,
     },
     role,
     gateId,

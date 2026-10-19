@@ -31,6 +31,44 @@ import {
 } from "../server/lib/video-storage.js";
 import { trashRecordingContextFootage } from "./remove-recording-context.js";
 
+/** The URLs among `urls` that a recording other than `recordingId` uses. */
+async function mediaUsedElsewhere(
+  db: Pick<ReturnType<typeof getDb>, "select">,
+  recordingId: string,
+  urls: string[],
+): Promise<Set<string>> {
+  const used = new Set<string>();
+  if (urls.length === 0) return used;
+  // guard:allow-unscoped — a file another owner's recording uses must survive too; only matching URLs leave this function, never rows.
+  const references = await db
+    .select({
+      videoUrl: schema.recordings.videoUrl,
+      thumbnailUrl: schema.recordings.thumbnailUrl,
+      animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
+      imageUrl: schema.recordings.imageUrl,
+      baseImageUrl: schema.recordings.baseImageUrl,
+    })
+    .from(schema.recordings)
+    .where(
+      and(
+        ne(schema.recordings.id, recordingId),
+        or(
+          inArray(schema.recordings.videoUrl, urls),
+          inArray(schema.recordings.thumbnailUrl, urls),
+          inArray(schema.recordings.animatedThumbnailUrl, urls),
+          inArray(schema.recordings.imageUrl, urls),
+          inArray(schema.recordings.baseImageUrl, urls),
+        ),
+      ),
+    );
+  for (const reference of references) {
+    for (const url of recordingMediaUrls(reference)) {
+      if (urls.includes(url)) used.add(url);
+    }
+  }
+  return used;
+}
+
 export default defineAction({
   description:
     "Permanently delete a recording and every related row (comments, reactions, viewers, events, transcript, tags, CTAs, shares, diagnostics, bug reports, screen history context). The context's footage is trashed. This cannot be undone.",
@@ -62,37 +100,6 @@ export default defineAction({
     if (existing.storageMode === "hosted" && !hostedAllowance) {
       // guard:allow-bare-error — invariant: every hosted recording is created with a durable allowance row.
       throw new Error(`Hosted recording allowance not found: ${args.id}`);
-    }
-
-    const mediaUrls = recordingMediaUrls(existing);
-    const protectedUrls = new Set<string>();
-    if (mediaUrls.length > 0) {
-      const mediaReferences = await db
-        .select({
-          videoUrl: schema.recordings.videoUrl,
-          thumbnailUrl: schema.recordings.thumbnailUrl,
-          animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
-          imageUrl: schema.recordings.imageUrl,
-          baseImageUrl: schema.recordings.baseImageUrl,
-        })
-        .from(schema.recordings)
-        .where(
-          and(
-            ne(schema.recordings.id, args.id),
-            or(
-              inArray(schema.recordings.videoUrl, mediaUrls),
-              inArray(schema.recordings.thumbnailUrl, mediaUrls),
-              inArray(schema.recordings.animatedThumbnailUrl, mediaUrls),
-              inArray(schema.recordings.imageUrl, mediaUrls),
-              inArray(schema.recordings.baseImageUrl, mediaUrls),
-            ),
-          ),
-        );
-      for (const reference of mediaReferences) {
-        for (const url of recordingMediaUrls(reference)) {
-          if (mediaUrls.includes(url)) protectedUrls.add(url);
-        }
-      }
     }
 
     // Some of a screenshot's files are unredacted: its leftovers, and its
@@ -139,8 +146,9 @@ export default defineAction({
           ? [existing.baseImageUrl]
           : []),
       ];
+      const usedElsewhere = await mediaUsedElsewhere(db, args.id, unredacted);
       for (const url of new Set(unredacted)) {
-        if (protectedUrls.has(url)) continue;
+        if (usedElsewhere.has(url)) continue;
         let gone = false;
         try {
           gone = await deleteStoredMediaUrl(url, {
@@ -237,11 +245,13 @@ export default defineAction({
       .from(schema.recordingBrowserDiagnostics)
       .where(eq(schema.recordingBrowserDiagnostics.recordingId, args.id));
 
-    await db.transaction(async (tx) => {
+    const { deleted, protectedUrls } = await db.transaction(async (tx) => {
       // The recording is locked before anything that hangs off it, the order
-      // apply-rewind-extension takes, so the two cannot deadlock.
+      // apply-rewind-extension takes, so the two cannot deadlock. Its media is
+      // read under the lock: a write that landed since the read above would
+      // otherwise leave its new files out of the cleanup below.
       const [locked] = await tx
-        .select({ id: schema.recordings.id })
+        .select()
         .from(schema.recordings)
         .where(eq(schema.recordings.id, args.id))
         .for("update");
@@ -251,6 +261,11 @@ export default defineAction({
           statusCode: 404,
         });
       }
+      const protectedUrls = await mediaUsedElsewhere(
+        tx,
+        args.id,
+        recordingMediaUrls(locked),
+      );
       await tx
         .delete(schema.recordingComments)
         .where(eq(schema.recordingComments.recordingId, args.id));
@@ -296,29 +311,47 @@ export default defineAction({
       await tx
         .delete(schema.recordings)
         .where(eq(schema.recordings.id, args.id));
+      return { deleted: locked, protectedUrls };
     });
 
     // Media goes only once its rows are gone, so a failed delete above leaves
     // the Clip whole. A file that fails here stays in storage and nothing
-    // sweeps it later. Its hosted bytes stay counted, because each delete
-    // subtracts only the bytes it removed, and the log names the recording.
+    // sweeps it later. A finished upload's bytes then stay counted, because
+    // each delete subtracts only the bytes it removed, and the log names the
+    // recording.
     const cleanupProtectedUrls = new Set([...protectedUrls, ...alreadyDeleted]);
-    const mediaCleanup = await deleteRecordingMediaObjects(existing, {
+    const mediaCleanup = await deleteRecordingMediaObjects(deleted, {
       protectedUrls: cleanupProtectedUrls,
     });
     const hostedFilesLeft = hostedAllowance
-      ? mediaUrls.filter((url) => !cleanupProtectedUrls.has(url)).length -
+      ? recordingMediaUrls(deleted).filter(
+          (url) => !cleanupProtectedUrls.has(url),
+        ).length -
         mediaCleanup.deleted -
         mediaCleanup.external
       : 0;
-
     if (hostedFilesLeft > 0) {
       console.error(
-        `[delete-recording-permanent] deleted ${args.id}, but ${hostedFilesLeft} of its hosted files could not be removed from storage; their bytes stay counted.`,
+        `[delete-recording-permanent] deleted ${args.id}, but ${hostedFilesLeft} of its hosted files could not be removed from storage.`,
         mediaCleanup.errors,
       );
-    } else if (hostedAllowance) {
-      if (hostedAllowance.status === "consumed") {
+    }
+
+    if (hostedAllowance) {
+      // Read again now the row is gone: an upload that finished while this
+      // ran has consumed the reservation read above.
+      const allowance = await getHostedClipRecordingAllowance({
+        recordingId: args.id,
+        userId: hostedAllowance.userId,
+      });
+      if (allowance?.status === "reserved") {
+        // Released even with files left: with the row gone nothing else can
+        // reach it, and it would hold one of the owner's hosted Clips for good.
+        await releaseHostedClipRecording({
+          recordingId: args.id,
+          userId: hostedAllowance.userId,
+        });
+      } else if (allowance?.status === "consumed" && hostedFilesLeft === 0) {
         const adjustment = await adjustHostedClipRecordingBytes({
           recordingId: args.id,
           userId: hostedAllowance.userId,
@@ -330,11 +363,6 @@ export default defineAction({
             `Hosted recording retained-byte quota could not be released: ${args.id}`,
           );
         }
-      } else if (hostedAllowance.status === "reserved") {
-        await releaseHostedClipRecording({
-          recordingId: args.id,
-          userId: hostedAllowance.userId,
-        });
       }
     }
     const appActivityCleanup = diagnostics?.appActivityBlobJson
