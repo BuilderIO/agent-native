@@ -174,7 +174,7 @@ Aufrufe über die [HTTP API](/docs/http-api) mit einem Bearer-Token oder API-Sch
 
 Wenn der Agent eine gesperrte Action aufruft und dieser konkrete Aufruf **noch nicht** genehmigt wurde, führt die Schleife `run()` **nicht** aus. Stattdessen:
 
-1. Löst sie die Sperre auf. Bei einem Prädikat ruft die Schleife `needsApproval(input, ctx)` auf. Wenn dieser Aufruf einen Fehler wirft, behandelt die Schleife ihn wie ein `true`-Ergebnis, sodass die Action eine Genehmigung verlangt.
+1. Löst sie die Sperre auf. Zuerst bereitet die Schleife den Aufruf vor: Sie validiert die Argumente und wendet die Standardwerte und Umwandlungen des Schemas an. Ein ungültiger Aufruf endet hier mit seinem Validierungsfehler, und niemand wird um Genehmigung gebeten. Bei einem Prädikat ruft die Schleife dann `needsApproval(args, ctx)` mit den vorbereiteten Argumenten auf, also denen, die `run()` erhalten würde. Wenn dieser Aufruf einen Fehler wirft, behandelt die Schleife ihn wie ein `true`-Ergebnis, sodass die Action eine Genehmigung verlangt.
 2. Sendet sie ein `tool_start`-Ereignis (damit die UI den Aufruf anzeigt), unmittelbar gefolgt von einem **`approval_required`**-Ereignis, und stoppt dann den Turn. Die Nebenwirkung der Action tritt nie ein.
 
 Das `approval_required`-Ereignis trägt alles, was der Client braucht, um ein Bedienelement darzustellen:

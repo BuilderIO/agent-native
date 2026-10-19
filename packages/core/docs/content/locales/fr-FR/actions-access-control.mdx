@@ -174,7 +174,7 @@ Les appels effectués via l’[API HTTP](/docs/http-api) avec un token bearer ou
 
 Quand l’agent appelle une action gardée et que cet appel précis n’a **pas** déjà été approuvé, la boucle n’exécute **pas** `run()`. À la place, elle :
 
-1. Résout la garde. Pour un prédicat, la boucle appelle `needsApproval(input, ctx)`. Si cet appel lève une exception, la boucle le traite de la même façon qu’un résultat `true`, donc l’action exige une approbation.
+1. Résout la garde. La boucle prépare d’abord l’appel : elle valide les arguments et applique les valeurs par défaut et les conversions du schéma. Un appel invalide s’arrête ici avec son erreur de validation, et personne n’est sollicité pour l’approuver. Pour un prédicat, la boucle appelle ensuite `needsApproval(args, ctx)` avec les arguments préparés, ceux que recevrait `run()`. Si cet appel lève une exception, la boucle le traite de la même façon qu’un résultat `true`, donc l’action exige une approbation.
 2. Émet un événement `tool_start` (pour que l’UI affiche l’appel), immédiatement suivi d’un événement **`approval_required`**, puis arrête le tour. L’effet de bord de l’action ne se produit jamais.
 
 L’événement `approval_required` porte tout ce dont le client a besoin pour afficher une affordance :

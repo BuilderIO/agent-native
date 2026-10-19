@@ -173,7 +173,7 @@ bearer token या API key के साथ [HTTP API](/docs/http-api) से �
 
 जब एजेंट किसी गेटेड action को कॉल करता है और यह विशिष्ट कॉल पहले से अनुमोदित **नहीं** है, तो लूप `run()` को execute **नहीं** करता। इसके बजाय यह:
 
-1. गेट को resolve करता है। किसी predicate के लिए, लूप `needsApproval(input, ctx)` को कॉल करता है। अगर वह कॉल कोई error throw करती है, तो लूप इसे `true` परिणाम जैसा ही treat करता है, इसलिए action को अनुमोदन की आवश्यकता होती है।
+1. गेट को resolve करता है। लूप पहले कॉल तैयार करता है: वह arguments को validate करता है और schema के defaults व coercions लागू करता है। कोई invalid कॉल यहीं अपने validation error के साथ रुक जाती है, और किसी से अनुमोदन नहीं माँगा जाता। किसी predicate के लिए, लूप फिर तैयार किए गए arguments के साथ `needsApproval(args, ctx)` को कॉल करता है, यानी वही arguments जो `run()` को मिलते। अगर वह कॉल कोई error throw करती है, तो लूप इसे `true` परिणाम जैसा ही treat करता है, इसलिए action को अनुमोदन की आवश्यकता होती है।
 2. एक `tool_start` इवेंट emit करता है (ताकि UI कॉल दिखाए) जिसके तुरंत बाद एक **`approval_required`** इवेंट आता है, फिर turn को रोक देता है। action का side effect कभी नहीं होता।
 
 `approval_required` इवेंट में वह सब कुछ होता है जो client को एक affordance render करने के लिए चाहिए:

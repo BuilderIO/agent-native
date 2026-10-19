@@ -172,7 +172,7 @@ Calls made over the [HTTP API](/docs/http-api) with a bearer token or API key sk
 
 When the agent calls a gated action and this specific call has **not** already been approved, the loop does **not** execute `run()`. Instead it:
 
-1. Resolves the gate. For a predicate, the loop calls `needsApproval(input, ctx)`. If that call throws an error, the loop treats it the same as a `true` result, so the action requires approval.
+1. Resolves the gate. The loop first prepares the call: it validates the arguments and applies the schema's defaults and coercions. An invalid call stops here with its validation error, and nobody is asked to approve it. For a predicate, the loop then calls `needsApproval(args, ctx)` with the prepared arguments, the ones `run()` would receive. If that call throws an error, the loop treats it the same as a `true` result, so the action requires approval.
 2. Emits a `tool_start` event (so the UI shows the call) followed immediately by an **`approval_required`** event, then stops the turn. The action's side effect never happens.
 
 The `approval_required` event carries everything the client needs to render an affordance:

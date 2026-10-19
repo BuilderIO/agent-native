@@ -174,7 +174,7 @@ Las llamadas hechas a través de la [API HTTP](/docs/http-api) con un bearer tok
 
 Cuando el agente llama a una acción con guarda y esta llamada específica **no** ha sido aprobada todavía, el bucle **no** ejecuta `run()`. En su lugar:
 
-1. Resuelve la guarda. Para un predicado, el bucle llama a `needsApproval(input, ctx)`. Si esa llamada lanza un error, el bucle la trata igual que un resultado `true`, así que la acción exige aprobación.
+1. Resuelve la guarda. Primero, el bucle prepara la llamada: valida los argumentos y aplica los valores por defecto y las conversiones del esquema. Una llamada no válida se detiene aquí con su error de validación, y no se pide aprobación a nadie. Para un predicado, el bucle llama después a `needsApproval(args, ctx)` con los argumentos preparados, los mismos que recibiría `run()`. Si esa llamada lanza un error, el bucle la trata igual que un resultado `true`, así que la acción exige aprobación.
 2. Emite un evento `tool_start` (para que la UI muestre la llamada) seguido inmediatamente de un evento **`approval_required`**, y luego detiene el turno. El efecto secundario de la acción nunca ocurre.
 
 El evento `approval_required` lleva todo lo que el cliente necesita para mostrar un control de interacción:

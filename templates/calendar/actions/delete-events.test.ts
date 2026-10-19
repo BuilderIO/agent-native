@@ -1139,7 +1139,6 @@ describe("delete-events", () => {
 
     expect(await gate({} as never)).toBe(true);
     expect(await gate({ dryRun: true } as never)).toBe(false);
-    expect(await gate({ dryRun: "true" } as never)).toBe(false);
-    expect(await gate({ dryRun: "false" } as never)).toBe(true);
+    expect(await gate({ dryRun: false } as never)).toBe(true);
   });
 });
