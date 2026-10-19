@@ -1068,6 +1068,23 @@ export default {
     columnShowHidden: "Show hidden columns",
     columnName: "Column name",
     columnResize: "Resize column",
+    rowBreakdownBy: "Break down by",
+    rowBreakdownAll: "All",
+    rowBreakdownOther: "Other",
+    rowBreakdownOtherHint:
+      "Smaller groups, and anyone this panel's SQL leaves out",
+    rowBreakdownSmallGroup: "Fewer than {{count}}: read rates with care",
+    rowBreakdownNoValue: "(none)",
+    rowBreakdownEmpty: "No rows for this breakdown.",
+    rowBreakdownUnavailable: "This panel's SQL has no breakdown by {{column}}.",
+    rowBreakdownFromPanel: "From this panel's rows. Nothing was read.",
+    rowBreakdownFromCache: "From cache. Nothing was read.",
+    rowBreakdownAlreadyLoaded: "Already loaded. Nothing was read.",
+    rowBreakdownBytesRead: "Read {{bytes}}",
+    rowBreakdownOverByteCap:
+      "This breakdown would read more than {{gib}} GiB, so it didn't run. Narrow the dashboard's filters or date range and try again.",
+    rowBreakdownTruncated:
+      "The result was cut off, so some groups are missing or counted in Other.",
     deleteSectionTitle: "Delete section?",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "Delete panel?",
@@ -1390,6 +1407,7 @@ export default {
     bigQueryHealthUnavailable:
       "We could not check first-party analytics pressure right now. Reload and try again before changing backends.",
     analyticsEventCount: "Observed events",
+    analyticsRecentEventCount: "Observed events (last 30 days)",
     slowQueries24h: "Slow queries (24h)",
     maxQueryDuration: "Max query time",
     defaultKeyName: "Hosted templates",

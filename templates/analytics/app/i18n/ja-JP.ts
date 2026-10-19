@@ -831,6 +831,7 @@ export default {
     bigQueryHealthUnavailable:
       "ファーストパーティ Analytics の負荷を確認できませんでした。バックエンドを変更する前に再読み込みしてください。",
     analyticsEventCount: "観測イベント",
+    analyticsRecentEventCount: "観測イベント（過去30日間）",
     slowQueries24h: "遅いクエリ（24 時間）",
     maxQueryDuration: "最大クエリ時間",
     defaultKeyName: "ホストされたテンプレート",
@@ -1451,6 +1452,23 @@ export default {
     columnShowHidden: "非表示の列を表示",
     columnName: "列名",
     columnResize: "列の幅を変更",
+    rowBreakdownBy: "内訳の基準",
+    rowBreakdownAll: "すべて",
+    rowBreakdownOther: "その他",
+    rowBreakdownOtherHint: "小さなグループと、このパネルの SQL が除外する人",
+    rowBreakdownSmallGroup: "{{count}} 未満：率の解釈に注意してください",
+    rowBreakdownNoValue: "(なし)",
+    rowBreakdownEmpty: "この内訳には行がありません。",
+    rowBreakdownUnavailable:
+      "このパネルの SQL には {{column}} の内訳がありません。",
+    rowBreakdownFromPanel: "このパネルの行から表示。読み取りはありません。",
+    rowBreakdownFromCache: "キャッシュから表示。読み取りはありません。",
+    rowBreakdownAlreadyLoaded: "読み込み済み。読み取りはありません。",
+    rowBreakdownBytesRead: "{{bytes}} を読み取りました",
+    rowBreakdownOverByteCap:
+      "この内訳は {{gib}} GiB を超えて読み込むため、実行しませんでした。ダッシュボードのフィルターか期間を絞ってから、もう一度お試しください。",
+    rowBreakdownTruncated:
+      "結果が途中で切れたため、一部のグループが表示されていないか「その他」に含まれています。",
     deleteSectionTitle: "セクションを削除しますか?",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "パネルを削除しますか?",

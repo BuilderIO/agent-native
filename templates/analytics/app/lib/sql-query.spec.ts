@@ -32,8 +32,8 @@ import {
 describe("executeSqlQuery", () => {
   beforeEach(() => {
     mocks.addBytesProcessed.mockReset();
-    mocks.recordQueryCost.mockReset();
     mocks.callAction.mockReset();
+    mocks.recordQueryCost.mockReset();
   });
 
   it("uses the dashboard panel action with the existing source/query payload", async () => {
@@ -108,6 +108,45 @@ describe("executeSqlQuery", () => {
         "first-party",
       ),
     ).rejects.toThrow(/date_trunc\('month', \.\.\.\)/);
+  });
+
+  it("keeps a refused query's typed reason on the error", async () => {
+    mocks.callAction.mockResolvedValue({
+      error: "breakdown_over_byte_cap",
+      message: "This breakdown would read more than 50 GiB.",
+    });
+
+    await expect(
+      executeSqlQuery("SELECT 1", "bigquery", undefined, {
+        purpose: "row-breakdown",
+      }),
+    ).rejects.toMatchObject({
+      code: "breakdown_over_byte_cap",
+      message: "This breakdown would read more than 50 GiB.",
+    });
+  });
+
+  it("reports bytes read only when both caches confirm a miss", async () => {
+    mocks.callAction.mockResolvedValue({
+      rows: [],
+      schema: [],
+      bytesProcessed: 4096,
+      cached: false,
+      providerCacheHit: false,
+    });
+    await expect(
+      executeSqlQuery("SELECT 1", "bigquery"),
+    ).resolves.toMatchObject({ bytesRead: 4096 });
+
+    mocks.callAction.mockResolvedValue({
+      rows: [],
+      schema: [],
+      bytesProcessed: 4096,
+      cached: true,
+    });
+    const cached = await executeSqlQuery("SELECT 1", "bigquery");
+    expect(cached).not.toHaveProperty("bytesRead");
+    expect(cached.cached).toBe(true);
   });
 
   it("gives report panel actions their own timeout above the query timeout", async () => {

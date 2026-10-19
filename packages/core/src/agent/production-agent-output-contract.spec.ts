@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { actionArgumentsHash } from "../action-arguments-identity.js";
 import {
+  ActionOutputContractError,
   AgentActionStopError,
   AgentConnectionRequiredError,
   defineAction,
@@ -307,6 +308,83 @@ describe("runAgentLoop — output-contract failures", () => {
     expect(done).toMatchObject({ isError: true, completedSideEffect: true });
     expect(JSON.stringify(events)).not.toContain("mo@example.com");
     expect(notify).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("runAgentLoop — a thrown value that cannot be classified", () => {
+  it.each([
+    { readOnly: true, outcome: { completedSideEffect: false }, markers: 0 },
+    { readOnly: false, outcome: { outcomeUnknown: true }, markers: 1 },
+  ])(
+    "finishes the call as an untyped failure (readOnly: $readOnly)",
+    async ({ readOnly, outcome, markers }) => {
+      notify.mockClear();
+      const thrown = Object.defineProperty(
+        new Error("Handler failed"),
+        "actionContractError",
+        {
+          get() {
+            throw new Error("Classification accessor failed");
+          },
+        },
+      );
+      const action = defineAction({
+        description: "Fail.",
+        schema: z.object({}),
+        readOnly,
+        run: async () => {
+          throw thrown;
+        },
+      }) as unknown as ActionEntry;
+      const done = toolDone(await runOneCall({ fail: action }, "fail"));
+      expect(done).toMatchObject({ isError: true, ...outcome });
+      expect(notify).toHaveBeenCalledTimes(markers);
+    },
+  );
+
+  it("runs a read again whose result check threw a value it cannot classify", async () => {
+    const thrown = Object.defineProperty(
+      new ActionOutputContractError({
+        effect: "none",
+        contract: "semantic",
+        issues: ["(root): unreadable"],
+      }),
+      "effect",
+      {
+        get() {
+          throw new Error("Unreadable effect");
+        },
+      },
+    );
+    const run = vi.fn(async () => ({ ok: true }));
+    const action = defineAction({
+      description: "Read the draft.",
+      schema: z.object({}),
+      readOnly: true,
+      outputSchema: {
+        "~standard": {
+          version: 1,
+          vendor: "test",
+          validate: async () =>
+            Object.defineProperty({}, "issues", {
+              get() {
+                throw thrown;
+              },
+            }),
+        },
+      } as any,
+      outputErrorStrategy: "strict",
+      run,
+    }) as unknown as ActionEntry;
+    const events = await runSequentialCalls({ "read-draft": action }, [
+      "read-draft",
+      "read-draft",
+    ]);
+    expect(events.filter((event) => event.type === "tool_done")).toEqual([
+      expect.objectContaining({ isError: true, completedSideEffect: false }),
+      expect.objectContaining({ isError: true, completedSideEffect: false }),
+    ]);
+    expect(run).toHaveBeenCalledTimes(2);
   });
 });
 

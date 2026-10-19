@@ -168,6 +168,8 @@ Wenn `needsApproval` weggelassen wird, bleibt das Verhalten byte-für-byte unver
 
 Das funktioniert genauso für Actions im alten `parameters`-Stil wie für schemabasierte Actions. Es funktioniert auch genauso für den In-App-Agenten, Sub-Agenten, A2A- und MCP-Aufrufer, da jede Agent-Oberfläche durch dieselbe Schleife läuft.
 
+Aufrufe über die [HTTP API](/docs/http-api) mit einem Bearer-Token oder API-Schlüssel überspringen die Freigabekarte: Die Route führt die Action direkt aus, so wie für die eigene UI der App. Damit die Aufrufe eines Agenten freigegeben werden müssen, verbinden Sie ihn über [MCP](/docs/external-agents), statt die HTTP-Routen aufzurufen.
+
 ### Wie die Schleife pausiert {#loop}
 
 Wenn der Agent eine gesperrte Action aufruft und dieser konkrete Aufruf **noch nicht** genehmigt wurde, führt die Schleife `run()` **nicht** aus. Stattdessen:

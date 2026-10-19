@@ -57,8 +57,10 @@ import {
   recordInputSchemaVerdict,
   UninterpretedSchema,
   UnusableSchemaError,
+  unusableVerdict,
 } from "./json-schema/unusable-schema.js";
 import { assertUsableSchema } from "./json-schema/usable-schema.js";
+import { describeThrownForLog } from "./mcp/embed-redaction.js";
 import { parseServiceIdentityEmail } from "./org/service-identity.js";
 import { wrapRunWithActionTracking } from "./tracking/action-lifecycle.js";
 
@@ -335,6 +337,24 @@ export function actionFailureEffect(
   return effect === "none" || effect === "committed" ? effect : undefined;
 }
 
+/**
+ * A value an action's schemas, gates or handler threw, as every consumer gets
+ * it. Any read of it may throw, so one that cannot be classified is replaced
+ * by an untyped error that says only that, and its write evidence decides.
+ */
+function readableFailure(error: unknown): unknown {
+  try {
+    actionFailureEffect(error);
+    isAgentConnectionRequiredError(error);
+    return error;
+  } catch {
+    return Object.assign(
+      new Error("The call failed, and its error could not be read."),
+      { errorCode: "error_unreadable" },
+    );
+  }
+}
+
 /** What a dispatched call did, and whether other sessions must refresh. */
 export interface InvocationEffect {
   /** `unknown`: a write may have run that nothing confirms or rules out. */
@@ -351,7 +371,8 @@ export interface InvocationEffect {
  * entry that recorded no call) entered its handler, so it may have written;
  * otherwise the call's own write, from its record or, untracked, its
  * declaration, which only then a receipt, `retrySafe` or a typed failure the
- * call raised itself may narrow.
+ * call raised itself may narrow. A refused call is settled before its error is
+ * read.
  */
 export function invocationEffect(
   entry: { changeEvents?: boolean },
@@ -367,14 +388,14 @@ export function invocationEffect(
 ): InvocationEffect {
   const { evidence, record } = outcome;
   const { failed, readOnly } = settled;
+  if (outcome.refused) return { effect: "none", changed: false };
+  if (outcome.keyed && !record) return { effect: "unknown", changed: true };
   // A typed effect speaks for the call that raised it, not for one it passed
   // through. Untracked, nothing names that call, so it stands.
   const typed =
     failed && !failed.lost && (!evidence || evidence.raised === failed.error)
       ? actionFailureEffect(failed.error)
       : undefined;
-  if (outcome.refused) return { effect: "none", changed: false };
-  if (outcome.keyed && !record) return { effect: "unknown", changed: true };
   if (evidence?.writeEntered && (evidence.nestedWriteEntered || !record)) {
     return {
       effect: !failed || typed === "committed" ? "committed" : "unknown",
@@ -1128,21 +1149,19 @@ export function defineAction(options: any) {
       }
       if (!nested) actionName = ctx?.actionName;
     }
-    let output: unknown;
+    let ran = false;
     try {
-      output = await uiOnlyGuardedRun(args, ctx, gateArgs);
-    } catch (error) {
-      if (effect() !== "committed") throw error;
-      const committed = withCommittedEffect(error);
-      if (frame) frame.raised = committed;
-      throw committed;
-    }
-    if (!checkOutput) return output;
-    try {
-      return await checkOutput(output, { actionName, effect: effect() });
-    } catch (error) {
-      if (frame) frame.raised = error;
-      throw error;
+      const output = await uiOnlyGuardedRun(args, ctx, gateArgs);
+      ran = true;
+      return checkOutput
+        ? await checkOutput(output, { actionName, effect: effect() })
+        : output;
+    } catch (thrown) {
+      const error = readableFailure(thrown);
+      if (!ran && effect() !== "committed") throw error;
+      const raised = ran ? error : withCommittedEffect(error);
+      if (frame) frame.raised = raised;
+      throw raised;
     }
   };
   const run = hasSchema
@@ -1725,16 +1744,7 @@ function schemaToJsonSchema(
     // Alone, `anyObject` would claim the schema accepts any object. With the
     // reason beside it, MCP and the in-app agent leave the action out; A2A
     // cards, the manifest and tool search still read `anyObject`.
-    return {
-      parameters: anyObject,
-      verdict:
-        error instanceof UnusableSchemaError
-          ? error
-          : new UnusableSchemaError(
-              "",
-              `could not be converted: ${error instanceof Error ? error.message : String(error)}`,
-            ),
-    };
+    return { parameters: anyObject, verdict: unusableVerdict(error) };
   }
 }
 
@@ -2159,6 +2169,19 @@ export async function validateActionArgs(
   toolParameters?: ActionTool["parameters"],
   ctx?: object,
 ): Promise<any> {
+  try {
+    return await validatedActionArgs(schema, args, toolParameters, ctx);
+  } catch (error) {
+    throw readableFailure(error);
+  }
+}
+
+async function validatedActionArgs(
+  schema: StandardSchemaV1,
+  args: unknown,
+  toolParameters?: ActionTool["parameters"],
+  ctx?: object,
+): Promise<any> {
   args = coerceGatewayStringifiedArgs(args, toolParameters);
   const result = await schema["~standard"].validate(args);
   if (result.issues) {
@@ -2414,8 +2437,7 @@ function outputValidator(
       if (strategy === "fallback") return fallback;
       const label = description ? ` (${description})` : "";
       console.warn(
-        `Action outputSchema threw while validating the result${label}`,
-        error,
+        `Action outputSchema threw while validating the result${label}: ${describeThrownForLog(error)}`,
       );
       return output;
     }
@@ -2455,7 +2477,9 @@ function outputValidator(
       })
       .join("; ");
     const label = description ? ` (${description})` : "";
-    console.warn(`Action output did not match outputSchema${label}: ${issues}`);
+    console.warn(
+      `Action output did not match outputSchema${label}: ${describeThrownForLog(issues)}`,
+    );
     return output;
   };
 }

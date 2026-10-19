@@ -165,7 +165,7 @@ defaults to the actor):
 
 The `admins` events today: default model (`agent-default-model`), app member
 roles, app permission roles, workspace app access, org member role changes
-(`org-member-role`), file storage (`file-storage`), and org-scoped Builder.io
+(`org-member-role`), sent invitations (`org-invitation`), file storage (`file-storage`), and org-scoped Builder.io
 connect and disconnect (`builder-connection`). A member's personal Builder.io
 connection is `private`.
 

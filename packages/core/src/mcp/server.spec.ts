@@ -18,6 +18,7 @@ import {
   AgentConnectionRequiredError,
   defineAction,
 } from "../action.js";
+import { UnusableSchemaError } from "../json-schema/unusable-schema.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { listResourceSuggestions } from "../review/suggestions/actions.js";
 import { loadActionsFromStaticRegistry } from "../server/action-discovery.js";
@@ -2802,8 +2803,9 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
             true,
           );
           expect(consoleError).toHaveBeenCalledWith(
-            expect.stringContaining("read-only widget session"),
-            expect.objectContaining({ message: "write grant rejected" }),
+            expect.stringContaining(
+              "read-only widget session instead: Error: write grant rejected",
+            ),
           );
         } finally {
           consoleError.mockRestore();
@@ -2897,10 +2899,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           { sourceTicket: "minted-picker-ticket" },
         );
         expect(consoleError).toHaveBeenCalledWith(
-          expect.stringContaining("read-only widget session"),
-          expect.objectContaining({
-            message: expect.stringContaining("scoped capability"),
-          }),
+          expect.stringMatching(/read-only widget session.*scoped capability/),
         );
       } finally {
         consoleError.mockRestore();
@@ -5587,6 +5586,28 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       },
       run: async () => ({ ok: true }),
     };
+    const ticket = "AbcdefghijklmnopqrstuvwxyzABCDEFG0123456789";
+    const start = `https://mail.agent-native.com/_agent-native/embed/start?ticket=${ticket}`;
+    // `text` as a JSON Pointer segment, encoded `times` times.
+    const encodePointer = (text: string, times: number) =>
+      Array.from({ length: times }).reduce<string>(
+        (encoded) => encoded.replaceAll("~", "~0").replaceAll("/", "~1"),
+        text,
+      );
+    // A Standard Schema whose emitter throws `failure`.
+    const throwingSchema = (failure: unknown) =>
+      ({
+        "~standard": {
+          version: 1,
+          vendor: "test",
+          validate: (value: unknown) => ({ value }),
+          jsonSchema: {
+            input: () => {
+              throw failure;
+            },
+          },
+        },
+      }) as never;
 
     it("is left out of tools/list, and logged and captured once", async () => {
       const consoleError = vi
@@ -5635,6 +5656,206 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       } finally {
         await client.close();
         unregister();
+        consoleError.mockRestore();
+      }
+    });
+
+    it.each([
+      ["a key", "key-start", { [start]: { enum: [] } }],
+      [
+        "an escaped $ref",
+        "ref-start",
+        { item: { $ref: `#/$defs/${start.replaceAll("/", "~1")}` } },
+      ],
+      [
+        "the path, with its ticket in the reason,",
+        "path-start",
+        { [start]: { $ref: `#/$defs/${ticket}` } },
+      ],
+      [
+        "the reason, with its ticket in the path,",
+        "reason-start",
+        { [ticket]: { $ref: start } },
+      ],
+      // The `~` of each pointer `~1` is escaped, so only a decoded layer
+      // shows `~1`, and `embed` and `start` keep its digit between them.
+      ...[
+        ["percent", "%7E"],
+        ["HTML", "&#126;"],
+        ["JavaScript", "\\u007e"],
+        ["twice percent", "%257E"],
+      ].map(([escaping, tilde]): [string, string, object] => [
+        `a $ref whose pointer escapes its ~ as ${escaping},`,
+        `${escaping.replace(" ", "-").toLowerCase()}-pointer-start`,
+        {
+          [ticket]: {
+            $ref: `#/$defs/${start.replaceAll("/", "~1").replaceAll("~", tilde)}`,
+          },
+        },
+      ]),
+      // A pointer's route is read after its `~1` is decoded, so the shared
+      // reader resolves its dot segments and folds its compatibility forms.
+      ...[
+        ["a dot segment", "dot-segment", "embed/x/../start"],
+        [
+          "an escaped dot segment",
+          "escaped-dot-segment",
+          "embed/x/%2e%2e/start",
+        ],
+        ["full-width letters", "full-width", "ｅｍｂｅｄ/ｓｔａｒｔ"],
+        ["a compatibility letter", "compatibility", "em𝕓ed/start"],
+      ].map(([form, slug, route]): [string, string, object] => [
+        `a $ref whose pointer spells its route with ${form},`,
+        `${slug}-pointer-start`,
+        {
+          [ticket]: {
+            $ref: `#/$defs/${start.replace("embed/start", route).replaceAll("/", "~1")}`,
+          },
+        },
+      ]),
+      // A key that holds a pointer is encoded again, so a route is read only
+      // after every encoding is decoded, up to the 8 rounds read
+      // (MAX_DECODE_ROUNDS); one encoded past them is hidden unread.
+      [
+        "a $ref whose pointer is encoded twice,",
+        "twice-encoded-pointer-start",
+        { [ticket]: { $ref: `#/$defs/${encodePointer(start, 2)}` } },
+      ],
+      [
+        "a $ref whose pointer is encoded twice and escapes its ~ as percent,",
+        "twice-encoded-percent-pointer-start",
+        {
+          [ticket]: {
+            $ref: `#/$defs/${encodePointer(start, 2).replaceAll("~", "%7E")}`,
+          },
+        },
+      ],
+      [
+        "a $ref whose pointer is encoded past the rounds read,",
+        "over-encoded-pointer-start",
+        { [ticket]: { $ref: `#/$defs/${encodePointer(start, 9)}` } },
+      ],
+    ])(
+      "hides the reason and path it reports when %s names a start URL",
+      async (_, name, properties) => {
+        const consoleError = vi
+          .spyOn(console, "error")
+          .mockImplementation(() => {});
+        const seen: unknown[] = [];
+        const unregister = registerErrorCaptureProvider(
+          "mcp-unusable-tool-schema-redaction-test",
+          (error, context) => {
+            seen.push({
+              message: (error as Error).message,
+              cause: String((error as Error).cause),
+              context,
+            });
+            return "evt_unusable_mcp_tool_redaction";
+          },
+        );
+        const actions = {
+          "list-notes": listNotes,
+          [name]: {
+            tool: {
+              description: "Start",
+              parameters: { type: "object", properties },
+            },
+            run: async () => ({ ok: true }),
+          },
+        };
+        const { client } = await createModernClient({
+          ...config,
+          actions,
+          productionActions: actions,
+        });
+        const message = `Action "${name}" is left out of the MCP tool list: its input schema [hidden embed URL] at [hidden embed URL].`;
+        try {
+          const tools = (await client.listTools()).tools.map(
+            ({ name }) => name,
+          );
+
+          expect(tools).toEqual(["list-notes"]);
+          const logged = consoleError.mock.calls.filter(([line]) =>
+            String(line).includes(`"${name}"`),
+          );
+          expect(logged).toEqual([[`[mcp] ${message}`]]);
+          expect(seen).toMatchObject([
+            {
+              message,
+              cause: "undefined",
+              context: {
+                extra: {
+                  action: name,
+                  path: "[hidden embed URL]",
+                  reason: "[hidden embed URL]",
+                },
+              },
+            },
+          ]);
+          expect(JSON.stringify([logged, seen])).not.toContain(ticket);
+        } finally {
+          await client.close();
+          unregister();
+          consoleError.mockRestore();
+        }
+      },
+    );
+
+    it("is left out when converting its schema throws an error it cannot read", async () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      const unreadable = Object.defineProperty(
+        new Error("Unreadable schema"),
+        "message",
+        {
+          get() {
+            throw new Error(start);
+          },
+        },
+      );
+      const probe = defineAction({
+        description: "Probe",
+        readOnly: true,
+        parameters: {},
+        run: async () => {
+          (probe.tool as { parameters: unknown }).parameters = new Proxy(
+            { type: "object", properties: {} },
+            {
+              getPrototypeOf() {
+                throw unreadable;
+              },
+            },
+          );
+          return { ok: true };
+        },
+      });
+      const actions = { "list-notes": listNotes, probe };
+      const { client } = await createModernClient({
+        ...config,
+        actions,
+        productionActions: actions,
+      });
+      try {
+        const first = await client.callTool({ name: "probe", arguments: {} });
+        const second = await client.callTool({
+          name: "probe",
+          arguments: {},
+        });
+
+        expect(first.isError).toBeFalsy();
+        expect(second).toMatchObject({
+          isError: true,
+          content: [{ type: "text", text: "Unknown tool: probe" }],
+        });
+        expect(consoleError.mock.calls).toContainEqual([
+          '[mcp] Action "probe" is left out of the MCP tool list: its input schema could not be read: its error could not be read at /.',
+        ]);
+        expect(
+          JSON.stringify([first, second, consoleError.mock.calls]),
+        ).not.toContain(ticket);
+      } finally {
+        await client.close();
         consoleError.mockRestore();
       }
     });
@@ -5731,6 +5952,40 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           }),
         reason,
       })),
+      ...[
+        {
+          name: "a number for its reason",
+          malform: (failure: any) => (failure.reason = 123),
+          reason: "123 at /safe",
+        },
+        {
+          name: "a number for its path",
+          malform: (failure: any) => (failure.path = 123),
+          reason: "not usable at 123",
+        },
+        {
+          name: "a reason whose replace method throws",
+          malform: (failure: any) =>
+            (failure.reason = {
+              replace() {
+                throw new Error(start);
+              },
+            }),
+          reason: "[not text] at /safe",
+        },
+      ].map(({ name, malform, reason }) => ({
+        name: `was defined with a verdict that has ${name}`,
+        entry: () => {
+          const failure = new UnusableSchemaError("/safe", "not usable");
+          malform(failure);
+          return defineAction({
+            description: "Unsupported input",
+            schema: throwingSchema(failure),
+            run: async () => ({ ok: true }),
+          });
+        },
+        reason,
+      })),
     ])(
       "is left out, reported and unknown to tools/call when its schema $name",
       async ({ entry, reason }) => {
@@ -5768,6 +6023,9 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           expect(consoleError.mock.calls).toContainEqual([
             `[mcp] Action "unsupported-input" is left out of the MCP tool list: its input schema ${reason}.`,
           ]);
+          expect(
+            JSON.stringify([called, consoleError.mock.calls]),
+          ).not.toContain(ticket);
         } finally {
           await client.close();
           consoleError.mockRestore();
@@ -6038,7 +6296,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       );
     });
 
-    it("still fails the listing for an error that is not about the schema", async () => {
+    it("leaves out an action whose parameters cannot be read, and lists the rest", async () => {
       const consoleError = vi
         .spyOn(console, "error")
         .mockImplementation(() => {});
@@ -6075,7 +6333,13 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         }
       };
       try {
-        await expect(listTools()).rejects.toThrow(/parameters exploded/);
+        const names = (await listTools()).tools.map(({ name }) => name);
+
+        expect(names).toContain("list-notes");
+        expect(names).not.toContain("read-note");
+        expect(consoleError.mock.calls).toContainEqual([
+          '[mcp] Action "read-note" is left out of the MCP tool list: its input schema could not be converted: parameters exploded at /.',
+        ]);
       } finally {
         consoleError.mockRestore();
       }
@@ -7635,8 +7899,9 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         }),
       );
       expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining('"broken-review"'),
-        resourceFailure,
+        expect.stringContaining(
+          `"broken-review" because its metadata could not be resolved: Error: ${resourceFailure.message}`,
+        ),
       );
       expect(warn).toHaveBeenCalledTimes(warnCallsBeforeRead);
     } finally {
@@ -8243,7 +8508,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     });
   });
 
-  it("does not publish action changes for read-only or errored direct MCP calls", async () => {
+  it("publishes action changes for a direct MCP write that ran, not for a read or an upstream failure", async () => {
     actionChangeMocks.writeMarker.mockClear();
 
     const readOnly = await callWeb(
@@ -8293,6 +8558,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     expect(errored.error).toBeUndefined();
     expect(errored.result.isError).toBe(true);
+    expect(actionChangeMocks.writeMarker).not.toHaveBeenCalled();
 
     const emptyEmbedConfig = {
       ...config,
@@ -8323,9 +8589,14 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       },
     );
 
+    // Flagged so the host mounts no empty widget, but the write ran, so it
+    // says so and is published.
     expect(emptyEmbed.error).toBeUndefined();
     expect(emptyEmbed.result.isError).toBe(true);
-    expect(actionChangeMocks.writeMarker).not.toHaveBeenCalled();
+    expect(emptyEmbed.result.content[0].text).toBe(
+      "empty-embed-update completed; its change was saved, but it produced no widget content.",
+    );
+    expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
   });
 
   it("does not publish action changes for unknown, forbidden, or per-call read-only tools", async () => {
@@ -8516,8 +8787,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.error).toBeUndefined();
     expect(out.result.isError).not.toBe(true);
     expect(warning).toHaveBeenCalledWith(
-      "Could not write the action-change marker after an MCP tool call",
-      expect.any(Error),
+      "Could not write the action-change marker after an MCP tool call: Error: refresh unavailable",
     );
     warning.mockRestore();
   });
@@ -9132,7 +9402,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.result.content[0].text).toContain("[hidden embed URL]");
   });
 
-  it("surfaces app-only-visibility tool results via structuredContent so the embed iframe can read them", async () => {
+  it("hands an app-only tool's start URL to the embed iframe in _meta, not structuredContent", async () => {
     const embedConfig = {
       ...config,
       actions: {
@@ -9164,12 +9434,17 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
 
     expect(out.error).toBeUndefined();
-    expect(out.result.structuredContent).toMatchObject({
-      startUrl: "/_agent-native/embed/start?ticket=embed-session-ticket",
+    expect(out.result.structuredContent).toEqual({
       targetPath: "/inbox",
       expiresAt: 1735689600,
     });
-    expect(out.result.content[0].text).not.toContain("embed-session-ticket");
+    expect(out.result._meta["agent-native/embedStart"]).toEqual({
+      startUrl: "/_agent-native/embed/start?ticket=embed-session-ticket",
+      expiresAt: 1735689600,
+    });
+    expect(JSON.stringify(out.result.content)).not.toContain(
+      "embed-session-ticket",
+    );
   });
 
   it("preserves complete mutation receipts while sanitizing model-visible structured results", async () => {
@@ -10080,6 +10355,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
   });
 
   describe("output contracts", () => {
+    // As long as a real ticket, so it is hidden wherever it repeats.
+    const ECHOED_TICKET = "AbcdefghijklmnopqrstuvwxyzABCDEFG0123456789";
     const readTitle = defineAction({
       description: "Read a title.",
       schema: z.object({}),
@@ -10247,6 +10524,37 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
               },
             },
           }),
+        }),
+        "start-embed-echo": defineAction({
+          description: "Start an embedded session, repeating its ticket.",
+          schema: z.object({}),
+          outputSchema: z.object({
+            id: z.string(),
+            startUrl: z.string(),
+            note: z.string(),
+          }),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          readOnly: true,
+          run: async () => ({
+            id: "e2",
+            startUrl: `https://app.example.test/_agent-native/embed/start?ticket=${ECHOED_TICKET}`,
+            note: ECHOED_TICKET,
+          }),
+        }),
+        "stamp-escaped": defineAction({
+          description: "Stamp a row with a value escaped past the embed check.",
+          schema: z.object({}),
+          outputSchema: z.object({ at: z.string() }),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          run: async () => {
+            let at = "https://example.com/docs";
+            for (let layer = 0; layer < 9; layer += 1) {
+              at = encodeURIComponent(at);
+            }
+            return { at };
+          },
         }),
         "start-embed": defineAction({
           description: "Start an embedded session.",
@@ -10639,6 +10947,24 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       }
     });
 
+    it("types a contracted write the embed check cannot read, keeping its effect", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const result = await client.callTool({
+          name: "stamp-escaped",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).toContain("(root): transform_failed");
+        expect(text).toContain("do not retry");
+        expect(text).toContain("(errorCode: output_contract_violation)");
+        expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    });
+
     it("masks a required embed URL field in place instead of deleting it", async () => {
       const { client } = await createModernClient(outputContractConfig);
       try {
@@ -10657,6 +10983,26 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           startUrl: "[hidden embed URL]",
         });
         expect(JSON.stringify(result.content)).not.toContain("ticket=t9");
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("hides a ticket a contracted result repeats beside its start URL", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        await client.listTools();
+        const result = await client.callTool({
+          name: "start-embed-echo",
+          arguments: {},
+        });
+        expect(result.isError).toBeFalsy();
+        expect(result.structuredContent).toEqual({
+          id: "e2",
+          startUrl: "[hidden embed URL]",
+          note: "[hidden embed ticket]",
+        });
+        expect(JSON.stringify(result)).not.toContain(ECHOED_TICKET);
       } finally {
         await client.close();
       }

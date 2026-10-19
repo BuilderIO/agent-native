@@ -418,6 +418,26 @@ share who left the app there. A missing column draws the usual warning; a
 stage whose counts are not numbers or add up to more than shown draws a plain
 bar, and the panel check reports it under `funnelOutcomes`.
 
+To let people click a table row and see its numbers split by app (or another
+column) in a side panel, add `config.breakdowns: [{ column: "app", label:
+"App" }]` and put the column in the panel SQL inside `{{?breakdown}}…{{/breakdown}}`
+blocks in both the select list and the GROUP BY, e.g. `SELECT role{{?breakdown}},
+{{breakdown}}{{/breakdown}}, COUNT(*) AS people … GROUP BY role{{?breakdown}},
+{{breakdown}}{{/breakdown}}`. The column must be a real column in scope at that
+point of the SQL; when a CTE aggregates first, carry it through that CTE. A
+normal load drops the blocks, so the panel costs nothing more until someone
+opens a row; one capped breakdown query then serves every row on the same
+filters. If the panel's rows already carry the column, no block is needed and
+no query runs. For web, desktop or mobile, first-party events carry
+`properties.client_platform` (`web`, `electron`, `mobile`); label `electron`
+Desktop. Rows match their breakdown on every column that is not a number, so
+give a numeric column that names rows (a week, a year, an ID) `format: "text"`
+or `"date"` in `config.columns`; unformatted numbers count as measures. The
+first `format: "number"` column is the group size that sorts, mutes and folds
+groups, so make it a count such as people, not an average or a rate.
+Breakdowns don't work on a pivoted table (`config.pivot`). The
+open breakdown is in `view-screen` as `rowBreakdown`.
+
 When a dashboard is being migrated from an extension, create a new v2 copy,
 bind its panels to the real provider schema or Data Programs, and compare it
 with the original before retiring the extension-backed version. Do not invent

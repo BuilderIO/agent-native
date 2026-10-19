@@ -645,6 +645,30 @@ describe("org handlers", () => {
     expect(inserts[0][0].args[5]).toBe("member");
   });
 
+  it("records each sent invitation in the organization audit log", async () => {
+    mockExecute.mockResolvedValue({ rows: [], rowsAffected: 1 });
+
+    await createInvitationHandler(
+      makeEvent("/_agent-native/org/invitations", {
+        invites: [
+          { email: "First@example.test", role: "member" },
+          { email: "second@example.test", role: "admin" },
+        ],
+      }),
+    );
+
+    expect(mockRecordOrgAdminAuditEvent).toHaveBeenCalledTimes(2);
+    expect(mockRecordOrgAdminAuditEvent).toHaveBeenCalledWith({
+      action: "invite-organization-member",
+      targetType: "org-invitation",
+      targetId: "first@example.test",
+      summary: "Invited first@example.test as member",
+      userEmail: "owner@example.test",
+      orgId: "org-1",
+      args: { email: "first@example.test", role: "member" },
+    });
+  });
+
   it("lets the owner invite an admin", async () => {
     mockExecute.mockResolvedValue({ rows: [], rowsAffected: 1 });
 
