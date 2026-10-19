@@ -2119,7 +2119,6 @@ export default {
     fork: "分支",
     fullView: "互動",
     preview: "預覽",
-    focusScreen: "聚焦畫面",
     openAndDuplicate: "選取 {{display}}。使用互動模式進行聚焦捲動。",
     openAndPreview: "選取 {{display}}。使用互動模式進行聚焦捲動。",
     doubleClickToEdit: "使用互動模式進行聚焦捲動",
@@ -2129,8 +2128,8 @@ export default {
         title: "由本機開發伺服器渲染",
       },
       fusion: {
-        label: "Fusion 遠端",
-        title: "由 Fusion 渲染",
+        label: "Builder 遠端",
+        title: "由 Builder 渲染",
       },
       inline: {
         label: "內嵌",

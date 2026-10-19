@@ -2121,7 +2121,6 @@ export default {
     fork: "Ramificar",
     fullView: "Vista completa",
     preview: "Prévia",
-    focusScreen: "Focar tela",
     openAndDuplicate:
       "Selecione {{display}}. Use Interagir para rolagem focada.",
     openAndPreview: "Selecione {{display}}. Use Interagir para rolagem focada.",
@@ -2132,8 +2131,8 @@ export default {
         title: "Renderizado pelo servidor local",
       },
       fusion: {
-        label: "Fusion remoto",
-        title: "Renderizado pelo Fusion",
+        label: "Builder remoto",
+        title: "Renderizado pelo Builder",
       },
       inline: {
         label: "Embutido",

@@ -80,13 +80,7 @@ import {
   vectorEndpointMarkerRefX,
   vectorEndpointShape,
 } from "@shared/vector-endpoints";
-import {
-  IconCopy,
-  IconDots,
-  IconFocus2,
-  IconLoader2,
-  IconPlus,
-} from "@tabler/icons-react";
+import { IconCopy, IconDots, IconLoader2, IconPlus } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import {
   memo,
@@ -346,9 +340,6 @@ const HIT_TEST_PREVIEW_LATE_RESULT_GRACE_MS = 250;
 const HIT_TEST_COMMIT_TIMEOUT_MS = 1200;
 const SCREEN_HOVER_PROMOTE_DELAY_MS = 300;
 const FRAME_LABEL_HEIGHT = 28;
-const FRAME_HEADER_BUTTON_COMPACT_WIDTH = 260;
-const FRAME_HEADER_BUTTON_RESERVE = 116;
-const FRAME_HEADER_COMPACT_BUTTON_RESERVE = 32;
 const FRAME_LABEL_MIN_SCREEN_WIDTH = 20;
 const TRANSFORM_BADGE_OFFSET = 12;
 const TRANSFORM_BADGE_EDGE_PADDING = 8;
@@ -415,7 +406,6 @@ import {
   shouldBoardSurfaceCapturePointerEvents,
   shouldClearSelectionOnEmptyCanvasClick,
   shouldShowBreakpointMenuAffordance,
-  shouldShowFrameFullViewButton,
 } from "./multi-screen/canvas-tools";
 import {
   CHROME_SETTLE_MS,
@@ -750,7 +740,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   exportPreviewScreenId = null,
   hiddenScreenIds = EMPTY_SCREEN_IDS,
   lockedScreenIds = EMPTY_SCREEN_IDS,
-  fullViewScreenIds,
   review: {
     pendingReviewScreenIds = EMPTY_SCREEN_IDS,
     onReviewPendingScreen,
@@ -11128,10 +11117,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         : appendPenNode(activePenPath, createCornerNode(penPointer))
       : activePenPath;
   const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
-  const fullViewIdSet = useMemo(
-    () => new Set(fullViewScreenIds ?? []),
-    [fullViewScreenIds],
-  );
   const selectedDraftIdSet = useMemo(
     () => new Set(selectedDraftIds),
     [selectedDraftIds],
@@ -12526,7 +12511,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 !isBreakpointSelectionTarget(screen)
               }
               elementSelectedInScreen={selectedElementScreenId === screen.id}
-              showFullView={fullViewIdSet.has(screen.id)}
               pendingReview={pendingReviewScreenIdSet.has(screen.id)}
               onReviewPendingScreen={onReviewPendingScreen}
               isDirectlyHovered={screen.id === directlyHoveredScreenId}
@@ -14009,7 +13993,6 @@ interface ScreenProps {
   isSelected: boolean;
   elementSelectedInScreen: boolean;
   isTopScreen: boolean;
-  showFullView: boolean;
   pendingReview: boolean;
   onReviewPendingScreen?: (screenId: string) => void;
   readOnly: boolean;
@@ -14087,7 +14070,6 @@ const Screen = memo(function Screen({
   isSelected,
   elementSelectedInScreen,
   isTopScreen,
-  showFullView,
   pendingReview,
   onReviewPendingScreen,
   readOnly,
@@ -14150,17 +14132,10 @@ const Screen = memo(function Screen({
     !locked &&
     !creationToolActive &&
     !canvasGestureActive;
-  const childHoverActive =
-    hasHoveredChild && !creationToolActive && !canvasGestureActive;
   const suppressFrameChromeForChild =
     hasHoveredChild && !directlyHovered && !isDirectlyHovered;
   const emphasized = isSelected || frameDirectlyHovered;
   const labelEmphasized = isSelected || directlyHovered;
-  const fullViewVisible = shouldShowFrameFullViewButton({
-    emphasized,
-    showFullView,
-    childHoverActive,
-  });
   const activeOrEmphasized = isActive || emphasized;
   const selectionOutlined = isSelected && !groupSelected;
   const showHoverChrome =
@@ -14270,22 +14245,8 @@ const Screen = memo(function Screen({
     ? 0
     : FRAME_LABEL_HEIGHT * chromeScale;
   const frameScreenWidth = geometry.width / Math.max(chromeScale, 0.001);
-  const compactFullView = frameScreenWidth < FRAME_HEADER_BUTTON_COMPACT_WIDTH;
-  const frameActionLabel = t("multiScreenCanvas.focusScreen");
-  const labelInfoMaxWidth = Math.min(
-    frameScreenWidth,
-    Math.max(
-      0,
-      frameScreenWidth -
-        (compactFullView
-          ? FRAME_HEADER_COMPACT_BUTTON_RESERVE
-          : FRAME_HEADER_BUTTON_RESERVE),
-    ),
-  );
+  const labelInfoMaxWidth = frameScreenWidth;
   const frameLabelHidden = frameScreenWidth < FRAME_LABEL_MIN_SCREEN_WIDTH;
-  const fullViewMaxWidth = compactFullView
-    ? 20
-    : Math.max(84, Math.min(180, frameScreenWidth * 0.46));
 
   return (
     <div
@@ -14412,45 +14373,6 @@ const Screen = memo(function Screen({
                 </span>
               ) : null}
             </div>
-            <button
-              type="button"
-              data-frame-full-view
-              data-compact={compactFullView || undefined}
-              className={cn(
-                "absolute right-1 top-1/2 z-40 flex h-5 shrink-0 items-center overflow-hidden rounded-md border border-border bg-background/95 text-[10px] font-medium text-foreground opacity-0 shadow-sm transition-opacity",
-                compactFullView ? "w-5 justify-center px-0" : "gap-1 px-1.5",
-                "hover:bg-accent hover:text-accent-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                fullViewVisible && "opacity-100",
-              )}
-              data-an-chrome-scale
-              style={{
-                display: focusedInteract ? "none" : undefined,
-                maxWidth: fullViewMaxWidth,
-                transform: `translateY(-50%) scale(var(${CHROME_SCALE_CSS_VAR}, ${chromeScale}))`,
-                transformOrigin: "right center",
-                transition: getChromeLabelTransition(
-                  chromeSettling && fullViewVisible,
-                ),
-              }}
-              aria-label={frameActionLabel}
-              title={frameActionLabel}
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                onEdit(screen.id, event);
-              }}
-              onMouseDown={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-              }}
-              onMouseEnter={() => updateDirectHover(true)}
-              onMouseLeave={() => updateDirectHover(false)}
-            >
-              <IconFocus2 className="size-3 shrink-0" />
-              <span className={cn("truncate", compactFullView && "sr-only")}>
-                {frameActionLabel}
-              </span>
-            </button>
           </>
         ) : null}
       </div>
@@ -14827,7 +14749,6 @@ function areScreenPropsEqual(prev: ScreenProps, next: ScreenProps) {
     prev.isSelected === next.isSelected &&
     prev.elementSelectedInScreen === next.elementSelectedInScreen &&
     prev.isTopScreen === next.isTopScreen &&
-    prev.showFullView === next.showFullView &&
     prev.isDirectlyHovered === next.isDirectlyHovered &&
     prev.isFileDragOver === next.isFileDragOver &&
     prev.hasHoveredChild === next.hasHoveredChild &&
@@ -14946,7 +14867,6 @@ function BreakpointPreviewRow({
   const t = useT();
   const browserOrigin = useBrowserOrigin();
   const externalPreviewPendingOrigin = Boolean(previewUrl && !browserOrigin);
-  const frameActionLabel = t("multiScreenCanvas.focusScreen");
   const primaryWidthPx = metadata.width ?? primaryGeometry.width;
   const breakpointWidths = visibleBreakpointWidths(
     screen.breakpointWidths,
@@ -15260,31 +15180,6 @@ function BreakpointPreviewRow({
                 onActiveBreakpointChange?.(widthPx);
               }}
             >
-              {onEditBreakpoint ? (
-                <button
-                  type="button"
-                  data-frame-full-view
-                  className="absolute right-1 top-1 z-30 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-border bg-background/95 text-muted-foreground opacity-0 shadow-sm transition-opacity hover:bg-accent hover:text-accent-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover/artboard:opacity-100"
-                  data-an-chrome-scale
-                  style={{
-                    transform: `scale(var(${CHROME_SCALE_CSS_VAR}, ${chromeScale}))`,
-                    transformOrigin: "right center",
-                  }}
-                  aria-label={frameActionLabel}
-                  title={frameActionLabel}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    activateThisFrame(e);
-                    onEditBreakpoint(widthPx);
-                  }}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                  }}
-                >
-                  <IconFocus2 className="size-3" />
-                </button>
-              ) : null}
               <span
                 data-screen-content
                 data-cull-tier={cullTier}

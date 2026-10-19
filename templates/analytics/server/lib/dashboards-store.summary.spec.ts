@@ -162,6 +162,31 @@ beforeEach(() => {
 });
 
 describe("listDashboardSummaries", () => {
+  it("omits legacy settings at built-in ids while preserving saved rows", async () => {
+    state.settings = {
+      "u:alice@example.com:sql-dashboard-google-analytics": {
+        name: "Legacy Google Analytics",
+      },
+      "o:org-1:sql-dashboard-builtin-customer-roi-v2": { name: "Legacy ROI" },
+      "u:alice@example.com:sql-dashboard-custom": { name: "Custom" },
+    };
+    state.rows = [
+      {
+        id: "google-analytics",
+        kind: "sql",
+        name: "Saved edited Google Analytics",
+      },
+    ];
+
+    const summaries = await listDashboardSummaries(ctx);
+
+    expect(summaries.map((row) => [row.id, row.name])).toEqual([
+      ["google-analytics", "Saved edited Google Analytics"],
+      ["custom", "Custom"],
+    ]);
+    expect(state.insert).not.toHaveBeenCalled();
+  });
+
   it("projects metadata without the full config and maps name and parentId", async () => {
     state.rows = [
       {

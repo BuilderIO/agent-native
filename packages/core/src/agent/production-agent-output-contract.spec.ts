@@ -546,6 +546,32 @@ describe("runAgentLoop — gates follow the validated arguments", () => {
     }
   });
 
+  it("records the run a call refused for invalid arguments was declined in", async () => {
+    audit.mockClear();
+    const rename = defineAction({
+      description: "Rename the draft.",
+      schema: z.object({ title: z.string() }),
+      run: async () => ({ ok: true }),
+    }) as unknown as ActionEntry;
+    await runOneCall({ "rename-draft": rename }, "rename-draft", {
+      runId: "run-1",
+      turnId: "turn-1",
+      networkProtocol: "a2a",
+      networkId: "task-1",
+    });
+    expect(audit).toHaveBeenCalledTimes(1);
+    expect(audit.mock.calls[0]![0]).toMatchObject({
+      status: "error",
+      attribution: {
+        caller: "tool",
+        runId: "run-1",
+        turnId: "turn-1",
+        networkProtocol: "a2a",
+        networkId: "task-1",
+      },
+    });
+  });
+
   it("replays a committed failure on a continued turn instead of running it again", async () => {
     const counter = { writes: 0 };
     const actions = { "publish-draft": countingPublish(counter, false) };

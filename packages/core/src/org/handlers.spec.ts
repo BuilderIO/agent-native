@@ -147,6 +147,7 @@ vi.mock("./track-invite-accepted.js", () => ({
   },
 }));
 
+import { markVerifiedMcpCredentialForEvent } from "../server/request-context.js";
 import { putUserSetting } from "../settings/user-settings.js";
 import { createOrganization } from "./context.js";
 import {
@@ -645,29 +646,53 @@ describe("org handlers", () => {
     expect(inserts[0][0].args[5]).toBe("member");
   });
 
-  it("records each sent invitation in the organization audit log", async () => {
-    mockExecute.mockResolvedValue({ rows: [], rowsAffected: 1 });
-
-    await createInvitationHandler(
-      makeEvent("/_agent-native/org/invitations", {
+  it.each([
+    ["from the UI as the person over http", undefined, { caller: "http" }],
+    [
+      "under a verified MCP credential as the agent with its OAuth client",
+      "example-oauth-client",
+      {
+        caller: "mcp",
+        mcpClient: { oauthClientId: "example-oauth-client" },
+      },
+    ],
+  ])(
+    "records each sent invitation in the organization audit log %s",
+    async (_label, oauthClientId, source) => {
+      mockExecute.mockResolvedValue({ rows: [], rowsAffected: 1 });
+      const event = makeEvent("/_agent-native/org/invitations", {
         invites: [
           { email: "First@example.test", role: "member" },
           { email: "second@example.test", role: "admin" },
         ],
-      }),
-    );
+      });
+      if (oauthClientId) {
+        markVerifiedMcpCredentialForEvent(event, {
+          userEmail: "owner@example.test",
+          oauthClientId,
+        });
+      }
 
-    expect(mockRecordOrgAdminAuditEvent).toHaveBeenCalledTimes(2);
-    expect(mockRecordOrgAdminAuditEvent).toHaveBeenCalledWith({
-      action: "invite-organization-member",
-      targetType: "org-invitation",
-      targetId: "first@example.test",
-      summary: "Invited first@example.test as member",
-      userEmail: "owner@example.test",
-      orgId: "org-1",
-      args: { email: "first@example.test", role: "member" },
-    });
-  });
+      await createInvitationHandler(event);
+
+      expect(mockRecordOrgAdminAuditEvent).toHaveBeenCalledTimes(2);
+      expect(mockRecordOrgAdminAuditEvent).toHaveBeenCalledWith({
+        action: "invite-organization-member",
+        targetType: "org-invitation",
+        targetId: "first@example.test",
+        summary: "Invited first@example.test as member",
+        userEmail: "owner@example.test",
+        orgId: "org-1",
+        args: { email: "first@example.test", role: "member" },
+        attribution: expect.objectContaining({
+          mcpClient: undefined,
+          ...source,
+          mcpClientAccepted: undefined,
+          approvedToolCallKey: undefined,
+        }),
+      });
+    },
+  );
 
   it("lets the owner invite an admin", async () => {
     mockExecute.mockResolvedValue({ rows: [], rowsAffected: 1 });
@@ -1457,6 +1482,12 @@ describe("org handlers", () => {
           previousRole: "member",
           role: "admin",
         },
+        attribution: expect.objectContaining({
+          caller: "http",
+          mcpClient: undefined,
+          mcpClientAccepted: undefined,
+          approvedToolCallKey: undefined,
+        }),
       });
     });
 

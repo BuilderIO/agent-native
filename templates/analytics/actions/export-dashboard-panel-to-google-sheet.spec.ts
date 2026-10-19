@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getCredentialContext: vi.fn(),
   getDashboard: vi.fn(),
+  builtin: vi.fn(),
   normalizeDashboardPanelQuery: vi.fn(),
   resolveAnalyticsPanelSource: vi.fn(),
   exportDashboardPanelToGoogleSheet: vi.fn(),
@@ -22,8 +23,13 @@ vi.mock("../server/lib/dashboard-panel-source-resolver", () => ({
   resolveAnalyticsPanelSource: mocks.resolveAnalyticsPanelSource,
 }));
 
-vi.mock("../server/lib/dashboards-store", () => ({
-  getDashboard: mocks.getDashboard,
+vi.mock("../server/lib/open-dashboard", () => ({
+  openDashboard: async (id: string, scope: unknown) => {
+    const builtin = await mocks.builtin(id, scope);
+    if (builtin) return { builtin };
+    const saved = await mocks.getDashboard(id, scope);
+    return saved ? { saved } : null;
+  },
 }));
 
 vi.mock("../server/lib/google-sheets-export", () => ({
@@ -71,6 +77,23 @@ describe("export-dashboard-panel-to-google-sheet", () => {
       rowCount: 1,
       metadata: { panelId: "table-1" },
     });
+  });
+
+  it("exports a code-backed builtin table without a saved dashboard row", async () => {
+    mocks.builtin.mockResolvedValueOnce({
+      ...dashboard,
+      version: "builtin-v2",
+    });
+    await exportDashboardPanelToGoogleSheet.run({
+      dashboardId: "builtin-risk-meeting",
+      panelId: "table-1",
+    });
+    expect(mocks.exportDashboardPanelToGoogleSheet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dashboardId: "builtin-risk-meeting",
+        dashboardTitle: "Revenue",
+      }),
+    );
   });
 
   it("checks dashboard access, reuses the panel resolver, and exports structured results", async () => {

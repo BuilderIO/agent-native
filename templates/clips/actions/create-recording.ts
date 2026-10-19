@@ -175,6 +175,7 @@ export default defineAction({
       intent: "new",
       recordingId: id,
       email: ownerEmail,
+      sizeBytes: args.sizeBytes,
       requestHeaders: actionContext?.requestHeaders,
     });
     if (storage.mode === "none") {

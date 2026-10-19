@@ -31,6 +31,7 @@ const nanoid = (): string =>
   Math.random().toString(36).slice(2) + Date.now().toString(36);
 import { warnAgent } from "../agent/action-warnings.js";
 import { getAppConfig } from "../app-config/index.js";
+import { routeAuditAttribution } from "../audit/attribution.js";
 import { recordOrgAdminAuditEvent } from "../audit/org-admin.js";
 import { getDbExec } from "../db/client.js";
 import { CORE_INVITE_EMAIL_ID } from "../email-catalog/system-emails.js";
@@ -878,7 +879,7 @@ export const createInvitationHandler = defineEventHandler(
             inv.appRoles,
           );
           succeeded.push(result);
-          await auditInvitation(ctx, result);
+          await auditInvitation(event, ctx, result);
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           failed.push({ email: lower, error: message });
@@ -902,12 +903,13 @@ export const createInvitationHandler = defineEventHandler(
       body?.appId,
       body?.appRoles,
     );
-    await auditInvitation(ctx, result);
+    await auditInvitation(event, ctx, result);
     return result;
   },
 );
 
 function auditInvitation(
+  event: H3Event,
   ctx: { orgId: string | null; email: string },
   invite: SingleInviteResult,
 ): Promise<void> {
@@ -919,6 +921,7 @@ function auditInvitation(
     userEmail: ctx.email,
     orgId: ctx.orgId,
     args: { email: invite.email, role: invite.role },
+    attribution: routeAuditAttribution(event),
   });
 }
 
@@ -1349,6 +1352,7 @@ export const changeMemberRoleHandler = defineEventHandler(
       userEmail: ctx.email,
       orgId: ctx.orgId,
       args: { email: memberEmailLower, previousRole: currentRole, role },
+      attribution: routeAuditAttribution(event),
     });
 
     return { email: memberEmailLower, role };

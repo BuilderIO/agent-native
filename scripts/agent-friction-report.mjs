@@ -2870,6 +2870,42 @@ const FEEDBACK_REPLY_DETAIL_PATTERN = {
 const FEEDBACK_OPEN_WITHOUT_QUESTION_RE =
   /\b(?:why (?:are you )?(?:saying|replying|marking)[\s\S]{0,80}\b(?:open|in progress)\b|should be asking for what you need(?: for each)?|ask for clarification when needed)\b/i;
 
+const COMMUNITY_PR_CONTEXT_RE =
+  /\b(?:community|outside|external|open[- ]source|first[- ]time)\s+(?:prs?|pull requests?|contribut\w*)\b|\bcontributors?'?s?\b(?!\s+(?:guide|guidelines|docs?|covenant|agreement|license))|\bcommunity-prs\b/i;
+const COMMUNITY_PR_CORRECTION_RE =
+  /\b(?:why (?:did|would|are|were) you|you (?:forgot|didn't|did not|rebased|force[- ]pushed|closed|tagged|pinged|@-?mentioned|mentioned|dropped|lost|removed)|forgot to|should(?:n't| not) have|sounds? (?:harsh|curt|cold|demanding|rude|robotic|bossy)|too (?:harsh|curt|cold|demanding|bossy|blunt)|(?:no ?one|nobody) (?:has |had )?(?:replied|responded|answered)|(?:has|have)(?:n't| not) (?:had|gotten|got) (?:a |any )?(?:reply|response))/gi;
+
+// "You closed it correctly, thanks" uses the same verbs as a correction.
+const COMMUNITY_PR_PRAISE_RE =
+  /\b(?:correctly|right call|good call|well done|nice work|great job)\b/i;
+
+/** A correction about handling an outside PR: the cue and the context sit close together. */
+function hasCommunityPrCorrection(message) {
+  const input = textForPattern(message);
+  if (!COMMUNITY_PR_CONTEXT_RE.test(input)) return false;
+  return [...input.matchAll(COMMUNITY_PR_CORRECTION_RE)].some((match) => {
+    const sentenceStart =
+      Math.max(
+        input.lastIndexOf(".", match.index),
+        input.lastIndexOf("!", match.index),
+        input.lastIndexOf("?", match.index),
+        input.lastIndexOf("\n", match.index),
+      ) + 1;
+    const sentenceEnd = input.slice(match.index).search(/[.!?\n]/);
+    const sentence = input.slice(
+      sentenceStart,
+      sentenceEnd < 0 ? undefined : match.index + sentenceEnd,
+    );
+    return (
+      !COMMUNITY_PR_PRAISE_RE.test(sentence) &&
+      COMMUNITY_PR_CONTEXT_RE.test(
+        input.slice(Math.max(0, match.index - 200), match.index + 200),
+      )
+    );
+  });
+}
+const COMMUNITY_PR_HANDLING_PATTERN = { matches: hasCommunityPrCorrection };
+
 function matchesPattern(pattern, text) {
   return pattern.matches
     ? pattern.matches(text)
@@ -3237,6 +3273,41 @@ const FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES = [
   [false, "I asked which Figma file link to use."],
 ];
 
+const COMMUNITY_PR_HANDLING_REGEX_CASES = [
+  [
+    true,
+    "Why did you rebase the contributor's branch? Merge main into it instead.",
+  ],
+  [true, "That reply on the community PR sounds harsh. Thank them first."],
+  [true, "You forgot to credit the contributor in the squash commit."],
+  [true, "The outside PR from last week still hasn't had a reply."],
+  [
+    true,
+    "You tagged Steve on the external PR again; his review arrives on its own.",
+  ],
+  [true, "nobody replied to that community PR for two weeks"],
+  [true, "Why are you asking this contributor to rerun CI again?"],
+  [
+    true,
+    `The outside PR is ready. ${"x".repeat(150)} You forgot to say what shipped.`,
+  ],
+  [false, "Don't post on any outside PR or issue."],
+  [false, "You closed the contributor's duplicate PR correctly, thanks."],
+  [
+    true,
+    "Thanks, but you forgot to credit the contributor in the squash commit.",
+  ],
+  [false, "You forgot to update the contributor guide."],
+  [
+    false,
+    `You forgot to run the linter. ${"x".repeat(250)} The outside PR is fine.`,
+  ],
+  [false, "Never @-mention or request Builder reviewers on outside PRs."],
+  [false, "The contributor's PR looks good; merge it."],
+  [false, "You forgot to run the tests."],
+  [false, "Why did you close the Linear issue?"],
+];
+
 const FEEDBACK_CHANNEL_COVERAGE_RE =
   /\b(?:also|add|include|check|scan|review)\b[^.!?\n]{0,120}\b(?:the\s+)?#?[\w-]*feedback(?:[-\s]+channel)?\b|\b(?:missed|skipped|ignored|excluded)\b[^.!?\n]{0,100}\b#?[\w-]*feedback\b|\b(?:missed|skipped|ignored|excluded)\b[^.!?\n]{0,140}\b(?:reports?|parent(?:\s+messages?)?|messages?)\b[^.!?\n]{0,100}\b(?:in|from|within)\s+(?:the\s+)?#?[\w-]+/i;
 const FEEDBACK_CHANNEL_COVERAGE_REGEX_CASES = [
@@ -3257,6 +3328,52 @@ const FEEDBACK_ATTACHMENT_COVERAGE_REGEX_CASES = [
   [true, "The file-only message was treated as missing evidence."],
   [false, "I attached a screenshot to the report."],
   [false, "Please inspect the image before reproducing the bug."],
+];
+const A2A_NEGATION_RE = String.raw`\b(?:don['’]?t|do not|shouldn['’]?t|should not|never|stop)\s+`;
+const A2A_NEGATED_DIRECT_PEER_RE = String.raw`(?:delegate\w*\s+(?:to\s+)?|call\w*\s+)(?:the\s+)?(?:assets|design|analytics|slides|content|another|different|peer)\s+(?:app|agent)\b(?!['’]s)`;
+const A2A_NEGATED_USE_PEER_RE = String.raw`use\s+(?:the\s+)?(?:assets|design|analytics|slides|content)\s+(?:app|agent)\b(?!['’]s)`;
+const A2A_OVERDELEGATION_RE = new RegExp(
+  [
+    String.raw`\b(?:way too|too|so|overly)\s+(?:eager|quick|frequent|often|ready|inclined)\b[^.!?\n]{0,80}\b(?:a2a|call-agent|(?:delegat\w*|handoff\w*)\s+(?:to\s+)?(?:another|different|peer)\s+(?:app|agent))\b`,
+    String.raw`\b(?:a2a|call-agent)\b[^.!?\n]{0,35}\b(?:delegat\w*|handoff\w*)\b[^.!?\n]{0,40}\b(?:irrelevant|unnecessary|not relevant|too eager|too much)\b`,
+    `${A2A_NEGATION_RE}use\\s+(?:a2a|call-agent)\\b`,
+    `${A2A_NEGATION_RE}${A2A_NEGATED_DIRECT_PEER_RE}`,
+    `${A2A_NEGATION_RE}${A2A_NEGATED_USE_PEER_RE}`,
+  ].join("|"),
+  "i",
+);
+const A2A_OVERDELEGATION_REGEX_CASES = [
+  [true, "We are being way too eager to use A2A when it is not relevant."],
+  [true, "Slides should not delegate to the Design app for slide generation."],
+  [true, "A2A delegation is unnecessary for work this app can do."],
+  [true, "The A2A handoff is unnecessary for this local action."],
+  [true, "Don't call the Assets app for this."],
+  [true, "Stop calling the Design app."],
+  [true, "Never use A2A for this."],
+  [true, "Do not delegate to the peer app for this request."],
+  [false, "Call a peer when it owns the credentials required for the task."],
+  [false, "The Design app is available in this workspace."],
+  [false, "Design system corrections are unrelated to app handoffs."],
+  [false, "A2A is too slow for this generation task."],
+  [false, "The A2A response has too much verbosity."],
+  [false, "A2A has unnecessary latency."],
+  [false, "The Assets app is not available in this workspace."],
+  [false, "Never use stock assets for this slide."],
+  [false, "Never use the Design color system for this slide."],
+  [false, "Never use the Design app's color palette on this slide."],
+  [
+    false,
+    "Don't use local image generation; use the Assets app for the brand library.",
+  ],
+  [
+    false,
+    "Use the Assets app for this image because the user asked for its brand library.",
+  ],
+  [true, "Don't use the Assets app; generate this image locally."],
+  [
+    false,
+    "Delegate coding tasks to sub-agents when the user asks for parallel work.",
+  ],
 ];
 
 if (process.argv.includes("--self-test")) {
@@ -3282,6 +3399,12 @@ if (process.argv.includes("--self-test")) {
     ),
   );
   failures.push(
+    ...COMMUNITY_PR_HANDLING_REGEX_CASES.filter(
+      ([expected, message]) =>
+        matchesPattern(COMMUNITY_PR_HANDLING_PATTERN, message) !== expected,
+    ),
+  );
+  failures.push(
     ...FEEDBACK_CHANNEL_COVERAGE_REGEX_CASES.filter(
       ([expected, message]) =>
         FEEDBACK_CHANNEL_COVERAGE_RE.test(message) !== expected,
@@ -3291,6 +3414,11 @@ if (process.argv.includes("--self-test")) {
     ...FEEDBACK_ATTACHMENT_COVERAGE_REGEX_CASES.filter(
       ([expected, message]) =>
         FEEDBACK_ATTACHMENT_COVERAGE_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
+    ...A2A_OVERDELEGATION_REGEX_CASES.filter(
+      ([expected, message]) => A2A_OVERDELEGATION_RE.test(message) !== expected,
     ),
   );
   const stressMessage = "reply and but ".repeat(7_000);
@@ -3582,7 +3710,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length + FEEDBACK_REPLY_DETAIL_REGEX_CASES.length + FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES.length + FEEDBACK_CHANNEL_COVERAGE_REGEX_CASES.length + 1} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length + FEEDBACK_REPLY_DETAIL_REGEX_CASES.length + FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES.length + FEEDBACK_CHANNEL_COVERAGE_REGEX_CASES.length + A2A_OVERDELEGATION_REGEX_CASES.length + COMMUNITY_PR_HANDLING_REGEX_CASES.length + 1} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -3846,6 +3974,13 @@ const PATTERNS = [
     re: FEEDBACK_OPEN_WITHOUT_QUESTION_RE,
   },
   {
+    key: "community-pr-handling",
+    label: "Had to correct how an outside contributor's PR was handled",
+    fixedBy:
+      ".agents/skills/community-prs (owner, time limits, credit, and reply voice, 2026-10-15)",
+    ...COMMUNITY_PR_HANDLING_PATTERN,
+  },
+  {
     key: "pr-review-handoff",
     label: "Had to correct PR merge handoffs or repeated external follow-ups",
     fixedBy:
@@ -3937,6 +4072,13 @@ const PATTERNS = [
     fixedBy:
       "external-agents skill + initialToolNames→MCP instructions (2026-09-05)",
     re: /\b(?:use|call) (?:the )?(?:right |correct |named )?tool\b|\bwrong tool\b|\bdon['’]t (?:use|call) ask_app\b|\b(?:write|author) (?:it|the (?:content|copy|text|deck|slide|design)) yourself\b|\bdon['’]t delegate (?:this|that|authoring)\b|\bstop waiting (?:on|for) the (?:in-app agent|app['’]s agent)\b/i,
+  },
+  {
+    key: "a2a-overdelegation",
+    label: "Had to turn down unnecessary A2A delegation",
+    fixedBy:
+      "local-first A2A threshold in runtime prompts, app instructions, and A2A skills (2026-10-19)",
+    re: A2A_OVERDELEGATION_RE,
   },
   {
     key: "text-heavy-ui",

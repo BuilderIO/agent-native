@@ -2123,7 +2123,6 @@ export default {
     fork: "Bifurcar",
     fullView: "Vista completa",
     preview: "Vista previa",
-    focusScreen: "Enfocar pantalla",
     openAndDuplicate:
       "Selecciona {{display}}. Usa Interactuar para desplazamiento enfocado.",
     openAndPreview:
@@ -2135,8 +2134,8 @@ export default {
         title: "Renderizado desde servidor local",
       },
       fusion: {
-        label: "Fusion remoto",
-        title: "Renderizado desde Fusion",
+        label: "Builder remoto",
+        title: "Renderizado desde Builder",
       },
       inline: {
         label: "Integrado",

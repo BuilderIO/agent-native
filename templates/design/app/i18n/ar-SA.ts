@@ -2077,7 +2077,6 @@ export default {
     fork: "تفريع",
     fullView: "عرض كامل",
     preview: "معاينة",
-    focusScreen: "تركيز الشاشة",
     openAndDuplicate: "حدد {{display}}. استخدم وضع التفاعل للتمرير المركّز.",
     openAndPreview: "حدد {{display}}. استخدم وضع التفاعل للتمرير المركّز.",
     doubleClickToEdit: "استخدم وضع التفاعل للتمرير المركّز",
@@ -2087,8 +2086,8 @@ export default {
         title: "معروض من خادم التطوير المحلي",
       },
       fusion: {
-        label: "Fusion بعيد",
-        title: "معروض من Fusion",
+        label: "Builder بعيد",
+        title: "معروض من Builder",
       },
       inline: {
         label: "مضمن",

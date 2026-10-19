@@ -2138,7 +2138,6 @@ export default {
     fork: "Créer une branche",
     fullView: "Vue complète",
     preview: "Aperçu",
-    focusScreen: "Centrer l’écran",
     openAndDuplicate:
       "Sélectionner {{display}}. Utilisez Interagir pour le défilement ciblé.",
     openAndPreview:
@@ -2150,8 +2149,8 @@ export default {
         title: "Rendu depuis le serveur local",
       },
       fusion: {
-        label: "Fusion distant",
-        title: "Rendu depuis Fusion",
+        label: "Builder distant",
+        title: "Rendu depuis Builder",
       },
       inline: {
         label: "Intégré",

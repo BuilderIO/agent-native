@@ -2035,7 +2035,6 @@ export default {
     fork: "Fork",
     fullView: "Full view",
     preview: "Preview",
-    focusScreen: "Focus screen",
     openAndDuplicate: "Select {{display}}. Use Interact for focused scrolling.",
     openAndPreview: "Select {{display}}. Use Interact for focused scrolling.",
     doubleClickToEdit: "Use Interact for focused scrolling",
@@ -2045,8 +2044,8 @@ export default {
         title: "Rendered from a local development server",
       },
       fusion: {
-        label: "Fusion",
-        title: "Rendered from Fusion",
+        label: "Builder",
+        title: "Rendered from Builder",
       },
       inline: {
         label: "Inline",

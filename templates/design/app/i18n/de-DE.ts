@@ -2142,7 +2142,6 @@ export default {
     fork: "Abzweigen",
     fullView: "Vollansicht",
     preview: "Vorschau",
-    focusScreen: "Bildschirm fokussieren",
     openAndDuplicate:
       "{{display}} auswählen. Verwenden Sie Interagieren zum fokussierten Scrollen.",
     openAndPreview:
@@ -2154,8 +2153,8 @@ export default {
         title: "Vom lokalen Entwicklungsserver gerendert",
       },
       fusion: {
-        label: "Fusion remote",
-        title: "Von Fusion gerendert",
+        label: "Builder remote",
+        title: "Von Builder gerendert",
       },
       inline: {
         label: "Eingebettet",

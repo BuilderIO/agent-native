@@ -3598,6 +3598,8 @@ interface AgentNativeMessageProjectionState {
     approvalPending: boolean;
     pendingApprovalToolCallId?: string;
     connectionPending: boolean;
+    /** Delegated calls that streamed an activity row, which reports their end. */
+    activityParticipants?: Set<string>;
   };
 }
 
@@ -3899,6 +3901,7 @@ function mapAgentNativeEvent(
       approvalPending: boolean;
       pendingApprovalToolCallId?: string;
       connectionPending: boolean;
+      activityParticipants?: Set<string>;
     };
   },
 ): AgentChatRuntimeKnownEvent[] {
@@ -4281,6 +4284,11 @@ function mapAgentNativeEvent(
           : ev.status === "done"
             ? "completed"
             : "failed";
+    // A call that streamed an activity row already shows "Finished" there;
+    // a second "finished" row would repeat it.
+    const reportedByActivity =
+      interactionKind === "completed" &&
+      input.message.activityParticipants?.has(participantId) === true;
     const events: AgentChatRuntimeKnownEvent[] = [
       {
         type: "participant",
@@ -4288,7 +4296,9 @@ function mapAgentNativeEvent(
         operation: ev.status === "start" ? "register" : "update",
         participant,
       },
-      {
+    ];
+    if (!reportedByActivity) {
+      events.push({
         type: "interaction",
         ...base,
         interaction: {
@@ -4305,8 +4315,8 @@ function mapAgentNativeEvent(
                 : undefined,
           }),
         },
-      },
-    ];
+      });
+    }
     if (ev.taskId) {
       events.push({
         type: "task",
@@ -4386,6 +4396,7 @@ function mapAgentNativeEvent(
   if (ev.type === "agent_call_activity" && ev.snapshot) {
     const agent = ev.agent ?? "agent";
     const participantId = agentNativeParticipantId(ev);
+    (input.message.activityParticipants ??= new Set()).add(participantId);
     const status = agentNativeActivityStatus(ev.snapshot);
     return [
       {
@@ -4395,8 +4406,15 @@ function mapAgentNativeEvent(
         activity: {
           id: `${participantId}:activity`,
           kind: "agent",
-          label: AGENT_CALL_ACTIVITY_LABEL,
-          detail: ev.snapshot.activePhase,
+          // "processing" renders as "Working"; a finished run must not keep
+          // saying so.
+          label:
+            status === "running"
+              ? AGENT_CALL_ACTIVITY_LABEL
+              : status === "failed"
+                ? "failed"
+                : "finished",
+          detail: summarizeDelegatedActivity(ev.snapshot),
           status,
           participantId,
           scope: "external",
@@ -5367,4 +5385,52 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+/**
+ * One line for a delegated agent's live work: the tool it is running (and on
+ * what), or the tail of what it is saying, so a remote coding agent's progress
+ * reads as progress instead of a bare phase name.
+ */
+function summarizeDelegatedActivity(snapshot: {
+  activePhase?: string;
+  toolCalls?: Array<{ name?: string; status?: string; input?: string }>;
+  reasoning?: string[];
+  responseText?: string;
+}): string | undefined {
+  const tools = snapshot.toolCalls ?? [];
+  const lastTool = tools[tools.length - 1];
+  const doneCount = tools.filter((tool) => tool.status !== "running").length;
+  const toolTarget = (input?: string) => {
+    if (!input) return "";
+    try {
+      const parsed = JSON.parse(input) as Record<string, unknown>;
+      const target =
+        parsed.file ??
+        parsed.file_path ??
+        parsed.filePath ??
+        parsed.path ??
+        parsed.command;
+      return typeof target === "string" ? ` ${target}` : "";
+    } catch {
+      // coercion-ok: tool input is free text when it is not JSON.
+      return "";
+    }
+  };
+  if (snapshot.activePhase === "complete") {
+    return tools.length
+      ? `Done · ${tools.length} step${tools.length === 1 ? "" : "s"}`
+      : "Done";
+  }
+  if (snapshot.activePhase === "tool" && lastTool?.name) {
+    return `${lastTool.name}${toolTarget(lastTool.input)} · ${doneCount}/${tools.length}`;
+  }
+  const text =
+    snapshot.responseText ??
+    snapshot.reasoning?.[snapshot.reasoning.length - 1];
+  if (text) {
+    const oneLine = text.replace(/\s+/g, " ").trim();
+    return oneLine.length > 90 ? `${oneLine.slice(0, 89)}…` : oneLine;
+  }
+  return snapshot.activePhase;
 }

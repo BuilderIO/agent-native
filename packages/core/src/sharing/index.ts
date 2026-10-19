@@ -25,6 +25,8 @@ export {
   ForbiddenError,
   isResourceAvailable,
   resolveAccessStatus,
+  registerHostAccessResolver,
+  type HostAccessResolver,
   type AccessContext,
   type ResolvedAccess,
   type ResourceAccessState,
