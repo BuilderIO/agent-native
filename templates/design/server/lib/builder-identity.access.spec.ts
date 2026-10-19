@@ -4,7 +4,6 @@ process.env.BUILDER_IDENTITY = "1";
 
 const {
   BuilderSignInRequiredError,
-  BuilderUnavailableError,
   canAccessBuilderProject,
   rememberDelegatedCredential,
 } = await import("./builder-identity.js");
@@ -32,12 +31,15 @@ afterEach(() => {
 });
 
 describe("Builder project access", () => {
-  it("treats a Builder outage as unavailable, never as a cached denial", async () => {
+  it("treats a Builder outage as unavailable (503), never as a cached denial", async () => {
     signIn("outage@example.com");
     fetchMock.mockResolvedValueOnce(new Response("down", { status: 503 }));
     await expect(
       canAccessBuilderProject("outage@example.com", "proj-outage"),
-    ).rejects.toBeInstanceOf(BuilderUnavailableError);
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      errorCode: "builder_unavailable",
+    });
 
     fetchMock.mockResolvedValueOnce(
       Response.json({ id: "proj-outage", ownerId: "space-1" }),
@@ -74,6 +76,14 @@ describe("Builder project access", () => {
     await expect(
       canAccessBuilderProject("never-exchanged@example.com", "proj-any"),
     ).rejects.toBeInstanceOf(BuilderSignInRequiredError);
+    // Typed, so every Design action that reaches the access check answers
+    // 401 with the sign-in hint instead of a generic 500.
+    await expect(
+      canAccessBuilderProject("never-exchanged@example.com", "proj-any"),
+    ).rejects.toMatchObject({
+      statusCode: 401,
+      errorCode: "builder_sign_in_required",
+    });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

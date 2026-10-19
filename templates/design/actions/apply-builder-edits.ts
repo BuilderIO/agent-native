@@ -94,30 +94,57 @@ export default defineAction({
     }
 
     const db = getDb();
+    const scope = (status: "pending" | "unconfirmed") => {
+      const conditions = [
+        eq(schema.designFusionEdits.designId, designId),
+        eq(schema.designFusionEdits.status, status),
+      ];
+      if (editIds && editIds.length > 0) {
+        conditions.push(inArray(schema.designFusionEdits.id, editIds));
+      }
+      return and(...conditions);
+    };
     if (retryUnconfirmed) {
+      // Only the edits asked for (or all of this design's, with no editIds).
       await db
         .update(schema.designFusionEdits)
         .set({ status: "pending", updatedAt: new Date().toISOString() })
-        .where(
-          and(
-            eq(schema.designFusionEdits.designId, designId),
-            eq(schema.designFusionEdits.status, "unconfirmed"),
-          ),
-        );
-    }
-    const conditions = [
-      eq(schema.designFusionEdits.designId, designId),
-      eq(schema.designFusionEdits.status, "pending"),
-    ];
-    if (editIds && editIds.length > 0) {
-      conditions.push(inArray(schema.designFusionEdits.id, editIds));
+        .where(scope("unconfirmed"));
     }
 
-    const pending = await db
+    const queued = await db
       .select()
       .from(schema.designFusionEdits)
-      .where(and(...conditions))
+      .where(scope("pending"))
       .orderBy(schema.designFusionEdits.createdAt);
+
+    // Claim the edits before dispatching them: while Builder runs they are
+    // in flight (unconfirmed), so an overlapping apply cannot select and send
+    // them again. Only rows this call moved from pending are sent.
+    const batchId = nanoid();
+    const claimedAt = new Date().toISOString();
+    const claimed = queued.length
+      ? await db
+          .update(schema.designFusionEdits)
+          .set({
+            status: "unconfirmed",
+            batchId,
+            sentAt: claimedAt,
+            updatedAt: claimedAt,
+          })
+          .where(
+            and(
+              inArray(
+                schema.designFusionEdits.id,
+                queued.map((edit) => edit.id),
+              ),
+              eq(schema.designFusionEdits.status, "pending"),
+            ),
+          )
+          .returning({ id: schema.designFusionEdits.id })
+      : [];
+    const claimedIds = new Set(claimed.map((row) => row.id));
+    const pending = queued.filter((edit) => claimedIds.has(edit.id));
 
     if (pending.length === 0) {
       return {
@@ -154,11 +181,10 @@ export default defineAction({
     const summary = feed.finish(result);
 
     const now = new Date().toISOString();
-    const ids = pending.map((edit) => edit.id);
+    const thisBatch = eq(schema.designFusionEdits.batchId, batchId);
 
     // Only a run Builder finished applied the edits. A run that may still be
-    // going (dispatched, then timed out or cut off) is held as unconfirmed so
-    // a second apply cannot send the same edits again while it runs. A run
+    // going (dispatched, then timed out or cut off) stays unconfirmed. A run
     // that never went out, or ended with an error, has stopped: those edits
     // go back to the queue with the reason.
     if (!result.completed) {
@@ -172,16 +198,10 @@ export default defineAction({
         .update(schema.designFusionEdits)
         .set(
           unconfirmed
-            ? {
-                status: "unconfirmed",
-                batchId: nanoid(),
-                sentAt: now,
-                error: reason,
-                updatedAt: now,
-              }
+            ? { error: reason, updatedAt: now }
             : { status: "pending", error: reason, updatedAt: now },
         )
-        .where(inArray(schema.designFusionEdits.id, ids));
+        .where(thisBatch);
       fail(
         unconfirmed
           ? `${reason}. Builder may still be applying these edits: check the app, and only if they did not land, call apply-builder-edits again with retryUnconfirmed: true.`
@@ -195,17 +215,10 @@ export default defineAction({
       );
     }
 
-    const batchId = nanoid();
     await db
       .update(schema.designFusionEdits)
-      .set({
-        status: "sent",
-        batchId,
-        sentAt: now,
-        error: null,
-        updatedAt: now,
-      })
-      .where(inArray(schema.designFusionEdits.id, ids));
+      .set({ status: "sent", sentAt: now, error: null, updatedAt: now })
+      .where(thisBatch);
 
     return {
       sentCount: pending.length,
