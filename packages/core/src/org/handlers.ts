@@ -879,7 +879,7 @@ export const createInvitationHandler = defineEventHandler(
             inv.appRoles,
           );
           succeeded.push(result);
-          await auditInvitation(ctx, result);
+          await auditInvitation(event, ctx, result);
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           failed.push({ email: lower, error: message });
@@ -903,12 +903,13 @@ export const createInvitationHandler = defineEventHandler(
       body?.appId,
       body?.appRoles,
     );
-    await auditInvitation(ctx, result);
+    await auditInvitation(event, ctx, result);
     return result;
   },
 );
 
 function auditInvitation(
+  event: H3Event,
   ctx: { orgId: string | null; email: string },
   invite: SingleInviteResult,
 ): Promise<void> {
@@ -920,6 +921,7 @@ function auditInvitation(
     userEmail: ctx.email,
     orgId: ctx.orgId,
     args: { email: invite.email, role: invite.role },
+    attribution: routeAuditAttribution(event),
   });
 }
 
