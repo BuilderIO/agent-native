@@ -21,19 +21,23 @@ const mentionSchema = z.object({
 
 export default defineAction({
   description:
-    "Reply to an existing comment with inline Markdown text (without headings). Organization members can be mentioned with @. Looks up the thread and parent and delegates to add-comment.",
+    "Reply to a comment on a recording, as the signed-in user, in that comment's thread. Comment IDs come from get-recording-player-data. The reply is inline Markdown without headings; organization members can be mentioned with @. Returns the new reply's id.",
   schema: z.object({
     commentId: z.string().describe("Comment ID to reply to"),
     content: z
       .string()
       .min(1)
       .describe("Reply text; inline Markdown is supported, without headings"),
-    authorName: z.string().optional(),
+    authorName: z
+      .string()
+      .optional()
+      .describe("Name to show only when the signed-in account has none"),
     mentions: z
       .union([z.string(), z.array(mentionSchema).max(20)])
       .optional()
       .describe("Organization members mentioned in the reply"),
   }),
+  mcpApp: { compactCatalog: true },
   run: async (args) => {
     const db = getDb();
     const [parent] = await db
