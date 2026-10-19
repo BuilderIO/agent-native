@@ -185,15 +185,16 @@ function defaultSocialImageResponse(): Response {
   });
 }
 
-/** `work`'s result, or null when `deadline` passes first. */
+/** `work`'s result, or null when `deadline` passes first; never started late. */
 async function settleBy<T>(
-  work: Promise<T>,
+  work: () => Promise<T>,
   deadline: number,
 ): Promise<T | null> {
+  if (Date.now() >= deadline) return null;
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
-      work,
+      work(),
       new Promise<null>((resolve) => {
         timer = setTimeout(() => resolve(null), deadline - Date.now());
       }),
@@ -214,10 +215,12 @@ async function fetchThumbnail(
     // A DNS lookup cannot be cancelled, so the check gets only the budget
     // left; a host it could not clear in time is refused, not fetched.
     const blocked = await settleBy(
-      isBlockedExtensionUrlWithDns(currentUrl),
+      () => isBlockedExtensionUrlWithDns(currentUrl),
       deadline,
     );
-    if (blocked === null) return imageResponse(null, "text/plain", 504);
+    if (blocked === null) {
+      throw new Error("Thumbnail fetch ran out of time before the host check");
+    }
     if (blocked) return imageResponse(null, "text/plain", 403);
 
     const controller = new AbortController();

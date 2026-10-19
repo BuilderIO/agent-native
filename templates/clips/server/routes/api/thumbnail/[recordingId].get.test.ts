@@ -408,9 +408,35 @@ describe("/api/thumbnail/:recordingId route", () => {
       expectDefaultSocialRedirect(await pending);
       expect(fetch).not.toHaveBeenCalled();
       expect(captureRouteError).toHaveBeenCalledWith(
-        new Error("Storage provider returned 504 for thumbnail"),
+        new Error("Thumbnail fetch ran out of time before the host check"),
         expect.anything(),
       );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("skips the public fallback when the bucket read spent the whole budget", async () => {
+    vi.useFakeTimers();
+    try {
+      mockGetDb.mockReturnValue(
+        createDbWithRow(
+          makeRow({
+            thumbnailUrl: "https://bucket.example.com/clips/rec-1/thumb.jpg",
+            storageMode: "own",
+          }),
+        ),
+      );
+      mockFetchS3ObjectByUrl.mockImplementation(async () => {
+        vi.setSystemTime(Date.now() + 30_000);
+        throw new Error("bucket timed out");
+      });
+
+      const result = await handler(makeEvent() as any);
+
+      expectDefaultSocialRedirect(result);
+      expect(mockIsBlockedExtensionUrlWithDns).not.toHaveBeenCalled();
+      expect(fetch).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }
