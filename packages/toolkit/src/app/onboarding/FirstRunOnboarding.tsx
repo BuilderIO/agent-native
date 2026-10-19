@@ -1144,20 +1144,19 @@ export function FirstRunOnboarding({
                   <div className="flex justify-end gap-2">
                     <Button
                       type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setSkipConfirmOpen(false)}
-                    >
-                      {t("agentChat.onboarding.creditsSkipGoBack")}
-                    </Button>
-                    <Button
-                      type="button"
                       variant="secondary"
                       size="sm"
                       data-testid="first-run-credits-skip-confirm"
                       onClick={skipSetup}
                     >
                       {t("agentChat.onboarding.creditsSkipAnyway")}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => setSkipConfirmOpen(false)}
+                    >
+                      {t("agentChat.onboarding.creditsSkipGoBack")}
                     </Button>
                   </div>
                 </PopoverContent>
