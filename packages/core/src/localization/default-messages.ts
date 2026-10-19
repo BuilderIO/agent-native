@@ -20,6 +20,8 @@ const messages = {
         "Open-source apps are self-serve when run locally with a loopback callback; no partner application is needed. Hosted apps on *.agent-native.com need operator approval and a hosted callback.",
       chatgptPersonalScopeOnly:
         "Use ChatGPT plan access from a personal account. In local development, set access.autoCreateDefaultOrg to false before signing in.",
+      chatgptScopeUnresolved:
+        "The app couldn't confirm your account scope. Finish local setup, then reload settings.",
       chatgptManageAccess: "Manage in ChatGPT",
       chatgptNoDirectUse:
         "Reconnect and allow direct model access to use this ChatGPT account.",

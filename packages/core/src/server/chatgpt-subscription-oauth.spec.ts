@@ -145,7 +145,7 @@ describe("ChatGPT subscription OAuth contract", () => {
         ).resolves.toMatchObject({
           supported: false,
           localLoopback: false,
-          supportReason: "requires_personal_scope",
+          supportReason: "scope_unresolved",
           accounts: [],
         });
         expect(mocks.getUserLabEnabled).not.toHaveBeenCalled();

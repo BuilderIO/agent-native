@@ -89,6 +89,8 @@ vi.mock("./action-change.js", () => ({
 }));
 
 vi.mock("../org/context.js", () => ({
+  hasOrgScopeResolutionUnavailable: (event: any) =>
+    event.context?.__anOrgScopeResolutionUnavailable === true,
   resolveOrgIdForEmail: (...args: unknown[]) =>
     mockResolveOrgIdForEmail(...args),
   resolveOrgScopeForEmail: (...args: unknown[]) =>
@@ -5709,6 +5711,45 @@ describe("mountActionRoutes", () => {
     );
     expect(received.ctx.orgId).toBeNull();
     expect(received.requestContext.orgScope).toBe("personal");
+  });
+
+  it("does not mark unavailable org resolution as personal scope", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestContext } = await import("./request-context.js");
+    mockResolveOrgIdForEmail.mockResolvedValue(null);
+    mockResolveOrgScopeForEmail.mockResolvedValue({ status: "personal" });
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    let received: any;
+    mountActionRoutes(
+      nitroApp,
+      {
+        "do-thing": {
+          run: vi.fn(async (_params, ctx) => {
+            received = { ctx, requestContext: getRequestContext() };
+            return { ok: true };
+          }),
+        } as any,
+      },
+      {
+        getOwnerFromEvent: async () => "steve@example.com",
+        resolveOrgId: async () => null,
+      },
+    );
+
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: { "x-agent-native-frontend": "1" },
+      context: { __anOrgScopeResolutionUnavailable: true },
+      req: { json: async () => ({}) },
+    });
+
+    expect(received.ctx.orgId).toBeNull();
+    expect(received.requestContext.orgScope).toBeUndefined();
   });
 
   it("keeps an unresolved cookie scope unknown", async () => {

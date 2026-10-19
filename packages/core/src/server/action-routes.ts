@@ -36,6 +36,7 @@ import { isTransientDatabaseError } from "../db/client.js";
 import { declaresFeatureFlagDelegation } from "../feature-flags/a2a-action-route.js";
 import { isFeatureFlagAdminEmail } from "../feature-flags/permissions.js";
 import {
+  hasOrgScopeResolutionUnavailable,
   isFederationMembershipValidatedForEvent,
   resolveOrgIdForEmail,
   resolveOrgScopeForEmail,
@@ -1146,7 +1147,10 @@ function mountActionRoutesInternal(
                 const scope = await resolveOrgScopeForEmail(userEmail);
                 if (scope.status === "organization") {
                   orgId = normalizeOrgId(scope.orgId);
-                } else if (scope.status === "personal") {
+                } else if (
+                  scope.status === "personal" &&
+                  !hasOrgScopeResolutionUnavailable(event)
+                ) {
                   orgScope = "personal";
                 }
               } catch (error) {

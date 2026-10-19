@@ -3148,6 +3148,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Les applications open source sont accessibles sans demande lorsque vous les exécutez localement avec un callback loopback ; aucune demande de partenariat n’est nécessaire. Les applications hébergées sur *.agent-native.com nécessitent l’approbation de l’opérateur et un callback hébergé.",
   "settingsModel.chatgptPersonalScopeOnly":
     "Utilisez l’accès au forfait ChatGPT avec un compte personnel. En développement local, définissez access.autoCreateDefaultOrg sur false avant de vous connecter.",
+  "settingsModel.chatgptScopeUnresolved":
+    "L’application n’a pas pu confirmer le périmètre de votre compte. Terminez la configuration locale, puis rechargez les paramètres.",
   "settingsModel.chatgptNoDirectUse":
     "Reconnectez-vous et autorisez l’accès direct aux modèles pour utiliser ce compte ChatGPT.",
   "settingsModel.chatgptReconnect": "Reconnecter",

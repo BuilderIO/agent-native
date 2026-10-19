@@ -2694,6 +2694,8 @@ const messages: ToolkitAgentChatTranslation = {
     "开源应用在本地使用 loopback callback 运行时，无需申请合作伙伴资格即可使用 ChatGPT 计划。托管在 *.agent-native.com 上的应用需要运营方批准，并配置托管 callback。",
   "settingsModel.chatgptPersonalScopeOnly":
     "使用个人账户访问 ChatGPT 方案。在本地开发时，请在登录前将 access.autoCreateDefaultOrg 设为 false。",
+  "settingsModel.chatgptScopeUnresolved":
+    "应用无法确认你的账户范围。请完成本地设置，然后重新加载设置页面。",
   "settingsModel.chatgptNoDirectUse":
     "重新连接并允许直接访问模型，才能使用此 ChatGPT 账户。",
   "settingsModel.chatgptReconnect": "重新连接",

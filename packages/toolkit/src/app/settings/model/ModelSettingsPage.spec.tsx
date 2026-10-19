@@ -1621,6 +1621,25 @@ describe("ModelSettingsPage", () => {
     expect(buttons(row("chatgpt-subscription"))).toEqual([]);
   });
 
+  it("explains when the account scope is still unresolved", async () => {
+    state.chatgpt = {
+      supported: false,
+      supportReason: "scope_unresolved",
+      connected: false,
+      reconnectRequired: false,
+      activeAccountId: null,
+      activeAccount: null,
+      accounts: [],
+      legacyRegistrationCleanupAvailable: false,
+    };
+    await render();
+
+    expect(row("chatgpt-subscription").textContent).toContain(
+      "The app couldn't confirm your account scope. Finish local setup, then reload settings.",
+    );
+    expect(buttons(row("chatgpt-subscription"))).toEqual([]);
+  });
+
   it("saves Max iterations for admins and refuses a value out of range", async () => {
     loopMock.save.mockResolvedValue({ ...state.loop, maxIterations: 250 });
     await render();

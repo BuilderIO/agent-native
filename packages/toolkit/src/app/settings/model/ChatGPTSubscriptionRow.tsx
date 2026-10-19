@@ -54,6 +54,7 @@ export interface ChatGPTSubscriptionStatus {
   supportReason:
     | "requires_local_loopback"
     | "requires_personal_scope"
+    | "scope_unresolved"
     | "requires_lab"
     | null;
   connected: boolean;
@@ -336,7 +337,9 @@ export function ChatGPTSubscriptionRow() {
                 `${K}${
                   data.supportReason === "requires_personal_scope"
                     ? "chatgptPersonalScopeOnly"
-                    : "chatgptLocalOnly"
+                    : data.supportReason === "scope_unresolved"
+                      ? "chatgptScopeUnresolved"
+                      : "chatgptLocalOnly"
                 }`,
               )
             : undefined

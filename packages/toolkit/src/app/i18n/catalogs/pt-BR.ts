@@ -3110,6 +3110,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Apps de código aberto podem ser usados sem solicitação quando executados localmente com um callback de loopback; não é necessário solicitar acesso de parceiro. Apps hospedados em *.agent-native.com precisam da aprovação do operador e de um callback hospedado.",
   "settingsModel.chatgptPersonalScopeOnly":
     "Use o acesso ao plano do ChatGPT com uma conta pessoal. No desenvolvimento local, defina access.autoCreateDefaultOrg como false antes de entrar.",
+  "settingsModel.chatgptScopeUnresolved":
+    "O app não conseguiu confirmar o escopo da sua conta. Conclua a configuração local e recarregue as configurações.",
   "settingsModel.chatgptNoDirectUse":
     "Reconecte e permita o acesso direto aos modelos para usar esta conta do ChatGPT.",
   "settingsModel.chatgptReconnect": "Reconectar",

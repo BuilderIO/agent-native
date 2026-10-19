@@ -157,6 +157,7 @@ export interface ChatGPTSubscriptionStatus {
   supportReason:
     | "requires_local_loopback"
     | "requires_personal_scope"
+    | "scope_unresolved"
     | "requires_lab"
     | null;
   connected: boolean;
@@ -337,6 +338,7 @@ function callbackUriForEvent(event: H3Event): string | null {
 type CurrentRequestLoopbackAccess =
   | "local"
   | "personal_scope_required"
+  | "scope_unresolved"
   | "untrusted"
   | "non_loopback";
 
@@ -368,9 +370,9 @@ function currentRequestLoopbackAccess(): CurrentRequestLoopbackAccess {
   ) {
     return "untrusted";
   }
-  return context.orgId || context.orgScope !== "personal"
-    ? "personal_scope_required"
-    : "local";
+  if (context.orgId) return "personal_scope_required";
+  if (context.orgScope === "personal") return "local";
+  return "scope_unresolved";
 }
 
 function currentRequestIsLocalLoopback(): boolean {
@@ -855,6 +857,20 @@ export async function getChatGPTSubscriptionStatus(
       supported: false,
       localLoopback: false,
       supportReason: "requires_personal_scope",
+      connected: false,
+      reconnectRequired: false,
+      accountId: null,
+      activeAccountId: null,
+      activeAccount: null,
+      accounts: [],
+      legacyRegistrationCleanupAvailable: false,
+    };
+  }
+  if (loopbackAccess === "scope_unresolved") {
+    return {
+      supported: false,
+      localLoopback: false,
+      supportReason: "scope_unresolved",
       connected: false,
       reconnectRequired: false,
       accountId: null,
