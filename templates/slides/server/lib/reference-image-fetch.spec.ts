@@ -60,12 +60,17 @@ describe("fetchReferenceImage", () => {
     });
   });
 
-  it("rejects missing and non-image content types", async () => {
+  it("rejects missing and unsupported content types", async () => {
     mockSsrfSafeFetch
       .mockResolvedValueOnce(new Response(null))
       .mockResolvedValueOnce(
         new Response("not an image", {
           headers: { "content-type": "text/html" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response("svg image", {
+          headers: { "content-type": "image/svg+xml" },
         }),
       );
 
@@ -83,6 +88,30 @@ describe("fetchReferenceImage", () => {
         code: "unsupported_content_type",
         contentType: "text/html",
       },
+    });
+    await expect(
+      fetchReferenceImage("https://cdn.example.com/vector.svg"),
+    ).resolves.toEqual({
+      ok: false,
+      reason: {
+        code: "unsupported_content_type",
+        contentType: "image/svg+xml",
+      },
+    });
+  });
+
+  it("normalizes jpg aliases to the supported JPEG MIME type", async () => {
+    mockSsrfSafeFetch.mockResolvedValue(
+      new Response("jpeg bytes", {
+        headers: { "content-type": "image/jpg" },
+      }),
+    );
+
+    await expect(
+      fetchReferenceImage("https://cdn.example.com/style.jpg"),
+    ).resolves.toMatchObject({
+      ok: true,
+      image: { mimeType: "image/jpeg" },
     });
   });
 

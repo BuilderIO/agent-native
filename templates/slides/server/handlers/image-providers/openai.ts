@@ -35,23 +35,46 @@ export class OpenAIProvider implements ImageProvider {
     const size = mapSize(config?.aspectRatio, config?.size);
     const quality = mapQuality(config?.quality);
 
-    const body: Record<string, unknown> = {
-      model: "gpt-image-2",
-      prompt: fullPrompt,
-      n: 1,
-      size,
-      quality,
-      output_format: config?.outputFormat || "png",
-    };
-
     const endpoint =
       referenceImages.length > 0
         ? "https://api.openai.com/v1/images/edits"
         : "https://api.openai.com/v1/images/generations";
+    let body: BodyInit;
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${apiKey}`,
+    };
     if (referenceImages.length > 0) {
-      body.images = referenceImages.map((reference) => ({
-        image_url: `data:${reference.mimeType};base64,${reference.data}`,
-      }));
+      const formData = new FormData();
+      formData.append("model", "gpt-image-2");
+      formData.append("prompt", fullPrompt);
+      formData.append("n", "1");
+      formData.append("size", size);
+      formData.append("quality", quality);
+      formData.append("output_format", config?.outputFormat || "png");
+
+      for (const [index, reference] of referenceImages.entries()) {
+        const { extension, mimeType } = normalizeReferenceImageType(
+          reference.mimeType,
+        );
+        const image = Buffer.from(reference.data, "base64");
+        formData.append(
+          "image[]",
+          new Blob([new Uint8Array(image)], { type: mimeType }),
+          `reference-${index + 1}.${extension}`,
+        );
+      }
+
+      body = formData;
+    } else {
+      headers["Content-Type"] = "application/json";
+      body = JSON.stringify({
+        model: "gpt-image-2",
+        prompt: fullPrompt,
+        n: 1,
+        size,
+        quality,
+        output_format: config?.outputFormat || "png",
+      });
     }
 
     console.log(
@@ -60,11 +83,8 @@ export class OpenAIProvider implements ImageProvider {
 
     const result = await fetchWithRetry(endpoint, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
+      headers,
+      body,
     });
 
     const json = await result.json();
@@ -163,6 +183,23 @@ export class OpenAIProvider implements ImageProvider {
       model: "gpt-image-2",
       provider: "openai",
     };
+  }
+}
+
+function normalizeReferenceImageType(mimeType: string): {
+  mimeType: "image/png" | "image/jpeg" | "image/webp";
+  extension: string;
+} {
+  switch (mimeType) {
+    case "image/png":
+      return { mimeType, extension: "png" };
+    case "image/jpg":
+    case "image/jpeg":
+      return { mimeType: "image/jpeg", extension: "jpg" };
+    case "image/webp":
+      return { mimeType, extension: "webp" };
+    default:
+      throw new Error(`Unsupported OpenAI reference image type: ${mimeType}`);
   }
 }
 

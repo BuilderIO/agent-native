@@ -1161,6 +1161,8 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
 });
 
 describe("realDataFinalGuard", () => {
+  const resultPageRunStartedAt = Date.UTC(2026, 9, 12, 12, 0);
+
   const today = new Date();
   const todayUtc = new Date(
     Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()),
@@ -2830,6 +2832,7 @@ describe("realDataFinalGuard", () => {
       guardContext({
         userText: "What was the activation rate last week?",
         draftText: "The activation rate was 42%.",
+        runStartedAt: resultPageRunStartedAt,
         toolCalls: [dbtMetricCall(resultPageRange)],
         toolResults: [
           {
@@ -2865,6 +2868,7 @@ describe("realDataFinalGuard", () => {
       guardContext({
         userText: "What was the activation rate last week?",
         draftText: "The activation rate was 42%.",
+        runStartedAt: resultPageRunStartedAt,
         toolCalls: [dbtMetricCall(resultPageRange)],
         toolResults: [
           {
@@ -2920,6 +2924,7 @@ describe("realDataFinalGuard", () => {
       guardContext({
         userText: "Find every account's activation rate for last week.",
         draftText: "All accounts had an activation rate of 42%.",
+        runStartedAt: resultPageRunStartedAt,
         toolCalls: [dbtMetricCall(resultPageRange)],
         toolResults: [
           {

@@ -6,6 +6,12 @@ export const MAX_REFERENCE_IMAGE_TOTAL_BYTES = 10 * 1024 * 1024;
 export const MAX_REFERENCE_IMAGE_COUNT = 8;
 export const MAX_REFERENCE_IMAGE_INPUT_COUNT = 32;
 
+const SUPPORTED_REFERENCE_IMAGE_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+]);
+
 export interface ReferenceImage {
   data: string;
   mimeType: string;
@@ -97,12 +103,18 @@ export async function fetchReferenceImage(
     return { ok: false, reason: { code: "missing_content_type" } };
   }
 
-  const mimeType = contentType.split(";")[0]?.trim().toLowerCase() ?? "";
-  if (!/^image\/[a-z0-9][a-z0-9.+-]*$/u.test(mimeType)) {
+  const declaredMimeType =
+    contentType.split(";")[0]?.trim().toLowerCase() ?? "";
+  const mimeType =
+    declaredMimeType === "image/jpg" ? "image/jpeg" : declaredMimeType;
+  if (!SUPPORTED_REFERENCE_IMAGE_TYPES.has(mimeType)) {
     await cancelBody(response.body);
     return {
       ok: false,
-      reason: { code: "unsupported_content_type", contentType: mimeType },
+      reason: {
+        code: "unsupported_content_type",
+        contentType: declaredMimeType,
+      },
     };
   }
 
