@@ -14,15 +14,15 @@ import {
 /** Most skipped files a link remembers for its status line. */
 const MAX_REMEMBERED_SKIPS = 50;
 
-/**
- * A file the folder has that no row shows, and why. One skipped once it was
- * read keeps that file's blob SHA, so later syncs pass it by while it's
- * unchanged rather than reading it again.
- */
+/** A file the folder has that no row shows, and why. */
 export interface GitHubSkippedFile {
   path: string;
   reason: GitHubSourceSkipReason;
-  blobSha?: string;
+}
+
+/** A file skipped once it was read, with the blob it was read at. */
+export interface GitHubReadSkip extends GitHubSkippedFile {
+  blobSha: string;
 }
 
 /**
@@ -47,6 +47,12 @@ export interface GitHubSourceState extends GitHubFolderLocation {
   /** Up to 50 skipped files; `skippedCount` says how many there are. */
   skipped: GitHubSkippedFile[];
   skippedCount: number;
+  /**
+   * Every file skipped once it was read, so later syncs pass each by while
+   * its blob is unchanged rather than reading it again. One per Markdown
+   * file at most, so a link never keeps more than 2,000.
+   */
+  readSkips: GitHubReadSkip[];
   /** Images rows couldn't store yet because file storage isn't set up. */
   imagesWaiting: number;
   problem: {
@@ -109,6 +115,24 @@ function stringOrNull(value: unknown): string | null {
   return typeof value === "string" && value ? value : null;
 }
 
+function readSkippedFiles(
+  value: unknown,
+): Array<GitHubSkippedFile & { blobSha?: unknown }> {
+  return (Array.isArray(value) ? value : []).flatMap((raw) => {
+    const skip = asRecord(raw);
+    if (
+      !skip ||
+      typeof skip.path !== "string" ||
+      (skip.reason !== "mdx" &&
+        skip.reason !== "too-large" &&
+        skip.reason !== "not-text")
+    ) {
+      return [];
+    }
+    return [{ path: skip.path, reason: skip.reason, blobSha: skip.blobSha }];
+  });
+}
+
 export function readGitHubSourceState(
   metadata: unknown,
 ): GitHubSourceState | null {
@@ -125,28 +149,15 @@ export function readGitHubSourceState(
   const progress = asRecord(github.progress);
   const problem = asRecord(github.problem);
   const claim = asRecord(github.claim);
-  const skipped = (Array.isArray(github.skipped) ? github.skipped : []).flatMap(
-    (raw): GitHubSkippedFile[] => {
-      const skip = asRecord(raw);
-      if (
-        !skip ||
-        typeof skip.path !== "string" ||
-        (skip.reason !== "mdx" &&
-          skip.reason !== "too-large" &&
-          skip.reason !== "not-text")
-      ) {
-        return [];
-      }
-      return [
-        {
-          path: skip.path,
-          reason: skip.reason,
-          ...(typeof skip.blobSha === "string"
-            ? { blobSha: skip.blobSha }
-            : {}),
-        },
-      ];
-    },
+  const skipped = readSkippedFiles(github.skipped).map(({ path, reason }) => ({
+    path,
+    reason,
+  }));
+  const readSkips = readSkippedFiles(github.readSkips).flatMap(
+    (skip): GitHubReadSkip[] =>
+      typeof skip.blobSha === "string"
+        ? [{ path: skip.path, reason: skip.reason, blobSha: skip.blobSha }]
+        : [],
   );
   return {
     owner: github.owner,
@@ -174,6 +185,7 @@ export function readGitHubSourceState(
       typeof github.skippedCount === "number"
         ? github.skippedCount
         : skipped.length,
+    readSkips,
     imagesWaiting:
       typeof github.imagesWaiting === "number" ? github.imagesWaiting : 0,
     problem:
@@ -193,17 +205,14 @@ export function readGitHubSourceState(
   };
 }
 
-/**
- * The skipped files a link keeps, in path order. Ones with a blob SHA come
- * first, since they spare the next sync a read; the rest fill what's left.
- */
-export function rememberedSkips(skipped: GitHubSkippedFile[]) {
-  return [
-    ...skipped.filter((file) => file.blobSha),
-    ...skipped.filter((file) => !file.blobSha),
-  ]
+/** The first 50 skipped files in path order, which the status line lists. */
+export function rememberedSkips(
+  skipped: GitHubSkippedFile[],
+): GitHubSkippedFile[] {
+  return [...skipped]
+    .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
     .slice(0, MAX_REMEMBERED_SKIPS)
-    .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+    .map(({ path, reason }) => ({ path, reason }));
 }
 
 /** The status agents and the status line read; never includes the claim. */

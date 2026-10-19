@@ -79,7 +79,7 @@ import {
   githubSourceMetadataRecord,
   readGitHubSourceState,
   rememberedSkips,
-  type GitHubSkippedFile,
+  type GitHubReadSkip,
   type GitHubSourceState,
 } from "./_github-source-metadata.js";
 import {
@@ -1781,14 +1781,12 @@ export async function syncGitHubSource(
 
     // A file skipped once it was read is skipped again while its blob is the
     // same, so it isn't read again. It has no row to record that on.
-    const skippedBlobs = new Map(
-      state.skipped.flatMap((skip) =>
-        skip.blobSha ? [[skip.path, skip] as const] : [],
-      ),
+    const readSkipsByPath = new Map(
+      state.readSkips.map((skip) => [skip.path, skip] as const),
     );
-    const stillSkipped: GitHubSkippedFile[] = [];
+    const stillSkipped: GitHubReadSkip[] = [];
     const work = planned.filter((file) => {
-      const skip = skippedBlobs.get(file.entry.path);
+      const skip = readSkipsByPath.get(file.entry.path);
       if (skip?.blobSha === file.entry.sha) {
         stillSkipped.push(skip);
         return false;
@@ -1802,10 +1800,7 @@ export async function syncGitHubSource(
     });
     const result = emptyResult("synced", head.sha);
     result.unchanged = planned.length - work.length - stillSkipped.length;
-    const skippedFiles: GitHubSkippedFile[] = [
-      ...files.skipped,
-      ...stillSkipped,
-    ];
+    const readSkips: GitHubReadSkip[] = [...stillSkipped];
     let done = 0;
     for (const file of work) {
       if (Date.now() >= deadline) break;
@@ -1841,7 +1836,7 @@ export async function syncGitHubSource(
       }
       if (typeof outcome === "string") result[outcome] += 1;
       else
-        skippedFiles.push({
+        readSkips.push({
           path: file.entry.path,
           reason: outcome.skipped,
           blobSha: file.entry.sha,
@@ -1878,6 +1873,7 @@ export async function syncGitHubSource(
     // or background sync carries on at once. One that got nowhere waits its
     // turn, as a failed check does.
     const countsAsCheck = complete || (done === 0 && result.trashed === 0);
+    const skippedFiles = [...files.skipped, ...readSkips];
     const skipped = rememberedSkips(skippedFiles);
     await release(
       (current) => {
@@ -1901,6 +1897,7 @@ export async function syncGitHubSource(
           files: files.markdown.length,
           skipped,
           skippedCount: skippedFiles.length,
+          readSkips,
           imagesWaiting: result.imagesWaiting,
           ...(complete
             ? {
@@ -2013,6 +2010,7 @@ export async function createGitHubSourceLink(args: {
     files: preview.markdownFiles,
     skipped: rememberedSkips(preview.skipped),
     skippedCount: preview.skipped.length,
+    readSkips: [],
     problem: null,
     claim: null,
   };

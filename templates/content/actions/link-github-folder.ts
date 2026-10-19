@@ -183,6 +183,8 @@ export default defineAction({
     });
     // The link is saved by now, so anything that fails from here is reported
     // on it rather than thrown, which would leave the caller thinking it failed.
+    // A contract error is the exception: the link or its collection went away
+    // during the sync, so there's nothing left to report on.
     let sync: GitHubSyncResult;
     try {
       sync = await syncGitHubSource({
@@ -190,6 +192,7 @@ export default defineAction({
         budgetMs: FIRST_SYNC_BUDGET_MS,
       });
     } catch (error) {
+      if (error instanceof ActionContractError) throw error;
       console.warn(
         "[github-source] first sync failed:",
         error instanceof Error ? error.message : String(error),

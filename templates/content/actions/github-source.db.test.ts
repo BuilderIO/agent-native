@@ -581,6 +581,21 @@ describe("GitHub folder source", () => {
     });
   });
 
+  it("says so when the link goes away during the first sync", async () => {
+    github.commit({ "docs/1.md": "# One\n" });
+    const database = await newCollection();
+    // The preview reads the file first; the sync's read of it disconnects.
+    github.state.duringBlobRead = async () => {
+      github.state.duringBlobRead = async () => {
+        await as(() => disconnectSource.run({ databaseId: database.id }));
+      };
+    };
+
+    await expect(
+      as(() => linkFolder.run({ databaseId: database.id, url: FOLDER_URL })),
+    ).rejects.toThrow("isn't linked to a GitHub folder");
+  });
+
   it("refuses the link when a row arrives while it reads GitHub", async () => {
     github.commit(BASE_FILES);
     const database = await newCollection();
@@ -1291,6 +1306,27 @@ describe("GitHub folder freshness", () => {
     const status = await as(() => getSource.run({ databaseId: database.id }));
     expect(status.source?.metadata.github?.skipped).toHaveLength(50);
     expect(status.source?.metadata.github?.skippedCount).toBe(55);
+  });
+
+  it("passes every unchanged skipped file by, not just the 50 it lists", async () => {
+    const binaries = Object.fromEntries(
+      Array.from({ length: 60 }, (_, index) => [
+        `docs/binary-${index}.md`,
+        `BINARY ${index}`,
+      ]),
+    );
+    github.commit({ ...binaries, "docs/1.md": "# One\n" });
+    const database = await newCollection();
+    await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    github.commit({ ...binaries, "docs/1.md": "# One, edited\n" });
+    github.state.blobReads = 0;
+    await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(github.state.blobReads).toBe(1);
+    const status = await as(() => getSource.run({ databaseId: database.id }));
+    expect(status.source?.metadata.github?.skipped).toHaveLength(50);
+    expect(status.source?.metadata.github?.skippedCount).toBe(60);
   });
 
   it("answers a read when GitHub is too slow, then waits its turn without a problem", async () => {
