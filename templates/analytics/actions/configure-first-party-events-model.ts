@@ -74,6 +74,12 @@ async function checkModel(
 }
 
 export default defineAction({
+  // set and clear replace the org-wide model every first-party chart reads.
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: true,
+  },
   description:
     "Check or set the warehouse events model that first-party Analytics charts read instead of the raw event table. `check` (any org member) reads the model's table metadata and dry-runs the chart projection against it as the app, reporting whether the app can query it and the bytes a one-day and a full read would scan; it runs and bills no query. `set` (org admin, needs approval) runs the same check and saves the model only if it passes. `clear` (org admin, needs approval) sends charts back to the raw table. Charts that read columns or events the model lacks, alerts, and onboarding journeys keep reading the raw table either way.",
   schema: z.object({

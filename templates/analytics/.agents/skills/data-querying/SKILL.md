@@ -106,11 +106,13 @@ issues, and session-replay data remain in SQL.
 After cutover, an org admin can point charts at a scheduled warehouse events
 model with `configure-first-party-events-model`; run `check` first, which
 dry-runs as the app and saves nothing. With a model set, a first-party query
-reads `analytics_events` from the model, and its result carries
-`eventsSource` and `sourceGeneration` (the model build it read). Queries that
-name `public_key_id` or `context`, read `http.response`, or use `properties`
-as text stay on the raw table, as do alerts and onboarding journeys;
-`eventsSource.modelSkipped` says why. A model result trails the newest events
+reads `analytics_events` from the model only when its WHERE filters
+`event_name` to named events (`= 'x'` or `IN (...)`, ANDed, no OR or NOT),
+because the model has no `http.response` rows; its result carries
+`eventsSource` and `sourceGeneration` (the model build it read). Unfiltered
+queries, `SELECT *`, and queries that name `public_key_id` or `context`, read
+`http.response`, or use `properties` as text stay on the raw table, as do
+alerts and onboarding journeys; `eventsSource.modelSkipped` says why. A model result trails the newest events
 by up to one rebuild, so for the last few minutes give the model's age from
 `get-analytics-source-generation` (a metadata read, no query) rather than
 calling the count complete.

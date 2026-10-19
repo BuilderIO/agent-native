@@ -135,6 +135,47 @@ describe("events model eligibility", () => {
       "SELECT COUNT(*) FROM analytics_events WHERE properties LIKE '%x%'",
       "reads_properties_as_text",
     ],
+    [
+      "SELECT * FROM analytics_events WHERE event_name = 'a'",
+      "reads_all_columns",
+    ],
+    [
+      "SELECT e.* FROM analytics_events e WHERE e.event_name = 'a'",
+      "reads_all_columns",
+    ],
+    ["SELECT COUNT(*) FROM analytics_events", "http_response_not_excluded"],
+    [
+      "SELECT event_name, COUNT(*) AS n FROM analytics_events GROUP BY 1",
+      "http_response_not_excluded",
+    ],
+    [
+      "SELECT COUNT(*) FROM analytics_events WHERE event_name != 'http.response' OR app = 'mail'",
+      "http_response_not_excluded",
+    ],
+    [
+      "SELECT COUNT(*) FROM analytics_events WHERE NOT (event_name = 'a')",
+      "http_response_not_excluded",
+    ],
+    [
+      "SELECT COUNT(*) FROM analytics_events WHERE IF(event_name = 'a', TRUE, TRUE)",
+      "http_response_not_excluded",
+    ],
+    [
+      "SELECT COUNTIF(event_name = 'a') FROM analytics_events WHERE app = 'mail'",
+      "http_response_not_excluded",
+    ],
+    [
+      "SELECT COUNT(*) FROM analytics_events a JOIN analytics_events b USING (session_id) WHERE a.event_name = 'x'",
+      "http_response_not_excluded",
+    ],
+    [
+      "SELECT COUNT(*) FROM (SELECT * EXCEPT (context) FROM analytics_events) WHERE event_name = 'a'",
+      "reads_all_columns",
+    ],
+    [
+      "SELECT n FROM (SELECT COUNT(*) AS n FROM analytics_events) WHERE n > 0 AND TRUE",
+      "http_response_not_excluded",
+    ],
   ])("keeps %s on the raw table", (sql, reason) => {
     expect(firstPartyEventsModelIneligibility(sql)).toBe(reason);
   });
@@ -142,15 +183,19 @@ describe("events model eligibility", () => {
   it.each([
     "SELECT COUNT(*) FROM analytics_events WHERE event_name != 'http.response'",
     "SELECT COUNT(*) FROM analytics_events e WHERE e.event_name <> 'http.response'",
-    "SELECT JSON_VALUE(properties, '$.action') AS action FROM analytics_events",
+    "SELECT JSON_VALUE(properties, '$.action') AS action FROM analytics_events WHERE event_name = 'chat_submit'",
     "SELECT COUNT(*) FROM analytics_events WHERE event_name = 'agent_run_terminal'",
+    "SELECT COUNT(*) FROM analytics_events WHERE event_date >= DATE '2026-10-01' AND event_name IN ('a', 'b') AND user_id IS NOT NULL",
+    "SELECT COUNT(*) FROM analytics_events e WHERE e.event_name = 'a' AND (app = 'mail' AND template = 'mail')",
+    "WITH runs AS (SELECT session_id FROM analytics_events WHERE event_name = 'a') SELECT COUNT(*) FROM runs",
+    "SELECT COUNT(*) FROM analytics_events a JOIN analytics_events b USING (session_id) WHERE a.event_name = 'x' AND b.event_name = 'y'",
   ])("lets %s read the model", (sql) => {
     expect(firstPartyEventsModelIneligibility(sql)).toBeNull();
   });
 
   it("plans the model only when it is configured and the SQL fits", () => {
     const sql =
-      "SELECT event_name, COUNT(*) AS n FROM analytics_events GROUP BY 1";
+      "SELECT event_name, COUNT(*) AS n FROM analytics_events WHERE event_name IN ('a', 'b') GROUP BY 1";
 
     expect(planFirstPartyEventsSource(sql, null)).toEqual({
       source: "raw",
@@ -170,7 +215,7 @@ describe("events model eligibility", () => {
     ).toEqual({ source: "raw", modelSkipped: "raw_projection" });
     expect(
       planFirstPartyEventsSource(
-        "SELECT COUNT(*) AS n FROM analytics_events WHERE properties::jsonb ->> 'action' = 'chat_submit'",
+        "SELECT COUNT(*) AS n FROM analytics_events WHERE event_name = 'click' AND properties::jsonb ->> 'action' = 'chat_submit'",
         MODEL,
       ),
     ).toEqual({ source: "model", table: MODEL });
