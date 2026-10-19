@@ -1479,10 +1479,8 @@ export function embedApp(
       try {
         if (url) {
           const result = await callEmbedSessionTool(embedSessionArgsFor(url));
-          const data = parseToolResult(result);
-          if (typeof data.startUrl === "string" && data.startUrl) {
-            url = withChatBridgeParam(data.startUrl);
-          }
+          const startUrl = embedStartUrlFrom(result, parseToolResult(result));
+          if (startUrl) url = startUrl;
         }
       } catch (err) {
         console.warn("[agent-native] MCP fallback could not mint a fresh app session", err);
@@ -1597,7 +1595,8 @@ export function embedApp(
           });
           return;
         }
-        if (typeof data.startUrl !== "string" || !data.startUrl) {
+        const startUrl = embedStartUrlFrom(result, data);
+        if (!startUrl) {
           sendRenewalResult({
             type: "agentNative.embedSessionRenewed",
             data: { requestId, ok: false },
@@ -1606,11 +1605,7 @@ export function embedApp(
         }
         sendRenewalResult({
           type: "agentNative.embedSessionRenewed",
-          data: {
-            requestId,
-            ok: true,
-            startUrl: withChatBridgeParam(data.startUrl),
-          },
+          data: { requestId, ok: true, startUrl },
         });
       } catch {
         sendRenewalResult({
@@ -2134,12 +2129,14 @@ export function embedApp(
         }
         const result = await callEmbedSessionTool(embedSessionArgsFor(embedUrl));
         const data = parseToolResult(result);
-        if (typeof data.startUrl !== "string" || !data.startUrl) {
+        // Read _meta too: a host may show structured content to the model,
+        // so the server sends the start URL there instead.
+        const startUrl = embedStartUrlFrom(result, data);
+        if (!startUrl) {
           startedFor = "";
           renderAppLaunchError(data.error || "This app can be opened, but not embedded from this MCP server.");
           return;
         }
-        const startUrl = withChatBridgeParam(data.startUrl);
         if (selfNavigate) {
           if (shouldTransplantAppDocument()) {
             await transplantAppDocument(startUrl);

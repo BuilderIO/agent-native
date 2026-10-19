@@ -737,6 +737,9 @@ const esES = {
     waitlistUnavailable:
       "Las inscripciones en la lista de espera aún no están disponibles en este entorno. Prueba en su lugar el sitio de documentación alojado.",
     launchBuilder: "Abrir Builder",
+    newAppPrompt: "Crea una nueva app Agent-Native.",
+    customizeTemplatePrompt:
+      "Personaliza la plantilla Agent-Native {{template}} para mi flujo de trabajo.",
   },
   templateCard: {
     pasteIntoTerminal: "Pega en tu terminal.",

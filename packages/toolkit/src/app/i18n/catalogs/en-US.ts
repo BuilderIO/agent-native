@@ -1866,6 +1866,11 @@ const messages = {
   "settings.audit.agentVia": "Agent via {{protocol}}",
   "settings.audit.allApps": "All apps",
   "settings.audit.app": "App",
+  "settings.audit.approval": "Approval",
+  "settings.audit.approvalAgentChat": "Approved in agent chat",
+  "settings.audit.approvalA2AReview":
+    "Approved on the agent action review page",
+  "settings.audit.approvalMcpClient": "Accepted by the MCP client (unverified)",
   "settings.audit.changedBy": "Changed by",
   "settings.audit.close": "Close",
   "settings.audit.empty": "No changes in this period.",
@@ -1879,9 +1884,11 @@ const messages = {
   "settings.audit.last90Days": "Last 90 days",
   "settings.audit.loadFailed": "Could not load the audit log.",
   "settings.audit.loading": "Loading audit log",
+  "settings.audit.oauthClient": "OAuth client",
   "settings.audit.onBehalfOf": "On behalf of",
   "settings.audit.range": "Time range",
   "settings.audit.refused": "Refused",
+  "settings.audit.reportedClient": "Self-reported client",
   "settings.audit.result": "Result",
   "settings.audit.showMore": "Show {{count}} more",
   "settings.audit.succeeded": "Succeeded",
@@ -2959,6 +2966,10 @@ const messages = {
     "Disconnected here. Access may remain active in ChatGPT.",
   "settingsModel.chatgptLocalOnly":
     "Open-source apps are self-serve when run locally with a loopback callback; no partner application is needed. Hosted apps on *.agent-native.com need operator approval and a hosted callback.",
+  "settingsModel.chatgptPersonalScopeOnly":
+    "Use ChatGPT plan access from a personal account. In local development, set access.autoCreateDefaultOrg to false before signing in.",
+  "settingsModel.chatgptScopeUnresolved":
+    "The app couldn't confirm your account scope. Finish local setup, then reload settings.",
   "settingsModel.chatgptNoDirectUse":
     "Reconnect and allow direct model access to use this ChatGPT account.",
   "settingsModel.chatgptReconnect": "Reconnect",

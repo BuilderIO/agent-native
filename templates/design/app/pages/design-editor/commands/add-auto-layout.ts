@@ -5,6 +5,7 @@ import type {
   WrapNodeSizeHint,
 } from "@shared/code-layer";
 import { applyVisualEdit, buildCodeLayerProjection } from "@shared/code-layer";
+import { isRunningAppSourceType } from "@shared/source-mode";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 
@@ -166,7 +167,7 @@ export function runAddAutoLayout({
       designSourceType,
     );
 
-    if (screenSourceType === "localhost") {
+    if (isRunningAppSourceType(screenSourceType)) {
       const snapshot = runtimeLayerSnapshotsById[screenId];
       if (!snapshot) {
         toast.error(t("designEditor.toasts.reactSourceAnchorsLoading"));

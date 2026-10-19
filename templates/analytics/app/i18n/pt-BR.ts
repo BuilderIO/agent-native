@@ -841,6 +841,7 @@ export default {
     bigQueryHealthUnavailable:
       "Não foi possível verificar a pressão do Analytics primário. Recarregue antes de trocar o backend.",
     analyticsEventCount: "Eventos observados",
+    analyticsRecentEventCount: "Eventos observados (últimos 30 dias)",
     slowQueries24h: "Consultas lentas (24 h)",
     maxQueryDuration: "Tempo máximo da consulta",
     defaultKeyName: "Modelos hospedados",
@@ -1341,6 +1342,10 @@ export default {
     dashboardActions: "Detalhes e ações do painel",
     certifyForAi: "Certificar para consultas de IA",
     certifiedForAi: "Certificado para consultas de IA",
+    duplicateToCustomize: "Duplicar para personalizar",
+    duplicateToCustomizeHint:
+      "Os painéis integrados são atualizados a cada versão do Analytics. Crie sua própria cópia para alterar este.",
+    duplicateFailed: "Não foi possível duplicar este painel.",
     certificationSaved: "Dashboard certificado para consultas de IA",
     certificationFailed: "Não foi possível certificar o dashboard: {{message}}",
     details: "Details",
@@ -2171,10 +2176,6 @@ export default {
     noMatches: "Nenhuma definição corresponde à busca.",
     searchPlaceholder: "Buscar definições",
     sourceIndex: "Índice de fontes",
-    statusApproved: "Aprovada",
-    statusSuggested: "Sugerida",
-    statusUnreviewed: "Não revisada",
-    unsourced: "Sem fonte",
   },
   indexPanel: {
     presetDaily: "Diariamente às 06:00",

@@ -778,6 +778,7 @@ export default {
     bigQueryHealthUnavailable:
       "现在无法检查第一方 Analytics 压力。请重新加载后再尝试更换后端。",
     analyticsEventCount: "观察到的事件",
+    analyticsRecentEventCount: "观察到的事件（最近30天）",
     slowQueries24h: "慢查询（24 小时）",
     maxQueryDuration: "最长查询时间",
     defaultKeyName: "托管模板",
@@ -1250,6 +1251,10 @@ export default {
     dashboardActions: "仪表板详细信息和操作",
     certifyForAi: "认证用于 AI 查询",
     certifiedForAi: "已认证用于 AI 查询",
+    duplicateToCustomize: "复制以自定义",
+    duplicateToCustomizeHint:
+      "内置仪表板会随 Analytics 发布而更新。要更改此仪表板，请创建你自己的副本。",
+    duplicateFailed: "无法复制此仪表板。",
     certificationSaved: "仪表板已认证用于 AI 查询",
     certificationFailed: "无法认证仪表板：{{message}}",
     details: "Details",
@@ -2021,10 +2026,6 @@ export default {
     noMatches: "没有与搜索匹配的定义。",
     searchPlaceholder: "搜索定义",
     sourceIndex: "来源索引",
-    statusApproved: "已批准",
-    statusSuggested: "建议",
-    statusUnreviewed: "未审核",
-    unsourced: "无来源",
   },
   indexPanel: {
     presetDaily: "每天 06:00",

@@ -7367,10 +7367,12 @@ function PageEditorSessionBody({
   }, [bodyThreads, commentAi.freshResolutions]);
   const pagePropertiesDatabaseId =
     databaseId ?? document.databaseMembership?.databaseId ?? null;
-  // The same read the Page's Properties make, so it costs no request.
+  // The same read the Page's Properties make, so it costs no request. A
+  // read-only widget shows no comments and may not make this read.
   const pagePropertiesQuery = useDocumentProperties(
     document.databaseMembership && !isLocalFileDocument ? documentId : null,
     pagePropertiesDatabaseId,
+    { enabled: !mcpDirectoryWidgetReadOnly },
   );
   const pageProperties = documentPropertiesResponseMatchesScope(
     documentId,

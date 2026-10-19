@@ -48,7 +48,7 @@ Un flag non enregistré s’évalue toujours à `false`, quoi qu’un opérateur
 C’est le contrôle qui compte vraiment, puisque chaque appelant, que ce soit l’agent, le frontend, ou un script, doit passer par lui :
 
 ```ts
-// actions/create-fusion-app.ts
+// actions/create-builder-app.ts
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 
 run: async (args, ctx) => {

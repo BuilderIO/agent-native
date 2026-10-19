@@ -25,7 +25,7 @@ import Animated, {
 import { AppIcon } from "@/components/AppCard";
 import { AppLauncherMenu } from "@/components/AppLauncherMenu";
 import {
-  ProgressiveBlur,
+  TabBarBackgroundFade,
   useTabBarMinimized,
 } from "@/components/TabBarEffects";
 import { getAppRoute } from "@/lib/mobile-app-navigation";
@@ -34,7 +34,7 @@ import { useMobileTabLayout } from "@/lib/mobile-tab-layout";
 import {
   TAB_BAR_ACTION_GAP,
   TAB_BAR_ACTION_SIZE,
-  TAB_BAR_BLUR_BLEED,
+  TAB_BAR_FADE_BLEED,
   TAB_BAR_MARGIN,
   TAB_BAR_MINIMIZED_HEIGHT,
   TAB_BAR_PILL_HEIGHT,
@@ -305,11 +305,10 @@ export default function ChatFirstBottomTabs({
     >
       {/* Dissolves scrolling content into the bar instead of ending it at a
           hard edge. */}
-      <ProgressiveBlur
-        direction="bottom"
+      <TabBarBackgroundFade
         style={{
           bottom: 0,
-          height: contentInset + TAB_BAR_BLUR_BLEED,
+          height: contentInset + TAB_BAR_FADE_BLEED,
           left: 0,
           position: "absolute",
           right: 0,
