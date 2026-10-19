@@ -2942,6 +2942,8 @@ export async function createMCPServerForRequest(
       connectorNames.size > 0 ||
       automaticConnectorPolicyActive);
   const writesAreAskAppOnly = externalAgentWritesAreAskAppOnly(config);
+  const preserveCompactActions =
+    config.connectorCatalog === undefined && !automaticConnectorPolicyActive;
   const advertisedActionsBeforeToolSearchScope = appCatalog
     ? Object.fromEntries(
         Object.entries(visibleActions).filter(([name]) => !denyNames.has(name)),
@@ -2960,7 +2962,15 @@ export async function createMCPServerForRequest(
             Object.entries(visibleActions).filter(([name, entry]) => {
               if (denyNames.has(name)) return false;
               if (COMPACT_MCP_APP_CATALOG_BUILTINS.has(name)) return true;
-              if (!connectorNames.has(name)) return false;
+              if (
+                !connectorNames.has(name) &&
+                !(
+                  preserveCompactActions &&
+                  isActionAdvertisedInCompactMcpAppCatalog(name, entry, config)
+                )
+              ) {
+                return false;
+              }
               if (writesAreAskAppOnly && !isMcpReadOnlyTool(entry)) {
                 return false;
               }
