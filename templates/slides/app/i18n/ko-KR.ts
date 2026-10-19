@@ -747,6 +747,10 @@ const messages = {
     duplicateCurrentSlide: "复制当前幻灯片",
     promptPlaceholder: "描述你想要的幻灯片...",
     newSlide: "새 슬라이드",
+    slidesHeading: "슬라이드",
+    emptyTitle: "아직 슬라이드가 없습니다",
+    emptyDescription:
+      "새 슬라이드를 추가하거나 가져오거나, 에이전트에게 생성을 요청하세요.",
     closeAddSlides: "닫기",
     describeThisSlide: "이 슬라이드를 설명하세요",
     cut: "잘라내기",

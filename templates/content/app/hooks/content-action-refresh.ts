@@ -16,6 +16,13 @@ const COMMENT_MUTATIONS = new Set([
   "update-comment",
 ]);
 
+/** Changes that open, resolve, or remove a Comment thread. */
+const COMMENT_COUNT_MUTATIONS = new Set([
+  ...COMMENT_MUTATIONS,
+  "apply-comment-ai-request",
+  "undo-comment-ai-request",
+]);
+
 const DOCUMENT_MUTATIONS = new Set([
   "create-and-link-notion-page",
   "decide-resource-suggestion",
@@ -276,6 +283,10 @@ function queryTargetsActiveDatabasePresentation(query: ActionQuery): boolean {
     return false;
   if (query.queryKey[1] === "get-content-database-personal-view") return true;
   if (query.queryKey[1] !== "query-content-database-items") return false;
+  return queryReadsFilesNavigation(query);
+}
+
+function queryReadsFilesNavigation(query: ActionQuery): boolean {
   const args = query.queryKey[2];
   return !!args && typeof args === "object" && "navigation" in args;
 }
@@ -289,8 +300,7 @@ function queryTargetsActiveNavigationOrRecent(query: ActionQuery): boolean {
   )
     return true;
   if (query.queryKey[1] !== "query-content-database-items") return false;
-  const args = query.queryKey[2];
-  return !!args && typeof args === "object" && "navigation" in args;
+  return queryReadsFilesNavigation(query);
 }
 
 function isDatabaseLifecycleQuery(query: ActionQuery): boolean {
@@ -437,11 +447,15 @@ export function contentActionInvalidatePredicate(
       return true;
     }
     if (queryTargetsDatabase(query, documentId)) {
+      // Table rows carry their open-Comment counts, so a Comment change
+      // refreshes them too. The Files tree shows no counts.
+      const readsCommentCounts = !queryReadsFilesNavigation(query);
       return events.some(
         (event) =>
           event.source === "action" &&
           typeof event.key === "string" &&
-          DATABASE_RESULT_MUTATIONS.has(event.key),
+          (DATABASE_RESULT_MUTATIONS.has(event.key) ||
+            (readsCommentCounts && COMMENT_COUNT_MUTATIONS.has(event.key))),
       );
     }
     return false;

@@ -5514,6 +5514,8 @@ export default function DeckEditor() {
                     selectedSlideIds={selectedSlideIds}
                     deckId={id}
                     deckTitle={deck.title}
+                    onAddSlide={handleNewSlideClick}
+                    addSlideGenerating={addSlideGenerating}
                     describeSlideId={describeSlideId}
                     onCloseDescribe={() => setDescribeSlideId(null)}
                     onAwaitAddSlidePersisted={() => flushDeckSave(id)}

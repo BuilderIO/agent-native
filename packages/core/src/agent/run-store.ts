@@ -38,6 +38,13 @@ import {
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./engine/credential-errors.js";
 import {
+  currentExecutionFence,
+  lockAndAssertCurrentExecutionFences,
+  StaleExecutionFenceError,
+  type ExecutionFence,
+  withFencedExecutionWrite,
+} from "./execution-fence.js";
+import {
   AGENT_RUN_MIGRATIONS,
   AGENT_RUN_MIGRATIONS_TABLE,
 } from "./run-migrations.js";
@@ -214,10 +221,6 @@ const STALE_RUN_RECOVERY_NO_PROGRESS_WINDOW_MS = 20_000;
 
 export const STALE_RUN_RECOVERY_MAX_SUCCESSORS_PER_TURN = 3;
 
-export const IN_FLIGHT_RUN_STALE_GRACE_MS = 14.5 * 60_000;
-
-export const IN_FLIGHT_GRACE_MAX_LIVENESS_GAP_MS = 120_000;
-
 export type AgentTurnInitiator = {
   email: string;
   authUserId?: string | null;
@@ -268,7 +271,8 @@ export const agentRunsStore = defineStore({
           diag_stage TEXT,
           dispatch_payload TEXT,
           peak_rss_mb BIGINT,
-          continuation_order BIGINT
+          continuation_order BIGINT,
+          thread_projection_pending BOOLEAN NOT NULL DEFAULT FALSE
         )
       `;
         const agentRunEventsCreateSql = `
@@ -333,6 +337,7 @@ export const agentRunsStore = defineStore({
           ["in_flight_since", "BIGINT"],
           ["continuation_order", "BIGINT"],
           ["auto_continue_of", "TEXT"],
+          ["thread_projection_pending", "BOOLEAN NOT NULL DEFAULT FALSE"],
         ] as const) {
           await ensureColumnExists(
             "agent_runs",
@@ -395,6 +400,599 @@ export function ensureRunTables(): Promise<void> {
   return agentRunsStore.ready();
 }
 
+export const TURN_EXECUTION_LEASE_MS = 15_000;
+
+function truthySqlValue(value: unknown): boolean {
+  return value === true || value === "t" || value === 1 || value === "1";
+}
+
+/** Claim a new physical worker attempt without changing its logical turn. */
+export async function claimTurnExecutionLease(
+  threadId: string,
+  turnId: string,
+  runId: string,
+): Promise<ExecutionFence> {
+  return claimExecutionLease(threadId, turnId, runId, true);
+}
+
+/** Claim a lease for a durable task whose lifecycle is not stored in agent_runs. */
+export async function claimTaskExecutionLease(
+  threadId: string,
+  turnId: string,
+  taskAttemptId: string,
+): Promise<ExecutionFence> {
+  return claimExecutionLease(threadId, turnId, taskAttemptId, false);
+}
+
+async function claimExecutionLease(
+  threadId: string,
+  turnId: string,
+  ownerId: string,
+  requireRunningRun: boolean,
+): Promise<ExecutionFence> {
+  await ensureRunTables();
+  const client = getDbExec();
+  if (!client.transaction) {
+    throw new Error("Turn execution leases require transaction support");
+  }
+  return client.transaction(async (tx) => {
+    await tx.execute({
+      sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+      args: [`agent-native:turn-execution-lease:${threadId}:${turnId}`],
+    });
+    const current = await tx.execute({
+      sql: `SELECT generation, owner_run_id,
+                   lease_expires_at > clock_timestamp() AS lease_is_live
+            FROM agent_execution_leases
+            WHERE thread_id = ? AND turn_id = ?
+            FOR UPDATE`,
+      args: [threadId, turnId],
+    });
+    if (requireRunningRun) {
+      const run = await tx.execute({
+        sql: "SELECT status FROM agent_runs WHERE id = ? FOR UPDATE",
+        args: [ownerId],
+      });
+      if (
+        (run.rows[0] as { status?: string } | undefined)?.status !== "running"
+      ) {
+        throw new TurnExecutionRunNotActiveError(ownerId);
+      }
+    }
+    const previous = current.rows[0] as
+      | {
+          generation?: number | string;
+          owner_run_id?: string;
+          lease_is_live?: boolean | string | number;
+        }
+      | undefined;
+    if (previous) {
+      const priorRun = await tx.execute({
+        sql: "SELECT status FROM agent_runs WHERE id = ?",
+        args: [previous.owner_run_id],
+      });
+      const priorStatus = (priorRun.rows[0] as { status?: string } | undefined)
+        ?.status;
+      const priorRunIsTerminal =
+        priorStatus === "completed" ||
+        priorStatus === "truncated" ||
+        priorStatus === "errored" ||
+        priorStatus === "aborted";
+      if (truthySqlValue(previous.lease_is_live) && !priorRunIsTerminal) {
+        throw new TurnExecutionLeaseBusyError(threadId, turnId);
+      }
+    }
+    const inserted = await tx.execute({
+      sql: `INSERT INTO agent_execution_leases (
+              thread_id, turn_id, generation, owner_run_id,
+              lease_expires_at, updated_at
+            ) VALUES (?, ?, 1, ?,
+              clock_timestamp() + (CAST(? AS BIGINT) * INTERVAL '1 millisecond'),
+              clock_timestamp())
+            ON CONFLICT (thread_id, turn_id) DO UPDATE SET
+              generation = agent_execution_leases.generation + 1,
+              owner_run_id = EXCLUDED.owner_run_id,
+              lease_expires_at = EXCLUDED.lease_expires_at,
+              updated_at = clock_timestamp()
+            RETURNING generation`,
+      args: [threadId, turnId, ownerId, TURN_EXECUTION_LEASE_MS],
+    });
+    const generation = (inserted.rows[0] as { generation?: number | string })
+      ?.generation;
+    if (generation === undefined) {
+      throw new Error("Turn execution lease claim did not return a generation");
+    }
+    if (requireRunningRun) {
+      await tx.execute({
+        sql: "UPDATE agent_runs SET worker_generation = ? WHERE id = ?",
+        args: [generation, ownerId],
+      });
+    }
+    return { threadId, turnId, runId: ownerId, generation: String(generation) };
+  });
+}
+
+export class TurnExecutionLeaseBusyError extends Error {
+  readonly code = "turn_execution_lease_busy";
+
+  constructor(threadId: string, turnId: string) {
+    super(`Another worker still owns turn ${turnId} in thread ${threadId}`);
+    this.name = "TurnExecutionLeaseBusyError";
+  }
+}
+
+export class TurnExecutionRunNotActiveError extends Error {
+  readonly code = "turn_execution_run_not_active";
+
+  constructor(runId: string) {
+    super(`Cannot claim an execution lease for non-running run ${runId}`);
+    this.name = "TurnExecutionRunNotActiveError";
+  }
+}
+
+/** Renew the lease and its run liveness marker as one fenced transaction. */
+export async function renewTurnExecutionLease(
+  fence: ExecutionFence,
+): Promise<void> {
+  return renewExecutionLease(fence, true);
+}
+
+/** Renew a task-owned lease without expecting a corresponding agent_runs row. */
+export async function renewTaskExecutionLease(
+  fence: ExecutionFence,
+): Promise<void> {
+  return renewExecutionLease(fence, false);
+}
+
+async function renewExecutionLease(
+  fence: ExecutionFence,
+  renewRunLiveness: boolean,
+): Promise<void> {
+  await ensureRunTables();
+  const client = getDbExec();
+  if (!client.transaction) {
+    throw new Error("Turn execution leases require transaction support");
+  }
+  await client.transaction(async (tx) => {
+    const renewed = await tx.execute({
+      sql: `UPDATE agent_execution_leases
+            SET lease_expires_at = clock_timestamp() +
+                  (CAST(? AS BIGINT) * INTERVAL '1 millisecond'),
+                updated_at = clock_timestamp()
+            WHERE thread_id = ? AND turn_id = ? AND owner_run_id = ?
+              AND generation = CAST(? AS BIGINT)
+              AND lease_expires_at > clock_timestamp()`,
+      args: [
+        TURN_EXECUTION_LEASE_MS,
+        fence.threadId,
+        fence.turnId,
+        fence.runId,
+        fence.generation,
+      ],
+    });
+    if (renewed.rowsAffected !== 1) throw new StaleExecutionFenceError(fence);
+    if (renewRunLiveness) {
+      await tx.execute({
+        sql: `UPDATE agent_runs
+              SET heartbeat_at = (extract(epoch FROM clock_timestamp()) * 1000)::BIGINT,
+                  peak_rss_mb = CASE
+                    WHEN peak_rss_mb IS NULL OR peak_rss_mb < ? THEN ?
+                    ELSE peak_rss_mb
+                  END
+              WHERE id = ? AND status = 'running'`,
+        args: [currentRssMb(), currentRssMb(), fence.runId],
+      });
+    }
+  });
+}
+
+/** Release an owned lease after its worker has committed its final writes. */
+export async function releaseTurnExecutionLease(
+  fence: ExecutionFence,
+): Promise<void> {
+  await ensureRunTables();
+  const client = getDbExec();
+  if (!client.transaction) {
+    throw new Error("Turn execution leases require transaction support");
+  }
+  await client.transaction(async (tx) => {
+    const released = await tx.execute({
+      sql: `UPDATE agent_execution_leases
+            SET lease_expires_at = clock_timestamp(),
+                updated_at = clock_timestamp()
+            WHERE thread_id = ? AND turn_id = ? AND owner_run_id = ?
+              AND generation = CAST(? AS BIGINT)
+              AND lease_expires_at > clock_timestamp()`,
+      args: [fence.threadId, fence.turnId, fence.runId, fence.generation],
+    });
+    if (released.rowsAffected !== 1) throw new StaleExecutionFenceError(fence);
+  });
+}
+
+export type AgentExecutionStepReplayPolicy =
+  | "read-only"
+  | "retry-safe"
+  | "never";
+
+export interface AgentExecutionStepIntent {
+  threadId: string;
+  turnId: string;
+  runId: string;
+  stepId: string;
+  operationId: string;
+  toolName: string;
+  inputJson: string;
+  replayPolicy: AgentExecutionStepReplayPolicy;
+  generation: string;
+}
+
+async function withAgentExecutionStepIntentFence<T>(
+  intent: AgentExecutionStepIntent,
+  write: (tx: DbExec) => Promise<T>,
+): Promise<T> {
+  const expectedFence: ExecutionFence = {
+    threadId: intent.threadId,
+    turnId: intent.turnId,
+    runId: intent.runId,
+    generation: intent.generation,
+  };
+  const currentFence = currentExecutionFence();
+  if (
+    currentFence &&
+    (currentFence.threadId !== expectedFence.threadId ||
+      currentFence.turnId !== expectedFence.turnId ||
+      currentFence.runId !== expectedFence.runId ||
+      currentFence.generation !== expectedFence.generation)
+  ) {
+    throw new StaleExecutionFenceError(currentFence);
+  }
+
+  const writeInTransaction = (tx: DbExec) => write(tx);
+  if (currentFence) {
+    return withFencedExecutionWrite(writeInTransaction, {
+      threadId: expectedFence.threadId,
+      turnId: expectedFence.turnId,
+      runId: expectedFence.runId,
+    });
+  }
+
+  const client = getDbExec();
+  if (!client.transaction) {
+    throw new Error("Fenced execution writes require transaction support");
+  }
+  return client.transaction(async (tx) => {
+    const { rows } = await tx.execute({
+      sql: `SELECT generation
+            FROM agent_execution_leases
+            WHERE thread_id = ?
+              AND turn_id = ?
+              AND owner_run_id = ?
+              AND generation = CAST(? AS BIGINT)
+              AND lease_expires_at > clock_timestamp()
+            FOR UPDATE`,
+      args: [
+        expectedFence.threadId,
+        expectedFence.turnId,
+        expectedFence.runId,
+        expectedFence.generation,
+      ],
+    });
+    if (rows.length !== 1) {
+      throw new StaleExecutionFenceError(expectedFence);
+    }
+    return write(tx);
+  });
+}
+
+export type AgentExecutionStepAdmission =
+  | { status: "execute"; wasDispatched: boolean }
+  | { status: "completed"; resultJson: string | null; errorJson: string | null }
+  | { status: "unknown" };
+
+/** Persist intent before dispatch and decide whether an interrupted call may run again. */
+export async function beginAgentExecutionStep(
+  intent: AgentExecutionStepIntent,
+): Promise<AgentExecutionStepAdmission> {
+  await ensureRunTables();
+  return withFencedExecutionWrite(
+    async (tx) => {
+      await tx.execute({
+        sql: `INSERT INTO agent_execution_steps (
+              thread_id, turn_id, step_id, operation_id, tool_name,
+              input_json, replay_policy, status, run_id, generation
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'prepared', ?, CAST(? AS BIGINT))
+            ON CONFLICT (thread_id, turn_id, step_id) DO NOTHING`,
+        args: [
+          intent.threadId,
+          intent.turnId,
+          intent.stepId,
+          intent.operationId,
+          intent.toolName,
+          intent.inputJson,
+          intent.replayPolicy,
+          intent.runId,
+          intent.generation,
+        ],
+      });
+      const selected = await tx.execute({
+        sql: `SELECT operation_id, tool_name, input_json, replay_policy,
+                   status, run_id, generation, result_json, error_json
+            FROM agent_execution_steps
+            WHERE thread_id = ? AND turn_id = ? AND step_id = ?
+            FOR UPDATE`,
+        args: [intent.threadId, intent.turnId, intent.stepId],
+      });
+      const row = selected.rows[0] as
+        | {
+            operation_id?: string;
+            tool_name?: string;
+            input_json?: string;
+            replay_policy?: AgentExecutionStepReplayPolicy;
+            status?: string;
+            run_id?: string;
+            generation?: number | string;
+            result_json?: string | null;
+            error_json?: string | null;
+          }
+        | undefined;
+      if (!row) throw new Error("Execution step intent was not persisted");
+      if (
+        row.operation_id !== intent.operationId ||
+        row.tool_name !== intent.toolName ||
+        row.input_json !== intent.inputJson
+      ) {
+        throw new Error(
+          `Execution step ${intent.stepId} was retried with a different intent`,
+        );
+      }
+      if (row.status === "completed") {
+        return {
+          status: "completed",
+          resultJson: row.result_json ?? null,
+          errorJson: row.error_json ?? null,
+        };
+      }
+      const wasDispatched =
+        row.status === "dispatched" || row.status === "unknown";
+      if (row.status === "unknown") {
+        const canReplay =
+          row.replay_policy === intent.replayPolicy &&
+          (intent.replayPolicy === "read-only" ||
+            intent.replayPolicy === "retry-safe");
+        if (!canReplay) return { status: "unknown" };
+      }
+      if (row.status === "dispatched") {
+        const canReplay =
+          row.replay_policy === intent.replayPolicy &&
+          (intent.replayPolicy === "read-only" ||
+            intent.replayPolicy === "retry-safe");
+        if (!canReplay) {
+          await tx.execute({
+            sql: `UPDATE agent_execution_steps
+                SET status = 'unknown', updated_at = clock_timestamp()
+                WHERE thread_id = ? AND turn_id = ? AND step_id = ?`,
+            args: [intent.threadId, intent.turnId, intent.stepId],
+          });
+          return { status: "unknown" };
+        }
+      }
+      await tx.execute({
+        sql: `UPDATE agent_execution_steps
+            SET status = 'prepared', run_id = ?, generation = CAST(? AS BIGINT),
+                replay_policy = ?, updated_at = clock_timestamp()
+            WHERE thread_id = ? AND turn_id = ? AND step_id = ?`,
+        args: [
+          intent.runId,
+          intent.generation,
+          intent.replayPolicy,
+          intent.threadId,
+          intent.turnId,
+          intent.stepId,
+        ],
+      });
+      return { status: "execute", wasDispatched };
+    },
+    { threadId: intent.threadId, turnId: intent.turnId, runId: intent.runId },
+  );
+}
+
+export async function markAgentExecutionStepDispatched(
+  intent: AgentExecutionStepIntent,
+): Promise<void> {
+  await ensureRunTables();
+  const result = await withFencedExecutionWrite(
+    (tx) =>
+      tx.execute({
+        sql: `UPDATE agent_execution_steps
+              SET status = 'dispatched', dispatched_at = clock_timestamp(),
+                  updated_at = clock_timestamp()
+              WHERE thread_id = ? AND turn_id = ? AND step_id = ?
+                AND run_id = ? AND generation = CAST(? AS BIGINT)
+                AND status = 'prepared'`,
+        args: [
+          intent.threadId,
+          intent.turnId,
+          intent.stepId,
+          intent.runId,
+          intent.generation,
+        ],
+      }),
+    { threadId: intent.threadId, turnId: intent.turnId, runId: intent.runId },
+  );
+  if (result.rowsAffected !== 1) {
+    throw new Error(`Execution step ${intent.stepId} was not prepared`);
+  }
+}
+
+export async function completeAgentExecutionStep(
+  intent: AgentExecutionStepIntent,
+  resultJson: string,
+  errorJson?: string,
+): Promise<void> {
+  await ensureRunTables();
+  const result = await withFencedExecutionWrite(
+    (tx) =>
+      tx.execute({
+        sql: `UPDATE agent_execution_steps
+              SET status = 'completed', result_json = ?, error_json = ?,
+                  completed_at = clock_timestamp(), updated_at = clock_timestamp()
+              WHERE thread_id = ? AND turn_id = ? AND step_id = ?
+                AND run_id = ? AND generation = CAST(? AS BIGINT)
+                AND status = 'dispatched'`,
+        args: [
+          resultJson,
+          errorJson ?? null,
+          intent.threadId,
+          intent.turnId,
+          intent.stepId,
+          intent.runId,
+          intent.generation,
+        ],
+      }),
+    { threadId: intent.threadId, turnId: intent.turnId, runId: intent.runId },
+  );
+  if (result.rowsAffected !== 1) {
+    throw new Error(`Execution step ${intent.stepId} lost its dispatch claim`);
+  }
+}
+
+export async function markAgentExecutionStepUnknown(
+  intent: AgentExecutionStepIntent,
+): Promise<void> {
+  await ensureRunTables();
+  const status = await withFencedExecutionWrite(
+    async (tx) => {
+      const result = await tx.execute({
+        sql: `UPDATE agent_execution_steps
+              SET status = 'unknown', updated_at = clock_timestamp()
+              WHERE thread_id = ? AND turn_id = ? AND step_id = ?
+                AND run_id = ? AND generation = CAST(? AS BIGINT)
+                AND status = 'dispatched'`,
+        args: [
+          intent.threadId,
+          intent.turnId,
+          intent.stepId,
+          intent.runId,
+          intent.generation,
+        ],
+      });
+      if (result.rowsAffected === 1) return "unknown";
+      const current = await tx.execute({
+        sql: `SELECT status FROM agent_execution_steps
+              WHERE thread_id = ? AND turn_id = ? AND step_id = ?
+              AND run_id = ? AND generation = CAST(? AS BIGINT)`,
+        args: [
+          intent.threadId,
+          intent.turnId,
+          intent.stepId,
+          intent.runId,
+          intent.generation,
+        ],
+      });
+      return (current.rows[0] as { status?: string } | undefined)?.status;
+    },
+    { threadId: intent.threadId, turnId: intent.turnId, runId: intent.runId },
+  );
+  if (status !== "unknown" && status !== "completed") {
+    throw new Error(`Execution step ${intent.stepId} lost its dispatch claim`);
+  }
+}
+
+/** A detached action may attach late evidence only while its lease is current. */
+export async function recordLateAgentExecutionStepOutcome(
+  intent: AgentExecutionStepIntent,
+  resultJson: string,
+  errorJson?: string,
+): Promise<void> {
+  await ensureRunTables();
+  const result = await withAgentExecutionStepIntentFence(intent, (tx) =>
+    tx.execute({
+      sql: `UPDATE agent_execution_steps
+            SET status = 'completed', result_json = ?, error_json = ?,
+                completed_at = clock_timestamp(), updated_at = clock_timestamp()
+            WHERE thread_id = ? AND turn_id = ? AND step_id = ?
+              AND run_id = ? AND generation = CAST(? AS BIGINT)
+              AND status IN ('dispatched', 'unknown')`,
+      args: [
+        resultJson,
+        errorJson ?? null,
+        intent.threadId,
+        intent.turnId,
+        intent.stepId,
+        intent.runId,
+        intent.generation,
+      ],
+    }),
+  );
+  if (result.rowsAffected !== 1) {
+    throw new Error(`Late execution step ${intent.stepId} was not recorded`);
+  }
+}
+
+export interface CompletedAgentExecutionStep {
+  stepId: string;
+  operationId: string;
+  toolName: string;
+  inputJson: string;
+  resultJson: string;
+}
+
+/** Read completed outcomes only for the unfinished calls named by the ledger. */
+export async function getCompletedAgentExecutionSteps(
+  threadId: string,
+  turnId: string,
+  stepIds: readonly string[],
+): Promise<CompletedAgentExecutionStep[]> {
+  const ids = [...new Set(stepIds.filter((id) => id.trim().length > 0))];
+  if (ids.length === 0) return [];
+
+  await ensureRunTables();
+  const completed: CompletedAgentExecutionStep[] = [];
+  const batchSize = 200;
+  for (let offset = 0; offset < ids.length; offset += batchSize) {
+    const batch = ids.slice(offset, offset + batchSize);
+    const rows = await getDbExec().execute({
+      sql: `SELECT step_id, operation_id, tool_name, input_json, result_json
+            FROM agent_execution_steps
+            WHERE thread_id = ? AND turn_id = ? AND status = 'completed'
+              AND step_id IN (${batch.map(() => "?").join(", ")})`,
+      args: [threadId, turnId, ...batch],
+    });
+    for (const raw of rows.rows) {
+      const row = raw as {
+        step_id?: unknown;
+        operation_id?: unknown;
+        tool_name?: unknown;
+        input_json?: unknown;
+        result_json?: unknown;
+      };
+      if (typeof row.step_id !== "string" || !batch.includes(row.step_id)) {
+        throw new Error(
+          "Completed execution-step lookup returned an invalid step id",
+        );
+      }
+      if (
+        typeof row.operation_id !== "string" ||
+        typeof row.tool_name !== "string" ||
+        typeof row.input_json !== "string" ||
+        typeof row.result_json !== "string"
+      ) {
+        throw new Error(
+          `Completed execution step ${row.step_id} has an incomplete stored intent or result`,
+        );
+      }
+      completed.push({
+        stepId: row.step_id,
+        operationId: row.operation_id,
+        toolName: row.tool_name,
+        inputJson: row.input_json,
+        resultJson: row.result_json,
+      });
+    }
+  }
+  return completed;
+}
+
 const LEDGER_RESULT_MAX_CHARS = 8_000;
 const LEDGER_CHAT_UI_RESULT_MAX_BYTES = 64 * 1024;
 
@@ -416,7 +1014,6 @@ export async function writeLedgerEntry(
 ): Promise<void> {
   try {
     await ensureRunTables();
-    const client = getDbExec();
     let boundedChatUIResultJson = chatUIResultJson
       ? stripInlineBytesFromJson(chatUIResultJson, "placeholder")
       : null;
@@ -444,8 +1041,10 @@ export async function writeLedgerEntry(
         ? safeResultSummary.slice(0, LEDGER_RESULT_MAX_CHARS) +
           `\n...[ledger truncated at ${LEDGER_RESULT_MAX_CHARS} chars]`
         : safeResultSummary;
-    await client.execute({
-      sql: `INSERT INTO agent_tool_ledger (thread_id, tool_key, result_summary, artifacts_json, result_is_string, chat_ui_result_json, completed_at, arguments_hash)
+    await withFencedExecutionWrite(
+      (tx) =>
+        tx.execute({
+          sql: `INSERT INTO agent_tool_ledger (thread_id, tool_key, result_summary, artifacts_json, result_is_string, chat_ui_result_json, completed_at, arguments_hash)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (thread_id, tool_key) DO UPDATE SET
               result_summary = excluded.result_summary,
@@ -454,18 +1053,21 @@ export async function writeLedgerEntry(
               chat_ui_result_json = excluded.chat_ui_result_json,
               completed_at = excluded.completed_at,
               arguments_hash = excluded.arguments_hash`,
-      args: [
-        threadId,
-        toolKey,
-        capped,
-        JSON.stringify(stripInlineBytes(artifacts, "placeholder")),
-        resultIsString ?? null,
-        boundedChatUIResultJson,
-        Date.now(),
-        argumentsHash ?? null,
-      ],
-    });
-  } catch {
+          args: [
+            threadId,
+            toolKey,
+            capped,
+            JSON.stringify(stripInlineBytes(artifacts, "placeholder")),
+            resultIsString ?? null,
+            boundedChatUIResultJson,
+            Date.now(),
+            argumentsHash ?? null,
+          ],
+        }),
+      { threadId },
+    );
+  } catch (error) {
+    if (error instanceof StaleExecutionFenceError) throw error;
     // Ledger is best-effort; never surface failures to the caller.
   }
 }
@@ -566,11 +1168,14 @@ function parseLedgerArtifacts(
 export async function clearLedgerForThread(threadId: string): Promise<void> {
   try {
     await ensureRunTables();
-    const client = getDbExec();
-    await client.execute({
-      sql: `DELETE FROM agent_tool_ledger WHERE thread_id = ?`,
-      args: [threadId],
-    });
+    await withFencedExecutionWrite(
+      (tx) =>
+        tx.execute({
+          sql: `DELETE FROM agent_tool_ledger WHERE thread_id = ?`,
+          args: [threadId],
+        }),
+      { threadId },
+    );
   } catch {
     // Best-effort.
   }
@@ -629,6 +1234,9 @@ export async function insertRun(
     }
   };
   if (!client.transaction) {
+    if (currentExecutionFence()) {
+      throw new Error("Fenced run insertion requires transaction support");
+    }
     if (options?.afterInsert)
       throw new Error("Atomic run insertion requires transaction support");
     if (options?.turnInitiator) {
@@ -648,6 +1256,7 @@ export async function insertRun(
     await prepareServicePrincipalRunStart(options.turnInitiator);
   }
   const refusal = await client.transaction(async (tx) => {
+    await lockAndAssertCurrentExecutionFences(tx);
     if (options?.turnInitiator) {
       const denied = await lockAndAssertServicePrincipalMayStartRun(tx, {
         email: options.turnInitiator.email,
@@ -793,30 +1402,6 @@ function terminalRunEventExclusionSql(runIdColumn = "id"): string {
 
 function livenessBasisSql(): string {
   return `(CASE WHEN COALESCE(last_progress_at, started_at) > COALESCE(heartbeat_at, started_at) THEN COALESCE(last_progress_at, started_at) ELSE COALESCE(heartbeat_at, started_at) END)`;
-}
-
-/**
- * Additive grace clause for the default (no explicit `maxStaleMs` override)
- * heartbeat/liveness-based stale reap conditions — TRUE (row remains eligible
- * for the surrounding staleness check) unless `in_flight_since` is set AND
- * still inside `IN_FLIGHT_RUN_STALE_GRACE_MS`. A row with no marker set
- * (`in_flight_since IS NULL`, the common case and every pre-existing row
- * before this migration) always evaluates TRUE here, so this can only make
- * reaping MORE conservative — the no-in-flight `BACKGROUND_RUN_STALE_MS` /
- * `RUN_STALE_MS` behavior is unchanged. See `IN_FLIGHT_RUN_STALE_GRACE_MS`'s
- * doc comment for why this is sound and bounded.
- *
- * The grace additionally requires the producer to still be demonstrably
- * heartbeating: a marker on a row whose liveness basis is itself dead by more
- * than `IN_FLIGHT_GRACE_MAX_LIVENESS_GAP_MS` is a latched corpse, not a slow
- * tool, and gets no extension.
- *
- * Binds two params, both the same `now` the surrounding cutoff clause binds.
- */
-function inFlightGraceSql(): string {
-  return `(in_flight_since IS NULL
-    OR in_flight_since <= (CAST(? AS BIGINT) - ${IN_FLIGHT_RUN_STALE_GRACE_MS})
-    OR ${livenessBasisSql()} < (CAST(? AS BIGINT) - ${IN_FLIGHT_GRACE_MAX_LIVENESS_GAP_MS}))`;
 }
 
 export async function claimBackgroundRun(runId: string): Promise<boolean> {
@@ -1426,16 +2011,20 @@ export async function setRunError(
   if (!errorCode && !errorDetail) return;
   try {
     await ensureRunTables();
-    const client = getDbExec();
-    await client.execute({
-      sql: `UPDATE agent_runs SET error_code = ?, error_detail = ? WHERE id = ?`,
-      args: [
-        errorCode ?? null,
-        errorDetail ? errorDetail.slice(0, 2000) : null,
-        runId,
-      ],
-    });
-  } catch {
+    await withFencedExecutionWrite(
+      (tx) =>
+        tx.execute({
+          sql: `UPDATE agent_runs SET error_code = ?, error_detail = ? WHERE id = ?`,
+          args: [
+            errorCode ?? null,
+            errorDetail ? errorDetail.slice(0, 2000) : null,
+            runId,
+          ],
+        }),
+      { runId },
+    );
+  } catch (error) {
+    if (error instanceof StaleExecutionFenceError) throw error;
     // Diagnostics are best-effort; never let them break completion.
   }
 }
@@ -1447,7 +2036,6 @@ export async function setRunTerminalReason(
   if (!terminalReason) return;
   try {
     await ensureRunTables();
-    const client = getDbExec();
     const reason = terminalReason.slice(0, 200);
     // Write-once for a row that is already terminal. Three writers in three
     // isolates race on this column — the mid-run checkpoint, the run-manager's
@@ -1459,13 +2047,18 @@ export async function setRunTerminalReason(
     // they never hit. A row still `running` has no honest reason yet, so it
     // stays writable; once one is recorded on a terminal row, it stands.
     const guard = `AND (status = 'running' OR terminal_reason IS NULL OR terminal_reason = '')`;
-    await client.execute({
-      sql: isContinuationTerminalReason(reason)
-        ? `UPDATE agent_runs SET terminal_reason = ?, status = CASE WHEN status = 'completed' THEN 'truncated' ELSE status END WHERE id = ? ${guard}`
-        : `UPDATE agent_runs SET terminal_reason = ? WHERE id = ? ${guard}`,
-      args: [reason, runId],
-    });
-  } catch {
+    await withFencedExecutionWrite(
+      (tx) =>
+        tx.execute({
+          sql: isContinuationTerminalReason(reason)
+            ? `UPDATE agent_runs SET terminal_reason = ?, status = CASE WHEN status = 'completed' THEN 'truncated' ELSE status END WHERE id = ? ${guard}`
+            : `UPDATE agent_runs SET terminal_reason = ? WHERE id = ? ${guard}`,
+          args: [reason, runId],
+        }),
+      { runId },
+    );
+  } catch (error) {
+    if (error instanceof StaleExecutionFenceError) throw error;
     // Diagnostics are best-effort; never let them break completion.
   }
 }
@@ -1504,11 +2097,13 @@ function isRealFailureTerminalEvent(event: AgentChatEvent): boolean {
 
 const RUN_RECONCILIATION_TERMINAL_EVENT_LIMIT = 100;
 
-async function getRunEventForReconciliation(runId: string): Promise<{
+async function getRunEventForReconciliation(
+  runId: string,
+  client: DbExec = getDbExec(),
+): Promise<{
   event: AgentChatEvent;
   eventAt: number | null;
 } | null> {
-  const client = getDbExec();
   const { rows } = await client.execute({
     sql: `SELECT seq, event_data, event_at
           FROM agent_run_events
@@ -1612,10 +2207,14 @@ function errorDetailForTerminalEvent(event: AgentChatEvent): string | null {
  * terminal, the run is no longer alive and must not be converted into a stale
  * error later. This keeps `agent_runs` and `agent_run_events` from telling two
  * different stories after delayed DB writes or background function teardown.
+ * This public path is for the active worker. The stale reaper uses a separate
+ * transaction-side repair after excluding a live matching worker generation.
  */
 export async function reconcileTerminalRunFromEvents(
   runId: string,
+  options: { threadProjectionPending?: boolean } = {},
 ): Promise<boolean> {
+  if (!currentExecutionFence()) return false;
   await ensureRunTables();
   const latest = await getRunEventForReconciliation(runId);
   if (!latest) return false;
@@ -1627,48 +2226,79 @@ export async function reconcileTerminalRunFromEvents(
   const errorCode = errorCodeForTerminalEvent(latest.event);
   const errorDetail = errorDetailForTerminalEvent(latest.event);
   const { rows: currentRows } = await client.execute({
-    sql: `SELECT status, error_code, terminal_reason, completed_at FROM agent_runs WHERE id = ?`,
+    sql: `SELECT thread_id, COALESCE(turn_id, id) AS turn_id, status,
+                 error_code, terminal_reason, completed_at,
+                 thread_projection_pending
+          FROM agent_runs WHERE id = ?`,
     args: [runId],
   });
   const current = currentRows[0] as
     | {
+        thread_id?: string | null;
+        turn_id?: string | null;
         status?: string | null;
         error_code?: string | null;
         terminal_reason?: string | null;
         completed_at?: number | string | null;
+        thread_projection_pending?: boolean | string | number | null;
       }
     | undefined;
+  if (
+    typeof current?.thread_id !== "string" ||
+    typeof current.turn_id !== "string"
+  ) {
+    return false;
+  }
+  const projectionAlreadyPending =
+    current?.thread_projection_pending === true ||
+    current?.thread_projection_pending === "t" ||
+    current?.thread_projection_pending === 1;
   if (
     current &&
     current.status === status &&
     (current.error_code ?? null) === (errorCode ?? null) &&
     (current.terminal_reason ?? null) === terminalReason &&
-    current.completed_at != null
+    current.completed_at != null &&
+    (!options.threadProjectionPending || projectionAlreadyPending)
   ) {
     return false;
   }
-  const { rowsAffected } = await client.execute({
-    sql: `UPDATE agent_runs
+  const allowMatchingTerminalRepair =
+    options.threadProjectionPending === true && current.status === status;
+  const { rowsAffected } = await withFencedExecutionWrite(
+    (tx) =>
+      tx.execute({
+        sql: `UPDATE agent_runs
           SET status = ?,
               completed_at = COALESCE(completed_at, ?, ${livenessBasisSql()}),
               error_code = ?,
               error_detail = ?,
-              terminal_reason = ?
+              terminal_reason = ?,
+              thread_projection_pending = CASE WHEN ? THEN TRUE ELSE thread_projection_pending END
           WHERE id = ?
             AND (
               status = 'running'
               OR (status = 'errored' AND error_code = ?)
+              ${allowMatchingTerminalRepair ? "OR (status = ? AND terminal_reason = ?)" : ""}
             )`,
-    args: [
-      status,
-      latest.eventAt,
-      errorCode,
-      errorDetail,
-      terminalReason,
+        args: [
+          status,
+          latest.eventAt,
+          errorCode,
+          errorDetail,
+          terminalReason,
+          options.threadProjectionPending === true,
+          runId,
+          STALE_RUN_ERROR_EVENT.errorCode,
+          ...(allowMatchingTerminalRepair ? [status, terminalReason] : []),
+        ],
+      }),
+    {
       runId,
-      STALE_RUN_ERROR_EVENT.errorCode,
-    ],
-  });
+      threadId: current.thread_id,
+      turnId: current.turn_id,
+    },
+  );
   return (rowsAffected ?? 0) > 0;
 }
 
@@ -1700,7 +2330,6 @@ export async function recordRunDiagnostic(
   if (!runId) return;
   try {
     await ensureRunTables();
-    const client = getDbExec();
     const payload = JSON.stringify({
       stage,
       ...(detail ? { detail: detail.slice(0, 1500) } : {}),
@@ -1710,17 +2339,26 @@ export async function recordRunDiagnostic(
       stage === RUN_DIAG_STAGE.workerSetupStep ||
       stage === RUN_DIAG_STAGE.workerStarted;
     if (isWorkerStage) {
-      await client.execute({
-        sql: `UPDATE agent_runs SET diag_stage = ?, worker_stage = ? WHERE id = ?`,
-        args: [payload, payload, runId],
-      });
+      await withFencedExecutionWrite(
+        (tx) =>
+          tx.execute({
+            sql: `UPDATE agent_runs SET diag_stage = ?, worker_stage = ? WHERE id = ?`,
+            args: [payload, payload, runId],
+          }),
+        { runId },
+      );
     } else {
-      await client.execute({
-        sql: `UPDATE agent_runs SET diag_stage = ? WHERE id = ?`,
-        args: [payload, runId],
-      });
+      await withFencedExecutionWrite(
+        (tx) =>
+          tx.execute({
+            sql: `UPDATE agent_runs SET diag_stage = ? WHERE id = ?`,
+            args: [payload, runId],
+          }),
+        { runId },
+      );
     }
-  } catch {
+  } catch (error) {
+    if (error instanceof StaleExecutionFenceError) throw error;
     // Diagnostics are best-effort; never let them break the run or the route.
   }
 }
@@ -1729,19 +2367,22 @@ const HEARTBEAT_WRITE_TIMEOUT_MS = Math.floor(RUN_STALE_MS / 3);
 
 export async function updateRunHeartbeat(runId: string): Promise<void> {
   await ensureRunTables();
-  const client = getDbExec();
-  await client.execute({
-    sql: `UPDATE agent_runs
+  await withFencedExecutionWrite(
+    (tx) =>
+      tx.execute({
+        sql: `UPDATE agent_runs
           SET heartbeat_at = ?,
               peak_rss_mb = CASE
                 WHEN peak_rss_mb IS NULL OR peak_rss_mb < ? THEN ?
                 ELSE peak_rss_mb
               END
           WHERE id = ? AND status = 'running'`,
-    args: [Date.now(), currentRssMb(), currentRssMb(), runId],
-    timeoutMs: HEARTBEAT_WRITE_TIMEOUT_MS,
-    maxAttempts: 1,
-  });
+        args: [Date.now(), currentRssMb(), currentRssMb(), runId],
+        timeoutMs: HEARTBEAT_WRITE_TIMEOUT_MS,
+        maxAttempts: 1,
+      }),
+    { runId },
+  );
 }
 
 function currentRssMb(): number {
@@ -1755,21 +2396,22 @@ function currentRssMb(): number {
 
 export async function bumpRunProgress(runId: string): Promise<boolean> {
   await ensureRunTables();
-  const client = getDbExec();
   const now = Date.now();
-  const { rowsAffected } = await client.execute({
-    sql: `UPDATE agent_runs SET last_progress_at = CASE WHEN last_progress_at IS NULL OR last_progress_at < ? THEN ? ELSE last_progress_at END WHERE id = ? AND status = 'running'`,
-    args: [now, now, runId],
-  });
+  const { rowsAffected } = await withFencedExecutionWrite(
+    (tx) =>
+      tx.execute({
+        sql: `UPDATE agent_runs SET last_progress_at = CASE WHEN last_progress_at IS NULL OR last_progress_at < ? THEN ? ELSE last_progress_at END WHERE id = ? AND status = 'running'`,
+        args: [now, now, runId],
+      }),
+    { runId },
+  );
   return (rowsAffected ?? 0) > 0;
 }
 
 /**
  * Mirror run-manager's in-memory `inFlightWorkCount` 0<->N transitions into
- * SQL so a stale reaper running in a DIFFERENT isolate can tell a
- * demonstrably-alive run (holding a tool call or A2A `agent_call` delegation)
- * apart from a genuinely dead one — see `IN_FLIGHT_RUN_STALE_GRACE_MS`'s doc
- * comment for the full reasoning.
+ * SQL so callers can report when a run is holding a tool call or A2A
+ * `agent_call` delegation.
  *
  * `inFlight: true` only writes when the row is still `NULL` — a defense-in-
  * depth belt-and-suspenders against a nested 1->2 transition clobbering the
@@ -1782,9 +2424,8 @@ export async function bumpRunProgress(runId: string): Promise<boolean> {
  *
  * Best-effort: callers fire-and-forget so a write failure here never blocks
  * event emission or aborts the run. The run manager logs marker-write failures
- * while preserving transition order. If this write itself fails (the same DB
- * pressure that could be starving the heartbeat), the row simply gets no grace
- * - never worse than today's behavior.
+ * while preserving transition order. Run liveness remains governed by the
+ * execution lease and heartbeat.
  */
 export async function setRunInFlightMarker(
   runId: string,
@@ -1792,20 +2433,27 @@ export async function setRunInFlightMarker(
   markerSince?: number,
 ): Promise<void> {
   await ensureRunTables();
-  const client = getDbExec();
   if (inFlight) {
-    await client.execute({
-      sql: `UPDATE agent_runs SET in_flight_since = ? WHERE id = ? AND status = 'running' AND in_flight_since IS NULL`,
-      args: [markerSince ?? Date.now(), runId],
-    });
+    await withFencedExecutionWrite(
+      (tx) =>
+        tx.execute({
+          sql: `UPDATE agent_runs SET in_flight_since = ? WHERE id = ? AND status = 'running' AND in_flight_since IS NULL`,
+          args: [markerSince ?? Date.now(), runId],
+        }),
+      { runId },
+    );
   } else {
-    await client.execute({
-      sql:
-        markerSince == null
-          ? `UPDATE agent_runs SET in_flight_since = NULL WHERE id = ?`
-          : `UPDATE agent_runs SET in_flight_since = NULL WHERE id = ? AND in_flight_since = ?`,
-      args: markerSince == null ? [runId] : [runId, markerSince],
-    });
+    await withFencedExecutionWrite(
+      (tx) =>
+        tx.execute({
+          sql:
+            markerSince == null
+              ? `UPDATE agent_runs SET in_flight_since = NULL WHERE id = ?`
+              : `UPDATE agent_runs SET in_flight_since = NULL WHERE id = ? AND in_flight_since = ?`,
+          args: markerSince == null ? [runId] : [runId, markerSince],
+        }),
+      { runId },
+    );
   }
 }
 
@@ -1820,6 +2468,8 @@ type StaleRunRecoveryOutcome =
   | { outcome: "not_background" }
   | { outcome: "not_redispatchable" }
   | { outcome: "newer_run_exists" }
+  | { outcome: "execution_lease_changed" }
+  | { outcome: "turn_aborted" }
   | { outcome: "budget_exhausted" }
   | { outcome: "repeated_no_progress" };
 
@@ -1893,18 +2543,25 @@ async function attemptStaleRunRecovery(
   const turnId = row.turn_id ?? runId;
   const startedAt = Number(row.started_at) || 0;
 
+  const abortMarker = await db.execute({
+    sql: `SELECT id FROM agent_runs WHERE thread_id = ? AND turn_id = ?
+          AND dispatch_mode = 'turn-abort' AND status = 'aborted' LIMIT 1`,
+    args: [threadId, turnId],
+  });
+  if (abortMarker.rows.length > 0) return { outcome: "turn_aborted" };
+
   await lockContinuationOrder(db, threadId, turnId);
 
   const { rows: newerRows } = await db.execute({
-    sql: `SELECT id FROM agent_runs WHERE turn_id = ? AND id != ? AND started_at > ? LIMIT 1`,
-    args: [turnId, runId, startedAt],
+    sql: `SELECT id FROM agent_runs WHERE thread_id = ? AND COALESCE(turn_id, id) = ? AND id != ? AND started_at > ? LIMIT 1`,
+    args: [threadId, turnId, runId, startedAt],
   });
   if ((newerRows?.length ?? 0) > 0) {
     return { outcome: "newer_run_exists" };
   }
 
   const { rows: countRows } = await db.execute({
-    sql: `SELECT COUNT(*) AS run_count FROM agent_runs WHERE thread_id = ? AND turn_id = ?`,
+    sql: `SELECT COUNT(*) AS run_count FROM agent_runs WHERE thread_id = ? AND COALESCE(turn_id, id) = ?`,
     args: [threadId, turnId],
   });
   const turnRunCount = Number(
@@ -1915,8 +2572,8 @@ async function attemptStaleRunRecovery(
   }
 
   const { rows: staleCountRows } = await db.execute({
-    sql: `SELECT COUNT(*) AS stale_count FROM agent_runs WHERE turn_id = ? AND error_code = ? AND id <> ?`,
-    args: [turnId, STALE_RUN_ERROR_EVENT.errorCode, runId],
+    sql: `SELECT COUNT(*) AS stale_count FROM agent_runs WHERE thread_id = ? AND COALESCE(turn_id, id) = ? AND error_code = ? AND id <> ?`,
+    args: [threadId, turnId, STALE_RUN_ERROR_EVENT.errorCode, runId],
   });
   const staleSuccessorCount = Number(
     (staleCountRows?.[0] as { stale_count?: unknown } | undefined)?.stale_count,
@@ -1929,8 +2586,8 @@ async function attemptStaleRunRecovery(
   }
 
   const { rows: recentRows } = await db.execute({
-    sql: `SELECT error_code, started_at, last_progress_at FROM agent_runs WHERE turn_id = ? ORDER BY started_at DESC LIMIT ?`,
-    args: [turnId, STALE_RUN_RECOVERY_CONSECUTIVE_NO_PROGRESS_LIMIT],
+    sql: `SELECT error_code, started_at, last_progress_at FROM agent_runs WHERE thread_id = ? AND COALESCE(turn_id, id) = ? ORDER BY started_at DESC LIMIT ?`,
+    args: [threadId, turnId, STALE_RUN_RECOVERY_CONSECUTIVE_NO_PROGRESS_LIMIT],
   });
   const recent = (recentRows ?? []) as Array<{
     error_code?: string | null;
@@ -1960,8 +2617,8 @@ async function attemptStaleRunRecovery(
     recoveryPayload.payload,
     "stale recovery dispatch_payload",
   );
-  await db.execute({
-    sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id, dispatch_mode, dispatch_payload, continuation_order) VALUES (?, ?, 'running', ?, ?, ?, ?, 'background', ?, ?) ON CONFLICT (id) DO NOTHING`,
+  const inserted = await db.execute({
+    sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id, dispatch_mode, dispatch_payload, continuation_order) VALUES (?, ?, 'running', ?, ?, ?, ?, 'background', ?, ?) ON CONFLICT (id) DO NOTHING RETURNING id`,
     args: [
       successorRunId,
       threadId,
@@ -1973,6 +2630,9 @@ async function attemptStaleRunRecovery(
       continuationOrder,
     ],
   });
+  if (inserted.rows.length !== 1) {
+    throw new Error(`Stale-run successor ${successorRunId} was not inserted`);
+  }
   return { outcome: "recovered", successorRunId, threadId, turnId };
 }
 
@@ -2028,20 +2688,48 @@ function priorDiagStageLabel(raw: unknown): string | null {
   return raw.slice(0, 120);
 }
 
+async function reconcileTerminalRunInRecoveryTransaction(
+  tx: DbExec,
+  runId: string,
+): Promise<boolean> {
+  const latest = await getRunEventForReconciliation(runId, tx);
+  if (!latest) return false;
+  const status = terminalStatusForEvent(latest.event);
+  const terminalReason = terminalReasonForEvent(latest.event);
+  if (!status || !terminalReason) return false;
+
+  const { rowsAffected } = await tx.execute({
+    sql: `UPDATE agent_runs
+          SET status = ?,
+              completed_at = COALESCE(completed_at, ?, ${livenessBasisSql()}),
+              error_code = ?,
+              error_detail = ?,
+              terminal_reason = ?
+          WHERE id = ? AND status = 'running'`,
+    args: [
+      status,
+      latest.eventAt,
+      errorCodeForTerminalEvent(latest.event),
+      errorDetailForTerminalEvent(latest.event),
+      terminalReason,
+      runId,
+    ],
+  });
+  return (rowsAffected ?? 0) === 1;
+}
+
 async function reapSingleStaleRun(
   runId: string,
   source: string,
   maxStaleMs?: number,
-): Promise<boolean> {
+): Promise<{ reaped: boolean; projectionFailed: boolean }> {
   const completedAt = Date.now();
   const staleClause =
     typeof maxStaleMs === "number"
       ? `${livenessBasisSql()} < ?`
-      : `${livenessBasisSql()} < ${backgroundAwareStaleCutoffSql()} AND ${inFlightGraceSql()}`;
+      : `${livenessBasisSql()} < ${backgroundAwareStaleCutoffSql()}`;
   const staleArgs =
-    typeof maxStaleMs === "number"
-      ? [completedAt - maxStaleMs]
-      : [completedAt, completedAt, completedAt];
+    typeof maxStaleMs === "number" ? [completedAt - maxStaleMs] : [completedAt];
   const updateSql = `UPDATE agent_runs
           SET status = 'errored',
               completed_at = COALESCE(completed_at, ${livenessBasisSql()}),
@@ -2061,27 +2749,112 @@ async function reapSingleStaleRun(
   ];
 
   const client = getDbExec();
-  let reaped = false;
-  let outcome: StaleRunRecoveryOutcome | null = null;
-  if (client.transaction) {
-    await client.transaction(async (tx) => {
-      const { rowsAffected } = await tx.execute({
-        sql: updateSql,
-        args: updateArgs,
-      });
-      reaped = (rowsAffected ?? 0) > 0;
-      if (reaped) {
-        outcome = await attemptStaleRunRecovery(tx, runId);
-      }
+  if (!client.transaction) {
+    throw new Error("Atomic stale-run fencing requires transaction support");
+  }
+  const owner = await client.execute({
+    sql: `SELECT thread_id, COALESCE(turn_id, id) AS turn_id
+          FROM agent_runs WHERE id = ?`,
+    args: [runId],
+  });
+  const runScope = owner.rows[0] as
+    | { thread_id?: unknown; turn_id?: unknown }
+    | undefined;
+  if (
+    typeof runScope?.thread_id !== "string" ||
+    typeof runScope.turn_id !== "string"
+  ) {
+    return { reaped: false, projectionFailed: false };
+  }
+  const reapResult = await client.transaction(async (tx) => {
+    await tx.execute({
+      sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+      args: [`agent-native:run-slot:${runScope.thread_id}`],
     });
-  } else {
-    const { rowsAffected } = await client.execute({
+    const lease = await lockTurnExecutionLease(
+      tx,
+      runScope.thread_id as string,
+      runScope.turn_id as string,
+    );
+    const currentRun = await tx.execute({
+      sql: `SELECT status, worker_generation FROM agent_runs WHERE id = ? FOR UPDATE`,
+      args: [runId],
+    });
+    const run = currentRun.rows[0] as
+      | { status?: unknown; worker_generation?: number | string | null }
+      | undefined;
+    if (run?.status !== "running") return { reaped: false, outcome: null };
+    const generationMatches =
+      lease !== null &&
+      lease.ownerRunId === runId &&
+      (run.worker_generation == null ||
+        String(run.worker_generation) === lease.generation);
+    if (lease?.isLive && generationMatches) {
+      return { reaped: false, outcome: null };
+    }
+    if (await reconcileTerminalRunInRecoveryTransaction(tx, runId)) {
+      if (generationMatches && lease) {
+        await tx.execute({
+          sql: `UPDATE agent_execution_leases
+                SET lease_expires_at = clock_timestamp(), updated_at = clock_timestamp()
+                WHERE thread_id = ? AND turn_id = ? AND owner_run_id = ?
+                  AND generation = CAST(? AS BIGINT)`,
+          args: [runScope.thread_id, runScope.turn_id, runId, lease.generation],
+        });
+      }
+      if (generationMatches || (!lease && run.worker_generation == null)) {
+        await tx.execute({
+          sql: `UPDATE agent_runs
+                SET thread_projection_pending = TRUE
+                WHERE id = ? AND status = 'errored'`,
+          args: [runId],
+        });
+      }
+      return { reaped: false, outcome: null };
+    }
+    const { rowsAffected } = await tx.execute({
       sql: updateSql,
       args: updateArgs,
     });
-    reaped = (rowsAffected ?? 0) > 0;
-    if (reaped) outcome = await attemptStaleRunRecovery(client, runId);
-  }
+    const reaped = (rowsAffected ?? 0) > 0;
+    let outcome: StaleRunRecoveryOutcome | null = null;
+    if (reaped) {
+      if (generationMatches && lease) {
+        await tx.execute({
+          sql: `UPDATE agent_execution_leases
+                SET lease_expires_at = clock_timestamp(), updated_at = clock_timestamp()
+                WHERE thread_id = ? AND turn_id = ? AND owner_run_id = ?
+                  AND generation = CAST(? AS BIGINT)`,
+          args: [runScope.thread_id, runScope.turn_id, runId, lease.generation],
+        });
+      }
+      outcome =
+        lease && !generationMatches
+          ? { outcome: "execution_lease_changed" }
+          : await attemptStaleRunRecovery(tx, runId);
+      await appendTerminalRunEventInTransaction(
+        tx,
+        runId,
+        STALE_RUN_ERROR_EVENT,
+      );
+      if (outcome.outcome !== "execution_lease_changed") {
+        const projection = await tx.execute({
+          sql: `UPDATE agent_runs
+                SET thread_projection_pending = TRUE
+                WHERE id = ? AND status = 'errored'
+                RETURNING id`,
+          args: [runId],
+        });
+        if ((projection.rowsAffected ?? projection.rows.length) !== 1) {
+          throw new Error(
+            `Stale run ${runId} did not retain its thread projection retry marker`,
+          );
+        }
+      }
+    }
+    return { reaped, outcome };
+  });
+  const { reaped, outcome } = reapResult;
 
   let forensics = "";
   let priorStageInfo = "";
@@ -2132,7 +2905,15 @@ async function reapSingleStaleRun(
   // Saved before the successor starts: a successor that folds its own reply
   // first would have this older run's steps land after its, and take its
   // error and status.
-  if (reaped) await finalizeStaleRun(runId, source);
+  let projectionFailed = false;
+  if (reaped) {
+    // A newer generation owns the turn, so it must remain the sole thread projector.
+    projectionFailed = !(await finalizeStaleRun(
+      runId,
+      source,
+      outcome?.outcome !== "execution_lease_changed",
+    ));
+  }
 
   if (reaped && outcome && outcome.outcome !== "not_background") {
     const outcomeDetail =
@@ -2158,7 +2939,7 @@ async function reapSingleStaleRun(
     ).catch(() => {});
   }
 
-  return reaped;
+  return { reaped, projectionFailed };
 }
 
 export async function reapIfStale(
@@ -2167,9 +2948,10 @@ export async function reapIfStale(
 ): Promise<boolean> {
   await ensureRunTables();
   if (await reconcileTerminalRunFromEvents(runId)) return false;
-  const reaped = await reapSingleStaleRun(runId, "reap-if-stale", maxStaleMs);
-  if (!reaped && (await reconcileTerminalRunFromEvents(runId))) return false;
-  return reaped;
+  const result = await reapSingleStaleRun(runId, "reap-if-stale", maxStaleMs);
+  if (!result.reaped && (await reconcileTerminalRunFromEvents(runId)))
+    return false;
+  return result.reaped;
 }
 
 export async function reapUnclaimedBackgroundRun(
@@ -2220,24 +3002,256 @@ export async function updateRunStatus(
   status: "completed" | "truncated" | "errored" | "aborted",
 ): Promise<void> {
   await ensureRunTables();
-  const client = getDbExec();
-  await client.execute({
-    sql: `UPDATE agent_runs SET status = ?, completed_at = ?, dispatch_payload = NULL WHERE id = ?`,
-    args: [status, Date.now(), runId],
-  });
+  await withFencedExecutionWrite(
+    (tx) =>
+      tx.execute({
+        sql: `UPDATE agent_runs SET status = ?, completed_at = ?, dispatch_payload = NULL WHERE id = ?`,
+        args: [status, Date.now(), runId],
+      }),
+    { runId },
+  );
 }
 
 export async function updateRunStatusIfRunning(
   runId: string,
   status: "completed" | "truncated" | "errored" | "aborted",
+  options: { threadProjectionPending?: boolean } = {},
+): Promise<boolean> {
+  await ensureRunTables();
+  const { rowsAffected } = await withFencedExecutionWrite(
+    (tx) =>
+      tx.execute({
+        sql: `UPDATE agent_runs SET status = ?, completed_at = ?, dispatch_payload = NULL,
+                     thread_projection_pending = CASE WHEN ? THEN TRUE ELSE thread_projection_pending END
+              WHERE id = ? AND status = 'running'`,
+        args: [
+          status,
+          Date.now(),
+          options.threadProjectionPending === true,
+          runId,
+        ],
+      }),
+    { runId },
+  );
+  return (rowsAffected ?? 0) > 0;
+}
+
+export async function updateRunTerminalStateIfRunning(
+  runId: string,
+  terminal: {
+    status: "completed" | "truncated" | "errored" | "aborted";
+    terminalReason: string;
+    errorCode?: string;
+    errorDetail?: string;
+  },
+): Promise<boolean> {
+  await ensureRunTables();
+  const terminalReason = terminal.terminalReason.slice(0, 200);
+  const status =
+    terminal.status === "completed" &&
+    isContinuationTerminalReason(terminalReason)
+      ? "truncated"
+      : terminal.status;
+  const { rowsAffected } = await withFencedExecutionWrite(
+    (tx) =>
+      tx.execute({
+        sql: `UPDATE agent_runs
+              SET status = ?, completed_at = ?, dispatch_payload = NULL,
+                  error_code = ?, error_detail = ?, terminal_reason = ?
+              WHERE id = ? AND status = 'running'`,
+        args: [
+          status,
+          Date.now(),
+          terminal.errorCode ?? null,
+          terminal.errorDetail?.slice(0, 2000) ?? null,
+          terminalReason,
+          runId,
+        ],
+      }),
+    { runId },
+  );
+  return (rowsAffected ?? 0) > 0;
+}
+
+/** A setup failure can precede the run-manager fence, so serialize it with reaping. */
+export async function finalizeClaimedBackgroundRunFailure(
+  runId: string,
+  failure: {
+    errorCode: string;
+    errorDetail: string;
+    event: Extract<AgentChatEvent, { type: "error" }>;
+  },
 ): Promise<boolean> {
   await ensureRunTables();
   const client = getDbExec();
-  const { rowsAffected } = await client.execute({
-    sql: `UPDATE agent_runs SET status = ?, completed_at = ?, dispatch_payload = NULL WHERE id = ? AND status = 'running'`,
-    args: [status, Date.now(), runId],
+  if (!client.transaction) {
+    throw new Error(
+      "Background run failure finalization requires transaction support",
+    );
+  }
+  const owner = await client.execute({
+    sql: `SELECT thread_id, COALESCE(turn_id, id) AS turn_id, worker_generation
+          FROM agent_runs WHERE id = ?`,
+    args: [runId],
   });
-  return (rowsAffected ?? 0) > 0;
+  const scope = owner.rows[0] as
+    | {
+        thread_id?: unknown;
+        turn_id?: unknown;
+        worker_generation?: number | string | null;
+      }
+    | undefined;
+  if (
+    typeof scope?.thread_id !== "string" ||
+    typeof scope.turn_id !== "string"
+  ) {
+    return false;
+  }
+  const expectedGeneration =
+    scope.worker_generation == null ? null : String(scope.worker_generation);
+
+  return client.transaction(async (tx) => {
+    await tx.execute({
+      sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+      args: [`agent-native:run-slot:${scope.thread_id}`],
+    });
+    const lease = await lockTurnExecutionLease(
+      tx,
+      scope.thread_id as string,
+      scope.turn_id as string,
+    );
+    const selected = await tx.execute({
+      sql: `SELECT status, dispatch_mode, worker_generation
+            FROM agent_runs WHERE id = ? FOR UPDATE`,
+      args: [runId],
+    });
+    const run = selected.rows[0] as
+      | {
+          status?: unknown;
+          dispatch_mode?: unknown;
+          worker_generation?: number | string | null;
+        }
+      | undefined;
+    if (
+      run?.status !== "running" ||
+      run.dispatch_mode !== "background-processing" ||
+      (run.worker_generation == null ? null : String(run.worker_generation)) !==
+        expectedGeneration
+    ) {
+      return false;
+    }
+    const generationMatches =
+      run.worker_generation == null
+        ? lease === null || lease.ownerRunId === runId
+        : lease !== null &&
+          lease.ownerRunId === runId &&
+          String(run.worker_generation) === lease.generation;
+    if (!generationMatches) return false;
+
+    const updated = await tx.execute({
+      sql: `UPDATE agent_runs
+            SET status = 'errored', completed_at = ?, error_code = ?,
+                error_detail = ?, terminal_reason = ?, dispatch_payload = NULL
+            WHERE id = ? AND status = 'running'
+              AND dispatch_mode = 'background-processing'
+              AND ${terminalRunEventExclusionSql()}`,
+      args: [
+        Date.now(),
+        failure.errorCode,
+        failure.errorDetail.slice(0, 2000),
+        `error:${failure.errorCode}`.slice(0, 200),
+        runId,
+      ],
+    });
+    if ((updated.rowsAffected ?? 0) !== 1) return false;
+
+    const lastEvent = await tx.execute({
+      sql: `SELECT seq FROM agent_run_events WHERE run_id = ? ORDER BY seq DESC LIMIT 1`,
+      args: [runId],
+    });
+    const lastSeq = (lastEvent.rows[0] as { seq?: number | string } | undefined)
+      ?.seq;
+    const inserted = await tx.execute({
+      sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
+            VALUES (?, ?, ?, ?) ON CONFLICT (run_id, seq) DO NOTHING`,
+      args: [
+        runId,
+        lastSeq === undefined ? 0 : Number(lastSeq) + 1,
+        Date.now(),
+        persistedRunEventData(JSON.stringify(failure.event)),
+      ],
+    });
+    if ((inserted.rowsAffected ?? 0) !== 1) {
+      throw new Error(`Failed to persist failure event for run ${runId}`);
+    }
+    return true;
+  });
+}
+
+export async function failRunBeforeDispatch(
+  runId: string,
+  errorCode: string,
+  errorDetail: string,
+  terminalReason: string,
+): Promise<boolean> {
+  await ensureRunTables();
+  const client = getDbExec();
+  if (!client.transaction) {
+    throw new Error("Unstarted run failure requires transaction support");
+  }
+  const owner = await client.execute({
+    sql: `SELECT thread_id, COALESCE(turn_id, id) AS turn_id
+          FROM agent_runs WHERE id = ?`,
+    args: [runId],
+  });
+  const scope = owner.rows[0] as
+    | { thread_id?: unknown; turn_id?: unknown }
+    | undefined;
+  if (
+    typeof scope?.thread_id !== "string" ||
+    typeof scope.turn_id !== "string"
+  ) {
+    return false;
+  }
+  return client.transaction(async (tx) => {
+    const lease = await lockTurnExecutionLease(
+      tx,
+      scope.thread_id as string,
+      scope.turn_id as string,
+    );
+    const run = await tx.execute({
+      sql: `SELECT status, worker_generation FROM agent_runs WHERE id = ? FOR UPDATE`,
+      args: [runId],
+    });
+    const currentRun = run.rows[0] as
+      | { status?: unknown; worker_generation?: number | string | null }
+      | undefined;
+    if (currentRun?.status !== "running") {
+      return false;
+    }
+    if (
+      lease?.isLive &&
+      lease.ownerRunId === runId &&
+      (currentRun.worker_generation == null ||
+        String(currentRun.worker_generation) === lease.generation)
+    ) {
+      return false;
+    }
+    const updated = await tx.execute({
+      sql: `UPDATE agent_runs
+            SET status = 'errored', completed_at = ?, error_code = ?,
+                error_detail = ?, terminal_reason = ?, dispatch_payload = NULL
+            WHERE id = ? AND status = 'running'`,
+      args: [
+        Date.now(),
+        errorCode,
+        errorDetail.slice(0, 2000),
+        terminalReason.slice(0, 200),
+        runId,
+      ],
+    });
+    return (updated.rowsAffected ?? 0) === 1;
+  });
 }
 
 /** The caller owns this claim and has not called startRun yet. */
@@ -2300,11 +3314,68 @@ export async function markRunAborted(
   runId: string,
   reason?: string,
 ): Promise<void> {
+  await updateRunAborted(runId, reason, false);
+}
+
+/** Abort only when no model or tool work has crossed its dispatch boundary. */
+export async function markRunAbortedAtSafeBoundary(
+  runId: string,
+  reason?: string,
+): Promise<boolean> {
+  return updateRunAborted(runId, reason, true);
+}
+
+async function updateRunAborted(
+  runId: string,
+  reason: string | undefined,
+  requireSafeBoundary: boolean,
+): Promise<boolean> {
   await ensureRunTables();
   const client = getDbExec();
-  const { rowsAffected } = await client.execute({
-    sql: `UPDATE agent_runs SET status = 'aborted', abort_reason = ?, completed_at = ?, terminal_reason = ? WHERE id = ? AND status = 'running'`,
-    args: [reason ?? "user", Date.now(), `aborted:${reason ?? "user"}`, runId],
+  if (!client.transaction) {
+    throw new Error("Atomic run cancellation requires transaction support");
+  }
+  const rowsAffected = await client.transaction(async (tx) => {
+    await lockExecutionLeasesForRuns(tx, [runId]);
+    if (requireSafeBoundary) {
+      const run = await tx.execute({
+        sql: `SELECT thread_id, COALESCE(turn_id, id) AS turn_id
+              FROM agent_runs WHERE id = ?`,
+        args: [runId],
+      });
+      const runRef = run.rows[0] as
+        | { thread_id?: string; turn_id?: string }
+        | undefined;
+      if (runRef) {
+        if (
+          typeof runRef.thread_id !== "string" ||
+          typeof runRef.turn_id !== "string"
+        ) {
+          throw new Error(`Run ${runId} has an invalid thread or turn ID`);
+        }
+        const dispatchedStep = await tx.execute({
+          sql: `SELECT 1 FROM agent_execution_steps
+                WHERE thread_id = ? AND turn_id = ? AND status = 'dispatched'
+                  AND run_id = ?
+                LIMIT 1`,
+          args: [runRef.thread_id, runRef.turn_id, runId],
+        });
+        if (dispatchedStep.rows.length > 0) return 0;
+      }
+    }
+    const result = await tx.execute({
+      sql: `UPDATE agent_runs SET status = 'aborted', abort_reason = ?, completed_at = ?, terminal_reason = ? WHERE id = ? AND status = 'running'${requireSafeBoundary ? " AND in_flight_since IS NULL" : ""}`,
+      args: [
+        reason ?? "user",
+        Date.now(),
+        `aborted:${reason ?? "user"}`,
+        runId,
+      ],
+    });
+    if ((result.rowsAffected ?? 0) > 0) {
+      await revokeExecutionLeasesForRuns(tx, [runId]);
+    }
+    return result.rowsAffected ?? 0;
   });
   if ((rowsAffected ?? 0) > 0) {
     await safeAppendTerminalRunEvent(
@@ -2313,6 +3384,92 @@ export async function markRunAborted(
       "mark-aborted",
     );
   }
+  return (rowsAffected ?? 0) > 0;
+}
+
+async function lockExecutionLeasesForRuns(
+  db: DbExec,
+  runIds: string[],
+): Promise<void> {
+  const ids = [...new Set(runIds)].sort();
+  if (ids.length === 0) return;
+  await db.execute({
+    sql: `SELECT owner_run_id FROM agent_execution_leases
+          WHERE owner_run_id IN (${ids.map(() => "?").join(", ")})
+          ORDER BY owner_run_id FOR UPDATE`,
+    args: ids,
+  });
+}
+
+async function lockTurnExecutionLease(
+  db: DbExec,
+  threadId: string,
+  turnId: string,
+): Promise<{ ownerRunId: string; generation: string; isLive: boolean } | null> {
+  await db.execute({
+    sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+    args: [`agent-native:turn-execution-lease:${threadId}:${turnId}`],
+  });
+  const result = await db.execute({
+    sql: `SELECT generation, owner_run_id,
+                 lease_expires_at > clock_timestamp() AS lease_is_live
+          FROM agent_execution_leases
+          WHERE thread_id = ? AND turn_id = ?
+          FOR UPDATE`,
+    args: [threadId, turnId],
+  });
+  const row = result.rows[0] as
+    | {
+        generation?: number | string;
+        owner_run_id?: string;
+        lease_is_live?: boolean | string | number;
+      }
+    | undefined;
+  if (typeof row?.owner_run_id !== "string" || row.generation === undefined) {
+    return null;
+  }
+  return {
+    ownerRunId: row.owner_run_id,
+    generation: String(row.generation),
+    isLive: truthySqlValue(row.lease_is_live),
+  };
+}
+
+/** Serialize a task lifecycle change with worker lease claims and writes. */
+export async function lockTaskExecutionLease(
+  db: DbExec,
+  threadId: string,
+  turnId: string,
+): Promise<void> {
+  await lockTurnExecutionLease(db, threadId, turnId);
+}
+
+/** Revoke a task worker while its lifecycle transaction holds the lease lock. */
+export async function revokeTaskExecutionLease(
+  db: DbExec,
+  threadId: string,
+  turnId: string,
+): Promise<void> {
+  await db.execute({
+    sql: `UPDATE agent_execution_leases
+          SET lease_expires_at = clock_timestamp(), updated_at = clock_timestamp()
+          WHERE thread_id = ? AND turn_id = ?`,
+    args: [threadId, turnId],
+  });
+}
+
+async function revokeExecutionLeasesForRuns(
+  db: DbExec,
+  runIds: string[],
+): Promise<void> {
+  const ids = [...new Set(runIds)].sort();
+  if (ids.length === 0) return;
+  await db.execute({
+    sql: `UPDATE agent_execution_leases
+          SET lease_expires_at = clock_timestamp(), updated_at = clock_timestamp()
+          WHERE owner_run_id IN (${ids.map(() => "?").join(", ")})`,
+    args: ids,
+  });
 }
 
 function turnAbortMarkerRunId(threadId: string, turnId: string): string {
@@ -2336,15 +3493,27 @@ export async function markTurnAborted(
       sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
       args: [`agent-native:run-slot:${threadId}`],
     });
+    await lockTurnExecutionLease(tx, threadId, turnId);
     const running = await tx.execute({
-      sql: `SELECT id FROM agent_runs WHERE thread_id = ? AND turn_id = ? AND status = 'running' AND dispatch_mode IS DISTINCT FROM 'turn-abort' FOR UPDATE`,
+      sql: `SELECT id FROM agent_runs WHERE thread_id = ? AND COALESCE(turn_id, id) = ? AND status = 'running' AND dispatch_mode IS DISTINCT FROM 'turn-abort'`,
       args: [threadId, turnId],
     });
-    runIds.push(
-      ...running.rows
-        .map((row) => String((row as { id?: unknown }).id ?? ""))
-        .filter(Boolean),
-    );
+    const candidateRunIds = running.rows
+      .map((row) => String((row as { id?: unknown }).id ?? ""))
+      .filter(Boolean);
+    await lockExecutionLeasesForRuns(tx, candidateRunIds);
+    await revokeExecutionLeasesForRuns(tx, candidateRunIds);
+    if (candidateRunIds.length > 0) {
+      const aborted = await tx.execute({
+        sql: `UPDATE agent_runs SET status = 'aborted', abort_reason = ?, completed_at = ?, terminal_reason = ? WHERE thread_id = ? AND COALESCE(turn_id, id) = ? AND status = 'running' RETURNING id`,
+        args: [reason, now, `aborted:${reason}`, threadId, turnId],
+      });
+      runIds.push(
+        ...aborted.rows
+          .map((row) => String((row as { id?: unknown }).id ?? ""))
+          .filter(Boolean),
+      );
+    }
     if (runIds.length === 0) {
       const existing = await tx.execute({
         sql: `SELECT id, terminal_reason,
@@ -2357,7 +3526,7 @@ export async function markTurnAborted(
                          )
                      ) AS continuation_pending
               FROM agent_runs
-              WHERE thread_id = ? AND turn_id = ?
+              WHERE thread_id = ? AND COALESCE(turn_id, id) = ?
                 AND dispatch_mode IS DISTINCT FROM 'turn-abort'
               ORDER BY started_at DESC LIMIT 1 FOR UPDATE`,
         args: [
@@ -2377,11 +3546,6 @@ export async function markTurnAborted(
       ) {
         return "already_terminal" as const;
       }
-    } else {
-      await tx.execute({
-        sql: `UPDATE agent_runs SET status = 'aborted', abort_reason = ?, completed_at = ?, terminal_reason = ? WHERE thread_id = ? AND turn_id = ? AND status = 'running'`,
-        args: [reason, now, `aborted:${reason}`, threadId, turnId],
-      });
     }
     await tx.execute({
       sql: `INSERT INTO agent_runs (id, thread_id, status, abort_reason, started_at, completed_at, heartbeat_at, last_progress_at, turn_id, terminal_reason, dispatch_mode) VALUES (?, ?, 'aborted', ?, ?, ?, ?, ?, ?, ?, 'turn-abort'), (?, ?, 'aborted', ?, ?, ?, ?, ?, ?, ?, 'turn-abort') ON CONFLICT (id) DO NOTHING`,
@@ -2524,35 +3688,38 @@ export async function insertRunEvent(
   },
 ): Promise<void> {
   await ensureRunTables();
-  const client = getDbExec();
   const storedEventData = persistedRunEventData(
     eventData,
     options?.toolInputSource,
   );
   // The reaper must wait for the marker's commit before exposing a successor.
-  const { rowsAffected } = await client.execute({
-    sql: options?.requireInserted
-      ? `WITH running_run AS MATERIALIZED (
+  const { rowsAffected } = await withFencedExecutionWrite(
+    (tx) =>
+      tx.execute({
+        sql: options?.requireInserted
+          ? `WITH running_run AS MATERIALIZED (
           SELECT id FROM agent_runs WHERE id = ? AND status = 'running' FOR UPDATE
         )
         INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
         SELECT id, ?, ?, ? FROM running_run LIMIT 1
         ON CONFLICT (run_id, seq) DO NOTHING`
-      : `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
+          : `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
       SELECT ?, ?, ?, ?
       WHERE NOT EXISTS (
         SELECT 1 FROM agent_runs
         WHERE id = ? AND status <> 'running'
       )
       ON CONFLICT (run_id, seq) DO NOTHING`,
-    args: [
-      runId,
-      seq,
-      options?.eventAt ?? Date.now(),
-      storedEventData,
-      ...(options?.requireInserted ? [] : [runId]),
-    ],
-  });
+        args: [
+          runId,
+          seq,
+          options?.eventAt ?? Date.now(),
+          storedEventData,
+          ...(options?.requireInserted ? [] : [runId]),
+        ],
+      }),
+    { runId },
+  );
   if (options?.requireInserted && rowsAffected !== 1)
     throw new AgentRunEventNotPersistedError(runId, seq);
 }
@@ -2570,11 +3737,16 @@ export async function insertRunEvents(
 ): Promise<void> {
   if (events.length === 0) return;
   await ensureRunTables();
-  const client = getDbExec();
-  for (let start = 0; start < events.length; start += RUN_EVENT_BATCH_ROWS) {
-    const chunk = events.slice(start, start + RUN_EVENT_BATCH_ROWS);
-    await client.execute({
-      sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
+  await withFencedExecutionWrite(
+    async (tx) => {
+      for (
+        let start = 0;
+        start < events.length;
+        start += RUN_EVENT_BATCH_ROWS
+      ) {
+        const chunk = events.slice(start, start + RUN_EVENT_BATCH_ROWS);
+        await tx.execute({
+          sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
         SELECT v.run_id, v.seq, v.event_at, v.event_data
         FROM (VALUES ${chunk
           .map(
@@ -2587,17 +3759,20 @@ export async function insertRunEvents(
           WHERE id = ? AND status <> 'running'
         )
         ON CONFLICT (run_id, seq) DO NOTHING`,
-      args: [
-        ...chunk.flatMap(({ seq, eventAt, eventData }) => [
-          runId,
-          seq,
-          eventAt,
-          persistedRunEventData(eventData),
-        ]),
-        runId,
-      ],
-    });
-  }
+          args: [
+            ...chunk.flatMap(({ seq, eventAt, eventData }) => [
+              runId,
+              seq,
+              eventAt,
+              persistedRunEventData(eventData),
+            ]),
+            runId,
+          ],
+        });
+      }
+    },
+    { runId },
+  );
 }
 
 export const CHECKPOINT_TERMINAL_EVENT_SEQ = 1_000_000_000;
@@ -2688,6 +3863,7 @@ export async function readStoppedRunForThreadFold(runId: string): Promise<{
   threadId: string;
   turnId: string;
   startedAt: number;
+  workerGeneration: string | null;
   events: RunEvent[];
   continuedInTurn: boolean;
   laterTurnStarted: boolean;
@@ -2696,7 +3872,7 @@ export async function readStoppedRunForThreadFold(runId: string): Promise<{
   const client = getDbExec();
   const { rows } = await client.execute({
     sql: `SELECT r.thread_id, COALESCE(r.turn_id, r.id) AS turn_id,
-                 r.status, r.started_at,
+                 r.status, r.started_at, r.worker_generation,
                  EXISTS (
                    SELECT 1 FROM agent_runs later
                    WHERE later.thread_id = r.thread_id
@@ -2720,6 +3896,7 @@ export async function readStoppedRunForThreadFold(runId: string): Promise<{
         turn_id: string;
         status: string;
         started_at: number | string;
+        worker_generation: number | string | null;
         continued_in_turn: boolean | string;
         later_turn_started: boolean | string;
       }
@@ -2735,6 +3912,8 @@ export async function readStoppedRunForThreadFold(runId: string): Promise<{
     threadId: row.thread_id,
     turnId: row.turn_id,
     startedAt: Number(row.started_at),
+    workerGeneration:
+      row.worker_generation == null ? null : String(row.worker_generation),
     events,
     continuedInTurn:
       row.continued_in_turn === true || row.continued_in_turn === "t",
@@ -2936,19 +4115,35 @@ export interface AgentRunSummary {
 
 export async function listRunsForThread(
   threadId: string,
-  options: { limit?: number } = {},
+  options: { limit?: number; runIds?: readonly string[] } = {},
 ): Promise<AgentRunSummary[]> {
   await ensureRunTables();
   const limit = Math.min(Math.max(options.limit ?? 10, 1), 50);
-  const client = getDbExec();
-  let { rows } = await client.execute({
-    sql: `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, error_code, abort_reason, dispatch_mode, terminal_reason, diag_stage
-          FROM agent_runs
-          WHERE thread_id = ?
-          ORDER BY started_at DESC
-          LIMIT ?`,
-    args: [threadId, limit],
+  const runIds =
+    options.runIds === undefined ? undefined : [...new Set(options.runIds)];
+  if (runIds?.length === 0) return [];
+  const runIdBatches: (string[] | undefined)[] = runIds
+    ? Array.from({ length: Math.ceil(runIds.length / 500) }, (_, index) =>
+        runIds.slice(index * 500, index * 500 + 500),
+      )
+    : [undefined];
+  const runQueries = runIdBatches.map((batch) => {
+    const runIdFilter = batch
+      ? ` AND id IN (${batch.map(() => "?").join(", ")})`
+      : "";
+    return {
+      sql: `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, error_code, abort_reason, dispatch_mode, terminal_reason, diag_stage
+            FROM agent_runs
+            WHERE thread_id = ?${runIdFilter}${batch ? "" : " ORDER BY started_at DESC LIMIT ?"}`,
+      args: [threadId, ...(batch ?? []), ...(batch ? [] : [limit])],
+    };
   });
+  const client = getDbExec();
+  const readRows = async () =>
+    (
+      await Promise.all(runQueries.map((query) => client.execute(query)))
+    ).flatMap(({ rows }) => rows);
+  let rows = await readRows();
   const reconcileCandidateIds: string[] = [];
   for (const r of rows) {
     const row = r as {
@@ -2966,21 +4161,11 @@ export async function listRunsForThread(
     reconcileCandidateIds.push(runId);
   }
   const reconcileResults = await Promise.all(
-    reconcileCandidateIds.map((runId) =>
-      reconcileTerminalRunFromEvents(runId).catch(() => false),
-    ),
+    reconcileCandidateIds.map((runId) => reconcileTerminalRunFromEvents(runId)),
   );
   const repairedTerminalRow = reconcileResults.some(Boolean);
   if (repairedTerminalRow) {
-    const refreshed = await client.execute({
-      sql: `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, error_code, abort_reason, dispatch_mode, terminal_reason, diag_stage
-            FROM agent_runs
-            WHERE thread_id = ?
-            ORDER BY started_at DESC
-            LIMIT ?`,
-      args: [threadId, limit],
-    });
-    rows = refreshed.rows;
+    rows = await readRows();
   }
   return rows.map((r) => {
     const row = r as {
@@ -3290,19 +4475,33 @@ export async function reapAllStaleRuns(): Promise<StaleRunReapResult> {
     truncated: false,
   };
   await ensureRunTables();
-  if (!(await hasRunningRuns())) return nothingStale;
   const client = getDbExec();
+  let failedCount = 0;
+  let truncated = false;
+  try {
+    const pending = await retryPendingStaleRunThreadProjections(client);
+    failedCount += pending.failed;
+    truncated = pending.truncated;
+  } catch (error) {
+    failedCount += 1;
+    console.error(
+      "[run-store] stale-run thread projection retry failed:",
+      error,
+    );
+  }
+  if (!(await hasRunningRuns())) {
+    return { ...nothingStale, failed: failedCount, truncated };
+  }
   const now = Date.now();
   const scanned = await client.execute({
     sql: `SELECT id FROM agent_runs
           WHERE status = 'running'
             AND ${livenessBasisSql()} < ${backgroundAwareStaleCutoffSql()}
-            AND ${inFlightGraceSql()}
           ORDER BY started_at ASC
           LIMIT ${REAP_ALL_STALE_BATCH_LIMIT + 1}`,
-    args: [now, now, now],
+    args: [now],
   });
-  const truncated = scanned.rows.length > REAP_ALL_STALE_BATCH_LIMIT;
+  truncated ||= scanned.rows.length > REAP_ALL_STALE_BATCH_LIMIT;
   const stale = {
     rows: truncated
       ? scanned.rows.slice(0, REAP_ALL_STALE_BATCH_LIMIT)
@@ -3315,25 +4514,16 @@ export async function reapAllStaleRuns(): Promise<StaleRunReapResult> {
     }
   }
   let reapedCount = 0;
-  let failedCount = 0;
   for (const row of stale.rows) {
     const id = (row as { id?: unknown }).id;
     if (typeof id !== "string") continue;
     try {
-      if (await reapSingleStaleRun(id, "reap-all-stale")) reapedCount += 1;
+      const result = await reapSingleStaleRun(id, "reap-all-stale");
+      if (result.reaped) reapedCount += 1;
+      if (result.projectionFailed) failedCount += 1;
     } catch (error) {
       failedCount += 1;
       console.error(`[run-store] stale reap failed for run ${id}:`, error);
-    }
-  }
-  for (const row of stale.rows) {
-    const id = (row as { id?: unknown }).id;
-    if (typeof id === "string") {
-      await safeAppendTerminalRunEvent(
-        id,
-        STALE_RUN_ERROR_EVENT,
-        "reap-all-stale",
-      );
     }
   }
   return { reaped: reapedCount, failed: failedCount, truncated };
@@ -3364,8 +4554,11 @@ async function pruneAndRollUpPrunedRunOutcomes(
       sql: `DELETE FROM agent_runs
             WHERE id IN (
               SELECT id FROM agent_runs
-              WHERE (status = 'completed' AND completed_at < ?)
-                 OR (status IN ${UNSUCCESSFUL_STATUS_SQL_LIST} AND completed_at < ?)
+              WHERE (
+                (status = 'completed' AND completed_at < ?)
+                OR (status IN ${UNSUCCESSFUL_STATUS_SQL_LIST} AND completed_at < ?)
+              )
+                AND thread_projection_pending IS NOT TRUE
               ORDER BY completed_at ASC, id ASC
               LIMIT ${RUN_OUTCOME_PRUNE_BATCH_LIMIT}
             )
@@ -3383,6 +4576,28 @@ async function pruneAndRollUpPrunedRunOutcomes(
         args: runIds,
       });
     }
+    // Keep execution receipts through the longest configured recovery window,
+    // even when the run rows they belong to have already been pruned.
+    await tx.execute({
+      sql: `DELETE FROM agent_execution_steps AS s
+            WHERE s.updated_at < to_timestamp(CAST(? AS DOUBLE PRECISION) / 1000.0)
+              AND NOT EXISTS (
+                SELECT 1 FROM agent_runs r
+                WHERE r.thread_id = s.thread_id
+                  AND COALESCE(r.turn_id, r.id) = s.turn_id
+              )`,
+      args: [erroredCutoff],
+    });
+    await tx.execute({
+      sql: `DELETE FROM agent_execution_leases AS l
+            WHERE l.updated_at < to_timestamp(CAST(? AS DOUBLE PRECISION) / 1000.0)
+              AND NOT EXISTS (
+                SELECT 1 FROM agent_runs r
+                WHERE r.thread_id = l.thread_id
+                  AND COALESCE(r.turn_id, r.id) = l.turn_id
+              )`,
+      args: [erroredCutoff],
+    });
     await tx.execute({
       sql: `DELETE FROM agent_turn_initiators i
             WHERE i.created_at < ?
@@ -3500,66 +4715,7 @@ async function cleanupOldRunsInternal(
   const cutoff = Date.now() - olderThanMs;
   const erroredCutoff =
     Date.now() - Math.max(erroredOlderThanMs ?? 0, olderThanMs);
-  const now = Date.now();
-  const stale = await client.execute({
-    sql: `SELECT id FROM agent_runs
-          WHERE status = 'running'
-            AND (
-              (${livenessBasisSql()} < ${backgroundAwareStaleCutoffSql()} AND ${inFlightGraceSql()})
-              OR started_at < ?
-    )`,
-    args: [now, now, now, cutoff],
-  });
-  for (const row of stale.rows) {
-    const id = (row as { id?: unknown }).id;
-    if (typeof id === "string") {
-      await reconcileTerminalRunFromEvents(id);
-    }
-  }
-  const completedAt = Date.now();
-  await client.execute({
-    sql: `UPDATE agent_runs
-          SET status = 'errored',
-              completed_at = COALESCE(completed_at, ${livenessBasisSql()}),
-              error_code = ?,
-              error_detail = ?,
-              terminal_reason = ?
-          WHERE status = 'running'
-            AND ${terminalRunEventExclusionSql()}
-            AND started_at < ?`,
-    args: [
-      STALE_RUN_ERROR_EVENT.errorCode,
-      STALE_RUN_ERROR_EVENT.details,
-      STALE_RUN_TERMINAL_REASON,
-      cutoff,
-    ],
-  });
-  await client.execute({
-    sql: `UPDATE agent_runs
-          SET status = 'errored',
-              completed_at = COALESCE(completed_at, ${livenessBasisSql()}),
-              error_code = ?,
-              error_detail = ?,
-              terminal_reason = ?
-          WHERE status = 'running'
-            AND ${terminalRunEventExclusionSql()}
-            AND ${livenessBasisSql()} < ${backgroundAwareStaleCutoffSql()}
-            AND ${inFlightGraceSql()}`,
-    args: [
-      STALE_RUN_ERROR_EVENT.errorCode,
-      STALE_RUN_ERROR_EVENT.details,
-      STALE_RUN_TERMINAL_REASON,
-      completedAt,
-      completedAt,
-      completedAt,
-    ],
-  });
-  for (const row of stale.rows) {
-    const id = (row as { id?: unknown }).id;
-    if (typeof id === "string") {
-      await finalizeStaleRun(id, "cleanup-old-runs");
-    }
-  }
+  await reapAllStaleRuns();
   await pruneAndRollUpPrunedRunOutcomes(client, cutoff, erroredCutoff);
 }
 
@@ -3646,16 +4802,23 @@ export async function ensureTerminalRunEvent(
   return appendTerminalRunEvent(runId, event);
 }
 
-/**
- * Ends a run the server reaped because its worker stopped: records the stop
- * in the run's ledger, then saves what the run did into its thread, which the
- * dead worker never got to do.
- */
-async function finalizeStaleRun(runId: string, source: string): Promise<void> {
-  await safeAppendTerminalRunEvent(runId, STALE_RUN_ERROR_EVENT, source);
+/** Projects a run after its stale status and terminal event committed. */
+async function finalizeStaleRun(
+  runId: string,
+  source: string,
+  projectThread = true,
+): Promise<boolean> {
+  if (!projectThread) return true;
   try {
     const { foldReapedRunIntoThread } = await import("./reaped-run-thread.js");
     await foldReapedRunIntoThread(runId);
+    await getDbExec().execute({
+      sql: `UPDATE agent_runs
+            SET thread_projection_pending = FALSE
+            WHERE id = ? AND thread_projection_pending IS TRUE`,
+      args: [runId],
+    });
+    return true;
   } catch (error) {
     captureError(error, {
       tags: {
@@ -3665,7 +4828,85 @@ async function finalizeStaleRun(runId: string, source: string): Promise<void> {
       },
       extra: { runId },
     });
+    return false;
   }
+}
+
+async function appendTerminalRunEventInTransaction(
+  tx: DbExec,
+  runId: string,
+  event: Record<string, unknown>,
+): Promise<void> {
+  const { rows } = await tx.execute({
+    sql: `SELECT seq, event_data
+          FROM agent_run_events
+          WHERE run_id = ?
+          ORDER BY seq DESC
+          LIMIT 1`,
+    args: [runId],
+  });
+  const last = rows[0] as
+    | { seq?: number | string; event_data?: string }
+    | undefined;
+  if (last?.event_data) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(last.event_data);
+    } catch (error) {
+      throw new Error(`Run ${runId} has malformed last event data`, {
+        cause: error,
+      });
+    }
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      terminalStatusForEvent(parsed as AgentChatEvent)
+    ) {
+      return;
+    }
+  }
+  const nextSeq = last ? Number(last.seq ?? -1) + 1 : 0;
+  if (!Number.isSafeInteger(nextSeq)) {
+    throw new Error(`Run ${runId} has no safe sequence for its terminal event`);
+  }
+  const inserted = await tx.execute({
+    sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT (run_id, seq) DO NOTHING
+          RETURNING seq`,
+    args: [
+      runId,
+      nextSeq,
+      Date.now(),
+      stripInlineBytesFromJson(JSON.stringify(event), "placeholder"),
+    ],
+  });
+  if ((inserted.rowsAffected ?? inserted.rows.length) !== 1) {
+    throw new Error(
+      `Run ${runId} terminal event sequence ${nextSeq} was not persisted`,
+    );
+  }
+}
+
+async function retryPendingStaleRunThreadProjections(
+  client: ReturnType<typeof getDbExec>,
+): Promise<{ failed: number; truncated: boolean }> {
+  const { rows } = await client.execute({
+    sql: `SELECT id FROM agent_runs
+          WHERE thread_projection_pending IS TRUE
+          ORDER BY completed_at ASC, id ASC
+          LIMIT ${REAP_ALL_STALE_BATCH_LIMIT + 1}`,
+    args: [],
+  });
+  const truncated = rows.length > REAP_ALL_STALE_BATCH_LIMIT;
+  const pending = truncated ? rows.slice(0, REAP_ALL_STALE_BATCH_LIMIT) : rows;
+  let failed = 0;
+  for (const row of pending) {
+    const runId = (row as { id?: unknown }).id;
+    if (typeof runId !== "string") continue;
+    if (!(await finalizeStaleRun(runId, "stale-projection-retry"))) failed += 1;
+  }
+  return { failed, truncated };
 }
 
 async function safeAppendTerminalRunEvent(

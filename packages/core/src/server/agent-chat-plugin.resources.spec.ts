@@ -34,6 +34,10 @@ const threadStoreMocks = vi.hoisted(() => ({
   updateThreadData: vi.fn(),
 }));
 
+const runStoreMocks = vi.hoisted(() => ({
+  listRunsForThread: vi.fn(),
+}));
+
 const setupGateMocks = vi.hoisted(() => ({
   requireAgentChatAiSetup: vi.fn(async (..._args: unknown[]) => undefined),
 }));
@@ -134,6 +138,15 @@ vi.mock("../chat-threads/store.js", async (importOriginal) => {
       threadStoreMocks.resolveThreadAccess(...args),
     updateThreadData: (...args: any[]) =>
       threadStoreMocks.updateThreadData(...args),
+  };
+});
+
+vi.mock("../agent/run-store.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../agent/run-store.js")>();
+  return {
+    ...actual,
+    listRunsForThread: (...args: any[]) =>
+      runStoreMocks.listRunsForThread(...args),
   };
 });
 
@@ -283,6 +296,8 @@ beforeEach(() => {
   threadStoreMocks.resolveThreadAccess.mockReset();
   threadStoreMocks.updateThreadData.mockReset();
   threadStoreMocks.updateThreadData.mockResolvedValue(true);
+  runStoreMocks.listRunsForThread.mockReset();
+  runStoreMocks.listRunsForThread.mockResolvedValue([]);
   mocks.getSession.mockResolvedValue(null);
   mocks.loadAgentsBundle.mockResolvedValue({
     workspaceAgentsMd: "",
@@ -377,6 +392,89 @@ beforeEach(() => {
   mocks.resourceGet.mockImplementation(async (id) => resourcesById.get(id));
 });
 
+describe("agent chat thread read route", () => {
+  it("returns SQL lifecycle rows only after thread access and scopes them to stored run IDs", async () => {
+    const h3App = await mountResourceRoutes();
+    const threadId = "thread-run-lifecycle-projection";
+    const thread = {
+      id: threadId,
+      scope: null,
+      threadData: JSON.stringify({
+        agentKit: {
+          runs: [
+            { id: "run-projected" },
+            { id: "run-missing-from-sql" },
+            { id: "run-projected" },
+          ],
+        },
+      }),
+      messageCount: 0,
+      title: "Thread",
+      preview: "",
+    };
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue(thread);
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+    runStoreMocks.listRunsForThread.mockResolvedValue([
+      {
+        id: "run-projected",
+        status: "errored",
+        startedAt: 1000,
+        completedAt: 2000,
+        errorCode: "run_timeout",
+        abortReason: null,
+        terminalReason: "run_timeout",
+      },
+    ]);
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads/${threadId}`,
+      { userEmail: "user@example.test", orgId: "org-lifecycle" },
+    );
+
+    expect(response.status).toBe(200);
+    const result = await response.json();
+    expect(threadStoreMocks.resolveThreadAccess).toHaveBeenCalledWith(
+      "user@example.test",
+      threadId,
+      "viewer",
+      expect.objectContaining({ orgId: expect.any(String) }),
+    );
+    expect(runStoreMocks.listRunsForThread).toHaveBeenCalledWith(threadId, {
+      runIds: ["run-projected", "run-missing-from-sql"],
+    });
+    expect(result.runLifecycles).toEqual({
+      queriedRunIds: ["run-projected", "run-missing-from-sql"],
+      runs: [
+        {
+          id: "run-projected",
+          status: "errored",
+          startedAt: 1000,
+          completedAt: 2000,
+          errorCode: "run_timeout",
+          abortReason: null,
+          terminalReason: "run_timeout",
+        },
+      ],
+    });
+  });
+
+  it("does not query lifecycle rows when the requester cannot read the thread", async () => {
+    const h3App = await mountResourceRoutes();
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue(null);
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/threads/thread-not-readable",
+      { userEmail: "user@example.test" },
+    );
+
+    expect(response.status).toBe(404);
+    expect(runStoreMocks.listRunsForThread).not.toHaveBeenCalled();
+  });
+});
+
 async function mountResourceRoutes(options?: {
   resolveOrgId?: (
     event: unknown,
@@ -452,6 +550,62 @@ describe("agent chat queued-message route", () => {
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: "Invalid queue mutation" });
     expect(threadStoreMocks.mutateThreadQueuedMessages).not.toHaveBeenCalled();
+  });
+
+  it("accepts queued metadata when its submission receipt matches", async () => {
+    const h3App = await mountResourceRoutes();
+    const threadId = "thread-queued-metadata";
+    const message = {
+      id: "queued-metadata",
+      threadId,
+      text: "Continue with this context",
+      createdAt: new Date().toISOString(),
+      metadata: {
+        "x-agent-native": {
+          context: { browserTabId: "tab-queue-metadata", surface: "app" },
+          smartObjects: [{ id: "object-queue-metadata", kind: "document" }],
+        },
+      },
+    };
+    const submissionPayload = {
+      threadId,
+      id: message.id,
+      text: message.text,
+      metadata: message.metadata,
+    };
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue({
+      id: threadId,
+      scope: null,
+    });
+    threadStoreMocks.mutateThreadQueuedMessages.mockResolvedValue({
+      queuedMessages: [message],
+      message,
+    });
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads/${threadId}/queued`,
+      { userEmail: "user@example.test" },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          mutation: { type: "append", message, submissionPayload },
+        }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(threadStoreMocks.mutateThreadQueuedMessages).toHaveBeenCalledWith(
+      threadId,
+      expect.objectContaining({
+        type: "append",
+        message,
+        hashInput: submissionPayload,
+      }),
+      expect.any(Object),
+    );
   });
 
   it("requires AI setup before claiming a queued prompt for dispatch", async () => {
@@ -568,6 +722,12 @@ describe("agent chat queued-message route", () => {
     expect(threadStoreMocks.mutateThreadQueuedMessages).toHaveBeenCalledWith(
       threadId,
       mutation,
+      expect.objectContaining({
+        actor: expect.objectContaining({
+          email: "user@example.test",
+          anonymous: false,
+        }),
+      }),
     );
   });
 });
