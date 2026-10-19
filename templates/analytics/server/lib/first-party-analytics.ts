@@ -44,6 +44,8 @@ import {
   insertFirstPartyAnalyticsRowsWithResults,
   planFirstPartyEventsSource,
   queryFirstPartyAnalyticsInBigQuery,
+  renderFirstPartyAnalyticsBigQueryRequestSql,
+  settleFirstPartyEventsSource,
 } from "./first-party-analytics-backend.js";
 import {
   firstPartyCacheKey,
@@ -1662,6 +1664,70 @@ export async function validateFirstPartyAnalyticsSqlForScope(
     "bigquery",
   );
   assertFirstPartyAnalyticsBigQuerySql(sql);
+}
+
+/**
+ * The BigQuery request a first-party panel query would send, for a dry run.
+ * Mirrors the BigQuery branch of `queryFirstPartyAnalyticsWithBackend` with a
+ * dashboard panel's default options, including reading the events model when
+ * it covers the query; `eventsSource: "raw"` keeps it on the raw table, as
+ * alerts do. SQL the policy rejects comes back as `invalid`; a failure to load
+ * the backend throws, since it says nothing about the query.
+ */
+export async function renderFirstPartyAnalyticsBigQueryEstimateSql(
+  sql: string,
+  scope: AnalyticsScope,
+  signal?: AbortSignal,
+  options: Pick<AnalyticsQueryOptions, "eventsSource"> = {},
+): Promise<
+  | { target: "bigquery"; sql: string }
+  | { target: "sql-store" }
+  | { target: "invalid"; error: unknown }
+> {
+  let shaped: ReturnType<typeof validateFirstPartyAnalyticsSqlShape>;
+  try {
+    shaped = validateFirstPartyAnalyticsSqlShape(sql);
+  } catch (error) {
+    return { target: "invalid", error };
+  }
+  // Backend and table lookups stay outside the try blocks: their failures are
+  // load errors, while everything that inspects the SQL means invalid SQL.
+  const backend = await getFirstPartyAnalyticsBackend(scope, signal);
+  let scoped: ReturnType<typeof scopedAnalyticsSql>;
+  try {
+    if (firstPartyAnalyticsQueryTarget(sql, backend.sink) !== "bigquery") {
+      return { target: "sql-store" };
+    }
+    validateAnalyticsSqlFunctions(shaped, "bigquery");
+    scoped = scopedAnalyticsSql(sql, scope);
+  } catch (error) {
+    return { target: "invalid", error };
+  }
+  const table = await getFirstPartyAnalyticsTable(backend.table, signal);
+  let planned: ReturnType<typeof planFirstPartyEventsSource>;
+  try {
+    planned = planFirstPartyEventsSource(sql, backend.modelTable, {
+      eventsSource: options.eventsSource,
+    });
+  } catch (error) {
+    return { target: "invalid", error };
+  }
+  const { eventsSource } = await settleFirstPartyEventsSource(planned, signal);
+  try {
+    return {
+      target: "bigquery",
+      sql: renderFirstPartyAnalyticsBigQueryRequestSql(
+        scoped.sql,
+        scoped.args,
+        table,
+        eventsSource?.source === "model"
+          ? { eventsModelTable: eventsSource.table }
+          : {},
+      ),
+    };
+  } catch (error) {
+    return { target: "invalid", error };
+  }
 }
 
 export async function queryFirstPartyAnalytics(

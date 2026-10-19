@@ -203,10 +203,11 @@ function hasSuccessfulMutation(
 
     if (name === "create-design") return false;
 
-    // A full-app change is persisted in the app's source by the Builder
-    // agent; the delegation finishing without error is the proof.
+    // A full-app change is persisted in the app's source by Builder; only a
+    // run Builder reported as finished is the proof (a timed-out one may
+    // still be running).
     if (name === "send-builder-message") {
-      return parsed.sent === true && !parsed.error;
+      return parsed.completed === true && !parsed.error;
     }
     if (name === "apply-builder-edits") {
       return typeof parsed.sentCount === "number" && parsed.sentCount > 0;

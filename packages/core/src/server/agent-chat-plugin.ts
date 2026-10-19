@@ -124,6 +124,7 @@ import {
   callerHasThreadAccess,
 } from "../agent/run-ownership.js";
 import { readBackgroundRunClaim } from "../agent/run-store.js";
+import { buildAssistantMessageFromRunJournal } from "../agent/run-thread-projector.js";
 import {
   buildCurrentTimeUserContext,
   buildRuntimeContextPrompt,
@@ -3805,7 +3806,7 @@ export function createAgentChatPlugin(
       }
 
       // Callback to persist agent response when run finishes (even if client disconnected).
-      // Reconstructs the assistant message from buffered events and appends to thread_data.
+      // Reconstructs the assistant message from the durable run journal.
       const onRunComplete = async (
         run: ActiveRun,
         threadId: string | undefined,
@@ -3813,23 +3814,27 @@ export function createAgentChatPlugin(
       ) => {
         const runThreadId = String(run?.threadId ?? threadId ?? "");
         const chatScope = getRequestRunContext()?.chatScope;
-        const assistantMsg = buildAssistantMessage(
-          run.events ?? [],
-          run.runId,
-          {
-            scope: chatScope,
-            suppressInternalContinuation: true,
-            turnId:
-              typeof run.turnId === "string" && run.turnId
-                ? run.turnId
-                : undefined,
-            runDurationMs:
-              typeof run.startedAt === "number" &&
-              Number.isFinite(run.startedAt)
-                ? Math.max(0, Date.now() - run.startedAt)
-                : undefined,
-          },
-        );
+        const assistantOptions = {
+          scope: chatScope,
+          suppressInternalContinuation: true,
+          runDurationMs:
+            typeof run.startedAt === "number" && Number.isFinite(run.startedAt)
+              ? Math.max(0, Date.now() - run.startedAt)
+              : undefined,
+        } as const;
+        const assistantMsg =
+          runThreadId && run.turnId
+            ? await buildAssistantMessageFromRunJournal({
+                threadId: runThreadId,
+                turnId: run.turnId,
+                runId: run.runId,
+                runEvents: run.events ?? [],
+                options: assistantOptions,
+              })
+            : buildAssistantMessage(run.events ?? [], run.runId, {
+                ...assistantOptions,
+                turnId: run.turnId,
+              });
         const runContext = getRequestRunContext();
         const failureCode =
           run.status === "errored"
