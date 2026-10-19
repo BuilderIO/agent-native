@@ -1357,6 +1357,7 @@ export const hitTestBridgeScript: string = `"use strict";
         );
         var reviewPointNodeId = reviewPointElement ? getNodeId(reviewPointElement) : "";
         var reviewPointSelector = reviewPointElement && !reviewPointNodeId ? buildSourceEquivalentSelector(reviewPointElement) : "";
+        var reviewPointBox = reviewPointElement && !reviewPointNodeId ? reviewPointElement.getBoundingClientRect() : null;
         try {
           window.parent.postMessage(
             {
@@ -1365,7 +1366,15 @@ export const hitTestBridgeScript: string = `"use strict";
               nodeId: reviewPointNodeId || void 0,
               targetSelector: reviewPointSelector || void 0,
               layerName: layerNameForElement(reviewPointElement) || void 0,
-              tagName: reviewPointElement?.tagName?.toLowerCase() || void 0
+              tagName: reviewPointElement?.tagName?.toLowerCase() || void 0,
+              rect: reviewPointBox ? {
+                left: reviewPointBox.left,
+                top: reviewPointBox.top,
+                width: reviewPointBox.width,
+                height: reviewPointBox.height
+              } : void 0,
+              viewportWidth: window.innerWidth,
+              viewportHeight: window.innerHeight
             },
             "*"
           );

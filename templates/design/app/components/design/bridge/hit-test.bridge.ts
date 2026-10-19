@@ -1951,6 +1951,11 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
         reviewPointElement && !reviewPointNodeId
           ? buildSourceEquivalentSelector(reviewPointElement)
           : "";
+      // Selector-only hits have no node id to look up later, so the reply carries their box.
+      var reviewPointBox =
+        reviewPointElement && !reviewPointNodeId
+          ? reviewPointElement.getBoundingClientRect()
+          : null;
       try {
         (window.parent as Window).postMessage(
           {
@@ -1960,6 +1965,16 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
             targetSelector: reviewPointSelector || undefined,
             layerName: layerNameForElement(reviewPointElement) || undefined,
             tagName: reviewPointElement?.tagName?.toLowerCase() || undefined,
+            rect: reviewPointBox
+              ? {
+                  left: reviewPointBox.left,
+                  top: reviewPointBox.top,
+                  width: reviewPointBox.width,
+                  height: reviewPointBox.height,
+                }
+              : undefined,
+            viewportWidth: window.innerWidth,
+            viewportHeight: window.innerHeight,
           },
           "*",
         );

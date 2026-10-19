@@ -351,33 +351,91 @@ function nodePoint(
   return elementPoint(canvas, findNodeElement(canvas, nodeId), frameGeometry);
 }
 
-/** A node's box in client coordinates, mapped the same way as elementPoint. */
-function nodeClientRect(
+interface ReviewClientRect {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/** What the pointer is over: a node id to look up, or the box a selector-only hit reported. */
+interface ReviewHoverTarget {
+  nodeId: string | null;
+  box: ReviewFrameNodeGeometry | null;
+}
+
+function hoverTargetFromPayload(
+  payload: Record<string, unknown>,
+): ReviewHoverTarget | null {
+  if (typeof payload.nodeId === "string") {
+    return { nodeId: payload.nodeId, box: null };
+  }
+  const rect = payload.rect as Record<string, unknown> | undefined;
+  if (!rect || typeof rect !== "object") return null;
+  const box = {
+    left: Number(rect.left),
+    top: Number(rect.top),
+    width: Number(rect.width),
+    height: Number(rect.height),
+  };
+  const viewportWidth = Number(payload.viewportWidth);
+  const viewportHeight = Number(payload.viewportHeight);
+  if (
+    ![...Object.values(box), viewportWidth, viewportHeight].every(
+      Number.isFinite,
+    )
+  ) {
+    return null;
+  }
+  return {
+    nodeId: null,
+    box: { rect: box, viewportWidth, viewportHeight },
+  };
+}
+
+/** A frame-viewport rect in client coordinates, mapped the same way as elementPoint. */
+function frameRectToClient(
   canvas: HTMLElement,
-  nodeId: string,
-  frameGeometry?: ReviewFrameNodeGeometry,
-): { left: number; top: number; width: number; height: number } | null {
+  frameRect: ReviewClientRect,
+  viewport?: { width: number; height: number },
+): ReviewClientRect | null {
   const iframe = canvas.querySelector<HTMLIFrameElement>(
     "iframe[data-design-preview-iframe]",
   );
   if (!iframe) return null;
+  const iframeRect = iframe.getBoundingClientRect();
+  const scaleX =
+    iframeRect.width / Math.max(1, viewport?.width ?? iframe.clientWidth);
+  const scaleY =
+    iframeRect.height / Math.max(1, viewport?.height ?? iframe.clientHeight);
+  return {
+    left: iframeRect.left + frameRect.left * scaleX,
+    top: iframeRect.top + frameRect.top * scaleY,
+    width: frameRect.width * scaleX,
+    height: frameRect.height * scaleY,
+  };
+}
+
+/** A node's box in client coordinates, from its live element or the last reported frame rect. */
+function nodeClientRect(
+  canvas: HTMLElement,
+  nodeId: string,
+  frameGeometry?: ReviewFrameNodeGeometry,
+): ReviewClientRect | null {
   const elementRect =
     findNodeElement(canvas, nodeId)?.getBoundingClientRect() ??
     frameGeometry?.rect;
   if (!elementRect) return null;
-  const iframeRect = iframe.getBoundingClientRect();
-  const scaleX =
-    iframeRect.width /
-    Math.max(1, frameGeometry?.viewportWidth ?? iframe.clientWidth);
-  const scaleY =
-    iframeRect.height /
-    Math.max(1, frameGeometry?.viewportHeight ?? iframe.clientHeight);
-  return {
-    left: iframeRect.left + elementRect.left * scaleX,
-    top: iframeRect.top + elementRect.top * scaleY,
-    width: elementRect.width * scaleX,
-    height: elementRect.height * scaleY,
-  };
+  return frameRectToClient(
+    canvas,
+    elementRect,
+    frameGeometry
+      ? {
+          width: frameGeometry.viewportWidth,
+          height: frameGeometry.viewportHeight,
+        }
+      : undefined,
+  );
 }
 
 /**
@@ -996,7 +1054,10 @@ export function ReviewCanvasPins({
   const [frameNodeGeometry, setFrameNodeGeometry] = useState<
     Record<string, ReviewFrameNodeGeometry>
   >({});
-  const [hoverNodeId, setHoverNodeId] = useState<string | null>(null);
+  const [hoverTarget, setHoverTarget] = useState<ReviewHoverTarget | null>(
+    null,
+  );
+  const hoverTargetRef = useRef<ReviewHoverTarget | null>(null);
   const hoverPointerRef = useRef<{ x: number; y: number } | null>(null);
   const hoverFrameRef = useRef<number | null>(null);
   const hoverRequestRef = useRef(0);
@@ -1392,8 +1453,20 @@ export function ReviewCanvasPins({
           null)
       : null;
   }, [activeThreadId, draftPin, threads]);
-  const highlightNodeId =
-    draftPin || activeThreadId ? popoverNodeId : hoverNodeId;
+  const popoverOpen = Boolean(draftPin || activeThreadId);
+  // The pointer moves onto the popover, which clears the hover; keep what it was over when the popover opened.
+  const [popoverHover, setPopoverHover] = useState<ReviewHoverTarget | null>(
+    null,
+  );
+  useEffect(() => {
+    if (popoverOpen) setPopoverHover(hoverTargetRef.current);
+  }, [popoverOpen]);
+  const highlightTarget: ReviewHoverTarget | null = popoverOpen
+    ? popoverNodeId
+      ? { nodeId: popoverNodeId, box: null }
+      : popoverHover
+    : hoverTarget;
+  const highlightNodeId = highlightTarget?.nodeId ?? null;
 
   const anchoredNodeIds = useMemo(() => {
     const nodeIds = new Set<string>();
@@ -1895,7 +1968,8 @@ export function ReviewCanvasPins({
       window.cancelAnimationFrame(hoverFrameRef.current);
       hoverFrameRef.current = null;
     }
-    setHoverNodeId(null);
+    hoverTargetRef.current = null;
+    setHoverTarget(null);
   }, []);
 
   // The click plane covers the frame, so the frame never gets hover of its own;
@@ -1917,9 +1991,9 @@ export function ReviewCanvasPins({
         frameCallbacksRef.current.set(correlationId, (payload) => {
           // A newer move or a leave has superseded this reply.
           if (request !== hoverRequestRef.current) return;
-          setHoverNodeId(
-            typeof payload.nodeId === "string" ? payload.nodeId : null,
-          );
+          const target = hoverTargetFromPayload(payload);
+          hoverTargetRef.current = target;
+          setHoverTarget(target);
         });
         window.setTimeout(
           () => frameCallbacksRef.current.delete(correlationId),
@@ -2437,12 +2511,19 @@ export function ReviewCanvasPins({
     !activeThreadId &&
     !repromptDraftRequest;
   const highlightRect =
-    placementPlaneVisible && canvas && highlightNodeId
-      ? nodeClientRect(
-          canvas,
-          highlightNodeId,
-          frameNodeGeometry[highlightNodeId],
-        )
+    placementPlaneVisible && canvas && highlightTarget
+      ? highlightTarget.nodeId
+        ? nodeClientRect(
+            canvas,
+            highlightTarget.nodeId,
+            frameNodeGeometry[highlightTarget.nodeId],
+          )
+        : highlightTarget.box
+          ? frameRectToClient(canvas, highlightTarget.box.rect, {
+              width: highlightTarget.box.viewportWidth,
+              height: highlightTarget.box.viewportHeight,
+            })
+          : null
       : null;
 
   return createPortal(
@@ -2493,7 +2574,12 @@ export function ReviewCanvasPins({
           <div
             data-review-hover-highlight
             className="pointer-events-none fixed z-[41] border-2 border-primary bg-primary/10"
-            style={highlightRect}
+            style={{
+              left: highlightRect.left,
+              top: highlightRect.top,
+              width: highlightRect.width,
+              height: highlightRect.height,
+            }}
           />
         ) : null}
         {pinPlacementEnabled && regionPreview ? (
