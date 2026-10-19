@@ -1427,7 +1427,7 @@ export function FirstRunOnboarding({
                 <button
                   type="button"
                   data-testid="first-run-cancel-builder"
-                  className={cn(secondaryButtonClass, "mt-4")}
+                  className="fixed bottom-6 left-6 rounded-sm text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   onClick={() => {
                     setBuilderCancelRequested(true);
                     connectFlow.cancel();
