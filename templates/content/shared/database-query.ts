@@ -1,12 +1,93 @@
 import type {
   ContentDatabaseFilter,
   ContentDatabaseFilterMode,
+  ContentDatabaseFilterOperator,
   ContentDatabaseItem,
   ContentDatabaseSort,
   ContentDatabaseTableQuery,
   DocumentProperty,
 } from "./api.js";
-import { documentPropertyDatePart, formulaValueText } from "./properties.js";
+import {
+  documentPropertyDatePart,
+  formulaValueText,
+  type DocumentPropertyType,
+} from "./properties.js";
+
+const OPTION_FILTER_OPERATORS = [
+  "contains",
+  "does_not_equal",
+  "is_empty",
+  "is_not_empty",
+] as const satisfies readonly ContentDatabaseFilterOperator[];
+
+const DATE_FILTER_OPERATORS = [
+  "equals",
+  "does_not_equal",
+  "before",
+  "after",
+  "between",
+  "is_empty",
+  "is_not_empty",
+] as const satisfies readonly ContentDatabaseFilterOperator[];
+
+const FILTER_OPERATORS_BY_TYPE: Partial<
+  Record<DocumentPropertyType, readonly ContentDatabaseFilterOperator[]>
+> = {
+  checkbox: ["is_checked", "is_unchecked"],
+  select: OPTION_FILTER_OPERATORS,
+  status: OPTION_FILTER_OPERATORS,
+  multi_select: OPTION_FILTER_OPERATORS,
+  person: OPTION_FILTER_OPERATORS,
+  number: [
+    "equals",
+    "does_not_equal",
+    "greater_than",
+    "less_than",
+    "greater_than_or_equal",
+    "less_than_or_equal",
+    "is_empty",
+    "is_not_empty",
+  ],
+  date: DATE_FILTER_OPERATORS,
+  created_time: DATE_FILTER_OPERATORS,
+  last_edited_time: DATE_FILTER_OPERATORS,
+};
+
+const DEFAULT_FILTER_OPERATORS = [
+  "contains",
+  "equals",
+  "does_not_equal",
+  "is_empty",
+  "is_not_empty",
+] as const satisfies readonly ContentDatabaseFilterOperator[];
+
+const VALUELESS_FILTER_OPERATORS: ReadonlySet<ContentDatabaseFilterOperator> =
+  new Set(["is_empty", "is_not_empty", "is_checked", "is_unchecked"]);
+
+const NUMBER_FILTER_COMPARISONS: Partial<
+  Record<
+    ContentDatabaseFilterOperator,
+    (current: number, target: number) => boolean
+  >
+> = {
+  greater_than: (current, target) => current > target,
+  less_than: (current, target) => current < target,
+  greater_than_or_equal: (current, target) => current >= target,
+  less_than_or_equal: (current, target) => current <= target,
+};
+
+// Listed in menu order; the first entry is the operator a new filter starts with.
+export function contentDatabaseFilterOperatorsForType(
+  type: DocumentPropertyType,
+): readonly ContentDatabaseFilterOperator[] {
+  return FILTER_OPERATORS_BY_TYPE[type] ?? DEFAULT_FILTER_OPERATORS;
+}
+
+export function contentDatabaseFilterOperatorNeedsValue(
+  operator: ContentDatabaseFilterOperator,
+) {
+  return !VALUELESS_FILTER_OPERATORS.has(operator);
+}
 
 export function applyContentDatabaseTableQuery(
   items: ContentDatabaseItem[],
@@ -94,11 +175,7 @@ function combineMatches(
 }
 
 function isActiveFilter(filter: ContentDatabaseFilter) {
-  if (
-    !["is_empty", "is_not_empty", "is_checked", "is_unchecked"].includes(
-      filter.operator,
-    )
-  ) {
+  if (contentDatabaseFilterOperatorNeedsValue(filter.operator)) {
     return selectedFilterValues(filter.value).length > 0;
   }
   return true;
@@ -116,13 +193,12 @@ function itemMatchesFilter(
   if (filter.operator === "is_checked") return property?.value === true;
   if (filter.operator === "is_unchecked") return property?.value !== true;
 
-  if (filter.operator === "greater_than" || filter.operator === "less_than") {
+  const compareNumbers = NUMBER_FILTER_COMPARISONS[filter.operator];
+  if (compareNumbers) {
     const current = propertyNumberValue(property);
     const target = Number(filter.value.trim());
     if (!Number.isFinite(current) || !Number.isFinite(target)) return false;
-    return filter.operator === "greater_than"
-      ? current > target
-      : current < target;
+    return compareNumbers(current, target);
   }
 
   if (
