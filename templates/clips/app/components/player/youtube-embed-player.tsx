@@ -38,12 +38,11 @@ import type { VideoPlayerHandle, VideoPlayerProps } from "./video-player";
 // its cue without re-rendering the whole page on every read.
 const CLOCK_POLL_MS = 100;
 const CLOCK_PUBLISH_MS = 250;
-// A seek settles once YouTube's clock reads its target, or reads past it by no
-// more than playback at YouTube's fastest rate could have carried it. Until
-// then, for at most the timeout, the reported time is the pre-seek clock.
+// After a seek, YouTube's clock should read the target plus whatever playback
+// has added since. Until a read lands that close, for at most the timeout, the
+// reported time is the pre-seek clock, whichever way the seek went.
 const SEEK_SETTLE_TOLERANCE_MS = 250;
 const SEEK_SETTLE_TIMEOUT_MS = 1000;
-const YOUTUBE_MAX_PLAYBACK_RATE = 2;
 // A scrubber drag seeks on every pointer move and cueing reloads YouTube's
 // video, so a seek before the first play is cued once the drag pauses.
 const CUE_SETTLE_MS = 150;
@@ -144,7 +143,11 @@ export const YouTubeEmbedPlayer = forwardRef<
   );
   const cueTimerRef = useRef<number | null>(null);
   const playWhenReadyRef = useRef(false);
-  const pendingSeekRef = useRef<{ ms: number; at: number } | null>(null);
+  const pendingSeekRef = useRef<{
+    ms: number;
+    at: number;
+    rate: number;
+  } | null>(null);
 
   // The stored duration is the first one measured, which for a live stream is
   // only its length so far.
@@ -204,12 +207,8 @@ export const YouTubeEmbedPlayer = forwardRef<
       const seek = pendingSeekRef.current;
       if (seek) {
         const elapsedMs = performance.now() - seek.at;
-        const settled =
-          ms >= seek.ms - SEEK_SETTLE_TOLERANCE_MS &&
-          ms <=
-            seek.ms +
-              elapsedMs * YOUTUBE_MAX_PLAYBACK_RATE +
-              SEEK_SETTLE_TOLERANCE_MS;
+        const expectedMs = seek.ms + elapsedMs * seek.rate;
+        const settled = Math.abs(ms - expectedMs) <= SEEK_SETTLE_TOLERANCE_MS;
         if (!settled && elapsedMs < SEEK_SETTLE_TIMEOUT_MS) return seek.ms;
         pendingSeekRef.current = null;
       }
@@ -409,7 +408,13 @@ export const YouTubeEmbedPlayer = forwardRef<
       );
       const player = playerRef.current;
       if (player && hasStarted(player)) {
-        pendingSeekRef.current = { ms: clamped, at: performance.now() };
+        const playing =
+          player.getPlayerState() === YOUTUBE_PLAYER_STATE.PLAYING;
+        pendingSeekRef.current = {
+          ms: clamped,
+          at: performance.now(),
+          rate: playing ? player.getPlaybackRate() : 0,
+        };
         player.seekTo(clamped / 1000, true);
       } else {
         cuedStartMsRef.current = clamped;

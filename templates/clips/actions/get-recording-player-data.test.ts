@@ -646,6 +646,34 @@ describe("get-recording-player-data for agents reading a YouTube clip", () => {
     });
   });
 
+  it("withholds frames from a hosted clip until it is ready", async () => {
+    mockResolveAccess.mockResolvedValue({
+      role: "owner",
+      resource: {
+        id: "rec-native",
+        ownerEmail: "owner@example.com",
+        visibility: "private",
+        password: null,
+        expiresAt: null,
+        status: "processing",
+        chaptersJson: "[]",
+        sourceAppName: null,
+        sourceWindowTitle: null,
+        videoUrl: "/api/video/rec-native",
+      },
+    });
+
+    const result = await action.run({ recordingId: "rec-native" }, {
+      caller: "mcp",
+    } as any);
+
+    expect(result.media).toMatchObject({
+      embedProvider: null,
+      framesAvailable: false,
+      note: expect.stringContaining("still processing"),
+    });
+  });
+
   it("keeps the browser player's payload unchanged", async () => {
     const result = await action.run({ recordingId: "rec-yt" });
 

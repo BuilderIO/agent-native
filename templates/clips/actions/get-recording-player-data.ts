@@ -2,6 +2,7 @@ import { defineAction, embedApp } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
 import { buildDeepLink, signShortLivedToken } from "@agent-native/core/server";
 import { resolveAccess, ForbiddenError } from "@agent-native/core/sharing";
+import { getAgentClipReadiness } from "@shared/agent-context";
 import { transcriptContextAt } from "@shared/comment-transcript-context";
 import {
   embedFramesUnavailableReason,
@@ -317,6 +318,7 @@ export default defineAction({
     const isAgentCall =
       ctx?.caller === "tool" || ctx?.caller === "mcp" || ctx?.caller === "a2a";
     const embedProvider = recordingEmbedProvider(rec);
+    const readiness = getAgentClipReadiness(rec.status);
     const agentTranscript = isAgentCall
       ? boundTranscriptForAgent({
           fullText: transcript?.fullText,
@@ -350,12 +352,14 @@ export default defineAction({
         ? {
             media: {
               embedProvider,
-              framesAvailable: !embedProvider,
+              framesAvailable: !embedProvider && readiness.state === "ready",
               ...(embedProvider
                 ? {
                     note: `${embedFramesUnavailableReason(embedProvider)} Each comment carries transcriptContext, the transcript spoken around its videoTimestampMs.`,
                   }
-                : {}),
+                : readiness.instruction
+                  ? { note: readiness.instruction }
+                  : {}),
             },
           }
         : {}),
