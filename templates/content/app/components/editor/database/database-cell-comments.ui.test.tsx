@@ -308,6 +308,8 @@ describe("Comments on a Collection table cell", () => {
   });
 
   it("keeps unsent text when the cell's own button is clicked again, and closes an empty card", async () => {
+    // happy-dom doesn't run Radix's outside-click dismissal, which the card
+    // skips for the cell's own buttons; the browser pass covers that part.
     await render(cell(row({ canComment: true, canEdit: true })));
     await act(async () => startButton().click());
     await settle();
@@ -323,9 +325,56 @@ describe("Comments on a Collection table cell", () => {
     expect(richEditor(card()!)?.textContent).toContain("Should this be Done?");
   });
 
+  it("gives the composer focus when a marker's card switches to a new comment", async () => {
+    stored = [comment("t-status", "status")];
+    await render(
+      cell(
+        row(
+          { canComment: true, canEdit: true },
+          {
+            open: 1,
+            properties: { status: { open: 1, latestThreadId: "t-status" } },
+          },
+        ),
+      ),
+    );
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>("[data-database-cell-comments]")!
+        .click(),
+    );
+    await settle();
+    // A mouse press focuses the button before its click.
+    startButton().focus();
+    await act(async () => startButton().click());
+    await settle();
+    expect(card()?.getAttribute("data-database-cell-comment-card")).toBe(
+      "start",
+    );
+    expect(document.activeElement).toBe(richEditor(card()!));
+  });
+
   it("on a touch screen, writes the new comment in the row's peek", async () => {
     stubHover(false);
-    await render(cell(row({ canComment: true, canEdit: true })));
+    stored = [comment("t-status", "status")];
+    await render(
+      cell(
+        row(
+          { canComment: true, canEdit: true },
+          {
+            open: 1,
+            properties: { status: { open: 1, latestThreadId: "t-status" } },
+          },
+        ),
+      ),
+    );
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>("[data-database-cell-comments]")!
+        .click(),
+    );
+    await settle();
+    expect(card()).not.toBeNull();
     await act(async () => startButton().click());
     await settle();
     expect(openComments).toHaveBeenCalledWith(

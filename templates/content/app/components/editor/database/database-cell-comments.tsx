@@ -138,6 +138,9 @@ export function DatabaseCellComments({
       close();
       return;
     }
+    // Switching an open card to a new comment remounts only the card, so
+    // the composer takes focus once the clicked button lets go of it.
+    if (card && mode === "start") opener.blur();
     openerRef.current = opener;
     skipFocusReturnRef.current = false;
     setCard({ mode, key: ++cardKeyRef.current });
@@ -146,7 +149,11 @@ export function DatabaseCellComments({
   // Once its last thread is resolved, the marker that opened the card goes
   // away, so focus returns to the cell's Comment button instead.
   const settle = () => {
-    if (startRef.current) openerRef.current = startRef.current;
+    const start = startRef.current;
+    // A touch screen hides it outside a selected row.
+    if (start && (start.checkVisibility?.() ?? true)) {
+      openerRef.current = start;
+    }
     close();
   };
   const startLabel = t("comments.commentOnProperty", { name });
@@ -193,6 +200,10 @@ export function DatabaseCellComments({
                   // A card is cramped under a phone's keyboard, so touch
                   // screens write the comment in the row's peek.
                   if (deviceCannotHover()) {
+                    if (keepOpenRef.current) return;
+                    // The peek closes if focus returns to the table.
+                    skipFocusReturnRef.current = true;
+                    close();
                     openComments(item, null, propertyId);
                     return;
                   }
