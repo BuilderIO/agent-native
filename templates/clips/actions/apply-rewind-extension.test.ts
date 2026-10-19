@@ -16,6 +16,11 @@ const { mockDb, schema, stored, written } = vi.hoisted(() => {
       recordingId: "recordingTranscripts.recordingId",
       segmentsJson: "recordingTranscripts.segmentsJson",
     },
+    recordingTranscriptVersions: {
+      id: "versions.id",
+      recordingId: "versions.recordingId",
+      segmentsJson: "versions.segmentsJson",
+    },
     recordingComments: {
       recordingId: "recordingComments.recordingId",
       videoTimestampMs: "recordingComments.videoTimestampMs",
@@ -26,6 +31,9 @@ const { mockDb, schema, stored, written } = vi.hoisted(() => {
     },
   };
   const stored = {
+    storageMode: "own" as "own" | "hosted",
+    versions: [] as { id: string; segmentsJson: string }[],
+    transcriptLocks: [] as string[],
     chaptersJson: "[]",
     editsJson: "{}",
     mediaUpdatedAt: "media-1",
@@ -52,6 +60,7 @@ const { mockDb, schema, stored, written } = vi.hoisted(() => {
   const recordingRow = (id: string) => ({
     id,
     visibility: "private",
+    storageMode: stored.storageMode,
     durationMs: 60_000,
     trashedAt: id === "pre_1" && stored.preRollTrashed ? "earlier" : null,
     chaptersJson: stored.chaptersJson,
@@ -101,6 +110,10 @@ const { mockDb, schema, stored, written } = vi.hoisted(() => {
           );
           if (!transcriptMatches) return [];
           stored.transcriptSegmentsJson = patch.segmentsJson as string;
+        }
+        if (table === schema.recordingTranscriptVersions) {
+          const version = stored.versions.find((v) => v.id === where.value);
+          if (version) Object.assign(version, patch);
         }
         if (table === schema.recordings && "trashedAt" in patch) {
           if (!matches(where)) return [];
@@ -153,6 +166,8 @@ const { mockDb, schema, stored, written } = vi.hoisted(() => {
         mediaUpdatedAt: stored.mediaUpdatedAt,
         videoUrl: stored.videoUrl,
         updatedAt: stored.updatedAt,
+        transcriptSegmentsJson: stored.transcriptSegmentsJson,
+        versions: structuredClone(stored.versions),
         written: [...written],
       };
       stored.recordingWrittenInTransaction = false;
@@ -161,11 +176,15 @@ const { mockDb, schema, stored, written } = vi.hoisted(() => {
           update,
           select: (fields?: unknown) => ({
             from: (table: unknown) => ({
-              where: async () =>
-                table === schema.recordingTranscripts &&
-                stored.transcriptSegmentsJson !== null
-                  ? [{ segmentsJson: stored.transcriptSegmentsJson }]
-                  : [],
+              where: () => ({
+                for: async (mode: string) => {
+                  stored.transcriptLocks.push(mode);
+                  return stored.transcriptSegmentsJson === null
+                    ? []
+                    : [{ segmentsJson: stored.transcriptSegmentsJson }];
+                },
+                limit: async () => stored.versions.map((v) => ({ ...v })),
+              }),
             }),
           }),
         });
@@ -178,6 +197,10 @@ const { mockDb, schema, stored, written } = vi.hoisted(() => {
           stored.videoUrl = before.videoUrl;
           stored.updatedAt = before.updatedAt;
         }
+        if (written.some((w) => w.table === schema.recordingTranscripts)) {
+          stored.transcriptSegmentsJson = before.transcriptSegmentsJson;
+        }
+        stored.versions = before.versions;
         written.splice(0, written.length, ...before.written);
         throw err;
       } finally {
@@ -251,6 +274,9 @@ const intro = { startMs: 0, title: "Intro" };
 const demo = { startMs: 48_000, title: "Demo" };
 
 beforeEach(() => {
+  stored.storageMode = "own";
+  stored.versions = [];
+  stored.transcriptLocks = [];
   stored.chaptersJson = JSON.stringify([intro]);
   stored.editsJson = "{}";
   stored.mediaUpdatedAt = "media-1";
@@ -472,4 +498,142 @@ describe("apply-rewind-extension", () => {
     });
     expect(written).toEqual([]);
   });
+});
+
+describe("apply-rewind-extension hosted media binding", () => {
+  it.each([false, null])(
+    "rejects a hosted URL with a different recording binding (%s)",
+    async (binding) => {
+      stored.storageMode = "hosted";
+      const { isS3ObjectUrlBoundToRecording } =
+        await import("../server/lib/s3-upload-provider.js");
+      vi.mocked(isS3ObjectUrlBoundToRecording).mockResolvedValueOnce(binding);
+
+      await expect(action.run(args)).rejects.toThrow(
+        "The Rewind upload is not bound to its recording.",
+      );
+
+      expect(isS3ObjectUrlBoundToRecording).toHaveBeenCalledWith(
+        args.videoUrl,
+        args.recordingId,
+        { storageMode: "hosted" },
+      );
+      expect(written).toEqual([]);
+      expect(stored.request?.status).toBe("ready");
+    },
+  );
+});
+
+describe("apply-rewind-extension transcript timeline", () => {
+  it("shifts the locked transcript and its saved versions by the prepended range", async () => {
+    stored.transcriptSegmentsJson = JSON.stringify([
+      { startMs: 0, endMs: 4000, text: "Current words." },
+      // Browser transcription stores entries like this one as written.
+      { startMs: 4000, endMs: 4000, text: "", source: "mic" },
+    ]);
+    stored.versions = [
+      {
+        id: "version-1",
+        segmentsJson: JSON.stringify([
+          {
+            startMs: 1000,
+            endMs: 5000,
+            text: "Earlier words.",
+            speaker: "Sample Speaker",
+          },
+        ]),
+      },
+      // The player reads numeric strings as times, so they move too.
+      {
+        id: "version-2",
+        segmentsJson: JSON.stringify([
+          { startMs: "2000", endMs: "6000", text: "Times as text." },
+        ]),
+      },
+    ];
+
+    await action.run(args);
+
+    expect(stored.transcriptLocks).toEqual(["update"]);
+    expect(JSON.parse(stored.transcriptSegmentsJson!)).toEqual([
+      { startMs: 30_000, endMs: 34_000, text: "Current words." },
+      { startMs: 34_000, endMs: 34_000, text: "", source: "mic" },
+    ]);
+    expect(
+      stored.versions.map((v) => [v.id, JSON.parse(v.segmentsJson)]),
+    ).toEqual([
+      [
+        "version-1",
+        [
+          {
+            startMs: 31_000,
+            endMs: 35_000,
+            text: "Earlier words.",
+            speaker: "Sample Speaker",
+          },
+        ],
+      ],
+      [
+        "version-2",
+        [{ startMs: 32_000, endMs: 36_000, text: "Times as text." }],
+      ],
+    ]);
+  });
+
+  it("extends past a saved transcript restore would refuse, leaving it as stored", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    stored.transcriptSegmentsJson = JSON.stringify([
+      { startMs: 0, endMs: 4000, text: "Current words." },
+    ]);
+    const unreadable = JSON.stringify([{ text: "No times." }]);
+    stored.versions = [
+      { id: "version-1", segmentsJson: unreadable },
+      {
+        id: "version-2",
+        segmentsJson: JSON.stringify([
+          { startMs: 1000, endMs: 5000, text: "Earlier words." },
+        ]),
+      },
+    ];
+    try {
+      await action.run(args);
+      expect(stored.versions[0].segmentsJson).toBe(unreadable);
+      expect(JSON.parse(stored.versions[1].segmentsJson)).toEqual([
+        { startMs: 31_000, endMs: 35_000, text: "Earlier words." },
+      ]);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("version-1"));
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it.each([
+    ["the transcript", "{not json"],
+    [
+      "one cue's times",
+      JSON.stringify([
+        { startMs: 0, endMs: 4000, text: "Readable words." },
+        { text: "No times." },
+      ]),
+    ],
+  ])(
+    "fails without writing anything when %s can't be read",
+    async (_, segmentsJson) => {
+      stored.transcriptSegmentsJson = segmentsJson;
+      stored.versions = [{ id: "version-1", segmentsJson: "[]" }];
+
+      await expect(action.run(args)).rejects.toMatchObject({
+        errorCode: "transcript_segments_unreadable",
+      });
+
+      expect(written).toEqual([]);
+      expect(stored.transcriptSegmentsJson).toBe(segmentsJson);
+      expect(stored.versions).toEqual([
+        { id: "version-1", segmentsJson: "[]" },
+      ]);
+      expect(stored.preRollTrashed).toBe(false);
+      expect(JSON.parse(stored.chaptersJson)).toEqual([intro]);
+      expect(stored.request?.status).toBe("failed");
+    },
+  );
 });

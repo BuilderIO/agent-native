@@ -643,6 +643,14 @@ const messages = {
     errorOutOfOrder: "第 {{line}} 行：此時間早於上一個時間。",
     errorPastEnd: "第 {{line}} 行：此時間晚於影片結束時間。",
   },
+  transcriptHistory: {
+    title: "較早的逐字稿",
+    automatic: "自動",
+    restore: "還原",
+    restored: "已還原逐字稿",
+    restoreFailed: "無法還原逐字稿",
+    undo: "復原",
+  },
   thumbnailPicker: {
     failedCapture: "擷取影格失敗",
     failedGif: "無法產生 GIF，請嘗試較短的範圍",

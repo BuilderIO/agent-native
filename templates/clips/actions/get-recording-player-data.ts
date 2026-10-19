@@ -69,6 +69,7 @@ import {
   viewerScreenshotEditsJson,
 } from "../server/lib/screenshot-edits.js";
 import { isSeekableRepairPending } from "../server/lib/seekable-media-state.js";
+import { listTranscriptVersions } from "../server/lib/transcript-versions.js";
 import { hydrateCommentAuthorNames } from "../server/lib/user-identities.js";
 import { parseAppActivitySummary } from "../shared/app-activity.js";
 import { parseBrowserDiagnosticsRow } from "../shared/browser-diagnostics.js";
@@ -201,6 +202,7 @@ export default defineAction({
       seekableRepairPending,
       viewCount,
       agentViewCount,
+      transcriptVersions,
     ] = await Promise.all([
       readAppState(`transcript-cleanup-${args.recordingId}`).catch(() => null),
       canEditRecording
@@ -219,6 +221,11 @@ export default defineAction({
       }),
       countRecordingViews(args.recordingId).catch(() => 0),
       countRecordingAgentViews(args.recordingId).catch(() => 0),
+      // Replaced transcripts follow the edit permission: a viewer sees neither
+      // them nor that they exist.
+      canEditRecording
+        ? listTranscriptVersions(db, args.recordingId)
+        : Promise.resolve(null),
     ]);
     const cleanupState =
       cleanupStateRaw && typeof cleanupStateRaw === "object"
@@ -454,6 +461,7 @@ export default defineAction({
               ? "No speech was detected by transcription. Check microphone and speech permissions, then retry transcription."
               : transcriptPresentation.failureReason,
             segments: agentTranscript?.segments ?? transcriptSegments,
+            ...(transcriptVersions ? { versions: transcriptVersions } : {}),
             cleanup: cleanupState
               ? {
                   status:
