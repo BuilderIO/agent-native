@@ -2,6 +2,7 @@
 
 import type { AutomationAction } from "@shared/types";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -463,8 +464,10 @@ describe("AiFilterSection", () => {
     fireEvent.click(
       screen.getAllByRole("button", { name: "mail.aiFilter.newRule" })[0]!,
     );
-    fireEvent.focus(
-      screen.getByRole("button", { name: `mail.aiFilter.${modeKey}` }),
+    // Real focus, as from the keyboard: the tooltip opens only on focus the
+    // browser marks :focus-visible, which a bare focus event never is.
+    act(() =>
+      screen.getByRole("button", { name: `mail.aiFilter.${modeKey}` }).focus(),
     );
 
     expect((await screen.findByRole("tooltip")).textContent).toContain(
