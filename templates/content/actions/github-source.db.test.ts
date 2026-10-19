@@ -1239,6 +1239,42 @@ describe("GitHub folder freshness", () => {
     expect(changes).toHaveLength(0);
   });
 
+  it("tells readers when a background sync finds or clears a problem", async () => {
+    const { database } = await linkBaseFolder();
+    const { GitHubSourceError } =
+      await import("../server/lib/github-source-client.js");
+    const sweepAgain = async () => {
+      changes.length = 0;
+      await checkedAgo(database.id, 2 * 60_000);
+      await runGitHubSourceSweep({ deadlineAt: Date.now() + 60_000 });
+    };
+    const announced = [
+      expect.objectContaining({
+        key: "sync-github-folder",
+        resourceType: "document",
+        resourceId: database.documentId,
+      }),
+    ];
+
+    github.state.failure = new GitHubSourceError(
+      "connection",
+      "GitHub no longer accepts the saved connection. Reconnect GitHub.",
+      401,
+    );
+    await sweepAgain();
+    expect(changes).toEqual(announced);
+
+    // The same problem again leaves the status line as it was.
+    await sweepAgain();
+    expect(changes).toHaveLength(0);
+
+    github.state.failure = null;
+    await sweepAgain();
+    expect(changes).toEqual(announced);
+    const status = await as(() => getSource.run({ databaseId: database.id }));
+    expect(status.source?.metadata.github).toMatchObject({ problem: null });
+  });
+
   it("keeps sweeping after one link fails", async () => {
     const first = await linkBaseFolder();
     const second = await linkBaseFolder();

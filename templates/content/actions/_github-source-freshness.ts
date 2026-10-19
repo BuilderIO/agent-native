@@ -54,15 +54,41 @@ function checkedWithin(lastRefreshedAt: string | null, ms: number) {
   return Number.isFinite(at) && Date.now() - at < ms;
 }
 
-function linkedBy(link: GitHubLink): string | null {
+function linkState(metadataJson: string | undefined) {
   let metadata: unknown;
   try {
-    metadata = JSON.parse(link.metadataJson);
+    metadata = JSON.parse(metadataJson ?? "");
   } catch {
-    // coercion-ok: a link whose metadata can't be read has no one to read GitHub as, so the sweep passes it by.
+    // coercion-ok: a link whose metadata can't be read has no state; the sweep passes it by.
     return null;
   }
-  return readGitHubSourceState(metadata)?.linkedBy || null;
+  return readGitHubSourceState(metadata);
+}
+
+function linkedBy(link: GitHubLink): string | null {
+  return linkState(link.metadataJson)?.linkedBy || null;
+}
+
+/** What the collection's status line shows about a link, as one comparable string. */
+function statusShown(metadataJson: string | undefined) {
+  const state = linkState(metadataJson);
+  return JSON.stringify([
+    state?.syncedCommitSha ?? null,
+    state?.pendingCommitSha ?? null,
+    state?.problem?.code ?? null,
+    state?.skipped.length ?? 0,
+    state?.imagesWaiting ?? 0,
+  ]);
+}
+
+/** Whether a sync changed what the status line shows, like a new problem. */
+async function statusChanged(link: GitHubLink) {
+  const [after] = await getDb()
+    .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, link.sourceId))
+    .limit(1);
+  return statusShown(link.metadataJson) !== statusShown(after?.metadataJson);
 }
 
 export function githubSyncChangedRows(result: GitHubSyncResult) {
@@ -71,15 +97,17 @@ export function githubSyncChangedRows(result: GitHubSyncResult) {
 
 /**
  * Tells everyone who can read the collection that a sync nobody asked for
- * changed its rows. It is the event the sync action sends, so open pages,
- * tables, page lists and Trash update in place.
+ * changed its rows or its status, like a lost connection. It is the event the
+ * sync action sends, so open pages, tables, page lists, Trash and the status
+ * line update in place.
  */
-function announceSync(
+async function announceSync(
   link: GitHubLink,
   owner: string | null,
   result: GitHubSyncResult,
 ) {
-  if (!githubSyncChangedRows(result)) return;
+  if (result.state === "busy") return;
+  if (!githubSyncChangedRows(result) && !(await statusChanged(link))) return;
   recordChange({
     source: "action",
     type: "change",
@@ -98,7 +126,7 @@ async function syncBeforeRead(link: GitHubLink | undefined) {
       sourceId: link.sourceId,
       budgetMs: READ_SYNC_BUDGET_MS,
     });
-    announceSync(link, linkedBy(link), result);
+    await announceSync(link, linkedBy(link), result);
     return githubSyncChangedRows(result);
   } catch (error) {
     // coercion-ok: the read goes on with the rows Content has; the next read or background sync tries GitHub again.
@@ -205,7 +233,7 @@ export async function runGitHubSourceSweep(context: RecurringSweepContext) {
               budgetMs: Math.min(SWEEP_SYNC_BUDGET_MS, remaining - 1_000),
             }),
         );
-        announceSync(link, owner, result);
+        await announceSync(link, owner, result);
       } catch (error) {
         // coercion-ok: one link's failure is recorded on that link by the sync; the rest still run.
         console.warn(
