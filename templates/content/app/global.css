@@ -2409,6 +2409,29 @@ audio.media-block__content {
   }
 }
 
+/* Property rows and Collection markers with Comments use the highlight colours. */
+.comment-property-row--active {
+  background-color: hsl(45 93% 47% / 0.16);
+}
+.comment-property-row--active:hover {
+  background-color: hsl(45 93% 47% / 0.22);
+}
+.comment-property-row--pending {
+  background-color: hsl(210 100% 52% / 0.1);
+}
+.comment-property-row--pending:hover {
+  background-color: hsl(210 100% 52% / 0.15);
+}
+.comment-marker {
+  color: hsl(32 95% 34%);
+}
+.dark .comment-marker {
+  color: hsl(45 93% 70%);
+}
+.comment-marker:hover {
+  background-color: hsl(45 93% 47% / 0.15);
+}
+
 .notion-editor .suggestion-settling-original {
   display: none;
 }

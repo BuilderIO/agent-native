@@ -28,6 +28,7 @@ import {
   scalePenPathToGeometry,
   serializeRoundedPenPath,
   translatePenPath,
+  type PenGeometry,
   type PenPath,
 } from "@shared/pen-path";
 
@@ -146,10 +147,16 @@ export function writeBackVectorEditedPenPath(
     const oldLeft = parsePixelValue(svg.style.left);
     const oldTop = parsePixelValue(svg.style.top);
     if (!oldViewBox || oldLeft === null || oldTop === null) return null;
+    const authoredWidth = parsePixelValue(svg.style.width);
+    const authoredHeight = parsePixelValue(svg.style.height);
 
     const strokeOverlay = svg.querySelector<SVGUseElement>(
       ":scope > use[data-an-vector-stroke-overlay]",
     );
+    const preservePastedSvgFrame =
+      svg.getAttribute("data-an-primitive") === "pasted-svg" &&
+      authoredWidth !== null &&
+      authoredHeight !== null;
     const originalOverflow = svg.getAttribute(
       "data-an-vector-stroke-original-overflow",
     );
@@ -198,7 +205,7 @@ export function writeBackVectorEditedPenPath(
     }
 
     svg.setAttribute("data-an-pen-nodes", serializePenNodes(penPath));
-    if (svg.getAttribute("data-an-primitive") === "pasted-svg") {
+    if (preservePastedSvgFrame) {
       svg.style.overflow = "visible";
     } else {
       svg.setAttribute(
@@ -287,7 +294,11 @@ export function penPathForVectorEdit(
   svg: SVGSVGElement,
   path: PenPath,
   renderOffset: { x: number; y: number },
-): { path: PenPath; sourceOffset: { x: number; y: number } } | null {
+): {
+  path: PenPath;
+  sourceOffset: { x: number; y: number };
+  sourceMapping: PenPathVectorEditSourceMapping | null;
+} | null {
   const mapping = penPathScreenContentMapping(svg);
   if (!mapping) return null;
   const { viewBox, scaleX, scaleY } = mapping;
@@ -314,7 +325,37 @@ export function penPathForVectorEdit(
   return {
     path: translatePenPath(unscaled, sourceOffset.x, sourceOffset.y),
     sourceOffset,
+    sourceMapping:
+      svg.getAttribute("data-an-primitive") === "pasted-svg"
+        ? { viewBox, scaleX, scaleY }
+        : null,
   };
+}
+
+export type PenPathVectorEditSourceMapping = {
+  viewBox: PenGeometry;
+  scaleX: number;
+  scaleY: number;
+};
+
+export function penPathForVectorEditCommit(
+  path: PenPath,
+  sourceOffset: { x: number; y: number },
+  sourceMapping: PenPathVectorEditSourceMapping | null,
+): PenPath {
+  const translated = translatePenPath(path, -sourceOffset.x, -sourceOffset.y);
+  if (!sourceMapping) return translated;
+
+  const { viewBox, scaleX, scaleY } = sourceMapping;
+  return scalePenPathToGeometry(
+    translated,
+    {
+      ...viewBox,
+      width: viewBox.width * scaleX,
+      height: viewBox.height * scaleY,
+    },
+    viewBox,
+  );
 }
 
 export function boardRenderOffset(element: Element): { x: number; y: number } {
@@ -1242,6 +1283,14 @@ export function prepareClonedHtmlLayer(
   ) {
     clone.setAttribute("data-agent-native-group-wrapper", "true");
   }
+  const isSvgRoot = source.localName.toLowerCase() === "svg";
+  const sourceHasLayerName = Boolean(
+    resolveLayerNameAttribute((attribute) => clone.getAttribute(attribute)),
+  );
+  const sourceProjection =
+    isSvgRoot || !sourceHasLayerName
+      ? buildCodeLayerProjection(layerHtml)
+      : null;
   if (styleSnapshot) {
     clone.setAttribute("data-agent-native-preserve-styles", "true");
     clone.setAttribute("data-agent-native-clone-root", "true");
@@ -1250,10 +1299,8 @@ export function prepareClonedHtmlLayer(
       if (target) applyPortableStyles(target, node.styles);
     });
   }
-  if (
-    !resolveLayerNameAttribute((attribute) => clone.getAttribute(attribute))
-  ) {
-    const sourceNode = buildCodeLayerProjection(layerHtml).nodes[0];
+  if (!sourceHasLayerName) {
+    const sourceNode = sourceProjection?.nodes[0];
     if (
       sourceNode &&
       sourceNode.layerNameSource !== "tag" &&
@@ -1293,6 +1340,36 @@ export function prepareClonedHtmlLayer(
     );
   }
   if (!preserveIncomingNodeIds) {
+    if (isSvgRoot && sourceProjection) {
+      const sourceLayerNamesById = new Map<string, string>();
+      for (const node of sourceProjection.nodes) {
+        const sourceId = node.attributes.id;
+        if (
+          node.tag !== "svg" &&
+          node.layerNameSource === "selector" &&
+          typeof sourceId === "string"
+        ) {
+          sourceLayerNamesById.set(sourceId, node.layerName);
+        }
+      }
+      for (const element of [
+        clone,
+        ...Array.from(clone.querySelectorAll("*")),
+      ]) {
+        const sourceId = element.getAttribute("id");
+        const layerName = sourceId
+          ? sourceLayerNamesById.get(sourceId)
+          : undefined;
+        const hasLayerName = Boolean(
+          resolveLayerNameAttribute((attribute) =>
+            element.getAttribute(attribute),
+          ),
+        );
+        if (layerName && !hasLayerName) {
+          element.setAttribute("data-agent-native-layer-name", layerName);
+        }
+      }
+    }
     reassignClonedAuthoredIds(
       clone,
       () => uniqueLayerId("copy-id"),

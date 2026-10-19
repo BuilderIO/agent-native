@@ -529,9 +529,11 @@ export async function gotoEditor(page: Page, designId: string): Promise<void> {
   await page.goto(appPath(`/design/${designId}`), {
     waitUntil: "domcontentloaded",
   });
-  await expect(
-    page.getByRole("button", { name: "Move", exact: true }),
-  ).toBeVisible({ timeout: 30_000 });
+  const designMode = page.locator(
+    '[data-design-top-bar] [data-design-mode="edit"]',
+  );
+  await expect(designMode).toBeVisible({ timeout: 30_000 });
+  await expect(designMode).toHaveAttribute("aria-pressed", "true");
   await waitForDesignBridgeReady(page);
 }
 

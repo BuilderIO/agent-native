@@ -243,6 +243,7 @@ export type VisualStyleProperty =
   | "order"
   | "align-self"
   | "align-items"
+  | "place-items"
   | "align-content"
   | "justify-content"
   | "justify-items"
@@ -787,6 +788,7 @@ const STYLE_PROPERTIES = [
   "order",
   "align-self",
   "align-items",
+  "place-items",
   "align-content",
   "justify-content",
   "justify-items",
@@ -6662,7 +6664,13 @@ function applyStyleEdit(
   );
   let content = replaceOrInsertAttribute(html, element, "style", nextStyle);
   if (isCrossAxisAlignmentProperty(property)) {
-    content = clearGeneratedFlexAlignmentMarker(content, element);
+    content = reconcileGeneratedFlexAlignment(
+      content,
+      element,
+      cssPropertyKey(property) === "place-items"
+        ? "place-items-set"
+        : undefined,
+    );
   }
   if (property === "fill" || property === "stroke") {
     content = removeAttributeFromHtml(
@@ -7086,7 +7094,13 @@ function applyStyleRemoveEdit(
     ? replaceOrInsertAttribute(html, styleElement, "style", nextStyle)
     : removeAttributeFromHtml(html, styleElement, "style");
   if (isCrossAxisAlignmentProperty(property)) {
-    content = clearGeneratedFlexAlignmentMarker(content, styleElement);
+    content = reconcileGeneratedFlexAlignment(
+      content,
+      styleElement,
+      cssPropertyKey(property) === "place-items"
+        ? "place-items-remove"
+        : undefined,
+    );
   }
   if (route.kind === "vector-paint") {
     if (property === "stroke") {
@@ -10474,11 +10488,78 @@ function isCrossAxisAlignmentProperty(property: string): boolean {
   return key === "align-items" || key === "place-items";
 }
 
-function clearGeneratedFlexAlignmentMarker(
+function reconcileGeneratedFlexAlignment(
   html: string,
   element: ParsedElement,
+  placeItemsAction?: "place-items-set" | "place-items-remove",
 ): string {
-  const updatedElement = parseHtmlElements(html)[element.index];
+  let updatedElement = parseHtmlElements(html)[element.index];
+  if (!updatedElement) return html;
+  const generatedValue = attributeValue(
+    updatedElement,
+    GENERATED_FLEX_ALIGNMENT_ATTRIBUTE,
+  );
+  if (placeItemsAction && generatedValue !== null) {
+    const declarations = parseStyleDeclarations(
+      attributeValue(updatedElement, "style"),
+    );
+    const alignItems = declarations.declarations.filter(
+      (declaration) => cssPropertyKey(declaration.prop) === "align-items",
+    );
+    const currentAlignItems = effectiveStyleDeclarations(declarations).find(
+      (declaration) => cssPropertyKey(declaration.prop) === "align-items",
+    );
+    const isGeneratedAlignment =
+      currentAlignItems !== undefined &&
+      !currentAlignItems.important &&
+      currentAlignItems.value.trim().toLowerCase() ===
+        generatedValue.trim().toLowerCase();
+    let updateStyle = false;
+    let keepMarker = true;
+
+    if (placeItemsAction === "place-items-set") {
+      if (isGeneratedAlignment) {
+        currentAlignItems.remove();
+        updateStyle = true;
+      }
+    } else if (isGeneratedAlignment && currentAlignItems) {
+      if (alignItems.some((declaration) => declaration !== currentAlignItems)) {
+        currentAlignItems.remove();
+        updateStyle = true;
+        keepMarker = false;
+      }
+    } else if (!currentAlignItems) {
+      const elements = parseHtmlElements(html);
+      const displayMode = effectiveDisplayMode(
+        html,
+        updatedElement,
+        elements,
+        declarations,
+      );
+      const hasAuthoredAlignment =
+        hasCrossAxisAlignmentUtilityClass(updatedElement) ||
+        stylesheetMaySetAlignItems(html, updatedElement, elements);
+      if (displayMode === "non-flex") {
+        keepMarker = false;
+      } else if (displayMode === "flex" && !hasAuthoredAlignment) {
+        setStyleDeclaration(declarations, "align-items", generatedValue);
+        updateStyle = true;
+      } else if (displayMode === "flex") {
+        keepMarker = false;
+      }
+    } else {
+      keepMarker = false;
+    }
+
+    if (updateStyle) {
+      const nextStyle = serializeStyleDeclarations(declarations);
+      html = nextStyle.trim()
+        ? replaceOrInsertAttribute(html, updatedElement, "style", nextStyle)
+        : removeAttributeFromHtml(html, updatedElement, "style");
+      updatedElement = parseHtmlElements(html)[element.index];
+    }
+    if (keepMarker) return html;
+  }
   return updatedElement
     ? removeAttributeFromHtml(
         html,
@@ -10499,11 +10580,232 @@ function hasCrossAxisAlignmentUtilityClass(element: ParsedElement): boolean {
   });
 }
 
+type CssSpecificity = readonly [number, number, number, number];
+
+type DisplayCascadeCandidate = {
+  value: string;
+  important: boolean;
+  specificity: CssSpecificity;
+  sourceOrder: number;
+  source: "inline" | "stylesheet" | "utility";
+};
+
+type DisplayMode = "flex" | "non-flex" | "unknown";
+
+const DISPLAY_UTILITY_VALUES: Readonly<Record<string, string>> = {
+  block: "block",
+  contents: "contents",
+  flex: "flex",
+  "flow-root": "flow-root",
+  grid: "grid",
+  hidden: "none",
+  inline: "inline",
+  "inline-block": "inline-block",
+  "inline-flex": "inline-flex",
+  "inline-grid": "inline-grid",
+  "list-item": "list-item",
+  table: "table",
+};
+
+function effectiveDisplayMode(
+  html: string,
+  target: ParsedElement,
+  elements: readonly ParsedElement[],
+  inlineStyle: ParsedStyleDeclarations,
+): DisplayMode {
+  const candidates: DisplayCascadeCandidate[] = effectiveStyleDeclarations(
+    inlineStyle,
+  )
+    .filter((declaration) => cssPropertyKey(declaration.prop) === "display")
+    .map((declaration, sourceOrder) => ({
+      value: declaration.value,
+      important: declaration.important,
+      specificity: [1, 0, 0, 0] as const,
+      sourceOrder,
+      source: "inline",
+    }));
+  const stylesheet = stylesheetPropertyValues(html, target, elements, [
+    "display",
+  ]);
+  const hasInlineImportantDisplay = candidates.some(
+    (candidate) => candidate.important,
+  );
+  if (stylesheet.unknown && !hasInlineImportantDisplay) return "unknown";
+  candidates.push(...stylesheet.declarations);
+
+  const classCandidates: DisplayCascadeCandidate[] = [];
+  for (const token of classList(target)) {
+    const parsed = parseClassToken(token);
+    const variantUtility = parsed.utility.slice(
+      parsed.utility.lastIndexOf(":") + 1,
+    );
+    const important = variantUtility.startsWith("!");
+    const utility = important ? variantUtility.slice(1) : variantUtility;
+    const value = DISPLAY_UTILITY_VALUES[utility];
+    if (!value) {
+      if (/^\[display\s*:/i.test(utility)) {
+        return "unknown";
+      }
+      continue;
+    }
+    if (parsed.prefix !== "base" || parsed.utility.includes(":")) {
+      return "unknown";
+    }
+    classCandidates.push({
+      value,
+      important,
+      specificity: [0, 0, 1, 0],
+      sourceOrder: classCandidates.length,
+      source: "utility",
+    });
+  }
+  candidates.push(...classCandidates);
+
+  for (let leftIndex = 0; leftIndex < candidates.length; leftIndex += 1) {
+    const left = candidates[leftIndex];
+    if (!left) continue;
+    for (
+      let rightIndex = leftIndex + 1;
+      rightIndex < candidates.length;
+      rightIndex += 1
+    ) {
+      const right = candidates[rightIndex];
+      if (
+        !right ||
+        left.value.trim().toLowerCase() === right.value.trim().toLowerCase()
+      ) {
+        continue;
+      }
+      if (
+        left.important === right.important &&
+        compareCssSpecificity(left.specificity, right.specificity) === 0 &&
+        (left.source === "utility" || right.source === "utility")
+      ) {
+        return "unknown";
+      }
+    }
+  }
+
+  let winner: DisplayCascadeCandidate | undefined;
+  for (const candidate of candidates) {
+    if (!winner) {
+      winner = candidate;
+      continue;
+    }
+    if (candidate.important !== winner.important) {
+      if (candidate.important) winner = candidate;
+      continue;
+    }
+    const specificity = compareCssSpecificity(
+      candidate.specificity,
+      winner.specificity,
+    );
+    if (
+      specificity > 0 ||
+      (specificity === 0 && candidate.sourceOrder > winner.sourceOrder)
+    ) {
+      winner = candidate;
+    }
+  }
+
+  if (!winner) return "non-flex";
+  const value = normalizeDisplayValue(winner.value);
+  if (value === null) return "unknown";
+  return value === "flex" || value === "inline-flex" ? "flex" : "non-flex";
+}
+
+function compareCssSpecificity(
+  left: CssSpecificity,
+  right: CssSpecificity,
+): number {
+  for (let index = 0; index < left.length; index += 1) {
+    const difference = left[index]! - right[index]!;
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
+function normalizeDisplayValue(value: string): string | null {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized || /\b(?:var|env|attr)\s*\(/.test(normalized)) return null;
+  if (
+    ["flex", "inline-flex", "block flex", "inline flex"].includes(normalized)
+  ) {
+    return "flex";
+  }
+  if (
+    [
+      "block flow",
+      "block flow-root",
+      "block grid",
+      "block list-item",
+      "block math",
+      "block table",
+      "block",
+      "contents",
+      "flow-root",
+      "grid",
+      "inline",
+      "inline flow",
+      "inline flow-root",
+      "inline grid",
+      "inline-block",
+      "inline-grid",
+      "inline list-item",
+      "inline math",
+      "inline table",
+      "inline-table",
+      "list-item",
+      "math",
+      "none",
+      "ruby",
+      "ruby-base",
+      "ruby-base-container",
+      "ruby-text",
+      "ruby-text-container",
+      "run-in",
+      "table",
+      "table-caption",
+      "table-cell",
+      "table-column",
+      "table-column-group",
+      "table-footer-group",
+      "table-header-group",
+      "table-row",
+      "table-row-group",
+    ].includes(normalized)
+  ) {
+    return normalized;
+  }
+  return null;
+}
+
 function stylesheetMaySetAlignItems(
   html: string,
   target: ParsedElement,
   elements: readonly ParsedElement[],
 ): boolean {
+  const result = stylesheetPropertyValues(html, target, elements, [
+    "align-items",
+    "place-items",
+  ]);
+  return result.unknown || result.values.length > 0;
+}
+
+function stylesheetPropertyValues(
+  html: string,
+  target: ParsedElement,
+  elements: readonly ParsedElement[],
+  properties: readonly string[],
+): {
+  unknown: boolean;
+  values: string[];
+  declarations: DisplayCascadeCandidate[];
+} {
+  const values: string[] = [];
+  const declarations: DisplayCascadeCandidate[] = [];
+  let unknown = false;
+  let sourceOrder = 0;
   const tagRe =
     /<!--[\s\S]*?-->|<![A-Za-z][^>]*>|<\/?\s*([A-Za-z][A-Za-z0-9:-]*)\b/g;
   let match: RegExpExecArray | null;
@@ -10550,7 +10852,7 @@ function stylesheetMaySetAlignItems(
         !attributes.some((attribute) => attribute.lowerName === "disabled") &&
         (mediaValue === null || mediaQueryListMayMatchScreen(mediaValue))
       ) {
-        return true;
+        return { unknown: true, values, declarations };
       }
       continue;
     }
@@ -10565,10 +10867,12 @@ function stylesheetMaySetAlignItems(
           ? decodeBasicHtmlEntities(mediaAttribute.value)
           : ""
         : null;
-      if (
-        !inTemplate &&
-        (mediaValue === null || mediaQueryListMayMatchScreen(mediaValue))
-      ) {
+      const mediaCanApply =
+        mediaValue === null || mediaQueryListMayMatchScreen(mediaValue);
+      const mediaIsUnconditionallyActive =
+        mediaValue === null ||
+        mediaQueryListDefinitelyMatchesScreen(mediaValue);
+      if (!inTemplate && mediaCanApply) {
         const css = html.slice(
           match.index + raw.length,
           close?.closeStart ?? html.length,
@@ -10579,28 +10883,70 @@ function stylesheetMaySetAlignItems(
           stylesheet.walkAtRules("import", () => {
             importedStylesheet = true;
           });
-          if (importedStylesheet) return true;
-          let matchingAlignmentRule = false;
+          if (importedStylesheet) {
+            return { unknown: true, values, declarations };
+          }
           stylesheet.walkRules((rule) => {
-            if (
-              stylesheetRuleMayApplyOnScreen(rule) &&
-              rule.nodes?.some(
-                (declaration) =>
-                  declaration.type === "decl" &&
-                  isCrossAxisAlignmentProperty(declaration.prop),
-              ) &&
-              rule.selectors.some((selector) =>
-                stylesheetSelectorMayMatchElement(selector, target, elements),
-              )
-            ) {
-              matchingAlignmentRule = true;
+            if (!stylesheetRuleMayApplyOnScreen(rule)) return;
+            let winningSpecificity: CssSpecificity | undefined;
+            let uncertainSelector = false;
+            for (const selector of rule.selectors) {
+              const specificity = stylesheetSelectorSpecificity(selector);
+              if (!specificity) {
+                if (
+                  stylesheetSelectorMayMatchElement(selector, target, elements)
+                ) {
+                  uncertainSelector = true;
+                }
+                continue;
+              }
+              if (
+                stylesheetSelectorMayMatchElement(selector, target, elements) &&
+                (!winningSpecificity ||
+                  compareCssSpecificity(specificity, winningSpecificity) > 0)
+              ) {
+                winningSpecificity = specificity;
+              }
+            }
+            for (const declaration of rule.nodes ?? []) {
+              const declarationOrder = sourceOrder;
+              sourceOrder += 1;
+              if (
+                declaration.type !== "decl" ||
+                !properties.includes(cssPropertyKey(declaration.prop))
+              ) {
+                continue;
+              }
+              if (!uncertainSelector && !winningSpecificity) continue;
+              values.push(declaration.value);
+              if (
+                uncertainSelector ||
+                stylesheetRuleHasUnknownCascade(rule) ||
+                !mediaIsUnconditionallyActive
+              ) {
+                unknown = true;
+                continue;
+              }
+              if (winningSpecificity) {
+                declarations.push({
+                  value: declaration.value,
+                  important: declaration.important,
+                  specificity: winningSpecificity,
+                  sourceOrder: declarationOrder,
+                  source: "stylesheet",
+                });
+              }
             }
           });
-          if (matchingAlignmentRule) return true;
         } catch (error) {
           if (!(error instanceof CssSyntaxError)) throw error;
-          if (/@import\b|\b(?:align-items|place-items)\s*:/i.test(css)) {
-            return true;
+          const propertyPattern = properties.join("|");
+          if (
+            new RegExp(`@import\\b|\\b(?:${propertyPattern})\\s*:`, "i").test(
+              css,
+            )
+          ) {
+            unknown = true;
           }
         }
       }
@@ -10612,6 +10958,81 @@ function stylesheetMaySetAlignItems(
       const close = findClosingTag(html, tag, match.index + raw.length);
       tagRe.lastIndex = close?.closeEnd ?? html.length;
     }
+  }
+  return { unknown, values, declarations };
+}
+
+function stylesheetSelectorSpecificity(
+  selector: string,
+): CssSpecificity | null {
+  const normalized = normalizeSelectorForMatch(selector);
+  if (!normalized) return null;
+  let ids = 0;
+  let classes = 0;
+  let elements = 0;
+  let canStartType = true;
+
+  for (let index = 0; index < normalized.length; ) {
+    const character = normalized[index];
+    if (!character) return null;
+    if (character === ">" || /\s/.test(character)) {
+      canStartType = true;
+      index += 1;
+      continue;
+    }
+    if (character === "[") {
+      const attribute = normalized
+        .slice(index)
+        .match(
+          /^\[[A-Za-z_][A-Za-z0-9_:.-]*=(?:"(?:\\.|[^"])*"|'(?:\\.|[^'])*')\]/,
+        );
+      if (!attribute) return null;
+      classes += 1;
+      canStartType = false;
+      index += attribute[0].length;
+      continue;
+    }
+    if (character === "#" || character === ".") {
+      const identifier = normalized
+        .slice(index + 1)
+        .match(/^[A-Za-z_][A-Za-z0-9_-]*/)?.[0];
+      if (!identifier) return null;
+      if (character === "#") ids += 1;
+      else classes += 1;
+      canStartType = false;
+      index += identifier.length + 1;
+      continue;
+    }
+    if (character === "*") {
+      if (!canStartType) return null;
+      canStartType = false;
+      index += 1;
+      continue;
+    }
+    if (character === ":") return null;
+    if (canStartType && /[A-Za-z]/.test(character)) {
+      const tag = normalized.slice(index).match(/^[A-Za-z][A-Za-z0-9:-]*/)?.[0];
+      if (!tag) return null;
+      elements += 1;
+      canStartType = false;
+      index += tag.length;
+      continue;
+    }
+    return null;
+  }
+  return [0, ids, classes, elements];
+}
+
+function stylesheetRuleHasUnknownCascade(rule: Rule): boolean {
+  let parent = rule.parent;
+  while (parent) {
+    if (parent.type === "atrule") {
+      if (parent.name.toLowerCase() !== "media") return true;
+      const media = parent.params.trim().toLowerCase();
+      if (!["all", "screen", "not print"].includes(media)) return true;
+    }
+    const ancestor = parent.parent;
+    parent = ancestor && ancestor.type !== "document" ? ancestor : undefined;
   }
   return false;
 }
@@ -10665,13 +11086,37 @@ function mediaQueryListMayMatchScreen(params: string): boolean {
     if (negated) remaining = remaining.replace(/^not\b\s*/i, "");
     else remaining = remaining.replace(/^only\b\s*/i, "");
 
-    const mediaType = remaining
-      .match(/^([A-Za-z][A-Za-z0-9-]*)\b/)?.[1]
-      ?.toLowerCase();
+    const mediaTypeMatch = remaining.match(/^([A-Za-z][A-Za-z0-9-]*)\b/);
+    if (!mediaTypeMatch) return true;
+    const mediaType = mediaTypeMatch[1]?.toLowerCase();
     if (!mediaType) return true;
+    const hasCondition =
+      remaining.slice(mediaTypeMatch[0].length).trim() !== "";
+    if (negated && hasCondition) return true;
     if (mediaType === "print" || mediaType === "speech") return negated;
     if (mediaType === "screen" || mediaType === "all") return !negated;
     return true;
+  });
+}
+
+function mediaQueryListDefinitelyMatchesScreen(params: string): boolean {
+  const queries = splitCssListAtTopLevel(params);
+  if (!queries) return false;
+  return queries.some((query) => {
+    let remaining = query.trim().toLowerCase();
+    if (!remaining) return false;
+
+    const negated = /^not\b/.test(remaining);
+    if (negated) remaining = remaining.replace(/^not\b\s*/, "");
+    else remaining = remaining.replace(/^only\b\s*/, "");
+
+    const mediaType = remaining.match(/^([a-z][a-z0-9-]*)\b/)?.[1];
+    if (!mediaType || remaining.slice(mediaType.length).trim() !== "") {
+      return false;
+    }
+    if (mediaType === "all" || mediaType === "screen") return !negated;
+    if (mediaType === "print" || mediaType === "speech") return negated;
+    return false;
   });
 }
 

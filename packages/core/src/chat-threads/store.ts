@@ -2,10 +2,16 @@ import crypto from "node:crypto";
 
 import {
   AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
+  AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY,
   parseQueueMessageInput,
+  type AgentSubmissionPayload,
   type AgentRunOptions,
 } from "@agent-native/agentkit/protocol";
 
+import {
+  currentExecutionFence,
+  withFencedExecutionWrite,
+} from "../agent/execution-fence.js";
 import { normalizeSubmissionDeadlineMetadata } from "../agent/submission-deadline.js";
 import {
   extractThreadMeta,
@@ -20,7 +26,7 @@ import {
   projectRootAssistantMessages,
   threadMessageRecord,
 } from "../agent/thread-message-projection.js";
-import { getDbExec } from "../db/client.js";
+import { getDbExec, type DbExec } from "../db/client.js";
 import { createGetDb } from "../db/create-get-db.js";
 import {
   ensureColumnExists,
@@ -857,42 +863,60 @@ export async function createThread(
     source?: ChatThreadSource | null;
     /** Explicit owner organization for durable/background callers. */
     orgId?: string | null;
+    initialData?: {
+      threadData: string;
+      preview: string;
+      messageCount: number;
+    };
   },
 ): Promise<ChatThread> {
   await ensureTable();
-  const client = getDbExec();
   const id = opts?.id ?? generateId();
   const now = Date.now();
   const title = opts?.title ?? "";
   const scope = opts?.scope ?? null;
   const source = opts?.source ?? null;
   const orgId = opts?.orgId ?? getRequestOrgId() ?? null;
+  const initialData = opts?.initialData;
+  const preview = initialData?.preview ?? "";
+  const threadData = initialData?.threadData ?? "{}";
+  const messageCount = initialData?.messageCount ?? 0;
+  if (!Number.isInteger(messageCount) || messageCount < 0) {
+    throw new TypeError("Initial chat thread message count is invalid.");
+  }
+  assertPersistableThreadData(threadData, "thread_data");
 
-  await client.execute({
-    sql: `INSERT INTO chat_threads (id, owner_email, title, preview, thread_data, message_count, created_at, updated_at, scope_type, scope_id, scope_label, source_platform, source_app_id, source_url, org_id, visibility) VALUES (?, ?, ?, '', '{}', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'private')`,
-    args: [
-      id,
-      ownerEmail,
-      title,
-      now,
-      now,
-      scope?.type ?? null,
-      scope?.id ?? null,
-      scope?.label ?? null,
-      source?.platform ?? null,
-      source?.appId ?? null,
-      source?.url ?? null,
-      orgId,
-    ],
-  });
+  await withFencedExecutionWrite((tx) =>
+    tx.execute({
+      // A parent run may atomically create a child thread before that child has a lease.
+      sql: `INSERT INTO chat_threads (id, owner_email, title, preview, thread_data, message_count, created_at, updated_at, scope_type, scope_id, scope_label, source_platform, source_app_id, source_url, org_id, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'private')`,
+      args: [
+        id,
+        ownerEmail,
+        title,
+        preview,
+        threadData,
+        messageCount,
+        now,
+        now,
+        scope?.type ?? null,
+        scope?.id ?? null,
+        scope?.label ?? null,
+        source?.platform ?? null,
+        source?.appId ?? null,
+        source?.url ?? null,
+        orgId,
+      ],
+    }),
+  );
 
   return {
     id,
     ownerEmail,
     title,
-    preview: "",
-    threadData: "{}",
-    messageCount: 0,
+    preview,
+    threadData,
+    messageCount,
     createdAt: now,
     updatedAt: now,
     scope,
@@ -1465,6 +1489,8 @@ export interface UpdateThreadDataOptions {
   preserveCurrentTitleAndPreview?: boolean;
   trustedRunSequenceResetIds?: ReadonlySet<string>;
   onAnnotationConflict?: (conflict: ThreadAnnotationSnapshotConflict) => void;
+  beforeUpdate?: (tx: DbExec) => Promise<boolean>;
+  afterUpdate?: (tx: DbExec) => Promise<void>;
   transformThreadData?: (
     currentThreadData: string,
   ) => string | { threadData: string; preview?: string };
@@ -1588,19 +1614,42 @@ export async function updateThreadData(
           : typeof transformed === "object" && transformed.preview !== undefined
             ? transformed.preview
             : preview;
-      const result = await client.execute({
-        sql: `UPDATE chat_threads SET thread_data = ?, title = ?, preview = ?, message_count = COALESCE(?, message_count), updated_at = ? WHERE id = ? AND updated_at = ? AND LOWER(owner_email) = LOWER(?)`,
-        args: [
-          nextThreadData,
-          nextTitle,
-          nextPreview,
-          options.preserveCurrentMetadata ? null : nextMessageCount,
-          nextUpdatedAt,
-          id,
-          current.updatedAt,
-          current.ownerEmail,
-        ],
-      });
+      let beforeUpdateRejected = false;
+      const write = async (tx: DbExec) => {
+        if (options.beforeUpdate && !(await options.beforeUpdate(tx))) {
+          beforeUpdateRejected = true;
+          return { rows: [], rowsAffected: 0 };
+        }
+        const result = await tx.execute({
+          sql: `UPDATE chat_threads SET thread_data = ?, title = ?, preview = ?, message_count = COALESCE(?, message_count), updated_at = ? WHERE id = ? AND updated_at = ? AND LOWER(owner_email) = LOWER(?)`,
+          args: [
+            nextThreadData,
+            nextTitle,
+            nextPreview,
+            options.preserveCurrentMetadata ? null : nextMessageCount,
+            nextUpdatedAt,
+            id,
+            current.updatedAt,
+            current.ownerEmail,
+          ],
+        });
+        if (result.rowsAffected > 0) await options.afterUpdate?.(tx);
+        return result;
+      };
+      const fence = currentExecutionFence();
+      const result = fence
+        ? await withFencedExecutionWrite(write, { threadId: id })
+        : options.beforeUpdate || options.afterUpdate
+          ? client.transaction
+            ? await client.transaction(write)
+            : (() => {
+                throw new Error(
+                  "Atomic thread-data callbacks require transaction support",
+                );
+              })()
+          : await withFencedExecutionWrite(write, { threadId: id });
+
+      if (beforeUpdateRejected) return false;
 
       if (result.rowsAffected > 0) {
         for (const conflict of annotationConflicts) {
@@ -1612,6 +1661,7 @@ export async function updateThreadData(
 
       lastConflict = true;
     } catch (error) {
+      if (error instanceof QueuedSubmissionAdmissionError) throw error;
       if (error instanceof InlineAttachmentDataNotPersistableError) {
         throw error;
       }
@@ -1703,27 +1753,563 @@ export interface QueuedMessage {
   requestAttachments?: unknown[];
   metadata?: Record<string, unknown>;
   options?: AgentRunOptions;
+  interruptActiveRun?: boolean;
   promotionClaim?: { id: string; expiresAt: number };
 }
 
+export type QueuedSubmissionState =
+  | "queued"
+  | "submitted"
+  | "removed"
+  | "expired"
+  | "blocked";
+
+export interface QueuedSubmissionActor {
+  email: string;
+  authUserId?: string;
+  identityAuthenticatedAtMs?: number;
+  name?: string;
+  orgId?: string | null;
+  orgScope?: "personal" | null;
+  anonymous?: boolean;
+}
+
+export interface QueuedSubmissionReceipt {
+  threadId: string;
+  messageId: string;
+  state: QueuedSubmissionState;
+  actor: QueuedSubmissionActor;
+  message?: QueuedMessage;
+  payloadHash: string;
+  submittedRunId?: string;
+  retryAfter?: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export class QueuedSubmissionAdmissionError extends Error {
+  constructor(
+    readonly code:
+      | "queued_message_already_submitted"
+      | "queued_message_id_conflict"
+      | "queued_message_id_terminal",
+    messageId: string,
+    readonly submittedRunId?: string,
+  ) {
+    super(`Queued message ${messageId} cannot be admitted: ${code}`);
+    this.name = "QueuedSubmissionAdmissionError";
+  }
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => stableJson(entry)).join(",")}]`;
+  }
+  if (!value || typeof value !== "object") {
+    return JSON.stringify(value) ?? "null";
+  }
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .sort()
+    .filter((key) => record[key] !== undefined)
+    .map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`)
+    .join(",")}}`;
+}
+
+export function hashQueuedSubmissionPayload(
+  threadId: string,
+  message: QueuedMessage | AgentSubmissionPayload,
+): string {
+  const normalizeMetadata = (
+    metadata: Record<string, unknown> | undefined,
+  ): Record<string, unknown> | undefined => {
+    if (!metadata) return undefined;
+    const custom = metadata.custom;
+    if (!custom || typeof custom !== "object" || Array.isArray(custom)) {
+      return metadata;
+    }
+    const stableCustom = { ...(custom as Record<string, unknown>) };
+    delete stableCustom[AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY];
+    delete stableCustom[AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY];
+    return { ...metadata, custom: stableCustom };
+  };
+  const {
+    createdAt: _createdAt,
+    promotionClaim: _claim,
+    ...payload
+  } = message as QueuedMessage;
+  const options = payload.options as AgentRunOptions | undefined;
+  const stablePayload = {
+    ...payload,
+    threadId,
+    ...(payload.metadata
+      ? { metadata: normalizeMetadata(payload.metadata) }
+      : {}),
+    ...(options?.metadata
+      ? {
+          options: {
+            ...options,
+            metadata: normalizeMetadata(options.metadata),
+          },
+        }
+      : {}),
+  };
+  return crypto
+    .createHash("sha256")
+    .update(stableJson(stablePayload))
+    .digest("hex");
+}
+
+export function queuedSubmissionBehaviorMatches(
+  threadId: string,
+  message: QueuedMessage,
+  identity: AgentSubmissionPayload,
+): boolean {
+  const {
+    attachments: _attachments,
+    requestAttachments: _requestAttachments,
+    ...messageBehavior
+  } = message;
+  const {
+    attachments: _identityAttachments,
+    requestAttachments: _identityRequestAttachments,
+    ...identityBehavior
+  } = identity;
+  return (
+    hashQueuedSubmissionPayload(threadId, messageBehavior) ===
+    hashQueuedSubmissionPayload(threadId, identityBehavior)
+  );
+}
+
+function normalizeQueuedSubmissionActor(
+  actor: QueuedSubmissionActor,
+): QueuedSubmissionActor {
+  const email = actor.email.trim();
+  if (!email) throw new TypeError("Queued message actor email is required.");
+  return {
+    email,
+    ...(actor.authUserId ? { authUserId: actor.authUserId } : {}),
+    ...(actor.identityAuthenticatedAtMs !== undefined
+      ? { identityAuthenticatedAtMs: actor.identityAuthenticatedAtMs }
+      : {}),
+    ...(actor.name ? { name: actor.name } : {}),
+    ...(actor.orgId !== undefined ? { orgId: actor.orgId } : {}),
+    ...(actor.orgScope ? { orgScope: actor.orgScope } : {}),
+    anonymous: actor.anonymous === true,
+  };
+}
+
+function queuedSubmissionActorMatches(
+  left: QueuedSubmissionActor,
+  right: QueuedSubmissionActor,
+): boolean {
+  return (
+    left.email.trim().toLowerCase() === right.email.trim().toLowerCase() &&
+    (left.authUserId ?? null) === (right.authUserId ?? null) &&
+    (left.orgId ?? null) === (right.orgId ?? null) &&
+    (left.orgScope ?? null) === (right.orgScope ?? null) &&
+    (left.anonymous === true) === (right.anonymous === true)
+  );
+}
+
+function queuedSubmissionReceiptFromRow(
+  row: Record<string, unknown>,
+): QueuedSubmissionReceipt {
+  const threadId = String(row.thread_id ?? "");
+  const messageId = String(row.message_id ?? "");
+  const state = String(row.state ?? "");
+  if (
+    !threadId ||
+    !messageId ||
+    !["queued", "submitted", "removed", "expired", "blocked"].includes(state)
+  ) {
+    throw new TypeError("Stored queued submission receipt is malformed.");
+  }
+  let message: QueuedMessage | undefined;
+  if (typeof row.payload_json === "string") {
+    const parsed = JSON.parse(row.payload_json) as unknown;
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      !Array.isArray(parsed) &&
+      typeof (parsed as Record<string, unknown>).id === "string" &&
+      typeof (parsed as Record<string, unknown>).text === "string"
+    ) {
+      message = parsed as QueuedMessage;
+    }
+  }
+  const orgId = row.actor_org_id;
+  const orgScope = row.actor_org_scope;
+  return {
+    threadId,
+    messageId,
+    state: state as QueuedSubmissionState,
+    actor: {
+      email: String(row.actor_email ?? ""),
+      ...(typeof row.actor_auth_user_id === "string"
+        ? { authUserId: row.actor_auth_user_id }
+        : {}),
+      ...(row.actor_identity_authenticated_at_ms != null
+        ? {
+            identityAuthenticatedAtMs: Number(
+              row.actor_identity_authenticated_at_ms,
+            ),
+          }
+        : {}),
+      ...(typeof row.actor_name === "string" ? { name: row.actor_name } : {}),
+      ...(typeof orgId === "string" ? { orgId } : {}),
+      ...(orgScope === "personal" ? { orgScope: "personal" as const } : {}),
+      anonymous: row.actor_anonymous === true,
+    },
+    ...(message ? { message } : {}),
+    payloadHash: String(row.payload_hash ?? ""),
+    ...(typeof row.submitted_run_id === "string"
+      ? { submittedRunId: row.submitted_run_id }
+      : {}),
+    ...(row.retry_after != null ? { retryAfter: Number(row.retry_after) } : {}),
+    createdAt: Number(row.created_at),
+    updatedAt: Number(row.updated_at),
+  };
+}
+
+const QUEUED_SUBMISSION_COLUMNS = `thread_id, message_id, state, actor_email, actor_auth_user_id, actor_identity_authenticated_at_ms, actor_name, actor_org_id, actor_org_scope, actor_anonymous, payload_hash, payload_json, submitted_run_id, retry_after, created_at, updated_at`;
+
+async function readQueuedSubmissionReceipt(
+  db: DbExec,
+  threadId: string,
+  messageId: string,
+  options: { forUpdate?: boolean } = {},
+): Promise<QueuedSubmissionReceipt | null> {
+  const { rows } = await db.execute({
+    sql: `SELECT ${QUEUED_SUBMISSION_COLUMNS} FROM agent_chat_submission_inbox WHERE thread_id = ? AND message_id = ?${options.forUpdate ? " FOR UPDATE" : ""}`,
+    args: [threadId, messageId],
+  });
+  return rows[0]
+    ? queuedSubmissionReceiptFromRow(rows[0] as Record<string, unknown>)
+    : null;
+}
+
+function queuedSubmissionReceiptSnapshotMatches(
+  current: QueuedSubmissionReceipt | null,
+  expected: QueuedSubmissionReceipt,
+): boolean {
+  return Boolean(
+    current?.state === "queued" &&
+    expected.state === "queued" &&
+    current.payloadHash === expected.payloadHash &&
+    stableJson(current.actor) === stableJson(expected.actor) &&
+    current.message &&
+    expected.message &&
+    stableJson(current.message) === stableJson(expected.message),
+  );
+}
+
+function assertQueuedSubmissionReceiptSnapshotMatches(
+  current: QueuedSubmissionReceipt | null,
+  expected: QueuedSubmissionReceipt,
+): void {
+  if (!current || current.state !== "queued") {
+    throw new QueuedSubmissionAdmissionError(
+      current?.state === "submitted"
+        ? "queued_message_already_submitted"
+        : "queued_message_id_terminal",
+      expected.messageId,
+      current?.submittedRunId,
+    );
+  }
+  if (!queuedSubmissionReceiptSnapshotMatches(current, expected)) {
+    throw new QueuedSubmissionAdmissionError(
+      "queued_message_id_conflict",
+      expected.messageId,
+    );
+  }
+}
+
+/** Returns the durable admission receipt used to dedupe direct starts and queue retries. */
+export async function getQueuedSubmissionReceipt(
+  threadId: string,
+  messageId: string,
+): Promise<QueuedSubmissionReceipt | null> {
+  await ensureTable();
+  return readQueuedSubmissionReceipt(getDbExec(), threadId, messageId);
+}
+
+/** Finds accepted queue rows in priority order for the signed server sweep. */
+export async function listQueuedSubmissionReceipts(
+  options: {
+    limit?: number;
+    now?: number;
+  } = {},
+): Promise<QueuedSubmissionReceipt[]> {
+  await ensureTable();
+  const limit = Math.max(1, Math.min(100, Math.floor(options.limit ?? 25)));
+  const now = options.now ?? Date.now();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT ${QUEUED_SUBMISSION_COLUMNS} FROM agent_chat_submission_inbox
+          WHERE state = 'queued' AND (retry_after IS NULL OR retry_after <= ?)
+          ORDER BY interrupt_active_run DESC, move_to_top_at DESC NULLS LAST, queue_order ASC
+          LIMIT ?`,
+    args: [now, limit],
+  });
+  return rows.map((row) =>
+    queuedSubmissionReceiptFromRow(row as Record<string, unknown>),
+  );
+}
+
+/** Records a run admission in the same transaction that persists its user message. */
+export async function markQueuedSubmissionSubmitted(
+  tx: DbExec,
+  input: {
+    threadId: string;
+    messageId: string;
+    runId?: string;
+    actor: QueuedSubmissionActor;
+    message?: QueuedMessage;
+    hashInput?: AgentSubmissionPayload;
+  },
+): Promise<void> {
+  const { threadId, messageId, runId } = input;
+  const actor = normalizeQueuedSubmissionActor(input.actor);
+  const existing = await readQueuedSubmissionReceipt(tx, threadId, messageId);
+  const payloadHash = input.hashInput
+    ? hashQueuedSubmissionPayload(threadId, input.hashInput)
+    : input.message
+      ? hashQueuedSubmissionPayload(threadId, input.message)
+      : undefined;
+  if (existing) {
+    if (!queuedSubmissionActorMatches(existing.actor, actor)) {
+      throw new QueuedSubmissionAdmissionError(
+        "queued_message_id_conflict",
+        messageId,
+      );
+    }
+    if (
+      payloadHash &&
+      existing.state !== "queued" &&
+      existing.payloadHash !== payloadHash
+    ) {
+      throw new QueuedSubmissionAdmissionError(
+        "queued_message_id_conflict",
+        messageId,
+      );
+    }
+    if (
+      payloadHash &&
+      existing.state === "queued" &&
+      input.hashInput &&
+      existing.payloadHash !== payloadHash
+    ) {
+      throw new QueuedSubmissionAdmissionError(
+        "queued_message_id_conflict",
+        messageId,
+      );
+    }
+    if (existing.state === "submitted") {
+      if (
+        runId &&
+        existing.submittedRunId &&
+        existing.submittedRunId !== runId
+      ) {
+        throw new QueuedSubmissionAdmissionError(
+          "queued_message_already_submitted",
+          messageId,
+          existing.submittedRunId,
+        );
+      }
+      return;
+    }
+    if (existing.state !== "queued") {
+      throw new QueuedSubmissionAdmissionError(
+        "queued_message_id_terminal",
+        messageId,
+      );
+    }
+    const update = await tx.execute({
+      sql: `UPDATE agent_chat_submission_inbox SET state = 'submitted', submitted_run_id = COALESCE(?, submitted_run_id), retry_after = NULL, updated_at = ? WHERE thread_id = ? AND message_id = ? AND state = 'queued'`,
+      args: [runId ?? null, Date.now(), threadId, messageId],
+    });
+    if (update.rowsAffected > 0) return;
+
+    const raced = await readQueuedSubmissionReceipt(tx, threadId, messageId);
+    if (raced?.state === "submitted") {
+      if (runId && raced.submittedRunId && raced.submittedRunId !== runId) {
+        throw new QueuedSubmissionAdmissionError(
+          "queued_message_already_submitted",
+          messageId,
+          raced.submittedRunId,
+        );
+      }
+      return;
+    }
+    throw new QueuedSubmissionAdmissionError(
+      "queued_message_id_terminal",
+      messageId,
+    );
+  }
+  const now = Date.now();
+  const message = input.message
+    ? { ...input.message, threadId: input.message.threadId ?? threadId }
+    : undefined;
+  const storedMessage = message
+    ? stripInlineBytes(message, "placeholder")
+    : undefined;
+  await tx.execute({
+    sql: `INSERT INTO agent_chat_submission_inbox
+      (thread_id, message_id, state, actor_email, actor_auth_user_id, actor_identity_authenticated_at_ms, actor_name, actor_org_id, actor_org_scope, actor_anonymous, payload_hash, payload_json, interrupt_active_run, submitted_run_id, created_at, updated_at)
+      VALUES (?, ?, 'submitted', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    args: [
+      threadId,
+      messageId,
+      actor.email,
+      actor.authUserId ?? null,
+      actor.identityAuthenticatedAtMs ?? null,
+      actor.name ?? null,
+      actor.orgId ?? null,
+      actor.orgScope ?? null,
+      actor.anonymous === true,
+      payloadHash ??
+        (message
+          ? hashQueuedSubmissionPayload(threadId, message)
+          : crypto
+              .createHash("sha256")
+              .update(`submitted:${messageId}`)
+              .digest("hex")),
+      JSON.stringify(storedMessage ?? { id: messageId, threadId }),
+      message?.interruptActiveRun === true,
+      runId ?? null,
+      now,
+      now,
+    ],
+  });
+}
+
+/** Delays a retryable drain failure without releasing the accepted submission. */
+export async function retryQueuedSubmissionReceipt(
+  threadId: string,
+  messageId: string,
+  retryAfter: number,
+  options: { claimId?: string } = {},
+): Promise<boolean> {
+  await ensureTable();
+  const result = await mutateThreadQueuedMessages(threadId, {
+    type: "retryReceipt",
+    messageId,
+    retryAfter,
+    ...(options.claimId ? { claimId: options.claimId } : {}),
+  });
+  return result?.receiptUpdated === true;
+}
+
+/** Retains but stops automatically promoting a row that can no longer be authorized. */
+export async function blockQueuedSubmissionReceipt(
+  threadId: string,
+  messageId: string,
+  options: { claimId?: string } = {},
+): Promise<boolean> {
+  await ensureTable();
+  const result = await mutateThreadQueuedMessages(threadId, {
+    type: "blockReceipt",
+    messageId,
+    ...(options.claimId ? { claimId: options.claimId } : {}),
+  });
+  return result?.receiptUpdated === true;
+}
+
 export type ThreadQueuedMessageMutation =
-  | { type: "append"; message: QueuedMessage }
+  | {
+      type: "append";
+      message: QueuedMessage;
+      hashInput?: AgentSubmissionPayload;
+    }
   | { type: "remove"; messageId: string }
   | { type: "moveToTop"; messageId: string }
   | { type: "claim"; messageId: string; claimId: string }
+  | {
+      type: "claimFromInbox";
+      receipt: QueuedSubmissionReceipt;
+      claimId: string;
+    }
+  | {
+      type: "retryReceipt";
+      messageId: string;
+      retryAfter: number;
+      claimId?: string;
+    }
+  | { type: "blockReceipt"; messageId: string; claimId?: string }
   | { type: "release"; messageId: string; claimId: string };
 
 export interface ThreadQueuedMessageMutationResult {
   queuedMessages: QueuedMessage[];
   message?: QueuedMessage;
   claimedMessage?: QueuedMessage;
+  alreadySubmitted?: boolean;
+  submittedRunId?: string;
   claimBusy?: boolean;
   submissionExpired?: boolean;
   promotionBusy?: boolean;
+  receiptUnavailable?: boolean;
+  receiptConflict?: boolean;
+  receiptUpdated?: boolean;
   released?: boolean;
 }
 
 const QUEUED_MESSAGE_CLAIM_TTL_MS = 60_000;
+
+function receiptMutationOwnsPromotionClaim(
+  message: QueuedMessage | undefined,
+  claimId: string | undefined,
+  now: number,
+): boolean {
+  const claim = message?.promotionClaim as unknown;
+  if (claim === undefined || claim === null) return claimId === undefined;
+  if (!claim || typeof claim !== "object" || Array.isArray(claim)) return false;
+  const value = claim as { id?: unknown; expiresAt?: unknown };
+  if (
+    typeof value.id !== "string" ||
+    typeof value.expiresAt !== "number" ||
+    !Number.isFinite(value.expiresAt)
+  ) {
+    return false;
+  }
+  const active = value.expiresAt > now;
+  return claimId === undefined ? !active : value.id === claimId && active;
+}
+
+function submittedQueuedMessageRunId(
+  repository: Record<string, unknown>,
+  messageId: string,
+): string | undefined {
+  const collections = [
+    repository.messages,
+    (repository.agentKit as Record<string, unknown> | undefined)?.messages,
+  ];
+  for (const collection of collections) {
+    if (!Array.isArray(collection)) continue;
+    for (const entry of collection) {
+      const message = threadMessageRecord(entry);
+      if (message?.role !== "user") continue;
+      const metadata = message.metadata;
+      const custom =
+        metadata && typeof metadata === "object" && !Array.isArray(metadata)
+          ? (metadata as Record<string, unknown>).custom
+          : undefined;
+      if (!custom || typeof custom !== "object" || Array.isArray(custom)) {
+        continue;
+      }
+      const customRecord = custom as Record<string, unknown>;
+      if (
+        customRecord.agentKitMessageId !== messageId &&
+        customRecord.agentNativeQueuedMessageId !== messageId
+      ) {
+        continue;
+      }
+      return typeof customRecord.submittedRunId === "string"
+        ? customRecord.submittedRunId
+        : undefined;
+    }
+  }
+  return undefined;
+}
 
 function queuedSubmissionExpired(message: QueuedMessage, now: number): boolean {
   const custom = message.metadata?.custom;
@@ -1748,11 +2334,47 @@ function queuedSubmissionExpired(message: QueuedMessage, now: number): boolean {
   );
 }
 
+function queuedMessageMatchesReceipt(
+  message: QueuedMessage,
+  receiptMessage: QueuedMessage,
+): boolean {
+  const { promotionClaim: _messageClaim, ...messagePayload } = message;
+  const { promotionClaim: _receiptClaim, ...receiptPayload } = receiptMessage;
+  return stableJson(messagePayload) === stableJson(receiptPayload);
+}
+
 /** Applies a queue operation to the latest durable thread state on every CAS retry. */
 export async function mutateThreadQueuedMessages(
   threadId: string,
   mutation: ThreadQueuedMessageMutation,
+  options: { actor?: QueuedSubmissionActor } = {},
 ): Promise<ThreadQueuedMessageMutationResult | null> {
+  if (mutation.type === "claimFromInbox") {
+    const message = mutation.receipt.message;
+    if (
+      mutation.receipt.state !== "queued" ||
+      mutation.receipt.threadId !== threadId ||
+      !message ||
+      message.id !== mutation.receipt.messageId ||
+      (message.threadId !== undefined && message.threadId !== threadId) ||
+      typeof message.text !== "string" ||
+      !message.text.trim()
+    ) {
+      throw new TypeError("Queued submission receipt is not claimable.");
+    }
+    try {
+      assertNoInlineImageBytes(message, "queuedSubmissionReceipt.message");
+    } catch (error) {
+      throw new InlineAttachmentDataNotPersistableError(
+        error instanceof Error ? error.message : undefined,
+      );
+    }
+    parseQueueMessageInput(
+      { ...message, threadId: message.threadId ?? threadId },
+      "queuedSubmissionReceipt.message",
+    );
+  }
+
   if (mutation.type === "append") {
     const metadata = normalizeSubmissionDeadlineMetadata(
       mutation.message.metadata,
@@ -1762,14 +2384,13 @@ export async function mutateThreadQueuedMessages(
       type: "append",
       message: {
         ...mutation.message,
+        threadId: mutation.message.threadId ?? threadId,
         ...(metadata ? { metadata } : {}),
       },
+      ...(mutation.hashInput ? { hashInput: mutation.hashInput } : {}),
     };
     try {
-      assertNoInlineImageBytes(
-        { type: "file", metadata: mutation.message.metadata },
-        "queuedMessage.metadata",
-      );
+      assertNoInlineImageBytes(mutation.message, "queuedMessage");
     } catch (error) {
       throw new InlineAttachmentDataNotPersistableError(
         error instanceof Error ? error.message : undefined,
@@ -1786,163 +2407,510 @@ export async function mutateThreadQueuedMessages(
 
   return withThreadDataLock(threadId, async () => {
     let result: ThreadQueuedMessageMutationResult | undefined;
-    await updateThreadData(threadId, "{}", "", "", 0, {
-      preserveExistingQueuedMessages: false,
-      preserveCurrentMetadata: true,
-      transformThreadData: (threadData) => {
-        let data: unknown;
-        try {
-          data = JSON.parse(threadData || "{}");
-        } catch {
-          throw new TypeError("Agent chat thread data is not valid JSON.");
-        }
-        if (!data || typeof data !== "object" || Array.isArray(data)) {
-          throw new TypeError("Agent chat thread data must be an object.");
-        }
+    let receiptUnavailable = false;
+    let receiptConflict = false;
+    let hadExistingQueuedMessage = false;
+    let removedReceiptState: "removed" | "expired" = "removed";
+    let movedToTop = false;
+    let receiptClaimMessage: QueuedMessage | undefined;
+    try {
+      await updateThreadData(threadId, "{}", "", "", 0, {
+        preserveExistingQueuedMessages: false,
+        preserveCurrentMetadata: true,
+        transformThreadData: (threadData) => {
+          let data: unknown;
+          try {
+            data = JSON.parse(threadData || "{}");
+          } catch {
+            throw new TypeError("Agent chat thread data is not valid JSON.");
+          }
+          if (!data || typeof data !== "object" || Array.isArray(data)) {
+            throw new TypeError("Agent chat thread data must be an object.");
+          }
 
-        const repository = data as Record<string, unknown>;
-        const stored = repository.queuedMessages;
-        if (stored !== undefined && !Array.isArray(stored)) {
-          throw new TypeError("Agent chat queued messages must be an array.");
-        }
-        const current = (stored ?? []) as QueuedMessage[];
-        if (
-          !current.every(
-            (message) =>
-              message &&
-              typeof message.id === "string" &&
-              typeof message.text === "string",
-          )
-        ) {
-          throw new TypeError("Agent chat queued messages are malformed.");
-        }
-        let queuedMessages = current;
-        let response: Omit<
-          ThreadQueuedMessageMutationResult,
-          "queuedMessages"
-        > = {};
+          const repository = data as Record<string, unknown>;
+          const stored = repository.queuedMessages;
+          if (stored !== undefined && !Array.isArray(stored)) {
+            throw new TypeError("Agent chat queued messages must be an array.");
+          }
+          const current = (stored ?? []) as QueuedMessage[];
+          if (
+            !current.every(
+              (message) =>
+                message &&
+                typeof message.id === "string" &&
+                typeof message.text === "string",
+            )
+          ) {
+            throw new TypeError("Agent chat queued messages are malformed.");
+          }
+          let queuedMessages = current;
+          let response: Omit<
+            ThreadQueuedMessageMutationResult,
+            "queuedMessages"
+          > = {};
 
-        switch (mutation.type) {
-          case "append": {
-            if (queuedSubmissionExpired(mutation.message, Date.now())) {
-              response = { submissionExpired: true };
-              break;
-            }
-            const existing = current.find(
-              (message) => message.id === mutation.message.id,
-            );
-            const { promotionClaim: _claim, ...existingMessage } =
-              existing ?? {};
-            if (
-              existing &&
-              JSON.stringify(existingMessage) !==
-                JSON.stringify(mutation.message)
-            ) {
-              throw new Error(
-                `Queued message id already exists: ${mutation.message.id}`,
+          switch (mutation.type) {
+            case "append": {
+              hadExistingQueuedMessage = false;
+              if (queuedSubmissionExpired(mutation.message, Date.now())) {
+                response = { submissionExpired: true };
+                break;
+              }
+              const consumedRunId = submittedQueuedMessageRunId(
+                repository,
+                mutation.message.id,
               );
-            }
-            if (!existing) queuedMessages = [...current, mutation.message];
-            response = { message: existing ?? mutation.message };
-            break;
-          }
-          case "remove": {
-            const index = current.findIndex(
-              (message) => message.id === mutation.messageId,
-            );
-            const message = current[index];
-            if (
-              message?.promotionClaim &&
-              message.promotionClaim.expiresAt > Date.now() &&
-              !queuedSubmissionExpired(message, Date.now())
-            ) {
-              response = { promotionBusy: true };
+              if (consumedRunId) {
+                queuedMessages = current.filter(
+                  (candidate) => candidate.id !== mutation.message.id,
+                );
+                response = {
+                  alreadySubmitted: true,
+                  submittedRunId: consumedRunId,
+                  message: mutation.message,
+                };
+                break;
+              }
+              const existing = current.find(
+                (message) => message.id === mutation.message.id,
+              );
+              hadExistingQueuedMessage = existing !== undefined;
+              if (
+                existing &&
+                hashQueuedSubmissionPayload(threadId, existing) !==
+                  hashQueuedSubmissionPayload(threadId, mutation.message)
+              ) {
+                throw new QueuedSubmissionAdmissionError(
+                  "queued_message_id_conflict",
+                  mutation.message.id,
+                );
+              }
+              if (!existing) queuedMessages = [...current, mutation.message];
+              response = { message: existing ?? mutation.message };
               break;
             }
-            queuedMessages = current.filter(
-              (candidate) => candidate.id !== mutation.messageId,
-            );
-            break;
-          }
-          case "moveToTop": {
-            const index = current.findIndex(
-              (message) => message.id === mutation.messageId,
-            );
-            if (index > 0) {
-              const selected = current[index]!;
+            case "remove": {
+              const index = current.findIndex(
+                (message) => message.id === mutation.messageId,
+              );
+              const message = current[index];
+              const expired =
+                message !== undefined &&
+                queuedSubmissionExpired(message, Date.now());
               if (
-                selected.promotionClaim &&
-                selected.promotionClaim.expiresAt > Date.now()
+                message?.promotionClaim &&
+                message.promotionClaim.expiresAt > Date.now() &&
+                !expired
               ) {
                 response = { promotionBusy: true };
-              } else {
-                queuedMessages = [
-                  selected,
-                  ...current.filter(
-                    (message) => message.id !== mutation.messageId,
-                  ),
-                ];
+                break;
               }
-            }
-            break;
-          }
-          case "claim": {
-            const index = current.findIndex(
-              (message) => message.id === mutation.messageId,
-            );
-            if (index < 0) {
-              throw new Error(`Unknown queued message: ${mutation.messageId}`);
-            }
-            const message = current[index]!;
-            const now = Date.now();
-            if (queuedSubmissionExpired(message, now)) {
+              removedReceiptState = expired ? "expired" : "removed";
               queuedMessages = current.filter(
                 (candidate) => candidate.id !== mutation.messageId,
               );
-              response = { submissionExpired: true };
               break;
             }
-            if (
-              message.promotionClaim &&
-              message.promotionClaim.id !== mutation.claimId &&
-              message.promotionClaim.expiresAt > now
-            ) {
-              response = { claimBusy: true };
+            case "moveToTop": {
+              const index = current.findIndex(
+                (message) => message.id === mutation.messageId,
+              );
+              if (index > 0) {
+                const selected = current[index]!;
+                if (
+                  selected.promotionClaim &&
+                  selected.promotionClaim.expiresAt > Date.now()
+                ) {
+                  response = { promotionBusy: true };
+                } else {
+                  movedToTop = true;
+                  queuedMessages = [
+                    selected,
+                    ...current.filter(
+                      (message) => message.id !== mutation.messageId,
+                    ),
+                  ];
+                }
+              }
               break;
             }
-            const claimedMessage = {
-              ...message,
-              promotionClaim: {
-                id: mutation.claimId,
-                expiresAt: now + QUEUED_MESSAGE_CLAIM_TTL_MS,
-              },
-            };
-            queuedMessages = [...current];
-            queuedMessages[index] = claimedMessage;
-            response = { claimedMessage };
-            break;
-          }
-          case "release": {
-            const index = current.findIndex(
-              (message) => message.id === mutation.messageId,
-            );
-            const message = current[index];
-            if (message?.promotionClaim?.id === mutation.claimId) {
-              const { promotionClaim: _claim, ...releasedMessage } = message;
+            case "claim": {
+              const index = current.findIndex(
+                (message) => message.id === mutation.messageId,
+              );
+              if (index < 0) {
+                throw new Error(
+                  `Unknown queued message: ${mutation.messageId}`,
+                );
+              }
+              const message = current[index]!;
+              const now = Date.now();
+              if (queuedSubmissionExpired(message, now)) {
+                queuedMessages = current.filter(
+                  (candidate) => candidate.id !== mutation.messageId,
+                );
+                response = { submissionExpired: true };
+                break;
+              }
+              if (
+                message.promotionClaim &&
+                message.promotionClaim.id !== mutation.claimId &&
+                message.promotionClaim.expiresAt > now
+              ) {
+                response = { claimBusy: true };
+                break;
+              }
+              const claimedMessage = {
+                ...message,
+                promotionClaim: {
+                  id: mutation.claimId,
+                  expiresAt: now + QUEUED_MESSAGE_CLAIM_TTL_MS,
+                },
+              };
               queuedMessages = [...current];
-              queuedMessages[index] = releasedMessage;
-              response = { released: true };
-            } else {
-              response = { released: false };
+              queuedMessages[index] = claimedMessage;
+              response = { claimedMessage };
+              break;
             }
-            break;
+            case "claimFromInbox": {
+              const index = current.findIndex(
+                (message) => message.id === mutation.receipt.messageId,
+              );
+              const existing = index >= 0 ? current[index]! : undefined;
+              const receiptMessage = mutation.receipt.message!;
+              const now = Date.now();
+              if (queuedSubmissionExpired(receiptMessage, now)) {
+                queuedMessages = current.filter(
+                  (candidate) => candidate.id !== mutation.receipt.messageId,
+                );
+                response = { submissionExpired: true };
+                break;
+              }
+              if (
+                existing?.promotionClaim &&
+                existing.promotionClaim.id !== mutation.claimId &&
+                existing.promotionClaim.expiresAt > now
+              ) {
+                response = { claimBusy: true };
+                break;
+              }
+              if (
+                existing &&
+                !queuedMessageMatchesReceipt(existing, receiptMessage)
+              ) {
+                response = { receiptConflict: true };
+                break;
+              }
+              const claimedMessage = {
+                ...receiptMessage,
+                promotionClaim: {
+                  id: mutation.claimId,
+                  expiresAt: now + QUEUED_MESSAGE_CLAIM_TTL_MS,
+                },
+              };
+              if (index < 0) {
+                queuedMessages = [...current, claimedMessage];
+              } else {
+                queuedMessages = [...current];
+                queuedMessages[index] = claimedMessage;
+              }
+              response = { claimedMessage };
+              break;
+            }
+            case "retryReceipt":
+            case "blockReceipt": {
+              receiptClaimMessage = current.find(
+                (message) => message.id === mutation.messageId,
+              );
+              if (
+                !receiptMutationOwnsPromotionClaim(
+                  receiptClaimMessage,
+                  mutation.claimId,
+                  Date.now(),
+                )
+              ) {
+                response = { claimBusy: true };
+              }
+              break;
+            }
+            case "release": {
+              const index = current.findIndex(
+                (message) => message.id === mutation.messageId,
+              );
+              const message = current[index];
+              if (message?.promotionClaim?.id === mutation.claimId) {
+                const { promotionClaim: _claim, ...releasedMessage } = message;
+                queuedMessages = [...current];
+                queuedMessages[index] = releasedMessage;
+                response = { released: true };
+              } else {
+                response = { released: false };
+              }
+              break;
+            }
           }
-        }
 
-        result = { ...response, queuedMessages };
-        return JSON.stringify({ ...repository, queuedMessages });
-      },
-    });
+          result = { ...response, queuedMessages };
+          return JSON.stringify({ ...repository, queuedMessages });
+        },
+        beforeUpdate:
+          mutation.type === "claimFromInbox"
+            ? async (tx) => {
+                const currentReceipt = await readQueuedSubmissionReceipt(
+                  tx,
+                  threadId,
+                  mutation.receipt.messageId,
+                );
+                if (
+                  !queuedSubmissionReceiptSnapshotMatches(
+                    currentReceipt,
+                    mutation.receipt,
+                  )
+                ) {
+                  receiptUnavailable = true;
+                  return false;
+                }
+                return true;
+              }
+            : mutation.type === "retryReceipt" ||
+                mutation.type === "blockReceipt"
+              ? async () => {
+                  const ownsClaim = receiptMutationOwnsPromotionClaim(
+                    receiptClaimMessage,
+                    mutation.claimId,
+                    Date.now(),
+                  );
+                  if (!ownsClaim && result) result.claimBusy = true;
+                  return ownsClaim;
+                }
+              : undefined,
+        afterUpdate: async (tx) => {
+          if (!result) return;
+          if (
+            mutation.type === "retryReceipt" ||
+            mutation.type === "blockReceipt"
+          ) {
+            if (
+              !receiptMutationOwnsPromotionClaim(
+                receiptClaimMessage,
+                mutation.claimId,
+                Date.now(),
+              )
+            ) {
+              result.claimBusy = true;
+              return;
+            }
+            const updated =
+              mutation.type === "retryReceipt"
+                ? await tx.execute({
+                    sql: `UPDATE agent_chat_submission_inbox SET retry_after = ?, updated_at = ? WHERE thread_id = ? AND message_id = ? AND state = 'queued'`,
+                    args: [
+                      mutation.retryAfter,
+                      Date.now(),
+                      threadId,
+                      mutation.messageId,
+                    ],
+                  })
+                : await tx.execute({
+                    sql: `UPDATE agent_chat_submission_inbox SET state = 'blocked', retry_after = NULL, updated_at = ? WHERE thread_id = ? AND message_id = ? AND state = 'queued'`,
+                    args: [Date.now(), threadId, mutation.messageId],
+                  });
+            result.receiptUpdated = updated.rowsAffected === 1;
+          } else if (mutation.type === "append") {
+            const { message } = mutation;
+            if (result.alreadySubmitted) {
+              const existing = await readQueuedSubmissionReceipt(
+                tx,
+                threadId,
+                message.id,
+              );
+              const actor = options.actor
+                ? normalizeQueuedSubmissionActor(options.actor)
+                : undefined;
+              const hashInput = mutation.hashInput ?? message;
+              const hash = hashQueuedSubmissionPayload(threadId, hashInput);
+              if (
+                existing &&
+                (existing.payloadHash !== hash ||
+                  (actor &&
+                    !queuedSubmissionActorMatches(existing.actor, actor)))
+              ) {
+                throw new QueuedSubmissionAdmissionError(
+                  "queued_message_id_conflict",
+                  message.id,
+                );
+              }
+              if (existing?.state === "queued") {
+                await markQueuedSubmissionSubmitted(tx, {
+                  threadId,
+                  messageId: message.id,
+                  runId: result.submittedRunId,
+                  actor: existing.actor,
+                });
+              }
+              return;
+            }
+            if (result.submissionExpired || !options.actor) return;
+            const actor = normalizeQueuedSubmissionActor(options.actor);
+            const payloadMessage = result.message ?? message;
+            const hashInput = mutation.hashInput ?? payloadMessage;
+            const hash = hashQueuedSubmissionPayload(threadId, hashInput);
+            const existing = await readQueuedSubmissionReceipt(
+              tx,
+              threadId,
+              message.id,
+            );
+            if (hadExistingQueuedMessage && !existing) {
+              throw new QueuedSubmissionAdmissionError(
+                "queued_message_id_conflict",
+                message.id,
+              );
+            }
+            if (existing) {
+              if (
+                existing.payloadHash !== hash ||
+                !queuedSubmissionActorMatches(existing.actor, actor)
+              ) {
+                throw new QueuedSubmissionAdmissionError(
+                  "queued_message_id_conflict",
+                  message.id,
+                );
+              }
+              if (existing.state === "submitted") {
+                throw new QueuedSubmissionAdmissionError(
+                  "queued_message_already_submitted",
+                  message.id,
+                  existing.submittedRunId,
+                );
+              }
+              if (existing.state !== "queued") {
+                throw new QueuedSubmissionAdmissionError(
+                  "queued_message_id_terminal",
+                  message.id,
+                );
+              }
+              return;
+            }
+            const now = Date.now();
+            await tx.execute({
+              sql: `INSERT INTO agent_chat_submission_inbox
+                (thread_id, message_id, state, actor_email, actor_auth_user_id, actor_identity_authenticated_at_ms, actor_name, actor_org_id, actor_org_scope, actor_anonymous, payload_hash, payload_json, interrupt_active_run, created_at, updated_at)
+                VALUES (?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              args: [
+                threadId,
+                message.id,
+                actor.email,
+                actor.authUserId ?? null,
+                actor.identityAuthenticatedAtMs ?? null,
+                actor.name ?? null,
+                actor.orgId ?? null,
+                actor.orgScope ?? null,
+                actor.anonymous === true,
+                hash,
+                JSON.stringify(stripInlineBytes(payloadMessage, "placeholder")),
+                payloadMessage.interruptActiveRun === true,
+                now,
+                now,
+              ],
+            });
+            return;
+          }
+          if (mutation.type === "remove" && !result.promotionBusy) {
+            await tx.execute({
+              sql: `UPDATE agent_chat_submission_inbox SET state = ?, retry_after = NULL, updated_at = ? WHERE thread_id = ? AND message_id = ? AND state = 'queued'`,
+              args: [
+                removedReceiptState,
+                Date.now(),
+                threadId,
+                mutation.messageId,
+              ],
+            });
+          } else if (mutation.type === "claim" && result.submissionExpired) {
+            await tx.execute({
+              sql: `UPDATE agent_chat_submission_inbox SET state = 'expired', retry_after = NULL, updated_at = ? WHERE thread_id = ? AND message_id = ? AND state = 'queued'`,
+              args: [Date.now(), threadId, mutation.messageId],
+            });
+          } else if (mutation.type === "claimFromInbox") {
+            const currentReceipt = await readQueuedSubmissionReceipt(
+              tx,
+              threadId,
+              mutation.receipt.messageId,
+              { forUpdate: true },
+            );
+            assertQueuedSubmissionReceiptSnapshotMatches(
+              currentReceipt,
+              mutation.receipt,
+            );
+            if (result.receiptConflict) {
+              const blocked = await tx.execute({
+                sql: `UPDATE agent_chat_submission_inbox SET state = 'blocked', retry_after = NULL, updated_at = ? WHERE thread_id = ? AND message_id = ? AND state = 'queued'`,
+                args: [Date.now(), threadId, mutation.receipt.messageId],
+              });
+              if (blocked.rowsAffected !== 1) {
+                throw new QueuedSubmissionAdmissionError(
+                  "queued_message_id_terminal",
+                  mutation.receipt.messageId,
+                );
+              }
+              receiptConflict = true;
+            } else if (result.submissionExpired) {
+              const expired = await tx.execute({
+                sql: `UPDATE agent_chat_submission_inbox SET state = 'expired', retry_after = NULL, updated_at = ? WHERE thread_id = ? AND message_id = ? AND state = 'queued'`,
+                args: [Date.now(), threadId, mutation.receipt.messageId],
+              });
+              if (expired.rowsAffected !== 1) {
+                throw new QueuedSubmissionAdmissionError(
+                  "queued_message_id_terminal",
+                  mutation.receipt.messageId,
+                );
+              }
+            }
+          } else if (mutation.type === "moveToTop" && movedToTop) {
+            await tx.execute({
+              sql: `UPDATE agent_chat_submission_inbox SET move_to_top_at = ?, retry_after = NULL, updated_at = ? WHERE thread_id = ? AND message_id = ? AND state = 'queued'`,
+              args: [Date.now(), Date.now(), threadId, mutation.messageId],
+            });
+          }
+        },
+      });
+      if (receiptUnavailable) {
+        result = { queuedMessages: [], receiptUnavailable: true };
+      } else if (receiptConflict) {
+        result = { queuedMessages: [], receiptConflict: true };
+      }
+    } catch (error) {
+      if (
+        error instanceof QueuedSubmissionAdmissionError &&
+        error.code === "queued_message_already_submitted" &&
+        mutation.type === "append"
+      ) {
+        const thread = await getThread(threadId);
+        let queuedMessages: QueuedMessage[] = [];
+        try {
+          const repository = JSON.parse(thread?.threadData ?? "{}") as Record<
+            string,
+            unknown
+          >;
+          queuedMessages = Array.isArray(repository.queuedMessages)
+            ? (repository.queuedMessages as QueuedMessage[])
+            : [];
+        } catch {
+          queuedMessages = [];
+        }
+        return {
+          queuedMessages,
+          message:
+            (await getQueuedSubmissionReceipt(threadId, mutation.message.id))
+              ?.message ?? mutation.message,
+          alreadySubmitted: true,
+          ...(error.submittedRunId
+            ? { submittedRunId: error.submittedRunId }
+            : {}),
+        };
+      }
+      throw error;
+    }
     return result ?? null;
   });
 }
@@ -2227,17 +3195,26 @@ export async function deleteThread(
 ): Promise<boolean> {
   await ensureTable();
   const client = getDbExec();
-  const result = await client.execute({
-    sql: `DELETE FROM chat_threads WHERE id = ? AND LOWER(owner_email) = LOWER(?)`,
-    args: [id, ownerEmail],
+  if (!client.transaction) {
+    throw new Error("Atomic chat thread deletion requires transaction support");
+  }
+  const result = await client.transaction(async (tx) => {
+    const deleted = await tx.execute({
+      sql: `DELETE FROM chat_threads WHERE id = ? AND LOWER(owner_email) = LOWER(?)`,
+      args: [id, ownerEmail],
+    });
+    if (deleted.rowsAffected === 0) return deleted;
+    await tx.execute({
+      sql: `DELETE FROM agent_chat_submission_inbox WHERE thread_id = ?`,
+      args: [id],
+    });
+    await tx.execute({
+      sql: `DELETE FROM chat_thread_shares WHERE resource_id = ?`,
+      args: [id],
+    });
+    return deleted;
   });
   if (result.rowsAffected > 0) {
-    await client
-      .execute({
-        sql: `DELETE FROM chat_thread_shares WHERE resource_id = ?`,
-        args: [id],
-      })
-      .catch(() => {});
     emitChatThreadChange(id);
     return true;
   }

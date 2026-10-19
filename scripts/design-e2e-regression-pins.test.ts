@@ -95,6 +95,40 @@ const REQUIRED_CORE_COVERAGE = [
     title: "clicking a child inside Card selects Card, not Kid A",
   },
   {
+    shard: "drag-2a",
+    file: "interaction-selection.spec.ts",
+    title:
+      "click-selecting Screen 2 after a nested Screen 1 element replaces the layer selection, so Cmd+A selects all Screens",
+  },
+  {
+    shard: "drag-2b",
+    file: "interaction-selection.spec.ts",
+    title:
+      "marquee-selecting Screen 2 after a nested Screen 1 element replaces the layer selection, so Cmd+A selects all Screens",
+  },
+  {
+    shard: "drag-1a",
+    file: "interaction-unique-paths.spec.ts",
+    title: "Cmd+A with a child selected selects exactly that child's siblings",
+  },
+  {
+    shard: "drag-1a",
+    file: "interaction-unique-paths.spec.ts",
+    title: "Cmd+A with no selection selects every Screen",
+  },
+  {
+    shard: "inspector-3a",
+    file: "canvas-invariants.spec.ts",
+    title:
+      "Escape on a rectangle just drawn inside a frame clears the selection without selecting the screen",
+  },
+  {
+    shard: "inspector-3b",
+    file: "canvas-invariants.spec.ts",
+    title:
+      "drawing two shapes then undo removes only the frame, and redo restores it selected",
+  },
+  {
     shard: "inspector-3b",
     file: "interaction-selection.spec.ts",
     title: "double-click after selecting Card drills into the clicked child",
@@ -117,6 +151,12 @@ const REQUIRED_CORE_COVERAGE = [
     title: "Line Height Enter returns a real Text-tool range to the editor",
   },
   {
+    shard: "inspector-4b",
+    file: "text-range-visibility.spec.ts",
+    title:
+      "multi-selected text leaves share inspector styles, edits save to both, and one undo restores both",
+  },
+  {
     shard: "position-2b",
     file: "canvas-tools.spec.ts",
     title:
@@ -127,6 +167,11 @@ const REQUIRED_CORE_COVERAGE = [
     file: "ai-source-continuity.spec.ts",
     title:
       "Layers-first editing preserves identity in the AI-generated Orbit source",
+  },
+  {
+    shard: "inspector-1b",
+    file: "inspector-styles.spec.ts",
+    title: "selection hide and Appearance visibility stay in sync with opacity",
   },
   {
     shard: "inspector-1b",
@@ -170,6 +215,17 @@ const REQUIRED_CORE_COVERAGE = [
       "pastes a multi-selection across screens with each layer and child id regenerated",
   },
   {
+    shard: "position-1a",
+    file: "interaction-clipboard-duplicate.spec.ts",
+    title:
+      "cmd+C then cmd+V with nothing else selected pastes into the SAME parent, directly above the source, keeping name and size",
+  },
+  {
+    shard: "position-1b",
+    file: "interaction-clipboard-duplicate.spec.ts",
+    title: "with a container selected, paste goes inside that container",
+  },
+  {
     shard: "position-2a",
     file: "editor-keyboard-layers.spec.ts",
     title:
@@ -209,6 +265,11 @@ const REQUIRED_CORE_COVERAGE = [
     file: "paste-svg-into-selected-frame.spec.ts",
     title:
       "Cmd+V of SVG markup while a frame is selected appends the SVG as the frame's topmost child, drawn above its siblings, and selects it",
+  },
+  {
+    shard: "inspector-4a",
+    file: "pasted-svg-image-inspector.spec.ts",
+    title: "stroke gradient edits stay on the selected nested pasted-SVG shape",
   },
   {
     shard: "inspector-3a",
@@ -256,7 +317,7 @@ const REQUIRED_CORE_COVERAGE = [
     title: "Cmd+Shift+R replaces a flow text root at its measured origin",
   },
   {
-    shard: "inspector-1a",
+    shard: "inspector-3b",
     file: "canvas-chords.spec.ts",
     title: "Cmd+Shift+R uses rendered flow offsets for relative text",
   },
@@ -294,6 +355,34 @@ const REQUIRED_CORE_COVERAGE = [
     file: "canvas-chords.spec.ts",
     title: "Cmd+Shift+R places a margin-offset copy at the target bounds",
   },
+  {
+    shard: "inspector-4a",
+    file: "interaction-walkthrough-2.spec.ts",
+    title:
+      "Shift+A wraps the shift-clicked title and creator in a vertical auto-layout frame without moving them, and saves a gap of 4",
+  },
+  {
+    shard: "drag-2a",
+    file: "interaction-walkthrough-8.spec.ts",
+    title: "Cmd+D duplicates every selected screen in one undo step",
+  },
+  {
+    shard: "position-2b",
+    file: "vector-live-edit-acceptance.spec.ts",
+    title:
+      "an open pasted SVG continues from its endpoint and closes without adding a fill",
+  },
+  {
+    shard: "inspector-4b",
+    file: "vector-live-edit-acceptance.spec.ts",
+    title:
+      "closing an edited pasted SVG restores authored fill opacity through history and reload",
+  },
+  {
+    shard: "inspector-1b",
+    file: "vector-live-edit-acceptance.spec.ts",
+    title: "editing a resized pasted SVG keeps its frame and non-path sibling",
+  },
 ] as const;
 
 test("required core Design interaction coverage has explicit regression pins", () => {
@@ -315,7 +404,7 @@ test("required core Design interaction coverage has explicit regression pins", (
 });
 
 test("regression pins resolve unique test titles to the current source lines", () => {
-  assert.equal(DESIGN_E2E_REGRESSION_PINS.length, 94);
+  assert.equal(DESIGN_E2E_REGRESSION_PINS.length, 107);
   assert.deepEqual(
     [...new Set(DESIGN_E2E_REGRESSION_PINS.map(({ shard }) => shard))],
     DESIGN_E2E_REGRESSION_SHARDS,
