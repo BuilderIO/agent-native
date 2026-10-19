@@ -109,7 +109,7 @@ export default defineEventHandler(async (event) => {
     });
   }
 
-  if (!row) {
+  if (!row || row.hiddenBy === BUILTIN_DASHBOARD_HIDDEN_BY) {
     setResponseStatus(event, 404);
     return { error: "Dashboard not found" };
   }

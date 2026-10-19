@@ -3,7 +3,11 @@ import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { desc, eq } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
-import { type DashboardRecord, getDashboard } from "./dashboards-store.js";
+import {
+  type DashboardRecord,
+  getDashboard,
+  assertDashboardEditable,
+} from "./dashboards-store.js";
 
 export type DashboardFolderScope = "personal" | "shared";
 
@@ -123,10 +127,7 @@ export async function assignDashboardToFolder(
 ): Promise<DashboardRecord> {
   const dashboard = await getDashboard(dashboardId, ctx);
   if (!dashboard) throw new Error("dashboard not found or inaccessible");
-  await assertAccess("dashboard", dashboardId, "editor", {
-    userEmail: ctx.email,
-    orgId: ctx.orgId ?? undefined,
-  });
+  await assertDashboardEditable(dashboardId, ctx);
 
   if (folderId) {
     const folder = await getFolder(folderId, ctx);

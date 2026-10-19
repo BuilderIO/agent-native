@@ -308,14 +308,20 @@ export async function runBuiltinDashboardPass(
       }
       if (dryRun) continue;
 
-      // The org keeps the built-in either way; a kept copy just stands beside it.
-      if (install && builtinId !== BUILTIN_DEMO_DASHBOARD_ID) {
+      // Kept copies can contain private or edited bindings; only adopt pristine copies.
+      if (
+        outcome === "hidden" &&
+        install &&
+        builtinId !== BUILTIN_DEMO_DASHBOARD_ID
+      ) {
         const scope = { email: row.ownerEmail, orgId: row.orgId ?? null };
         if (install.bindings || install.programIds) {
           if (!(await loadBuiltinDashboard(builtinId, scope))) {
             await recordBuiltinDashboardInstall(scope, builtinId, install);
           }
-        } else if (builtinId === "google-analytics") {
+        } else if (
+          (SEED_BUILTIN_DASHBOARD_IDS as readonly string[]).includes(builtinId)
+        ) {
           await installBuiltinDashboardOnce(scope, builtinId);
         }
       }

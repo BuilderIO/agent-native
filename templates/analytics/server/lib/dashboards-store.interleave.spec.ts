@@ -90,6 +90,7 @@ const state = vi.hoisted(() => ({
   updateAttempts: 0,
   peerAfterNextUpdate: false,
   inTransaction: false,
+  legacySettings: null as Record<string, unknown> | null,
   writes: [] as Array<{ table: string; inTransaction: boolean }>,
 }));
 
@@ -145,8 +146,8 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("@agent-native/core/settings", () => ({
   listSettingsByPrefix: async () => [],
-  getOrgSetting: async () => null,
-  getUserSetting: async () => null,
+  getOrgSetting: vi.fn(async () => state.legacySettings),
+  getUserSetting: vi.fn(async () => state.legacySettings),
   deleteOrgSetting: async () => undefined,
   deleteUserSetting: async () => undefined,
 }));
@@ -417,6 +418,14 @@ vi.mock("../db/index.js", () => {
 
 const {
   getDashboard,
+  assertDashboardEditable,
+  archiveDashboard,
+  hideDashboard,
+  unhideDashboard,
+  removeDashboard,
+  certifyDashboardWithRetry,
+  saveDashboardView,
+  deleteDashboardView,
   upsertDashboard,
   upsertDashboardOutcome,
   upsertDashboardWithRetry,
@@ -444,6 +453,7 @@ function readPanelIds(): string[] {
 
 beforeEach(() => {
   state.dashboard = baseDashboard();
+  state.legacySettings = null;
   state.analysis = {
     ...state.analysis,
     updatedAt: "2026-07-09T00:00:00.000Z",
@@ -460,6 +470,77 @@ beforeEach(() => {
 });
 
 describe("dashboards-store concurrency", () => {
+  it.each([
+    ["save", () => upsertDashboard("traffic", "sql", { name: "Changed" }, ctx)],
+    ["edit preflight", () => assertDashboardEditable("traffic", ctx)],
+    ["snapshot", () => createDashboardRevisionSnapshot("traffic", ctx)],
+    [
+      "revision restore",
+      () => restoreDashboardRevision("traffic", "revision-1", ctx),
+    ],
+    ["archive", () => archiveDashboard("traffic", ctx)],
+    ["unarchive", () => unarchiveDashboard("traffic", ctx)],
+    ["hide", () => hideDashboard("traffic", ctx)],
+    ["unhide", () => unhideDashboard("traffic", ctx)],
+    ["delete", () => removeDashboard("traffic", ctx)],
+    ["certify", () => certifyDashboardWithRetry("traffic", ctx)],
+    [
+      "visibility",
+      () =>
+        persistDashboardVisibilityChange(
+          { id: "traffic", title: "Traffic", orgId: null },
+          "org",
+          { visibility: "org" },
+          ctx,
+        ),
+    ],
+    [
+      "save view",
+      () => saveDashboardView("traffic", { name: "View", filters: {} }, ctx),
+    ],
+    ["delete view", () => deleteDashboardView("traffic", "view-1", ctx)],
+  ])(
+    "rejects %s on a copy hidden by the built-in deploy pass",
+    async (_name, mutate) => {
+      state.dashboard.hiddenAt = "2026-10-01T00:00:00.000Z";
+      state.dashboard.hiddenBy = "analytics:builtin-dashboards";
+      const before = { ...state.dashboard };
+
+      await expect(mutate()).rejects.toMatchObject({
+        errorCode: "builtin_dashboard_read_only",
+      });
+
+      expect(state.dashboard).toEqual(before);
+      expect(state.writes).toEqual([]);
+      expect(state.revisions).toEqual([]);
+    },
+  );
+
+  it("does not migrate legacy settings onto a built-in id", async () => {
+    state.legacySettings = {
+      name: "Legacy Google Analytics",
+      panels: [panel("legacy")],
+    };
+
+    await expect(getDashboard("google-analytics", ctx)).resolves.toBeNull();
+
+    expect(state.writes).toEqual([]);
+  });
+
+  it("keeps an already-saved edited row at a built-in seed id editable", async () => {
+    state.dashboard.id = "google-analytics";
+
+    const saved = await upsertDashboard(
+      "google-analytics",
+      "sql",
+      { name: "Edited analytics", panels: [panel("custom")] },
+      ctx,
+    );
+
+    expect(saved.title).toBe("Edited analytics");
+    expect(readPanelIds()).toEqual(["custom"]);
+  });
+
   it("skips an identical dashboard save without updating or creating history", async () => {
     const saved = await upsertDashboard(
       "traffic",

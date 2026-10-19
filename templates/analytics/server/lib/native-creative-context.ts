@@ -5,12 +5,10 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server";
-import { accessFilter } from "@agent-native/core/sharing";
 import type { NativeResourceCaptureAdapter } from "@agent-native/creative-context/server";
-import { and, inArray } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
-import { getDashboard } from "./dashboards-store.js";
+import { openDashboard } from "./open-dashboard.js";
 
 function syntheticPreview(config: Record<string, unknown>) {
   const panels = Array.isArray(config.panels) ? config.panels : [];
@@ -34,27 +32,43 @@ export const nativeDashboardCreativeContextAdapter: NativeResourceCaptureAdapter
     resourceType: "dashboard",
     async listResourceVersions(resourceIds) {
       if (!resourceIds.length) return [];
-      return getDb()
-        .select({
-          resourceId: schema.dashboards.id,
-          sourceModifiedAt: schema.dashboards.updatedAt,
-        })
-        .from(schema.dashboards)
-        .where(
-          and(
-            inArray(schema.dashboards.id, [...resourceIds]),
-            accessFilter(schema.dashboards, schema.dashboardShares),
-          ),
-        );
+      const email = getRequestUserEmail();
+      if (!email) throw new Error("no authenticated user");
+      const scope = { email, orgId: getRequestOrgId() ?? null };
+      const versions = await Promise.all(
+        resourceIds.map(async (resourceId) => {
+          const opened = await openDashboard(resourceId, scope);
+          if (!opened) return null;
+          return {
+            resourceId,
+            sourceModifiedAt: opened.saved
+              ? opened.saved.updatedAt
+              : opened.builtin.version,
+          };
+        }),
+      );
+      return versions.filter((version) => version !== null);
     },
     async capture(reference) {
       const email = getRequestUserEmail();
       if (!email) throw new Error("no authenticated user");
-      const dashboard = await getDashboard(reference.resourceId, {
+      const orgId = getRequestOrgId() ?? null;
+      const opened = await openDashboard(reference.resourceId, {
         email,
-        orgId: getRequestOrgId() ?? null,
+        orgId,
       });
-      if (!dashboard) throw new Error("Dashboard not found");
+      if (!opened) throw new Error("Dashboard not found");
+      const dashboard = opened.saved ?? {
+        id: reference.resourceId,
+        kind: "sql" as const,
+        title: opened.builtin.title,
+        config: opened.builtin.config,
+        updatedAt: opened.builtin.version,
+        ownerEmail: email,
+        orgId,
+        visibility: "private" as const,
+        canManage: false,
+      };
       if (
         reference.expectedUpdatedAt &&
         reference.expectedUpdatedAt !== dashboard.updatedAt

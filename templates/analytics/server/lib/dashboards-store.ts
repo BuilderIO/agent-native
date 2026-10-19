@@ -31,6 +31,7 @@ import {
 import {
   BUILTIN_DASHBOARD_HIDDEN_BY,
   builtinDashboardIdFor,
+  isBuiltinDashboardId,
 } from "../../shared/builtin-dashboard-ids";
 import {
   describeDashboardChanges,
@@ -532,8 +533,10 @@ function legacyDashboardReferenceScope(
   visibility: DashboardReferenceRecord["visibility"];
 } | null {
   if (ctx.orgId && key.startsWith(`o:${ctx.orgId}:${SQL_PREFIX}`)) {
+    const id = key.slice(`o:${ctx.orgId}:${SQL_PREFIX}`.length);
+    if (isBuiltinDashboardId(id)) return null;
     return {
-      id: key.slice(`o:${ctx.orgId}:${SQL_PREFIX}`.length),
+      id,
       kind: "sql",
       ownerEmail: ctx.email,
       orgId: ctx.orgId,
@@ -541,8 +544,10 @@ function legacyDashboardReferenceScope(
     };
   }
   if (ctx.email && key.startsWith(`u:${ctx.email}:${SQL_PREFIX}`)) {
+    const id = key.slice(`u:${ctx.email}:${SQL_PREFIX}`.length);
+    if (isBuiltinDashboardId(id)) return null;
     return {
-      id: key.slice(`u:${ctx.email}:${SQL_PREFIX}`.length),
+      id,
       kind: "sql",
       ownerEmail: ctx.email,
       orgId: null,
@@ -551,7 +556,7 @@ function legacyDashboardReferenceScope(
   }
   if (ctx.email && key.startsWith(`u:${ctx.email}:${EXPLORER_PREFIX}`)) {
     const id = key.slice(`u:${ctx.email}:${EXPLORER_PREFIX}`.length);
-    if (!isLegacyDashboardId(id)) return null;
+    if (!isLegacyDashboardId(id) || isBuiltinDashboardId(id)) return null;
     return {
       id,
       kind: "explorer",
@@ -766,6 +771,7 @@ async function migrateDashboardFromSettings(
   visibility: DashboardRecord["visibility"],
   role?: AccessRole,
 ): Promise<DashboardRecord | null> {
+  if (isBuiltinDashboardId(id)) return null;
   const { title, config } = configFromSettings(settingsValue, kind);
   const db = getDb() as any;
   const createdAt =
@@ -815,6 +821,7 @@ async function findLegacyDashboard(
   orgId: string | null;
   visibility: DashboardRecord["visibility"];
 } | null> {
+  if (isBuiltinDashboardId(id)) return null;
   if (ctx.orgId) {
     const v = await getOrgSetting(ctx.orgId, `${SQL_PREFIX}${id}`);
     if (v)
@@ -1040,7 +1047,7 @@ export async function listDashboards(
         id = key.slice(`u:${ctx.email}:${EXPLORER_PREFIX}`.length);
         kind = isLegacyDashboardId(id) ? "explorer" : null;
       }
-      if (!id || !kind) continue;
+      if (!id || !kind || isBuiltinDashboardId(id)) continue;
       if (filter?.kind && filter.kind !== kind) continue;
       if (seen.has(id)) continue;
       seen.add(id);
@@ -1198,7 +1205,7 @@ export async function listDashboardSummaries(
         id = key.slice(`u:${ctx.email}:${EXPLORER_PREFIX}`.length);
         kind = isLegacyDashboardId(id) ? "explorer" : null;
       }
-      if (!id || !kind || seen.has(id)) continue;
+      if (!id || !kind || isBuiltinDashboardId(id) || seen.has(id)) continue;
       if (filter?.kind && filter.kind !== kind) continue;
       seen.add(id);
       const config = value as Record<string, unknown>;
@@ -1628,6 +1635,7 @@ export async function persistDashboardVisibilityChange(
   update: Record<string, unknown>,
   ctx: AccessCtx,
 ): Promise<void> {
+  assertNotBuiltinDashboard(resource.id, await getDashboard(resource.id, ctx));
   const db = getDb() as any;
   await db.transaction(async (tx: any) => {
     if (visibility !== "private") {
@@ -1750,6 +1758,7 @@ export async function assertDashboardEditable(
   dashboardId: string,
   ctx: AccessCtx,
 ): Promise<void> {
+  assertNotBuiltinDashboard(dashboardId, await getDashboard(dashboardId, ctx));
   await assertAccess("dashboard", dashboardId, "editor", {
     userEmail: ctx.email,
     orgId: ctx.orgId ?? undefined,
@@ -1761,10 +1770,7 @@ export async function createDashboardRevisionSnapshot(
   ctx: AccessCtx,
   chatContext?: AnalyticsRevisionChatContext,
 ): Promise<string | null> {
-  await assertAccess("dashboard", dashboardId, "editor", {
-    userEmail: ctx.email,
-    orgId: ctx.orgId ?? undefined,
-  });
+  await assertDashboardEditable(dashboardId, ctx);
   const dashboard = await getDashboard(dashboardId, ctx);
   if (!dashboard) return null;
   return snapshotDashboardRevision(
@@ -2160,6 +2166,7 @@ export async function certifyDashboardWithRetry(
   let lastConflict: unknown;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const existing = await getDashboard(id, ctx);
+    assertNotBuiltinDashboard(id, existing);
     if (!existing) {
       throw new Error(
         `dashboard "${id}" not found (or you don't have access).`,
@@ -2322,6 +2329,7 @@ async function restoreDashboardRevisionAt(
   snapshotRevisionId: string;
 } | null> {
   const existing = await getDashboard(dashboardId, ctx);
+  assertNotBuiltinDashboard(dashboardId, existing);
   if (!existing) return null;
   await assertAccess("dashboard", dashboardId, "editor", {
     userEmail: ctx.email,
@@ -2424,6 +2432,7 @@ export async function archiveDashboard(
   ctx: AccessCtx,
 ): Promise<DashboardRecord | null> {
   const existing = await getDashboard(id, ctx);
+  assertNotBuiltinDashboard(id, existing);
   if (!existing) return null;
   if (existing.archivedAt) return existing;
   await assertAccess("dashboard", id, "editor", {
@@ -2457,6 +2466,7 @@ export async function unarchiveDashboard(
   ctx: AccessCtx,
 ): Promise<DashboardRecord | null> {
   const existing = await getDashboard(id, ctx);
+  assertNotBuiltinDashboard(id, existing);
   if (!existing) return null;
   if (!existing.archivedAt) return existing;
   await assertAccess("dashboard", id, "editor", {
@@ -2503,6 +2513,7 @@ export async function hideDashboard(
   ctx: AccessCtx,
 ): Promise<DashboardRecord | null> {
   const existing = await getDashboard(id, ctx);
+  assertNotBuiltinDashboard(id, existing);
   if (!existing) return null;
   if (existing.hiddenAt) return existing;
   await assertAccess("dashboard", id, "editor", {
@@ -2541,6 +2552,7 @@ export async function unhideDashboard(
   ctx: AccessCtx,
 ): Promise<DashboardRecord | null> {
   const existing = await getDashboard(id, ctx);
+  assertNotBuiltinDashboard(id, existing);
   if (!existing) return null;
   await assertAccess("dashboard", id, "viewer", {
     userEmail: ctx.email,
@@ -2596,6 +2608,7 @@ export async function removeDashboard(
   ctx: AccessCtx,
 ): Promise<void> {
   const existing = await getDashboard(id, ctx);
+  assertNotBuiltinDashboard(id, existing);
   if (!existing) return;
   await assertAccess("dashboard", id, "admin", {
     userEmail: ctx.email,
@@ -3583,10 +3596,7 @@ export async function saveDashboardView(
   },
   ctx: AccessCtx,
 ): Promise<DashboardViewRecord> {
-  await assertAccess("dashboard", dashboardId, "editor", {
-    userEmail: ctx.email,
-    orgId: ctx.orgId ?? undefined,
-  });
+  await assertDashboardEditable(dashboardId, ctx);
   const db = getDb() as any;
   const row = await db.transaction(async (tx: any) => {
     if (view.isDefault) {
@@ -3681,10 +3691,7 @@ export async function deleteDashboardView(
   viewId: string,
   ctx: AccessCtx,
 ): Promise<void> {
-  await assertAccess("dashboard", dashboardId, "editor", {
-    userEmail: ctx.email,
-    orgId: ctx.orgId ?? undefined,
-  });
+  await assertDashboardEditable(dashboardId, ctx);
   const db = getDb() as any;
   await db
     .delete(schema.dashboardViews)

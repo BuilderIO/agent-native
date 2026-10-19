@@ -201,6 +201,33 @@ describe("dashboard agent context route", () => {
     });
   });
 
+  it.each(["public", "private"] as const)(
+    "does not serve a hidden %s install-bound row when the builtin cannot open",
+    async (visibility) => {
+      mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: true });
+      mockBuildBuiltinDashboard.mockReturnValue(null);
+      resultQueue.current = [
+        [
+          {
+            ...dashboardRow(visibility),
+            id: "risk-meeting",
+            hiddenBy: "analytics:builtin-dashboards",
+          },
+        ],
+      ];
+      const result = await (handler as any)({
+        query: { id: "risk-meeting", agent_access: "valid-token" },
+      });
+      expect(result).toEqual({ error: "Dashboard not found" });
+      expect(mockSetResponseStatus).toHaveBeenCalledWith(
+        expect.anything(),
+        404,
+      );
+      expect(mockBuildDashboardAgentContext).not.toHaveBeenCalled();
+      expect(mockBuildDashboardSeedAgentContext).not.toHaveBeenCalled();
+    },
+  );
+
   it("repairs persisted first-party dashboard SQL before serving agent context", async () => {
     mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: true });
     const row = dashboardRow("public");

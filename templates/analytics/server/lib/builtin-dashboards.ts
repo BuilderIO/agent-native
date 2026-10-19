@@ -109,7 +109,10 @@ function builtFromInstall(builtinId: string): boolean {
 
 /** Built-ins the dashboards list shows only once somebody installed them. */
 function listedWhenInstalled(builtinId: string): boolean {
-  return builtFromInstall(builtinId) || builtinId === "google-analytics";
+  return (
+    builtFromInstall(builtinId) ||
+    (SEED_BUILTIN_DASHBOARD_IDS as readonly string[]).includes(builtinId)
+  );
 }
 
 /**
@@ -247,6 +250,12 @@ export async function loadBuiltinDashboard(
   builtinId: string,
   scope: Scope,
 ): Promise<BuiltinDashboard | null> {
+  if (
+    builtinId === BUILTIN_DEMO_DASHBOARD_ID &&
+    (await isDemoDashboardDeleted(scope.email))
+  ) {
+    return null;
+  }
   if (!builtFromInstall(builtinId)) return buildBuiltinDashboard(builtinId);
   const install = (await readInstalls(scope))[builtinId];
   return install ? buildBuiltinDashboard(builtinId, install) : null;
