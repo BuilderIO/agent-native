@@ -47,8 +47,8 @@ export function agentErrorDetails(
 
   const entries: Array<[string, unknown]> = [];
   const omittedKeys: string[] = [];
-  for (const [key, value] of Object.entries(raw)) {
-    const clean = jsonSafeEntry(key, value);
+  for (const key of Object.keys(raw)) {
+    const clean = jsonSafeEntry(raw, key);
     if (clean === UNSERIALIZABLE) omittedKeys.push(key);
     else if (clean !== undefined) entries.push([key, clean]);
   }
@@ -96,10 +96,12 @@ export function agentErrorDetails(
 
 const UNSERIALIZABLE = Symbol("unserializable");
 
-function jsonSafeEntry(key: string, value: unknown): unknown {
+function jsonSafeEntry(raw: object, key: string): unknown {
   let parsed: unknown;
   try {
-    const json = JSON.stringify(value);
+    // A getter can throw. Reading it here names the key; reading it outside
+    // would replace the action's own error.
+    const json = JSON.stringify((raw as Record<string, unknown>)[key]);
     if (json === undefined) return undefined;
     parsed = JSON.parse(json);
   } catch {

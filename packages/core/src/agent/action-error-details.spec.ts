@@ -77,6 +77,8 @@ describe("agentErrorDetails", () => {
           },
           nextPageToken: "page_2",
           sync_token: "sync_2",
+          deltaToken: "delta_2",
+          skipToken: "skip_2",
           maxTokens: 4000,
         },
       }),
@@ -91,6 +93,8 @@ describe("agentErrorDetails", () => {
       embed: { embedTicket: "[REDACTED]", embedExpiresAt: "[REDACTED]" },
       nextPageToken: "page_2",
       sync_token: "sync_2",
+      deltaToken: "delta_2",
+      skipToken: "skip_2",
       maxTokens: 4000,
     });
   });
@@ -137,6 +141,24 @@ describe("agentErrorDetails", () => {
     const error = thrown(() =>
       fail("Odd value", { details: { importId: "imp_1", size: 10n } }),
     );
+
+    expect(agentErrorDetails(error)).toEqual({
+      details: { importId: "imp_1" },
+      omittedKeys: ["size"],
+      omittedKeyCount: 1,
+      line: 'Error details (omitted: size): {"importId":"imp_1"}',
+    });
+  });
+
+  it("names an entry whose getter throws instead of losing the action's error", () => {
+    const details: Record<string, unknown> = { importId: "imp_1" };
+    Object.defineProperty(details, "size", {
+      enumerable: true,
+      get() {
+        throw new Error("unreadable");
+      },
+    });
+    const error = thrown(() => fail("Odd value", { details }));
 
     expect(agentErrorDetails(error)).toEqual({
       details: { importId: "imp_1" },

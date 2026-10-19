@@ -28,12 +28,14 @@ const SENSITIVE_LAST_WORD_PAIRS = new Set([
 const CURSOR_TOKEN_QUALIFIERS = new Set([
   "continuation",
   "cursor",
+  "delta",
   "idempotency",
   "next",
   "page",
   "prev",
   "previous",
   "resume",
+  "skip",
   "sync",
 ]);
 
