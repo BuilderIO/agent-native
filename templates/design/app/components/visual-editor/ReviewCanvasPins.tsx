@@ -1517,8 +1517,11 @@ export function ReviewCanvasPins({
       setPopoverHover(null);
       return;
     }
+    // A bridge-corrected anchor selector replaces the snapshot's, so the highlight re-measures from it.
     setPopoverHover((current) =>
-      current?.key === popoverKey
+      current?.key === popoverKey &&
+      (!popoverAnchorSelector ||
+        current.target?.selector === popoverAnchorSelector)
         ? current
         : {
             key: popoverKey,
@@ -1537,7 +1540,14 @@ export function ReviewCanvasPins({
       ? {
           nodeId: popoverNodeId,
           selector: snapshotSelector,
-          box: popoverSnapshot?.box ?? null,
+          // A box is this anchor's only if the snapshot was taken on this node or on its selector.
+          box:
+            popoverSnapshot &&
+            (popoverSnapshot.nodeId === popoverNodeId ||
+              (popoverAnchorSelector !== null &&
+                popoverSnapshot.selector === popoverAnchorSelector))
+              ? popoverSnapshot.box
+              : null,
         }
       : popoverSnapshot
     : hoverTarget;
@@ -1975,7 +1985,14 @@ export function ReviewCanvasPins({
           typeof payload.layerName === "string" ? payload.layerName : undefined;
         const tagName =
           typeof payload.tagName === "string" ? payload.tagName : undefined;
-        if (!nodeId && !targetSelector && !layerName && !tagName) return;
+        // The bridge's hit selector is the one that re-finds this element, so it replaces
+        // the parent's structural guess made when the pin was dropped.
+        const hitSelector =
+          typeof payload.hitSelector === "string"
+            ? payload.hitSelector
+            : undefined;
+        const anchorSelector = hitSelector ?? targetSelector;
+        if (!nodeId && !anchorSelector && !layerName && !tagName) return;
         setDraftPin((current) => {
           if (
             !current ||
@@ -1989,7 +2006,7 @@ export function ReviewCanvasPins({
             anchor: {
               ...current.anchor,
               ...(nodeId ? { nodeId } : {}),
-              ...(targetSelector ? { selector: targetSelector } : {}),
+              ...(anchorSelector ? { selector: anchorSelector } : {}),
               point: current.anchor.point,
             },
             metadata: {
