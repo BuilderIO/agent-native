@@ -2988,6 +2988,23 @@ describe("FirstRunOnboarding", () => {
       expect(q("first-run-setup-skip")).toBeNull();
     });
 
+    it("asks before skipping from the credits offer and skips on confirm", () => {
+      mocks.useBuilderConnectFlow.mockReturnValue(flow());
+      openChoice();
+      click("first-run-credits-skip");
+      expect(document.body.textContent).toContain("Are you sure?");
+      mocks.trackOnboardingEvent.mockClear();
+      expect(mocks.trackOnboardingEvent).not.toHaveBeenCalledWith(
+        "onboarding_step_skipped",
+        expect.anything(),
+      );
+      click("first-run-credits-skip-confirm");
+      expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+        "onboarding_step_skipped",
+        expect.objectContaining({ step_id: "choice" }),
+      );
+    });
+
     it("activates credits by provisioning an account", () => {
       const start = vi.fn();
       mocks.useBuilderConnectFlow.mockReturnValue(flow({ start }));

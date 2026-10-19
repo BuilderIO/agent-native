@@ -176,6 +176,12 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.creditsSubtitle":
     "从 Builder.io 一键获取适用于此应用的 LLM、Jev、存储等免费额度。",
   "onboarding.creditsLearnMore": "了解更多",
+  "onboarding.creditsSkip": "跳过",
+  "onboarding.creditsSkipConfirmTitle": "确定要跳过吗？",
+  "onboarding.creditsSkipConfirmBody":
+    "Agent-Native 应用需要连接 LLM 才能使用大部分功能。没有 LLM，大部分功能都无法使用。",
+  "onboarding.creditsSkipGoBack": "返回",
+  "onboarding.creditsSkipAnyway": "仍然跳过",
   "onboarding.creditsSkipBody":
     "如果您跳过，您需要连接自己的密钥才能使用 AI 和存储。",
   "onboarding.builderConnect": "连接 Builder.io",

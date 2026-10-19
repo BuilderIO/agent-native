@@ -183,6 +183,12 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.creditsSubtitle":
     "Builder.io에서 이 앱을 위해 한 번의 클릭으로 LLM, Jev, 스토리지 등의 무료 크레딧을 받으세요.",
   "onboarding.creditsLearnMore": "자세히 알아보기",
+  "onboarding.creditsSkip": "건너뛰기",
+  "onboarding.creditsSkipConfirmTitle": "정말 건너뛰시겠습니까?",
+  "onboarding.creditsSkipConfirmBody":
+    "Agent-Native 앱은 대부분의 기능을 사용하려면 연결된 LLM이 필요합니다. LLM이 없으면 대부분의 기능이 작동하지 않습니다.",
+  "onboarding.creditsSkipGoBack": "돌아가기",
+  "onboarding.creditsSkipAnyway": "그래도 건너뛰기",
   "onboarding.creditsSkipBody":
     "건너뛰면 AI와 저장소를 사용하기 위해 자신의 키를 연결해야 합니다.",
   "onboarding.builderConnect": "Builder.io 연결",

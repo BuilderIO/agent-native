@@ -192,6 +192,12 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.creditsSubtitle":
     "Obtenez des crédits gratuits pour les LLM, Jev, le stockage et plus pour cette application en un clic avec Builder.io.",
   "onboarding.creditsLearnMore": "En savoir plus",
+  "onboarding.creditsSkip": "Ignorer",
+  "onboarding.creditsSkipConfirmTitle": "Êtes-vous sûr ?",
+  "onboarding.creditsSkipConfirmBody":
+    "Les apps Agent-Native ont besoin d’un LLM connecté pour utiliser la plupart des fonctionnalités. La plupart ne fonctionneront pas sans.",
+  "onboarding.creditsSkipGoBack": "Retour",
+  "onboarding.creditsSkipAnyway": "Ignorer quand même",
   "onboarding.creditsSkipBody":
     "Si vous ignorez, vous devrez connecter vos propres clés pour utiliser l’IA et le stockage.",
   "onboarding.builderConnect": "Connecter Builder.io",

@@ -182,6 +182,12 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.creditsSubtitle":
     "احصل على أرصدة مجانية لنماذج LLM وJev والتخزين والمزيد لهذا التطبيق بنقرة واحدة من Builder.io.",
   "onboarding.creditsLearnMore": "اعرف المزيد",
+  "onboarding.creditsSkip": "تخطي",
+  "onboarding.creditsSkipConfirmTitle": "هل أنت متأكد؟",
+  "onboarding.creditsSkipConfirmBody":
+    "تحتاج تطبيقات Agent-Native إلى نموذج LLM متصل لاستخدام معظم الميزات. لن تعمل معظم الوظائف بدونه.",
+  "onboarding.creditsSkipGoBack": "رجوع",
+  "onboarding.creditsSkipAnyway": "تخطي على أي حال",
   "onboarding.creditsSkipBody":
     "إذا تخطيت، ستحتاج إلى توصيل مفاتيحك الخاصة لاستخدام الذكاء الاصطناعي والتخزين.",
   "onboarding.builderConnect": "الاتصال بـ Builder.io",

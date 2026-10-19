@@ -28,6 +28,12 @@ import type {
   OnboardingCapability,
 } from "@agent-native/core/onboarding/types";
 import { Badge } from "@agent-native/toolkit/ui/badge";
+import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@agent-native/toolkit/ui/popover";
 import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import { cn } from "@agent-native/toolkit/utils";
 import {
@@ -263,6 +269,7 @@ export function FirstRunOnboarding({
   )}%`;
   const redesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
   const [moreInfoOpen, setMoreInfoOpen] = useState(false);
+  const [skipConfirmOpen, setSkipConfirmOpen] = useState(false);
   const [setupExperimentDecision, setSetupExperimentDecision] = useState<
     boolean | null
   >(null);
@@ -892,7 +899,7 @@ export function FirstRunOnboarding({
       if (setupSkipStartedRef.current || completionInFlightRef.current) return;
       setupSkipStartedRef.current = true;
       trackFirstRunStepSkipped("choice");
-      completionRedirectRef.current = "/record";
+      if (setupSkippable) completionRedirectRef.current = "/record";
       handleFinish(null);
     };
 
@@ -1110,6 +1117,52 @@ export function FirstRunOnboarding({
                 )}
               </div>
             )}
+            <div className="fixed bottom-6 right-6 z-10">
+              <Popover open={skipConfirmOpen} onOpenChange={setSkipConfirmOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    data-testid="first-run-credits-skip"
+                    className="rounded-sm text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {t("agentChat.onboarding.creditsSkip")}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  side="top"
+                  align="end"
+                  className="w-72 space-y-3 p-4 text-left"
+                >
+                  <div className="space-y-1">
+                    <p className="text-sm font-semibold text-foreground">
+                      {t("agentChat.onboarding.creditsSkipConfirmTitle")}
+                    </p>
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      {t("agentChat.onboarding.creditsSkipConfirmBody")}
+                    </p>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setSkipConfirmOpen(false)}
+                    >
+                      {t("agentChat.onboarding.creditsSkipGoBack")}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      data-testid="first-run-credits-skip-confirm"
+                      onClick={skipSetup}
+                    >
+                      {t("agentChat.onboarding.creditsSkipAnyway")}
+                    </Button>
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
           </div>
         </OnboardingShell>
       );

@@ -185,6 +185,12 @@ const messages = {
   "onboarding.creditsSubtitle":
     "Get free credits for LLMs, Jev, storage, and more for this app in one click from Builder.io.",
   "onboarding.creditsLearnMore": "Learn more",
+  "onboarding.creditsSkip": "Skip",
+  "onboarding.creditsSkipConfirmTitle": "Are you sure?",
+  "onboarding.creditsSkipConfirmBody":
+    "Agent-Native apps need an LLM connected to use most features. Most functionality won't work without one.",
+  "onboarding.creditsSkipGoBack": "Go back",
+  "onboarding.creditsSkipAnyway": "Skip anyway",
   "onboarding.creditsSkipBody":
     "If you skip, you'll need to connect your own keys to use AI and storage.",
   "onboarding.builderActivating": "Activating Builder.io free credits",
