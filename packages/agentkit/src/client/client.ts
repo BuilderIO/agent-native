@@ -218,7 +218,7 @@ export interface SendMessageInput {
   queuedWhileRunActive?: boolean;
   /** Host intent for a send that must interrupt the active run if it hits a server-side slot conflict. */
   interruptActiveRun?: boolean;
-  /** Host-only acknowledgement after the server accepts the message; never sent to the transport. */
+  /** Host-only acknowledgement after a local message is ready for handoff; never sent to the transport. */
   onLocalSubmit?: () => void;
   /** Reuses a host-created optimistic queue row while async preparation finishes. */
   queuedMessageReservationId?: string;
@@ -3037,7 +3037,7 @@ export class AgentKitClient implements AgentKitController {
       suggestionsPendingTurn: true,
     });
     this.setConnection("connecting");
-
+    let localSubmitAcknowledged = false;
     let submissionPayload: AgentSubmissionPayload | undefined;
     try {
       submissionPayload ??= await this.createSubmissionPayload(
@@ -3045,6 +3045,9 @@ export class AgentKitClient implements AgentKitController {
         message.id,
         expiresAt,
       );
+      assertSubmissionNotExpired(expiresAt);
+      this.acknowledgeLocalSubmit(input.onLocalSubmit);
+      localSubmitAcknowledged = true;
       const messages = messagesWithToolCallHistory(
         [...currentAfterReadiness.messages, message],
         orderedThreadToolCalls(currentAfterReadiness),
@@ -3079,7 +3082,6 @@ export class AgentKitClient implements AgentKitController {
       );
       const completed = this.consume(input.threadId, result.runId);
       this.trackConsumer(input.threadId, result.runId, completed);
-      this.acknowledgeLocalSubmit(input.onLocalSubmit);
       return {
         runId: result.runId,
         completed,
@@ -3097,7 +3099,6 @@ export class AgentKitClient implements AgentKitController {
           message.id,
         );
         const completed = this.resubscribeRun(input.threadId, submittedRunId);
-        this.acknowledgeLocalSubmit(input.onLocalSubmit);
         return {
           runId: submittedRunId,
           completed,
@@ -3133,6 +3134,7 @@ export class AgentKitClient implements AgentKitController {
           const queued = await this.queueMessageWithId(
             {
               ...input,
+              onLocalSubmit: undefined,
               queuedMessageReservationId: undefined,
               queuedWhileRunActive: false,
             },
@@ -3197,13 +3199,14 @@ export class AgentKitClient implements AgentKitController {
         errorProperty(error, "code") === "submission_expired";
       this.setThread(input.threadId, {
         ...failed,
-        messages: submissionExpired
-          ? failed.messages.filter((candidate) => candidate.id !== message.id)
-          : failed.messages.map((candidate) =>
-              candidate.id === message.id
-                ? { ...candidate, status: "error" }
-                : candidate,
-            ),
+        messages:
+          submissionExpired && !localSubmitAcknowledged
+            ? failed.messages.filter((candidate) => candidate.id !== message.id)
+            : failed.messages.map((candidate) =>
+                candidate.id === message.id
+                  ? { ...candidate, status: "error" }
+                  : candidate,
+              ),
         ...(submissionExpired
           ? {
               suggestions: currentAfterReadiness.suggestions,

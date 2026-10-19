@@ -60,8 +60,6 @@ const {
   reapIfStale,
   markTurnAborted,
   setRunInFlightMarker,
-  IN_FLIGHT_RUN_STALE_GRACE_MS,
-  IN_FLIGHT_GRACE_MAX_LIVENESS_GAP_MS,
   BACKGROUND_RUN_STALE_MS,
 } = await import("./run-store.js");
 
@@ -240,7 +238,7 @@ describe("foreground self-chain — reaper coverage for the handoff window", () 
   });
 });
 
-describe("reapIfStale — in-flight grace (in_flight_since)", () => {
+describe("reapIfStale — in-flight marker and execution lease", () => {
   it("setRunInFlightMarker round-trips through real SQL: sets on true, clears on false", async () => {
     const { successor: runId, thread } = ids();
     await insertRun(runId, thread, "turn-1", {
@@ -268,7 +266,7 @@ describe("reapIfStale — in-flight grace (in_flight_since)", () => {
     expect(await readInFlightSince(runId)).toBeNull();
   });
 
-  it("does NOT reap a background run whose heartbeat lapsed past BACKGROUND_RUN_STALE_MS while in-flight work is within the bounded grace", async () => {
+  it("reaps a stale in-flight run when no execution lease is live", async () => {
     const { successor: runId, thread } = ids();
     await insertRun(runId, thread, "turn-1", {
       dispatchMode: "background",
@@ -279,26 +277,6 @@ describe("reapIfStale — in-flight grace (in_flight_since)", () => {
       Date.now() - (BACKGROUND_RUN_STALE_MS + 5_000),
     );
     await setRunInFlightMarker(runId, true);
-
-    const reaped = await reapIfStale(runId);
-
-    expect(reaped).toBe(false);
-    expect((await getRunById(runId))?.status).toBe("running");
-  });
-
-  it("DOES reap the SAME run loudly once the bounded in-flight grace is exceeded", async () => {
-    const { successor: runId, thread } = ids();
-    await insertRun(runId, thread, "turn-1", {
-      dispatchMode: "background",
-    });
-    await claimBackgroundRun(runId);
-    await setStaleLiveness(
-      runId,
-      Date.now() - (BACKGROUND_RUN_STALE_MS + 5_000),
-    );
-    await pglite
-      .prepare(`UPDATE agent_runs SET in_flight_since = ? WHERE id = ?`)
-      .run(Date.now() - (IN_FLIGHT_RUN_STALE_GRACE_MS + 5_000), runId);
 
     const reaped = await reapIfStale(runId);
 
@@ -324,29 +302,6 @@ describe("reapIfStale — in-flight grace (in_flight_since)", () => {
 
     expect(reaped).toBe(true);
     expect((await getRunById(runId))?.status).toBe("errored");
-  });
-
-  it("DOES reap a FRESH in-flight marker whose producer stopped heartbeating past IN_FLIGHT_GRACE_MAX_LIVENESS_GAP_MS", async () => {
-    const { successor: runId, thread } = ids();
-    await insertRun(runId, thread, "turn-1", {
-      dispatchMode: "background",
-    });
-    await claimBackgroundRun(runId);
-    await setRunInFlightMarker(runId, true);
-    await setStaleLiveness(
-      runId,
-      Date.now() - (IN_FLIGHT_GRACE_MAX_LIVENESS_GAP_MS + 5_000),
-    );
-    expect(await readInFlightSince(runId)).toBeGreaterThan(
-      Date.now() - IN_FLIGHT_RUN_STALE_GRACE_MS,
-    );
-
-    const reaped = await reapIfStale(runId);
-
-    expect(reaped).toBe(true);
-    const row = await getRunById(runId);
-    expect(row?.status).toBe("errored");
-    expect(row?.errorCode).toBe("stale_run");
   });
 
   it("surfaces hasInFlightWork via getRunByThread's inFlightSince for the /runs/active wire signal", async () => {
@@ -394,7 +349,7 @@ describe("execution lease revocation by control-plane transitions", () => {
     await setRunInFlightMarker(runId, true, markerSince);
     await setStaleLiveness(runId, Date.now() - 2 * 60_000);
 
-    expect(await reapIfStale(runId, 60_000)).toBe(false);
+    expect(await reapIfStale(runId)).toBe(false);
     expect((await getRunById(runId))?.status).toBe("running");
     await withExecutionFence(fence, () => setRunInFlightMarker(runId, false));
   });

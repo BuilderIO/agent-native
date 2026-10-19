@@ -91,8 +91,8 @@ const {
   failRunBeforeDispatch,
   recordRunDiagnostic,
   RUN_DIAG_STAGE,
+  BACKGROUND_RUN_STALE_MS,
   BACKGROUND_PROCESSING_RUN_STALE_MS,
-  IN_FLIGHT_RUN_STALE_GRACE_MS,
   STALE_RUN_TERMINAL_REASON,
   __resetNoRunningRunsProbeForTests,
 } = await import("./run-store.js");
@@ -242,10 +242,11 @@ async function seedPriorRun(
 const STALE_PAST_MS = 5 * 60_000;
 
 describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () => {
-  it("keeps a 12-minute in-flight tool inside the stale-reap grace", async () => {
+  it("reaps a stale 12-minute in-flight tool after its execution lease expires", async () => {
     currentClient = makeRawClient(true);
     const { runId, thread, turn } = ids();
-    await insertRun(runId, thread, turn);
+    await insertRun(runId, thread, turn, { dispatchMode: "background" });
+    await claimTurnExecutionLease(thread, turn, runId);
 
     const now = Date.now();
     const toolStartedAt = now - 12 * 60_000;
@@ -256,14 +257,21 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
                 in_flight_since = ?
           WHERE id = ?`,
       )
-      .run(toolStartedAt, now - 60_000, toolStartedAt, toolStartedAt, runId);
-
-    expect(await reapIfStale(runId)).toBe(false);
-    expect((await readRow(runId))?.status).toBe("running");
-
+      .run(
+        toolStartedAt,
+        now - (BACKGROUND_RUN_STALE_MS + 10_000),
+        toolStartedAt,
+        toolStartedAt,
+        runId,
+      );
     await pglite
-      .prepare("UPDATE agent_runs SET in_flight_since = ? WHERE id = ?")
-      .run(now - IN_FLIGHT_RUN_STALE_GRACE_MS - 1, runId);
+      .prepare(
+        `UPDATE agent_execution_leases
+            SET lease_expires_at = clock_timestamp() - INTERVAL '1 second'
+          WHERE thread_id = ? AND turn_id = ? AND owner_run_id = ?`,
+      )
+      .run(thread, turn, runId);
+
     expect(await reapIfStale(runId)).toBe(true);
     expect((await readRow(runId))?.status).toBe("errored");
   });

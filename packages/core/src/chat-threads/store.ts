@@ -863,42 +863,60 @@ export async function createThread(
     source?: ChatThreadSource | null;
     /** Explicit owner organization for durable/background callers. */
     orgId?: string | null;
+    initialData?: {
+      threadData: string;
+      preview: string;
+      messageCount: number;
+    };
   },
 ): Promise<ChatThread> {
   await ensureTable();
-  const client = getDbExec();
   const id = opts?.id ?? generateId();
   const now = Date.now();
   const title = opts?.title ?? "";
   const scope = opts?.scope ?? null;
   const source = opts?.source ?? null;
   const orgId = opts?.orgId ?? getRequestOrgId() ?? null;
+  const initialData = opts?.initialData;
+  const preview = initialData?.preview ?? "";
+  const threadData = initialData?.threadData ?? "{}";
+  const messageCount = initialData?.messageCount ?? 0;
+  if (!Number.isInteger(messageCount) || messageCount < 0) {
+    throw new TypeError("Initial chat thread message count is invalid.");
+  }
+  assertPersistableThreadData(threadData, "thread_data");
 
-  await client.execute({
-    sql: `INSERT INTO chat_threads (id, owner_email, title, preview, thread_data, message_count, created_at, updated_at, scope_type, scope_id, scope_label, source_platform, source_app_id, source_url, org_id, visibility) VALUES (?, ?, ?, '', '{}', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'private')`,
-    args: [
-      id,
-      ownerEmail,
-      title,
-      now,
-      now,
-      scope?.type ?? null,
-      scope?.id ?? null,
-      scope?.label ?? null,
-      source?.platform ?? null,
-      source?.appId ?? null,
-      source?.url ?? null,
-      orgId,
-    ],
-  });
+  await withFencedExecutionWrite((tx) =>
+    tx.execute({
+      // A parent run may atomically create a child thread before that child has a lease.
+      sql: `INSERT INTO chat_threads (id, owner_email, title, preview, thread_data, message_count, created_at, updated_at, scope_type, scope_id, scope_label, source_platform, source_app_id, source_url, org_id, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'private')`,
+      args: [
+        id,
+        ownerEmail,
+        title,
+        preview,
+        threadData,
+        messageCount,
+        now,
+        now,
+        scope?.type ?? null,
+        scope?.id ?? null,
+        scope?.label ?? null,
+        source?.platform ?? null,
+        source?.appId ?? null,
+        source?.url ?? null,
+        orgId,
+      ],
+    }),
+  );
 
   return {
     id,
     ownerEmail,
     title,
-    preview: "",
-    threadData: "{}",
-    messageCount: 0,
+    preview,
+    threadData,
+    messageCount,
     createdAt: now,
     updatedAt: now,
     scope,
@@ -2356,6 +2374,7 @@ export async function mutateThreadQueuedMessages(
     let result: ThreadQueuedMessageMutationResult | undefined;
     let receiptUnavailable = false;
     let receiptConflict = false;
+    let hadExistingQueuedMessage = false;
     let removedReceiptState: "removed" | "expired" = "removed";
     let movedToTop = false;
     try {
@@ -2397,6 +2416,7 @@ export async function mutateThreadQueuedMessages(
 
           switch (mutation.type) {
             case "append": {
+              hadExistingQueuedMessage = false;
               if (queuedSubmissionExpired(mutation.message, Date.now())) {
                 response = { submissionExpired: true };
                 break;
@@ -2419,12 +2439,11 @@ export async function mutateThreadQueuedMessages(
               const existing = current.find(
                 (message) => message.id === mutation.message.id,
               );
-              const hashInput = mutation.hashInput ?? mutation.message;
-              const hash = hashQueuedSubmissionPayload(threadId, hashInput);
+              hadExistingQueuedMessage = existing !== undefined;
               if (
                 existing &&
-                hashQueuedSubmissionPayload(threadId, existing) !== hash &&
-                !mutation.hashInput
+                hashQueuedSubmissionPayload(threadId, existing) !==
+                  hashQueuedSubmissionPayload(threadId, mutation.message)
               ) {
                 throw new QueuedSubmissionAdmissionError(
                   "queued_message_id_conflict",
@@ -2649,6 +2668,12 @@ export async function mutateThreadQueuedMessages(
               threadId,
               message.id,
             );
+            if (hadExistingQueuedMessage && !existing) {
+              throw new QueuedSubmissionAdmissionError(
+                "queued_message_id_conflict",
+                message.id,
+              );
+            }
             if (existing) {
               if (
                 existing.payloadHash !== hash ||

@@ -7,9 +7,14 @@ import {
   it,
   vi,
 } from "vitest";
+import { z } from "zod";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
+import { actionArgumentsHash } from "../action-arguments-identity.js";
+import { defineAction } from "../action.js";
 import { withExecutionFence } from "./execution-fence.js";
+import type { ActionEntry } from "./production-agent.js";
+import { executeAgentToolCall, toolCallCacheKey } from "./production-agent.js";
 
 // Real PGlite behind getDbExec, so the revision matching runs as genuine SQL
 // against tables built by the versioned migrations, legacy rows included.
@@ -76,7 +81,7 @@ const {
   isAgentToolAlwaysAllowed,
   setAgentToolApprovalPolicy,
 } = await import("./tool-approval-store.js");
-const { claimTurnExecutionLease, ensureRunTables, insertRun } =
+const { claimTurnExecutionLease, ensureRunTables, insertRun, markTurnAborted } =
   await import("./run-store.js");
 
 const scope = {
@@ -208,6 +213,115 @@ describe("tool approvals bound to the arguments that run", () => {
       [approval.callId],
     );
     expect(status.rows[0]?.status).toBe("pending");
+  });
+});
+
+describe("tool approval and turn cancellation ordering", () => {
+  const toolName = "publish-draft";
+  const input = {};
+  const approvalKey = toolCallCacheKey(toolName, input);
+
+  async function createApprovedTurn(label: string) {
+    const threadId = `approval-cancel-${label}-thread`;
+    const turnId = `approval-cancel-${label}-turn`;
+    const runId = `approval-cancel-${label}-run`;
+    await insertRun(runId, threadId, turnId);
+    const fence = await claimTurnExecutionLease(threadId, turnId, runId);
+    const approvalId = await withExecutionFence(fence, () =>
+      createAgentToolApproval({
+        ...scope,
+        threadId,
+        turnId,
+        toolName,
+        callId: `${label}-approved-call`,
+        approvalKey,
+        argumentsHash: actionArgumentsHash(input),
+      }),
+    );
+    return { threadId, turnId, fence, approvalId };
+  }
+
+  async function attemptApprovedAction(
+    threadId: string,
+    turnId: string,
+    fence: Awaited<ReturnType<typeof claimTurnExecutionLease>>,
+    approvalId: string,
+  ) {
+    const run = vi.fn(async () => ({ ok: true }));
+    const action = defineAction({
+      description: "Publish the draft.",
+      schema: z.object({}),
+      needsApproval: true,
+      run,
+    }) as unknown as ActionEntry;
+    const result = await withExecutionFence(fence, () =>
+      executeAgentToolCall({
+        actions: { [toolName]: action },
+        name: toolName,
+        input,
+        callId: "resumed-call",
+        ownerEmail: scope.ownerEmail,
+        orgId: scope.orgId,
+        threadId,
+        turnId,
+        approvedToolCalls: [approvalKey],
+        approvedToolCallAskId: approvalId,
+        consumeApproval: (binding) =>
+          consumeAgentToolApproval({
+            ownerEmail: scope.ownerEmail,
+            orgId: scope.orgId,
+            threadId,
+            turnId,
+            toolName: binding.toolName,
+            toolRevision: binding.toolRevision,
+            callId: binding.callId,
+            approvalKey: binding.approvalKey,
+            argumentsHash: binding.argumentsHash,
+            approvalId: binding.approvalId,
+          }),
+      }),
+    );
+    return { result, run };
+  }
+
+  it("does not run an approved action when cancellation commits first", async () => {
+    const turn = await createApprovedTurn("cancel-first");
+    expect(await markTurnAborted(turn.threadId, turn.turnId)).toBe("aborted");
+
+    const { result, run } = await attemptApprovedAction(
+      turn.threadId,
+      turn.turnId,
+      turn.fence,
+      turn.approvalId,
+    );
+
+    expect(result.status).toBe("failed");
+    expect(run).not.toHaveBeenCalled();
+    const approval = await pglite.query<{ status: string }>(
+      "SELECT status FROM agent_tool_approvals WHERE id = ?",
+      [turn.approvalId],
+    );
+    expect(approval.rows[0]?.status).toBe("pending");
+  });
+
+  it("runs an approved action before cancellation when consumption wins first", async () => {
+    const turn = await createApprovedTurn("approval-first");
+
+    const { result, run } = await attemptApprovedAction(
+      turn.threadId,
+      turn.turnId,
+      turn.fence,
+      turn.approvalId,
+    );
+
+    expect(result.status).toBe("completed");
+    expect(run).toHaveBeenCalledOnce();
+    const approval = await pglite.query<{ status: string }>(
+      "SELECT status FROM agent_tool_approvals WHERE id = ?",
+      [turn.approvalId],
+    );
+    expect(approval.rows[0]?.status).toBe("consumed");
+    expect(await markTurnAborted(turn.threadId, turn.turnId)).toBe("aborted");
   });
 });
 

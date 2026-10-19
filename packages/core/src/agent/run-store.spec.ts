@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { withExecutionFence } from "./execution-fence.js";
+
 interface ExecCall {
   sql: string;
   args: unknown[];
@@ -83,6 +85,9 @@ const mockDb: any = {
     if (/SELECT generation, owner_run_id,/i.test(rawSql)) {
       return { rows: [], rowsAffected: 0 };
     }
+    if (/SELECT generation\s+FROM agent_execution_leases/i.test(rawSql)) {
+      return { rows: [{ generation: args[3] }], rowsAffected: 0 };
+    }
     if (
       /SELECT status, worker_generation FROM agent_runs WHERE id/i.test(rawSql)
     ) {
@@ -97,6 +102,26 @@ const mockDb: any = {
     ) {
       return {
         rows: hasLaterSameTurnRun ? [] : connectionRequestRows,
+        rowsAffected: 0,
+      };
+    }
+    if (
+      /SELECT thread_id, COALESCE\(turn_id, id\) AS turn_id, status,/i.test(
+        rawSql,
+      ) &&
+      /FROM agent_runs WHERE id = \?/i.test(rawSql)
+    ) {
+      return {
+        rows: [
+          {
+            thread_id: "thread-test",
+            turn_id: "turn-test",
+            status: "running",
+            error_code: null,
+            terminal_reason: null,
+            completed_at: null,
+          },
+        ],
         rowsAffected: 0,
       };
     }
@@ -397,6 +422,18 @@ describe("run store", () => {
     __resetNoRunningRunsProbeForTests();
     vi.clearAllMocks();
   });
+
+  async function reconcileAsWorker(runId: string): Promise<boolean> {
+    return withExecutionFence(
+      {
+        threadId: "thread-test",
+        turnId: "turn-test",
+        runId,
+        generation: "1",
+      },
+      () => reconcileTerminalRunFromEvents(runId),
+    );
+  }
 
   it("does not mark replayed provider auth failures recoverable", () => {
     const resolved = resolveErroredRunTerminalEvent({
@@ -831,7 +868,7 @@ describe("run store", () => {
     expect(JSON.parse(eventJson)).toEqual(STALE_RUN_ERROR_EVENT);
   });
 
-  it("reconciles a persisted terminal event instead of stale-reaping the run", async () => {
+  it("does not repair a terminal run from the reaper before ownership transfer", async () => {
     latestEventRows = [
       {
         seq: 9,
@@ -840,30 +877,19 @@ describe("run store", () => {
       },
     ];
 
-    const reaped = await reapIfStale("run-done-event");
+    const reconciled = await reconcileTerminalRunFromEvents("run-done-event");
 
-    expect(reaped).toBe(false);
-    const repair = execCalls.find(
-      (call) =>
-        /UPDATE agent_runs/i.test(call.sql) &&
-        /SET status = \?/i.test(call.sql),
-    );
-    expect(repair?.args[0]).toBe("completed");
-    expect(repair?.args[1]).toBe(123_456);
-    expect(repair?.args[2]).toBeNull();
-    expect(repair?.args[3]).toBeNull();
-    expect(repair?.args[4]).toBe("done");
-    expect(repair?.args[5]).toBe("run-done-event");
+    expect(reconciled).toBe(false);
     expect(
       execCalls.some(
         (call) =>
-          /UPDATE agent_runs[\s\S]*SET status = 'errored'/i.test(call.sql) &&
-          call.args.includes("run-done-event"),
+          /UPDATE agent_runs/i.test(call.sql) &&
+          /SET status = \?/i.test(call.sql),
       ),
     ).toBe(false);
   });
 
-  it("reconciles missing credential terminal events as errored runs", async () => {
+  it("reconciles missing credential terminal events under the worker fence", async () => {
     latestEventRows = [
       {
         seq: 9,
@@ -872,9 +898,7 @@ describe("run store", () => {
       },
     ];
 
-    const reaped = await reapIfStale("run-missing-key-event");
-
-    expect(reaped).toBe(false);
+    await reconcileAsWorker("run-missing-key-event");
     const repair = execCalls.find(
       (call) =>
         /UPDATE agent_runs/i.test(call.sql) &&
@@ -909,9 +933,7 @@ describe("run store", () => {
       },
     ];
 
-    const reaped = await reapIfStale("run-error-then-done");
-
-    expect(reaped).toBe(false);
+    await reconcileAsWorker("run-error-then-done");
     const repair = execCalls.find(
       (call) =>
         /UPDATE agent_runs/i.test(call.sql) &&
@@ -944,7 +966,7 @@ describe("run store", () => {
       },
     ];
 
-    await reapIfStale("run-missing-then-done");
+    await reconcileAsWorker("run-missing-then-done");
 
     const repair = execCalls.find(
       (call) =>
@@ -972,7 +994,7 @@ describe("run store", () => {
       },
     ];
 
-    await reapIfStale("run-stale-then-done");
+    await reconcileAsWorker("run-stale-then-done");
 
     const repair = execCalls.find(
       (call) =>
@@ -992,7 +1014,7 @@ describe("run store", () => {
       { seq: 9, event_data: JSON.stringify({ type: "done" }) },
     ];
 
-    await reapIfStale("run-legacy-done-event");
+    await reconcileAsWorker("run-legacy-done-event");
 
     const repair = execCalls.find(
       (call) =>
@@ -1006,7 +1028,7 @@ describe("run store", () => {
     expect(repair?.args[1]).toBeNull();
   });
 
-  it("repairs terminal event rows before listing runs for debug surfaces", async () => {
+  it("does not repair terminal event rows from run-list reads", async () => {
     runListRows = [
       {
         id: "run-done-event",
@@ -1024,14 +1046,6 @@ describe("run store", () => {
         diag_stage: null,
       },
     ];
-    refreshedRunListRows = [
-      {
-        ...runListRows[0],
-        status: "completed",
-        completed_at: 123_456,
-        terminal_reason: "done",
-      },
-    ];
     latestEventRows = [
       {
         seq: 9,
@@ -1042,20 +1056,16 @@ describe("run store", () => {
 
     const runs = await listRunsForThread("thread-done");
 
-    expect(runs[0]?.status).toBe("completed");
-    expect(runs[0]?.completedAt).toBe(123_456);
-    expect(runs[0]?.terminalReason).toBe("done");
-    expect(runListSelectCount).toBe(2);
-    const repair = execCalls.find(
-      (call) =>
-        /UPDATE agent_runs/i.test(call.sql) &&
-        /SET status = \?/i.test(call.sql),
-    );
-    expect(repair?.args[0]).toBe("completed");
-    expect(repair?.args[2]).toBeNull();
-    expect(repair?.args[3]).toBeNull();
-    expect(repair?.args[4]).toBe("done");
-    expect(repair?.args[5]).toBe("run-done-event");
+    expect(runs[0]?.status).toBe("running");
+    expect(runs[0]?.completedAt).toBeNull();
+    expect(runListSelectCount).toBe(1);
+    expect(
+      execCalls.some(
+        (call) =>
+          /UPDATE agent_runs/i.test(call.sql) &&
+          /SET status = \?/i.test(call.sql),
+      ),
+    ).toBe(false);
   });
 
   it("reconciles multiple stale candidate runs in parallel, not sequentially", async () => {
@@ -1091,12 +1101,6 @@ describe("run store", () => {
         diag_stage: null,
       },
     ];
-    refreshedRunListRows = runListRows.map((row) => ({
-      ...row,
-      status: "completed",
-      completed_at: 123_456,
-      terminal_reason: "done",
-    }));
     latestEventRows = [
       {
         seq: 9,
@@ -1108,16 +1112,14 @@ describe("run store", () => {
     const runs = await listRunsForThread("thread-multi-stale");
 
     expect(runs).toHaveLength(2);
-    expect(runs.every((run) => run.status === "completed")).toBe(true);
-    expect(runListSelectCount).toBe(2);
+    expect(runs.every((run) => run.status === "running")).toBe(true);
+    expect(runListSelectCount).toBe(1);
     const repairCalls = execCalls.filter(
       (call) =>
         /UPDATE agent_runs/i.test(call.sql) &&
         /SET status = \?/i.test(call.sql),
     );
-    expect(repairCalls).toHaveLength(2);
-    const reconciledRunIds = repairCalls.map((call) => call.args[5]).sort();
-    expect(reconciledRunIds).toEqual(["run-stale-a", "run-stale-b"]);
+    expect(repairCalls).toHaveLength(0);
   });
 
   it("reapIfStale honors last_progress_at as liveness so a progressing run is not reaped mid-tool", async () => {
@@ -2318,7 +2320,15 @@ describe("terminal status is `completed` iff the terminal reason is `done`", () 
         event_data: JSON.stringify(event),
       },
     ];
-    await reconcileTerminalRunFromEvents("run-invariant");
+    await withExecutionFence(
+      {
+        threadId: "thread-test",
+        turnId: "turn-test",
+        runId: "run-invariant",
+        generation: "1",
+      },
+      () => reconcileTerminalRunFromEvents("run-invariant"),
+    );
     const update = execCalls.find(
       (call) =>
         /UPDATE agent_runs/i.test(call.sql) &&

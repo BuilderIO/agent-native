@@ -46,6 +46,7 @@ import { RUN_NOT_STARTED_METADATA_KEY } from "../shared/agent-chat-run-not-start
 import { assertNoInlineImageBytes } from "../shared/inline-bytes.js";
 import {
   adoptThreadScopeIfUnscoped,
+  createThread,
   createThreadShareLink,
   forkThread,
   getQueuedSubmissionReceipt,
@@ -428,6 +429,65 @@ describe("chat thread store", () => {
       }
       throw new Error(`Unexpected SQL: ${sql}`);
     });
+  });
+
+  it("creates a child thread with its initial prompt in one insert", async () => {
+    let insertedArgs: unknown[] | undefined;
+    const execute = executeMock.getMockImplementation()!;
+    executeMock.mockImplementation(async (query: any) => {
+      if (/INSERT INTO chat_threads/i.test(query.sql)) {
+        insertedArgs = query.args;
+        return { rows: [], rowsAffected: 1 };
+      }
+      return execute(query);
+    });
+    const initialThreadData = JSON.stringify({
+      headId: "msg-child-user",
+      messages: [
+        {
+          message: {
+            id: "msg-child-user",
+            role: "user",
+            content: [{ type: "text", text: "Investigate the issue" }],
+          },
+          parentId: null,
+        },
+      ],
+    });
+
+    const thread = await createThread("user@example.com", {
+      id: "child-thread",
+      title: "Investigate the issue",
+      initialData: {
+        threadData: initialThreadData,
+        preview: "Investigate the issue",
+        messageCount: 1,
+      },
+    });
+
+    expect(thread).toMatchObject({
+      id: "child-thread",
+      threadData: initialThreadData,
+      preview: "Investigate the issue",
+      messageCount: 1,
+    });
+    expect(insertedArgs).toEqual([
+      "child-thread",
+      "user@example.com",
+      "Investigate the issue",
+      "Investigate the issue",
+      initialThreadData,
+      1,
+      expect.any(Number),
+      expect.any(Number),
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+    ]);
   });
 
   it("grants a non-owner an explicit share so integration deep links resolve", async () => {
@@ -2452,6 +2512,74 @@ describe("chat thread store", () => {
       "queued-interrupt",
       "queued-steered",
       "queued-first",
+    ]);
+  });
+
+  it("rejects a reused legacy queue id when its attachment identity is unknown", async () => {
+    const actor = { email: "user@example.com", anonymous: false };
+    const existingMessage = {
+      id: "legacy-queued-file",
+      threadId: "thread-1",
+      text: "Inspect the report",
+      attachments: [
+        {
+          type: "file",
+          name: "report.pdf",
+          mediaType: "application/pdf",
+          url: "https://files.example.test/old-report.pdf",
+        },
+      ],
+    };
+    const submissionPayload = {
+      threadId: "thread-1",
+      id: existingMessage.id,
+      text: existingMessage.text,
+      attachments: [
+        {
+          type: "file" as const,
+          name: "report.pdf",
+          mediaType: "application/pdf",
+          fingerprint: "c".repeat(64),
+        },
+      ],
+    };
+    row!.thread_data = JSON.stringify({ queuedMessages: [existingMessage] });
+
+    await expect(
+      mutateThreadQueuedMessages(
+        "thread-1",
+        {
+          type: "append",
+          message: {
+            ...existingMessage,
+            attachments: [
+              {
+                ...existingMessage.attachments[0],
+                url: "https://files.example.test/new-report.pdf",
+              },
+            ],
+          },
+          hashInput: submissionPayload,
+        },
+        { actor },
+      ),
+    ).rejects.toMatchObject({ code: "queued_message_id_conflict" });
+
+    await expect(
+      mutateThreadQueuedMessages(
+        "thread-1",
+        {
+          type: "append",
+          message: existingMessage,
+          hashInput: submissionPayload,
+        },
+        { actor },
+      ),
+    ).rejects.toMatchObject({ code: "queued_message_id_conflict" });
+
+    expect(submissionRows).toHaveLength(0);
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([
+      existingMessage,
     ]);
   });
 

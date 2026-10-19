@@ -1820,40 +1820,32 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
   const childDepth = decision.childDepth;
 
   const taskId = generateTaskId();
+  const userMsgId = `msg-${taskId}-user`;
+  const threadData = JSON.stringify({
+    headId: userMsgId,
+    messages: [
+      {
+        message: {
+          id: userMsgId,
+          role: "user",
+          content: [{ type: "text", text: opts.description }],
+          metadata: {},
+        },
+        parentId: null,
+      },
+    ],
+  });
 
   const parentSourceAppId = opts.parentSourceAppId?.trim();
   const thread = await createThread(opts.ownerEmail, {
     title: opts.description.slice(0, 100),
     ...(parentSourceAppId ? { source: { appId: parentSourceAppId } } : {}),
-  });
-
-  const userMsgId = `msg-${taskId}-user`;
-  try {
-    const { updateThreadData } = await import("../chat-threads/store.js");
-    const threadData = JSON.stringify({
-      headId: userMsgId,
-      messages: [
-        {
-          message: {
-            id: userMsgId,
-            role: "user",
-            content: [{ type: "text", text: opts.description }],
-            metadata: {},
-          },
-          parentId: null,
-        },
-      ],
-    });
-    await updateThreadData(
-      thread.id,
+    initialData: {
       threadData,
-      opts.description.slice(0, 100),
-      opts.description.slice(0, 200),
-      1,
-    );
-  } catch {
-    // Best effort — thread will still work without persisted messages
-  }
+      preview: opts.description.slice(0, 200),
+      messageCount: 1,
+    },
+  });
 
   const runId = taskRunId(taskId);
   const createdAt = Date.now();

@@ -665,7 +665,7 @@ describe("AgentKitClient", () => {
   });
 
   it.each(["accepted", "rejected"])(
-    "acknowledges the local message only after a %s startRun response",
+    "acknowledges the local message before a %s startRun response",
     async (outcome) => {
       const started = Promise.withResolvers<{ runId: string }>();
       const startRun = vi.fn<AgentTransport["startRun"]>(() => started.promise);
@@ -685,7 +685,7 @@ describe("AgentKitClient", () => {
             metadata,
           }),
         ]);
-        expect(startRun).toHaveBeenCalledOnce();
+        expect(startRun).not.toHaveBeenCalled();
       });
       const settled = vi.fn();
       const submission = client
@@ -702,7 +702,7 @@ describe("AgentKitClient", () => {
         )
         .finally(settled);
       await vi.waitFor(() => expect(startRun).toHaveBeenCalledOnce());
-      expect(onLocalSubmit).not.toHaveBeenCalled();
+      expect(onLocalSubmit).toHaveBeenCalledOnce();
       expect(settled).not.toHaveBeenCalled();
       const request = startRun.mock.calls[0]![0];
       expect(Object.keys(request).sort()).toEqual([
@@ -725,7 +725,7 @@ describe("AgentKitClient", () => {
         expect(result).toMatchObject({ value: { runId: "run-1" } });
         if ("value" in result) await result.value.completed;
       } else {
-        expect(onLocalSubmit).not.toHaveBeenCalled();
+        expect(onLocalSubmit).toHaveBeenCalledOnce();
         expect(result).toEqual({ error: failure });
         expect(client.getThread("thread-1").messages).toEqual([
           expect.objectContaining({
@@ -10636,7 +10636,7 @@ describe("AgentKitClient", () => {
     { scenario: "at the runtime handoff", expireAtHandoff: true },
     { scenario: "in the server persistence request", expireAtHandoff: false },
   ])(
-    "removes an expired optimistic prompt and restores suggestions when it expires $scenario",
+    "keeps an expired prompt recoverable and restores suggestions when it expires $scenario",
     async ({ expireAtHandoff }) => {
       const suggestion = {
         id: "suggestion-1",
@@ -10708,8 +10708,18 @@ describe("AgentKitClient", () => {
         ).rejects.toMatchObject({ code: "submission_expired" });
 
         expect(startRun).toHaveBeenCalledTimes(expireAtHandoff ? 0 : 1);
-        expect(onLocalSubmit).not.toHaveBeenCalled();
-        expect(client.getThread("thread-1").messages).toEqual([]);
+        if (expireAtHandoff) {
+          expect(onLocalSubmit).not.toHaveBeenCalled();
+          expect(client.getThread("thread-1").messages).toEqual([]);
+        } else {
+          expect(onLocalSubmit).toHaveBeenCalledOnce();
+          expect(client.getThread("thread-1").messages).toEqual([
+            expect.objectContaining({
+              status: "error",
+              parts: [{ type: "text", text: "Retry the prompt" }],
+            }),
+          ]);
+        }
         expect(client.getThread("thread-1").suggestions).toEqual([suggestion]);
         expect(
           client.getThread("thread-1").suggestionsPendingTurn,
@@ -10722,12 +10732,12 @@ describe("AgentKitClient", () => {
           threadId: "thread-1",
           text: "Fresh prompt",
         });
-        expect(startRun.mock.calls.at(-1)?.[0].messages).toEqual([
+        expect(startRun.mock.calls.at(-1)?.[0].messages).toContainEqual(
           expect.objectContaining({
             role: "user",
             parts: [{ type: "text", text: "Fresh prompt" }],
           }),
-        ]);
+        );
         await nextRun.completed;
       } finally {
         now.mockRestore();

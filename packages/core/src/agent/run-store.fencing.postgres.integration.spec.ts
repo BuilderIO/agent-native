@@ -19,6 +19,7 @@ import {
   insertRunEvent,
   markAgentExecutionStepDispatched,
   markTurnAborted,
+  recordLateAgentExecutionStepOutcome,
   renewTaskExecutionLease,
   type AgentExecutionStepIntent,
 } from "./run-store.js";
@@ -246,6 +247,71 @@ describe.skipIf(!databaseUrl)(
         SELECT seq FROM agent_run_events WHERE run_id = ${firstFence.runId} AND seq = 77
       `;
         expect(staleEvents).toHaveLength(0);
+      });
+    }, 45_000);
+
+    it("records a late outcome only while its captured lease generation is current", async () => {
+      await withTestDatabase(async (sql, prefix) => {
+        const threadId = `${prefix}:late-outcome-thread`;
+        const turnId = `${prefix}:late-outcome-turn`;
+        const runId = `${prefix}:late-outcome-run`;
+        const currentStep = `${prefix}:late-outcome-current-step`;
+        const staleStep = `${prefix}:late-outcome-stale-step`;
+        const firstFence = await claimInProcess(sql, threadId, turnId, runId);
+        const currentIntent = stepIntent(firstFence, currentStep, "never");
+        const staleIntent = stepIntent(firstFence, staleStep, "never");
+        await withExecutionFence(firstFence, async () => {
+          await beginAgentExecutionStep(currentIntent);
+          await markAgentExecutionStepDispatched(currentIntent);
+          await beginAgentExecutionStep(staleIntent);
+          await markAgentExecutionStepDispatched(staleIntent);
+        });
+
+        await recordLateAgentExecutionStepOutcome(
+          currentIntent,
+          JSON.stringify({ result: "saved while still owner" }),
+        );
+        const [currentReceipt] = await sql`
+          SELECT status, result_json FROM agent_execution_steps
+          WHERE thread_id = ${threadId} AND turn_id = ${turnId}
+            AND step_id = ${currentStep}
+        `;
+        expect(currentReceipt.status).toBe("completed");
+        expect(JSON.parse(currentReceipt.result_json)).toEqual({
+          result: "saved while still owner",
+        });
+
+        await forceLeaseExpiry(sql, threadId, turnId);
+        const recoveryFence = await claimInProcess(
+          sql,
+          threadId,
+          turnId,
+          `${prefix}:late-outcome-recovery`,
+        );
+        expect(BigInt(recoveryFence.generation)).toBe(
+          BigInt(firstFence.generation) + 1n,
+        );
+        await expect(
+          recordLateAgentExecutionStepOutcome(
+            staleIntent,
+            JSON.stringify({ result: "must not commit" }),
+          ),
+        ).rejects.toMatchObject({ code: "stale_execution_fence" });
+        await expect(
+          withExecutionFence(recoveryFence, () =>
+            recordLateAgentExecutionStepOutcome(
+              staleIntent,
+              JSON.stringify({ result: "must not commit" }),
+            ),
+          ),
+        ).rejects.toMatchObject({ code: "stale_execution_fence" });
+        const [staleReceipt] = await sql`
+          SELECT status, result_json FROM agent_execution_steps
+          WHERE thread_id = ${threadId} AND turn_id = ${turnId}
+            AND step_id = ${staleStep}
+        `;
+        expect(staleReceipt.status).toBe("dispatched");
+        expect(staleReceipt.result_json).toBeNull();
       });
     }, 45_000);
 
