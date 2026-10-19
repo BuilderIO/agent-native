@@ -94,6 +94,7 @@ import {
 } from "@/lib/email-image-policy";
 import { getLabelStyle } from "@/lib/label-colors";
 import { mailLabelDisplayName } from "@/lib/label-display";
+import { mailThreadHref, mailViewHref } from "@/lib/mail-routes";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import {
   buildForwardDraft,
@@ -101,7 +102,7 @@ import {
 } from "@/lib/message-draft-builders";
 import { getResolvedTheme } from "@/lib/theme";
 import { ensureThread, warmThreads } from "@/lib/thread-cache";
-import type { ThreadSummary } from "@/lib/threads";
+import { matchesThreadAccount, type ThreadSummary } from "@/lib/threads";
 import {
   cn,
   formatEmailDate,
@@ -157,6 +158,7 @@ function InlineReplyComposerSkeleton() {
 
 export function EmailThread({
   activeThreadId,
+  activeThreadAccountEmail,
   onArchived,
   emailIds = [],
   threads = [],
@@ -168,13 +170,17 @@ export function EmailThread({
   onToggleMaximize,
 }: {
   activeThreadId?: string;
+  activeThreadAccountEmail?: string | null;
   onArchived?: (id: string) => void;
   emailIds?: string[];
   threads?: ThreadSummary[];
   selectedIds?: Set<string>;
   setSelectedIds?: React.Dispatch<React.SetStateAction<Set<string>>>;
   onContactSelect?: (email: string) => void;
-  onNavigateThread?: (threadId: string | undefined) => void;
+  onNavigateThread?: (
+    threadId: string | undefined,
+    accountEmail?: string,
+  ) => void;
   isMaximized?: boolean;
   onToggleMaximize?: () => void;
 }) {
@@ -187,9 +193,11 @@ export function EmailThread({
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const labelParam = searchParams.get("label");
-  const routeSearchSuffix = searchParams.toString()
-    ? `?${searchParams.toString()}`
-    : "";
+  const routeAccountEmail = searchParams.get("accountEmail") ?? undefined;
+  const accountEmail =
+    activeThreadAccountEmail === null
+      ? undefined
+      : (activeThreadAccountEmail ?? routeAccountEmail);
   const compose = useComposeState();
   const queryClient = useQueryClient();
   const priorityFeedback = useAiPriorityFeedback();
@@ -235,7 +243,10 @@ export function EmailThread({
         continue;
       }
       for (const email of emails) {
-        if ((email.threadId || email.id) === threadId) {
+        if (
+          (email.threadId || email.id) === threadId &&
+          matchesThreadAccount(email, accountEmail)
+        ) {
           allCached.push(email);
         }
       }
@@ -248,17 +259,19 @@ export function EmailThread({
         return true;
       })
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-  }, [threadId, queryClient]);
+  }, [accountEmail, threadId, queryClient]);
 
-  const { data: threadMessages } = useThreadMessages(threadId);
+  const { data: threadMessages } = useThreadMessages(threadId, accountEmail);
 
   const previewMessage = useMemo(() => {
     if (!threadId || !threads.length) return undefined;
     const thread = threads.find(
-      (t) => (t.latestMessage.threadId || t.latestMessage.id) === threadId,
+      (t) =>
+        (t.latestMessage.threadId || t.latestMessage.id) === threadId &&
+        matchesThreadAccount(t.latestMessage, accountEmail),
     );
     return thread?.latestMessage;
-  }, [threadId, threads]);
+  }, [accountEmail, threadId, threads]);
 
   const allMessages =
     threadMessages ??
@@ -532,9 +545,9 @@ export function EmailThread({
   }, [threadId, hasUnread]);
 
   const goBack = useCallback(() => {
-    onNavigateThread?.(undefined);
-    void navigate(`/${view}${routeSearchSuffix}`);
-  }, [navigate, view, routeSearchSuffix, onNavigateThread]);
+    onNavigateThread?.(undefined, undefined);
+    void navigate(mailViewHref(view, searchParams));
+  }, [navigate, view, searchParams, onNavigateThread]);
 
   const emailIdsRef = useRef(emailIds);
   emailIdsRef.current = emailIds;
@@ -561,14 +574,21 @@ export function EmailThread({
         nextThreadId,
         nextThread?.latestMessage.accountEmail,
       ).catch(() => {});
-      onNavigateThread?.(nextThreadId);
-      void navigate(`/${view}/${nextThreadId}${routeSearchSuffix}`);
+      onNavigateThread?.(nextThreadId, nextThread?.latestMessage.accountEmail);
+      void navigate(
+        mailThreadHref(
+          view,
+          nextThreadId,
+          searchParams,
+          nextThread?.latestMessage.accountEmail,
+        ),
+      );
     },
     [
       threadId,
       view,
       navigate,
-      routeSearchSuffix,
+      searchParams,
       setSelectedIds,
       onNavigateThread,
       threads,
@@ -593,18 +613,29 @@ export function EmailThread({
         return updated;
       });
 
-      onNavigateThread?.(nextThreadKey);
-      void navigate(`/${view}/${nextThreadKey}${routeSearchSuffix}`, {
-        replace: true,
-      });
+      const nextThread = threads.find(
+        (t) =>
+          (t.latestMessage.threadId || t.latestMessage.id) === nextThreadKey,
+      );
+      onNavigateThread?.(nextThreadKey, nextThread?.latestMessage.accountEmail);
+      void navigate(
+        mailThreadHref(
+          view,
+          nextThreadKey,
+          searchParams,
+          nextThread?.latestMessage.accountEmail,
+        ),
+        { replace: true },
+      );
     },
     [
       threadId,
       view,
       navigate,
-      routeSearchSuffix,
+      searchParams,
       setSelectedIds,
       onNavigateThread,
+      threads,
     ],
   );
 
@@ -634,25 +665,44 @@ export function EmailThread({
     const idx = emailIds.indexOf(threadId);
     if (idx !== -1 && idx + 1 < emailIds.length) {
       const nextId = emailIds[idx + 1];
-      onNavigateThread?.(nextId);
-      void navigate(`/${view}/${nextId}${routeSearchSuffix}`, {
-        replace: true,
-      });
+      const nextThread = threads.find(
+        (t) => (t.latestMessage.threadId || t.latestMessage.id) === nextId,
+      );
+      onNavigateThread?.(nextId, nextThread?.latestMessage.accountEmail);
+      void navigate(
+        mailThreadHref(
+          view,
+          nextId,
+          searchParams,
+          nextThread?.latestMessage.accountEmail,
+        ),
+        { replace: true },
+      );
     } else if (idx !== -1 && idx - 1 >= 0) {
       const prevId = emailIds[idx - 1];
-      onNavigateThread?.(prevId);
-      void navigate(`/${view}/${prevId}${routeSearchSuffix}`, {
-        replace: true,
-      });
+      const prevThread = threads.find(
+        (t) => (t.latestMessage.threadId || t.latestMessage.id) === prevId,
+      );
+      onNavigateThread?.(prevId, prevThread?.latestMessage.accountEmail);
+      void navigate(
+        mailThreadHref(
+          view,
+          prevId,
+          searchParams,
+          prevThread?.latestMessage.accountEmail,
+        ),
+        { replace: true },
+      );
     } else {
       goBack();
     }
   }, [
     threadId,
     emailIds,
+    threads,
     view,
     navigate,
-    routeSearchSuffix,
+    searchParams,
     goBack,
     onNavigateThread,
   ]);

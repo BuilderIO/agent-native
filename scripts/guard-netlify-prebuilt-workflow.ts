@@ -26,7 +26,7 @@ export const PRODUCTION_MAPPED_SITE_GROUP =
 export const PRODUCTION_FLEET_CHILD_GROUP =
   "agent-native-production-fleet-child-${{ matrix.site }}";
 export const PUBLISHED_CACHE_PURGE_CONDITION =
-  "(inputs.target == 'production' || inputs.target == 'beta') && inputs.deploy && inputs.deploy_mode == 'production' && (inputs.target != 'beta' || steps.beta_freshness.outputs.current == 'true') && success()";
+  "(inputs.target == 'production' || inputs.target == 'beta') && inputs.deploy && steps.deploy.outputs.deploy_id != '' && inputs.deploy_mode == 'production' && (inputs.target != 'beta' || steps.beta_freshness.outputs.current == 'true') && success()";
 
 const reusable = readFileSync(reusablePath, "utf8");
 const clipsNetlify = readFileSync(clipsNetlifyPath, "utf8");
@@ -916,10 +916,11 @@ const docsProductionDocument = parsedWorkflows.get(docsProductionPath);
 const docsProductionConcurrency = asRecord(docsProductionDocument?.concurrency);
 if (
   docsProductionConcurrency?.group !== "agent-native-docs-production" ||
-  docsProductionConcurrency["cancel-in-progress"] !== false
+  docsProductionConcurrency["cancel-in-progress"] !== false ||
+  docsProductionConcurrency.queue !== "max"
 ) {
   issues.push(
-    `${docsProductionPath} must keep its path-filtered production queue independent`,
+    `${docsProductionPath} must preserve every pending path-filtered production run in its queue`,
   );
 }
 const docsProductionJobs = asRecord(docsProductionDocument?.jobs);

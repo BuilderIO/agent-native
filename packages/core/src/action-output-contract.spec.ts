@@ -1,0 +1,520 @@
+import addFormats from "ajv-formats";
+import Ajv2020 from "ajv/dist/2020.js";
+import { describe, expect, it } from "vitest";
+import { z } from "zod";
+
+import {
+  buildActionMcpOutputContract,
+  deriveMcpResponseOutputSchema,
+  describeOutputContractIssue,
+} from "./action-output-contract.js";
+
+function accepts(schema: Record<string, unknown>, value: unknown): boolean {
+  const ajv = new Ajv2020({ strict: false });
+  addFormats(ajv);
+  return ajv.compile(schema)(value) === true;
+}
+
+describe("deriveMcpResponseOutputSchema", () => {
+  it("wraps an array root as { items } and keeps its definitions reachable", () => {
+    const node = z.object({ id: z.string() });
+    const { semantic, response } = buildActionMcpOutputContract(
+      z.array(z.object({ first: node, second: node })),
+      { openLink: false },
+    );
+    expect(semantic.type).toBe("array");
+    expect(response).toMatchObject({
+      type: "object",
+      required: ["items"],
+      additionalProperties: false,
+    });
+    expect(
+      accepts(response, {
+        items: [{ first: { id: "a" }, second: { id: "b" } }],
+      }),
+    ).toBe(true);
+    expect(
+      accepts(response, [{ first: { id: "a" }, second: { id: "b" } }]),
+    ).toBe(false);
+    expect(accepts(response, { items: [{ first: { id: 1 } }] })).toBe(false);
+  });
+
+  it("adds the open-link fields to every branch of an object-only union", () => {
+    const { response } = buildActionMcpOutputContract(
+      z.union([
+        z.object({ kind: z.literal("a"), a: z.string() }),
+        z.object({ kind: z.literal("b"), b: z.number() }),
+      ]),
+      { openLink: true },
+    );
+    expect(response.type).toBe("object");
+    const openLink = {
+      label: "Open",
+      webUrl: "https://app.example.test/a",
+      desktopUrl: "https://app.example.test/a",
+      vscodeUrl: "vscode://example",
+    };
+    expect(
+      accepts(response, {
+        kind: "a",
+        a: "x",
+        openLink,
+        url: openLink.webUrl,
+      }),
+    ).toBe(true);
+    expect(accepts(response, { kind: "b", b: 1, openLink })).toBe(true);
+    expect(accepts(response, { kind: "b", b: "1" })).toBe(false);
+  });
+
+  it("does not advertise open-link fields an action never produces", () => {
+    const { response } = buildActionMcpOutputContract(
+      z.object({ id: z.string() }),
+      { openLink: false },
+    );
+    expect(accepts(response, { id: "a", url: "https://x.test" })).toBe(false);
+  });
+
+  it("keeps an action's own url field and drops the lifted image field", () => {
+    const response = deriveMcpResponseOutputSchema(
+      {
+        type: "object",
+        properties: {
+          url: { type: "string", format: "uri" },
+          _agentImages: { type: "array" },
+        },
+        required: ["url", "_agentImages"],
+        additionalProperties: false,
+      },
+      { openLink: true },
+    );
+    expect(
+      (response.properties as Record<string, unknown>)._agentImages,
+    ).toBeUndefined();
+    expect(accepts(response, { url: "https://x.test/a" })).toBe(true);
+    // The transport masks an embed start URL in place and fills url from the
+    // open link, so url stays required but is not held to its own format.
+    expect(accepts(response, {})).toBe(false);
+    expect(accepts(response, { url: "/rows/1" })).toBe(true);
+    expect(accepts(response, { url: "[hidden embed URL]" })).toBe(true);
+  });
+
+  it("drops embed credentials at any depth and accepts what redaction leaves", () => {
+    const { response } = buildActionMcpOutputContract(
+      z.object({
+        id: z.string(),
+        embedTicket: z.string(),
+        session: z.object({ ticket: z.string(), count: z.number() }),
+        panes: z.array(
+          z.object({ label: z.string(), embedTicket: z.string() }),
+        ),
+      }),
+      { openLink: false },
+    );
+    expect(
+      accepts(response, {
+        id: "s1",
+        session: { count: 1 },
+        panes: [{ label: "Main" }],
+      }),
+    ).toBe(true);
+    expect(accepts(response, { id: "s1", session: { count: "1" } })).toBe(
+      false,
+    );
+  });
+
+  it("accepts the hidden-URL marker where a constrained string item held an embed URL", () => {
+    const { response } = buildActionMcpOutputContract(
+      z.object({ links: z.array(z.url()) }),
+      { openLink: false },
+    );
+    expect(
+      accepts(response, {
+        links: ["[hidden embed URL]", "https://example.com"],
+      }),
+    ).toBe(true);
+    expect(accepts(response, { links: ["not a url"] })).toBe(false);
+  });
+
+  it("keeps every required field except embed credentials", () => {
+    const { response } = buildActionMcpOutputContract(
+      z.object({
+        status: z.enum(["ok", "degraded"]),
+        count: z.number(),
+        nested: z.object({ flag: z.boolean() }),
+        startUrl: z.url(),
+        ticket: z.string(),
+      }),
+      { openLink: false },
+    );
+    expect(response.required).toEqual([
+      "status",
+      "count",
+      "nested",
+      "startUrl",
+    ]);
+    // An embed start URL is masked in place, so the field stays present.
+    expect(
+      accepts(response, {
+        status: "ok",
+        count: 1,
+        nested: { flag: true },
+        startUrl: "[hidden embed URL]",
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps constraints redaction cannot affect", () => {
+    const { response } = buildActionMcpOutputContract(
+      z.object({
+        scores: z.array(z.number()),
+        tags: z.record(z.string(), z.number()),
+        kind: z.literal("row"),
+      }),
+      { openLink: false },
+    );
+    expect(
+      accepts(response, { scores: [1, 2], tags: { a: 1 }, kind: "row" }),
+    ).toBe(true);
+    expect(accepts(response, { scores: [1], tags: {}, kind: "col" })).toBe(
+      false,
+    );
+    const unique = deriveMcpResponseOutputSchema(
+      {
+        type: "object",
+        properties: {
+          ids: { type: "array", items: { type: "integer" }, uniqueItems: true },
+          pick: { const: { label: "Main", size: 2 } },
+        },
+        maxProperties: 2,
+      },
+      { openLink: false },
+    );
+    expect(
+      accepts(unique, { ids: [1, 2], pick: { label: "Main", size: 2 } }),
+    ).toBe(true);
+    expect(accepts(unique, { ids: [1, 1] })).toBe(false);
+  });
+
+  it("accepts unique items without an items schema only where no tail can occur", () => {
+    for (const row of [
+      { prefixItems: [{ type: "number" }], items: false },
+      { prefixItems: [{ type: "number" }], maxItems: 1 },
+    ]) {
+      const response = deriveMcpResponseOutputSchema(
+        {
+          type: "object",
+          properties: { row: { type: "array", uniqueItems: true, ...row } },
+        },
+        { openLink: false },
+      );
+      expect(accepts(response, { row: [1] })).toBe(true);
+    }
+  });
+
+  it("adds the open-link fields to a closed root however its object type is spelled", () => {
+    const linked = { label: "Open row", webUrl: "https://app.test/rows/1" };
+    for (const semantic of [
+      {
+        type: ["object"],
+        properties: { id: { type: "string" } },
+        required: ["id"],
+        additionalProperties: false,
+      },
+      {
+        type: "object",
+        allOf: [
+          {
+            type: ["object", "null"],
+            properties: { id: { type: "string" } },
+            additionalProperties: false,
+          },
+        ],
+      },
+    ]) {
+      const response = deriveMcpResponseOutputSchema(semantic, {
+        openLink: true,
+      });
+      expect(
+        accepts(response, {
+          id: "row-1",
+          openLink: linked,
+          url: linked.webUrl,
+        }),
+      ).toBe(true);
+      expect(accepts(response, { id: "row-1", extra: true })).toBe(false);
+    }
+  });
+
+  it.each([
+    ["an async schema", { type: "object", $async: true }, /"\$async"/],
+    [
+      "a negated schema",
+      { type: "object", properties: { a: { not: { type: "null" } } } },
+      /"not"/,
+    ],
+    [
+      "an unsupported format",
+      {
+        type: "object",
+        properties: { a: { type: "string", format: "made-up" } },
+      },
+      /format "made-up"/,
+    ],
+    [
+      "unique strings redaction can collapse",
+      {
+        type: "object",
+        properties: {
+          a: { type: "array", items: { type: "string" }, uniqueItems: true },
+        },
+      },
+      /uniqueItems/,
+    ],
+    [
+      "unique items whose type is left open",
+      {
+        type: "object",
+        properties: { links: { type: "array", uniqueItems: true } },
+      },
+      /uniqueItems/,
+    ],
+    [
+      "unique items with an open tail after an unchangeable prefix",
+      {
+        type: "object",
+        properties: {
+          row: {
+            type: "array",
+            prefixItems: [{ type: "number" }],
+            uniqueItems: true,
+          },
+        },
+      },
+      /uniqueItems/,
+    ],
+    [
+      "a self-referencing root",
+      { type: "object", properties: { a: { $ref: "#" } } },
+      /refers to itself/,
+    ],
+    [
+      "unique objects that differ only in an embed credential",
+      {
+        type: "object",
+        properties: {
+          panes: {
+            type: "array",
+            uniqueItems: true,
+            items: {
+              type: "object",
+              properties: {
+                label: { type: "string" },
+                embedTicket: { type: "string" },
+              },
+            },
+          },
+        },
+      },
+      /uniqueItems/,
+    ],
+    [
+      "an object const holding an embed credential",
+      {
+        type: "object",
+        properties: { pick: { const: { label: "a", embedTicket: "t" } } },
+      },
+      /const or enum/,
+    ],
+    [
+      "an enum member holding an embed credential",
+      {
+        type: "object",
+        properties: { pick: { enum: [{ label: "a", embedTicket: "t" }] } },
+      },
+      /const or enum/,
+    ],
+    [
+      "an unsupported keyword under propertyNames",
+      {
+        type: "object",
+        properties: {
+          byOwner: {
+            type: "object",
+            propertyNames: { not: { const: "x" } },
+            additionalProperties: { type: "number" },
+          },
+        },
+      },
+      /"not"/,
+    ],
+    [
+      "a reference it cannot resolve",
+      { type: "object", properties: { a: { $ref: "#/$defs/Missing" } } },
+      /cannot resolve/,
+    ],
+    [
+      "definitions below the root",
+      {
+        type: "object",
+        properties: { a: { type: "object", $defs: { B: { not: {} } } } },
+      },
+      /definitions below the root/,
+    ],
+  ])("refuses %s", (_label, semantic, message) => {
+    expect(() =>
+      deriveMcpResponseOutputSchema(semantic, { openLink: false }),
+    ).toThrow(message);
+  });
+
+  it.each([
+    [
+      "maxProperties",
+      {
+        type: "object",
+        properties: { id: { type: "string" } },
+        maxProperties: 1,
+      },
+      /"maxProperties"/,
+    ],
+    [
+      "propertyNames",
+      {
+        type: "object",
+        properties: { id: { type: "string" } },
+        propertyNames: { pattern: "^id$" },
+      },
+      /"propertyNames"/,
+    ],
+    [
+      "a patternProperties entry matching url",
+      {
+        type: "object",
+        properties: { id: { type: "string" } },
+        patternProperties: { "^u": { type: "number" } },
+      },
+      /patternProperties/,
+    ],
+    [
+      "an allOf branch that refers to a definition",
+      {
+        type: "object",
+        allOf: [{ $ref: "#/$defs/Row" }],
+        $defs: {
+          Row: {
+            type: "object",
+            properties: { a: { type: "string" } },
+            additionalProperties: false,
+          },
+        },
+      },
+      /refers to a definition/,
+    ],
+  ])("refuses a linked root that declares %s", (_label, semantic, message) => {
+    // Each passes without a link; the added openLink and url fields break it.
+    expect(() =>
+      deriveMcpResponseOutputSchema(semantic, { openLink: false }),
+    ).not.toThrow();
+    expect(() =>
+      deriveMcpResponseOutputSchema(semantic, { openLink: true }),
+    ).toThrow(message);
+  });
+
+  it("refuses roots structuredContent cannot carry", () => {
+    expect(() =>
+      deriveMcpResponseOutputSchema({ type: "string" }, { openLink: false }),
+    ).toThrow(TypeError);
+    expect(() =>
+      deriveMcpResponseOutputSchema(
+        { anyOf: [{ type: "object" }, { type: "null" }] },
+        { openLink: false },
+      ),
+    ).toThrow(TypeError);
+  });
+});
+
+describe("describeOutputContractIssue", () => {
+  const schema = {
+    type: "object",
+    properties: {
+      rows: {
+        type: "array",
+        items: { $ref: "#/$defs/Row" },
+      },
+      byOwner: {
+        type: "object",
+        additionalProperties: { type: "number" },
+      },
+      pair: {
+        type: "array",
+        prefixItems: [{ type: "string" }, { $ref: "#/$defs/Row" }],
+      },
+    },
+    $defs: {
+      Row: {
+        anyOf: [
+          { type: "object", properties: { owner: { type: "string" } } },
+          { type: "object", properties: { team: { type: "string" } } },
+        ],
+      },
+    },
+  };
+
+  it("keeps array indexes and declared names, resolving refs and unions", () => {
+    expect(
+      describeOutputContractIssue(["rows", 3, "owner"], "invalid_type", schema),
+    ).toBe("rows.3.owner: invalid_type");
+    expect(
+      describeOutputContractIssue(["pair", "1", "team"], "type", schema),
+    ).toBe("pair.1.team: type");
+  });
+
+  it("masks record keys however they are spelled", () => {
+    for (const key of ["dave@example.com", "42", 42]) {
+      expect(
+        describeOutputContractIssue(["byOwner", key], "invalid_type", schema),
+      ).toBe("byOwner.*: invalid_type");
+    }
+    expect(
+      describeOutputContractIssue(["rows", "dave", "owner"], "type", schema),
+    ).toBe("rows.*.*: type");
+  });
+
+  it("masks an index where the schema also allows a record", () => {
+    const mixed = {
+      type: "object",
+      properties: {
+        rows: {
+          anyOf: [
+            { type: "array", items: { type: "number" } },
+            { type: "object", additionalProperties: { type: "number" } },
+          ],
+        },
+        cells: { type: ["array", "object"], items: { type: "number" } },
+      },
+    };
+    for (const key of ["123456789", 123456789]) {
+      expect(describeOutputContractIssue(["rows", key], "type", mixed)).toBe(
+        "rows.*: type",
+      );
+      expect(describeOutputContractIssue(["cells", key], "type", mixed)).toBe(
+        "cells.*: type",
+      );
+    }
+  });
+
+  it("masks every segment without a schema and every unknown code", () => {
+    expect(
+      describeOutputContractIssue(["rows", 0], "invalid_type", undefined),
+    ).toBe("*.*: invalid_type");
+    expect(
+      describeOutputContractIssue(
+        [],
+        "Value dave@example.com is wrong",
+        schema,
+      ),
+    ).toBe("(root): invalid");
+    expect(describeOutputContractIssue([], "dave_example", schema)).toBe(
+      "(root): invalid",
+    );
+  });
+});

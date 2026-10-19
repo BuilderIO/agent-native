@@ -130,6 +130,8 @@ export default defineAction({
       ),
   }),
   outputSchema: dataInsightsWidgetResultSchema,
+  outputErrorStrategy: "strict",
+  mcpOutputSchema: true,
   chatUI: {
     renderer: ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
     title: "Merged PR recaps",

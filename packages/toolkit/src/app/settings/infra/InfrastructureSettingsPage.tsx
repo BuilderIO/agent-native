@@ -7,6 +7,7 @@ import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import type { FileStorageStatus } from "@agent-native/core/file-upload/storage-settings";
 import type {
+  WorkspaceBuilderIncludedServiceId,
   WorkspaceBuilderOnlyServiceId,
   WorkspaceProviderServiceId,
 } from "@agent-native/core/onboarding/types";
@@ -145,6 +146,19 @@ const BUILDER_ONLY_SERVICES: Record<
     labelKey: "agentChat.settingsShell.search.browserAutomation",
     whyKey: `${K}whyBrowser`,
     icon: IconBrowser,
+  },
+};
+
+/** Services Builder includes that also have a bring-your-own path. */
+const BUILDER_INCLUDED_SERVICES: Record<
+  WorkspaceBuilderIncludedServiceId,
+  ServiceRowMeta & { rowId: string }
+> = {
+  "web-search": {
+    rowId: "web-search",
+    labelKey: "agentChat.settingsShell.search.webSearch",
+    whyKey: `${K}whyWebSearch`,
+    icon: IconSearch,
   },
 };
 
@@ -575,6 +589,42 @@ function InfrastructurePageContent({
       services.data?.services.find((item) => item.service === serviceOpen)) ||
     null;
   const openServiceMeta = serviceOpen ? PROVIDER_SERVICES[serviceOpen] : null;
+  const builderProvidedServiceRow = (
+    id: string,
+    entry: ServiceRowMeta & { rowId: string },
+    builderOnly: boolean,
+  ) => (
+    <SettingsRow
+      key={id}
+      id={entry.rowId}
+      icon={
+        builderOnly && builderConnected ? (
+          <BrandLogo logoId="builder-cms" />
+        ) : (
+          <entry.icon aria-hidden />
+        )
+      }
+      label={t(entry.labelKey)}
+      status={
+        builderOnly && !builderConnected ? (
+          <Badge variant="outline" data-builder-only="">
+            {t(`${K}builderOnly`)}
+          </Badge>
+        ) : undefined
+      }
+      description={rowDescription(
+        builderOnly && builderConnected
+          ? BUILDER_LABEL
+          : t(`${K}availableWithBuilder`),
+        t(entry.whyKey),
+      )}
+      control={
+        recommendBuilder
+          ? connectBuilder("outline", t("agentChat.setup.connectBuilder"))
+          : undefined
+      }
+    />
+  );
 
   return (
     <div className="flex flex-col gap-8" data-infrastructure-settings="">
@@ -628,43 +678,18 @@ function InfrastructurePageContent({
                 />
               ) : null;
             case "builder-only": {
-              const entry = BUILDER_ONLY_SERVICES[service.id];
-              return (
-                <SettingsRow
-                  key={service.id}
-                  id={entry.rowId}
-                  icon={
-                    builderConnected ? (
-                      <BrandLogo logoId="builder-cms" />
-                    ) : (
-                      <entry.icon aria-hidden />
-                    )
-                  }
-                  label={t(entry.labelKey)}
-                  status={
-                    builderConnected ? undefined : (
-                      <Badge variant="outline" data-builder-only="">
-                        {t(`${K}builderOnly`)}
-                      </Badge>
-                    )
-                  }
-                  description={rowDescription(
-                    builderConnected
-                      ? BUILDER_LABEL
-                      : t(`${K}availableWithBuilder`),
-                    t(entry.whyKey),
-                  )}
-                  control={
-                    recommendBuilder
-                      ? connectBuilder(
-                          "outline",
-                          t("agentChat.setup.connectBuilder"),
-                        )
-                      : undefined
-                  }
-                />
+              return builderProvidedServiceRow(
+                service.id,
+                BUILDER_ONLY_SERVICES[service.id],
+                true,
               );
             }
+            case "builder-included":
+              return builderProvidedServiceRow(
+                service.id,
+                BUILDER_INCLUDED_SERVICES[service.id],
+                false,
+              );
           }
         })}
       </SettingsGroup>

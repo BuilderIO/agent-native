@@ -34,6 +34,11 @@ function overviewArgs(overrides: Record<string, unknown> = {}) {
       nodeIdMap: new Map(),
     })),
     canEditDesign: true,
+    captureCurrentSelection: () => ({
+      overviewSelectedScreenIds: [],
+      selectedLayerIds: [],
+      activeFileId: null,
+    }),
     clipboardPasteRedoStackRef: { current: [] },
     clipboardPasteUndoStackRef: { current: [] },
     contentRedoSelectionStackRef: { current: [] },
@@ -158,5 +163,75 @@ describe("runUndo — overview content-undo restores an ElementInfo, not just th
     expect(
       setSelectedElement.mock.calls.every(([arg]) => typeof arg === "function"),
     ).toBe(true);
+  });
+});
+
+describe("runUndo — the selection a content redo restores", () => {
+  function undoDelete(
+    overrides: (
+      entry: object,
+      afterMap: WeakMap<object, unknown>,
+    ) => Record<string, unknown>,
+  ) {
+    const contentRedoStackRef = { current: [] as object[] };
+    const contentHistorySelectionAfterRef = {
+      current: new WeakMap<object, unknown>(),
+    };
+    const entry = {
+      fileId: "file-1",
+      before: CONTENT_WITH_BOX_A,
+      after: CONTENT_WITHOUT_BOX_A,
+    };
+    runUndo(
+      overviewArgs({
+        historyOrderRef: { current: ["file-content"] },
+        contentUndoStackRef: { current: [entry] },
+        contentUndoSelectionStackRef: {
+          current: [
+            {
+              overviewSelectedScreenIds: [],
+              selectedLayerIds: [boxANodeId()],
+              activeFileId: "file-1",
+            },
+          ],
+        },
+        contentRedoStackRef,
+        contentHistorySelectionAfterRef,
+        ...overrides(entry, contentHistorySelectionAfterRef.current),
+      }),
+    );
+    expect(contentRedoStackRef.current).toHaveLength(1);
+    return contentHistorySelectionAfterRef.current.get(
+      contentRedoStackRef.current[0]!,
+    );
+  }
+
+  it("is the selection live at undo time when the edit stamped none", () => {
+    const live = {
+      overviewSelectedScreenIds: [],
+      selectedLayerIds: ["html:after-edit"],
+      activeFileId: "file-1",
+    };
+
+    expect(undoDelete(() => ({ captureCurrentSelection: () => live }))).toBe(
+      live,
+    );
+  });
+
+  it("is the selection the edit stamped when it stamped one", () => {
+    const stamped = {
+      overviewSelectedScreenIds: [],
+      selectedLayerIds: ["html:stamped"],
+      activeFileId: "file-1",
+    };
+    const captureCurrentSelection = vi.fn();
+
+    expect(
+      undoDelete((entry, afterMap) => {
+        afterMap.set(entry, stamped);
+        return { captureCurrentSelection };
+      }),
+    ).toBe(stamped);
+    expect(captureCurrentSelection).not.toHaveBeenCalled();
   });
 });

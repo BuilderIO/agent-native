@@ -26,8 +26,7 @@ async function selectPlay(app: App) {
   await expect.poll(() => app.selectedLayers()).toStrictEqual(["Play button"]);
 }
 
-// fixme: fails in CI on current main: the canvas never settled after zoom to fit
-test.fixme("absolute-position constraint controls survive close, reopen, and reload", async ({
+test("absolute-position constraint controls survive close, reopen, and reload", async ({
   app,
 }) => {
   const id = await app.seed(CARD_HTML);

@@ -26,6 +26,11 @@ const INDEX_RUN_BODY = [
 ].join("\n");
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   description:
     "Enable, disable, or reschedule the organization's recurring data index build. Requires an organization owner or admin. Enabling creates or updates one scheduled automation that runs build-data-index. Disabling turns that automation off without deleting it.",
   schema: z.object({

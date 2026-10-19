@@ -19,6 +19,7 @@ import {
 
 import { getDb, schema } from "../../../../db/index.js";
 import { isMediaVerificationPending } from "../../../../lib/media-verification-state.js";
+import { reconcileMeetingOnRecordingFailed } from "../../../../lib/reconcile-meeting-on-finalize.js";
 import { trackRecordingFailure } from "../../../../lib/recording-failures.js";
 import { snapshotUploadRecoveryPolicy } from "../../../../lib/recording-policy.js";
 import { deleteRecordingChunks } from "../../../../lib/recording-upload-state.js";
@@ -518,13 +519,14 @@ export async function handleResetRecordingChunks(
           if (!bufferedFallbackAvailable) {
             if (err instanceof S3MultipartStartError) {
               const failureReason = `Multipart upload could not start (${err.status}).`;
+              const failedAt = new Date().toISOString();
               const failed = await db
                 .update(schema.recordings)
                 .set({
                   status: "failed",
                   failureCode: "multipart_start_failed",
                   failureReason,
-                  updatedAt: new Date().toISOString(),
+                  updatedAt: failedAt,
                 })
                 .where(
                   and(
@@ -547,6 +549,25 @@ export async function handleResetRecordingChunks(
                 )
                 .returning({ id: schema.recordings.id });
               if (failed.length === 1) {
+                const uploadStateUpdated = await compareAndSetAppState(
+                  uploadStateKey,
+                  uploadStateSnapshot,
+                  {
+                    ...(uploadStateSnapshot ?? {}),
+                    recordingId,
+                    status: "failed",
+                    failureCode: "multipart_start_failed",
+                    failureReason,
+                    uploadAttemptId: existingAttemptId,
+                    uploadGenerationId: nextGenerationId,
+                    updatedAt: failedAt,
+                  },
+                );
+                if (!uploadStateUpdated) {
+                  console.info(
+                    `[reset-chunks-${recordingId}] upload state changed after multipart start failure; preserving replacement state`,
+                  );
+                }
                 trackRecordingFailure({
                   recordingId,
                   userId: ownerEmail,
@@ -555,6 +576,10 @@ export async function handleResetRecordingChunks(
                   failureCode: "multipart_start_failed",
                   failureStage: "multipart_start",
                   httpStatus: err.status,
+                });
+                await reconcileMeetingOnRecordingFailed({
+                  recordingId,
+                  ownerEmail,
                 });
               } else {
                 setResponseStatus(event, 409);

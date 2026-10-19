@@ -134,8 +134,7 @@ function expectedUrl(nodeId: string, side: "start" | "end") {
   return `url(#${expectedMarkerId(nodeId, side)})`;
 }
 
-// fixme: fails in CI on current main: Timeoutlocator.evaluate: Timeout 15000ms exceeded.
-test.fixme("vector endpoint controls cover all styles, swap, paint inheritance, history, and reload", async ({
+test("vector endpoint controls cover all styles, swap, paint inheritance, history, and reload", async ({
   app,
   page,
 }) => {
@@ -336,9 +335,11 @@ test.fixme("vector endpoint controls cover all styles, swap, paint inheritance, 
       end: null,
       style: { end: "none" },
     });
+  await expect
+    .poll(async () => app.savedHtml(designId))
+    .not.toContain(expectedUrl("endpoint-line", "end"));
   const removedSource = await app.savedHtml(designId);
   expect(removedSource).toMatch(/--an-vector-end-point:\s*none/);
-  expect(removedSource).not.toContain(expectedUrl("endpoint-line", "end"));
   await app.settled();
   expectOnlyChanged(before, await app.savedNodes(designId), ["endpoint-line"]);
 });

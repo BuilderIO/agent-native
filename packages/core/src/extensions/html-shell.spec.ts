@@ -65,6 +65,38 @@ describe("buildExtensionHtml", () => {
     );
   });
 
+  it("routes clicked external extension links through a private parent channel", () => {
+    const html = buildExtensionHtml(
+      '<a href="https://docs.example.com/metric">Metric docs</a>',
+      ":root{}",
+      false,
+      "extension-1",
+    );
+
+    expect(html).toContain("if (!event.isTrusted");
+    expect(html).toContain("link.getAttribute('href')");
+    expect(html).toContain(
+      "link.getAttributeNS('http://www.w3.org/1999/xlink', 'href')",
+    );
+    expect(html).toContain("bootstrapScript.remove()");
+    expect(html).toContain("var routeFrameName = window.name;");
+    expect(html).toContain("if (routeNameContainsNonce) window.name = '';");
+    expect(html).not.toContain("history.replaceState(");
+    expect(html).toContain("sendExternalLink(request)");
+    expect(html).toContain("event.preventDefault()");
+    expect(html).toContain(
+      "destination.origin === new URL(document.baseURI).origin",
+    );
+    expect(html).toContain("agent-native-extension.hello-link-channel");
+    expect(html).not.toContain("agent-native-extension.reseed-link-channel");
+    expect(html).toContain("agent-native-extension.open-external-link");
+    expect(html).not.toContain("__agentNativeExtensionLinkNonce");
+    expect(html).toContain("document.addEventListener('submit'");
+    expect(html).not.toContain("link.setAttribute('target'");
+    expect(html).not.toContain("location.assign");
+    expect(html).toContain("window.addEventListener('click'");
+  });
+
   it("keeps frame-ancestors in the HTTP header CSP only", () => {
     const html = buildExtensionHtml(
       "<div>Hello</div>",
@@ -136,6 +168,22 @@ describe("buildExtensionHtml", () => {
     expect(html).toContain("providerApi: providerApi");
     expect(html).not.toContain("accessToken");
     expect(html).not.toContain("clientSecret");
+  });
+
+  it("sets up link routing before extension content can run", () => {
+    const html = buildExtensionHtml(
+      "<main id=extension-content></main>",
+      ":root{}",
+      false,
+      "extension-1",
+    );
+    const content = html.indexOf("<main id=extension-content>");
+
+    // Behavior is covered in toolkit's extension-link-routing.spec.ts.
+    expect(html.indexOf("openUrlToken: _openUrlToken")).toBeGreaterThan(-1);
+    expect(html.indexOf("openUrlToken: _openUrlToken")).toBeLessThan(content);
+    expect(html.indexOf("})(_openUrlToken);")).toBeGreaterThan(-1);
+    expect(html.indexOf("})(_openUrlToken);")).toBeLessThan(content);
   });
 
   it("exposes a chat bridge helper to extension code", () => {
@@ -575,8 +623,8 @@ describe("extension iframe sandbox attribute (CI guard)", () => {
         "sandbox={EXTENSION_IFRAME_SANDBOX}",
       );
       if (usesNormalizedSandbox) {
-        expect(text).toContain(
-          "normalizeAgentNativeExtensionSandbox(undefined)",
+        expect(text).toMatch(
+          /normalizeAgentNativeExtensionSandbox\(\s*undefined,\s*\{\s*mode:\s*"nonce"\s*\},?\s*\)/,
         );
       } else {
         expect(sandboxMatches.length).toBeGreaterThan(0);

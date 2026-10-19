@@ -31,6 +31,7 @@ const nanoid = (): string =>
   Math.random().toString(36).slice(2) + Date.now().toString(36);
 import { warnAgent } from "../agent/action-warnings.js";
 import { getAppConfig } from "../app-config/index.js";
+import { routeAuditAttribution } from "../audit/attribution.js";
 import { recordOrgAdminAuditEvent } from "../audit/org-admin.js";
 import { getDbExec } from "../db/client.js";
 import { CORE_INVITE_EMAIL_ID } from "../email-catalog/system-emails.js";
@@ -163,7 +164,10 @@ function normalizeWorkspaceAppDefaultVisibility(
   );
 }
 
-function getInviteAppUrl(event: H3Event): string {
+// Agent calls have no event, so they get the configured app URL. Do not fall
+// back to the request context's `requestOrigin`: some paths fill it from an
+// unchecked x-forwarded-host, which would put a caller-chosen host in the email.
+function getInviteAppUrl(event?: H3Event): string {
   return getAppProductionUrl(event);
 }
 
@@ -689,7 +693,7 @@ function assertCanInviteRole(
   }
 }
 
-interface SingleInviteResult {
+export interface SingleInviteResult {
   id: string;
   email: string;
   role: "member" | "admin";
@@ -703,11 +707,11 @@ interface SingleInviteFailure {
   error: string;
 }
 
-async function inviteOne(
+export async function inviteOne(
   ctx: { orgId: string; orgName: string | null; email: string },
   rawEmail: string,
   role: "member" | "admin",
-  event: H3Event,
+  event?: H3Event,
   appId?: string,
   appRoles?: string[],
 ): Promise<SingleInviteResult> {
@@ -875,6 +879,7 @@ export const createInvitationHandler = defineEventHandler(
             inv.appRoles,
           );
           succeeded.push(result);
+          await auditInvitation(event, ctx, result);
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           failed.push({ email: lower, error: message });
@@ -898,9 +903,27 @@ export const createInvitationHandler = defineEventHandler(
       body?.appId,
       body?.appRoles,
     );
+    await auditInvitation(event, ctx, result);
     return result;
   },
 );
+
+function auditInvitation(
+  event: H3Event,
+  ctx: { orgId: string | null; email: string },
+  invite: SingleInviteResult,
+): Promise<void> {
+  return recordOrgAdminAuditEvent({
+    action: "invite-organization-member",
+    targetType: "org-invitation",
+    targetId: invite.email,
+    summary: `Invited ${invite.email} as ${invite.role}`,
+    userEmail: ctx.email,
+    orgId: ctx.orgId,
+    args: { email: invite.email, role: invite.role },
+    attribution: routeAuditAttribution(event),
+  });
+}
 
 export const listInvitationsHandler = defineEventHandler(
   async (event: H3Event) => {
@@ -1329,6 +1352,7 @@ export const changeMemberRoleHandler = defineEventHandler(
       userEmail: ctx.email,
       orgId: ctx.orgId,
       args: { email: memberEmailLower, previousRole: currentRole, role },
+      attribution: routeAuditAttribution(event),
     });
 
     return { email: memberEmailLower, role };
@@ -1771,23 +1795,36 @@ export const setDomainHandler = defineEventHandler(async (event: H3Event) => {
   }
 
   const e = await exec();
-
-  if (raw) {
-    const existing = await e.execute({
-      sql: `SELECT id FROM organizations WHERE LOWER(allowed_domain) = ? AND id != ? LIMIT 1`,
-      args: [raw, ctx.orgId],
+  if (!e.transaction) {
+    throw createError({
+      statusCode: 503,
+      message: "Organization domain updates require transaction support",
     });
-    if (existing.rows.length > 0) {
-      throw createError({
-        statusCode: 409,
-        message: "Another organization already uses this domain",
-      });
-    }
   }
 
-  await e.execute({
-    sql: `UPDATE organizations SET allowed_domain = ? WHERE id = ?`,
-    args: [raw, ctx.orgId],
+  await e.transaction(async (tx) => {
+    if (raw) {
+      await tx.execute({
+        sql: `SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))`,
+        args: [`agent-native:org-domain:${raw}`],
+      });
+
+      const existing = await tx.execute({
+        sql: `SELECT id FROM organizations WHERE LOWER(allowed_domain) = ? AND id != ? LIMIT 1`,
+        args: [raw, ctx.orgId],
+      });
+      if (existing.rows.length > 0) {
+        throw createError({
+          statusCode: 409,
+          message: "Another organization already uses this domain",
+        });
+      }
+    }
+
+    await tx.execute({
+      sql: `UPDATE organizations SET allowed_domain = ? WHERE id = ?`,
+      args: [raw, ctx.orgId],
+    });
   });
   invalidateDomainMatchCache();
   invalidateMemberOrgCaches();
@@ -2164,13 +2201,19 @@ export const receiveA2ASecretHandler = defineEventHandler(
 
     const e = await exec();
     const orgRes = await e.execute({
-      sql: `SELECT id, a2a_secret FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 1`,
+      sql: `SELECT id, a2a_secret FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 2`,
       args: [orgDomain],
     });
     if (orgRes.rows.length === 0) {
       throw createError({
         statusCode: 404,
         message: "No local org matches that domain",
+      });
+    }
+    if (orgRes.rows.length > 1) {
+      throw createError({
+        statusCode: 409,
+        message: "Multiple local organizations match that domain",
       });
     }
     const row = orgRes.rows[0] as any;

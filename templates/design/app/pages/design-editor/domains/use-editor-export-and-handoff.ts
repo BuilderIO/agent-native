@@ -8,6 +8,7 @@ import {
   buildCodeLayerProjection,
   buildCodeLayerTree,
 } from "@shared/code-layer";
+import { readFusionApp } from "@shared/full-app";
 import { normalizeDesignSourceType } from "@shared/source-mode";
 import { useState, useCallback, useRef, useMemo } from "react";
 import { toast } from "sonner";
@@ -185,6 +186,7 @@ export function useEditorExportAndHandoff({
   const [exportPreviewScreenId, setExportPreviewScreenId] = useState<
     string | null
   >(null);
+  const exportPreviewScreenLeaseRef = useRef<symbol | null>(null);
   const [svgExporting, setSvgExporting] = useState(false);
   const [figmaSvgExporting, setFigmaSvgExporting] = useState(false);
   const pngExportingRef = useRef(false);
@@ -376,20 +378,29 @@ export function useEditorExportAndHandoff({
       pendingVisualStyleScreenSourceTypes,
     ],
   );
+  const isFullAppDesign = useMemo(
+    () => readFusionApp(designDataJson) !== null,
+    [designDataJson],
+  );
   const pendingVisualStylePrompt = useMemo(
     () =>
-      formatPendingVisualStylePrompt({
-        designId: id,
-        designTitle: design?.title,
-        activeFileId: activeFile?.id,
-        activeFilename: activeFile?.filename,
-        localhostConnectionId: activeOverviewScreen?.connectionId,
-        edits: pendingVisualStyleEdits,
-        liveEdits: pendingLiveNonStyleEdits,
-        audience: "coding-agent",
-        screenRoutes: screenRoutesById,
-      }),
+      withFullAppApplyInstructions(
+        isFullAppDesign,
+        id,
+        formatPendingVisualStylePrompt({
+          designId: id,
+          designTitle: design?.title,
+          activeFileId: activeFile?.id,
+          activeFilename: activeFile?.filename,
+          localhostConnectionId: activeOverviewScreen?.connectionId,
+          edits: pendingVisualStyleEdits,
+          liveEdits: pendingLiveNonStyleEdits,
+          audience: "coding-agent",
+          screenRoutes: screenRoutesById,
+        }),
+      ),
     [
+      isFullAppDesign,
       activeFile?.filename,
       activeFile?.id,
       activeOverviewScreen?.connectionId,
@@ -467,7 +478,12 @@ export function useEditorExportAndHandoff({
         pendingLiveNonStyleEditsRef,
         pendingStructureVerificationStatus,
         pendingVisualStyleEdits,
-        pendingVisualStylePrompt: promptOverride ?? pendingVisualStylePrompt,
+        // A server-held handoff (another tab or session) was formatted without
+        // the full-app routing; local prompts already carry it.
+        pendingVisualStylePrompt:
+          promptOverride !== undefined
+            ? withFullAppApplyInstructions(isFullAppDesign, id, promptOverride)
+            : pendingVisualStylePrompt,
         allowPromptOnly: promptOverride !== undefined,
         setActiveLeftPanel,
         setApplyingViaHost,
@@ -484,6 +500,7 @@ export function useEditorExportAndHandoff({
       cancelPendingStructureVerification,
       clearPendingLiveEditState,
       id,
+      isFullAppDesign,
       overviewScreens,
       pendingLiveNonStyleEdits,
       pendingStructureVerificationStatus,
@@ -661,6 +678,7 @@ export function useEditorExportAndHandoff({
   );
   const markScreenForExport = useCallback(
     (screenId: string) => {
+      const lease = Symbol(`screen export: ${screenId}`);
       if (exportPreviewScreenIdRef.current !== screenId) {
         runtimeLayerSnapshotReadinessByIdRef.current[screenId] = {
           status: "loading",
@@ -670,7 +688,18 @@ export function useEditorExportAndHandoff({
         }
       }
       exportPreviewScreenIdRef.current = screenId;
+      exportPreviewScreenLeaseRef.current = lease;
       setExportPreviewScreenId(screenId);
+      return lease;
+    },
+    [setExportPreviewScreenId],
+  );
+  const releaseScreenFromExport = useCallback(
+    (lease: symbol) => {
+      if (exportPreviewScreenLeaseRef.current !== lease) return;
+      exportPreviewScreenLeaseRef.current = null;
+      exportPreviewScreenIdRef.current = null;
+      setExportPreviewScreenId(null);
     },
     [setExportPreviewScreenId],
   );
@@ -682,20 +711,27 @@ export function useEditorExportAndHandoff({
       const sourceType =
         normalizeDesignSourceType(screen?.sourceType) ?? activeCanvasSourceType;
       if (sourceType === "inline") return null;
-      markScreenForExport(screenId);
-      return await resolveSnapshotExportSource(screenId);
+      const screenLease = markScreenForExport(screenId);
+      try {
+        const snapshotSource = await resolveSnapshotExportSource(screenId);
+        if (!snapshotSource) {
+          releaseScreenFromExport(screenLease);
+          return null;
+        }
+        return { screenLease, snapshotSource };
+      } catch (error) {
+        releaseScreenFromExport(screenLease);
+        throw error;
+      }
     },
     [
       activeCanvasSourceType,
       markScreenForExport,
       overviewScreens,
+      releaseScreenFromExport,
       resolveSnapshotExportSource,
     ],
   );
-  const releaseScreenFromExport = useCallback(() => {
-    exportPreviewScreenIdRef.current = null;
-    setExportPreviewScreenId(null);
-  }, [setExportPreviewScreenId]);
 
   const resolvePngCaptureTarget = useCallback(
     async (scope: PngCaptureScope, requestedScreenId?: string) => {
@@ -754,18 +790,19 @@ export function useEditorExportAndHandoff({
             selectedElement?.sourceLayerIdentity?.screenId ??
             (selectedScreenIds.length === 1 ? selectedScreenIds[0] : null) ??
             activeFile?.id;
-          const snapshotSource = screenId
+          const preparedSnapshot = screenId
             ? await prepareSelectedScreenForExport(screenId)
             : null;
           const screen = screenId
             ? overviewScreens.find((candidate) => candidate.id === screenId)
             : undefined;
-          if (snapshotSource) {
+          if (preparedSnapshot) {
             return {
               cropSelection,
               doc: null,
               iframe,
-              snapshotSource,
+              screenLease: preparedSnapshot.screenLease,
+              snapshotSource: preparedSnapshot.snapshotSource,
               snapshotWidth: screen?.width ?? iframe.clientWidth,
               snapshotHeight: screen?.height ?? iframe.clientHeight,
             };
@@ -998,6 +1035,7 @@ export function useEditorExportAndHandoff({
       exportCanvasFrameGeometryById,
       exportTracking,
       fallbackExportName,
+      pngExportingRef,
       overviewScreens,
       markScreenForExport,
       resolveSnapshotExportSource,
@@ -1192,10 +1230,17 @@ export function useEditorExportAndHandoff({
           : exportScreenId;
       return runDownloadSvg(
         {
+          activeCanvasSourceType,
           activePreviewFrameId,
           design,
+          requireContentSizeReport: viewMode === "overview",
           exportTracking,
+          exportScreenId,
+          exportScreenSourceType: exportScreen?.sourceType,
           fallbackExportName,
+          pngExportingRef,
+          prepareScreenForExport: markScreenForExport,
+          releaseScreenFromExport,
           selectedElement,
           setSvgExporting,
           t,
@@ -1206,12 +1251,16 @@ export function useEditorExportAndHandoff({
     },
     [
       activeBreakpointWidthState,
+      activeCanvasSourceType,
       activeOverviewScreenId,
       design?.title,
       exportTracking,
       fallbackExportName,
+      pngExportingRef,
       overviewScreens,
       overviewSelectedScreenIds,
+      markScreenForExport,
+      releaseScreenFromExport,
       selectedElement,
       t,
       triggerBlobDownload,
@@ -1290,3 +1339,25 @@ export function useEditorExportAndHandoff({
 export type EditorExportAndHandoff = ReturnType<
   typeof useEditorExportAndHandoff
 >;
+
+/**
+ * A full-app design's screens are a Builder branch container: its source is
+ * changed by Builder, not by Design's localhost source tools.
+ * Say so in the handoff itself, so applying never depends on the agent
+ * inferring it from the prompt's localhost-oriented steps.
+ */
+function withFullAppApplyInstructions(
+  isFullAppDesign: boolean,
+  designId: string | undefined,
+  prompt: string,
+): string {
+  if (!isFullAppDesign || !prompt) return prompt;
+  return [
+    `This is a full-app design${designId ? ` (designId "${designId}")` : ""}: its screens run from a Builder branch container.`,
+    "Apply these edits by calling send-builder-message with the designId and a prompt that describes every edit below precisely. It delegates to Builder and returns when the change is done.",
+    "If this handoff has a revision (from get-visual-edit-pending, or named below), pass it as visualEditRevision so the handoff clears once the change lands.",
+    "Do not use apply-visual-edit, localhost source tools or write consent. Those only exist for connected localhost apps.",
+    "",
+    prompt,
+  ].join("\n");
+}
