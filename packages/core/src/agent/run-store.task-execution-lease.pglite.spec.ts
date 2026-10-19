@@ -38,6 +38,8 @@ const {
   beginAgentExecutionStep,
   claimTaskExecutionLease,
   claimTurnExecutionLease,
+  markAgentExecutionStepDispatched,
+  recordLateAgentExecutionStepOutcome,
   ensureRunTables,
   insertRun,
   renewTaskExecutionLease,
@@ -153,5 +155,61 @@ describe("task execution leases", () => {
         ),
       ),
     ).rejects.toMatchObject({ code: "stale_execution_fence" });
+  });
+
+  it("rejects a late journal receipt after the parent task fence expires", async () => {
+    const taskThreadId = "a2a-task:late-receipt-fence-test";
+    const taskTurnId = "late-receipt-fence-test";
+    const runId = "late-receipt-fence-run";
+    const stepId = "late-receipt-fence-step";
+    const taskFence = await claimTaskExecutionLease(
+      taskThreadId,
+      taskTurnId,
+      "a2a:worker",
+    );
+    await insertRun(runId, runId, runId);
+    const runFence = await claimTurnExecutionLease(runId, runId, runId);
+    const intent = {
+      ...runFence,
+      stepId,
+      operationId: "test:late-receipt",
+      toolName: "late-receipt",
+      inputJson: "{}",
+      replayPolicy: "never" as const,
+    };
+
+    await withExecutionFence(taskFence, () =>
+      withExecutionFence(runFence, async () => {
+        await beginAgentExecutionStep(intent);
+        await markAgentExecutionStepDispatched(intent);
+      }),
+    );
+    await pglite.query(
+      `UPDATE agent_execution_leases
+          SET lease_expires_at = clock_timestamp() - INTERVAL '1 millisecond'
+          WHERE thread_id = ? AND turn_id = ?`,
+      [taskThreadId, taskTurnId],
+    );
+
+    await expect(
+      withExecutionFence(taskFence, () =>
+        withExecutionFence(runFence, () =>
+          recordLateAgentExecutionStepOutcome(
+            intent,
+            JSON.stringify({ result: "must not attach" }),
+          ),
+        ),
+      ),
+    ).rejects.toMatchObject({ code: "stale_execution_fence" });
+
+    const receipt = await pglite.query(
+      `SELECT status, result_json FROM agent_execution_steps
+        WHERE thread_id = ? AND turn_id = ? AND step_id = ?`,
+      [runFence.threadId, runFence.turnId, stepId],
+    );
+    expect(receipt.rows[0]).toMatchObject({ status: "dispatched" });
+    expect(
+      (receipt.rows[0] as { result_json: string | null }).result_json,
+    ).toBeNull();
   });
 });

@@ -103,8 +103,15 @@ vi.mock("../server/self-dispatch.js", () => ({
 // slowed by a first import.
 await import("./durable-background.js");
 
-const { insertRun, insertRunEvent, reapIfStale, updateRunStatusIfRunning } =
-  await import("./run-store.js");
+const {
+  claimTurnExecutionLease,
+  insertRun,
+  insertRunEvent,
+  reapIfStale,
+  updateRunStatusIfRunning,
+} = await import("./run-store.js");
+const { buildAssistantMessage, foldAssistantTurn } =
+  await import("./thread-data-builder.js");
 
 const SEND = { to: "ana@example.com", subject: "Invoice" };
 let seq = 0;
@@ -265,5 +272,55 @@ describe("a run the server reaps after its worker died", () => {
     expect(await reapIfStale(run, -1)).toBe(true);
 
     expect(threads.get(thread)).toBe(later);
+  });
+
+  it("does not fold an old run over a reply from a newer execution generation", async () => {
+    const thread = `thread-reaped-${seq}`;
+    const turn = `turn-reaped-${seq}`;
+    const run = `run-reaped-${seq}`;
+    const replacementRun = `${run}-replacement`;
+    threads.set(thread, JSON.stringify({ messages: [userTurn("Bill Ana")] }));
+    await crashAfterSending(thread, turn, run);
+    await claimTurnExecutionLease(thread, turn, run);
+    await insertRun(replacementRun, thread, turn);
+    await pglite
+      .prepare(
+        `UPDATE agent_execution_leases
+            SET lease_expires_at = clock_timestamp() - INTERVAL '1 second'
+          WHERE thread_id = ? AND turn_id = ? AND owner_run_id = ?`,
+      )
+      .run(thread, turn, run);
+    await claimTurnExecutionLease(thread, turn, replacementRun);
+
+    const replacementReply = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "Newer reply" } },
+        { seq: 1, event: { type: "done" } },
+      ],
+      replacementRun,
+      { turnId: turn },
+    );
+    expect(replacementReply).not.toBeNull();
+    threads.set(
+      thread,
+      JSON.stringify(
+        foldAssistantTurn(
+          { messages: [userTurn("Bill Ana")] },
+          replacementReply!,
+          { runId: replacementRun, turnId: turn },
+        ),
+      ),
+    );
+    const beforeReap = threads.get(thread);
+
+    expect(await reapIfStale(run, -1)).toBe(true);
+
+    expect(threads.get(thread)).toBe(beforeReap);
+    expect(savedMessages(thread).at(-1)?.content).toContainEqual(
+      expect.objectContaining({ type: "text", text: "Newer reply" }),
+    );
+    expect(savedMessages(thread).at(-1)?.content).not.toContainEqual(
+      expect.objectContaining({ type: "tool-call", toolName: "send-email" }),
+    );
   });
 });

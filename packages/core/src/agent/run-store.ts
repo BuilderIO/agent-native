@@ -644,6 +644,15 @@ async function withAgentExecutionStepIntentFence<T>(
     throw new StaleExecutionFenceError(currentFence);
   }
 
+  const writeInTransaction = (tx: DbExec) => write(tx);
+  if (currentFence) {
+    return withFencedExecutionWrite(writeInTransaction, {
+      threadId: expectedFence.threadId,
+      turnId: expectedFence.turnId,
+      runId: expectedFence.runId,
+    });
+  }
+
   const client = getDbExec();
   if (!client.transaction) {
     throw new Error("Fenced execution writes require transaction support");
@@ -2842,7 +2851,14 @@ async function reapSingleStaleRun(
   // Saved before the successor starts: a successor that folds its own reply
   // first would have this older run's steps land after its, and take its
   // error and status.
-  if (reaped) await finalizeStaleRun(runId, source);
+  if (reaped) {
+    // A newer generation owns the turn, so it must remain the sole thread projector.
+    await finalizeStaleRun(
+      runId,
+      source,
+      outcome?.outcome !== "execution_lease_changed",
+    );
+  }
 
   if (reaped && outcome && outcome.outcome !== "not_background") {
     const outcomeDetail =
@@ -4481,8 +4497,13 @@ export async function ensureTerminalRunEvent(
  * in the run's ledger, then saves what the run did into its thread, which the
  * dead worker never got to do.
  */
-async function finalizeStaleRun(runId: string, source: string): Promise<void> {
+async function finalizeStaleRun(
+  runId: string,
+  source: string,
+  projectThread = true,
+): Promise<void> {
   await safeAppendTerminalRunEvent(runId, STALE_RUN_ERROR_EVENT, source);
+  if (!projectThread) return;
   try {
     const { foldReapedRunIntoThread } = await import("./reaped-run-thread.js");
     await foldReapedRunIntoThread(runId);
