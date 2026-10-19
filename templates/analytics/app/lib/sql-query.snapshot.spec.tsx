@@ -1,6 +1,10 @@
 // @vitest-environment happy-dom
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  QueryClient,
+  QueryClientProvider,
+  QueryObserver,
+} from "@tanstack/react-query";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -703,23 +707,40 @@ describe("useSqlQuery saved results", () => {
     await act(async () => render({ sql: "SELECT 1" }));
     await vi.waitFor(() => expect(mocks.callAction).toHaveBeenCalledTimes(1));
 
-    signIn(USER_B);
-    await act(async () => render({ sql: "SELECT 1" }));
-    await vi.waitFor(() => expect(mocks.callAction).toHaveBeenCalledTimes(2));
-    await act(async () => {
-      request.resolve({ rows: [{ n: 1 }], fetchedAt: minutesAgo(0) });
+    // Keep A's request live so the account guard, rather than cancellation, rejects it.
+    const previousQueryKey = ["sql", "SELECT 1", SCOPE_A];
+    const observer = new QueryObserver(queryClient, {
+      queryKey: previousQueryKey,
+      enabled: false,
     });
+    const stopObserving = observer.subscribe(() => {});
+    try {
+      signIn(USER_B);
+      await act(async () => render({ sql: "SELECT 1" }));
+      await vi.waitFor(() => expect(mocks.callAction).toHaveBeenCalledTimes(2));
+      expect(mocks.callAction.mock.calls[0]?.[2].signal.aborted).toBe(false);
+      await act(async () => {
+        request.resolve({ rows: [{ n: 1 }], fetchedAt: minutesAgo(0) });
+      });
+      await vi.waitFor(() =>
+        expect(queryClient.getQueryState(previousQueryKey)?.status).toBe(
+          "success",
+        ),
+      );
 
-    expect(savedFetchedAt("SELECT 1", SCOPE_A)).toBe("miss");
-    expect(savedFetchedAt("SELECT 1", SCOPE_B)).toBe("miss");
+      expect(savedFetchedAt("SELECT 1", SCOPE_A)).toBe("miss");
+      expect(savedFetchedAt("SELECT 1", SCOPE_B)).toBe("miss");
 
-    const nextFetchedAt = minutesAgo(0);
-    await act(async () => {
-      nextRequest.resolve({ rows: [{ n: 2 }], fetchedAt: nextFetchedAt });
-    });
-    await vi.waitFor(() => expect(state().rows).toEqual([{ n: 2 }]));
-    expect(savedFetchedAt("SELECT 1", SCOPE_A)).toBe("miss");
-    expect(savedFetchedAt("SELECT 1", SCOPE_B)).toBe(nextFetchedAt);
+      const nextFetchedAt = minutesAgo(0);
+      await act(async () => {
+        nextRequest.resolve({ rows: [{ n: 2 }], fetchedAt: nextFetchedAt });
+      });
+      await vi.waitFor(() => expect(state().rows).toEqual([{ n: 2 }]));
+      expect(savedFetchedAt("SELECT 1", SCOPE_A)).toBe("miss");
+      expect(savedFetchedAt("SELECT 1", SCOPE_B)).toBe(nextFetchedAt);
+    } finally {
+      stopObserving();
+    }
   });
 
   it("does not save a result that completes after its query was cancelled", async () => {
