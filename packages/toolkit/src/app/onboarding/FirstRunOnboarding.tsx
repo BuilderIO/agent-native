@@ -1421,7 +1421,7 @@ export function FirstRunOnboarding({
                     <button
                       type="button"
                       aria-label={t("agentChat.onboarding.creditsAboutLabel")}
-                      className="ml-1 inline-flex size-4 items-center justify-center rounded-full align-middle text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      className="ml-0 inline-flex size-6 items-center justify-center rounded-full align-middle text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
                       <IconHelpCircle size={13} aria-hidden />
                     </button>
