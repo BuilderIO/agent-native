@@ -251,6 +251,9 @@ type InternalActionFetchOptions = ActionFetchOptions & {
 // The server's capability lives 10 minutes; re-mint a minute early so a call
 // never leaves with a capability that expires in flight.
 const UI_CAPABILITY_REUSE_MS = 9 * 60_000;
+// Every signed-in write waits on the shared mint, so a mint that never answers
+// must settle on its own instead of holding writes until their own timeouts.
+const UI_CAPABILITY_MINT_TIMEOUT_MS = 10_000;
 
 let uiCapabilityRequest: Promise<void> | undefined;
 let uiCapability: { identity: string | null | undefined; at: number } | null =
@@ -274,21 +277,32 @@ export function forgetUiActionCapability(): void {
 function ensureUiActionCapability(signal?: AbortSignal): Promise<void> {
   if (hasFreshUiCapability()) return Promise.resolve();
   const identity = currentSessionIdentity();
-  const request =
-    uiCapabilityRequest ??
-    (uiCapabilityRequest = fetch(
-      agentNativePath("/_agent-native/ui-capability"),
-      { credentials: "same-origin", cache: "no-store" },
-    )
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error("Could not establish the browser UI capability.");
-        }
-        uiCapability = { identity, at: Date.now() };
-      })
-      .finally(() => {
-        uiCapabilityRequest = undefined;
-      }));
+  const request = uiCapabilityRequest ?? (uiCapabilityRequest = mint());
+  function mint(): Promise<void> {
+    const controller =
+      typeof AbortController === "undefined" ? null : new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        controller?.abort();
+        reject(new Error("Timed out establishing the browser UI capability."));
+      }, UI_CAPABILITY_MINT_TIMEOUT_MS);
+    });
+    const response = fetch(agentNativePath("/_agent-native/ui-capability"), {
+      credentials: "same-origin",
+      cache: "no-store",
+      signal: controller?.signal,
+    }).then((res) => {
+      if (!res.ok) {
+        throw new Error("Could not establish the browser UI capability.");
+      }
+      uiCapability = { identity, at: Date.now() };
+    });
+    return Promise.race([response, timedOut]).finally(() => {
+      clearTimeout(timer);
+      uiCapabilityRequest = undefined;
+    });
+  }
   if (!signal) return request;
   return new Promise<void>((resolve, reject) => {
     const onAbort = () => reject(signal.reason);
@@ -306,6 +320,8 @@ function ensureUiActionCapability(signal?: AbortSignal): Promise<void> {
  * retrying. The mint waits for a known signed-in session: a public page or an
  * embed has none to mint from, and its writes go out as they are. A failed
  * mint never holds a write back; the server decides what the write may do.
+ * A keepalive write never waits on a mint: it is sent as the page goes away,
+ * and a deferred send can be lost with it.
  */
 function presentUiCapability(
   method: string,
@@ -315,6 +331,7 @@ function presentUiCapability(
   if (options?.uiOnly) return ensureUiActionCapability(signal);
   if (
     method === "GET" ||
+    options?.keepalive ||
     typeof window === "undefined" ||
     isEmbedAuthActive() ||
     typeof currentSessionIdentity() !== "string"

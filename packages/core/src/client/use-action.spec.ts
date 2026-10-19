@@ -1701,6 +1701,51 @@ describe("the UI capability on writes from the signed-in app", () => {
     expect(fetchMock.mock.calls.some(([url]) => url === MINT)).toBe(false);
   });
 
+  it("stops waiting on a mint that never answers", async () => {
+    signIn();
+    vi.useFakeTimers();
+    let mints = 0;
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url !== MINT) return Promise.resolve(jsonResponse({ ok: true }));
+      mints += 1;
+      if (mints > 1) return Promise.resolve(jsonResponse({ ok: true }));
+      return new Promise<Response>((_resolve, reject) =>
+        init?.signal?.addEventListener("abort", () =>
+          reject(new DOMException("Aborted", "AbortError")),
+        ),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const stalled = callAction("delete-file", { id: "file-1" });
+    await vi.advanceTimersByTimeAsync(10_000);
+    await expect(stalled).resolves.toEqual({ ok: true });
+    await callAction("delete-file", { id: "file-2" });
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      MINT,
+      "/_agent-native/actions/delete-file",
+      MINT,
+      "/_agent-native/actions/delete-file",
+    ]);
+    expect(fetchMock.mock.calls[0][1]?.signal?.aborted).toBe(true);
+  });
+
+  it("sends a keepalive write at once instead of waiting on a mint", async () => {
+    signIn();
+    const fetchMock = routeFetch(() => new Promise<Response>(() => {}));
+
+    const attempt = tryCallActionKeepalive("save-draft", { id: "draft-1" });
+
+    expect(attempt.accepted).toBe(true);
+    await vi.waitFor(() =>
+      expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+        "/_agent-native/actions/save-draft",
+      ]),
+    );
+    await expect(attempt.completion).resolves.toEqual({ ok: true });
+  });
+
   it("re-mints when the server rejects a remembered capability", async () => {
     signIn();
     let actionCalls = 0;
