@@ -8549,6 +8549,10 @@ function DatabaseSettingsSourcePanel({
               ? () => setGitHubDialogOpen(true)
               : undefined
           }
+          onDisconnectGitHub={
+            canEdit ? (github) => onDisconnectSource(github.id) : undefined
+          }
+          disconnectPending={sourcePendingOperations.disconnect}
           onOpenSecondary={(secondary) =>
             onNavPush({
               kind: "secondarySource",
@@ -9203,7 +9207,7 @@ function DatabaseSettingsSourcePanel({
   );
 }
 
-function SourcesListView({
+export function SourcesListView({
   source,
   sources,
   builderConfigured,
@@ -9214,6 +9218,8 @@ function SourcesListView({
   onOpenLocalFolder,
   showLocalFolder,
   onOpenGitHub,
+  onDisconnectGitHub,
+  disconnectPending = false,
   onOpenSecondary,
   onAddSource,
 }: {
@@ -9228,6 +9234,9 @@ function SourcesListView({
   showLocalFolder: boolean;
   /** Opens the GitHub link dialog; undefined when the reader can't link one. */
   onOpenGitHub?: () => void;
+  /** Unlinks the GitHub folder; undefined when the reader can't. */
+  onDisconnectGitHub?: (source: ContentDatabaseSource) => void;
+  disconnectPending?: boolean;
   onOpenSecondary: (source: ContentDatabaseSource) => void;
   onAddSource: () => void;
 }) {
@@ -9293,6 +9302,28 @@ function SourcesListView({
           )}
         </div>
       )}
+      {githubSource && onDisconnectGitHub ? (
+        <div className="rounded-lg border border-border bg-background p-3">
+          <div className="break-words text-xs text-muted-foreground">
+            {dbText("githubDisconnectDescription")}
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline-destructive"
+            className="mt-2"
+            disabled={disconnectPending}
+            onClick={() => onDisconnectGitHub(githubSource)}
+          >
+            {disconnectPending ? (
+              <Spinner className="mr-1 size-3.5" />
+            ) : (
+              <IconX className="mr-1 size-3.5" />
+            )}
+            {dbText("disconnectSource")}
+          </Button>
+        </div>
+      ) : null}
       <div className="grid min-w-0 gap-1.5">
         <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
           Integrations

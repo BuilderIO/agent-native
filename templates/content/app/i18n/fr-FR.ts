@@ -69,6 +69,8 @@ const database = {
     "Ce lien mène à un fichier. Collez le lien de son dossier.",
   githubSyncBusy:
     "Une synchronisation est déjà en cours. Ses modifications s’affichent quand elle se termine.",
+  githubDisconnectDescription:
+    "Arrêtez de suivre le dossier. Ses pages restent ici et deviennent modifiables. Pour le suivre à nouveau, liez-le depuis une nouvelle collection.",
   formChecked: "Coché",
   formChooseOption: "Choisir une option",
   formDescription:

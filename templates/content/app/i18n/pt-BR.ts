@@ -66,6 +66,8 @@ const database = {
   githubLinkFileUrl: "Esse link é de um arquivo. Cole o link da pasta dele.",
   githubSyncBusy:
     "Uma sincronização já está em andamento. As alterações aparecem quando ela terminar.",
+  githubDisconnectDescription:
+    "Pare de seguir a pasta. As páginas continuam aqui e passam a ser editáveis. Para segui-la de novo, vincule-a a partir de uma nova coleção.",
   formChecked: "Marcado",
   formChooseOption: "Escolha uma opção",
   formDescription:

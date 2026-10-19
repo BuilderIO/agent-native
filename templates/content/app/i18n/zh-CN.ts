@@ -55,6 +55,8 @@ const database = {
     "粘贴 GitHub 文件夹链接，例如 github.com/owner/repo/tree/main/docs。",
   githubLinkFileUrl: "这是文件链接。请粘贴它所在文件夹的链接。",
   githubSyncBusy: "同步已在进行中。完成后会显示更改。",
+  githubDisconnectDescription:
+    "停止跟随该文件夹。其页面会保留在这里并变为可编辑。如需再次跟随，请从新集合关联它。",
   formChecked: "已勾选",
   formChooseOption: "选择一个选项",
   formDescription: "填写以下问题以向此集合添加页面。",

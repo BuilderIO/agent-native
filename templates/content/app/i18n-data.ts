@@ -66,6 +66,8 @@ const databaseMessages = {
   githubLinkFileUrl: "That link is to a file. Paste the link to its folder.",
   githubSyncBusy:
     "A sync is already running. Its changes show when it finishes.",
+  githubDisconnectDescription:
+    "Stop following the folder. Its pages stay here and become editable. To follow it again, link it from a new collection.",
   aField: "a field",
   addAnotherItemSourceBeforeChangingToDetails:
     "Add another item source before changing this source to details.",

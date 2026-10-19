@@ -69,6 +69,8 @@ const database = {
   githubLinkFileUrl:
     "このリンクはファイルを指しています。そのフォルダーのリンクを貼り付けてください。",
   githubSyncBusy: "すでに同期が実行中です。完了すると変更が表示されます。",
+  githubDisconnectDescription:
+    "フォルダーとの連動を解除します。ページはここに残り、編集できるようになります。再び連動させるには、新しいコレクションからリンクしてください。",
   formChecked: "チェック済み",
   formChooseOption: "オプションを選択",
   formDescription:

@@ -1205,6 +1205,8 @@ const overrides = {
       "貼上 GitHub 資料夾連結，例如 github.com/owner/repo/tree/main/docs。",
     githubLinkFileUrl: "這是檔案連結。請貼上它所在資料夾的連結。",
     githubSyncBusy: "同步已在進行中。完成後會顯示變更。",
+    githubDisconnectDescription:
+      "停止跟隨此資料夾。其頁面會保留在這裡並變為可編輯。若要再次跟隨，請從新的集合連結它。",
     formChecked: "已勾選",
     formChooseOption: "選擇一個選項",
     formDescription: "填寫以下問題，將頁面新增至此集合。",

@@ -60,6 +60,8 @@ const database = {
     "GitHub फ़ोल्डर का लिंक पेस्ट करें, जैसे github.com/owner/repo/tree/main/docs।",
   githubLinkFileUrl: "यह लिंक एक फ़ाइल का है। उसके फ़ोल्डर का लिंक पेस्ट करें।",
   githubSyncBusy: "एक सिंक पहले से चल रहा है। पूरा होने पर उसके बदलाव दिखेंगे।",
+  githubDisconnectDescription:
+    "फ़ोल्डर का अनुसरण करना बंद करें। इसके पेज यहीं रहेंगे और संपादित किए जा सकेंगे। फिर से अनुसरण करने के लिए, इसे किसी नए कलेक्शन से लिंक करें।",
   formChecked: "चयनित",
   formChooseOption: "एक विकल्प चुनें",
   formDescription: "इस संग्रह में पेज जोड़ने के लिए नीचे दिए सवाल भरें।",

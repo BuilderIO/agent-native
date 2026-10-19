@@ -65,6 +65,8 @@ const database = {
   githubLinkFileUrl: "파일 링크입니다. 해당 폴더의 링크를 붙여 넣으세요.",
   githubSyncBusy:
     "이미 동기화가 진행 중입니다. 완료되면 변경 사항이 표시됩니다.",
+  githubDisconnectDescription:
+    "폴더 따르기를 중지합니다. 페이지는 여기에 남고 편집할 수 있게 됩니다. 다시 따르려면 새 컬렉션에서 연결하세요.",
   formChecked: "선택됨",
   formChooseOption: "옵션 선택",
   formDescription: "아래 질문에 답하여 이 컬렉션에 페이지를 추가하세요.",

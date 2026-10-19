@@ -68,6 +68,8 @@ const database = {
     "Ese enlace es de un archivo. Pega el enlace de su carpeta.",
   githubSyncBusy:
     "Ya hay una sincronización en curso. Sus cambios aparecen cuando termine.",
+  githubDisconnectDescription:
+    "Deja de seguir la carpeta. Sus páginas se quedan aquí y pasan a ser editables. Para seguirla de nuevo, vincúlala desde una colección nueva.",
   formChecked: "Marcado",
   formChooseOption: "Elige una opción",
   formDescription:

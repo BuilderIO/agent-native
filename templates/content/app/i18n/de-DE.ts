@@ -70,6 +70,8 @@ const database = {
     "Dieser Link führt zu einer Datei. Füge den Link zu ihrem Ordner ein.",
   githubSyncBusy:
     "Eine Synchronisierung läuft bereits. Ihre Änderungen erscheinen, sobald sie fertig ist.",
+  githubDisconnectDescription:
+    "Dem Ordner nicht mehr folgen. Seine Seiten bleiben hier und lassen sich bearbeiten. Um ihm wieder zu folgen, verknüpfe ihn aus einer neuen Sammlung.",
   formChecked: "Ausgewählt",
   formChooseOption: "Option auswählen",
   formDescription:
