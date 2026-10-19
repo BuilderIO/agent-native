@@ -8,10 +8,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "fs";
 import { dirname, join } from "path";
 
 import { parseArgs } from "@agent-native/core";
-import {
-  isBlockedExtensionUrlWithDns,
-  ssrfSafeFetch,
-} from "@agent-native/core/extensions/url-safety";
+import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import pLimit from "p-limit";
 
 import {
@@ -192,8 +189,16 @@ Options:
       process.exitCode = 1;
       return;
     }
+    const unavailableReason = delegation.reason.trim();
+    if (!unavailableReason) {
+      console.error(
+        "Assets reported image generation unavailable without a reason; local fallback skipped.",
+      );
+      process.exitCode = 1;
+      return;
+    }
     console.warn(
-      `[slides/generate-image] Assets unavailable (${delegation.reason}); ` +
+      `[slides/generate-image] Assets unavailable (${unavailableReason}); ` +
         `using the local provider — output will not be brand-grounded.`,
     );
   } else {
@@ -230,27 +235,29 @@ Options:
         refFetchLimit(async () => {
           try {
             console.log(`Loading reference image: ${url}`);
-            if (await isBlockedExtensionUrlWithDns(url)) {
-              console.warn(`Blocked private/internal reference image: ${url}`);
-              return null;
-            }
-            const res = await fetch(url, {
-              signal: AbortSignal.timeout(8000),
-              redirect: "manual",
-            });
-            if (res.status >= 300 && res.status < 400) {
-              console.warn(`Refusing redirected reference image: ${url}`);
-              return null;
-            }
+            const res = await ssrfSafeFetch(
+              url,
+              { signal: AbortSignal.timeout(8000) },
+              { httpsOnly: true, maxRedirects: 2 },
+            );
             if (!res.ok) {
               console.warn(`Failed to load reference image: ${url}`);
               return null;
             }
-            const contentType = res.headers.get("content-type") || "image/png";
+            const contentType = res.headers
+              .get("content-type")
+              ?.split(";")[0]
+              .trim()
+              .toLowerCase();
+            if (!contentType?.startsWith("image/")) {
+              await res.body?.cancel().catch(() => {});
+              console.warn(`Refusing non-image reference: ${url}`);
+              return null;
+            }
             const buffer = Buffer.from(await res.arrayBuffer());
             return {
               data: buffer.toString("base64"),
-              mimeType: contentType.split(";")[0].trim(),
+              mimeType: contentType,
             };
           } catch (err: any) {
             console.warn(

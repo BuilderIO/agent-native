@@ -110,6 +110,7 @@ describe("generate-image-api reference image SSRF safety", () => {
     expect(mockProvider.generate).toHaveBeenCalledWith(
       "A beautiful sunset",
       [],
+      undefined,
     );
   });
 

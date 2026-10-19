@@ -23,7 +23,7 @@ slide with `get-deck` to confirm it persisted.
 | `generate-image` | Generate locally; use Assets only with `--use-brand-library` | `pnpm action generate-image --prompt "hero image" --count 3` |
 | `search-images` | Search Google Images via the configured provider | `pnpm action search-images --q "Acme logo transparent" --count 5` |
 | `search-logos` | Resolve company domains and canonical logo URLs | `pnpm action search-logos --q "Acme"` |
-| `image-gen-status` | Check configured image providers | `pnpm action image-gen-status` |
+| `image-gen-status` | Check local image providers; Assets is opt-in | `pnpm action image-gen-status` |
 
 ## Image Generation Flow
 
