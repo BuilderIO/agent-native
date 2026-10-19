@@ -1734,6 +1734,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.agentVia": "透過 {{protocol}} 的代理",
   "settings.audit.allApps": "所有應用程式",
   "settings.audit.app": "應用程式",
+  "settings.audit.approval": "核准",
+  "settings.audit.approvalAgentChat": "已在代理聊天中核准",
+  "settings.audit.approvalA2AReview": "已在代理操作審查頁面核准",
+  "settings.audit.approvalMcpClient": "由 MCP 用戶端接受（未驗證）",
   "settings.audit.changedBy": "變更者",
   "settings.audit.close": "關閉",
   "settings.audit.empty": "此期間沒有變更。",
@@ -1746,9 +1750,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.last90Days": "過去 90 天",
   "settings.audit.loadFailed": "無法載入稽核記錄。",
   "settings.audit.loading": "正在載入稽核記錄",
+  "settings.audit.oauthClient": "OAuth 用戶端",
   "settings.audit.onBehalfOf": "代表",
   "settings.audit.range": "時間範圍",
   "settings.audit.refused": "已拒絕",
+  "settings.audit.reportedClient": "自行回報的用戶端",
   "settings.audit.result": "結果",
   "settings.audit.showMore": "再顯示 {{count}} 筆",
   "settings.audit.succeeded": "成功",
@@ -2705,6 +2711,10 @@ const messages: ToolkitAgentChatTranslation = {
     "已在此處中斷連線。在 ChatGPT 中，存取權可能仍然有效。",
   "settingsModel.chatgptLocalOnly":
     "開源應用在本機使用 loopback callback 執行時，無須申請合作夥伴資格即可使用 ChatGPT 方案。託管於 *.agent-native.com 的應用需要營運方核准，並設定託管 callback。",
+  "settingsModel.chatgptPersonalScopeOnly":
+    "使用個人帳戶存取 ChatGPT 方案。在本機開發時，請在登入前將 access.autoCreateDefaultOrg 設為 false。",
+  "settingsModel.chatgptScopeUnresolved":
+    "應用程式無法確認你的帳戶範圍。請完成本機設定，然後重新載入設定頁面。",
   "settingsModel.chatgptNoDirectUse":
     "重新連線並允許模型直接存取，才能使用此 ChatGPT 帳戶。",
   "settingsModel.chatgptReconnect": "重新連線",

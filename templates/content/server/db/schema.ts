@@ -247,32 +247,50 @@ export const documentPreviewDraftSettlements = table(
   ],
 );
 
-export const documentComments = table("document_comments", {
-  id: text("id").primaryKey(),
-  ownerEmail: text("owner_email").notNull().default("local@localhost"),
-  documentId: text("document_id").notNull(),
-  threadId: text("thread_id").notNull(),
-  parentId: text("parent_id"),
-  content: text("content").notNull(),
-  quotedText: text("quoted_text"),
-  anchorPrefix: text("anchor_prefix"),
-  anchorSuffix: text("anchor_suffix"),
-  anchorStartOffset: integer("anchor_start_offset"),
-  mentionsJson: text("mentions_json"),
-  authorEmail: text("author_email").notNull(),
-  authorName: text("author_name"),
-  submissionSource: text("submission_source"),
-  submissionRunId: text("submission_run_id"),
-  submissionThreadId: text("submission_thread_id"),
-  actorKind: text("actor_kind"),
-  authorModel: text("author_model"),
-  authorEffort: text("author_effort"),
-  resolved: integer("resolved").notNull().default(0),
-  createdAt: text("created_at").notNull().default(now()),
-  updatedAt: text("updated_at").notNull().default(now()),
-  notionCommentId: text("notion_comment_id"),
-  notionDiscussionId: text("notion_discussion_id"),
-});
+export const documentComments = table(
+  "document_comments",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    documentId: text("document_id").notNull(),
+    threadId: text("thread_id").notNull(),
+    parentId: text("parent_id"),
+    content: text("content").notNull(),
+    quotedText: text("quoted_text"),
+    anchorPrefix: text("anchor_prefix"),
+    anchorSuffix: text("anchor_suffix"),
+    anchorStartOffset: integer("anchor_start_offset"),
+    /**
+     * A thread on one Property value rather than body text. Set on the root
+     * comment only; the name and value are what they were when it was written,
+     * so the thread keeps its meaning after the value changes or the Property
+     * is deleted.
+     */
+    propertyId: text("property_id"),
+    propertyName: text("property_name"),
+    propertyValue: text("property_value"),
+    mentionsJson: text("mentions_json"),
+    authorEmail: text("author_email").notNull(),
+    authorName: text("author_name"),
+    submissionSource: text("submission_source"),
+    submissionRunId: text("submission_run_id"),
+    submissionThreadId: text("submission_thread_id"),
+    actorKind: text("actor_kind"),
+    authorModel: text("author_model"),
+    authorEffort: text("author_effort"),
+    resolved: integer("resolved").notNull().default(0),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+    notionCommentId: text("notion_comment_id"),
+    notionDiscussionId: text("notion_discussion_id"),
+  },
+  (comment) => [
+    index("document_comments_document_idx").on(
+      comment.documentId,
+      comment.ownerEmail,
+    ),
+  ],
+);
 
 /**
  * One person's emoji reaction on one Page comment. Access follows the

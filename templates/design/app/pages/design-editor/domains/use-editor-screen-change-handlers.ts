@@ -86,6 +86,7 @@ export function useEditorScreenChangeHandlers({
     activeBreakpointWidthState,
     activeBreakpointWidthStateRef,
     undoManagerRef,
+    localContentUndoStackRef,
     captureCurrentSelection,
     prepareTextCreationFinalization,
   } = editorHistory;
@@ -472,6 +473,7 @@ export function useEditorScreenChangeHandlers({
           canEditLiveScreen: canEditActiveVisualScreen,
           remapMotionTracksForClone,
           getFreshActiveContent,
+          localContentUndoStackRef,
           selectedElement,
           selectedLayerIdsState,
           setSelectedElement,
@@ -495,6 +497,7 @@ export function useEditorScreenChangeHandlers({
       canEditActiveVisualScreen,
       componentCloneContextForFile,
       getFreshActiveContent,
+      localContentUndoStackRef,
       recordPendingLiveStructureEdit,
       selectedElement,
       selectedLayerIdsState,

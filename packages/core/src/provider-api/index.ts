@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { AgentConnectionRequiredError } from "../action.js";
+import { AgentConnectionRequiredError, fail } from "../action.js";
 import {
   getWorkspaceConnectionProvider,
   type WorkspaceConnectionTemplateUse,
@@ -557,6 +557,10 @@ interface ProviderApiHttpResponse {
   headers: Record<string, string>;
   contentType: string | null;
   size: number;
+  /** `size` counts only what was read before the cap; the body was longer. */
+  sizeIsLowerBound?: true;
+  /** The body was not read, so `size`, `text`, and `json` say nothing about it. */
+  bodyDiscarded?: true;
   truncated: boolean;
   text?: string;
   json?: unknown;
@@ -2041,16 +2045,16 @@ export async function fetchProviderApiDocs(
     throw new Error(`Blocked private/internal docs URL: ${url.href}`);
   }
 
-  const response = await fetchWithTimeout(url.href, {
-    method: "GET",
-    maxBytes: clampMaxBytes(options.maxBytes),
-  });
+  const { response, finalUrl } = await fetchPublicDocsPage(
+    url.href,
+    clampMaxBytes(options.maxBytes),
+  );
 
   const responseBody =
     response.text ??
     (response.json !== undefined ? JSON.stringify(response.json, null, 2) : "");
   const content = await processWebContent({
-    url: url.href,
+    url: finalUrl,
     body: responseBody,
     contentType: response.contentType,
     responseMode: options.responseMode ?? "auto",
@@ -2065,10 +2069,115 @@ export async function fetchProviderApiDocs(
   return {
     provider: options.provider,
     catalog,
-    request: { url: url.href },
+    request: { url: url.href, finalUrl },
     response: responseForOutput,
     ...(content.mode === "raw" ? {} : { content }),
   };
+}
+
+const PROVIDER_DOCS_MAX_REDIRECTS = 5;
+const PROVIDER_DOCS_REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+type ProviderDocsRedirectFailure =
+  | "blocked"
+  | "loop"
+  | "missing_location"
+  | "too_many_redirects";
+
+function failProviderDocsRedirect(
+  reason: ProviderDocsRedirectFailure,
+  message: string,
+  details: Record<string, unknown>,
+): never {
+  fail(message, {
+    errorCode: `provider_docs_redirect_${reason}`,
+    statusCode: reason === "blocked" ? 400 : 502,
+    details: { reason, ...details },
+  });
+}
+
+// Docs fetches are unauthenticated public GETs, so unlike credentialed
+// provider requests (which must never chase a 30x to another host) they follow
+// redirects. Each hop gets the same SSRF check as the first URL before it is
+// fetched; a 30x is never returned as if it were the page.
+async function fetchPublicDocsPage(
+  startUrl: string,
+  maxBytes: number,
+): Promise<{ response: ProviderApiHttpResponse; finalUrl: string }> {
+  const visited = new Set<string>();
+  let currentUrl = startUrl;
+  for (let redirects = 0; ; redirects++) {
+    visited.add(urlWithoutHash(currentUrl));
+    const response = await fetchWithTimeout(currentUrl, {
+      method: "GET",
+      maxBytes,
+      discardRedirectBody: true,
+    });
+    if (response.status < 300 || response.status >= 400) {
+      return { response, finalUrl: currentUrl };
+    }
+
+    const location = response.headers.location;
+    const details = {
+      url: startUrl,
+      from: currentUrl,
+      status: response.status,
+      redirects,
+    };
+    if (!PROVIDER_DOCS_REDIRECT_STATUSES.has(response.status) || !location) {
+      failProviderDocsRedirect(
+        "missing_location",
+        `Docs URL ${currentUrl} returned HTTP ${response.status} ${response.statusText} without a redirect Location to follow.`,
+        details,
+      );
+    }
+    let nextUrl: URL;
+    try {
+      nextUrl = new URL(location, currentUrl);
+    } catch {
+      failProviderDocsRedirect(
+        "missing_location",
+        `Docs URL ${currentUrl} redirected to an invalid Location: ${location}`,
+        { ...details, location },
+      );
+    }
+    const next = { ...details, location: nextUrl.href };
+    if (visited.has(urlWithoutHash(nextUrl.href))) {
+      failProviderDocsRedirect(
+        "loop",
+        `Docs URL ${startUrl} redirects in a loop (${currentUrl} -> ${nextUrl.href}).`,
+        next,
+      );
+    }
+    if (redirects >= PROVIDER_DOCS_MAX_REDIRECTS) {
+      failProviderDocsRedirect(
+        "too_many_redirects",
+        `Docs URL ${startUrl} redirected more than ${PROVIDER_DOCS_MAX_REDIRECTS} times (last hop ${currentUrl} -> ${nextUrl.href}).`,
+        next,
+      );
+    }
+    if (nextUrl.protocol !== "https:" && nextUrl.protocol !== "http:") {
+      failProviderDocsRedirect(
+        "blocked",
+        `Docs URL ${currentUrl} redirected to a non-http(s) URL: ${nextUrl.href}`,
+        next,
+      );
+    }
+    if (await isBlockedExtensionUrlWithDns(nextUrl.href)) {
+      failProviderDocsRedirect(
+        "blocked",
+        `Docs URL ${currentUrl} redirected to a blocked private/internal URL: ${nextUrl.href}`,
+        next,
+      );
+    }
+    currentUrl = nextUrl.href;
+  }
+}
+
+function urlWithoutHash(href: string): string {
+  const url = new URL(href);
+  url.hash = "";
+  return url.href;
 }
 
 function compactProviderDocsResponse(response: ProviderApiHttpResponse) {
@@ -2080,6 +2189,7 @@ function compactProviderDocsResponse(response: ProviderApiHttpResponse) {
     headers: response.headers,
     contentType: response.contentType,
     size: response.size,
+    ...(response.sizeIsLowerBound ? { sizeIsLowerBound: true as const } : {}),
     truncated: response.truncated,
   };
 }
@@ -2283,7 +2393,7 @@ export async function executeProviderApiRequest(
   if (args.saveToFile) {
     if (response.truncated) {
       throw new Error(
-        `The response was cut at ${effectiveMaxBytes} bytes (${response.size} available), so saving it would persist an incomplete file. Narrow the request with a server-side filter or fetch it in pages with fetchAllPages.`,
+        `The response was cut at ${effectiveMaxBytes} bytes (${describeResponseSize(response)} available), so saving it would persist an incomplete file. Narrow the request with a server-side filter or fetch it in pages with fetchAllPages.`,
       );
     }
     const rawText =
@@ -2333,7 +2443,7 @@ export async function executeProviderApiRequest(
     guidance: [
       "This was a raw provider API request. Use provider docs/spec URLs to choose endpoints and include method/path/status plus relevant filters in the methodology. A data API returns records: when the provider can filter, search, or answer the question itself, make it do that instead of pulling records to filter locally.",
       response.truncated
-        ? truncatedResponseGuidance(response.size, effectiveMaxBytes)
+        ? truncatedResponseGuidance(response, effectiveMaxBytes)
         : null,
       providerAccessErrorGuidance(config, response.status),
     ]
@@ -2344,8 +2454,17 @@ export async function executeProviderApiRequest(
 
 // A truncated body is incomplete, not a smaller answer. Raising maxBytes and
 // paging the whole collection is the wrong recovery, so name the right ones.
-function truncatedResponseGuidance(size: number, maxBytes: number): string {
-  return `This response is incomplete: ${size} bytes came back and only the first ${maxBytes} are included. Do not raise maxBytes or page the whole collection to filter it locally. Add a server-side filter or query parameter, use the provider's own search or semantic tool, or run the scan with stageAs or provider-corpus-job. If none of those can express the question, say so or hand it to the app that owns this source.`;
+function describeResponseSize(response: ProviderApiHttpResponse): string {
+  return response.sizeIsLowerBound
+    ? `at least ${response.size}`
+    : String(response.size);
+}
+
+function truncatedResponseGuidance(
+  response: ProviderApiHttpResponse,
+  maxBytes: number,
+): string {
+  return `This response is incomplete: ${describeResponseSize(response)} bytes came back and only the first ${maxBytes} are included. Do not raise maxBytes or page the whole collection to filter it locally. Add a server-side filter or query parameter, use the provider's own search or semantic tool, or run the scan with stageAs or provider-corpus-job. If none of those can express the question, say so or hand it to the app that owns this source.`;
 }
 
 const PROVIDER_ACCESS_ERROR_STATUSES = new Set([401, 403, 404]);
@@ -3295,7 +3414,7 @@ async function executeCustomProviderApiRequest(
   if (args.saveToFile) {
     if (response.truncated) {
       throw new Error(
-        `The response was cut at ${effectiveMaxBytes} bytes (${response.size} available), so saving it would persist an incomplete file. Narrow the request with a server-side filter or fetch it in pages with fetchAllPages.`,
+        `The response was cut at ${effectiveMaxBytes} bytes (${describeResponseSize(response)} available), so saving it would persist an incomplete file. Narrow the request with a server-side filter or fetch it in pages with fetchAllPages.`,
       );
     }
     const rawText =
@@ -3349,7 +3468,7 @@ async function executeCustomProviderApiRequest(
     guidance: [
       "This was a raw provider API request to a custom provider. Use provider docs URLs to choose endpoints.",
       response.truncated
-        ? truncatedResponseGuidance(response.size, effectiveMaxBytes)
+        ? truncatedResponseGuidance(response, effectiveMaxBytes)
         : null,
     ]
       .filter(Boolean)
@@ -6161,6 +6280,7 @@ async function fetchWithTimeout(
     maxBytes?: number;
     secretValues?: string[];
     quota?: ProviderApiFetchQuotaOptions;
+    discardRedirectBody?: boolean;
   },
 ): Promise<ProviderApiHttpResponse> {
   const runOnce = async (): Promise<ProviderApiHttpResponse> => {
@@ -6185,6 +6305,7 @@ async function fetchWithTimeout(
         return await fetchProviderResponse(optionsUrl, fetchOptions, {
           maxBytes: options.maxBytes,
           secretValues,
+          discardRedirectBody: options.discardRedirectBody,
         });
       } catch (error) {
         if (dispatcher && isDispatcherCompatibilityError(error)) {
@@ -6193,6 +6314,7 @@ async function fetchWithTimeout(
           return await fetchProviderResponse(optionsUrl, fallbackOptions, {
             maxBytes: options.maxBytes,
             secretValues,
+            discardRedirectBody: options.discardRedirectBody,
           });
         }
         throw error;
@@ -6318,11 +6440,30 @@ async function fetchProviderResponse(
   options: {
     maxBytes?: number;
     secretValues: string[];
+    discardRedirectBody?: boolean;
   },
 ): Promise<ProviderApiHttpResponse> {
   const startedAt = Date.now();
   const res = await fetch(url, fetchOptions);
   const elapsedMs = Date.now() - startedAt;
+  const headers = redactSecrets(
+    headersToObject(res.headers),
+    options.secretValues,
+  );
+  if (options.discardRedirectBody && res.status >= 300 && res.status < 400) {
+    await res.body?.cancel();
+    return {
+      status: res.status,
+      statusText: res.statusText,
+      ok: res.ok,
+      elapsedMs,
+      headers,
+      contentType: res.headers.get("content-type") ?? null,
+      size: 0,
+      bodyDiscarded: true,
+      truncated: false,
+    };
+  }
   const rawText = await readResponseTextWithLimit(
     res,
     clampMaxBytes(options.maxBytes),
@@ -6334,9 +6475,10 @@ async function fetchProviderResponse(
     statusText: res.statusText,
     ok: res.ok,
     elapsedMs,
-    headers: redactSecrets(headersToObject(res.headers), options.secretValues),
+    headers,
     contentType: res.headers.get("content-type") ?? null,
     size: rawText.size,
+    ...(rawText.sizeIsLowerBound ? { sizeIsLowerBound: true as const } : {}),
     truncated: rawText.truncated,
     text: parsed === undefined ? redactedText : undefined,
     json: parsed,
@@ -6420,7 +6562,12 @@ function describeProviderRequestTarget(
 async function readResponseTextWithLimit(
   response: Response,
   maxBytes: number,
-): Promise<{ text: string; truncated: boolean; size: number }> {
+): Promise<{
+  text: string;
+  truncated: boolean;
+  size: number;
+  sizeIsLowerBound?: true;
+}> {
   const contentLength = response.headers.get("content-length");
   if (contentLength && Number(contentLength) > maxBytes) {
     return {
@@ -6429,12 +6576,34 @@ async function readResponseTextWithLimit(
       size: Number(contentLength),
     };
   }
-  const buffer = await response.arrayBuffer();
-  const size = buffer.byteLength;
-  const bytes = new Uint8Array(buffer.slice(0, maxBytes));
+  // Stop at the cap: a missing or understated Content-Length must not let a
+  // response force an unbounded allocation or hold the request open while it
+  // streams bytes nobody keeps. The total past the cap is then unknown.
+  const kept: Uint8Array[] = [];
+  let size = 0;
+  if (response.body) {
+    const reader = response.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      kept.push(value);
+      if (size > maxBytes) {
+        await reader.cancel();
+        return {
+          text: new TextDecoder().decode(
+            Buffer.concat(kept, size).subarray(0, maxBytes),
+          ),
+          truncated: true,
+          size,
+          sizeIsLowerBound: true,
+        };
+      }
+    }
+  }
   return {
-    text: new TextDecoder().decode(bytes),
-    truncated: size > maxBytes,
+    text: new TextDecoder().decode(Buffer.concat(kept, size)),
+    truncated: false,
     size,
   };
 }

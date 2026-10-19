@@ -36,6 +36,7 @@ import {
 } from "../../agent/engine/index.js";
 import type { ActionTool } from "../../agent/types.js";
 import { getAppConfig } from "../../app-config/index.js";
+import { auditAttribution } from "../../audit/attribution.js";
 import { CHATGPT_SUBSCRIPTION_LAB } from "../../labs/core-labs.js";
 import { getUserLabEnabled } from "../../labs/store.js";
 import { defaultModelMessagesForUser } from "../../localization/default-model-messages.js";
@@ -338,10 +339,7 @@ export async function run(
     { ...args, appId: context?.appId ?? args.appId },
     {
       actionName: context?.actionName ?? "manage-agent-engine",
-      caller: context?.caller,
-      threadId: context?.threadId,
-      turnId: context?.turnId,
-      runId: context?.runId,
+      attribution: auditAttribution(context),
     },
   );
 

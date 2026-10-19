@@ -1836,6 +1836,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.agentVia": "{{protocol}} के ज़रिए एजेंट",
   "settings.audit.allApps": "सभी ऐप",
   "settings.audit.app": "ऐप",
+  "settings.audit.approval": "मंज़ूरी",
+  "settings.audit.approvalAgentChat": "एजेंट चैट में मंज़ूर किया गया",
+  "settings.audit.approvalA2AReview": "एजेंट कार्रवाई समीक्षा पेज पर मंज़ूर किया गया",
+  "settings.audit.approvalMcpClient": "MCP क्लाइंट ने स्वीकार किया (असत्यापित)",
   "settings.audit.changedBy": "बदलने वाला",
   "settings.audit.close": "बंद करें",
   "settings.audit.empty": "इस अवधि में कोई बदलाव नहीं।",
@@ -1848,9 +1852,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.last90Days": "पिछले 90 दिन",
   "settings.audit.loadFailed": "ऑडिट लॉग लोड नहीं हो सका।",
   "settings.audit.loading": "ऑडिट लॉग लोड हो रहा है",
+  "settings.audit.oauthClient": "OAuth क्लाइंट",
   "settings.audit.onBehalfOf": "की ओर से",
   "settings.audit.range": "समय सीमा",
   "settings.audit.refused": "अस्वीकृत",
+  "settings.audit.reportedClient": "स्वयं बताया गया क्लाइंट",
   "settings.audit.result": "परिणाम",
   "settings.audit.showMore": "{{count}} और दिखाएं",
   "settings.audit.succeeded": "सफल",
@@ -2896,6 +2902,10 @@ const messages: ToolkitAgentChatTranslation = {
     "यहाँ डिस्कनेक्ट किया गया। ChatGPT में ऐक्सेस अब भी सक्रिय रह सकता है।",
   "settingsModel.chatgptLocalOnly":
     "ओपन-सोर्स ऐप्स को लोकल रूप से loopback callback के साथ चलाने पर बिना आवेदन के इस्तेमाल किया जा सकता है; पार्टनरशिप के लिए आवेदन की ज़रूरत नहीं है। *.agent-native.com पर होस्ट किए गए ऐप्स के लिए ऑपरेटर की मंज़ूरी और hosted callback ज़रूरी है।",
+  "settingsModel.chatgptPersonalScopeOnly":
+    "ChatGPT प्लान एक्सेस के लिए व्यक्तिगत खाते का उपयोग करें। लोकल डेवलपमेंट में, साइन इन करने से पहले access.autoCreateDefaultOrg को false सेट करें।",
+  "settingsModel.chatgptScopeUnresolved":
+    "ऐप आपके खाते का दायरा सत्यापित नहीं कर सका। स्थानीय सेटअप पूरा करें, फिर सेटिंग्स को दोबारा लोड करें।",
   "settingsModel.chatgptNoDirectUse":
     "इस ChatGPT खाते का उपयोग करने के लिए फिर से कनेक्ट करें और सीधे मॉडल ऐक्सेस की अनुमति दें।",
   "settingsModel.chatgptReconnect": "फिर से कनेक्ट करें",

@@ -903,7 +903,7 @@ async function processComment(
         console.error("[google-docs] Error sending response:", err);
       }
     },
-    { model: options.model, engineName: engine.name },
+    { model: options.model, engineName: engine.name, executionLease: true },
   );
 }
 

@@ -39,6 +39,7 @@ function harness(overrides: Partial<EscapeHotkeyArgs> = {}) {
     overviewAnnotationSending: false,
     pinMode: false,
     selectedElement: SELECTED_ELEMENT,
+    selectedLayerIds: [],
     setActiveTool: vi.fn(),
     setDrawMode: vi.fn(),
     setMode: vi.fn(),
@@ -61,6 +62,16 @@ describe("runEscapeHotkey", () => {
     expect(calls.setSelectedLayerIdsState).toHaveBeenCalledWith([]);
     expect(calls.setOverviewSelectedScreenIds).toHaveBeenCalledWith([]);
     expect(calls.setOverviewClearSelectionRequest).toHaveBeenCalledTimes(1);
+    expect(calls.setCreatedOverviewLayerSelection).toHaveBeenCalledWith(null);
+  });
+
+  it("keeps a pending created-layer selection when another handler consumes Escape", () => {
+    const { args, calls } = harness({ cancelActiveEditorDrag: () => true });
+
+    runEscapeHotkey(args);
+
+    expect(calls.clearPendingOverviewLayerSelection).not.toHaveBeenCalled();
+    expect(calls.setSelectedElement).not.toHaveBeenCalled();
   });
 
   it("clears the selection a draw just made, which the Layers panel shows in overview", () => {
@@ -88,6 +99,20 @@ describe("runEscapeHotkey", () => {
 
     expect(calls.setOverviewSelectedScreenIds).toHaveBeenCalledTimes(1);
     expect(calls.setOverviewSelectedScreenIds).toHaveBeenCalledWith([]);
+  });
+
+  it("clears a created layer before escaping back to overview", () => {
+    const { args, calls } = harness({
+      viewMode: "single",
+      selectedElement: null,
+      selectedLayerIds: ["created-layer"],
+    });
+
+    runEscapeHotkey(args);
+
+    expect(args.enterOverviewFromZoom).not.toHaveBeenCalled();
+    expect(calls.setSelectedElement).toHaveBeenCalledWith(null);
+    expect(calls.setSelectedLayerIdsState).toHaveBeenCalledWith([]);
   });
 
   it("only closes the shortcuts dialog when it is open, leaving selection and tool alone", () => {

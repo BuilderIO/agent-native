@@ -9,7 +9,6 @@ const SCREEN = `<!doctype html><html><head><meta charset="utf-8"></head>
 const sectionTitle = (name: string) =>
   `h3.design-sidebar-section-title:text-is("${name}")`;
 
-// oracle: none — checks which scope the inspector addresses with nothing selected, not measured Figma behavior.
 test("with nothing selected in overview, the inspector shows the Canvas section and no Screen section", async ({
   app,
 }) => {
@@ -21,7 +20,6 @@ test("with nothing selected in overview, the inspector shows the Canvas section 
   await expect(app.page.locator(sectionTitle("Screen"))).toHaveCount(0);
 });
 
-// oracle: none — checks where the Interact controls sit against the left panel, not measured Figma geometry.
 test("Interact has no inspector, and its device picker and zoom sit fully right of the left panel and inside the viewport", async ({
   app,
 }) => {

@@ -815,6 +815,7 @@ export default {
     bigQueryHealthUnavailable:
       "퍼스트파티 Analytics 부담을 확인하지 못했습니다. 백엔드를 바꾸기 전에 다시 로드하세요.",
     analyticsEventCount: "관측된 이벤트",
+    analyticsRecentEventCount: "관측된 이벤트 (최근 30일)",
     slowQueries24h: "느린 쿼리 (24시간)",
     maxQueryDuration: "최대 쿼리 시간",
     defaultKeyName: "호스팅된 템플릿",
@@ -1302,6 +1303,10 @@ export default {
     dashboardActions: "대시보드 세부정보 및 작업",
     certifyForAi: "AI 쿼리용 인증",
     certifiedForAi: "AI 쿼리용 인증됨",
+    duplicateToCustomize: "복제하여 사용자 지정",
+    duplicateToCustomizeHint:
+      "기본 제공 대시보드는 Analytics가 릴리스될 때마다 업데이트됩니다. 변경하려면 내 사본을 만드세요.",
+    duplicateFailed: "이 대시보드를 복제하지 못했습니다.",
     certificationSaved: "대시보드가 AI 쿼리용으로 인증됨",
     certificationFailed: "대시보드를 인증할 수 없음: {{message}}",
     details: "Details",
@@ -1426,6 +1431,24 @@ export default {
     columnShowHidden: "숨긴 열 표시",
     columnName: "열 이름",
     columnResize: "열 크기 조절",
+    rowBreakdownBy: "세부 기준",
+    rowBreakdownAll: "전체",
+    rowBreakdownOther: "기타",
+    rowBreakdownOtherHint: "작은 그룹과 이 패널의 SQL에서 제외된 사람",
+    rowBreakdownSmallGroup: "{{count}}명 미만: 비율을 신중하게 해석하세요",
+    rowBreakdownNoValue: "(없음)",
+    rowBreakdownEmpty: "이 세부 항목에 행이 없습니다.",
+    rowBreakdownUnavailable:
+      "이 패널의 SQL에는 {{column}} 기준 세부 항목이 없습니다.",
+    rowBreakdownFromPanel:
+      "이 패널의 행에서 가져왔습니다. 읽은 데이터가 없습니다.",
+    rowBreakdownFromCache: "캐시에서 가져왔습니다. 읽은 데이터가 없습니다.",
+    rowBreakdownAlreadyLoaded: "이미 불러왔습니다. 읽은 데이터가 없습니다.",
+    rowBreakdownBytesRead: "{{bytes}} 읽음",
+    rowBreakdownOverByteCap:
+      "이 분석은 {{gib}}GiB를 넘게 읽게 되어 실행하지 않았습니다. 대시보드 필터나 기간을 좁힌 뒤 다시 시도하세요.",
+    rowBreakdownTruncated:
+      "결과가 잘려서 일부 그룹이 빠졌거나 기타에 포함되었습니다.",
     deleteSectionTitle: "섹션을 삭제하시겠습니까?",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "패널을 삭제하시겠습니까?",
@@ -2092,10 +2115,6 @@ export default {
     noMatches: "검색과 일치하는 정의가 없습니다.",
     searchPlaceholder: "정의 검색",
     sourceIndex: "소스 인덱스",
-    statusApproved: "승인됨",
-    statusSuggested: "제안됨",
-    statusUnreviewed: "검토 전",
-    unsourced: "소스 없음",
   },
   indexPanel: {
     presetDaily: "매일 06:00",

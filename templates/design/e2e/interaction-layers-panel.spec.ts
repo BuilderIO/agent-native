@@ -189,6 +189,95 @@ async function liveChildIds(app: App, parentId: string) {
 }
 
 test.describe("interaction: layers panel", () => {
+  test("cross-screen layer moves preserve readable auto text color", async ({
+    app,
+  }) => {
+    const source = `<!doctype html><html lang="en"><head><meta charset="utf-8"></head><body data-agent-native-layer-name="Source Screen" style="margin:0;background:#fff"><div data-agent-native-node-id="auto-text" data-agent-native-layer-name="Auto Text" data-an-primitive="text" data-an-auto-text-color style="color:#000">Auto text</div></body></html>`;
+    const target = `<!doctype html><html lang="en"><head><meta charset="utf-8"><style>.dark-surface{background:#111}</style></head><body data-agent-native-layer-name="Target Screen" style="margin:0;background:#fff"><main data-agent-native-node-id="dark-target" data-agent-native-layer-name="Dark Target" class="dark-surface" style="width:400px;height:300px"></main></body></html>`;
+    const id = await app.seed(source, { files: { "page-two.html": target } });
+    const page = app.page;
+    await app.open(id);
+    await app.zoomToFit();
+    const screens = layerTree(page).locator(
+      '[role="treeitem"][aria-level="1"]',
+    );
+    await expect(screens).toHaveCount(2);
+    for (const screen of await screens.all()) {
+      const expand = screen.getByRole("button", { name: "Expand layer" });
+      if (await expand.count()) await expand.click();
+    }
+    await expect(layerRowButton(page, "Auto Text")).toBeVisible();
+    await expect(layerRowButton(page, "Dark Target")).toBeVisible();
+
+    await dragRowOnto(
+      page,
+      layerRowButton(page, "Auto Text"),
+      layerRow(page, "Dark Target"),
+      "middle",
+    );
+    await app.settled();
+
+    expect((await app.savedNodes(id)).has("auto-text")).toBe(false);
+    const destination = await app.savedNodes(id, "page-two.html");
+    expect(childrenOf(destination, "dark-target")).toContain("auto-text");
+    expect(styleOf(destination.get("auto-text")).color).toBe(
+      "rgb(255, 255, 255)",
+    );
+    await expect(app.node("auto-text", "page-two.html")).toHaveCSS(
+      "color",
+      "rgb(255, 255, 255)",
+    );
+    expect(await app.savedHtml(id, "page-two.html")).toContain(
+      "data-an-auto-text-color",
+    );
+  });
+
+  test("cross-screen container moves preserve readable auto text color descendants", async ({
+    app,
+  }) => {
+    const source = `<!doctype html><html lang="en"><head><meta charset="utf-8"></head><body data-agent-native-layer-name="Source Screen" style="margin:0;background:#fff"><section data-agent-native-node-id="container" data-agent-native-layer-name="Text Container" data-an-primitive="group" style="width:300px;height:160px"><div data-agent-native-node-id="auto-text" data-agent-native-layer-name="Auto Text" data-an-primitive="text" data-an-auto-text-color style="color:#000">Auto text</div></section></body></html>`;
+    const target = `<!doctype html><html lang="en"><head><meta charset="utf-8"><style>.dark-surface{background:#111}</style></head><body data-agent-native-layer-name="Target Screen" style="margin:0;background:#fff"><main data-agent-native-node-id="dark-target" data-agent-native-layer-name="Dark Target" class="dark-surface" style="width:400px;height:300px"></main></body></html>`;
+    const id = await app.seed(source, { files: { "page-two.html": target } });
+    const page = app.page;
+    await app.open(id);
+    await app.zoomToFit();
+    const screens = layerTree(page).locator(
+      '[role="treeitem"][aria-level="1"]',
+    );
+    await expect(screens).toHaveCount(2);
+    for (const screen of await screens.all()) {
+      const expand = screen.getByRole("button", { name: "Expand layer" });
+      if (await expand.count()) await expand.click();
+    }
+    await expect(layerRowButton(page, "Text Container")).toBeVisible();
+    await expect(layerRowButton(page, "Dark Target")).toBeVisible();
+
+    await dragRowOnto(
+      page,
+      layerRowButton(page, "Text Container"),
+      layerRow(page, "Dark Target"),
+      "middle",
+    );
+    await app.settled();
+
+    const sourceNodes = await app.savedNodes(id);
+    expect(sourceNodes.has("container")).toBe(false);
+    expect(sourceNodes.has("auto-text")).toBe(false);
+    const destination = await app.savedNodes(id, "page-two.html");
+    expect(childrenOf(destination, "dark-target")).toContain("container");
+    expect(childrenOf(destination, "container")).toContain("auto-text");
+    expect(styleOf(destination.get("auto-text")).color).toBe(
+      "rgb(255, 255, 255)",
+    );
+    await expect(app.node("auto-text", "page-two.html")).toHaveCSS(
+      "color",
+      "rgb(255, 255, 255)",
+    );
+    expect(await app.savedHtml(id, "page-two.html")).toContain(
+      "data-an-auto-text-color",
+    );
+  });
+
   test("top row is topmost-rendered, matching DOM order (Steve's footer-above-header report)", async ({
     app,
   }) => {

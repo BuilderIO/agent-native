@@ -546,6 +546,14 @@ export function coreActionLoaderEntries(): Array<[string, () => Promise<any>]> {
     ["explain-access", () => import("../org/actions/explain-access.js")],
     ["offboard-member", () => import("../org/actions/offboard-member.js")],
     [
+      "list-organization-members",
+      () => import("../org/actions/list-organization-members.js"),
+    ],
+    [
+      "invite-organization-member",
+      () => import("../org/actions/invite-organization-member.js"),
+    ],
+    [
       "get-agentkit-capabilities",
       () => import("../agent/actions/get-agentkit-capabilities.js"),
     ],
