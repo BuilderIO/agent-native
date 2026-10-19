@@ -587,6 +587,13 @@ vi.mock("./agentkit-chat/parity-renderers.js", () => ({
 }));
 
 vi.mock("@agent-native/core/client/application-state", () => ({
+  AGENT_SCREEN_METADATA_KEY: "agentNativeScreen",
+  captureAgentScreenState: vi.fn(async (browserTabId: string) => ({
+    v: 1,
+    browserTabId,
+    capturedAt: 1,
+    values: { navigation: { view: "editor", slideIndex: 1 } },
+  })),
   compareAndSetClientAppState: vi.fn(
     async (key: string, expected: unknown, next: unknown) => {
       const current = chatMocks.appState.get(key) ?? null;
@@ -838,6 +845,7 @@ import {
   createAgentNativeAgentKitTransport,
 } from "@agent-native/core/client/agent-chat";
 import {
+  captureAgentScreenState,
   deleteClientAppState,
   readClientAppState,
 } from "@agent-native/core/client/application-state";
@@ -3576,6 +3584,59 @@ describe("AgentKitAssistantChat host behavior", () => {
 
     expect(chatMocks.control.uploadFiles).not.toHaveBeenCalled();
     expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+  });
+
+  describe("the screen a message is sent from", () => {
+    const sentScreen = {
+      v: 1,
+      browserTabId: "tab-a",
+      capturedAt: 1,
+      values: { navigation: { view: "editor", slideIndex: 1 } },
+    };
+
+    it("rides along with a sent message", async () => {
+      const ref = createRef<AssistantChatHandle>();
+      await mount(baseProps({ browserTabId: "tab-a" }), ref);
+
+      await act(async () => {
+        await ref.current?.sendMessage("Tighten this slide");
+      });
+
+      expect(captureAgentScreenState).toHaveBeenCalledWith("tab-a");
+      const sent = chatMocks.control.sendMessage.mock.calls[0]?.[0] as any;
+      expect(sent.metadata.agentNativeScreen).toEqual(sentScreen);
+      expect(sent.options.metadata.agentNativeScreen).toEqual(sentScreen);
+    });
+
+    it("rides along with a queued message", async () => {
+      const ref = createRef<AssistantChatHandle>();
+      chatMocks.control.queueMessage.mockResolvedValue(undefined);
+      await mount(baseProps({ browserTabId: "tab-a" }), ref);
+
+      await act(async () => {
+        await ref.current!.queueMessage("Do this one next");
+      });
+
+      const queued = chatMocks.control.queueMessage.mock.calls[0]?.[0] as any;
+      expect(queued.metadata.agentNativeScreen).toEqual(sentScreen);
+    });
+
+    it("still sends when the screen can't be read", async () => {
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      vi.mocked(captureAgentScreenState).mockRejectedValueOnce(
+        new Error("offline"),
+      );
+      const ref = createRef<AssistantChatHandle>();
+      await mount(baseProps({ browserTabId: "tab-a" }), ref);
+
+      await act(async () => {
+        await ref.current?.sendMessage("Tighten this slide");
+      });
+
+      const sent = chatMocks.control.sendMessage.mock.calls[0]?.[0] as any;
+      expect(sent.text).toBe("Tighten this slide");
+      expect(sent.metadata).not.toHaveProperty("agentNativeScreen");
+    });
   });
 
   it("uploads data URL image parts to durable URLs before sending", async () => {

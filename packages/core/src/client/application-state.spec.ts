@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  captureAgentScreenState,
   compareAndSetClientAppState,
   deleteClientAppState,
   isClientAppStateMutationPending,
   readClientAppState,
   readClientAppStateMany,
+  registerAgentScreenStateKeys,
   setClientAppState,
   writeClientAppState,
 } from "./application-state.js";
@@ -456,5 +458,82 @@ describe("client application-state helpers", () => {
     await expect(writeClientAppState("selection primary", {})).rejects.toThrow(
       "Application state keys may only contain",
     );
+  });
+
+  describe("captureAgentScreenState", () => {
+    it("reads the tab's framework and registered keys, keeping absent ones as null", async () => {
+      vi.stubGlobal("window", { location: { pathname: "/" } });
+      const fetchMock = vi.fn().mockResolvedValue(
+        jsonResponse({
+          values: {
+            "navigation:tab-a": { view: "editor" },
+            "slides-selection:tab-a": { slideId: "slide-2" },
+          },
+          missing: ["__url__:tab-a", "settings-view:tab-a", "selection:tab-a"],
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const unregister = registerAgentScreenStateKeys(["slides-selection"]);
+
+      try {
+        const snapshot = await captureAgentScreenState("tab-a");
+
+        expect(String(fetchMock.mock.calls[0][0])).toBe(
+          "/_agent-native/application-state?keys=navigation%3Atab-a,__url__%3Atab-a,settings-view%3Atab-a,selection%3Atab-a,slides-selection%3Atab-a",
+        );
+        expect(snapshot).toEqual({
+          v: 1,
+          browserTabId: "tab-a",
+          capturedAt: expect.any(Number),
+          values: {
+            navigation: { view: "editor" },
+            __url__: null,
+            "settings-view": null,
+            selection: null,
+            "slides-selection": { slideId: "slide-2" },
+          },
+        });
+      } finally {
+        unregister();
+      }
+    });
+
+    it("scrubs secrets from the URL it stores with the message", async () => {
+      vi.stubGlobal("window", { location: { pathname: "/" } });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          jsonResponse({
+            values: {
+              "__url__:tab-a": {
+                pathname: "/settings",
+                search: "?code=secret-code&tab=apps",
+                hash: "",
+                searchParams: { code: "secret-code", tab: "apps" },
+              },
+            },
+            missing: [],
+          }),
+        ),
+      );
+
+      const snapshot = await captureAgentScreenState("tab-a");
+
+      expect(snapshot.values.__url__).toEqual({
+        pathname: "/settings",
+        search: "?code=%3Credacted%3E&tab=apps",
+        hash: "",
+        searchParams: { code: "<redacted>", tab: "apps" },
+      });
+    });
+
+    it("refuses keys that are not plain screen state", () => {
+      expect(() => registerAgentScreenStateKeys(["navigate"])).toThrow(
+        "cannot be a screen state key",
+      );
+      expect(() => registerAgentScreenStateKeys(["selection:tab-a"])).toThrow(
+        "cannot be a screen state key",
+      );
+    });
   });
 });

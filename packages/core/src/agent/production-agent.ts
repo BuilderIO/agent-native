@@ -58,7 +58,16 @@ import {
   MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
   MAX_TURN_WALL_CLOCK_MS,
 } from "../app-config/run-lifecycle-invariants.js";
-import { readAppState } from "../application-state/script-helpers.js";
+import {
+  captureTurnScreenSnapshot,
+  readAppState,
+  wasTurnScreenReleased,
+} from "../application-state/script-helpers.js";
+import {
+  AGENT_SCREEN_METADATA_KEY,
+  readSubmittedTurnScreen,
+  type TurnScreen,
+} from "../application-state/turn-screen.js";
 import {
   detectArtifactReceipts,
   type ArtifactReceipt,
@@ -645,19 +654,48 @@ export function normalizeChatScope(
   return { type, id, ...(label ? { label } : {}) };
 }
 
-// The request's `scope` is read when the run starts, which for a queued or
-// background turn is after the user may have moved on; the metadata copy is
-// the one the client captured when the message was sent.
-function submittedChatScopeFocus(
+// A queued or background turn starts after the user may have moved on, so the
+// screen the message was sent from wins over whatever the tab shows now.
+async function resolveTurnScreen(
   metadata: Record<string, unknown> | undefined,
-  runScope: { type: string; id: string },
-): unknown {
-  const submitted = metadata?.chatScope;
-  const scope = normalizeChatScope(submitted);
-  if (!scope || scope.type !== runScope.type || scope.id !== runScope.id) {
+  browserTabId: string,
+): Promise<TurnScreen | undefined> {
+  const submitted = readSubmittedTurnScreen(metadata, browserTabId);
+  if (submitted.status === "ok") {
+    const { snapshot } = submitted;
+    // A continuation the client starts (after an approval, a connection, or
+    // Continue) re-sends the original metadata without the segment's release.
+    if (!snapshot.released) {
+      try {
+        if (await wasTurnScreenReleased(snapshot)) snapshot.released = true;
+      } catch (error) {
+        console.warn(
+          "[agent-chat] couldn't check whether this turn already navigated; keeping the sent screen:",
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    }
+    return { source: "message", snapshot };
+  }
+  if (submitted.status !== "absent") {
+    console.warn(
+      "[agent-chat] ignoring the message's screen snapshot; reading the screen at turn start:",
+      submitted.status === "invalid" ? submitted.reason : submitted.status,
+    );
+  }
+  if (!hasAppStateIdentity()) return undefined;
+  try {
+    return {
+      source: "turn-start",
+      snapshot: await captureTurnScreenSnapshot(browserTabId),
+    };
+  } catch (error) {
+    console.warn(
+      "[agent-chat] screen snapshot unavailable; screen reads stay live for this turn:",
+      error instanceof Error ? error.message : String(error),
+    );
     return undefined;
   }
-  return (submitted as Record<string, unknown>).focus;
 }
 
 function appStateKeyForBrowserTab(key: string, browserTabId?: string): string {
@@ -11970,13 +12008,28 @@ export function createProductionAgentHandler(
       delete mutableBody.options;
       delete mutableBody.skipPendingSelectionContext;
     }
-    if (requestRunCtx?.chatScope) {
-      const focus = submittedChatScopeFocus(
+    if (requestRunCtx && requestBrowserTabId) {
+      const turnScreen = await resolveTurnScreen(
         requestMetadata,
-        requestRunCtx.chatScope,
+        requestBrowserTabId,
       );
-      if (focus !== undefined) {
-        requestRunCtx.chatScope = { ...requestRunCtx.chatScope, focus };
+      if (turnScreen) {
+        requestRunCtx.turnScreen = turnScreen;
+        // Background workers and continuation segments rebuild the turn from
+        // this body, so they reuse the snapshot (and see a later release).
+        const bodyMetadata = mutableBody.metadata;
+        mutableBody.metadata = {
+          ...(bodyMetadata &&
+          typeof bodyMetadata === "object" &&
+          !Array.isArray(bodyMetadata)
+            ? bodyMetadata
+            : {}),
+          [AGENT_SCREEN_METADATA_KEY]: turnScreen.snapshot,
+        };
+        requestMetadata = {
+          ...requestMetadata,
+          [AGENT_SCREEN_METADATA_KEY]: turnScreen.snapshot,
+        };
       }
     }
     const recordUnstartedTurn = async (failure: {

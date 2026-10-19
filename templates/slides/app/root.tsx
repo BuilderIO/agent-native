@@ -1,5 +1,6 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
+import { registerAgentScreenStateKeys } from "@agent-native/core/client/application-state";
 import {
   createAgentNativeQueryClient,
   useDbSync,
@@ -55,6 +56,7 @@ configureTracking({
     template_name: "slides",
   }),
 });
+registerAgentScreenStateKeys(["slides-selection"]);
 
 const BARE_ROUTES = new Set(["/slide"]);
 const BARE_PREFIXES = ["/share/", "/p/"];

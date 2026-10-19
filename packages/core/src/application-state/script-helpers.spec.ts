@@ -324,6 +324,128 @@ describe("application-state script-helpers", () => {
     });
   });
 
+  describe("turn screen snapshot", () => {
+    const sentScreen = () => ({
+      source: "message" as const,
+      snapshot: {
+        v: 1 as const,
+        browserTabId: "tab-a",
+        capturedAt: 1,
+        values: {
+          navigation: { view: "editor", slideIndex: 1 },
+          selection: null,
+          "slides-selection": { slideId: "slide-2" },
+        },
+      },
+    });
+
+    async function inTurn<T>(
+      turnScreen: ReturnType<typeof sentScreen>,
+      fn: (helpers: typeof import("./script-helpers.js")) => Promise<T>,
+    ): Promise<T> {
+      process.env.AGENT_USER_EMAIL = "alice@test.com";
+      const helpers = await import("./script-helpers.js");
+      const { runWithRequestContext } =
+        await import("../server/request-context.js");
+      return runWithRequestContext(
+        {
+          userEmail: "alice@test.com",
+          run: { browserTabId: "tab-a", turnScreen },
+        },
+        () => fn(helpers),
+      ) as Promise<T>;
+    }
+
+    it("returns the sent values however the key is spelled, without reading live state", async () => {
+      mockAppStateGet.mockResolvedValue({ view: "editor", slideIndex: 4 });
+
+      const reads = await inTurn(sentScreen(), async (helpers) => [
+        await helpers.readAppState("navigation"),
+        await helpers.readAppStateForCurrentTab("navigation"),
+        await helpers.readAppState("slides-selection:tab-a"),
+        await helpers.readAppStateForCurrentTab("selection", {
+          fallbackToGlobal: true,
+        }),
+      ]);
+
+      expect(reads).toEqual([
+        { view: "editor", slideIndex: 1 },
+        { view: "editor", slideIndex: 1 },
+        { slideId: "slide-2" },
+        null,
+      ]);
+      expect(mockAppStateGet).not.toHaveBeenCalled();
+    });
+
+    it("reads keys outside the snapshot and other tabs live", async () => {
+      mockAppStateGet.mockResolvedValue({ live: true });
+
+      const reads = await inTurn(sentScreen(), async (helpers) => [
+        await helpers.readAppState("slides-panels:tab-a"),
+        await helpers.readAppState("navigation:tab-b"),
+      ]);
+
+      expect(reads).toEqual([{ live: true }, { live: true }]);
+      expect(mockAppStateGet).toHaveBeenCalledTimes(2);
+    });
+
+    it.each([
+      ["a navigate command", "navigate"],
+      ["a URL command", "__set_url__"],
+      ["a pinned key", "selection"],
+    ])(
+      "reads live state after the turn writes %s",
+      async (_label, writtenKey) => {
+        mockAppStatePut.mockResolvedValue(undefined);
+        mockAppStateGet.mockResolvedValue({ view: "editor", slideIndex: 4 });
+        const turnScreen = sentScreen();
+
+        const navigation = await inTurn(turnScreen, async (helpers) => {
+          await helpers.writeAppStateForCurrentTab(writtenKey, { view: "x" });
+          return helpers.readAppState("navigation");
+        });
+
+        expect(navigation).toEqual({ view: "editor", slideIndex: 4 });
+        expect(turnScreen.snapshot).toMatchObject({ released: true });
+        expect(mockAppStatePut).toHaveBeenCalledWith(
+          "alice@test.com",
+          "turn-screen-released:tab-a",
+          { capturedAt: 1 },
+          { requestSource: "agent" },
+        );
+      },
+    );
+
+    it("recognizes a snapshot an earlier segment released", async () => {
+      process.env.AGENT_USER_EMAIL = "alice@test.com";
+      const { wasTurnScreenReleased } = await import("./script-helpers.js");
+      mockAppStateGet.mockResolvedValue({ capturedAt: 1 });
+      const { snapshot } = sentScreen();
+
+      expect(await wasTurnScreenReleased(snapshot)).toBe(true);
+      expect(await wasTurnScreenReleased({ ...snapshot, capturedAt: 2 })).toBe(
+        false,
+      );
+      expect(mockAppStateGet).toHaveBeenCalledWith(
+        "alice@test.com",
+        "turn-screen-released:tab-a",
+      );
+    });
+
+    it("keeps the snapshot when the turn writes unrelated state", async () => {
+      mockAppStatePut.mockResolvedValue(undefined);
+      const turnScreen = sentScreen();
+
+      const navigation = await inTurn(turnScreen, async (helpers) => {
+        await helpers.writeAppStateForCurrentTab("slides-panels", { a: 1 });
+        return helpers.readAppState("navigation");
+      });
+
+      expect(navigation).toEqual({ view: "editor", slideIndex: 1 });
+      expect(turnScreen.snapshot).not.toHaveProperty("released");
+    });
+  });
+
   describe("deleteAppStateByPrefix", () => {
     it("delegates to appStateDeleteByPrefix", async () => {
       process.env.AGENT_USER_EMAIL = "alice@test.com";

@@ -1,9 +1,3 @@
-import {
-  focusItemFromSelectionItem,
-  selectionItemKey,
-  type SlidesAgentFocus,
-} from "@shared/agent-focus";
-
 export const SLIDES_SELECTION_CHANGED_EVENT = "slides:selection-changed";
 
 export interface SlidesAgentSelection {
@@ -18,7 +12,6 @@ export interface SlidesAgentSelection {
 export interface SlidesAgentContext {
   context: string;
   contextVersion: string;
-  focus?: SlidesAgentFocus;
 }
 
 export type SlidesAgentScopeLabel =
@@ -58,6 +51,18 @@ export function readPublishedSlidesSelection(): SlidesAgentSelection | null {
   return getSlidesWindow()?.__slidesAgentSelection ?? null;
 }
 
+function selectionItemKey(item: unknown, index: number): string {
+  if (!item || typeof item !== "object" || Array.isArray(item)) {
+    return `item-${index}`;
+  }
+  const record = item as Record<string, unknown>;
+  for (const key of ["objectId", "selector", "runtimeSelector"]) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return `item-${index}`;
+}
+
 export function buildSlidesAgentContext(
   selection: SlidesAgentSelection | null,
   deckId: string,
@@ -71,8 +76,9 @@ export function buildSlidesAgentContext(
     selection.slideNumber >= 1
       ? selection.slideNumber
       : undefined;
-  const items = sameDeck ? (selection?.items ?? []) : [];
-  const itemKeys = items.map(selectionItemKey);
+  const itemKeys = sameDeck
+    ? (selection?.items ?? []).map(selectionItemKey)
+    : [];
   const context = [
     slideId
       ? `Current slide id: ${slideId}.`
@@ -92,15 +98,6 @@ export function buildSlidesAgentContext(
       slideNumber ?? "",
       itemKeys,
     ]),
-    ...(slideId
-      ? {
-          focus: {
-            slideId,
-            ...(slideNumber ? { slideNumber } : {}),
-            items: items.map(focusItemFromSelectionItem),
-          },
-        }
-      : {}),
   };
 }
 

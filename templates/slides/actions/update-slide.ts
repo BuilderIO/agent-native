@@ -47,7 +47,6 @@ import {
   createLayoutFitRevision,
   hashSlideContent,
 } from "../shared/slide-fit.js";
-import { readTurnSlidesSelection } from "./_agent-focus.js";
 import { slideLabelFor, touchAgentSlidePresence } from "./_agent-presence.js";
 import { getDeckUrl } from "./_app-url.js";
 import {
@@ -57,7 +56,10 @@ import {
   retryDeckWrite,
 } from "./_deck-write.js";
 import { assertNoRenderArtifacts } from "./_render-artifacts.js";
-import { getCurrentRequestBrowserTabId } from "./_tab-state.js";
+import {
+  getCurrentRequestBrowserTabId,
+  readAppStateForCurrentTab,
+} from "./_tab-state.js";
 import { isAgentPatchCaller, withDeckLock } from "./patch-deck.js";
 
 function deckDeepLink(deckId: string): string {
@@ -328,8 +330,10 @@ export default defineAction({
 
     const browserTabId = getCurrentRequestBrowserTabId();
     if (browserTabId) {
-      const { selection: currentSelection } =
-        await readTurnSlidesSelection(deckId);
+      const currentSelection = await readAppStateForCurrentTab(
+        "slides-selection",
+        { fallbackToGlobal: false },
+      );
       const currentSlideId =
         currentSelection?.deckId === deckId &&
         typeof currentSelection.slideId === "string"

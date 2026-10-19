@@ -22,10 +22,6 @@ import {
   slideFitMeasurementMatchesSlide,
   type DeckFitState,
 } from "../shared/slide-fit.js";
-import {
-  readTurnSlidesFocus,
-  readTurnSlidesSelection,
-} from "./_agent-focus.js";
 import { readAppStateForCurrentTab } from "./_tab-state.js";
 import getDeckTemplate from "./get-deck-template.js";
 import getDesignSystem from "./get-design-system.js";
@@ -106,7 +102,7 @@ function getCurrentSlideFitMeasurement(
 export default defineAction({
   title: "Inspect current Slides screen",
   description:
-    "Inspect the current Slides editor context when the active deck, slide, or selection is unknown. Returns the current deck and slide IDs, slide previews, current slide HTML, and matching visual selection metadata (or the deck list on the home page). In a deck chat, the slide and selection are the ones the user had open when they sent the message, even if they have clicked elsewhere since, and they follow your own navigate calls. For a short exact selectedText browser-range edit, use this result directly with one update-slide literal replacement and expectedMatches=1. When a selected element has an objectId but no exact selectedText, use that objectId with one update-slide replace edit to change only its inner content; do not load the full deck for either focused path.",
+    "Inspect the current Slides editor context when the active deck, slide, or selection is unknown. Returns the current deck and slide IDs, slide previews, current slide HTML, and matching visual selection metadata (or the deck list on the home page). For a short exact selectedText browser-range edit, use this result directly with one update-slide literal replacement and expectedMatches=1. When a selected element has an objectId but no exact selectedText, use that objectId with one update-slide replace edit to change only its inner content; do not load the full deck for either focused path.",
   schema: z.object({}),
   http: false,
   run: async (_args) => {
@@ -124,8 +120,6 @@ export default defineAction({
       chatScope?.type === "deck" && typeof chatScope.id === "string"
         ? chatScope.id
         : null;
-    const turnFocus = readTurnSlidesFocus();
-    const sentFocus = turnFocus.status === "sent" ? turnFocus.focus : null;
     const effectiveNavigation = scopedDeckId
       ? {
           ...(navigation ?? {}),
@@ -202,14 +196,8 @@ export default defineAction({
         background?: string;
         layoutFitRevision?: string;
       }> = Array.isArray(deck?.slides) ? deck.slides : [];
-      const sentSlideIndex = sentFocus?.slideId
-        ? slides.findIndex((slide) => slide.id === sentFocus.slideId)
-        : -1;
-      const slideIndex = sentFocus
-        ? sentSlideIndex >= 0
-          ? sentSlideIndex
-          : (sentFocus.slideNumber ?? 1) - 1
-        : typeof effectiveNavigation.slideIndex === "number"
+      const slideIndex =
+        typeof effectiveNavigation.slideIndex === "number"
           ? effectiveNavigation.slideIndex
           : typeof effectiveNavigation.slideNumber === "number" &&
               Number.isFinite(effectiveNavigation.slideNumber) &&
@@ -223,20 +211,6 @@ export default defineAction({
       lines.push(`## Current Screen`);
       lines.push(``);
       lines.push(`view: ${effectiveNavigation.view ?? "editor"}`);
-      if (sentFocus) {
-        lines.push(
-          `screenSource: sent with this message — the user may have moved since; "this", "current", and "selected" refer to the slide and selection below`,
-        );
-        if (sentFocus.slideId && sentSlideIndex < 0) {
-          lines.push(
-            `sentSlideStatus: slide ${sentFocus.slideId}, which the user had open, is no longer in the deck; showing the slide now at its position`,
-          );
-        }
-      } else if (turnFocus.status === "unreadable") {
-        lines.push(
-          `screenSource: live — the slide sent with this message was unreadable, and the user may have moved since sending`,
-        );
-      }
       lines.push(
         `deckId: ${rows[0].id}            ← use this as deckId for add-slide / update-slide / create-deck, and as id for get-deck`,
       );
@@ -396,8 +370,9 @@ export default defineAction({
           : `openPanels: unknown`,
       );
 
-      const turnSelection = await readTurnSlidesSelection(rows[0].id);
-      const selection = turnSelection.selection as {
+      const selection = (await readAppStateForCurrentTab("slides-selection", {
+        fallbackToGlobal: false,
+      })) as {
         deckId?: string;
         slideId?: string;
         mode?: string;
@@ -446,14 +421,8 @@ export default defineAction({
             `selectionSlideContentHash: ${hashSlideContent(String(selectionSlide.content ?? ""))}   ← use as baseContentHash with selectionSlideId`,
           );
         }
-        if (turnSelection.fromSentFocus) {
-          lines.push(
-            `selectionStatus: sent with this message; the user has changed their selection since, so text and style details are unavailable — find these elements in the slide HTML above`,
-          );
-        } else {
-          lines.push(`mode: ${selection.mode ?? "unknown"}`);
-          lines.push(`activeTool: ${selection.activeTool ?? "select"}`);
-        }
+        lines.push(`mode: ${selection.mode ?? "unknown"}`);
+        lines.push(`activeTool: ${selection.activeTool ?? "select"}`);
         if (Array.isArray(selection.items) && selection.items.length > 0) {
           for (const [index, item] of selection.items.entries()) {
             const isImageSelection =

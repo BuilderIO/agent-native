@@ -1,7 +1,20 @@
+import {
+  buildTurnScreenSnapshot,
+  FRAMEWORK_SCREEN_STATE_KEYS,
+  NAVIGATION_COMMAND_KEYS,
+  SCREEN_STATE_KEY_PATTERN,
+  type TurnScreenSnapshot,
+} from "../shared/turn-screen-snapshot.js";
 import { agentNativePath } from "./api-path.js";
 import { assertAgentNativeApiEnabled } from "./api-surface.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
 import { recordStateWrite } from "./recorder.js";
+import { scrubUrl } from "./url-scrub.js";
+
+export {
+  AGENT_SCREEN_METADATA_KEY,
+  type TurnScreenSnapshot,
+} from "../shared/turn-screen-snapshot.js";
 
 const APP_STATE_KEY_PATTERN = /^[a-zA-Z0-9_:-]+$/;
 const pendingMutations = new Map<string, Promise<void>>();
@@ -346,6 +359,74 @@ export async function deleteClientAppState(
   });
   recordStateWrite(key, undefined, deletion, options.signal);
   await deletion;
+}
+
+const registeredScreenStateKeys = new Set<string>();
+
+/**
+ * Declares app-owned per-tab keys (written as `<key>:<tabId>`) that describe
+ * what the user is looking at, such as an editor selection. Each chat message
+ * carries their values from when it was sent, and the agent's turn reads those
+ * values until it navigates.
+ */
+export function registerAgentScreenStateKeys(
+  keys: readonly string[],
+): () => void {
+  for (const key of keys) {
+    if (
+      !SCREEN_STATE_KEY_PATTERN.test(key) ||
+      (NAVIGATION_COMMAND_KEYS as readonly string[]).includes(key)
+    ) {
+      throw new TypeError(
+        `"${key}" cannot be a screen state key: use a base key of letters, numbers, underscores, and hyphens, and not a navigation command.`,
+      );
+    }
+  }
+  const added = keys.filter((key) => !registeredScreenStateKeys.has(key));
+  for (const key of added) registeredScreenStateKeys.add(key);
+  return () => {
+    for (const key of added) registeredScreenStateKeys.delete(key);
+  };
+}
+
+function scrubScreenUrl(url: Record<string, unknown>): Record<string, unknown> {
+  const pathname = typeof url.pathname === "string" ? url.pathname : "/";
+  const search = typeof url.search === "string" ? url.search : "";
+  const hash = typeof url.hash === "string" ? url.hash : "";
+  const original = `${pathname}${search}${hash}`;
+  const scrubbed = scrubUrl(original);
+  if (!scrubbed || scrubbed === original) return url;
+  const parsed = new URL(scrubbed, "http://placeholder.local");
+  return {
+    ...url,
+    search: parsed.search,
+    hash: parsed.hash,
+    searchParams: Object.fromEntries(parsed.searchParams),
+  };
+}
+
+/**
+ * The tab's screen state as the server holds it now, after this tab's pending
+ * writes to those keys land. The message stores it, so URL secrets are scrubbed.
+ */
+export async function captureAgentScreenState(
+  browserTabId: string,
+  options: ClientAppStateReadOptions = {},
+): Promise<TurnScreenSnapshot> {
+  const keys = [
+    ...new Set([...FRAMEWORK_SCREEN_STATE_KEYS, ...registeredScreenStateKeys]),
+  ];
+  const tabKey = (key: string) => `${key}:${browserTabId}`;
+  const batch = await readClientAppStateMany(keys.map(tabKey), options);
+  const values: Record<string, unknown> = {};
+  for (const key of keys) {
+    const value = batch.values[tabKey(key)] ?? null;
+    values[key] =
+      key === "__url__" && value && typeof value === "object"
+        ? scrubScreenUrl(value as Record<string, unknown>)
+        : value;
+  }
+  return buildTurnScreenSnapshot(browserTabId, values);
 }
 
 export async function setClientAppState<T = unknown>(

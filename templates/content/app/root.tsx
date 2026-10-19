@@ -1,5 +1,6 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appBasePath, appPath } from "@agent-native/core/client/api-path";
+import { registerAgentScreenStateKeys } from "@agent-native/core/client/application-state";
 import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
 import { getEmbedAuthToken } from "@agent-native/core/client/host";
 import {
@@ -75,6 +76,7 @@ configureTracking({
     app: "agent-native-content",
   }),
 });
+registerAgentScreenStateKeys(["content-selection"]);
 
 export const links: LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },

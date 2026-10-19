@@ -363,6 +363,22 @@ changes. For commands that can arrive while chat is streaming, commit the route
 with `navigate(path, { replace: true, flushSync: true })` instead of wrapping it
 in a view transition so the address bar and visible page stay together.
 
+## The screen a turn works on {#turn-screen}
+
+Each chat message carries its tab's `navigation`, `__url__`, `settings-view`, and `selection` values from the moment the user sent it. For the whole turn — including a queued message that starts later, background runs, and continuations — server reads of those keys for that tab return the sent values. `<current-screen>`, `view-screen`, and any action that defaults to "the current" item all agree with what the user saw, even if they click elsewhere while the agent works. Records are still read fresh; only the screen position is held.
+
+Register app-owned per-tab screen keys, such as an editor selection, once in `app/root.tsx`:
+
+```ts
+import { registerAgentScreenStateKeys } from "@agent-native/core/client/application-state";
+
+registerAgentScreenStateKeys(["design-selection"]);
+```
+
+The key must be written as `<key>:<tabId>`. Leave out state that should stay live, such as playback position, open panels, or progress.
+
+The turn reads live state again once it writes `navigate` or `__set_url__` for that tab, or writes a registered key itself. Until the tab applies a `navigate` command, a read right after it can still show the previous screen.
+
 ## The useNavigationState hook {#use-navigation-state}
 
 `useNavigationState` is **your app's hook, not a framework import.** Every template ships one at `app/hooks/use-navigation-state.ts` and calls it once from the app shell (`root.tsx`). It is the single place that wires navigation in both directions:

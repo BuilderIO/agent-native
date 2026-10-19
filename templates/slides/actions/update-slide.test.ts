@@ -147,8 +147,6 @@ vi.mock("../server/lib/deck-versions.js", () => ({
   deckVersionChatContextFromAction: vi.fn(() => undefined),
 }));
 
-import { runWithRequestContext } from "@agent-native/core/server/request-context";
-
 import { hashSlideContent } from "../shared/slide-fit";
 import { nextDeckRevision } from "./_deck-write";
 import action from "./update-slide";
@@ -390,40 +388,6 @@ describe("update-slide", () => {
     );
     expect(lastUpdateSet).toBeUndefined();
     expect(mockNotifyClients).not.toHaveBeenCalled();
-  });
-
-  it("checks a selection edit against the selection its message was sent with", async () => {
-    mockGetCurrentRequestBrowserTabId.mockReturnValue("tab-1");
-    mockReadAppStateForCurrentTab.mockResolvedValue({
-      deckId: "deck-1",
-      slideId: "slide-2",
-      slideIndex: 1,
-      items: [{ selectedText: "Old" }],
-    });
-
-    const result = await runWithRequestContext(
-      {
-        userEmail: "owner@example.com",
-        run: {
-          chatScope: {
-            type: "deck",
-            id: "deck-1",
-            focus: { slideId: "slide-1", items: [{ objectId: "title" }] },
-          },
-        },
-      },
-      () =>
-        runSlideActionWithCurrentHash({
-          deckId: "deck-1",
-          slideId: "slide-1",
-          edits: [{ find: "Old", replace: "New" }],
-        }),
-    );
-
-    expect(result).toMatchObject({ ok: true, applied: true });
-    expect(JSON.parse(lastUpdateSet!.data as string).slides[0].content).toBe(
-      "<div>New</div>",
-    );
   });
 
   it("allows an explicit named edit to a non-current slide", async () => {

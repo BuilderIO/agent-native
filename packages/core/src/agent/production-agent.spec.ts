@@ -5469,6 +5469,75 @@ describe("createProductionAgentHandler", () => {
     }
   });
 
+  it("hands the background run the screen the message was sent from", async () => {
+    const previousDurableFlag = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+    const previousA2ASecret = process.env.A2A_SECRET;
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "1";
+    process.env.A2A_SECRET = "fixture-a2a-secret";
+    mockTryClaimRunSlot.mockClear();
+    mockTryClaimRunSlot.mockResolvedValueOnce({
+      claimed: false,
+      activeRunId: "run-existing",
+    });
+    const sentScreen = {
+      v: 1,
+      browserTabId: "tab-a",
+      capturedAt: 1,
+      values: { navigation: { view: "editor", slideIndex: 2 } },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        stream: vi.fn(),
+      },
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Tighten this slide",
+          threadId: "thread-screen-payload",
+          browserTabId: "tab-a",
+          metadata: { agentNativeScreen: sentScreen },
+        }),
+      }),
+    );
+
+    try {
+      await runWithRequestContext(
+        { userEmail: "alice@example.com", run: {} },
+        () => handler(event),
+      );
+
+      const dispatchPayload = (mockTryClaimRunSlot.mock.calls[0] as any)[3]
+        .dispatchPayload as string;
+      expect(JSON.parse(dispatchPayload).metadata.agentNativeScreen).toEqual(
+        sentScreen,
+      );
+    } finally {
+      if (previousDurableFlag === undefined) {
+        delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+      } else {
+        process.env.AGENT_CHAT_DURABLE_BACKGROUND = previousDurableFlag;
+      }
+      if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
+      else process.env.A2A_SECRET = previousA2ASecret;
+    }
+  });
+
   it("uses a data-free payload when the background insert falls back inline", async () => {
     const previousDurableFlag = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
     const previousA2ASecret = process.env.A2A_SECRET;

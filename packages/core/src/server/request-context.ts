@@ -68,9 +68,9 @@ export interface RequestRunContext {
     type: string;
     id: string;
     label?: string;
-    /** App-defined, unvalidated client state captured when the user sent the turn's message. */
-    focus?: unknown;
   } | null;
+  /** The sending tab's screen state; screen-state reads return it until the turn navigates. */
+  turnScreen?: import("../application-state/turn-screen.js").TurnScreen;
   owner?: string;
   userApiKey?: string;
   userApiKeyEnvVar?: string;

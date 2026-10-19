@@ -1,7 +1,3 @@
-import {
-  runWithRequestContext,
-  type RequestRunContext,
-} from "@agent-native/core/server/request-context";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockWriteAppState = vi.fn();
@@ -52,39 +48,6 @@ describe("navigate", () => {
       }),
     );
     expect(result).toContain("slide:1");
-  });
-
-  it("points the rest of the turn at the slide it opened in the chat's deck", async () => {
-    const run: RequestRunContext = {
-      chatScope: {
-        type: "deck",
-        id: "deck-1",
-        focus: { slideId: "slide-a", items: [{ objectId: "title" }] },
-      },
-    };
-
-    await runWithRequestContext({ run }, () =>
-      action.run({ deckId: "deck-1", slideNumber: 4 }),
-    );
-
-    expect(run.chatScope).toEqual({
-      type: "deck",
-      id: "deck-1",
-      focus: { slideNumber: 4, items: [] },
-    });
-  });
-
-  it("keeps the turn's focus when it opens a different deck", async () => {
-    const focus = { slideId: "slide-a", items: [{ objectId: "title" }] };
-    const run: RequestRunContext = {
-      chatScope: { type: "deck", id: "deck-1", focus },
-    };
-
-    await runWithRequestContext({ run }, () =>
-      action.run({ deckId: "deck-2", slideNumber: 4 }),
-    );
-
-    expect(run.chatScope?.focus).toBe(focus);
   });
 
   it("keeps legacy slideIndex as a zero-based internal value", async () => {

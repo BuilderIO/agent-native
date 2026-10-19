@@ -5,6 +5,7 @@ import {
 } from "../server/request-context.js";
 import {
   appStateGet,
+  appStateGetMany,
   appStatePut,
   appStateDelete,
   appStateCompareAndSet,
@@ -13,6 +14,14 @@ import {
   appStateDeleteByPrefix,
   type AppStateCompareAndSetOperation,
 } from "./store.js";
+import {
+  buildTurnScreenSnapshot,
+  FRAMEWORK_SCREEN_STATE_KEYS,
+  noteScreenStateWrite,
+  readPinnedScreenState,
+  TURN_SCREEN_RELEASED_KEY,
+  type TurnScreenSnapshot,
+} from "./turn-screen.js";
 
 async function resolveSessionId(): Promise<string> {
   try {
@@ -46,16 +55,21 @@ export async function writeAppState(
   value: Record<string, unknown>,
 ): Promise<void> {
   const sessionId = await resolveSessionId();
-  return appStatePut(sessionId, requestScopedAppStateKey(key), value, {
+  const scopedKey = requestScopedAppStateKey(key);
+  await appStatePut(sessionId, scopedKey, value, {
     requestSource: "agent",
   });
+  await recordScreenStateWrite(sessionId, scopedKey);
 }
 
 export async function deleteAppState(key: string): Promise<boolean> {
   const sessionId = await resolveSessionId();
-  return appStateDelete(sessionId, requestScopedAppStateKey(key), {
+  const scopedKey = requestScopedAppStateKey(key);
+  const deleted = await appStateDelete(sessionId, scopedKey, {
     requestSource: "agent",
   });
+  if (deleted) await recordScreenStateWrite(sessionId, scopedKey);
+  return deleted;
 }
 
 export async function compareAndSetAppState(
@@ -64,27 +78,35 @@ export async function compareAndSetAppState(
   nextValue: Record<string, unknown> | null,
 ): Promise<boolean> {
   const sessionId = await resolveSessionId();
-  return appStateCompareAndSet(
+  const scopedKey = requestScopedAppStateKey(key);
+  const swapped = await appStateCompareAndSet(
     sessionId,
-    requestScopedAppStateKey(key),
+    scopedKey,
     expectedValue,
     nextValue,
     { requestSource: "agent" },
   );
+  if (swapped) await recordScreenStateWrite(sessionId, scopedKey);
+  return swapped;
 }
 
 export async function compareAndSetManyAppState(
   operations: readonly AppStateCompareAndSetOperation[],
 ): Promise<boolean> {
   const sessionId = await resolveSessionId();
-  return appStateCompareAndSetMany(
-    sessionId,
-    operations.map((operation) => ({
-      ...operation,
-      key: requestScopedAppStateKey(operation.key),
-    })),
-    { requestSource: "agent" },
-  );
+  const scoped = operations.map((operation) => ({
+    ...operation,
+    key: requestScopedAppStateKey(operation.key),
+  }));
+  const swapped = await appStateCompareAndSetMany(sessionId, scoped, {
+    requestSource: "agent",
+  });
+  if (swapped) {
+    for (const operation of scoped) {
+      await recordScreenStateWrite(sessionId, operation.key);
+    }
+  }
+  return swapped;
 }
 
 export async function listAppState(
@@ -141,8 +163,62 @@ function requestScopedAppStateKey(key: string): string {
 async function readUnscopedAppState(
   key: string,
 ): Promise<Record<string, unknown> | null> {
+  const pinned = readPinnedScreenState(key);
+  if (pinned) return pinned.value;
   const sessionId = await resolveSessionId();
   return appStateGet(sessionId, key);
+}
+
+function turnScreenReleasedKey(browserTabId: string): string {
+  return appStateKeyForBrowserTab(TURN_SCREEN_RELEASED_KEY, browserTabId);
+}
+
+async function recordScreenStateWrite(
+  sessionId: string,
+  key: string,
+): Promise<void> {
+  const released = noteScreenStateWrite(key);
+  if (!released) return;
+  await appStatePut(
+    sessionId,
+    turnScreenReleasedKey(released.browserTabId),
+    { capturedAt: released.capturedAt },
+    { requestSource: "agent" },
+  );
+}
+
+/** Whether an earlier segment of this turn already moved the screen itself. */
+export async function wasTurnScreenReleased(
+  snapshot: TurnScreenSnapshot,
+): Promise<boolean> {
+  const sessionId = await resolveSessionId();
+  const record = await appStateGet(
+    sessionId,
+    turnScreenReleasedKey(snapshot.browserTabId),
+  );
+  return record?.capturedAt === snapshot.capturedAt;
+}
+
+/** The tab's framework screen state, for turns whose message did not carry one. */
+export async function captureTurnScreenSnapshot(
+  browserTabId: string,
+): Promise<TurnScreenSnapshot> {
+  const sessionId = await resolveSessionId();
+  const stored = await appStateGetMany(
+    sessionId,
+    FRAMEWORK_SCREEN_STATE_KEYS.map((key) =>
+      appStateKeyForBrowserTab(key, browserTabId),
+    ),
+  );
+  return buildTurnScreenSnapshot(
+    browserTabId,
+    Object.fromEntries(
+      FRAMEWORK_SCREEN_STATE_KEYS.map((key) => [
+        key,
+        stored[appStateKeyForBrowserTab(key, browserTabId)] ?? null,
+      ]),
+    ),
+  );
 }
 
 export async function readAppStateForCurrentTab(

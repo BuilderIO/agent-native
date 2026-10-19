@@ -70,10 +70,13 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
+  AGENT_SCREEN_METADATA_KEY,
+  captureAgentScreenState,
   compareAndSetClientAppState,
   deleteClientAppState,
   isClientAppStateMutationPending,
   readClientAppState,
+  type TurnScreenSnapshot,
 } from "@agent-native/core/client/application-state";
 import { identityBootstrapCallbackHref } from "@agent-native/core/client/auth/auth-page-helpers";
 import { signOut } from "@agent-native/core/client/hooks";
@@ -3380,6 +3383,7 @@ const AgentKitAssistantChatBody = forwardRef<
       let queueMessagePreflightToken:
         | Awaited<ReturnType<typeof controller.assertQueueMessageReady>>
         | undefined;
+      const sentScreen = captureSentScreen(props.browserTabId);
       try {
         if (queuedSubmit) {
           queuedMessageReservationId = control.reserveQueuedMessage?.(
@@ -3554,6 +3558,7 @@ const AgentKitAssistantChatBody = forwardRef<
             ? (options.deferredAgentId ?? undefined)
             : props.selectedAgent;
         const actionScope = options.actionScope ?? contextScope;
+        const screen = await sentScreen;
         const customMetadata = {
           ...(typeof options.submissionExpiresAt === "number"
             ? {
@@ -3606,6 +3611,7 @@ const AgentKitAssistantChatBody = forwardRef<
             ? { agentNativeInternalContinuation: true }
             : {}),
           ...(contextScope ? { chatScope: contextScope } : {}),
+          ...(screen ? { [AGENT_SCREEN_METADATA_KEY]: screen } : {}),
           ...(references.length || options.recoveryReferences?.length
             ? {
                 references: [
@@ -3698,6 +3704,7 @@ const AgentKitAssistantChatBody = forwardRef<
       controller,
       control,
       threadId,
+      props.browserTabId,
       props.contextScope,
       props.execMode,
       props.selectedAgent,
@@ -4152,6 +4159,7 @@ const AgentKitAssistantChatBody = forwardRef<
         | Awaited<ReturnType<typeof controller.assertQueueMessageReady>>
         | undefined;
       setQueueSubmissionError(null);
+      const sentScreen = captureSentScreen(props.browserTabId);
       try {
         queuedMessageReservationId = control.reserveQueuedMessage?.(message).id;
         assertAttachmentSizesWithinLimit(
@@ -4216,6 +4224,7 @@ const AgentKitAssistantChatBody = forwardRef<
         if (retryRequestAttachments.length !== requestAttachments.length) {
           throw new TypeError("Queued images require durable URL references.");
         }
+        const screen = await sentScreen;
         const customMetadata = {
           ...(retryRequestAttachments.length
             ? { agentNativeRetryRequestAttachments: retryRequestAttachments }
@@ -4228,6 +4237,7 @@ const AgentKitAssistantChatBody = forwardRef<
           ...(props.contextScope
             ? { actionScope: props.contextScope, chatScope: props.contextScope }
             : {}),
+          ...(screen ? { [AGENT_SCREEN_METADATA_KEY]: screen } : {}),
           ...(props.selectedAgent ? { agentId: props.selectedAgent } : {}),
           ...(Object.keys(customMetadata).length
             ? { custom: customMetadata }
@@ -4306,6 +4316,7 @@ const AgentKitAssistantChatBody = forwardRef<
       isRestoring,
       props.composerDisabled,
       props.composerSubmissionDisabled,
+      props.browserTabId,
       props.contextScope,
       props.execMode,
       fileStorageConfigured,
@@ -5621,6 +5632,20 @@ function resolveAgentKitSuggestionInputs(
     ]),
   );
   return prompts.map((prompt) => byPrompt.get(prompt) ?? prompt);
+}
+
+/** Started when the user sends, so a queued turn later sees the screen they sent from. */
+function captureSentScreen(
+  browserTabId: string | undefined,
+): Promise<TurnScreenSnapshot | undefined> {
+  if (!browserTabId) return Promise.resolve(undefined);
+  return captureAgentScreenState(browserTabId).catch((error: unknown) => {
+    console.warn(
+      "[agent-chat] Couldn't capture the screen this message was sent from; the turn will read it when it starts",
+      error,
+    );
+    return undefined;
+  });
 }
 
 function pendingSelectionPromptContext(

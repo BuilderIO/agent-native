@@ -1,5 +1,6 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appBasePath, appPath } from "@agent-native/core/client/api-path";
+import { registerAgentScreenStateKeys } from "@agent-native/core/client/application-state";
 import {
   createAgentNativeQueryClient,
   useDbSync,
@@ -79,6 +80,7 @@ configureTracking({
     };
   },
 });
+registerAgentScreenStateKeys(["design-selection"]);
 
 export const links: LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },

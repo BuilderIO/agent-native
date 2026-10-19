@@ -8,7 +8,6 @@ let navigationState: Record<string, unknown> | null = null;
 let slidesSelectionState: Record<string, unknown> | null = null;
 let slideFitState: Record<string, unknown> | null = null;
 let deckFitState: Record<string, unknown> | null = null;
-let runContext: Record<string, unknown> | undefined;
 
 const limitFn = vi.fn(async () => mockRows);
 const orderByFn = vi.fn(async () => mockRows);
@@ -66,7 +65,7 @@ vi.mock("./_tab-state.js", () => ({
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
-  getRequestRunContext: () => runContext,
+  getRequestRunContext: () => undefined,
   getRequestUserEmail: () => "alice@example.com",
 }));
 
@@ -124,142 +123,6 @@ beforeEach(() => {
   slidesSelectionState = null;
   slideFitState = null;
   deckFitState = null;
-  runContext = undefined;
-});
-
-describe("view-screen for a message sent from another slide", () => {
-  const openingHtml = '<h1 data-slide-object-id="title-a">Opening</h1>';
-  const sentFromOpening = {
-    slideId: "slide-a",
-    slideNumber: 1,
-    items: [
-      {
-        selector: '[data-slide-object-id="title-a"]',
-        objectId: "title-a",
-        kind: "element",
-        tagName: "h1",
-      },
-    ],
-  };
-
-  beforeEach(() => {
-    mockRows = [
-      {
-        id: "deck-1",
-        title: "Quarterly Review",
-        data: JSON.stringify({
-          slides: [
-            { id: "slide-a", content: openingHtml },
-            { id: "slide-b", content: "<h1>Middle</h1>" },
-            {
-              id: "slide-c",
-              content: '<h1 data-slide-object-id="title-c">Closing</h1>',
-            },
-          ],
-        }),
-      },
-    ];
-    navigationState = { view: "editor", deckId: "deck-1", slideIndex: 2 };
-    slidesSelectionState = {
-      deckId: "deck-1",
-      slideId: "slide-c",
-      mode: "single",
-      items: [
-        {
-          selector: '[data-slide-object-id="title-c"]',
-          objectId: "title-c",
-          text: "Closing",
-        },
-      ],
-    };
-  });
-
-  it("describes the slide and selection the message was sent with, not where the user is now", async () => {
-    runContext = {
-      chatScope: { type: "deck", id: "deck-1", focus: sentFromOpening },
-    };
-
-    const result = await action.run({});
-
-    expect(result).toContain("screenSource: sent with this message");
-    expect(result).toContain("currentSlideNumber: 1 of 3");
-    expect(result).toContain("currentSlideId: slide-a");
-    expect(result).toContain(
-      `currentSlideContentHash: ${hashSlideContent(openingHtml)}`,
-    );
-    expect(result).toContain("objectId: title-a");
-    expect(result).toContain(
-      "selectionStatus: sent with this message; the user has changed their selection since",
-    );
-    expect(result).not.toContain("title-c");
-  });
-
-  it("keeps the live selection's details while it still targets what was sent", async () => {
-    runContext = {
-      chatScope: { type: "deck", id: "deck-1", focus: sentFromOpening },
-    };
-    slidesSelectionState = {
-      deckId: "deck-1",
-      slideId: "slide-a",
-      mode: "editing",
-      items: [
-        {
-          selector: '[data-slide-object-id="title-a"]',
-          objectId: "title-a",
-          text: "Opening",
-          selectedText: "Open",
-        },
-      ],
-    };
-
-    const result = await action.run({});
-
-    expect(result).toContain("mode: editing");
-    expect(result).toContain("selectedText: Open");
-    expect(result).not.toContain("selectionStatus:");
-  });
-
-  it("finds the sent slide by id after slides are inserted before it", async () => {
-    runContext = {
-      chatScope: {
-        type: "deck",
-        id: "deck-1",
-        focus: { slideId: "slide-b", slideNumber: 2, items: [] },
-      },
-    };
-    mockRows = [
-      {
-        id: "deck-1",
-        title: "Quarterly Review",
-        data: JSON.stringify({
-          slides: [
-            { id: "slide-new", content: "<h1>Agenda</h1>" },
-            { id: "slide-a", content: openingHtml },
-            { id: "slide-b", content: "<h1>Middle</h1>" },
-          ],
-        }),
-      },
-    ];
-
-    const result = await action.run({});
-
-    expect(result).toContain("currentSlideNumber: 3 of 3");
-    expect(result).toContain("currentSlideId: slide-b");
-  });
-
-  it("says the screen is live when the sent focus cannot be read", async () => {
-    vi.spyOn(console, "warn").mockImplementation(() => {});
-    runContext = {
-      chatScope: { type: "deck", id: "deck-1", focus: { slideId: 42 } },
-    };
-
-    const result = await action.run({});
-
-    expect(result).toContain(
-      "screenSource: live — the slide sent with this message was unreadable",
-    );
-    expect(result).toContain("currentSlideId: slide-c");
-  });
 });
 
 describe("view-screen", () => {
