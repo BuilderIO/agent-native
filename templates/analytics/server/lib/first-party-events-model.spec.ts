@@ -245,6 +245,10 @@ describe("events model eligibility", () => {
       "SELECT COUNT(*) FROM analytics_events WHERE [TRUE AND (event_name = 'signup') AND TRUE] IS NOT NULL",
       "http_response_not_excluded",
     ],
+    [
+      "SELECT COUNT(*) AS n FROM analytics_events WHERE TRUE |> EXTEND 'signup' AS event_name |> WHERE TRUE AND (event_name = 'signup')",
+      "http_response_not_excluded",
+    ],
   ])("keeps %s on the raw table", (sql, reason) => {
     expect(firstPartyEventsModelIneligibility(sql)).toBe(reason);
   });

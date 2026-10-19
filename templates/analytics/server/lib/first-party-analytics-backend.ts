@@ -1622,6 +1622,17 @@ function eventsReadsIneligibility(
 ): "reads_no_events" | "http_response_not_excluded" | null {
   const query = readAgentSqlQuery(sql, { dialect: "bigquery" });
   const { tokens } = query;
+  // A pipe stage filters an earlier stage's result, so its WHERE says nothing
+  // about which rows the source fed in.
+  if (
+    tokens.some(
+      (token, index) =>
+        token.text === "|>" ||
+        (token.text === "|" && tokens[index + 1]?.text === ">"),
+    )
+  ) {
+    return "http_response_not_excluded";
+  }
   const depths: number[] = [];
   let depth = 0;
   // Array brackets nest expressions just as parentheses do.
