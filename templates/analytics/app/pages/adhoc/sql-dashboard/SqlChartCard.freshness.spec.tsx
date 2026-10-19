@@ -21,12 +21,16 @@ const mocks = vi.hoisted(() => ({
   }>,
 }));
 
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   useActionMutation: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useSession: () => ({ session: mocks.session, status: mocks.sessionStatus }),
 }));
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
   sendToAgentChat: vi.fn(),
 }));
 
@@ -163,6 +167,22 @@ describe("SqlChartCard freshness clock", () => {
   it("shows no clock until the chart reports a result", async () => {
     await render();
     expect(clock()).toBeNull();
+  });
+
+  it("keeps a section card visible when its saved description is not a string", async () => {
+    await render({
+      panel: {
+        ...panel,
+        chartType: "section",
+        config: {
+          description: { note: "This is not panel copy" },
+        } as unknown as SqlPanel["config"],
+      },
+    });
+
+    expect(container.textContent).toContain("Signups");
+    expect(container.textContent).not.toContain("This is not panel copy");
+    expect(container.textContent).not.toContain("[object Object]");
   });
 
   it.each(["focus", "mouse", "touch"] as const)(

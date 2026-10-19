@@ -426,6 +426,62 @@ describe("SqlDashboardPage dashboard switch", () => {
     expect(heightSlider?.getAttribute("aria-valuenow")).toBe("3");
   });
 
+  it("persists a panel height after pointer-drag resizing", async () => {
+    const savedConfigs: { panels: SqlPanel[] }[] = [];
+    mocks.dashboards["dash-a"] = dashboardRecord("Dashboard A", [
+      { ...tablePanel("Accounts A", 200), height: 2 },
+    ]);
+    mocks.saveDashboard = async (args) => {
+      savedConfigs.push(args.config as { panels: SqlPanel[] });
+      return {};
+    };
+    await renderAt("/dashboards/dash-a");
+    const editMode = [...container.querySelectorAll('[role="radio"]')].find(
+      (element) => element.textContent === "dashboardMode.edit",
+    );
+    expect(editMode).toBeDefined();
+    await act(async () => {
+      (editMode as HTMLElement).click();
+    });
+    await settle();
+
+    const heightSlider = container.querySelector<HTMLButtonElement>(
+      '[role="slider"][aria-label="sqlDashboard.resizePanelHeight"]',
+    );
+    expect(heightSlider).not.toBeNull();
+    Object.defineProperty(heightSlider, "setPointerCapture", {
+      value: vi.fn(),
+    });
+    await act(async () => {
+      heightSlider?.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          pointerId: 1,
+          clientY: 100,
+        }),
+      );
+      heightSlider?.dispatchEvent(
+        new PointerEvent("pointermove", {
+          bubbles: true,
+          pointerId: 1,
+          clientY: 280,
+        }),
+      );
+      heightSlider?.dispatchEvent(
+        new PointerEvent("pointerup", {
+          bubbles: true,
+          pointerId: 1,
+          clientY: 280,
+        }),
+      );
+    });
+    await settle();
+
+    expect(savedConfigs).toHaveLength(1);
+    expect(savedConfigs[0].panels[0].height).toBe(3);
+    expect(heightSlider?.getAttribute("aria-valuenow")).toBe("3");
+  });
+
   it("does not re-add a panel deleted while its editor is open", async () => {
     const original = dashboardRecord("Dashboard A", [
       tablePanel("Accounts A", 200, "table-a"),

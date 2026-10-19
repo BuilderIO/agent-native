@@ -12,6 +12,11 @@ import {
 } from "../server/lib/index-build-github.js";
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   description:
     "Set the GitHub repository that holds the organization's dbt project. The source index is built from it. Requires an organization owner or admin. The owner and repo are validated as GitHub names. Saving replaces the previous repository but does not rebuild the index; run build-data-index to index it.",
   schema: dbtRepositorySettingSchema,

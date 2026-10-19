@@ -1835,6 +1835,8 @@ export default {
       description: "새 프레임으로 추가할 경로를 선택하거나 경로를 입력하세요.",
       searchPlaceholder: "경로 검색…",
       noRoutes: "일치하는 경로가 없습니다",
+      noDiscoveredRoutes:
+        "이 앱에서 경로를 찾지 못했습니다. 화면을 추가하려면 경로를 입력하세요.",
       useCustomPath: '"{{path}}" 추가',
       viewportDesktop: "데스크톱",
       viewportMobile: "모바일",

@@ -615,6 +615,28 @@ export class TabSet {
     return (page && this.tabs.get(page)) || this.detached;
   }
 
+  diagnosticSnapshot() {
+    const activeLineageOrders = [...this.activeSaveLineage]
+      .map((entry) => entry.order)
+      .sort((left, right) => left - right);
+
+    return {
+      savesInFlight: this.inFlight.size,
+      retainedLineageInFlight: activeLineageOrders.length,
+      unmatchedSavesInFlight: this.inFlight.size - activeLineageOrders.length,
+      activeLineageOrders,
+      tabs: [...this.tabs.values(), this.detached].map((record) => ({
+        label: record.label,
+        saveRequests: record.saveRequests,
+        saveOutcomes: record.saveOutcomes,
+        saveCodes: record.saveCodes,
+        saveLineage: record.saveLineage,
+        saveLineageDropped: record.saveLineageDropped,
+        saveDurationsMs: record.saveDurationsMs,
+      })),
+    };
+  }
+
   private observe(page: Page, kind: string, detail: string) {
     const record = this.tabs.get(page);
     if (!record) return;

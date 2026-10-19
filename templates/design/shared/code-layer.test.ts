@@ -3463,7 +3463,393 @@ describe("autoLayout", () => {
     expect(patch.content).toContain("display: flex");
     expect(patch.content).toContain("flex-direction: row");
     expect(patch.content).toContain("gap: 16px");
+    expect(patch.content).toContain("align-items: flex-start");
   });
+
+  it("preserves an authored cross-axis alignment when enabling auto-layout", () => {
+    const patch = applyVisualEdit(
+      `<div data-agent-native-node-id="box" style="align-items: center"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("align-items: center");
+    expect(patch.content).not.toContain("align-items: flex-start");
+  });
+
+  it("preserves inline place-items alignment when enabling auto-layout", () => {
+    const patch = applyVisualEdit(
+      `<div data-agent-native-node-id="box" style="place-items: center"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("place-items: center");
+    expect(patch.content).not.toContain("align-items: flex-start");
+  });
+
+  it("preserves an alignment supplied by a utility class when enabling auto-layout", () => {
+    const patch = applyVisualEdit(
+      `<div data-agent-native-node-id="box" class="items-center"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain('class="items-center"');
+    expect(patch.content).not.toContain("align-items: flex-start");
+    expect(
+      buildCodeLayerProjection(patch.content).nodes[0]?.layout.alignItems,
+    ).toBe("center");
+  });
+
+  it("preserves place-items alignment supplied by a utility class", () => {
+    const patch = applyVisualEdit(
+      `<div data-agent-native-node-id="box" class="place-items-center"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain('class="place-items-center"');
+    expect(patch.content).not.toContain("align-items: flex-start");
+    expect(
+      buildCodeLayerProjection(patch.content).nodes[0]?.layout.alignItems,
+    ).toBe("center");
+  });
+
+  it("does not add a base alignment that overrides a responsive utility", () => {
+    const patch = applyVisualEdit(
+      `<div data-agent-native-node-id="box" class="md:items-center"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain('class="md:items-center"');
+    expect(patch.content).not.toContain("align-items: flex-start");
+    expect(
+      buildCodeLayerProjection(patch.content).nodes[0]?.layout.alignItems,
+    ).toBeUndefined();
+  });
+
+  it.each(["[align-items:center]", "lg:[align-items:center]"])(
+    "preserves arbitrary-property alignment utility %s when enabling auto-layout",
+    (utility) => {
+      const patch = applyVisualEdit(
+        `<div data-agent-native-node-id="box" class="${utility}"><span>A</span></div>`,
+        {
+          kind: "autoLayout",
+          targetId: "box",
+          enabled: true,
+        },
+      );
+
+      expect(patch.result.status).toBe("applied");
+      expect(patch.content).toContain(`class="${utility}"`);
+      expect(patch.content).not.toContain("align-items: flex-start");
+    },
+  );
+
+  it("preserves an alignment supplied by a matching stylesheet rule", () => {
+    const patch = applyVisualEdit(
+      `<style>.stack { align-items: center; }</style><div data-agent-native-node-id="box" class="stack"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain(".stack { align-items: center; }");
+    expect(patch.content).not.toContain("align-items: flex-start");
+  });
+
+  it("preserves stylesheet place-items alignment when enabling auto-layout", () => {
+    const patch = applyVisualEdit(
+      `<style>.stack { place-items: center; }</style><div data-agent-native-node-id="box" class="stack"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain(".stack { place-items: center; }");
+    expect(patch.content).not.toContain("align-items: flex-start");
+  });
+
+  it("preserves alignment from a descendant stylesheet selector", () => {
+    const patch = applyVisualEdit(
+      `<style>.theme .stack { align-items: center; }</style><section class="theme"><div data-agent-native-node-id="box" class="stack"><span>A</span></div></section>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain(".theme .stack { align-items: center; }");
+    expect(patch.content).not.toContain("align-items: flex-start");
+  });
+
+  it("conservatively preserves alignment from imported stylesheets", () => {
+    const patch = applyVisualEdit(
+      `<style>@import url("/theme.css");</style><div data-agent-native-node-id="box"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).not.toContain("align-items: flex-start");
+  });
+
+  it("preserves alignment from selectors with quoted greater-than values", () => {
+    const patch = applyVisualEdit(
+      `<style>[data-kind="wide>compact"] { align-items: center; }</style><div data-agent-native-node-id="box" data-kind="wide>compact"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain('data-kind="wide>compact"');
+    expect(patch.content).not.toContain("align-items: flex-start");
+  });
+
+  it("preserves alignment from a matching compound selector with :not()", () => {
+    const patch = applyVisualEdit(
+      `<style>.stack:not(.disabled) { align-items: center; }</style><div data-agent-native-node-id="box" class="stack"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain(
+      ".stack:not(.disabled) { align-items: center; }",
+    );
+    expect(patch.content).not.toContain("align-items: flex-start");
+  });
+
+  it("does not match a compound selector when its :not() class is present", () => {
+    const patch = applyVisualEdit(
+      `<style>.stack:not(.disabled) { align-items: center; }</style><div data-agent-native-node-id="box" class="stack disabled"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("align-items: flex-start");
+  });
+
+  it("does not preserve alignment that only applies to print", () => {
+    const patch = applyVisualEdit(
+      `<style>@media print { .stack { align-items: center; } }</style><div data-agent-native-node-id="box" class="stack"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("align-items: flex-start");
+  });
+
+  it("does not preserve alignment from a print-only style element", () => {
+    const patch = applyVisualEdit(
+      `<style media="print">.stack { align-items: center; }</style><div data-agent-native-node-id="box" class="stack"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("align-items: flex-start");
+  });
+
+  it("conservatively preserves alignment for an unknown style media value", () => {
+    const patch = applyVisualEdit(
+      `<style media="custom-output">.stack { align-items: center; }</style><div data-agent-native-node-id="box" class="stack"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).not.toContain("align-items: flex-start");
+  });
+
+  it("preserves alignment from screen media rules", () => {
+    const patch = applyVisualEdit(
+      `<style>@media screen { .stack { align-items: center; } }</style><div data-agent-native-node-id="box" class="stack"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).not.toContain("align-items: flex-start");
+  });
+
+  it("conservatively preserves alignment from viewport-dependent media rules", () => {
+    const patch = applyVisualEdit(
+      `<style>@media (min-width: 600px) { .stack { align-items: center; } }</style><div data-agent-native-node-id="box" class="stack"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).not.toContain("align-items: flex-start");
+  });
+
+  it("still defaults to start alignment when stylesheet alignment rules do not match", () => {
+    const patch = applyVisualEdit(
+      `<style>.other { align-items: center; }</style><div data-agent-native-node-id="box" class="stack"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("align-items: flex-start");
+  });
+
+  it("preserves alignment when a linked stylesheet cannot be inspected", () => {
+    const patch = applyVisualEdit(
+      `<link rel="stylesheet" href="/styles.css"><div data-agent-native-node-id="box" class="stack"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).not.toContain("align-items: flex-start");
+  });
+
+  it("defaults to start alignment when the only linked stylesheet loads fonts", () => {
+    const patch = applyVisualEdit(
+      `<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&amp;display=swap"><div data-agent-native-node-id="box"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("align-items: flex-start");
+  });
+
+  it("defaults to start alignment when a linked stylesheet URL is invalid", () => {
+    const patch = applyVisualEdit(
+      `<link rel="stylesheet" href="http://["><div data-agent-native-node-id="box"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("align-items: flex-start");
+  });
+
+  it("preserves alignment when an inline stylesheet imports rules", () => {
+    const patch = applyVisualEdit(
+      `<style>@import url("./theme.css");</style><div data-agent-native-node-id="box"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).not.toContain("align-items: flex-start");
+  });
+
+  it.each([
+    ["a root pseudo-class", ":root .stack"],
+    ["a functional pseudo-class", ":is(.other, .stack)"],
+    ["an unsupported attribute operator", '[class~="stack"]'],
+  ])(
+    "preserves alignment when a stylesheet selector uses unsupported %s syntax",
+    (_description, selector) => {
+      const patch = applyVisualEdit(
+        `<style>${selector} { align-items: center; }</style><div data-agent-native-node-id="box" class="stack"><span>A</span></div>`,
+        {
+          kind: "autoLayout",
+          targetId: "box",
+          enabled: true,
+        },
+      );
+
+      expect(patch.result.status).toBe("applied");
+      expect(patch.content).not.toContain("align-items: flex-start");
+    },
+  );
+
+  it.each(["a>b", "wide.compact", "wide#compact"] as const)(
+    "matches attribute selectors containing quoted punctuation: %s",
+    (value) => {
+      const patch = applyVisualEdit(
+        `<style>.stack[data-x="${value}"] { align-items: center; }</style><div data-agent-native-node-id="box" class="stack" data-x="${value}"><span>A</span></div>`,
+        {
+          kind: "autoLayout",
+          targetId: "box",
+          enabled: true,
+        },
+      );
+
+      expect(patch.result.status).toBe("applied");
+      expect(patch.content).not.toContain("align-items: flex-start");
+    },
+  );
 
   it("keeps direct Frame children as containing blocks when enabling auto-layout", () => {
     const html =
@@ -3520,6 +3906,151 @@ describe("autoLayout", () => {
     expect(patch.content).not.toMatch(/position:\s*absolute/);
     expect(patch.content).not.toMatch(/left:\s*40px/);
     expect(patch.content).not.toMatch(/class="absolute"/);
+    expect(patch.content).not.toContain("align-items: flex-start");
+  });
+
+  it("defaults flex containerStyles to start alignment", () => {
+    const patch = applyVisualEdit(
+      `<div data-agent-native-node-id="box"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+        containerStyles: {
+          display: "flex",
+          flexDirection: "row",
+          gap: "20px",
+        },
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("align-items: flex-start");
+    expect(patch.content).toContain(
+      'data-agent-native-generated-flex-align-items="flex-start"',
+    );
+  });
+
+  it("removes generated flex alignment when switching to grid", () => {
+    const flex = applyVisualEdit(
+      `<div data-agent-native-node-id="box"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+        containerStyles: { display: "flex", flexDirection: "row" },
+      },
+    );
+    expect(flex.result.status).toBe("applied");
+
+    const grid = applyVisualEdit(flex.content, {
+      kind: "autoLayout",
+      targetId: "box",
+      enabled: true,
+      containerStyles: {
+        display: "grid",
+        gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+      },
+    });
+
+    expect(grid.result.status).toBe("applied");
+    expect(grid.content).toContain("display: grid");
+    expect(grid.content).not.toContain("align-items: flex-start");
+    expect(grid.content).not.toContain(
+      "data-agent-native-generated-flex-align-items",
+    );
+  });
+
+  it("preserves authored alignment when switching a flex container to grid", () => {
+    const patch = applyVisualEdit(
+      `<div data-agent-native-node-id="box" style="display:flex; align-items:flex-start"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+        containerStyles: { display: "grid" },
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toMatch(/align-items:\s*flex-start/);
+    expect(patch.content).not.toContain(
+      "data-agent-native-generated-flex-align-items",
+    );
+  });
+
+  it("keeps an explicit alignment from containerStyles when replacing a generated default", () => {
+    const flex = applyVisualEdit(
+      `<div data-agent-native-node-id="box"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+        containerStyles: { display: "flex" },
+      },
+    );
+    const aligned = applyVisualEdit(flex.content, {
+      kind: "autoLayout",
+      targetId: "box",
+      enabled: true,
+      containerStyles: { display: "grid", alignItems: "center" },
+    });
+
+    expect(aligned.result.status).toBe("applied");
+    expect(aligned.content).toContain("align-items: center");
+    expect(aligned.content).not.toContain(
+      "data-agent-native-generated-flex-align-items",
+    );
+  });
+
+  it("does not treat an inspector alignment edit as a generated default", () => {
+    const flex = applyVisualEdit(
+      `<div data-agent-native-node-id="box"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+        containerStyles: { display: "flex" },
+      },
+    );
+    const aligned = applyVisualEdit(flex.content, {
+      kind: "style",
+      target: { nodeId: "box" },
+      property: "alignItems",
+      value: "center",
+    });
+    const grid = applyVisualEdit(aligned.content, {
+      kind: "autoLayout",
+      targetId: "box",
+      enabled: true,
+      containerStyles: { display: "grid" },
+    });
+
+    expect(aligned.result.status).toBe("applied");
+    expect(grid.result.status).toBe("applied");
+    expect(grid.content).toMatch(/align-items:\s*center/);
+    expect(grid.content).not.toContain(
+      "data-agent-native-generated-flex-align-items",
+    );
+  });
+
+  it("preserves stylesheet alignment with flex containerStyles", () => {
+    const patch = applyVisualEdit(
+      `<style>@media (min-width: 600px) { .stack { align-items: center; } }</style><div data-agent-native-node-id="box" class="stack"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+        containerStyles: {
+          display: "flex",
+          flexDirection: "row",
+          gap: "20px",
+        },
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).not.toContain("align-items: flex-start");
   });
 
   it("rejects containerStyles that carry no writable declaration", () => {
@@ -3546,6 +4077,7 @@ describe("autoLayout", () => {
     expect(patch.result.status).toBe("applied");
     expect(patch.content).toContain("flex-direction: column");
     expect(patch.content).toContain("gap: 8px");
+    expect(patch.content).toContain("align-items: flex-start");
   });
 
   it("replaces a min-height:0 that would let the container collapse anyway", () => {
@@ -4342,6 +4874,16 @@ describe("stripEditorOnlyAttributes", () => {
     expect(result).not.toContain("data-agent-native-node-id");
     expect(result).toContain('class="foo"');
     expect(result).toContain("hello");
+  });
+
+  it("removes generated flex alignment metadata from exported markup", () => {
+    const html = `<div data-agent-native-generated-flex-align-items="flex-start" style="align-items: flex-start">hello</div>`;
+    const result = stripEditorOnlyAttributes(html);
+
+    expect(result).not.toContain(
+      "data-agent-native-generated-flex-align-items",
+    );
+    expect(result).toContain('style="align-items: flex-start"');
   });
 
   it("removes data-agent-native-node-id with single-quoted value", () => {

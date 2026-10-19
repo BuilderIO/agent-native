@@ -117,6 +117,16 @@ export const RUN_TERMINAL_LOOKUP_FAILED_ERROR_EVENT = {
     "Reading the run's last persisted terminal event failed. The run may have completed; its outcome is unknown to this connection rather than known to be absent.",
 } as const;
 
+export const TERMINAL_EVENT_UNREADABLE_ERROR_EVENT = {
+  type: "error",
+  error:
+    "The agent run finished, but its final event could not be read, so the result could not be confirmed. Retry if the result is missing.",
+  errorCode: "terminal_event_unreadable",
+  recoverable: true,
+  details:
+    "Every persisted terminal event for this run failed to parse. Without this, the run stayed 'running' while the terminal-event exclusion kept the stale reaper away from it.",
+} as const;
+
 export const RUN_RECORD_MISSING_GRACE_MS = 15_000;
 
 export const UNCLAIMED_BACKGROUND_RUN_GRACE_MS = 25_000;
@@ -391,7 +401,9 @@ const LEDGER_CHAT_UI_RESULT_MAX_BYTES = 64 * 1024;
 /**
  * Persist a zombie tool-call completion to the ledger. Called by the detached
  * promise continuation after `Promise.race` abandons it. Best-effort — never
- * throws so a ledger write failure doesn't break any caller.
+ * throws so a ledger write failure doesn't break any caller. `argumentsHash`
+ * is the exact identity of the arguments the call ran with; only a call
+ * prepared to the same identity may recover the result.
  */
 export async function writeLedgerEntry(
   threadId: string,
@@ -400,6 +412,7 @@ export async function writeLedgerEntry(
   artifacts: ArtifactReceipt[] = [],
   resultIsString?: boolean,
   chatUIResultJson?: string,
+  argumentsHash?: string,
 ): Promise<void> {
   try {
     await ensureRunTables();
@@ -432,14 +445,15 @@ export async function writeLedgerEntry(
           `\n...[ledger truncated at ${LEDGER_RESULT_MAX_CHARS} chars]`
         : safeResultSummary;
     await client.execute({
-      sql: `INSERT INTO agent_tool_ledger (thread_id, tool_key, result_summary, artifacts_json, result_is_string, chat_ui_result_json, completed_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+      sql: `INSERT INTO agent_tool_ledger (thread_id, tool_key, result_summary, artifacts_json, result_is_string, chat_ui_result_json, completed_at, arguments_hash)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (thread_id, tool_key) DO UPDATE SET
               result_summary = excluded.result_summary,
               artifacts_json = excluded.artifacts_json,
               result_is_string = excluded.result_is_string,
               chat_ui_result_json = excluded.chat_ui_result_json,
-              completed_at = excluded.completed_at`,
+              completed_at = excluded.completed_at,
+              arguments_hash = excluded.arguments_hash`,
       args: [
         threadId,
         toolKey,
@@ -448,6 +462,7 @@ export async function writeLedgerEntry(
         resultIsString ?? null,
         boundedChatUIResultJson,
         Date.now(),
+        argumentsHash ?? null,
       ],
     });
   } catch {
@@ -463,12 +478,14 @@ export async function readLedgerEntry(
   artifacts: ArtifactReceipt[];
   resultIsString?: boolean;
   chatUIResult?: unknown;
+  /** Absent for a result recorded before calls bound their arguments. */
+  argumentsHash?: string;
 } | null> {
   try {
     await ensureRunTables();
     const client = getDbExec();
     const { rows } = await client.execute({
-      sql: `SELECT result_summary, artifacts_json, result_is_string, chat_ui_result_json FROM agent_tool_ledger WHERE thread_id = ? AND tool_key = ?`,
+      sql: `SELECT result_summary, artifacts_json, result_is_string, chat_ui_result_json, arguments_hash FROM agent_tool_ledger WHERE thread_id = ? AND tool_key = ?`,
       args: [threadId, toolKey],
     });
     if (rows.length === 0) return null;
@@ -477,6 +494,7 @@ export async function readLedgerEntry(
       artifacts_json?: string | null;
       result_is_string?: boolean | null;
       chat_ui_result_json?: string | null;
+      arguments_hash?: string | null;
     };
     let chatUIResult: unknown;
     let hasChatUIResult = false;
@@ -501,6 +519,7 @@ export async function readLedgerEntry(
         ? { resultIsString: row.result_is_string }
         : {}),
       ...(hasChatUIResult ? { chatUIResult } : {}),
+      ...(row.arguments_hash ? { argumentsHash: row.arguments_hash } : {}),
     };
   } catch {
     return null;
@@ -1508,13 +1527,17 @@ async function getRunEventForReconciliation(runId: string): Promise<{
   let latestTerminal: {
     event: AgentChatEvent;
     eventAt: number | null;
+    sequence: bigint;
   } | null = null;
+  let newestUnreadableSequence: bigint | null = null;
   for (const row of rows as Array<{
+    seq: number | string;
     event_at?: number | string | null;
     event_data?: string;
   }>) {
     const raw = row.event_data;
     if (!raw) continue;
+    const sequence = BigInt(row.seq);
     try {
       const event = JSON.parse(raw) as AgentChatEvent;
       if (!terminalStatusForEvent(event) || !terminalReasonForEvent(event)) {
@@ -1525,14 +1548,47 @@ async function getRunEventForReconciliation(runId: string): Promise<{
         event,
         eventAt:
           Number.isFinite(rawEventAt) && rawEventAt > 0 ? rawEventAt : null,
+        sequence,
       };
-      if (!latestTerminal) latestTerminal = parsed;
-      if (isRealFailureTerminalEvent(event)) return parsed;
-    } catch {
-      continue;
+      if (!latestTerminal || sequence > latestTerminal.sequence) {
+        latestTerminal = parsed;
+      }
+      if (isRealFailureTerminalEvent(event)) {
+        if (
+          newestUnreadableSequence !== null &&
+          newestUnreadableSequence > sequence
+        ) {
+          return {
+            event: { ...TERMINAL_EVENT_UNREADABLE_ERROR_EVENT },
+            eventAt: null,
+          };
+        }
+        return parsed;
+      }
+    } catch (err) {
+      if (
+        newestUnreadableSequence === null ||
+        sequence > newestUnreadableSequence
+      ) {
+        newestUnreadableSequence = sequence;
+      }
+      console.error(
+        `[run-store] unreadable terminal event runId=${runId} seq=${String(row.seq)}: ${raw.slice(0, 120)}`,
+        err instanceof Error ? err.message : err,
+      );
     }
   }
-  return latestTerminal;
+  if (
+    newestUnreadableSequence !== null &&
+    (!latestTerminal || newestUnreadableSequence > latestTerminal.sequence)
+  ) {
+    return {
+      event: { ...TERMINAL_EVENT_UNREADABLE_ERROR_EVENT },
+      eventAt: null,
+    };
+  }
+  if (!latestTerminal) return null;
+  return { event: latestTerminal.event, eventAt: latestTerminal.eventAt };
 }
 
 function errorCodeForTerminalEvent(event: AgentChatEvent): string | null {
@@ -3057,6 +3113,9 @@ function isReadableJournalEvent(value: unknown): value is AgentChatEvent {
               (field) =>
                 value[field] === undefined || typeof value[field] === "boolean",
             ) &&
+            (value.argumentsHash === undefined ||
+              (typeof value.argumentsHash === "string" &&
+                /^[a-f0-9]{64}$/.test(value.argumentsHash))) &&
             (value.approvalPause === undefined ||
               typeof value.approvalPause === "boolean") &&
             (value.outcomeUnknown === undefined ||

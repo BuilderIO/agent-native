@@ -147,7 +147,6 @@ async function readPngDownloadPixels(
   }, base64);
 }
 
-// oracle: none — verifies exported pixels against the design's own colors, not a Figma node.
 test("selected Frame exports isolate ancestor backgrounds while Screen export preserves them", async ({
   app,
   page,
