@@ -110,13 +110,19 @@ const MENU_COLLISION_PADDING = 8;
 
 const menuIconClass = "size-4 shrink-0 text-muted-foreground";
 
+// A reference preview inside a cell brings its own tables, so these keep only
+// the rows and cells that belong to the given table or row.
 function getRows(table: HTMLElement) {
-  return Array.from(table.querySelectorAll("tr")) as HTMLTableRowElement[];
+  return (
+    Array.from(table.querySelectorAll("tr")) as HTMLTableRowElement[]
+  ).filter((row) => row.closest("table") === table);
 }
 
 function getCells(row: HTMLTableRowElement | null | undefined) {
   return row
-    ? (Array.from(row.querySelectorAll("td, th")) as HTMLElement[])
+    ? (Array.from(row.querySelectorAll("td, th")) as HTMLElement[]).filter(
+        (cell) => cell.closest("tr") === row,
+      )
     : [];
 }
 
@@ -167,7 +173,7 @@ function getCellAddress(editor: Editor, cell: HTMLElement) {
   return { columnIndex, rowIndex, tableIndex };
 }
 
-function getCellAtAddress(
+export function getCellAtAddress(
   tables: HTMLElement[],
   address: SelectedCellAddress | null,
 ) {
@@ -965,7 +971,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     }
   };
 
-  const handlePointerUp = () => {
+  const endPointerResize = () => {
     const current = pointerResizeRef.current;
     pointerResizeRef.current = null;
     document.documentElement.classList.remove(
@@ -974,7 +980,19 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     );
     window.removeEventListener("pointermove", handlePointerMove);
     window.removeEventListener("pointerup", handlePointerUp);
+    window.removeEventListener("pointercancel", handlePointerCancel);
+    return current;
+  };
 
+  // The browser cancels a touch it takes over, e.g. to scroll. That ends the
+  // drag without the click's added row or column.
+  const handlePointerCancel = () => {
+    endPointerResize();
+    syncOverlay();
+  };
+
+  const handlePointerUp = () => {
+    const current = endPointerResize();
     if (!current) return;
 
     if (!current.didResize) {
@@ -1011,6 +1029,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
 
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerCancel);
   };
 
   useEffect(() => {
@@ -1160,6 +1179,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
       window.removeEventListener("scroll", handleScroll, true);
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerCancel);
       view.dom.removeEventListener("keyup", handleKeyUp);
       editor.off("selectionUpdate", handleSelectionUpdate);
     };
@@ -1284,8 +1304,9 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     "content-table-axis-trigger group absolute z-40 flex items-center justify-center rounded-md bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
   const axisMarkerClass =
     "block rounded-full bg-muted-foreground/55 transition-colors group-hover:bg-primary group-focus-visible:bg-primary";
+  // touch-none lets a finger drag a handle instead of scrolling the page.
   const handleClass =
-    "table-hover-controls group absolute z-40 flex items-center justify-center rounded-md bg-transparent opacity-0 transition-opacity hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
+    "table-hover-controls group absolute z-40 flex touch-none items-center justify-center rounded-md bg-transparent opacity-0 transition-opacity hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
   const edgeHandleMarkerClass =
     "block rounded-full bg-muted-foreground/55 transition-colors group-hover:bg-primary group-focus-visible:bg-primary";
 

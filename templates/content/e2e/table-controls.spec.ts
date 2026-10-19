@@ -293,4 +293,34 @@ test.describe("inline table controls on a touch screen", () => {
     await addColumn.tap();
     await expect(headerCells).toHaveCount(7);
   });
+
+  test("a touch on the add-column control that the browser cancels adds nothing", async ({
+    page,
+  }) => {
+    await openTablePage(page, "Table touch cancel");
+    const headerCells = page.locator(`${EDITOR} tr:first-child :is(td, th)`);
+    await expect(headerCells).toHaveCount(3);
+
+    // The browser cancels a touch it takes over, e.g. to scroll the page.
+    await page.getByTestId("table-column-handle").evaluate((handle) => {
+      const box = handle.getBoundingClientRect();
+      const touch = {
+        bubbles: true,
+        cancelable: true,
+        clientX: box.x + box.width / 2,
+        clientY: box.y + box.height / 2,
+        isPrimary: true,
+        pointerId: 7,
+        pointerType: "touch",
+      };
+      handle.dispatchEvent(new PointerEvent("pointerdown", touch));
+      handle.dispatchEvent(new PointerEvent("pointercancel", touch));
+    });
+
+    // A later tap elsewhere must not finish the cancelled touch.
+    await cell(page, "Alpha").tap();
+    expect(await caretCell(page)).toBe("Alpha");
+    await page.waitForTimeout(300);
+    await expect(headerCells).toHaveCount(3);
+  });
 });
