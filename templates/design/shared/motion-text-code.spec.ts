@@ -1634,6 +1634,23 @@ describe("Motion Text source and runtime", () => {
         unit.animations.map((animation) => animation.handle),
       );
 
+    it("disconnects the observer of a crop that a rerun replaces", () => {
+      mutationObservers.length = 0;
+      const target = textTarget("AB");
+      target.style.clipPath = "";
+      const animations = compileMotionTextRuntime(
+        { version: 2, animations: [{ ...rotating, clipContent: true }] },
+        "once",
+      );
+      executeRuntime(animations, target);
+      const [replaced] = mutationObservers;
+      executeRuntime(animations, target);
+
+      expect(replaced?.disconnected).toBe(true);
+      expect(mutationObservers[1]?.disconnected).toBe(false);
+      expect(target.style.clipPath).toBe("inset(0)");
+    });
+
     it("disconnects the observer of a crop that a rerun no longer asks for", () => {
       mutationObservers.length = 0;
       const target = textTarget("AB");

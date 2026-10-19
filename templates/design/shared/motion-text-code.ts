@@ -1334,6 +1334,7 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
     }
     if (targetGroup.animations.some(function (track) { return track.clipContent === true; })) {
       owner = { original: cropOwner ? cropOwner.original : (target.style.clipPath || ""), observer: null };
+      if (cropOwner && cropOwner.observer) cropOwner.observer.disconnect();
       target.__anMotionCrop = owner;
       target.style.clipPath = "inset(0)";
       // The editor preview rewrites the units in place instead of reloading, so lift the crop once they are gone.
