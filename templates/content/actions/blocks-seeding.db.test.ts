@@ -1473,7 +1473,7 @@ describe("primary Blocks value reflects the body, never the title (finding: word
       )!.definition.id;
       const agent = { caller: "mcp", userEmail: OWNER } as const;
 
-      for (const caller of ["mcp", "http"] as const) {
+      for (const caller of ["mcp", "http", "cli", "automation"] as const) {
         await expect(
           setDocumentPropertyAction.run(
             { documentId, databaseId, propertyId, value: "Unguarded" },
@@ -1517,6 +1517,17 @@ describe("primary Blocks value reflects the body, never the title (finding: word
         .from(schema.documentBlockFieldContents)
         .where(eq(schema.documentBlockFieldContents.documentId, documentId));
       expect(saved?.content).toBe("Guarded");
+
+      // The app's own UI is unaffected.
+      await setDocumentPropertyAction.run(
+        { documentId, databaseId, propertyId, value: "From the app" },
+        { caller: "frontend", userEmail: OWNER },
+      );
+      const [fromApp] = await getDb()
+        .select()
+        .from(schema.documentBlockFieldContents)
+        .where(eq(schema.documentBlockFieldContents.documentId, documentId));
+      expect(fromApp?.content).toBe("From the app");
     });
   });
 
