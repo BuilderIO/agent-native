@@ -29,7 +29,10 @@ import {
   usesDocumentLifecycleProtocol,
 } from "./_document-lifecycle.js";
 import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
-import { assertSourceAllowsPageEdit } from "./_document-source.js";
+import {
+  assertSourceAllowsPageEdit,
+  releaseRestoredPagesFromGitHubCollections,
+} from "./_document-source.js";
 
 const DELETE_BATCH_SIZE = 90;
 
@@ -732,16 +735,23 @@ export async function restoreDocumentSubtree(
         ),
       );
   }
+  const releasedFrom = await releaseRestoredPagesFromGitHubCollections(
+    db,
+    documentIds,
+    ownerEmail,
+    now,
+  );
 
   const databaseIds = [
-    ...new Set(
-      (
+    ...new Set([
+      ...(
         await db
           .select({ databaseId: schema.contentDatabaseItems.databaseId })
           .from(schema.contentDatabaseItems)
           .where(inArray(schema.contentDatabaseItems.documentId, documentIds))
       ).map((item) => item.databaseId),
-    ),
+      ...releasedFrom,
+    ]),
   ];
   for (const databaseId of databaseIds) {
     const [database] = await db
