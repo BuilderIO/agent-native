@@ -221,15 +221,18 @@ export function destinationBackgroundLightness(
       cursor !== element.ownerDocument.documentElement
     ) {
       const nodeId = cursor.getAttribute("data-agent-native-node-id");
-      if (nodeId) {
-        const candidate = liveDoc.querySelector(
-          `[data-agent-native-node-id="${CSS.escape(nodeId)}"]`,
-        );
-        if (candidate) {
-          constructedMatch = cursor;
-          liveElement = candidate;
-          break;
-        }
+      const authoredId = cursor.getAttribute("id");
+      const candidate = nodeId
+        ? liveDoc.querySelector(
+            `[data-agent-native-node-id="${CSS.escape(nodeId)}"]`,
+          )
+        : null;
+      const authoredIdCandidate =
+        !candidate && authoredId ? liveDoc.getElementById(authoredId) : null;
+      if (candidate || authoredIdCandidate) {
+        constructedMatch = cursor;
+        liveElement = candidate ?? authoredIdCandidate;
+        break;
       }
       cursor = cursor.parentElement;
     }
@@ -303,8 +306,13 @@ export function adaptAutoTextColorForCrossScreenNode(
         destinationBackgroundIsLight: destinationIsLight,
       });
       if (!shouldAdapt) continue;
+      const promoteLegacyDefaultWhite =
+        !hasAutoMarker && isAutoDefaultWhiteColor(el.style.color);
       // guard:allow-raw-color — This is authored document text, not editor chrome.
       el.style.color = destinationIsLight ? "#000000" : "#ffffff";
+      if (promoteLegacyDefaultWhite) {
+        textNode.setAttribute(BOARD_TEXT_AUTO_COLOR_MARKER, "");
+      }
       changed = true;
     }
     if (!changed) return content;
