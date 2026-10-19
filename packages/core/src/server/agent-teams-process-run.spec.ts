@@ -4,12 +4,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   completeProgressRunMock,
+  getCurrentTurnRunEventsMock,
   getProgressRunMock,
   hasNotificationWithMetadataMock,
   insertNotificationMock,
   revokeTaskExecutionLeaseMock,
 } = vi.hoisted(() => ({
   completeProgressRunMock: vi.fn(),
+  getCurrentTurnRunEventsMock: vi.fn(),
   getProgressRunMock: vi.fn(),
   hasNotificationWithMetadataMock: vi.fn(),
   insertNotificationMock: vi.fn(),
@@ -513,6 +515,13 @@ const getRunMock = vi.fn();
 const subscribeToRunMock = vi.fn();
 const persistedRunEventIds: string[] = [];
 const persistedTerminalRunEventIds: string[] = [];
+const persistedRunEvents: Array<{
+  threadId: string;
+  turnId: string;
+  runId: string;
+  seq: number;
+  event: any;
+}> = [];
 let heldToolStartEventWrite: Promise<void> | null = null;
 let persistedToolStartEventWrites = 0;
 let failNextExecutionLeaseClaim = false;
@@ -526,12 +535,13 @@ vi.mock("../agent/run-manager.js", () => ({
     onComplete?: (run: any) => Promise<void>,
     options?: any,
   ) => {
+    const turnId = options?.turnId ?? runId;
     if (options?.executionLease && failNextExecutionLeaseClaim) {
       failNextExecutionLeaseClaim = false;
       return {
         runId,
         threadId,
-        turnId: options?.turnId ?? runId,
+        turnId,
         events: [],
         status: "aborted",
         abortReason: "execution-lease-busy",
@@ -564,6 +574,7 @@ vi.mock("../agent/run-manager.js", () => ({
           return write;
         }
         if (options?.persistEvent) {
+          const runEvent = events.at(-1)!;
           const write = options
             .persistEvent(async () => {}, {
               terminal: false,
@@ -571,6 +582,12 @@ vi.mock("../agent/run-manager.js", () => ({
             })
             .then(() => {
               persistedRunEventIds.push(runId);
+              persistedRunEvents.push({
+                threadId,
+                turnId,
+                runId,
+                ...runEvent,
+              });
             });
           pendingEventWrites.push(write);
           return write;
@@ -597,7 +614,7 @@ vi.mock("../agent/run-manager.js", () => ({
       const run = {
         runId,
         threadId,
-        turnId: options?.turnId ?? runId,
+        turnId,
         events,
         status,
         subscribers: new Set(),
@@ -608,12 +625,35 @@ vi.mock("../agent/run-manager.js", () => ({
       try {
         if (onComplete) await onComplete(run);
         if (options?.persistEvent) {
+          const terminalEvent = [...events]
+            .reverse()
+            .find(({ event }) =>
+              [
+                "done",
+                "error",
+                "missing_api_key",
+                "loop_limit",
+                "auto_continue",
+              ].includes(event?.type),
+            )?.event ?? { type: "done" };
           await options.persistEvent(async () => {}, {
             terminal: true,
-            eventData: '{"type":"done"}',
+            eventData: JSON.stringify(terminalEvent),
           });
           persistedRunEventIds.push(runId);
           persistedTerminalRunEventIds.push(runId);
+          if (
+            terminalEvent.type === "auto_continue" ||
+            terminalEvent.type === "loop_limit"
+          ) {
+            persistedRunEvents.push({
+              threadId,
+              turnId,
+              runId,
+              seq: 1_000_000_000,
+              event: terminalEvent,
+            });
+          }
         }
       } finally {
         activeRunMocks.delete(runId);
@@ -640,8 +680,10 @@ vi.mock("../agent/run-manager.js", () => ({
 
 const getRunEventsSinceMock = vi.fn(async () => []);
 vi.mock("../agent/run-store.js", () => ({
+  CHECKPOINT_TERMINAL_EVENT_SEQ: 1_000_000_000,
   ensureRunTables: vi.fn(async () => undefined),
   getRunEventsSince: getRunEventsSinceMock,
+  getCurrentTurnRunEventsForThread: getCurrentTurnRunEventsMock,
   lockTaskExecutionLease: vi.fn(async () => undefined),
   revokeTaskExecutionLease: revokeTaskExecutionLeaseMock,
 }));
@@ -866,12 +908,22 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     getActiveRunForThreadAsyncMock.mockResolvedValue(null);
     persistedRunEventIds.length = 0;
     persistedTerminalRunEventIds.length = 0;
+    persistedRunEvents.length = 0;
     heldToolStartEventWrite = null;
     persistedToolStartEventWrites = 0;
     failNextExecutionLeaseClaim = false;
     subscribeToRunMock.mockReset();
     getRunEventsSinceMock.mockReset();
     getRunEventsSinceMock.mockResolvedValue([]);
+    getCurrentTurnRunEventsMock.mockReset();
+    getCurrentTurnRunEventsMock.mockImplementation(
+      async (threadId: string, turnId: string) =>
+        persistedRunEvents
+          .filter(
+            (event) => event.threadId === threadId && event.turnId === turnId,
+          )
+          .map(({ runId, seq, event }) => ({ runId, seq, event })),
+    );
     revokeTaskExecutionLeaseMock.mockReset();
     revokeTaskExecutionLeaseMock.mockResolvedValue(undefined);
     completeProgressRunMock.mockReset();

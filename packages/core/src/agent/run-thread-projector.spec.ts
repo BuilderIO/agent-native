@@ -8,7 +8,10 @@ vi.mock("./run-store.js", async (importOriginal) => {
   };
 });
 
-import { getCurrentTurnRunEventsForThread } from "./run-store.js";
+import {
+  CHECKPOINT_TERMINAL_EVENT_SEQ,
+  getCurrentTurnRunEventsForThread,
+} from "./run-store.js";
 import { buildAssistantMessageFromRunJournal } from "./run-thread-projector.js";
 import type { RunEvent } from "./types.js";
 
@@ -147,6 +150,53 @@ describe("buildAssistantMessageFromRunJournal", () => {
       runId: "run-successor",
       custom: { foldedRunIds: ["run-reaped", "run-successor"] },
     });
+  });
+
+  it("preserves earlier run checkpoint boundaries while projecting a successor", async () => {
+    vi.mocked(getCurrentTurnRunEventsForThread).mockResolvedValue([
+      {
+        runId: "run-interrupted",
+        seq: 0,
+        event: {
+          type: "tool_start",
+          tool: "send-email",
+          id: "email-1",
+          input: { to: "ana@example.com" },
+        },
+      },
+      {
+        runId: "run-interrupted",
+        seq: CHECKPOINT_TERMINAL_EVENT_SEQ,
+        event: { type: "auto_continue", reason: "run_timeout" },
+      },
+      {
+        runId: "run-successor",
+        seq: 0,
+        event: { type: "text", text: "The ticket is open." },
+      },
+    ]);
+
+    const message = await buildAssistantMessageFromRunJournal({
+      threadId: "thread-journal",
+      turnId: "turn-journal",
+      runId: "run-successor",
+      runEvents: [
+        { seq: 0, event: { type: "text", text: "Buffered ticket result." } },
+        { seq: 1, event: { type: "done" } },
+      ],
+      options: { suppressInternalContinuation: true },
+    });
+
+    expect(message?.content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolCallId: "email-1",
+        toolName: "send-email",
+      }),
+      { type: "text", text: "The ticket is open." },
+    ]);
+    expect(message?.content[0]).not.toHaveProperty("result");
+    expect(message?.content[0]).not.toHaveProperty("outcome");
   });
 
   it("fails loudly when a published nonterminal event is absent from the journal", async () => {

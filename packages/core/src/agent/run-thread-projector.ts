@@ -76,7 +76,10 @@ export async function buildAssistantMessageFromRunJournal(input: {
       ? []
       : turnJournal
           .slice(0, currentRunEndIndex + 1)
-          .filter(({ seq }) => seq < CHECKPOINT_TERMINAL_EVENT_SEQ);
+          .filter(
+            ({ runId, seq }) =>
+              runId !== input.runId || seq < CHECKPOINT_TERMINAL_EVENT_SEQ,
+          );
   const runGroups = new Map<string, RunEvent[]>();
   for (const { runId, seq, event } of relevantJournal) {
     const events = runGroups.get(runId) ?? [];
