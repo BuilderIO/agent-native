@@ -98,6 +98,35 @@ describe("adaptAutoTextColorForCrossScreenNode", () => {
     ).toBe("#ffffff");
   });
 
+  it("does not sample an unrelated live element when authored ids collide", () => {
+    const content = `<!doctype html><html><body style="background:#ffffff">
+      <main id="destination">
+        <span data-agent-native-node-id="text" data-an-primitive="text" ${BOARD_TEXT_AUTO_COLOR_MARKER} style="color:#000000">Text</span>
+      </main>
+    </body></html>`;
+    const liveDestDoc = new DOMParser().parseFromString(
+      `<!doctype html><html><head><style>
+        .unrelated-dark-surface { background: #111111; }
+      </style></head><body style="background:#ffffff">
+        <div id="destination" class="unrelated-dark-surface"></div>
+        <main id="destination" style="background:#ffffff"></main>
+      </body></html>`,
+      "text/html",
+    );
+
+    const adapted = adaptAutoTextColorForCrossScreenNode(
+      content,
+      "text",
+      liveDestDoc,
+    );
+    const doc = new DOMParser().parseFromString(adapted, "text/html");
+
+    expect(
+      doc.querySelector<HTMLElement>('[data-agent-native-node-id="text"]')
+        ?.style.color,
+    ).toBe("#000000");
+  });
+
   it("inherits through a transparent inline background instead of using its class hint", () => {
     const content = `<!doctype html><html><body style="background:#111111">
       <main class="bg-white" style="background:transparent">
@@ -139,6 +168,58 @@ describe("adaptAutoTextColorForCrossScreenNode", () => {
         liveDestDoc.querySelector('[data-agent-native-node-id="target"]')!,
       ).backgroundColor,
     ).toBe("transparent");
+    expect(
+      doc.querySelector<HTMLElement>('[data-agent-native-node-id="text"]')
+        ?.style.color,
+    ).toBe("#ffffff");
+  });
+
+  it("uses an inherited CSS variable to resolve a background utility opacity hint", () => {
+    const content = `<!doctype html><html><body style="--surface-opacity:0.85;background:#ffffff">
+      <main class="bg-slate-900/[var(--surface-opacity)]">
+        <span data-agent-native-node-id="text" data-an-primitive="text" ${BOARD_TEXT_AUTO_COLOR_MARKER} style="color:#000000">Text</span>
+      </main>
+    </body></html>`;
+
+    const adapted = adaptAutoTextColorForCrossScreenNode(content, "text");
+    const doc = new DOMParser().parseFromString(adapted, "text/html");
+
+    expect(
+      doc.querySelector<HTMLElement>('[data-agent-native-node-id="text"]')
+        ?.style.color,
+    ).toBe("#ffffff");
+
+    const translucentContent = content.replace(
+      "--surface-opacity:0.85",
+      "--surface-opacity:0.2",
+    );
+    const translucent = adaptAutoTextColorForCrossScreenNode(
+      translucentContent,
+      "text",
+    );
+    const translucentDoc = new DOMParser().parseFromString(
+      translucent,
+      "text/html",
+    );
+    expect(
+      translucentDoc.querySelector<HTMLElement>(
+        '[data-agent-native-node-id="text"]',
+      )?.style.color,
+    ).toBe("#000000");
+  });
+
+  it("keeps a palette hint for unresolved stylesheet opacity without a live destination", () => {
+    const content = `<!doctype html><html><head><style>
+      :root { --surface-opacity: 0.85; }
+    </style></head><body style="background:#ffffff">
+      <main class="bg-slate-900/[var(--surface-opacity)]">
+        <span data-agent-native-node-id="text" data-an-primitive="text" ${BOARD_TEXT_AUTO_COLOR_MARKER} style="color:#000000">Text</span>
+      </main>
+    </body></html>`;
+
+    const adapted = adaptAutoTextColorForCrossScreenNode(content, "text");
+    const doc = new DOMParser().parseFromString(adapted, "text/html");
+
     expect(
       doc.querySelector<HTMLElement>('[data-agent-native-node-id="text"]')
         ?.style.color,

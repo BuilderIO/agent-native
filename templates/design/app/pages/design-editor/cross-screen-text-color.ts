@@ -110,27 +110,103 @@ export function resolveDestinationBackgroundLightness(
   return resolveDestinationBackgroundLightnessOrNull(chain) ?? true;
 }
 
+function uniqueElementWithAuthoredId(
+  doc: Document,
+  authoredId: string,
+): Element | null {
+  let match: Element | null = null;
+  for (const candidate of Array.from(doc.querySelectorAll("[id]"))) {
+    if (candidate.getAttribute("id") !== authoredId) continue;
+    if (match) return null;
+    match = candidate;
+  }
+  return match;
+}
+
 const DARK_BACKGROUND_CLASS_RE =
-  /(?:^|[\s:])!?bg-(?:black|(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(?:800|900|950))(?:\/(?:\[([0-9]*\.?[0-9]+%?)\]|(\d{1,3})%?))?!?(?=$|[\s:])/g;
+  /(?:^|[\s:])!?bg-(?:black|(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(?:800|900|950))(?:\/(?:\[([^\]]+)\]|(\d{1,3})%?))?!?(?=$|[\s:])/g;
 const LIGHT_BACKGROUND_CLASS_RE =
-  /(?:^|[\s:])!?bg-(?:white|(?:slate|gray|zinc|neutral|stone)-(?:50|100|200|300|400))(?:\/(?:\[([0-9]*\.?[0-9]+%?)\]|(\d{1,3})%?))?!?(?=$|[\s:])/g;
+  /(?:^|[\s:])!?bg-(?:white|(?:slate|gray|zinc|neutral|stone)-(?:50|100|200|300|400))(?:\/(?:\[([^\]]+)\]|(\d{1,3})%?))?!?(?=$|[\s:])/g;
+
+function parseCssOpacity(value: string): number | null {
+  const normalized = value.trim();
+  const opacity = normalized.endsWith("%")
+    ? Number(normalized.slice(0, -1)) / 100
+    : Number(normalized);
+  return Number.isFinite(opacity) && opacity >= 0 && opacity <= 1
+    ? opacity
+    : null;
+}
+
+function inheritedCustomPropertyValue(
+  element: Element,
+  property: string,
+): string | null {
+  const view = element.ownerDocument.defaultView;
+  const computedValue = view
+    ?.getComputedStyle(element)
+    .getPropertyValue(property)
+    .trim();
+  if (computedValue) return computedValue;
+
+  let cursor: Element | null = element;
+  while (cursor) {
+    const value = (cursor as HTMLElement).style
+      ?.getPropertyValue(property)
+      .trim();
+    if (value) return value;
+    cursor = cursor.parentElement;
+  }
+  return null;
+}
+
+function resolveCssOpacity(
+  element: Element,
+  value: string,
+  depth = 0,
+): number | null {
+  if (depth > 8) return null;
+  const opacity = parseCssOpacity(value);
+  if (opacity !== null) return opacity;
+
+  const variable = value.trim().match(/^var\(\s*(--[\w-]+)\s*(?:,\s*(.+))?\)$/);
+  if (!variable) return null;
+  const resolved = inheritedCustomPropertyValue(element, variable[1]!);
+  if (resolved) {
+    const resolvedOpacity = resolveCssOpacity(element, resolved, depth + 1);
+    if (resolvedOpacity !== null) return resolvedOpacity;
+  }
+  return variable[2]
+    ? resolveCssOpacity(element, variable[2], depth + 1)
+    : null;
+}
 
 function hasSufficientlyOpaqueBackgroundClassHint(
-  className: string,
+  element: Element,
   pattern: RegExp,
 ): boolean {
+  const className =
+    typeof element.className === "string"
+      ? element.className
+      : (element.getAttribute("class") ?? "");
   for (const match of className.matchAll(pattern)) {
     const arbitraryOpacity = match[1];
     const numericOpacity = match[2];
     const opacity =
-      arbitraryOpacity === undefined
-        ? numericOpacity === undefined
+      numericOpacity !== undefined
+        ? Number(numericOpacity) / 100
+        : arbitraryOpacity === undefined
           ? 1
-          : Number(numericOpacity) / 100
-        : arbitraryOpacity.endsWith("%")
-          ? Number(arbitraryOpacity.slice(0, -1)) / 100
-          : Number(arbitraryOpacity);
-    if (opacity >= MIN_OPACITY_FOR_BACKGROUND_CLASS_HINT && opacity <= 1) {
+          : resolveCssOpacity(element, arbitraryOpacity);
+    if (opacity === null && arbitraryOpacity?.trim().startsWith("var(")) {
+      // An unresolved alpha is safer as its palette color than as an ancestor surface.
+      return true;
+    }
+    if (
+      opacity !== null &&
+      opacity >= MIN_OPACITY_FOR_BACKGROUND_CLASS_HINT &&
+      opacity <= 1
+    ) {
       return true;
     }
   }
@@ -138,16 +214,12 @@ function hasSufficientlyOpaqueBackgroundClassHint(
 }
 
 function elementBackgroundClassHint(element: Element): "dark" | "light" | null {
-  const className =
-    typeof element.className === "string"
-      ? element.className
-      : (element.getAttribute("class") ?? "");
   const dark = hasSufficientlyOpaqueBackgroundClassHint(
-    className,
+    element,
     DARK_BACKGROUND_CLASS_RE,
   );
   const light = hasSufficientlyOpaqueBackgroundClassHint(
-    className,
+    element,
     LIGHT_BACKGROUND_CLASS_RE,
   );
   if (dark === light) return null;
@@ -228,7 +300,9 @@ export function destinationBackgroundLightness(
           )
         : null;
       const authoredIdCandidate =
-        !candidate && authoredId ? liveDoc.getElementById(authoredId) : null;
+        !candidate && authoredId
+          ? uniqueElementWithAuthoredId(liveDoc, authoredId)
+          : null;
       if (candidate || authoredIdCandidate) {
         constructedMatch = cursor;
         liveElement = candidate ?? authoredIdCandidate;
