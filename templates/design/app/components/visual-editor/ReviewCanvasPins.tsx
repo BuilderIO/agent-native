@@ -351,6 +351,43 @@ function nodePoint(
   return elementPoint(canvas, findNodeElement(canvas, nodeId), frameGeometry);
 }
 
+/** A node's box in client coordinates, mapped the same way as elementPoint. */
+function nodeClientRect(
+  canvas: HTMLElement,
+  nodeId: string,
+  frameGeometry?: ReviewFrameNodeGeometry,
+): { left: number; top: number; width: number; height: number } | null {
+  const iframe = canvas.querySelector<HTMLIFrameElement>(
+    "iframe[data-design-preview-iframe]",
+  );
+  if (!iframe) return null;
+  const elementRect =
+    findNodeElement(canvas, nodeId)?.getBoundingClientRect() ??
+    frameGeometry?.rect;
+  if (!elementRect) return null;
+  const iframeRect = iframe.getBoundingClientRect();
+  const scaleX =
+    iframeRect.width /
+    Math.max(1, frameGeometry?.viewportWidth ?? iframe.clientWidth);
+  const scaleY =
+    iframeRect.height /
+    Math.max(1, frameGeometry?.viewportHeight ?? iframe.clientHeight);
+  return {
+    left: iframeRect.left + elementRect.left * scaleX,
+    top: iframeRect.top + elementRect.top * scaleY,
+    width: elementRect.width * scaleX,
+    height: elementRect.height * scaleY,
+  };
+}
+
+/**
+ * The overlay portals to body but is a React child of the design frame, so its
+ * mouse events would bubble into the frame's select and hover handlers.
+ */
+function stopReviewOverlayEvent(event: { stopPropagation: () => void }) {
+  event.stopPropagation();
+}
+
 function selectorPoint(
   canvas: HTMLElement,
   selector: string,
@@ -957,6 +994,9 @@ export function ReviewCanvasPins({
   const [frameNodeGeometry, setFrameNodeGeometry] = useState<
     Record<string, ReviewFrameNodeGeometry>
   >({});
+  const [hoverNodeId, setHoverNodeId] = useState<string | null>(null);
+  const hoverPointerRef = useRef<{ x: number; y: number } | null>(null);
+  const hoverFrameRef = useRef<number | null>(null);
   const lastFocusNonceRef = useRef<number | null>(null);
   const pendingFocusNonceRef = useRef<number | null>(null);
   const migratedBoardAnchorIdsRef = useRef<Set<string>>(new Set());
@@ -1334,6 +1374,24 @@ export function ReviewCanvasPins({
     return () => window.removeEventListener("message", handleMessage);
   }, [canvas]);
 
+  // An open composer or thread keeps its element highlighted; otherwise the highlight follows the pointer.
+  const popoverNodeId = useMemo(() => {
+    if (draftPin) {
+      return (
+        resolveReviewAnchor(draftPin.anchor, () => null)?.anchor.nodeId ?? null
+      );
+    }
+    const thread = threads.find(
+      (candidate) => candidate.root.threadId === activeThreadId,
+    );
+    return thread
+      ? (resolveReviewAnchor(thread.root.anchor, () => null)?.anchor.nodeId ??
+          null)
+      : null;
+  }, [activeThreadId, draftPin, threads]);
+  const highlightNodeId =
+    draftPin || activeThreadId ? popoverNodeId : hoverNodeId;
+
   const anchoredNodeIds = useMemo(() => {
     const nodeIds = new Set<string>();
     for (const thread of threads) {
@@ -1344,8 +1402,9 @@ export function ReviewCanvasPins({
       ? resolveReviewAnchor(draftPin.anchor, () => null)
       : null;
     if (draft?.anchor.nodeId) nodeIds.add(draft.anchor.nodeId);
+    if (highlightNodeId) nodeIds.add(highlightNodeId);
     return [...nodeIds].sort();
-  }, [draftPin, threads]);
+  }, [draftPin, highlightNodeId, threads]);
 
   useEffect(() => {
     if (!canvas || anchoredNodeIds.length === 0) {
@@ -1823,6 +1882,48 @@ export function ReviewCanvasPins({
           { x: clientX, y: clientY },
         ),
       );
+    },
+    [canvas],
+  );
+
+  // The click plane covers the frame, so the frame never gets hover of its own;
+  // ask the bridge which node is under the pointer instead.
+  const scheduleHoverNode = useCallback(
+    (clientX: number, clientY: number) => {
+      hoverPointerRef.current = { x: clientX, y: clientY };
+      if (hoverFrameRef.current !== null) return;
+      hoverFrameRef.current = window.requestAnimationFrame(() => {
+        hoverFrameRef.current = null;
+        const point = hoverPointerRef.current;
+        const iframe = canvas?.querySelector<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        );
+        const iframeRect = iframe?.getBoundingClientRect();
+        if (!point || !iframe?.contentWindow || !iframeRect?.width) return;
+        const correlationId = crypto.randomUUID();
+        frameCallbacksRef.current.set(correlationId, (payload) => {
+          setHoverNodeId(
+            typeof payload.nodeId === "string" ? payload.nodeId : null,
+          );
+        });
+        window.setTimeout(
+          () => frameCallbacksRef.current.delete(correlationId),
+          2_000,
+        );
+        iframe.contentWindow.postMessage(
+          {
+            type: "agent-native:review-anchor-at-point",
+            correlationId,
+            x:
+              (point.x - iframeRect.left) *
+              (iframe.clientWidth / iframeRect.width),
+            y:
+              (point.y - iframeRect.top) *
+              (iframe.clientHeight / iframeRect.height),
+          },
+          "*",
+        );
+      });
     },
     [canvas],
   );
@@ -2320,9 +2421,23 @@ export function ReviewCanvasPins({
     !draftComposerOpen &&
     !activeThreadId &&
     !repromptDraftRequest;
+  const highlightRect =
+    placementPlaneVisible && canvas && highlightNodeId
+      ? nodeClientRect(
+          canvas,
+          highlightNodeId,
+          frameNodeGeometry[highlightNodeId],
+        )
+      : null;
 
   return createPortal(
-    <>
+    <div
+      className="contents"
+      onMouseDown={stopReviewOverlayEvent}
+      onMouseUp={stopReviewOverlayEvent}
+      onMouseMove={stopReviewOverlayEvent}
+      onClick={stopReviewOverlayEvent}
+    >
       {placementPlaneVisible ? (
         <div
           data-review-click-plane
@@ -2337,9 +2452,11 @@ export function ReviewCanvasPins({
             height: placementRect.height,
           }}
           onPointerDown={handlePlacementPointerDown}
-          onPointerMove={(event) =>
-            updateRegionPreview(event.clientX, event.clientY)
-          }
+          onPointerMove={(event) => {
+            updateRegionPreview(event.clientX, event.clientY);
+            scheduleHoverNode(event.clientX, event.clientY);
+          }}
+          onPointerLeave={() => setHoverNodeId(null)}
           onPointerUp={handlePlacementPointerUp}
           onPointerCancel={handlePlacementPointerUp}
           onClick={(event) => {
@@ -2358,6 +2475,13 @@ export function ReviewCanvasPins({
         className="pointer-events-none fixed inset-0 z-[45]"
         style={{ clipPath: reviewRegionClipPath(region) }}
       >
+        {highlightRect ? (
+          <div
+            data-review-hover-highlight
+            className="pointer-events-none fixed z-[41] border-2 border-primary bg-primary/10"
+            style={highlightRect}
+          />
+        ) : null}
         {pinPlacementEnabled && regionPreview ? (
           <div
             data-review-region-preview
@@ -2694,7 +2818,7 @@ export function ReviewCanvasPins({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </>,
+    </div>,
     document.body,
   );
 }
