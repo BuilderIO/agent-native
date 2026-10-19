@@ -3,6 +3,7 @@ import { parseCssColorExtended } from "@shared/color-utils";
 export const BOARD_TEXT_AUTO_COLOR_MARKER = "data-an-auto-text-color";
 
 const AUTO_TEXT_COLOR_LIGHT_LUMINANCE_THRESHOLD = 150;
+const MIN_OPACITY_FOR_BACKGROUND_CLASS_HINT = 0.8;
 
 function relativeLuminance(rgb: { r: number; g: number; b: number }): number {
   return 0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b;
@@ -110,17 +111,36 @@ export function resolveDestinationBackgroundLightness(
 }
 
 const DARK_BACKGROUND_CLASS_RE =
-  /(?:^|[\s:])!?bg-(?:black|(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(?:800|900|950))(?=$|[\s:])/;
+  /(?:^|[\s:])!?bg-(?:black|(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(?:800|900|950))(?:\/(\d{1,3})%?)?!?(?=$|[\s:])/g;
 const LIGHT_BACKGROUND_CLASS_RE =
-  /(?:^|[\s:])!?bg-(?:white|(?:slate|gray|zinc|neutral|stone)-(?:50|100|200|300|400))(?=$|[\s:])/;
+  /(?:^|[\s:])!?bg-(?:white|(?:slate|gray|zinc|neutral|stone)-(?:50|100|200|300|400))(?:\/(\d{1,3})%?)?!?(?=$|[\s:])/g;
+
+function hasSufficientlyOpaqueBackgroundClassHint(
+  className: string,
+  pattern: RegExp,
+): boolean {
+  for (const match of className.matchAll(pattern)) {
+    const opacity = match[1] === undefined ? 1 : Number(match[1]) / 100;
+    if (opacity >= MIN_OPACITY_FOR_BACKGROUND_CLASS_HINT && opacity <= 1) {
+      return true;
+    }
+  }
+  return false;
+}
 
 function elementBackgroundClassHint(element: Element): "dark" | "light" | null {
   const className =
     typeof element.className === "string"
       ? element.className
       : (element.getAttribute("class") ?? "");
-  const dark = DARK_BACKGROUND_CLASS_RE.test(className);
-  const light = LIGHT_BACKGROUND_CLASS_RE.test(className);
+  const dark = hasSufficientlyOpaqueBackgroundClassHint(
+    className,
+    DARK_BACKGROUND_CLASS_RE,
+  );
+  const light = hasSufficientlyOpaqueBackgroundClassHint(
+    className,
+    LIGHT_BACKGROUND_CLASS_RE,
+  );
   if (dark === light) return null;
   return dark ? "dark" : "light";
 }

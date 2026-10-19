@@ -878,6 +878,31 @@ describe("text takes its colour from what it lands on", () => {
     expect(styleOf(html, "t")).toMatch(/color:\s*#000000/i);
   });
 
+  it.each([
+    ["bg-slate-900/80", "#ffffff", "#ffffff"],
+    ["bg-white/90", "#111111", "#000000"],
+    ["bg-slate-900!", "#ffffff", "#ffffff"],
+    ["bg-white!", "#111111", "#000000"],
+  ])(
+    "chooses readable text over %s when live background styles are unavailable",
+    (className, ancestorBackground, expectedColor) => {
+      const content = `<!doctype html><html><body style="background:${ancestorBackground}">
+        <div class="${className}" style="position:absolute;left:20px;top:150px;width:280px;height:300px"></div>
+      </body></html>`;
+      const html =
+        appendCanvasPrimitiveToHtml(content, {
+          kind: "text",
+          nodeId: "t",
+          geometry: { x: 60, y: 260, width: 120, height: 24 },
+          text: "on a class-painted surface",
+        }) ?? "";
+
+      expect(styleOf(html, "t")).toMatch(
+        new RegExp(`color:\\s*${expectedColor}`, "i"),
+      );
+    },
+  );
+
   it("does not treat translucent white background utilities as opaque in fallback sampling", () => {
     const content = `<!doctype html><html><body>
       <div class="bg-slate-900" style="position:absolute;left:20px;top:150px;width:280px;height:300px">
