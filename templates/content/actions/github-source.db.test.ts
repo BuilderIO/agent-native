@@ -561,8 +561,12 @@ describe("GitHub folder source", () => {
       source: { sourceType: "github" },
     });
     expect(linked.summary).toContain("the first sync failed");
+    // The link keeps the problem, so its status line shows it after the toast.
     const status = await as(() => getSource.run({ databaseId: database.id }));
     expect(status.source?.syncState).toBe("error");
+    expect(status.source?.metadata.github?.problem).toMatchObject({
+      code: "unavailable",
+    });
   });
 
   it("refuses the link when a row arrives while it reads GitHub", async () => {
@@ -1273,6 +1277,15 @@ describe("GitHub folder freshness", () => {
     expect(changes).toEqual(announced);
     const status = await as(() => getSource.run({ databaseId: database.id }));
     expect(status.source?.metadata.github).toMatchObject({ problem: null });
+
+    // A failure GitHub doesn't name is a problem on the link all the same.
+    github.state.failure = new Error("socket hang up");
+    await sweepAgain();
+    expect(changes).toEqual(announced);
+    const failed = await as(() => getSource.run({ databaseId: database.id }));
+    expect(failed.source?.metadata.github?.problem).toMatchObject({
+      code: "unavailable",
+    });
   });
 
   it("keeps sweeping after one link fails", async () => {

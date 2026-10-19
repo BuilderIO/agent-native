@@ -771,13 +771,20 @@ function emptyResult(
   };
 }
 
-/** A sync that failed for a reason it couldn't name, like a dropped socket. */
-export function unexpectedSyncFailure(at: string): GitHubSyncResult {
-  return emptyResult("error", null, {
+/** The problem a sync records when it fails for a reason it can't name, like a dropped socket. */
+function unexpectedProblem(
+  at: string,
+): NonNullable<GitHubSourceState["problem"]> {
+  return {
     code: "unavailable",
     message: "The sync failed. The background sync tries again.",
     at,
-  });
+  };
+}
+
+/** A sync that failed before it could record why. */
+export function unexpectedSyncFailure(at: string): GitHubSyncResult {
+  return emptyResult("error", null, unexpectedProblem(at));
 }
 
 /** The status problem for images a sync couldn't store, if there are any. */
@@ -1903,7 +1910,19 @@ export async function syncGitHubSource(
         at: now,
       });
     }
-    const problem = problemFrom(error, now);
+    // A contract error, like the link going away mid-sync, is the caller's to
+    // see. Anything else the sync can't name is still a failed check: the
+    // status line shows it and the next sync tries again.
+    const named = problemFrom(error, now);
+    const problem =
+      named ??
+      (error instanceof ActionContractError ? null : unexpectedProblem(now));
+    if (!named && problem) {
+      console.warn(
+        "[github-source] sync failed:",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
     await release(
       (current) => ({ ...current, checkedAt: now, problem }),
       () => ({
