@@ -145,6 +145,10 @@ describe("events model eligibility", () => {
     ],
     ["SELECT COUNT(*) FROM analytics_events", "http_response_not_excluded"],
     [
+      "SELECT SUM(event_count) FROM analytics_event_daily_rollups WHERE event_name = 'a'",
+      "reads_no_events",
+    ],
+    [
       "SELECT event_name, COUNT(*) AS n FROM analytics_events GROUP BY 1",
       "http_response_not_excluded",
     ],

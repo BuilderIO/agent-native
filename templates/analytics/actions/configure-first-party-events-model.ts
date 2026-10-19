@@ -58,10 +58,20 @@ async function checkModel(
       message: recent.error,
     };
   }
+  // Eligible chart SQL need not bound event_date, so a model that refuses an
+  // unbounded read (a required partition filter, say) would fail those charts.
   const full = await dryRunQuerySchema(
     `SELECT COUNT(*) AS events FROM ${projection}`,
     { signal },
   );
+  if (full.error) {
+    return {
+      status: "unavailable",
+      table,
+      reason: "full_read_denied",
+      message: full.error,
+    };
+  }
   return {
     status: "ok",
     table,
@@ -69,7 +79,7 @@ async function checkModel(
     ageMs: generation.ageMs,
     stale: generation.stale,
     recentDayBytes: recent.totalBytesProcessed ?? null,
-    fullScanBytes: full.error ? null : (full.totalBytesProcessed ?? null),
+    fullScanBytes: full.totalBytesProcessed ?? null,
   };
 }
 

@@ -1402,6 +1402,7 @@ const JSON_PATH_FUNCTIONS = new Set([
 
 export type FirstPartyEventsModelIneligibility = Extract<
   FirstPartyEventsModelSkipReason,
+  | "reads_no_events"
   | "reads_raw_only_columns"
   | "reads_all_columns"
   | "reads_http_response"
@@ -1482,7 +1483,9 @@ function httpResponseExclusionEnd(
  * An unfiltered count or an `event_name` breakdown would otherwise lose those
  * rows without any sign the number changed.
  */
-function everyEventsReadExcludesHttpResponse(sql: string): boolean {
+function eventsReadsIneligibility(
+  sql: string,
+): "reads_no_events" | "http_response_not_excluded" | null {
   const query = readAgentSqlQuery(sql, { dialect: "bigquery" });
   const { tokens } = query;
   const depths: number[] = [];
@@ -1495,16 +1498,16 @@ function everyEventsReadExcludesHttpResponse(sql: string): boolean {
   const tokenIndex = new Map(
     tokens.map((token, index) => [token.start, index]),
   );
-  for (const source of query.sources) {
-    if (
-      source.cte ||
-      source.qualifiers.length > 0 ||
-      source.name.toLowerCase() !== "analytics_events"
-    ) {
-      continue;
-    }
+  const eventsReads = query.sources.filter(
+    (source) =>
+      !source.cte &&
+      source.qualifiers.length === 0 &&
+      source.name.toLowerCase() === "analytics_events",
+  );
+  if (eventsReads.length === 0) return "reads_no_events";
+  for (const source of eventsReads) {
     const start = tokenIndex.get(source.start);
-    if (start === undefined) return false;
+    if (start === undefined) return "http_response_not_excluded";
     const level = depths[start];
     const sourceName = (source.alias?.name ?? source.name).toLowerCase();
     const atLevelEnd = (index: number) =>
@@ -1520,13 +1523,13 @@ function everyEventsReadExcludesHttpResponse(sql: string): boolean {
     ) {
       where++;
     }
-    if (atLevelEnd(where)) return false;
+    if (atLevelEnd(where)) return "http_response_not_excluded";
     let excluded = false;
     for (let index = where + 1; !atLevelEnd(index); index++) {
       const token = tokens[index];
-      if (isWord(token, "or")) return false;
+      if (isWord(token, "or")) return "http_response_not_excluded";
       if (isWord(token, "not") && !isWord(tokens[index - 1], "is")) {
-        return false;
+        return "http_response_not_excluded";
       }
       if (
         depths[index] !== level ||
@@ -1542,9 +1545,9 @@ function everyEventsReadExcludesHttpResponse(sql: string): boolean {
         excluded = true;
       }
     }
-    if (!excluded) return false;
+    if (!excluded) return "http_response_not_excluded";
   }
-  return true;
+  return null;
 }
 
 /** Why translated first-party BigQuery SQL must read the raw table, if it must. */
@@ -1593,9 +1596,7 @@ export function firstPartyEventsModelIneligibility(
       return "reads_properties_as_text";
     }
   }
-  return everyEventsReadExcludesHttpResponse(sql)
-    ? null
-    : "http_response_not_excluded";
+  return eventsReadsIneligibility(sql);
 }
 
 function qualifyQuerySources(

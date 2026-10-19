@@ -97,6 +97,19 @@ describe("configure-first-party-events-model", () => {
     expect(mocks.save).not.toHaveBeenCalled();
   });
 
+  it("refuses to save a model that rejects an unbounded read", async () => {
+    mocks.dryRun
+      .mockResolvedValueOnce({ error: null, totalBytesProcessed: 1024 })
+      .mockResolvedValueOnce({
+        error: "Cannot query over table without a filter over column(s)",
+      });
+
+    await expect(
+      action.run({ mode: "set", table: MODEL }, {} as never),
+    ).rejects.toThrow("full_read_denied");
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
+
   it("saves a model that passes the check", async () => {
     await expect(
       action.run({ mode: "set", table: MODEL }, {} as never),

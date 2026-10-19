@@ -40,6 +40,7 @@ export type FirstPartyEventsModelSkipReason =
   | "not_configured"
   | "raw_requested"
   | "raw_projection"
+  | "reads_no_events"
   | "reads_raw_only_columns"
   | "reads_all_columns"
   | "reads_http_response"
