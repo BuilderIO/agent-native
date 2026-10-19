@@ -253,11 +253,15 @@ export default defineAction({
         ),
       );
     if (!preRoll) {
-      throw new Error("The Clip or its local Rewind pre-roll is unavailable.");
+      fail("The Clip or its local Rewind pre-roll is unavailable.", {
+        errorCode: "rewind_preroll_unavailable",
+        statusCode: 404,
+      });
     }
     if (!isPrivateClip(preRoll.visibility)) {
-      throw new Error(
+      fail(
         "Rewind history can only be added to a private Clip from a private pre-roll.",
+        { errorCode: "rewind_preroll_not_private", statusCode: 403 },
       );
     }
     if (recording.mediaUpdatedAt !== args.expectedMediaUpdatedAt) {
