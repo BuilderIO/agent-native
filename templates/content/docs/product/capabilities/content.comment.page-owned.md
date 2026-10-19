@@ -39,7 +39,7 @@ A reviewer comments on two Blocks in a brief, replies with a Page reference, and
 
 - A Comment thread is owned by one Page and may target one or several Blocks or ranges in its Blocks fields.
 - A thread on a Collection row can instead target one Property value, such as Status or a date. It records the Property's name and the value it had when the thread started. Relations, rollups, and formulas are the exception: what they show depends on who is reading, so the thread records no value and each reader sees their own current one. Once a recorded value changes, the thread shows what it was; once the Property is deleted, the thread says so. It never moves itself onto the newer value. A Property thread has no quoted text, and replies follow the ordinary thread rules.
-- A Collection table shows how many open threads each row has, and marks each cell whose Property has an open thread. Opening either shows the row's Comments, at that cell's thread when there is one. Counts include only rows the viewer can read, so a row they cannot open adds nothing. One Action reads every open thread in a Collection, with each thread's row and target, so an agent need not read row by row.
+- A Collection table shows how many open threads each row has, and marks each cell whose Property has an open thread. The row's count opens the row's Comments. A cell's marker opens a card on the cell with that Property's open threads, where they can be read, replied to, and resolved without leaving the table, and the card can open the row at any of them. Any cell also offers a Comment button to anyone who can comment on the row, which starts a thread on its Property in the same card; on touch screens, where nothing hovers, the button shows on a selected row and starts the thread in the row's peek. Counts include only rows the viewer can read, so a row they cannot open adds nothing. One Action reads every open thread in a Collection, with each thread's row and target, so an agent need not read row by row.
 - Rich Comment bodies use the shared Blocks-field grammar; replies and mentions retain the same Page authority.
 - Anchors follow stable Block identity where possible and preserve historical target context after deletion rather than attaching to plausible new text.
 - Resolve, reopen, edit, reply, and notification operations use shared Actions and record attributable change.
@@ -74,6 +74,10 @@ Given a Comment that mentions a teammate and Claude, when it is sent, both names
 ### Comment on one Property value
 
 Given a Collection row whose Status is Blocked, when a commenter starts a thread on Status from the row's peek, the thread reads "Status · Blocked" with no "Highlight unavailable" warning, and the Status cell in the table shows a marker that opens that thread. When Status later changes to Done, the thread reads "was Blocked"; when the Property is deleted, it reads "Status (removed)". A thread started on a Property that is not on the Page, or on a Property and quoted text at once, is rejected.
+
+### Comment on a cell from the table
+
+Given a Collection table and a commenter who cannot edit its rows, when they hover a row's Due cell, a Comment button appears. Posting from the card it opens starts a thread that reads "Due · Nov 2, 2026" without opening the row, and the cell then shows a marker and the row's count goes up. Clicking the marker reopens the card on that thread, where it can be answered, and Open row opens the row's peek on it. When an editor resolves the thread from the same card, the marker and the count clear, and an editor who clicks the cell itself still edits its value.
 
 ### See open Comments from a Collection
 
