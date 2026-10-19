@@ -221,11 +221,9 @@ Options:
   let provider: Awaited<ReturnType<typeof getProvider>>;
   try {
     provider = await getProvider(modelChoice);
-  } catch {
-    console.error(
-      "Error: No image generation provider configured. Save GOOGLE_GENERATIVE_AI_API_KEY or OPENAI_API_KEY in settings.",
-    );
-    throw new Error("Script failed");
+  } catch (error) {
+    if (error instanceof Error) console.error(`Error: ${error.message}`);
+    throw error;
   }
 
   const context =
@@ -325,6 +323,17 @@ Options:
     console.error("No image variations were generated successfully.");
     fail("No image variations were generated successfully.", {
       errorCode: "image_generation_failed",
+      statusCode: 424,
+    });
+  }
+
+  if (successfulVariations < count) {
+    const message =
+      `Only ${successfulVariations} of ${count} requested image variations ` +
+      "were generated successfully.";
+    console.error(message);
+    fail(message, {
+      errorCode: "image_generation_partial_failure",
       statusCode: 424,
     });
   }

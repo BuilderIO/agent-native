@@ -81,7 +81,7 @@ describe("generate-image CLI", () => {
     expect(console.log).not.toHaveBeenCalledWith("\nDone!");
   });
 
-  it("keeps a successful exit status when at least one variation succeeds", async () => {
+  it("fails when only some requested variations succeed", async () => {
     mockGenerate
       .mockRejectedValueOnce(new Error("one variation failed"))
       .mockResolvedValueOnce({
@@ -91,10 +91,41 @@ describe("generate-image CLI", () => {
         provider: "gemini",
       });
 
+    const message =
+      "Only 1 of 2 requested image variations were generated successfully.";
+
+    await expect(
+      main(["--prompt", "a hero image", "--count", "2"]),
+    ).rejects.toThrow(message);
+    expect(process.exitCode).toBe(0);
+    expect(console.error).toHaveBeenCalledWith(message);
+    expect(console.log).not.toHaveBeenCalledWith("\nDone!");
+  });
+
+  it("completes when every requested variation succeeds", async () => {
+    mockGenerate.mockResolvedValue({
+      imageData: Buffer.from("image"),
+      mimeType: "image/png",
+      model: "gemini",
+      provider: "gemini",
+    });
+
     await main(["--prompt", "a hero image", "--count", "2"]);
 
-    expect(process.exitCode).toBe(0);
     expect(console.log).toHaveBeenCalledWith("\nDone!");
+  });
+
+  it("preserves Builder-only provider guidance in the CLI", async () => {
+    const message =
+      "Builder-managed image generation in Slides runs through Assets' brand-library workflow. For ordinary slide images, configure a local Gemini or OpenAI key; for an Assets brand-library image, set useBrandLibrary: true.";
+    mockGetProvider.mockRejectedValue(new Error(message));
+
+    await expect(main(["--prompt", "a brand hero image"])).rejects.toThrow(
+      message,
+    );
+
+    expect(console.error).toHaveBeenCalledWith(`Error: ${message}`);
+    expect(console.log).not.toHaveBeenCalledWith("\nDone!");
   });
 
   it("uses SSRF-safe HTTPS fetches and only forwards image references", async () => {

@@ -205,6 +205,7 @@ export async function fetchReferenceImages(
   let aggregateSkipped = 0;
   const failures: ReferenceImageBatchResult["failures"] = [];
   const imagesByIndex: Array<{ index: number; image: ReferenceImage }> = [];
+  const aggregateSkippedUrls: Array<{ index: number; url: string }> = [];
   const budget = {
     reserve(bytes: number) {
       if (totalBytes + bytes > MAX_REFERENCE_IMAGE_TOTAL_BYTES) return false;
@@ -228,13 +229,25 @@ export async function fetchReferenceImages(
         if (result.ok) {
           imagesByIndex.push({ index, image: result.image });
         } else if (result.reason.code === "aggregate_limit_exceeded") {
-          aggregateSkipped++;
+          aggregateSkippedUrls.push({ index, url });
         } else {
           failures.push({ index: index + 1, reason: result.reason });
         }
       }),
     ),
   );
+
+  for (const { index, url } of aggregateSkippedUrls) {
+    attempted++;
+    const result = await fetchReferenceImage(url, { ...options, budget });
+    if (result.ok) {
+      imagesByIndex.push({ index, image: result.image });
+    } else if (result.reason.code === "aggregate_limit_exceeded") {
+      aggregateSkipped++;
+    } else {
+      failures.push({ index: index + 1, reason: result.reason });
+    }
+  }
 
   const images = imagesByIndex
     .sort((a, b) => a.index - b.index)

@@ -217,4 +217,115 @@ describe("fetchReferenceImage", () => {
       result.images.reduce((total, image) => total + image.byteLength, 0),
     ).toBe(result.totalBytes);
   });
+
+  it("retries an aggregate-limited reference after a failed stream releases budget", async () => {
+    let resolveFirstChunk!: () => void;
+    const firstChunkRead = new Promise<void>((resolve) => {
+      resolveFirstChunk = resolve;
+    });
+    let resolveSecondBodyRead!: () => void;
+    const secondBodyRead = new Promise<void>((resolve) => {
+      resolveSecondBodyRead = resolve;
+    });
+    let resolveAggregateLimit!: () => void;
+    const aggregateLimitObserved = new Promise<void>((resolve) => {
+      resolveAggregateLimit = resolve;
+    });
+    const largeImageBytes = new Uint8Array(MAX_REFERENCE_IMAGE_BYTES);
+    const smallImageBytes = new Uint8Array(1024 * 1024);
+    let firstChunk = true;
+    let thirdUrlRequests = 0;
+
+    mockSsrfSafeFetch.mockImplementation(async (url: string) => {
+      if (url.endsWith("/failed-stream.png")) {
+        return new Response(
+          new ReadableStream<Uint8Array>(
+            {
+              pull(controller) {
+                if (firstChunk) {
+                  firstChunk = false;
+                  controller.enqueue(largeImageBytes);
+                  resolveFirstChunk();
+                  return;
+                }
+                return aggregateLimitObserved.then(() =>
+                  controller.error(new Error("stream interrupted")),
+                );
+              },
+            },
+            { highWaterMark: 0 },
+          ),
+          { headers: { "content-type": "image/png" } },
+        );
+      }
+
+      if (url.endsWith("/full-budget.png")) {
+        await firstChunkRead;
+        let firstBodyChunk = true;
+        return new Response(
+          new ReadableStream<Uint8Array>(
+            {
+              pull(controller) {
+                if (firstBodyChunk) {
+                  firstBodyChunk = false;
+                  controller.enqueue(largeImageBytes);
+                  return;
+                }
+                resolveSecondBodyRead();
+                controller.close();
+              },
+            },
+            { highWaterMark: 0 },
+          ),
+          { headers: { "content-type": "image/png" } },
+        );
+      }
+
+      thirdUrlRequests++;
+      if (thirdUrlRequests === 1) {
+        await secondBodyRead;
+        return new Response(
+          new ReadableStream<Uint8Array>(
+            {
+              pull(controller) {
+                controller.enqueue(smallImageBytes);
+              },
+              cancel() {
+                resolveAggregateLimit();
+              },
+            },
+            { highWaterMark: 0 },
+          ),
+          { headers: { "content-type": "image/png" } },
+        );
+      }
+
+      return new Response(smallImageBytes, {
+        headers: { "content-type": "image/png" },
+      });
+    });
+
+    const result = await fetchReferenceImages([
+      "https://cdn.example.com/failed-stream.png",
+      "https://cdn.example.com/full-budget.png",
+      "https://cdn.example.com/retry.png",
+    ]);
+
+    expect(result).toMatchObject({
+      requested: 3,
+      attempted: 4,
+      loaded: 2,
+      failed: 1,
+      skipped: 0,
+      totalBytes: largeImageBytes.byteLength + smallImageBytes.byteLength,
+      failures: [
+        {
+          index: 1,
+          reason: { code: "body_read_failed", errorName: "Error" },
+        },
+      ],
+      skippedReasons: [],
+    });
+    expect(mockSsrfSafeFetch).toHaveBeenCalledTimes(4);
+  });
 });
