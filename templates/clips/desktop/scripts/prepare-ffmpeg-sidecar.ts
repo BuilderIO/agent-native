@@ -102,6 +102,22 @@ const REQUIRED_FILTERS = [
 ];
 const REQUIRED_ENCODERS = ["aac", "h264_videotoolbox", "pcm_f32le"];
 const REQUIRED_MUXERS = ["mp4", "f32le"];
+const REQUIRED_CROSS_BUILD_SYMBOLS = [
+  "ff_af_loudnorm",
+  "ff_af_afftdn",
+  "ff_af_volume",
+  "ff_af_volumedetect",
+  "ff_af_pan",
+  "ff_af_aformat",
+  "ff_vf_scale",
+  "ff_af_amix",
+  "ff_af_apad",
+  "ff_aac_encoder",
+  "ff_h264_videotoolbox_encoder",
+  "ff_pcm_f32le_encoder",
+  "ff_mp4_muxer",
+  "ff_pcm_f32le_muxer",
+];
 
 function log(message) {
   console.log(`[ffmpeg-sidecar] ${message}`);
@@ -186,24 +202,20 @@ function verifyBinary(binary, triple) {
       fail(`${binary} does not run on this machine`);
     }
 
-    const strings = run("strings", [binary], { quiet: true });
-    const stringLines = strings.split(/\r?\n/);
-    const missing = [...REQUIRED_FILTERS, ...REQUIRED_ENCODERS].filter(
-      (name) => !strings.includes(name),
+    const symbols = new Set(
+      run("nm", ["-gU", binary], { quiet: true })
+        .split(/\r?\n/)
+        .map((line) => line.trim().split(/\s+/).at(-1)?.replace(/^_/, ""))
+        .filter(Boolean),
     );
-    // Match whole muxer names so `f32le` cannot match the `pcm_f32le` encoder.
-    const missingMuxers = REQUIRED_MUXERS.filter(
-      (name) =>
-        !stringLines.some(
-          (line) => line === name || line.split(",").includes(name),
-        ),
+    const missing = REQUIRED_CROSS_BUILD_SYMBOLS.filter(
+      (name) => !symbols.has(name),
     );
-    if (missing.length > 0 || missingMuxers.length > 0) {
-      fail(
-        `${binary} is missing required features: ${[...missing, ...missingMuxers].join(", ")}`,
-      );
+    if (missing.length > 0) {
+      fail(`${binary} is missing required components: ${missing.join(", ")}`);
     }
 
+    const strings = run("strings", [binary], { quiet: true });
     if (strings.includes("--enable-nonfree")) {
       fail(
         `${binary} was configured --enable-nonfree, which may not be redistributed`,
