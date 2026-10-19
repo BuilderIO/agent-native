@@ -920,6 +920,10 @@ export default {
       animations: "Animaciones",
       pathEditAmbiguous:
         "Esta capa tiene varias animaciones de posición, por lo que su trayectoria no se puede editar de forma inequívoca.",
+      pathEditPositionConflict:
+        "Esta capa ya tiene otra animación de posición, así que su trayectoria no se puede curvar.",
+      positionStyleConflict:
+        "Esta capa ya tiene una animación de posición que no se puede combinar con otra.",
       animationStyles: {
         title: "Animaciones",
         createTitle: "Crear nuevo estilo de animación",
@@ -1854,6 +1858,8 @@ export default {
         "Elige una ruta para añadirla como nuevo marco, o escribe una ruta.",
       searchPlaceholder: "Buscar rutas…",
       noRoutes: "No hay rutas que coincidan",
+      noDiscoveredRoutes:
+        "No se han encontrado rutas en esta app. Escribe una ruta para añadir una pantalla.",
       useCustomPath: 'Añadir "{{path}}"',
       viewportDesktop: "Escritorio",
       viewportMobile: "Móvil",
@@ -2129,8 +2135,8 @@ export default {
         title: "Renderizado desde servidor local",
       },
       fusion: {
-        label: "Fusion remoto",
-        title: "Renderizado desde Fusion",
+        label: "Builder remoto",
+        title: "Renderizado desde Builder",
       },
       inline: {
         label: "Integrado",

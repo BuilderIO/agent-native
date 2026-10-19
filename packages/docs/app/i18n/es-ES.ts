@@ -1,6 +1,89 @@
-import enUS from "./en-US";
+import type { PluralLocaleMessages } from "./en-US";
 
 const esES = {
+  campaign: {
+    recipes: "Recetas",
+    waysToUse: "Formas de usarlo",
+    recipeWhen: "Cuándo",
+    recipeNextTime: "La próxima vez:",
+    howOften: "Con qué frecuencia",
+    worksWith: "Funciona con:",
+    nextJobs: "Qué hacer después",
+    filterRole: "Rol",
+    filterAll: "Todos",
+    filterEngineering: "Ingeniería",
+    filterProduct: "Producto",
+    filterDesign: "Diseño",
+    filterMarketing: "Marketing",
+    filterRevops: "RevOps",
+    filterSales: "Ventas",
+    filterFounders: "Fundadores",
+    filterFinance: "Finanzas",
+    filterOften: "Con qué frecuencia",
+    filterAny: "Cualquiera",
+    filterDaily: "A diario",
+    filterWeekly: "Cada semana",
+    filterPerProject: "Por proyecto o lanzamiento",
+    filterOccasional: "Ocasionalmente",
+    filterEmpty: "Ningún caso de uso coincide con estos filtros.",
+    filterClear: "Borrar filtros",
+    browseArticles:
+      "O explora los {{articles}} para encontrar plantillas y guías prácticas.",
+    articlesLink: "artículos",
+    whatItReplaces: "Qué reemplaza",
+    whatYouUse: "Qué usas",
+    usedFor: "Para",
+    whereItBreaks: "Dónde falla",
+    updatedDate: "Actualizado el {{date}}",
+    publishedDate: "Publicado el {{date}}",
+    allArticles: "Todos los artículos",
+    useCases: "Casos de uso",
+    useCasesDescription: "Páginas para tareas recurrentes, por app",
+    useCasesTitle:
+      "Trabajo recurrente, realizado con una app Agent-Native y tu agente de IA",
+    useCasesIntro:
+      "Elige el trabajo que haces una y otra vez, o explora los {{articles}} para encontrar plantillas y guías prácticas.",
+    nextEyebrow: "A continuación",
+    frequencyLabel: "Con qué frecuencia: {{text}}",
+    articles: "Artículos",
+    articlesIntro:
+      "Respuestas prácticas sobre el trabajo recurrente con agentes de IA. Para ver páginas que explican una tarea concreta paso a paso, explora los {{useCases}}.",
+    useCasesLink: "casos de uso",
+    articleCount_one: "{{count}} artículo",
+    articleCount_many: "{{count}} de artículos",
+    articleCount_other: "{{count}} artículos",
+    moreOnTopic: "Más sobre {{topic}}",
+    oldWay: "La forma anterior",
+    newWay: "La nueva forma",
+    alternative: "Una alternativa de código abierto a {{names}}",
+    usedBefore: "Usaba antes: {{names}}",
+    faqs: "Preguntas frecuentes",
+    faqTitle: "Respuestas a preguntas frecuentes",
+    goDeeper: "Profundiza",
+    copyPage: "Copiar página",
+    copyLink: "Copiar enlace",
+    copied: "Copiado",
+    copyFailed: "No se pudo copiar. Inténtalo de nuevo.",
+    breadcrumb: "Ruta de navegación",
+    readTime_one: "{{count}} min de lectura",
+    readTime_many: "{{count}} min de lectura",
+    readTime_other: "{{count}} min de lectura",
+    partOf: "Parte de:",
+    relatedResources: "Recursos relacionados",
+    moreArticles: "Más artículos de {{category}}",
+    genericMore: "Más artículos",
+    showMore: "Mostrar más artículos",
+    allTopics: "Todos los temas",
+    topics: {
+      clips:
+        "Grabaciones de pantalla, reuniones y dictado que tu agente de IA puede usar",
+      design: "Prototipos interactivos con tu agente de IA",
+      slides: "Presentaciones acordes con tu marca con tu agente de IA",
+      plans:
+        "Planes visuales y resúmenes para tu agente de programación con IA",
+      analytics: "Preguntas en lenguaje natural, gráficos y paneles",
+    },
+  },
   agentChat: {
     setup: {
       providerStatusUnavailable: "No se pudo confirmar que la IA esté lista.",
@@ -654,6 +737,9 @@ const esES = {
     waitlistUnavailable:
       "Las inscripciones en la lista de espera aún no están disponibles en este entorno. Prueba en su lugar el sitio de documentación alojado.",
     launchBuilder: "Abrir Builder",
+    newAppPrompt: "Crea una nueva app Agent-Native.",
+    customizeTemplatePrompt:
+      "Personaliza la plantilla Agent-Native {{template}} para mi flujo de trabajo.",
   },
   templateCard: {
     pasteIntoTerminal: "Pega en tu terminal.",
@@ -2776,6 +2862,6 @@ const esES = {
     docsComponents: "Docs Components",
     formsDevelopers: "Guía para desarrolladores",
   },
-} satisfies typeof enUS;
+} satisfies PluralLocaleMessages;
 
 export default esES;

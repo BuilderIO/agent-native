@@ -167,6 +167,8 @@ Quando `needsApproval` é omitido, o comportamento permanece idêntico byte a by
 
 Isso funciona da mesma forma para actions legadas no estilo `parameters` e para actions baseadas em schema. Também funciona da mesma forma para o agente dentro do app, sub-agentes, A2A e chamadores MCP, porque toda superfície de agente passa pelo mesmo loop.
 
+Chamadas feitas pela [API HTTP](/docs/http-api) com um bearer token ou uma chave de API pulam o cartão de aprovação: a rota executa a action diretamente, como faz para a própria interface do app. Para que as chamadas de um agente passem por aprovação, conecte-o via [MCP](/docs/external-agents) em vez de chamar as rotas HTTP.
+
 ### Como o loop pausa {#loop}
 
 Quando o agente chama uma action com portão e esta chamada específica **ainda não** foi aprovada, o loop **não** executa `run()`. Em vez disso, ele:

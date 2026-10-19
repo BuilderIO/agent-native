@@ -904,6 +904,10 @@ export default {
       animations: "एनिमेशन",
       pathEditAmbiguous:
         "इस लेयर में कई Position एनिमेशन हैं, इसलिए इसका पाथ स्पष्ट रूप से संपादित नहीं किया जा सकता।",
+      pathEditPositionConflict:
+        "इस लेयर में पहले से एक और पोज़िशन एनिमेशन है, इसलिए इसका पाथ घुमावदार नहीं बनाया जा सकता।",
+      positionStyleConflict:
+        "इस लेयर में पहले से एक पोज़िशन एनिमेशन है, जिसे किसी दूसरे के साथ जोड़ा नहीं जा सकता।",
       animationStyles: {
         title: "एनिमेशन",
         createTitle: "नई एनिमेशन शैली बनाएँ",
@@ -1821,6 +1825,8 @@ export default {
       description: "नए frame के रूप में जोड़ने के लिए एक route चुनें, या path टाइप करें।",
       searchPlaceholder: "Routes खोजें…",
       noRoutes: "कोई मेल खाता route नहीं मिला",
+      noDiscoveredRoutes:
+        "इस app में कोई route नहीं मिला। स्क्रीन जोड़ने के लिए कोई path टाइप करें।",
       useCustomPath: '"{{path}}" जोड़ें',
       viewportDesktop: "Desktop",
       viewportMobile: "Mobile",
@@ -2088,8 +2094,8 @@ export default {
         title: "स्थानीय dev server से render",
       },
       fusion: {
-        label: "Fusion remote",
-        title: "Fusion से render",
+        label: "Builder remote",
+        title: "Builder से render",
       },
       inline: {
         label: "इनलाइन",

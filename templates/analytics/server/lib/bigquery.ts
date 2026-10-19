@@ -1,8 +1,10 @@
 import { createHash, randomUUID } from "crypto";
 
+import { lexAgentSql } from "@agent-native/core/agent-sql";
 import { getDbExec } from "@agent-native/core/db";
 
 import { DASHBOARD_SQL_VALIDATION_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
+import type { SourceGenerationResult } from "../../shared/source-generation.js";
 import { resolveCredential } from "./credentials";
 import {
   credentialCacheScope,
@@ -62,6 +64,8 @@ export interface BigQueryTableMetadata {
   location?: string;
   numRows?: string;
   numBytes?: string;
+  /** Epoch milliseconds, as a string. */
+  lastModifiedTime?: string;
   timePartitioning?: unknown;
   clustering?: unknown;
   schema?: { fields?: BigQueryTableField[] };
@@ -218,6 +222,17 @@ export interface BigQueryTableSummary {
   labels?: Record<string, string>;
 }
 
+/** A metadata read that BigQuery answered with an error status. */
+export class BigQueryMetadataError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "BigQueryMetadataError";
+    this.status = status;
+  }
+}
+
 export async function bigQueryGet<T>(
   url: string,
   signal?: AbortSignal,
@@ -240,11 +255,9 @@ export async function bigQueryGet<T>(
     } catch {
       // coercion-ok: a non-JSON error body is reported verbatim in the error thrown below.
     }
-    if (detail) {
-      throw new Error(detail);
-    }
-    throw new Error(
-      `BigQuery metadata request failed (${res.status}): ${text}`,
+    throw new BigQueryMetadataError(
+      res.status,
+      detail || `BigQuery metadata request failed (${res.status}): ${text}`,
     );
   }
 
@@ -502,9 +515,103 @@ function getCacheKey(
     .digest("hex")}`;
 }
 
-function addUtcDateCacheKey(sql: string): string {
-  if (!/\bCURRENT_DATE\s*(?:\(\s*\))?/i.test(sql)) return sql;
-  return `${sql}\n/* agent-native-utc-date:${new Date().toISOString().slice(0, 10)} */`;
+const TIME_ZONE_LITERAL = /^(['"])[A-Za-z0-9_+\-/:]+\1$/;
+
+function calendarDateIn(timeZone: string, now: Date): string | null {
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(now);
+  } catch (error) {
+    if (error instanceof RangeError) return null;
+    throw error;
+  }
+}
+
+/**
+ * Replace explicit `CURRENT_DATE(...)` calls with their evaluated date literal.
+ * BigQuery never serves a query that calls CURRENT_DATE from its result cache,
+ * and the literal also rolls the app cache key over at the date boundary.
+ * Bare names and nonliteral time zones are left for BigQuery to evaluate.
+ */
+export function renderCurrentDateLiterals(
+  sql: string,
+  now: Date = new Date(),
+): string {
+  const tokens = lexAgentSql(sql, { dialect: "bigquery" });
+  let rendered = "";
+  let cursor = 0;
+  for (let index = 0; index < tokens.length; index++) {
+    const token = tokens[index];
+    if (
+      token.kind !== "word" ||
+      token.value !== "current_date" ||
+      tokens[index - 1]?.text === "." ||
+      tokens[index + 1]?.text !== "("
+    ) {
+      continue;
+    }
+    let end = token.end;
+    let timeZone = "UTC";
+    let consumed = 0;
+    if (tokens[index + 1]?.text === "(") {
+      const argument = tokens[index + 2];
+      if (argument?.text === ")") {
+        end = argument.end;
+        consumed = 2;
+      } else if (
+        argument?.kind === "string" &&
+        TIME_ZONE_LITERAL.test(argument.text) &&
+        tokens[index + 3]?.text === ")"
+      ) {
+        timeZone = argument.text.slice(1, -1);
+        end = tokens[index + 3].end;
+        consumed = 3;
+      } else {
+        continue;
+      }
+    }
+    const date = calendarDateIn(timeZone, now);
+    if (!date) continue;
+    rendered += `${sql.slice(cursor, token.start)}DATE '${date}'`;
+    cursor = end;
+    index += consumed;
+  }
+  return rendered + sql.slice(cursor);
+}
+
+function getQuerySnapshot(
+  sql: string,
+  now: Date,
+  preserveCurrentDate: boolean,
+) {
+  const query = preserveCurrentDate ? sql : renderCurrentDateLiterals(sql, now);
+  const tokens = lexAgentSql(query, { dialect: "bigquery" });
+  let hasBareCurrentDate = false;
+  let hasUnresolvedCall = false;
+  for (let index = 0; index < tokens.length; index++) {
+    const token = tokens[index];
+    if (
+      token.kind !== "word" ||
+      token.value !== "current_date" ||
+      tokens[index - 1]?.text === "."
+    ) {
+      continue;
+    }
+    if (tokens[index + 1]?.text === "(") hasUnresolvedCall = true;
+    else hasBareCurrentDate = true;
+  }
+  return {
+    query,
+    // Bare CURRENT_DATE and identifiers share a token; keep their SQL intact.
+    cacheIdentity: hasBareCurrentDate
+      ? `${query}\n/* agent-native-utc-date:${now.toISOString().slice(0, 10)} */`
+      : query,
+    hasUnresolvedCall,
+  };
 }
 
 function getL1(
@@ -522,7 +629,7 @@ function getL1(
     l1Cache.delete(key);
     return null;
   }
-  return entry.result;
+  return reusableCacheHit(entry.result);
 }
 
 function setL1(key: string, result: QueryResult, fence: CacheFence): void {
@@ -671,9 +778,9 @@ async function getL2(key: string): Promise<QueryResult | null> {
     toIsoTimestamp(result.fetchedAt) ?? toIsoTimestamp(entry.created_at);
   if (fetchedAt === undefined) {
     const { fetchedAt: _unreadable, ...rest } = result;
-    return rest;
+    return reusableCacheHit(rest);
   }
-  return { ...result, fetchedAt };
+  return reusableCacheHit({ ...result, fetchedAt });
 }
 
 async function finishCacheQuery(
@@ -814,6 +921,8 @@ export interface QueryResult {
   bytesProcessed: number;
   cached?: boolean;
   truncated?: boolean;
+  partial?: boolean;
+  warnings?: Array<{ message: string; reason?: string }>;
   /**
    * When the app first received this result from BigQuery; preserved across
    * app-cache hits. Not when the warehouse computed it: a provider cache hit
@@ -822,12 +931,38 @@ export interface QueryResult {
   fetchedAt?: string;
   /** BigQuery getQueryResults `cacheHit` for the original request; absent means unknown. */
   providerCacheHit?: boolean;
+  /** Source generation read before the original request; kept on cache hits. */
+  sourceGeneration?: SourceGenerationResult;
 }
 
 export interface RunQueryOptions {
   signal?: AbortSignal;
   forceRefresh?: boolean;
   maxBytesBilled?: number;
+  /**
+   * Generation of the tables the SQL reads, resolved before the query runs.
+   * It joins the cache key, so a new generation never matches an old row, and
+   * is stored with the result as read.
+   */
+  sourceGeneration?: SourceGenerationResult;
+}
+
+/** How long a result read while its source generation was unknown is reused. */
+export const UNKNOWN_SOURCE_GENERATION_REUSE_MS = 60 * 60_000;
+
+function sourceGenerationCacheKey(result: SourceGenerationResult): string {
+  return result.status === "ok"
+    ? result.generation
+    : `unknown:${result.sources.map((source) => source.tableId).join(",")}`;
+}
+
+function reusableCacheHit(hit: QueryResult | null): QueryResult | null {
+  if (!hit || hit.sourceGeneration?.status !== "unavailable") return hit;
+  const fetchedAt = Date.parse(hit.fetchedAt ?? "");
+  return Number.isFinite(fetchedAt) &&
+    Date.now() - fetchedAt < UNKNOWN_SOURCE_GENERATION_REUSE_MS
+    ? hit
+    : null;
 }
 
 interface BigQueryField {
@@ -1132,9 +1267,25 @@ export async function dryRunQuerySchema(
   }
 }
 
+class BigQueryDateRolloverError extends Error {}
+
 export async function runQuery(
   sql: string,
   options: RunQueryOptions = {},
+): Promise<QueryResult> {
+  try {
+    return await runQueryAttempt(sql, options, false);
+  } catch (error) {
+    throwIfAborted(options.signal);
+    if (!(error instanceof BigQueryDateRolloverError)) throw error;
+    return runQueryAttempt(sql, options, true);
+  }
+}
+
+async function runQueryAttempt(
+  sql: string,
+  options: RunQueryOptions,
+  preserveCurrentDate: boolean,
 ): Promise<QueryResult> {
   assertReadOnlySql(sql, "bigquery");
   const maxBytesBilled = options.maxBytesBilled ?? 750_000_000_000;
@@ -1157,54 +1308,88 @@ export async function runQuery(
     appEventsTable,
     signal,
   );
-  const cacheableSql = addUtcDateCacheKey(resolvedSql);
-
-  const cacheKey = getCacheKey(cacheableSql, projectId, cacheScope);
+  const snapshot = getQuerySnapshot(
+    resolvedSql,
+    new Date(),
+    preserveCurrentDate,
+  );
+  const cacheableSql = snapshot.query;
+  const assertDateUnchanged = () => {
+    throwIfAborted(signal);
+    if (
+      !preserveCurrentDate &&
+      getQuerySnapshot(resolvedSql, new Date(), false).cacheIdentity !==
+        snapshot.cacheIdentity
+    ) {
+      throw new BigQueryDateRolloverError();
+    }
+  };
+  const checkedCacheHit = (result: QueryResult): QueryResult => {
+    assertDateUnchanged();
+    return { ...result, cached: true };
+  };
+  const cacheKey = getCacheKey(
+    options.sourceGeneration
+      ? `${snapshot.cacheIdentity}
+${sourceGenerationCacheKey(options.sourceGeneration)}`
+      : snapshot.cacheIdentity,
+    projectId,
+    cacheScope,
+  );
   const forceRefresh = options.forceRefresh === true;
   let cacheFence: CacheFence | null = null;
-  try {
-    if (forceRefresh) {
-      const acquired = await acquireForcedRefresh(
-        cacheKey,
-        cacheableSql,
-        signal,
-      );
-      if ("result" in acquired) return { ...acquired.result, cached: true };
-      cacheFence = acquired.fence;
-      l1Cache.delete(cacheKey);
-    } else {
-      // Validate shared generation before L1 so another instance's refresh invalidates local entries.
-      cacheFence = await getCacheFence(cacheKey);
-      const l1Hit = getL1(
-        cacheKey,
-        cacheFence.generation,
-        cacheFence.fenceToken,
-      );
-      if (l1Hit) {
-        return { ...l1Hit, cached: true };
+  // Unresolved zones can change date at a boundary the app cannot compute.
+  if (!preserveCurrentDate && !snapshot.hasUnresolvedCall) {
+    try {
+      if (forceRefresh) {
+        const acquired = await acquireForcedRefresh(
+          cacheKey,
+          cacheableSql,
+          signal,
+        );
+        if ("result" in acquired) return checkedCacheHit(acquired.result);
+        cacheFence = acquired.fence;
+        l1Cache.delete(cacheKey);
+      } else {
+        // Validate shared generation before L1 so another instance's refresh invalidates local entries.
+        const currentFence = await getCacheFence(cacheKey);
+        const l1Hit = getL1(
+          cacheKey,
+          currentFence.generation,
+          currentFence.fenceToken,
+        );
+        if (l1Hit) {
+          return checkedCacheHit(l1Hit);
+        }
+        const l2Hit = await getL2(cacheKey);
+        if (l2Hit) {
+          const hit = checkedCacheHit(l2Hit);
+          setL1(cacheKey, l2Hit, currentFence);
+          return hit;
+        }
+        const acquired = await acquireCacheQuery(
+          cacheKey,
+          cacheableSql,
+          signal,
+        );
+        if ("result" in acquired) return checkedCacheHit(acquired.result);
+        cacheFence = acquired.fence;
+        l1Cache.delete(cacheKey);
       }
-      const l2Hit = await getL2(cacheKey);
-      if (l2Hit) {
-        setL1(cacheKey, l2Hit, cacheFence);
-        return { ...l2Hit, cached: true };
+    } catch (error) {
+      if (
+        error instanceof BigQueryDateRolloverError ||
+        signal?.aborted ||
+        (error instanceof Error && error.name === "AbortError")
+      ) {
+        throw error;
       }
-      const acquired = await acquireCacheQuery(cacheKey, cacheableSql, signal);
-      if ("result" in acquired) return { ...acquired.result, cached: true };
-      cacheFence = acquired.fence;
-      l1Cache.delete(cacheKey);
+      console.warn(
+        "[bigquery] Cache coordination failed; running query without cache:",
+        error,
+      );
+      cacheFence = null;
     }
-  } catch (error) {
-    if (
-      signal?.aborted ||
-      (error instanceof Error && error.name === "AbortError")
-    ) {
-      throw error;
-    }
-    console.warn(
-      "[bigquery] Cache coordination failed; running query without cache:",
-      error,
-    );
-    cacheFence = null;
   }
 
   let jobId: string | null = null;
@@ -1215,7 +1400,7 @@ export async function runQuery(
   let cancelJob = false;
   try {
     token = await getBigQueryAccessToken({ signal });
-    throwIfAborted(signal);
+    assertDateUnchanged();
     jobId = `agent_native_${randomUUID().replace(/-/g, "")}`;
     jobCreatedAfter = Date.now();
     const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/jobs`;
@@ -1380,21 +1565,39 @@ export async function runQuery(
       schema,
       bytesProcessed,
       fetchedAt,
+      ...(options.sourceGeneration
+        ? { sourceGeneration: options.sourceGeneration }
+        : {}),
       ...(typeof data.cacheHit === "boolean"
         ? { providerCacheHit: data.cacheHit }
         : {}),
       ...(totalRows > rows.length ? { truncated: true } : {}),
+      ...(data.errors?.length
+        ? {
+            partial: true,
+            warnings: data.errors.slice(0, 20).map((warning) => ({
+              message: (
+                warning.message ?? "BigQuery returned a query warning"
+              ).slice(0, 4_000),
+              ...(warning.reason ? { reason: warning.reason } : {}),
+            })),
+          }
+        : {}),
     };
 
     if (cacheFence) {
-      const persisted = await finishCacheQuery(
-        cacheKey,
-        cacheableSql,
-        result,
-        cacheFence,
-      );
-      if (persisted) setL1(cacheKey, result, persisted);
-      else await releaseCacheQuery(cacheKey, cacheFence);
+      if (result.partial) {
+        await releaseCacheQuery(cacheKey, cacheFence);
+      } else {
+        const persisted = await finishCacheQuery(
+          cacheKey,
+          cacheableSql,
+          result,
+          cacheFence,
+        );
+        if (persisted) setL1(cacheKey, result, persisted);
+        else await releaseCacheQuery(cacheKey, cacheFence);
+      }
     }
 
     // The cached copy stays unflagged: every read of it sets `cached: true`.

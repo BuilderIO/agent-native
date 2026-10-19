@@ -58,6 +58,7 @@ function ToolHarness({
 type PenHarnessProps = Pick<
   MultiScreenCanvasProps,
   | "onCreatePrimitive"
+  | "onPrimitivesCreated"
   | "onPrimitiveCreated"
   | "onUpdatePenPath"
   | "selectedPenPathNodeId"
@@ -73,6 +74,7 @@ function PenHarness({
     },
   ],
   onCreatePrimitive,
+  onPrimitivesCreated,
   onPrimitiveCreated,
   onUpdatePenPath,
   selectedPenPathNodeId,
@@ -90,6 +92,7 @@ function PenHarness({
           activeTool: tool,
           onActiveToolChange: setTool,
           onCreatePrimitive,
+          onPrimitivesCreated,
           onPrimitiveCreated,
           onUpdatePenPath,
           vectorEdit,
@@ -357,7 +360,7 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     );
   });
 
-  it("Enter keeps Pen active when extending an existing selected vector", async () => {
+  it("Enter commits a Pen continuation made in vector edit and returns to Move", async () => {
     const onChange = vi.fn((_path: PenPath) => true);
     const onExit = vi.fn();
     const surface = await renderPenHarness({
@@ -389,8 +392,9 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     await pressKey("Enter");
 
     expect(container.querySelector("[data-active-tool]")?.textContent).toBe(
-      "pen",
+      "move",
     );
+    expect(onExit).toHaveBeenCalled();
     expect(onChange).toHaveBeenCalledWith(
       expect.objectContaining({ closed: false, nodes: expect.any(Array) }),
       "commit",
@@ -470,7 +474,7 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
 
     await clickPenAnchor(surface, 220, 120);
     await clickPenAnchor(surface, 280, 180);
-    surface = await renderPenHarness({
+    await renderPenHarness({
       screens: [
         {
           id: "screen-a",
@@ -489,6 +493,48 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
       "pen",
     );
     expect(container.querySelectorAll("[data-pen-anchor]")).toHaveLength(2);
+  });
+
+  it("finalizes every persisted overview draft after a batch retry", async () => {
+    const onCreatePrimitive = vi
+      .fn()
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce("vector-a")
+      .mockReturnValueOnce("vector-b");
+    const onPrimitivesCreated = vi.fn();
+    let surface = await renderPenHarness({
+      onCreatePrimitive,
+      onPrimitivesCreated,
+    });
+
+    await clickPenAnchor(surface, 100, 100);
+    await clickPenAnchor(surface, 180, 180);
+    await pressKey("Enter");
+    await clickPenAnchor(surface, 220, 120);
+    await clickPenAnchor(surface, 280, 180);
+    await pressKey("Enter");
+
+    surface = await renderPenHarness({
+      screens: [
+        {
+          id: "screen-a",
+          filename: "screen-a.html",
+          content: "<!doctype html><html><body><p>updated</p></body></html>",
+        },
+      ],
+      onCreatePrimitive,
+      onPrimitivesCreated,
+    });
+
+    expect(onPrimitivesCreated).toHaveBeenCalledWith(
+      [
+        { screenId: "screen-a", nodeId: "vector-a" },
+        { screenId: "screen-a", nodeId: "vector-b" },
+      ],
+      { screenId: "screen-a", nodeId: "vector-b" },
+      { preserveActiveTool: true },
+    );
   });
 
   it("retries a rejected overview continuation update against the same vector", async () => {
@@ -3204,6 +3250,194 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
 
     expect(onGeometryChange).toHaveBeenCalledTimes(1);
     expect(onGeometryCommit).toHaveBeenCalledTimes(1);
+    expect(onGeometryCommit.mock.calls[0]?.[0]).toMatchObject({
+      "screen-a": { width: 320, height: 200 },
+    });
+    expect(onGeometryCommit.mock.calls[0]?.[1]).toMatchObject({
+      "screen-a": { width: 370, height: 200 },
+    });
+  });
+
+  it("keeps the height a Shift-locked side resize scales a content-fit screen to", async () => {
+    const onGeometryChange = vi.fn();
+    const onGeometryCommit = vi.fn();
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            {
+              id: "screen-a",
+              filename: "screen-a.html",
+              content: "<!doctype html><html><body></body></html>",
+              breakpointWidths: [390],
+            },
+          ]}
+          zoom={100}
+          creation={{ activeTool: "move" }}
+          activeId="screen-a"
+          selection={{ selectedScreenIds: ["screen-a"] }}
+          metadataById={{ "screen-a": { width: 1440, height: 900 } }}
+          geometry={{
+            geometryById: {
+              "screen-a": { x: 0, y: 0, width: 320, height: 200 },
+            },
+            onGeometryChange,
+            onGeometryCommit,
+          }}
+          onPick={() => {}}
+        />,
+      );
+    });
+
+    const frame = container.querySelector<HTMLElement>(
+      '[data-frame-id="screen-a"]',
+    );
+    const primaryIframe = container.querySelector<HTMLIFrameElement>(
+      'iframe[data-screen-iframe-id="screen-a"]',
+    );
+    const selectionBox = container.querySelector<HTMLElement>(
+      "[data-frame-selection-box]",
+    );
+    const resizeHandle = selectionBox?.querySelector<HTMLElement>(
+      '[data-resize-handle="e"]',
+    );
+    const screenCard = frame?.querySelector<HTMLElement>("[data-screen-card]");
+    const breakpointFrame = container.querySelector<HTMLElement>(
+      "[data-breakpoint-frame]",
+    );
+    expect(primaryIframe).not.toBeNull();
+    expect(resizeHandle).not.toBeNull();
+    expect(screenCard).not.toBeNull();
+    expect(breakpointFrame).not.toBeNull();
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native:content-size",
+            width: 1440,
+            height: 1200,
+            viewportHeight: 900,
+          },
+          source: primaryIframe!.contentWindow,
+        }),
+      );
+    });
+
+    expect(screenCard!.style.height).toBe("1200px");
+    expect(selectionBox!.style.height).toBe("1200px");
+
+    await act(async () => {
+      dispatchMouse(resizeHandle!, "mousedown", 400, 400);
+      dispatchMouse(window, "mousemove", 450, 400, { shiftKey: true });
+      await nextAnimationFrame();
+    });
+
+    expect(onGeometryChange).not.toHaveBeenCalled();
+
+    await act(async () => {
+      dispatchMouse(window, "mouseup", 450, 400, { shiftKey: true });
+    });
+
+    expect(onGeometryChange).toHaveBeenCalledTimes(1);
+    expect(onGeometryCommit).toHaveBeenCalledTimes(1);
+    const committed = onGeometryCommit.mock.calls[0]?.[1]?.["screen-a"];
+    expect(committed.width).toBe(370);
+    expect(committed.height).toBeCloseTo((370 / 320) * 1200, 0);
+  });
+
+  it("saves a Hug screen's content height on a side resize", async () => {
+    const onGeometryChange = vi.fn();
+    const onGeometryCommit = vi.fn();
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            {
+              id: "screen-a",
+              filename: "screen-a.html",
+              content: "<!doctype html><html><body></body></html>",
+              breakpointWidths: [390],
+            },
+          ]}
+          zoom={100}
+          creation={{ activeTool: "move" }}
+          activeId="screen-a"
+          selection={{ selectedScreenIds: ["screen-a"] }}
+          metadataById={{
+            "screen-a": { width: 1440, height: 900, heightMode: "hug" },
+          }}
+          geometry={{
+            geometryById: {
+              "screen-a": { x: 0, y: 0, width: 320, height: 200 },
+            },
+            onGeometryChange,
+            onGeometryCommit,
+          }}
+          onPick={() => {}}
+        />,
+      );
+    });
+
+    const frame = container.querySelector<HTMLElement>(
+      '[data-frame-id="screen-a"]',
+    );
+    const primaryIframe = container.querySelector<HTMLIFrameElement>(
+      'iframe[data-screen-iframe-id="screen-a"]',
+    );
+    const selectionBox = container.querySelector<HTMLElement>(
+      "[data-frame-selection-box]",
+    );
+    const resizeHandle = selectionBox?.querySelector<HTMLElement>(
+      '[data-resize-handle="e"]',
+    );
+    const screenCard = frame?.querySelector<HTMLElement>("[data-screen-card]");
+    const breakpointFrame = container.querySelector<HTMLElement>(
+      "[data-breakpoint-frame]",
+    );
+    expect(primaryIframe).not.toBeNull();
+    expect(resizeHandle).not.toBeNull();
+    expect(screenCard).not.toBeNull();
+    expect(breakpointFrame).not.toBeNull();
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native:content-size",
+            width: 1440,
+            height: 1200,
+            naturalHeight: 1200,
+            viewportHeight: 900,
+          },
+          source: primaryIframe!.contentWindow,
+        }),
+      );
+    });
+
+    expect(screenCard!.style.height).toBe("1200px");
+    expect(selectionBox!.style.height).toBe("1200px");
+    const beforeCompanionLeft = breakpointFrame!.style.left;
+
+    await act(async () => {
+      dispatchMouse(resizeHandle!, "mousedown", 400, 400);
+      dispatchMouse(window, "mousemove", 450, 400);
+      await nextAnimationFrame();
+    });
+
+    expect(screenCard!.style.width).toBe("370px");
+    expect(screenCard!.style.height).toBe("1200px");
+    expect(selectionBox!.style.width).toBe("370px");
+    expect(selectionBox!.style.height).toBe("1200px");
+    expect(breakpointFrame!.style.left).not.toBe(beforeCompanionLeft);
+    expect(onGeometryChange).not.toHaveBeenCalled();
+
+    await act(async () => {
+      dispatchMouse(window, "mouseup", 450, 400);
+    });
+
+    expect(onGeometryChange).toHaveBeenCalledTimes(1);
+    expect(onGeometryCommit).toHaveBeenCalledTimes(1);
     expect(onGeometryCommit.mock.calls[0]?.[1]).toMatchObject({
       "screen-a": { width: 370, height: 1200 },
     });
@@ -3452,6 +3686,78 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     await act(async () => root.render(render(1)));
 
     expect(onScreenSelectionChange).toHaveBeenLastCalledWith(["visible"]);
+  });
+
+  it("forwards Enter when a selected board object is double-clicked", async () => {
+    const onBoardIframeHotkey = vi.fn();
+    const boardSelectedSourceId = "board-vector-source";
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[]}
+          zoom={100}
+          board={{
+            boardFileId: "board-file",
+            boardFileContent: `<!doctype html><html><body>
+              <svg data-agent-native-node-id="board-vector" data-an-primitive="path" data-an-pen-nodes="[0,[20,80],[180,40],[100,10]]"><path d="M 20 80 L 180 40 L 100 10" /></svg>
+            </body></html>`,
+            boardFrameGeometry: {
+              x: -65536,
+              y: -65536,
+              width: 131072,
+              height: 131072,
+            },
+            boardEditMode: true,
+            boardIsActive: true,
+            boardSelectedSelector: '[data-agent-native-node-id="board-vector"]',
+            boardSelectedSourceId,
+            onBoardIframeHotkey,
+          }}
+          onPick={() => {}}
+        />,
+      );
+    });
+
+    const boardIframe = container.querySelector<HTMLIFrameElement>(
+      "[data-board-surface-layer] iframe[data-design-preview-iframe]",
+    );
+    expect(boardIframe?.contentWindow).not.toBeNull();
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native:board-selection-rect",
+            screenId: "board-file",
+            selector: '[data-agent-native-node-id="board-vector"]',
+            sourceId: boardSelectedSourceId,
+            rect: { left: 20, top: 10, width: 160, height: 70 },
+            contentOffsetX: 0,
+            contentOffsetY: 0,
+          },
+          source: boardIframe!.contentWindow,
+        }),
+      );
+    });
+
+    const dragSurface = container.querySelector<HTMLElement>(
+      "[data-board-object-selection-box] [data-frame-drag-surface]",
+    );
+    expect(dragSurface).not.toBeNull();
+    await act(async () => {
+      dragSurface!.dispatchEvent(
+        new MouseEvent("dblclick", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    expect(onBoardIframeHotkey).toHaveBeenCalledExactlyOnceWith({
+      key: "Enter",
+      code: "Enter",
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      repeat: false,
+    });
   });
 });
 

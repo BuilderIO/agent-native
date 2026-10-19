@@ -1,6 +1,89 @@
-import enUS from "./en-US";
+import type { PluralLocaleMessages } from "./en-US";
 
 const frFR = {
+  campaign: {
+    recipes: "Recettes",
+    waysToUse: "Façons de l’utiliser",
+    recipeWhen: "Quand",
+    recipeNextTime: "La prochaine fois :",
+    howOften: "À quelle fréquence",
+    worksWith: "Fonctionne avec :",
+    nextJobs: "Que faire ensuite",
+    filterRole: "Rôle",
+    filterAll: "Tous",
+    filterEngineering: "Ingénierie",
+    filterProduct: "Produit",
+    filterDesign: "Design",
+    filterMarketing: "Marketing",
+    filterRevops: "RevOps",
+    filterSales: "Ventes",
+    filterFounders: "Fondateurs",
+    filterFinance: "Finance",
+    filterOften: "À quelle fréquence",
+    filterAny: "Toutes",
+    filterDaily: "Chaque jour",
+    filterWeekly: "Chaque semaine",
+    filterPerProject: "Par projet ou lancement",
+    filterOccasional: "Occasionnellement",
+    filterEmpty: "Aucun cas d’usage ne correspond à ces filtres.",
+    filterClear: "Effacer les filtres",
+    browseArticles:
+      "Ou parcourez les {{articles}} pour trouver des modèles et des tutoriels.",
+    articlesLink: "articles",
+    whatItReplaces: "Ce que cela remplace",
+    whatYouUse: "Ce que vous utilisez",
+    usedFor: "Pour",
+    whereItBreaks: "Les limites",
+    updatedDate: "Mis à jour le {{date}}",
+    publishedDate: "Publié le {{date}}",
+    allArticles: "Tous les articles",
+    useCases: "Cas d’usage",
+    useCasesDescription: "Pages pour les tâches récurrentes, par app",
+    useCasesTitle:
+      "Le travail récurrent, réalisé avec une app Agent-Native et votre agent IA",
+    useCasesIntro:
+      "Choisissez le travail que vous faites encore et encore, ou parcourez les {{articles}} pour trouver des modèles et des tutoriels.",
+    nextEyebrow: "Ensuite",
+    frequencyLabel: "À quelle fréquence : {{text}}",
+    articles: "Articles",
+    articlesIntro:
+      "Des réponses pratiques sur le travail récurrent avec des agents IA. Pour des pages qui détaillent une tâche précise étape par étape, parcourez les {{useCases}}.",
+    useCasesLink: "cas d’usage",
+    articleCount_one: "{{count}} article",
+    articleCount_many: "{{count}} d’articles",
+    articleCount_other: "{{count}} articles",
+    moreOnTopic: "En savoir plus sur {{topic}}",
+    oldWay: "L’ancienne méthode",
+    newWay: "La nouvelle méthode",
+    alternative: "Une alternative open source à {{names}}",
+    usedBefore: "Utilisait auparavant : {{names}}",
+    faqs: "FAQ",
+    faqTitle: "Des réponses aux questions fréquentes",
+    goDeeper: "Approfondir",
+    copyPage: "Copier la page",
+    copyLink: "Copier le lien",
+    copied: "Copié",
+    copyFailed: "Impossible de copier. Réessayez.",
+    breadcrumb: "Fil d’Ariane",
+    readTime_one: "{{count}} min de lecture",
+    readTime_many: "{{count}} min de lecture",
+    readTime_other: "{{count}} min de lecture",
+    partOf: "Fait partie de :",
+    relatedResources: "Ressources associées",
+    moreArticles: "Plus d’articles {{category}}",
+    genericMore: "Plus d’articles",
+    showMore: "Afficher plus d’articles",
+    allTopics: "Tous les sujets",
+    topics: {
+      clips:
+        "Enregistrements d’écran, réunions et dictées utilisables par votre agent IA",
+      design: "Prototypes interactifs avec votre agent IA",
+      slides: "Présentations conformes à votre marque avec votre agent IA",
+      plans:
+        "Plans visuels et récapitulatifs pour votre agent de développement IA",
+      analytics: "Questions en langage courant, graphiques et tableaux de bord",
+    },
+  },
   agentChat: {
     setup: {
       providerStatusUnavailable: "Impossible de confirmer que l’IA est prête.",
@@ -653,6 +736,9 @@ const frFR = {
     waitlistUnavailable:
       "Les inscriptions à la liste d'attente ne sont pas encore disponibles dans cet environnement. Essayez plutôt le site de documentation hébergé.",
     launchBuilder: "Lancer Builder",
+    newAppPrompt: "Crée une nouvelle application Agent-Native.",
+    customizeTemplatePrompt:
+      "Personnalise le modèle Agent-Native {{template}} selon mon flux de travail.",
   },
   templateCard: {
     pasteIntoTerminal: "Collez dans votre terminal.",
@@ -2787,6 +2873,6 @@ const frFR = {
     docsComponents: "Docs Components",
     formsDevelopers: "Guide développeur",
   },
-} satisfies typeof enUS;
+} satisfies PluralLocaleMessages;
 
 export default frFR;

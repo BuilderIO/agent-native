@@ -115,8 +115,7 @@ test("dropping a button into an empty container makes the container a vertical a
   expect({ x: rendered.x, y: rendered.y }).toEqual({ x: empty.x, y: empty.y });
 });
 
-// fixme: product bug: Saved parent is the page body (an absolute sibling floating above the card), not the card; Layers shows Alpha at top level. Same family
-test.fixme("dropping a button into a container that already has content keeps the button where it was dropped", async ({
+test("dropping a button into a container that already has content keeps the button where it was dropped", async ({
   app,
 }) => {
   const id = await app.seed(ROW_AND_CONTAINERS);

@@ -56,6 +56,11 @@ vi.mock("../application-state/script-helpers.js", () => ({
   ),
 }));
 
+const notify = vi.hoisted(() => vi.fn());
+vi.mock("./action-change.js", () => ({
+  notifyActionChangeInBackground: notify,
+}));
+
 describe("agent teams message queue", () => {
   beforeEach(() => {
     appState.clear();
@@ -164,6 +169,123 @@ describe("agent teams message queue", () => {
       "change direction",
     );
     await expect(actions["do-work"].run({})).resolves.toBe("tool result");
+  }, 30_000);
+
+  it("keeps a nested write's evidence through its message-aware wrapper", async () => {
+    const { _agentTeamsQueueForTests } = await import("./agent-teams.js");
+    const { defineAction } = await import("../action.js");
+    const { z } = await import("zod");
+    const { actionsToEngineTools, runAgentLoop } =
+      await import("../agent/production-agent.js");
+    const journalSeed =
+      await import("../agent/engine/tool-call-journal-seed.js");
+    const { classifyToolCallJournal } =
+      await import("../agent/tool-call-journal.js");
+    let writes = 0;
+    const save = defineAction({
+      description: "Save the draft.",
+      schema: z.object({}),
+      run: async () => {
+        writes += 1;
+        return "saved";
+      },
+    });
+    const read = defineAction({
+      description: "Read the draft, saving it first.",
+      schema: z.object({}),
+      readOnly: true,
+      dedupe: false,
+      run: async (_args, ctx) => {
+        await save.run({}, ctx);
+        return "read and saved";
+      },
+    });
+    const actions = _agentTeamsQueueForTests.createMessageAwareActions(
+      "task-1",
+      { "read-draft": read as any },
+    );
+    const turn = async (options: Record<string, unknown> = {}) => {
+      const events: any[] = [];
+      let step = 0;
+      await runAgentLoop({
+        engine: {
+          name: "test",
+          label: "Test",
+          defaultModel: "test",
+          supportedModels: ["test"],
+          capabilities: {
+            thinking: false,
+            promptCaching: false,
+            vision: false,
+            computerUse: false,
+            parallelToolCalls: true,
+          },
+          async *stream() {
+            if (step++ === 0) {
+              yield {
+                type: "assistant-content",
+                parts: [
+                  {
+                    type: "tool-call",
+                    id: "c1",
+                    name: "read-draft",
+                    input: {},
+                  },
+                ],
+              };
+              yield { type: "stop", reason: "tool_use" };
+              return;
+            }
+            yield {
+              type: "assistant-content",
+              parts: [{ type: "text", text: "Done." }],
+            };
+            yield { type: "stop", reason: "end_turn" };
+          },
+        } as any,
+        model: "test",
+        systemPrompt: "Test.",
+        tools: actionsToEngineTools(actions),
+        actions,
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Read." }] },
+        ],
+        send: (event: any) => events.push(event),
+        signal: new AbortController().signal,
+        maxIterations: 3,
+        maxOutputTokens: 1024,
+        reasoningEffort: "low",
+        ...options,
+      } as any);
+      return events.find((event) => event.type === "tool_done");
+    };
+
+    notify.mockClear();
+    const first = await turn();
+    expect(first).toMatchObject({ completedSideEffect: true });
+    expect(notify).toHaveBeenCalledTimes(1);
+    const prior = [
+      { type: "tool_start", id: "c1", tool: "read-draft", input: {} },
+      first,
+    ];
+    const readJournal = vi
+      .spyOn(journalSeed, "loadPriorTurnToolCallJournal")
+      .mockResolvedValue({
+        status: "read",
+        events: prior,
+        toolCallJournal: classifyToolCallJournal(prior),
+        priorToolCalls: [],
+        priorToolCallSequence: [],
+        priorToolResults: [],
+      });
+    try {
+      expect(await turn({ internalContinuation: true })).toMatchObject({
+        replayed: true,
+      });
+    } finally {
+      readJournal.mockRestore();
+    }
+    expect(writes).toBe(1);
   }, 30_000);
 
   it("uses the final response guard to deliver queued messages before completion", async () => {

@@ -76,7 +76,7 @@ import {
   CLIPS_LABS,
   CLIPS_LOOKBACK_CONTEXT,
   CLIPS_MEETINGS,
-  CLIPS_WISPRFLOW,
+  CLIPS_VOICE_DICTATION,
   isLabEnabled,
 } from "../../shared/labs";
 import { rememberLookbackSeconds } from "../../shared/screen-history-context";
@@ -122,6 +122,7 @@ import {
   connectBuilderForVoiceCleanup,
   isBuilderProvisioningAvailable,
 } from "./lib/builder-connection";
+import { useCameraCutoutPreference } from "./lib/camera-cutout-preference";
 import {
   captureSetupForCamera,
   captureSetupForMode,
@@ -1348,13 +1349,13 @@ export function App({
   });
   const meetingsLabEnabled =
     authStatus === "authed" && isLabEnabled(labValues, CLIPS_MEETINGS);
-  const wisprFlowLabEnabled =
-    authStatus === "authed" && isLabEnabled(labValues, CLIPS_WISPRFLOW);
+  const voiceDictationLabEnabled =
+    authStatus === "authed" && isLabEnabled(labValues, CLIPS_VOICE_DICTATION);
   const lookbackLabEnabled =
     authStatus === "authed" && isLabEnabled(labValues, CLIPS_LOOKBACK_CONTEXT);
   const rewindOn = featureConfig?.screenMemory?.enabled === true;
   const voiceDictationEnabled =
-    wisprFlowLabEnabled && featureConfig?.voiceEnabled !== false;
+    voiceDictationLabEnabled && featureConfig?.voiceEnabled !== false;
   const fnShortcutEnabled =
     voiceDictationEnabled &&
     (voiceShortcut === "fn" || voiceShortcut === "both");
@@ -2696,6 +2697,7 @@ export function App({
       emit("meetings:start-transcription", {
         meetingId: meeting.id,
         joinUrl: meeting.joinUrl,
+        platform: meeting.platform,
         reason: "user",
         scheduledStart: meeting.scheduledStart,
         includeFromMeetingStart,
@@ -5119,7 +5121,7 @@ export function App({
         <Setup
           surface="memory"
           meetingsLabEnabled={meetingsLabEnabled}
-          wisprFlowLabEnabled={wisprFlowLabEnabled}
+          voiceDictationLabEnabled={voiceDictationLabEnabled}
           labValues={labValues}
           labError={labError}
           labsSignedIn={authStatus === "authed"}
@@ -5172,7 +5174,7 @@ export function App({
           initialSettingsTab={initialSettingsTab}
           onSettingsTabChange={setInitialSettingsTab}
           meetingsLabEnabled={meetingsLabEnabled}
-          wisprFlowLabEnabled={wisprFlowLabEnabled}
+          voiceDictationLabEnabled={voiceDictationLabEnabled}
           labValues={labValues}
           labError={labError}
           labsSignedIn={authStatus === "authed"}
@@ -6916,7 +6918,7 @@ function Setup({
   initialSettingsTab,
   onSettingsTabChange,
   meetingsLabEnabled,
-  wisprFlowLabEnabled,
+  voiceDictationLabEnabled,
   labValues,
   labError,
   labsSignedIn,
@@ -6956,7 +6958,7 @@ function Setup({
   initialSettingsTab?: SettingsTabId;
   onSettingsTabChange?: (tab: SettingsTabId) => void;
   meetingsLabEnabled: boolean;
-  wisprFlowLabEnabled: boolean;
+  voiceDictationLabEnabled: boolean;
   labValues: Record<string, unknown>;
   labError: string | null;
   labsSignedIn: boolean;
@@ -7010,6 +7012,7 @@ function Setup({
   const updateStatus = useUpdateStatus();
   const voiceEnabled = featureConfig?.voiceEnabled !== false;
   const voiceCleanupEnabled = featureConfig?.voiceCleanupEnabled !== false;
+  const [cameraCutout, setCameraCutout] = useCameraCutoutPreference();
   const meetingsEnabled = featureConfig?.meetingsEnabled !== false;
   const showMeetingWidgetEnabled =
     featureConfig?.showMeetingWidgetEnabled !== false;
@@ -7894,7 +7897,7 @@ function Setup({
     settingsTab === "rewind" ||
     settingsTab === "advanced" ||
     (settingsTab === "meetings" && meetingsLabEnabled) ||
-    (settingsTab === "dictation" && wisprFlowLabEnabled);
+    (settingsTab === "dictation" && voiceDictationLabEnabled);
 
   useEffect(() => {
     if (surface !== "settings" || settingsTabIsAvailable) return;
@@ -8171,6 +8174,17 @@ function Setup({
                 onCheckedChange={setVoiceCleanupEnabled}
                 disabled={captureControlsLocked}
                 label="Voice cleanup"
+              />
+            }
+          />
+          <SettingsRow
+            label="Remove background"
+            description="Shows only you in the camera bubble"
+            control={
+              <SettingsSwitch
+                checked={cameraCutout}
+                onCheckedChange={setCameraCutout}
+                label="Remove background"
               />
             }
           />
@@ -9215,7 +9229,7 @@ function Setup({
           },
         ]
       : []),
-    ...(wisprFlowLabEnabled
+    ...(voiceDictationLabEnabled
       ? [
           {
             id: "dictation" as const,

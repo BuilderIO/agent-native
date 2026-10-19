@@ -412,6 +412,21 @@ describe("resolveScreenMetadataCached", () => {
     expect(second.source).toBe("localhost");
   });
 
+  it("keeps markup that links to a loopback media URL inline", () => {
+    const metadata = resolveScreenMetadataCached(
+      new Map(),
+      makeScreen(
+        "s1",
+        '<html><body><video src="http://127.0.0.1:9410/e2e-assets/clip.webm"></video></body></html>',
+      ),
+      undefined,
+      undefined,
+      "none",
+    );
+
+    expect(metadata.source).toBe("inline");
+  });
+
   it("treats legacy imported screens as fixed-height overviews", () => {
     const cache = new Map();
     const screen = makeScreen("s1", "<html>imported</html>");

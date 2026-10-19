@@ -37,7 +37,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { useMetricsQuery } from "@/lib/query-metrics";
+import { queryRunTelemetry, useMetricsQuery } from "@/lib/query-metrics";
 
 import { DateRangeInput } from "../_shared/components/DateRangeInput";
 import { ChartTypePicker } from "./components/ChartTypePicker";
@@ -90,22 +90,23 @@ export default function ExplorerPage() {
 
   const hasValidEvents = config.events.some((e) => e.event !== "");
 
-  const { data: result, isLoading } = useMetricsQuery(
-    ["explorer-query", sql],
-    sql,
-    { enabled: hasValidEvents && sql.length > 0 },
-  );
+  const {
+    data: result,
+    isLoading,
+    error: queryError,
+  } = useMetricsQuery(["explorer-query", sql], sql, {
+    enabled: hasValidEvents && sql.length > 0,
+  });
 
   useEffect(() => {
-    if (!result || result.error || !hasValidEvents) return;
+    if ((!result && !queryError) || !hasValidEvents) return;
     trackEvent("sql_run", {
       app_name: "analytics",
       template_name: "analytics",
       surface: "explorer",
-      row_count: result.rows.length,
-      column_count: result.schema?.length ?? 0,
+      ...queryRunTelemetry(result, queryError),
     });
-  }, [hasValidEvents, result]);
+  }, [hasValidEvents, queryError, result]);
 
   const handleSave = () => {
     if (currentId) {

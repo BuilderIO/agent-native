@@ -1,0 +1,21 @@
+{
+  "pins": [
+    {
+      "action": "lane-move",
+      "from": {
+        "shard": "inspector-1a",
+        "file": "canvas-chords.spec.ts",
+        "title": "Cmd+Shift+R uses rendered flow offsets for relative text"
+      },
+      "to": {
+        "shard": "inspector-3b",
+        "file": "canvas-chords.spec.ts",
+        "title": "Cmd+Shift+R uses rendered flow offsets for relative text"
+      },
+      "reason": "Keep the relative-flow Cmd+Shift+R regression with the neighboring Cmd+Shift+R replacement coverage on inspector-3b.",
+      "evidence": "PR #7652",
+      "owner": "design-infra"
+    }
+  ],
+  "quarantine": []
+}

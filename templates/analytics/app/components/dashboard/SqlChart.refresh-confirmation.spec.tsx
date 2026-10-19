@@ -47,6 +47,7 @@ vi.mock("@/lib/sql-query", () => ({
 vi.mock("@agent-native/toolkit/app/extensions", () => ({
   EmbeddedExtension: () => null,
   ExtensionSlot: () => null,
+  isExtensionApiPath: () => false,
 }));
 
 import { SqlChart } from "./SqlChart";

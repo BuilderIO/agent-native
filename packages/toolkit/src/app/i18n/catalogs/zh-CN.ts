@@ -165,6 +165,16 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "隐私政策",
   "onboarding.builderConsentAnd": "和",
   "onboarding.builderExistingAccount": "我有 Builder.io 账户",
+  "onboarding.creditsTitle": "每月免费试用 60 个 Agent Credits",
+  "onboarding.creditsTitleClips":
+    "免费试用视频存储，并每月获得 60 个 Agent Credits",
+  "onboarding.creditsActivate": "激活免费额度",
+  "onboarding.creditsFinePrint":
+    "这将创建一个免费的 Builder.io 账户。继续表示您同意我们的",
+  "onboarding.creditsConnectExisting": "连接现有 Builder.io 账户",
+  "onboarding.creditsMoreInfo": "更多信息",
+  "onboarding.creditsSkipBody":
+    "如果您跳过，您需要连接自己的密钥才能使用 AI 和存储。",
   "onboarding.builderConnect": "连接 Builder.io",
   "onboarding.builderActivating": "正在激活 Builder.io 免费额度",
   "onboarding.builderConnecting": "正在设置 Builder.io 免费额度",
@@ -197,6 +207,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "嵌入向量",
   "onboarding.capability.embeddings.why":
     "嵌入向量可以改进语义搜索。没有嵌入向量时，关键词搜索仍然有效。",
+  "onboarding.capability.webSearch.label": "网页搜索",
+  "onboarding.capability.webSearch.keySummary": "由 Builder 管理的网页搜索",
+  "onboarding.capability.webSearch.why":
+    "搜索网页上的最新公开信息。Builder 管理的搜索使用随附的 Builder AI 积分，因此无需单独的搜索 API 密钥。",
   "onboarding.capability.systemOne.why":
     "Jev 是一个可选的决策模型，可在代理首次请求模型前帮助选择相关工具和技能。",
   "onboarding.capability.assetsImageGeneration.label": "图像生成",
@@ -1715,6 +1729,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.agentVia": "通过 {{protocol}} 的智能体",
   "settings.audit.allApps": "所有应用",
   "settings.audit.app": "应用",
+  "settings.audit.approval": "批准",
+  "settings.audit.approvalAgentChat": "已在智能体聊天中批准",
+  "settings.audit.approvalA2AReview": "已在智能体操作审核页面批准",
+  "settings.audit.approvalMcpClient": "由 MCP 客户端接受（未验证）",
   "settings.audit.changedBy": "更改者",
   "settings.audit.close": "关闭",
   "settings.audit.empty": "此期间没有更改。",
@@ -1727,9 +1745,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.last90Days": "过去 90 天",
   "settings.audit.loadFailed": "无法加载审计日志。",
   "settings.audit.loading": "正在加载审计日志",
+  "settings.audit.oauthClient": "OAuth 客户端",
   "settings.audit.onBehalfOf": "代表",
   "settings.audit.range": "时间范围",
   "settings.audit.refused": "已拒绝",
+  "settings.audit.reportedClient": "自报客户端",
   "settings.audit.result": "结果",
   "settings.audit.showMore": "再显示 {{count}} 条",
   "settings.audit.succeeded": "成功",
@@ -2405,6 +2425,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.search.appDefaultModel": "应用默认模型",
   "settingsShell.search.backgroundAgents": "后台智能体",
   "settingsShell.search.browserAutomation": "浏览器自动化",
+  "settingsShell.search.webSearch": "网页搜索",
   "settingsShell.search.connectedAgents": "已连接的智能体",
   "settingsShell.search.database": "数据库",
   "settingsShell.search.defaultModel": "默认模型",
@@ -2528,6 +2549,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyDesignSystem": "让生成的幻灯片和设计符合品牌规范。",
   "settingsInfra.whyBackground": "在生产环境中修改代码。",
   "settingsInfra.whyBrowser": "让智能体在生产环境中使用浏览器。",
+  "settingsInfra.whyWebSearch": "查找最新的公开信息和官方文档。",
   "settingsInfra.provider": "提供商",
   "settingsInfra.keyOrg": "使用组织的 {{provider}} 密钥。",
   "settingsInfra.manageKey": "管理密钥",
@@ -2676,6 +2698,10 @@ const messages: ToolkitAgentChatTranslation = {
     "已在此处断开连接。在 ChatGPT 中，访问权限可能仍然有效。",
   "settingsModel.chatgptLocalOnly":
     "开源应用在本地使用 loopback callback 运行时，无需申请合作伙伴资格即可使用 ChatGPT 计划。托管在 *.agent-native.com 上的应用需要运营方批准，并配置托管 callback。",
+  "settingsModel.chatgptPersonalScopeOnly":
+    "使用个人账户访问 ChatGPT 方案。在本地开发时，请在登录前将 access.autoCreateDefaultOrg 设为 false。",
+  "settingsModel.chatgptScopeUnresolved":
+    "应用无法确认你的账户范围。请完成本地设置，然后重新加载设置页面。",
   "settingsModel.chatgptNoDirectUse":
     "重新连接并允许直接访问模型，才能使用此 ChatGPT 账户。",
   "settingsModel.chatgptReconnect": "重新连接",
