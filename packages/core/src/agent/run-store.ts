@@ -2828,10 +2828,11 @@ async function reapSingleStaleRun(
           args: [runScope.thread_id, runScope.turn_id, runId, lease.generation],
         });
       }
-      outcome =
-        lease && !generationMatches
-          ? { outcome: "execution_lease_changed" }
-          : await attemptStaleRunRecovery(tx, runId);
+      const executionLeaseChanged =
+        !generationMatches && (lease !== null || run.worker_generation != null);
+      outcome = executionLeaseChanged
+        ? { outcome: "execution_lease_changed" }
+        : await attemptStaleRunRecovery(tx, runId);
       await appendTerminalRunEventInTransaction(
         tx,
         runId,
@@ -4811,7 +4812,8 @@ async function finalizeStaleRun(
   if (!projectThread) return true;
   try {
     const { foldReapedRunIntoThread } = await import("./reaped-run-thread.js");
-    await foldReapedRunIntoThread(runId);
+    const disposition = await foldReapedRunIntoThread(runId);
+    if (disposition === "retry") return false;
     await getDbExec().execute({
       sql: `UPDATE agent_runs
             SET thread_projection_pending = FALSE

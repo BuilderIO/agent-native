@@ -4592,6 +4592,8 @@ export function foldAssistantTurn(
   const runAlreadyFolded =
     !!runId &&
     (existingFolded.includes(runId) || getMessageRunId(lastMsg) === runId);
+  const supersededRunReplay =
+    runAlreadyFolded && !!runId && getMessageRunId(lastMsg) !== runId;
 
   const mergedContent = runAlreadyFolded
     ? assistantContentWeight(incomingContent) >
@@ -4616,7 +4618,7 @@ export function foldAssistantTurn(
 
   const mergedCustom: Record<string, unknown> = {
     ...existingCustom,
-    ...incomingCustom,
+    ...(supersededRunReplay ? {} : incomingCustom),
     turnId,
     foldedRunIds: mergedFolded,
   };
@@ -4634,7 +4636,9 @@ export function foldAssistantTurn(
   if (mergedDurationMs != null) {
     mergedCustom[ASSISTANT_RUN_DURATION_METADATA_KEY] = mergedDurationMs;
   }
-  if (incomingCustom.continued !== true) delete mergedCustom.continued;
+  if (!supersededRunReplay && incomingCustom.continued !== true) {
+    delete mergedCustom.continued;
+  }
   // A turn's failure is its newest run's: a run that continued past an
   // earlier stop clears the stop's error instead of inheriting it.
   if (!runAlreadyFolded && incomingCustom.runError === undefined) {
@@ -4647,10 +4651,14 @@ export function foldAssistantTurn(
       role: "assistant",
       content: mergedContent,
     }).content,
-    status: assistantMsg.status ?? lastMsg.status,
+    status: supersededRunReplay
+      ? lastMsg.status
+      : (assistantMsg.status ?? lastMsg.status),
     metadata: {
       ...lastMsg.metadata,
-      runId: runId ?? lastMsg.metadata?.runId,
+      runId: supersededRunReplay
+        ? lastMsg.metadata?.runId
+        : (runId ?? lastMsg.metadata?.runId),
       custom: mergedCustom,
     },
   };

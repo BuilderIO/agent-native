@@ -11,7 +11,7 @@ import {
 import { createTestPglite } from "../a2a/test-pglite.js";
 
 const foldReapedRunIntoThreadMock = vi.hoisted(() =>
-  vi.fn().mockResolvedValue(undefined),
+  vi.fn().mockResolvedValue("projected"),
 );
 
 vi.mock("./reaped-run-thread.js", () => ({
@@ -123,7 +123,7 @@ const { assertNoInlineImageBytes } = await import("../shared/inline-bytes.js");
 beforeEach(async () => {
   __resetNoRunningRunsProbeForTests();
   afterStaleCandidateScan = undefined;
-  foldReapedRunIntoThreadMock.mockReset().mockResolvedValue(undefined);
+  foldReapedRunIntoThreadMock.mockReset().mockResolvedValue("projected");
 });
 
 let seq = 0;
@@ -333,6 +333,39 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     expect(String(terminalEvents[0]?.event_data)).toContain(
       '"errorCode":"stale_run"',
     );
+
+    await expect(reapAllStaleRuns()).resolves.toEqual({
+      reaped: 0,
+      failed: 0,
+      truncated: false,
+    });
+    const [projected] = (await pglite
+      .prepare(
+        `SELECT thread_projection_pending
+         FROM agent_runs WHERE id = ?`,
+      )
+      .all(runId)) as Array<{ thread_projection_pending: boolean }>;
+    expect(foldReapedRunIntoThreadMock).toHaveBeenCalledTimes(2);
+    expect(projected?.thread_projection_pending).toBe(false);
+  });
+
+  it("keeps a retryable stale-run projection pending until a retry succeeds", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn);
+    await setStaleLiveness(runId, Date.now() - STALE_PAST_MS);
+    foldReapedRunIntoThreadMock
+      .mockResolvedValueOnce("retry")
+      .mockResolvedValueOnce("projected");
+
+    await expect(reapIfStale(runId)).resolves.toBe(true);
+    const [pending] = (await pglite
+      .prepare(
+        `SELECT thread_projection_pending
+         FROM agent_runs WHERE id = ?`,
+      )
+      .all(runId)) as Array<{ thread_projection_pending: boolean }>;
+    expect(pending?.thread_projection_pending).toBe(true);
 
     await expect(reapAllStaleRuns()).resolves.toEqual({
       reaped: 0,
@@ -890,6 +923,31 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     );
     expect(await rowsForTurn(turn)).toHaveLength(2);
     expect((await readRow(successorId))?.status).toBe("running");
+  });
+
+  it("does not create a recovery successor when a leased run has lost its lease row", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn, {
+      dispatchMode: "background",
+      dispatchPayload: JSON.stringify({ ok: true }),
+    });
+    await claimTurnExecutionLease(thread, turn, runId);
+    await setStaleLiveness(runId, Date.now() - STALE_PAST_MS);
+    await pglite
+      .prepare(
+        `DELETE FROM agent_execution_leases
+         WHERE thread_id = ? AND turn_id = ? AND owner_run_id = ?`,
+      )
+      .run(thread, turn, runId);
+
+    expect(await reapIfStale(runId)).toBe(true);
+
+    expect((await readRow(runId))?.status).toBe("errored");
+    expect((await readRow(runId))?.diag_stage).toContain(
+      "declined reason=execution_lease_changed",
+    );
+    expect(await rowsForTurn(turn)).toHaveLength(1);
   });
 
   it("does not recover into a turn that was cancelled before the stale insert", async () => {

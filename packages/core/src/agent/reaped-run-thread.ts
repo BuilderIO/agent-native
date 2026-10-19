@@ -27,9 +27,9 @@ import {
 export async function foldReapedRunIntoThread(
   runId: string,
   terminalError?: { error: string; errorCode: string },
-): Promise<void> {
+): Promise<"projected" | "superseded" | "retry"> {
   const run = await readStoppedRunForThreadFold(runId);
-  if (!run || run.laterTurnStarted) return;
+  if (!run || run.laterTurnStarted) return "superseded";
   const events = [...run.events];
   if (terminalError) {
     const last = events.at(-1);
@@ -67,10 +67,10 @@ export async function foldReapedRunIntoThread(
       suppressInternalContinuation: run.continuedInTurn,
     },
   );
-  if (!assistant) return;
-  await withThreadDataLock(run.threadId, async () => {
+  if (!assistant) return "projected";
+  return withThreadDataLock(run.threadId, async () => {
     const thread = await getThread(run.threadId);
-    if (!thread) return;
+    if (!thread) return "superseded";
     const repo = normalizeThreadRepository(
       JSON.parse(thread.threadData || "{}"),
     );
@@ -79,7 +79,8 @@ export async function foldReapedRunIntoThread(
       turnId: run.turnId,
     });
     const meta = extractThreadMeta(folded);
-    await updateThreadData(
+    let rejectedDisposition: "superseded" | "retry" = "superseded";
+    const updated = await updateThreadData(
       run.threadId,
       JSON.stringify(folded),
       thread.title,
@@ -125,12 +126,16 @@ export async function foldReapedRunIntoThread(
           );
           const last =
             currentRepo.messages.at(-1)?.message ?? currentRepo.messages.at(-1);
-          return last?.role === "user"
-            ? isRunPrompt(last, { runId, ...run })
-            : last?.role === "assistant" &&
+          const ownsPrompt =
+            last?.role === "user"
+              ? isRunPrompt(last, { runId, ...run })
+              : last?.role === "assistant" &&
                 last.metadata?.custom?.turnId === run.turnId;
+          if (!ownsPrompt) rejectedDisposition = "retry";
+          return ownsPrompt;
         },
       },
     );
+    return updated ? "projected" : rejectedDisposition;
   });
 }

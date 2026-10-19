@@ -1665,13 +1665,10 @@ export function startRun(
     if (options?.executionLease) {
       const fence = await executionFencePromise;
       if (executionLeaseClaimFailed || abort.signal.aborted) return;
-      if (fence) {
-        await withExecutionFence(fence, () =>
-          runFn(send, runControl.chunkSignal, runControl),
-        );
-      } else {
-        await runFn(send, runControl.chunkSignal, runControl);
-      }
+      if (!fence) throw new Error("Execution lease was not acquired");
+      await withExecutionFence(fence, () =>
+        runFn(send, runControl.chunkSignal, runControl),
+      );
       return;
     }
     if (servicePrincipalRunStart) {

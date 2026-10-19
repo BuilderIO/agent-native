@@ -8098,7 +8098,11 @@ describe("AgentKitClient", () => {
       }),
     );
     const startRun = vi.fn<AgentTransport["startRun"]>(async () => {
-      throw new AgentKitRunSlotBusyError("run-active", "run-submitted");
+      throw Object.assign(new Error("Queued message was already submitted"), {
+        code: "queued_message_already_submitted",
+        status: 409,
+        submittedRunId: "run-submitted",
+      });
     });
     const subscribedRunIds: string[] = [];
     const onLocalSubmit = vi.fn();
@@ -8164,7 +8168,11 @@ describe("AgentKitClient", () => {
     const subscriptionStarted = Promise.withResolvers<void>();
     const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
       async () => {
-        throw new AgentKitRunSlotBusyError("run-active", "run-submitted");
+        throw Object.assign(new Error("Queued message was already submitted"), {
+          code: "queued_message_already_submitted",
+          status: 409,
+          submittedRunId: "run-submitted",
+        });
       },
     );
     const startRun = vi.fn<AgentTransport["startRun"]>(async () => {
@@ -8300,7 +8308,11 @@ describe("AgentKitClient", () => {
     const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
       async ({ id }) => {
         submittedMessageId = id;
-        throw new AgentKitRunSlotBusyError("run-active", "run-submitted");
+        throw Object.assign(new Error("Queued message was already submitted"), {
+          code: "queued_message_already_submitted",
+          status: 409,
+          submittedRunId: "run-submitted",
+        });
       },
     );
     const client = new AgentKitClient({
@@ -10512,7 +10524,11 @@ describe("AgentKitClient", () => {
       },
     };
     const steerQueuedMessage = vi.fn(async () => {
-      throw new AgentKitRunSlotBusyError("run-active", "run-submitted");
+      throw Object.assign(new Error("Queued message was already submitted"), {
+        code: "queued_message_already_submitted",
+        status: 409,
+        submittedRunId: "run-submitted",
+      });
     });
     const subscribedRunIds: string[] = [];
     const client = new AgentKitClient({

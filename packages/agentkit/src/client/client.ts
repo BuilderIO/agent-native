@@ -765,6 +765,19 @@ function isAgentKitRunSlotBusyError(
   );
 }
 
+function submittedRunIdFromError(error: unknown): RunId | undefined {
+  const submittedRunId = errorProperty(error, "submittedRunId");
+  if (
+    typeof submittedRunId !== "string" ||
+    submittedRunId.length === 0 ||
+    (!isAgentKitRunSlotBusyError(error) &&
+      errorProperty(error, "status") !== 409)
+  ) {
+    return undefined;
+  }
+  return submittedRunId;
+}
+
 function isRetryableQueuePromotionError(error: unknown): boolean {
   return (
     isAgentKitRunSlotBusyError(error) ||
@@ -2992,9 +3005,7 @@ export class AgentKitClient implements AgentKitController {
           queuedMessageId,
         );
       } catch (queueError) {
-        const submittedRunId = isAgentKitRunSlotBusyError(queueError)
-          ? queueError.submittedRunId
-          : undefined;
+        const submittedRunId = submittedRunIdFromError(queueError);
         if (submittedRunId) {
           const queuedMessage: AgentQueuedMessage = {
             id: queuedMessageId,
@@ -3139,9 +3150,7 @@ export class AgentKitClient implements AgentKitController {
       };
     } catch (error) {
       if (this.disposed) throw error;
-      const submittedRunId = isAgentKitRunSlotBusyError(error)
-        ? error.submittedRunId
-        : undefined;
+      const submittedRunId = submittedRunIdFromError(error);
       if (typeof submittedRunId === "string" && submittedRunId.length > 0) {
         this.markRunStarted(input.threadId, submittedRunId);
         this.submittedUserMessages.set(
@@ -3240,9 +3249,7 @@ export class AgentKitClient implements AgentKitController {
               ),
           };
         } catch (queueError) {
-          const submittedRunId = isAgentKitRunSlotBusyError(queueError)
-            ? queueError.submittedRunId
-            : undefined;
+          const submittedRunId = submittedRunIdFromError(queueError);
           if (submittedRunId) {
             const queuedMessage: AgentQueuedMessage = {
               id: message.id,
@@ -4205,9 +4212,7 @@ export class AgentKitClient implements AgentKitController {
       this.queuedMessageReservationIds.delete(optimisticMessage.id);
       this.queuedMessageReservationCallbacks.delete(optimisticMessage.id);
       this.pendingQueueMessageIds.delete(optimisticMessage.id);
-      const submittedRunId = isAgentKitRunSlotBusyError(error)
-        ? error.submittedRunId
-        : undefined;
+      const submittedRunId = submittedRunIdFromError(error);
       if (submittedRunId) {
         const submittedMessage =
           this.getThread(input.threadId).queuedMessages.find(
@@ -4548,14 +4553,9 @@ export class AgentKitClient implements AgentKitController {
             ),
           );
         } catch (error) {
-          if (
-            !isAgentKitRunSlotBusyError(error) ||
-            typeof error.submittedRunId !== "string" ||
-            error.submittedRunId.length === 0
-          ) {
-            throw error;
-          }
-          result = { runId: error.submittedRunId, alreadySubmitted: true };
+          const submittedRunId = submittedRunIdFromError(error);
+          if (!submittedRunId) throw error;
+          result = { runId: submittedRunId, alreadySubmitted: true };
         }
         this.assertActive();
         if (result && "alreadyRemoved" in result) {

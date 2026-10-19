@@ -2003,6 +2003,140 @@ describe("buildAssistantMessage", () => {
     ).toBe(55_000);
   });
 
+  it("keeps the latest run metadata when an earlier folded run is replayed", () => {
+    const earlierRun = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "First attempt." } },
+        {
+          seq: 1,
+          event: {
+            type: "error",
+            error: "The first attempt failed.",
+            errorCode: "first_attempt_failed",
+          },
+        },
+      ],
+      "run-earlier",
+      { turnId: "turn-replayed", runDurationMs: 40_000 },
+    );
+    const latestRun = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "Recovery succeeded." } },
+        { seq: 1, event: { type: "done" } },
+      ],
+      "run-latest",
+      { turnId: "turn-replayed", runDurationMs: 15_000 },
+    );
+    expect(earlierRun).not.toBeNull();
+    expect(latestRun).not.toBeNull();
+
+    let repo = foldAssistantTurn(
+      {
+        messages: [
+          {
+            message: {
+              id: "user-replayed",
+              role: "user",
+              content: [{ type: "text", text: "try again" }],
+            },
+            parentId: null,
+          },
+        ],
+      },
+      earlierRun!,
+      { turnId: "turn-replayed", runId: "run-earlier" },
+    );
+    repo = foldAssistantTurn(repo, latestRun!, {
+      turnId: "turn-replayed",
+      runId: "run-latest",
+    });
+    repo = foldAssistantTurn(repo, earlierRun!, {
+      turnId: "turn-replayed",
+      runId: "run-earlier",
+    });
+
+    const assistant = repo.messages[1].message;
+    expect(assistant.content).toEqual([
+      {
+        type: "text",
+        text: "First attempt.\n\nError: The first attempt failed.Recovery succeeded.",
+      },
+    ]);
+    expect(assistant.status).toEqual({ type: "complete", reason: "stop" });
+    expect(assistant.metadata).toMatchObject({
+      runId: "run-latest",
+      custom: {
+        turnId: "turn-replayed",
+        foldedRunIds: ["run-earlier", "run-latest"],
+        agentNativeRunDurationMs: 55_000,
+      },
+    });
+    expect(assistant.metadata.custom).not.toHaveProperty("runError");
+  });
+
+  it("keeps the latest continuation marker when an earlier run is replayed", () => {
+    const earlierRunId = "run-earlier-continuation-replay";
+    const continuingRunId = "run-current-continuation-replay";
+    const earlierRun = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "First attempt." } },
+        { seq: 1, event: { type: "done" } },
+      ],
+      earlierRunId,
+      { turnId: "turn-continuation-replay" },
+    );
+    const continuingRun = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "Recovery is continuing." } },
+        {
+          seq: 1,
+          event: {
+            type: "error",
+            error: "AI features aren't available on this site right now.",
+            errorCode: "too_many_concurrent_requests",
+          },
+        },
+      ],
+      continuingRunId,
+      {
+        suppressInternalContinuation: true,
+        turnId: "turn-continuation-replay",
+      },
+    );
+    expect(continuingRun?.metadata?.custom?.continued).toBe(true);
+
+    let repo = foldAssistantTurn(
+      {
+        messages: [
+          {
+            message: {
+              id: "user-continuation-replay",
+              role: "user",
+              content: [{ type: "text", text: "try again" }],
+            },
+            parentId: null,
+          },
+        ],
+      },
+      earlierRun!,
+      { turnId: "turn-continuation-replay", runId: earlierRunId },
+    );
+    repo = foldAssistantTurn(repo, continuingRun!, {
+      turnId: "turn-continuation-replay",
+      runId: continuingRunId,
+    });
+    repo = foldAssistantTurn(repo, earlierRun!, {
+      turnId: "turn-continuation-replay",
+      runId: earlierRunId,
+    });
+
+    expect(repo.messages[1].message.metadata?.runId).toBe(continuingRunId);
+    expect(repo.messages[1].message.metadata?.custom).toMatchObject({
+      continued: true,
+      foldedRunIds: [earlierRunId, continuingRunId],
+    });
+  });
+
   it("replaces a paused tool call when its approved replay completes", () => {
     const toolCallId = "approved-release-call";
     const turnId = "turn-approved-release";

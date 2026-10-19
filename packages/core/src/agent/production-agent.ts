@@ -5170,6 +5170,7 @@ export interface ExecuteAgentToolCallOptions {
   ) => Promise<string | void>;
   consumeApproval?: (binding: AgentApprovalBinding) => Promise<boolean>;
   isToolAlwaysAllowed?: (binding: AgentApprovalBinding) => Promise<boolean>;
+  beforeWrite?: () => Promise<void>;
   send?: (event: AgentChatEvent) => void;
 }
 
@@ -5285,6 +5286,7 @@ export async function executeAgentToolCall(
       onApprovalRequired: options.onApprovalRequired,
       consumeApproval: options.consumeApproval,
       isToolAlwaysAllowed: options.isToolAlwaysAllowed,
+      beforeWrite: options.beforeWrite,
     });
   } catch (error) {
     return {
@@ -15055,6 +15057,7 @@ export function createProductionAgentHandler(
               onApprovalRequired: approvalHooks.onApprovalRequired,
               consumeApproval: approvalHooks.consumeApproval,
               isToolAlwaysAllowed: approvalHooks.isToolAlwaysAllowed,
+              beforeWrite: agentLoopOpts.beforeWrite,
               send,
             });
             if (
