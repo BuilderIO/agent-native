@@ -1861,6 +1861,7 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
     var candidates = document.querySelectorAll(
       "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[data-loc],[id]",
     );
+    var matchCounts: Record<string, number> = {};
     for (
       var candidateIndex = 0;
       candidateIndex < candidates.length;
@@ -1868,10 +1869,16 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
     ) {
       var candidate = candidates[candidateIndex];
       var candidateId = getNodeId(candidate);
-      if (candidateId && wanted[candidateId] && !found[candidateId]) {
-        found[candidateId] = candidate;
+      if (candidateId && wanted[candidateId]) {
+        matchCounts[candidateId] = (matchCounts[candidateId] || 0) + 1;
+        if (!found[candidateId]) found[candidateId] = candidate;
       }
     }
+    // A data-loc is shared by every instance of one source location; the parent cannot tell
+    // those instances apart, so a repeated id gets no element rather than the first one.
+    Object.keys(matchCounts).forEach(function (repeatedId) {
+      if (matchCounts[repeatedId] > 1) delete found[repeatedId];
+    });
     return found;
   }
 

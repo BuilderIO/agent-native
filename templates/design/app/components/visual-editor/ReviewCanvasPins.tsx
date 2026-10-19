@@ -277,31 +277,33 @@ function findNodeElement(canvas: HTMLElement, nodeId: string): Element | null {
     const document = iframe?.contentDocument;
     if (!document) return null;
     const escape = globalThis.CSS?.escape;
-    if (escape) {
-      return document.querySelector(
-        `[data-agent-native-node-id="${escape(nodeId)}"],` +
-          `[data-code-layer-id="${escape(nodeId)}"],` +
-          `[data-layer-id="${escape(nodeId)}"],` +
-          `[data-builder-id="${escape(nodeId)}"],` +
-          `[data-loc="${escape(nodeId)}"],#${escape(nodeId)}`,
-      );
-    }
-    return (
-      Array.from(
-        document.querySelectorAll(
-          "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[data-loc],[id]",
-        ),
-      ).find((element) =>
-        [
-          "data-agent-native-node-id",
-          "data-code-layer-id",
-          "data-layer-id",
-          "data-builder-id",
-          "data-loc",
-          "id",
-        ].some((attribute) => element.getAttribute(attribute) === nodeId),
-      ) ?? null
-    );
+    const matches = escape
+      ? Array.from(
+          document.querySelectorAll(
+            `[data-agent-native-node-id="${escape(nodeId)}"],` +
+              `[data-code-layer-id="${escape(nodeId)}"],` +
+              `[data-layer-id="${escape(nodeId)}"],` +
+              `[data-builder-id="${escape(nodeId)}"],` +
+              `[data-loc="${escape(nodeId)}"],#${escape(nodeId)}`,
+          ),
+        )
+      : Array.from(
+          document.querySelectorAll(
+            "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[data-loc],[id]",
+          ),
+        ).filter((element) =>
+          [
+            "data-agent-native-node-id",
+            "data-code-layer-id",
+            "data-layer-id",
+            "data-builder-id",
+            "data-loc",
+            "id",
+          ].some((attribute) => element.getAttribute(attribute) === nodeId),
+        );
+    // A data-loc is shared by every instance rendered from one source location. Picking
+    // one would move the pin to the wrong instance, so a repeated id resolves to nothing.
+    return matches.length === 1 ? matches[0] : null;
   } catch {
     return null;
   }

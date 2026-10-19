@@ -129,3 +129,69 @@ test("comment mode keeps pan, hover and popover focus off the design below", asy
   );
   expect(await app.selectedLayers()).toEqual([]);
 });
+
+const REPEATED_SCREEN = `<!doctype html><html><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:40px;font-family:system-ui;background:#ffffff">
+  <p data-loc="repeat.tsx:1" class="repeat" style="margin:0 0 24px;font-size:20px">Repeated instance</p>
+  <p data-loc="repeat.tsx:1" class="repeat" style="margin:0;font-size:20px">Repeated instance</p>
+</body></html>`;
+
+test("a pin on a repeated instance stays on that instance when the canvas pans", async ({
+  app,
+}) => {
+  const page = app.page;
+  await app.open(await app.seed(REPEATED_SCREEN));
+  await app.zoomToFit();
+  await page
+    .locator('[data-design-bottom-toolbar] button[aria-label="Pin comment"]')
+    .click();
+
+  const liveFrame = page
+    .frameLocator("iframe[data-design-preview-iframe]")
+    .first();
+  const second = liveFrame.locator(".repeat").nth(1);
+  const center = async () => {
+    const box = (await second.boundingBox())!;
+    return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  };
+  const pinOffset = async () => {
+    const pin = (await page
+      .locator("[data-review-pin]")
+      .first()
+      .boundingBox())!;
+    const target = (await second.boundingBox())!;
+    return {
+      x: pin.x + pin.width / 2 - (target.x + target.width / 2),
+      y: pin.y + pin.height / 2 - (target.y + target.height / 2),
+    };
+  };
+
+  const secondCenter = await center();
+  await page.mouse.click(secondCenter.x, secondCenter.y);
+  const composer = page.locator('textarea[placeholder="Leave feedback…"]');
+  await composer.fill("Repeat check");
+  await page
+    .locator('form:has(textarea[placeholder="Leave feedback…"])')
+    .first()
+    .getByRole("button", { name: "Comment", exact: true })
+    .click();
+  await expect(page.locator("[data-review-pin]")).toHaveCount(1);
+  const before = await pinOffset();
+  expect(Math.abs(before.y)).toBeLessThan(6);
+
+  const surface = (await page
+    .locator("[data-multi-screen-canvas-surface]")
+    .first()
+    .boundingBox())!;
+  await page.mouse.move(
+    surface.x + surface.width * 0.5,
+    surface.y + surface.height * 0.92,
+  );
+  await page.mouse.wheel(0, 120);
+  await expect
+    .poll(async () => {
+      const offset = await pinOffset();
+      return Math.hypot(offset.x - before.x, offset.y - before.y) < 4;
+    })
+    .toBe(true);
+});

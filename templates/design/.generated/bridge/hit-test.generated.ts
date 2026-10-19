@@ -1294,13 +1294,18 @@ export const hitTestBridgeScript: string = `"use strict";
       var candidates = document.querySelectorAll(
         "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[data-loc],[id]"
       );
+      var matchCounts = {};
       for (var candidateIndex = 0; candidateIndex < candidates.length; candidateIndex += 1) {
         var candidate = candidates[candidateIndex];
         var candidateId = getNodeId(candidate);
-        if (candidateId && wanted[candidateId] && !found[candidateId]) {
-          found[candidateId] = candidate;
+        if (candidateId && wanted[candidateId]) {
+          matchCounts[candidateId] = (matchCounts[candidateId] || 0) + 1;
+          if (!found[candidateId]) found[candidateId] = candidate;
         }
       }
+      Object.keys(matchCounts).forEach(function(repeatedId) {
+        if (matchCounts[repeatedId] > 1) delete found[repeatedId];
+      });
       return found;
     }
     function postReviewLayout() {
