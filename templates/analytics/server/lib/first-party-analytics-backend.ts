@@ -1155,13 +1155,14 @@ function replacePostgresCastsInCode(code: string): string {
 }
 
 function translatePostgresDateExpression(value: string): string {
-  let translated = replacePostgresCastsInCode(value.trim());
-  translated = translated
-    .replace(/\bnow\s*\(\s*\)/gi, "CURRENT_TIMESTAMP()")
-    .replace(/\bCURRENT_DATE\b(?!\s*\()/gi, "CURRENT_DATE()")
-    .replace(/\bCURRENT_TIMESTAMP\b(?!\s*\()/gi, "CURRENT_TIMESTAMP()");
-  translated = replaceBigQueryDateArithmetic(translated);
-  return translated.trim();
+  return rewriteWithMaskedSqlLiterals(value.trim(), (code) => {
+    let translated = replacePostgresCastsInCode(code);
+    translated = translated
+      .replace(/\bnow\s*\(\s*\)/gi, "CURRENT_TIMESTAMP()")
+      .replace(/\bCURRENT_DATE\b(?!\s*\()/gi, "CURRENT_DATE()")
+      .replace(/\bCURRENT_TIMESTAMP\b(?!\s*\()/gi, "CURRENT_TIMESTAMP()");
+    return replaceBigQueryDateArithmetic(translated).trim();
+  });
 }
 
 function replaceBigQueryDateArithmetic(code: string): string {
