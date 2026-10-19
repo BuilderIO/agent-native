@@ -76,7 +76,7 @@ describe("Google Docs access resolution", () => {
       accessToken: "managed-token",
     });
     expect(mocks.resolveWorkspaceConnectionForApp).toHaveBeenCalledWith({
-      appId: "slides",
+      appId: "slides-2",
       provider: "google_drive",
       requireConnected: true,
     });

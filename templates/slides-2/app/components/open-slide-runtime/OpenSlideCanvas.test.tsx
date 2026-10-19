@@ -81,6 +81,8 @@ describe("OpenSlideCanvas", () => {
     expect(canvas.style.height).toBe("810px");
     expect(canvas.classList.contains("absolute")).toBe(true);
     expect(canvas.style.transform).toBe("translate(-50%, -50%)");
+    expect(stage.style.width).toBe("1920px");
+    expect(stage.style.height).toBe("1080px");
     expect(stage.style.transform).toBe("scale(0.75)");
     expect(onScaleChange).toHaveBeenLastCalledWith(0.75);
     expect(resizeObservers).toHaveLength(1);
@@ -129,6 +131,32 @@ describe("OpenSlideCanvas", () => {
     expect(canvas.style.height).toBe("270px");
     expect(stage.style.transform).toBe("scale(0.25)");
     expect(onScaleChange).toHaveBeenLastCalledWith(0.25);
+  });
+
+  it("blocks preview interaction only when requested", () => {
+    const { container, rerender } = render(
+      <OpenSlideCanvas scale={0.25}>
+        <span>slide content</span>
+      </OpenSlideCanvas>,
+    );
+
+    expect(
+      container.querySelector("[data-open-slide-canvas-interaction-blocker]"),
+    ).toBeNull();
+
+    rerender(
+      <OpenSlideCanvas scale={0.25} blockInteractions>
+        <span>slide content</span>
+      </OpenSlideCanvas>,
+    );
+
+    const blocker = container.querySelector(
+      "[data-open-slide-canvas-interaction-blocker]",
+    );
+    expect(blocker).not.toBeNull();
+    expect(blocker?.getAttribute("aria-hidden")).toBe("true");
+    expect(blocker?.classList.contains("absolute")).toBe(true);
+    expect(blocker?.classList.contains("inset-0")).toBe(true);
   });
 
   it("keeps a zero-size canvas hidden until the container can be measured", () => {

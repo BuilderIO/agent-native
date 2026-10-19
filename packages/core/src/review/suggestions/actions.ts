@@ -144,6 +144,12 @@ export const createResourceSuggestion = defineAction({
     );
     return url ? { url, label: "Open suggestion" } : null;
   },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: true,
+    idempotentHint: true,
+  },
   run: async (args, ctx) => {
     const access = await assertReviewableResourceAccess(
       args.resourceType,
@@ -353,6 +359,12 @@ export const updateResourceSuggestion = defineAction({
         "Optional replacement summary; omission preserves the existing summary.",
       ),
   }),
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+    idempotentHint: true,
+  },
   run: async (args, ctx) => {
     const initial = await getSuggestion(args.id);
     if (!initial)
@@ -547,6 +559,12 @@ export const decideResourceSuggestion = defineAction({
     observedBase: z.string().min(1),
     observedRevision: z.number().int().positive().optional(),
   }),
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+    idempotentHint: true,
+  },
   run: async (args, ctx) => {
     const suggestion = await getSuggestion(args.id);
     if (!suggestion) throw new Error("Suggestion not found");
@@ -780,6 +798,12 @@ export const createResourceSuggestionProposal = defineAction({
   description:
     "Create or append independently reviewable suggestions under one durable proposal.",
   schema: proposalCreationSchema,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: true,
+    idempotentHint: true,
+  },
   run: async (args, ctx) => {
     await assertReviewableResourceAccess(
       args.resourceType,
@@ -1013,6 +1037,12 @@ export const decideResourceSuggestionProposal = defineAction({
       )
       .min(1),
   }),
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+    idempotentHint: true,
+  },
   run: async (args, ctx) => {
     await ensureSuggestionTables();
     const db = getDbExec();

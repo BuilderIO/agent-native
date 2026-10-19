@@ -19,6 +19,11 @@ const schema = z.object({
 export default defineAction({
   description: "Set the review status for a reusable resource.",
   schema,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   run: async (args, ctx) => {
     const actionCtx = ctx as ReviewResourceContext | undefined;
     const access = await assertReviewableResourceAccess(

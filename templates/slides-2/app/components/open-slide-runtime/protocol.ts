@@ -1,6 +1,5 @@
 import { isSlideTransition } from "@shared/open-slide-transition";
 import {
-  BUILTIN_SLIDE_DESIGN_FONTS,
   isSafeSlideFontFamily,
   SLIDE_FONT_VARIANT_PATTERN,
   type SlideDesignTokens,

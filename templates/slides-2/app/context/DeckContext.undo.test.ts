@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyOpToDeck,
+  deckIdFromPathname,
   deriveDeckDiffOps,
   deriveInverseOp,
   reorderSlidesById,
@@ -50,6 +51,12 @@ function expectRoundTrip(before: Deck, op: PatchDeckOp) {
 }
 
 describe("deriveInverseOp / applyOpToDeck round-trips", () => {
+  it("only resolves a global undo target from an open deck route", () => {
+    expect(deckIdFromPathname("/slides/deck/deck-1")).toBe("deck-1");
+    expect(deckIdFromPathname("/slides/home")).toBeNull();
+    expect(deckIdFromPathname("/slides/settings")).toBeNull();
+  });
+
   it("moves a selected slide group together while preserving its order", () => {
     const slides = [slide("a"), slide("b"), slide("c"), slide("d")];
     expect(

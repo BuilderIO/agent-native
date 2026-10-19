@@ -173,7 +173,7 @@ describe("Slides 2 Creative Context deck adapter", () => {
     expect(result.privateMetadata?.clone).toMatchObject({
       appId: "slides-2",
       resourceId: "deck-1",
-      handle: "private-handle",
+      handle: { id: "private-blob" },
     });
   });
 });

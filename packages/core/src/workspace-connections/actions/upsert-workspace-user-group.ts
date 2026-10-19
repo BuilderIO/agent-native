@@ -17,6 +17,11 @@ export default defineAction({
       .default([])
       .describe("Workspace member email addresses in this group."),
   }),
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   run: async (args, ctx) => {
     await assertWorkspaceUserGroupManager(ctx?.orgId, ctx?.userEmail);
     return upsertWorkspaceUserGroup({

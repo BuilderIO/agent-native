@@ -18,6 +18,13 @@ import type { ElementSnapshot, SourceEdit, SourceEditOp } from "./types";
 type Translate = ReturnType<typeof useTranslator>;
 
 type InlineRangeStyle = Extract<SourceEditOp, { kind: "set-text-range-style" }>;
+type InlineStyleOp = Extract<SourceEditOp, { kind: "set-style" }>;
+type InlineTextDraftHistory = {
+  draft: string;
+  rangeStyles: InlineRangeStyle[];
+  styleOps: InlineStyleOp[];
+  selection: { start: number; end: number } | null;
+};
 type InlineTextStyleKey =
   | "fontSize"
   | "fontWeight"
@@ -51,6 +58,8 @@ type InlineTextEditorProps = {
   initialPoint?: { x: number; y: number };
   onCommit: (edits: SourceEdit[]) => Promise<boolean>;
   onCancel: () => void;
+  onUndo?: () => void;
+  onRedo?: () => void;
 };
 
 export function InlineTextEditor({
@@ -60,14 +69,21 @@ export function InlineTextEditor({
   initialPoint,
   onCommit,
   onCancel,
+  onUndo,
+  onRedo,
 }: InlineTextEditorProps) {
   const editableRef = useRef<HTMLDivElement>(null);
   const selectionRef = useRef<{ start: number; end: number } | null>(null);
   const [draft, setDraft] = useState(node.text);
   const [rangeStyles, setRangeStyles] = useState<InlineRangeStyle[]>([]);
-  const [styleOps, setStyleOps] = useState<
-    Extract<SourceEditOp, { kind: "set-style" }>[]
-  >([]);
+  const [styleOps, setStyleOps] = useState<InlineStyleOp[]>([]);
+  const draftRef = useRef(draft);
+  const rangeStylesRef = useRef(rangeStyles);
+  const styleOpsRef = useRef(styleOps);
+  const draftHistoryRef = useRef<{
+    undo: InlineTextDraftHistory[];
+    redo: InlineTextDraftHistory[];
+  }>({ undo: [], redo: [] });
   const style = node.styles;
 
   useEffect(() => {
@@ -97,23 +113,97 @@ export function InlineTextEditor({
     return selection ?? selectionRef.current;
   };
 
+  const captureDraftHistory = (): InlineTextDraftHistory => ({
+    draft: draftRef.current,
+    rangeStyles: rangeStylesRef.current,
+    styleOps: styleOpsRef.current,
+    selection: currentSelection(),
+  });
+
+  const rememberDraftMutation = () => {
+    const history = draftHistoryRef.current;
+    history.undo.push(captureDraftHistory());
+    if (history.undo.length > 100) history.undo.shift();
+    history.redo = [];
+  };
+
+  const applyDraftHistory = (redo: boolean): boolean => {
+    const history = draftHistoryRef.current;
+    const from = redo ? history.redo : history.undo;
+    if (!from.length) return false;
+
+    const to = redo ? history.undo : history.redo;
+    to.push(captureDraftHistory());
+    const previous = from.pop();
+    if (!previous) return false;
+
+    draftRef.current = previous.draft;
+    rangeStylesRef.current = previous.rangeStyles;
+    styleOpsRef.current = previous.styleOps;
+    setDraft(previous.draft);
+    setRangeStyles(previous.rangeStyles);
+    setStyleOps(previous.styleOps);
+
+    const editor = editableRef.current;
+    if (editor) {
+      editor.textContent = previous.draft;
+      editor.focus();
+      const range = document.createRange();
+      const textNode = editor.firstChild;
+      if (textNode?.nodeType === Node.TEXT_NODE) {
+        const start = Math.min(
+          previous.selection?.start ?? previous.draft.length,
+          previous.draft.length,
+        );
+        const end = Math.min(
+          previous.selection?.end ?? start,
+          previous.draft.length,
+        );
+        range.setStart(textNode, start);
+        range.setEnd(textNode, end);
+      } else {
+        range.selectNodeContents(editor);
+        range.collapse(true);
+      }
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      selectionRef.current = previous.selection;
+    }
+    return true;
+  };
+
+  const syncDraftFromEditor = (editor: HTMLElement) => {
+    const nextDraft = editor.textContent ?? "";
+    if (nextDraft === draftRef.current) return;
+    rememberDraftMutation();
+    draftRef.current = nextDraft;
+    setDraft(nextDraft);
+  };
+
   const applyInlineStyle = (key: InlineTextStyleKey, value: string | null) => {
     const selection = currentSelection();
     const start = selection?.start ?? 0;
     const end = selection?.end ?? 0;
     if (key !== "textAlign" && start < end) {
-      setRangeStyles((current) => [
-        ...current.filter(
+      rememberDraftMutation();
+      const nextRangeStyles = [
+        ...rangeStylesRef.current.filter(
           (entry) =>
             !(entry.start === start && entry.end === end && entry.key === key),
         ),
-        { kind: "set-text-range-style", start, end, key, value },
-      ]);
+        { kind: "set-text-range-style" as const, start, end, key, value },
+      ];
+      rangeStylesRef.current = nextRangeStyles;
+      setRangeStyles(nextRangeStyles);
     } else {
-      setStyleOps((current) => [
-        ...current.filter((entry) => entry.key !== key),
-        { kind: "set-style", key, value },
-      ]);
+      rememberDraftMutation();
+      const nextStyleOps = [
+        ...styleOpsRef.current.filter((entry) => entry.key !== key),
+        { kind: "set-style" as const, key, value },
+      ];
+      styleOpsRef.current = nextStyleOps;
+      setStyleOps(nextStyleOps);
     }
     editableRef.current?.focus();
   };
@@ -193,7 +283,9 @@ export function InlineTextEditor({
     const start = selection?.start ?? currentText.length;
     const end = selection?.end ?? currentText.length;
     const nextText = `${currentText.slice(0, start)}${text}${currentText.slice(end)}`;
+    rememberDraftMutation();
     editor.textContent = nextText;
+    draftRef.current = nextText;
     setDraft(nextText);
 
     const caret = start + text.length;
@@ -211,6 +303,7 @@ export function InlineTextEditor({
     const browserSelection = window.getSelection();
     browserSelection?.removeAllRanges();
     browserSelection?.addRange(range);
+    selectionRef.current = { start: caret, end: caret };
   };
 
   return (
@@ -362,10 +455,8 @@ export function InlineTextEditor({
         aria-multiline="true"
         aria-label={t("styleInspector.text")}
         spellCheck={false}
-        onInput={(event) => setDraft(event.currentTarget.textContent ?? "")}
-        onCompositionEnd={(event) =>
-          setDraft(event.currentTarget.textContent ?? "")
-        }
+        onInput={(event) => syncDraftFromEditor(event.currentTarget)}
+        onCompositionEnd={(event) => syncDraftFromEditor(event.currentTarget)}
         onPaste={(event) => {
           event.preventDefault();
           insertPlainText(event.clipboardData.getData("text/plain"));
@@ -377,6 +468,31 @@ export function InlineTextEditor({
             event.nativeEvent.keyCode === 229
           )
             return;
+          const key = event.key.toLowerCase();
+          const command = event.metaKey || event.ctrlKey;
+          if (command && !event.altKey && !event.shiftKey && key === "s") {
+            event.preventDefault();
+            void commit();
+            return;
+          }
+          if (
+            command &&
+            !event.altKey &&
+            (key === "z" || (key === "y" && event.ctrlKey))
+          ) {
+            const redo = key === "y" || event.shiftKey;
+            if (applyDraftHistory(redo)) {
+              event.preventDefault();
+              return;
+            }
+            const historyAction = redo ? onRedo : onUndo;
+            if (historyAction) {
+              event.preventDefault();
+              onCancel();
+              historyAction();
+              return;
+            }
+          }
           if (event.key === "Escape") {
             event.preventDefault();
             void commit();

@@ -10,6 +10,8 @@ let slidesSelectionState: Record<string, unknown> | null = null;
 let slidesOpenPanelState: Record<string, unknown> | null = null;
 let slideEditorStatusState: Record<string, unknown> | null = null;
 let slideEditorCommandState: Record<string, unknown> | null = null;
+let deckHistoryStatusState: Record<string, unknown> | null = null;
+let deckHistoryCommandState: Record<string, unknown> | null = null;
 let slideFitState: Record<string, unknown> | null = null;
 let deckFitState: Record<string, unknown> | null = null;
 let appStateReadCalls: Array<{
@@ -122,6 +124,9 @@ vi.mock("./_tab-state.js", () => ({
       if (key === "slides-2:slide-editor-status") return slideEditorStatusState;
       if (key === "slides-2:slide-editor-command")
         return slideEditorCommandState;
+      if (key === "slides-2:deck-history-status") return deckHistoryStatusState;
+      if (key === "slides-2:deck-history-command")
+        return deckHistoryCommandState;
       if (key === "slides-2:slide-fit-check") return slideFitState;
       if (key === "slides-2:deck-fit-checks") return deckFitState;
       return null;
@@ -189,6 +194,8 @@ beforeEach(() => {
   slidesOpenPanelState = null;
   slideEditorStatusState = null;
   slideEditorCommandState = null;
+  deckHistoryStatusState = null;
+  deckHistoryCommandState = null;
   slideFitState = null;
   deckFitState = null;
   appStateReadCalls = [];
@@ -224,6 +231,53 @@ describe("view-screen", () => {
     });
     expect(appStateReadCalls).toContainEqual({
       key: "slides-2:slide-editor-status",
+      options: { fallbackToGlobal: false },
+    });
+  });
+
+  it("surfaces only the active DeckEditor history identity and command result", async () => {
+    mockRows = [
+      {
+        id: "deck-1",
+        title: "Quarterly Review",
+        ownerEmail: "alice@example.com",
+        data: JSON.stringify({
+          appId: "slides-2",
+          slides: [{ id: "slide-a", content: "<h1>Opening</h1>" }],
+        }),
+      },
+    ];
+    navigationState = { view: "editor", deckId: "deck-1" };
+    deckHistoryStatusState = {
+      protocolVersion: 1,
+      deckId: "deck-1",
+      editorSessionId: "deck_editor_session_1",
+      historyVersion: 8,
+      canUndo: true,
+      canRedo: false,
+    };
+    deckHistoryCommandState = {
+      protocolVersion: 1,
+      commandId: "command_123456",
+      operation: "undo",
+      deckId: "deck-1",
+      editorSessionId: "deck_editor_session_1",
+      historyVersion: 7,
+      status: "applied",
+      completedAt: 123,
+    };
+
+    const result = await action.run({});
+
+    expect(result).toContain("### DeckEditor history");
+    expect(result).toContain("editorSessionId: deck_editor_session_1");
+    expect(result).toContain("historyVersion: 8");
+    expect(result).toContain("historyControls: canUndo=true canRedo=false");
+    expect(result).toContain(
+      "lastDeckHistoryCommand: id=command_123456 operation=undo status=applied",
+    );
+    expect(appStateReadCalls).toContainEqual({
+      key: "slides-2:deck-history-status",
       options: { fallbackToGlobal: false },
     });
   });

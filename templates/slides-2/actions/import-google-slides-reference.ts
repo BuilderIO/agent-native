@@ -16,6 +16,101 @@ import {
   type ImportedImageFallback,
 } from "./import-pptx.js";
 
+const MAX_GOOGLE_SLIDES_PPTX_BYTES = 100 * 1024 * 1024;
+const MAX_GOOGLE_SLIDES_METADATA_BYTES = 8 * 1024 * 1024;
+const MAX_GOOGLE_SLIDES_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_GOOGLE_SLIDES_TOTAL_IMAGE_BYTES = 40 * 1024 * 1024;
+
+type ResponseSizeFailure = {
+  errorCode: string;
+  message: string;
+};
+
+type ResponseReaderRegistration = (
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+) => () => void;
+
+async function cancelResponseBody(response: Response): Promise<void> {
+  try {
+    await response.body?.cancel();
+  } catch {
+    console.warn("[slides-2] Failed to cancel rejected response body");
+  }
+}
+
+async function cancelResponseReader(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  reason?: unknown,
+): Promise<void> {
+  try {
+    await reader.cancel(reason);
+  } catch {
+    console.warn("[slides-2] Failed to cancel rejected response reader");
+  }
+}
+
+async function cancelResponseStream(
+  stream: ReadableStream<Uint8Array>,
+  reason?: unknown,
+): Promise<void> {
+  if (stream.locked) return;
+  try {
+    await stream.cancel(reason);
+  } catch {
+    console.warn("[slides-2] Failed to cancel rejected response stream");
+  }
+}
+
+export async function readBoundedResponseBytes(
+  response: Response,
+  maxBytes: number,
+  failure: ResponseSizeFailure,
+  acceptChunk?: (byteCount: number) => ResponseSizeFailure | null,
+  registerReader?: ResponseReaderRegistration,
+): Promise<Buffer> {
+  const declaredSize = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declaredSize) && declaredSize > maxBytes) {
+    await cancelResponseBody(response);
+    fail(failure.message, { errorCode: failure.errorCode, statusCode: 413 });
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) return Buffer.alloc(0);
+
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  let unregisterReader: (() => void) | undefined;
+  try {
+    unregisterReader = registerReader?.(reader);
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      const chunkFailure = acceptChunk?.(value.byteLength);
+      const sizeFailure = size > maxBytes ? failure : chunkFailure;
+      if (sizeFailure) {
+        await cancelResponseReader(reader);
+        fail(sizeFailure.message, {
+          errorCode: sizeFailure.errorCode,
+          statusCode: 413,
+        });
+      }
+      chunks.push(value);
+    }
+  } finally {
+    unregisterReader?.();
+    reader.releaseLock();
+  }
+
+  const bytes = Buffer.allocUnsafe(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
 function deckDeepLink(deckId: string): string {
   return buildDeepLink({
     app: "slides-2",
@@ -80,7 +175,14 @@ async function exportGoogleSlidesAsPptx(fileId: string, accessToken: string) {
     throw googleSlidesExportError(response.status);
   }
 
-  const bytes = await response.arrayBuffer();
+  const bytes = await readBoundedResponseBytes(
+    response,
+    MAX_GOOGLE_SLIDES_PPTX_BYTES,
+    {
+      errorCode: "google_slides_export_too_large",
+      message: "Google Drive returned an export that is too large to import.",
+    },
+  );
   if (bytes.byteLength === 0) {
     fail("Google Drive returned an empty presentation export.", {
       errorCode: "google_slides_export_empty",
@@ -88,7 +190,7 @@ async function exportGoogleSlidesAsPptx(fileId: string, accessToken: string) {
     });
   }
 
-  return Buffer.from(bytes);
+  return bytes;
 }
 
 interface GoogleSlidesImageElement {
@@ -192,8 +294,25 @@ async function fetchGoogleSlidesImageFallbacks(
       { errorCode: "google_slides_images_request_failed", statusCode: 502 },
     );
   }
-  const googlePresentation =
-    (await response.json()) as GoogleSlidesPresentationImages;
+  const metadataBytes = await readBoundedResponseBytes(
+    response,
+    MAX_GOOGLE_SLIDES_METADATA_BYTES,
+    {
+      errorCode: "google_slides_images_response_too_large",
+      message: "Google Slides returned too much image metadata to import.",
+    },
+  );
+  let googlePresentation: GoogleSlidesPresentationImages;
+  try {
+    googlePresentation = JSON.parse(
+      metadataBytes.toString("utf8"),
+    ) as GoogleSlidesPresentationImages;
+  } catch {
+    fail("Google Slides returned invalid image metadata.", {
+      errorCode: "google_slides_images_response_invalid",
+      statusCode: 502,
+    });
+  }
   const candidates: GoogleSlidesImageCandidate[] = [];
   const candidateKeys = new Set<string>();
 
@@ -277,41 +396,123 @@ async function fetchGoogleSlidesImageFallbacks(
     string,
     Promise<{ data: Uint8Array; mimeType: string }>
   >();
+  const imageDownloadController = new AbortController();
+  const activeImageBodies = new Set<ReadableStream<Uint8Array>>();
+  const activeImageReaders = new Set<ReadableStreamDefaultReader<Uint8Array>>();
+  let hasImageDownloadFailure = false;
+  let firstImageDownloadFailure: unknown;
+  let cancellationPromise = Promise.resolve();
+  const queueCleanup = (cleanup: Promise<void>) => {
+    cancellationPromise = Promise.all([cancellationPromise, cleanup]).then(
+      () => undefined,
+    );
+  };
+  const registerImageResponse = (response: Response) => {
+    const body = response.body;
+    if (!body) return () => {};
+    if (hasImageDownloadFailure) {
+      queueCleanup(cancelResponseStream(body, firstImageDownloadFailure));
+    } else {
+      activeImageBodies.add(body);
+    }
+    return () => activeImageBodies.delete(body);
+  };
+  const registerImageReader: ResponseReaderRegistration = (reader) => {
+    if (hasImageDownloadFailure) {
+      queueCleanup(cancelResponseReader(reader, firstImageDownloadFailure));
+    } else {
+      activeImageReaders.add(reader);
+    }
+    return () => activeImageReaders.delete(reader);
+  };
+  const stopImageDownloads = (error: unknown) => {
+    if (!hasImageDownloadFailure) {
+      hasImageDownloadFailure = true;
+      firstImageDownloadFailure = error;
+      imageDownloadController.abort(error);
+      for (const reader of activeImageReaders) {
+        queueCleanup(cancelResponseReader(reader, error));
+      }
+      for (const body of activeImageBodies) {
+        queueCleanup(cancelResponseStream(body, error));
+      }
+    }
+    return firstImageDownloadFailure;
+  };
+  let totalImageBytes = 0;
   const downloadImage = (candidate: GoogleSlidesImageCandidate) => {
     const existing = imageDownloads.get(candidate.contentUrl);
     if (existing) return existing;
 
     const download = downloadLimit(async () => {
-      const imageResponse = await ssrfSafeFetch(
-        candidate.contentUrl,
-        {},
-        { httpsOnly: true, maxRedirects: 2 },
-      );
-      if (!imageResponse.ok) {
-        fail(
-          `Google Slides returned HTTP ${imageResponse.status} while downloading image ${candidate.imageIndex + 1} on slide ${candidate.slideIndex + 1}.`,
-          { errorCode: "google_slides_image_download_failed", statusCode: 502 },
+      if (hasImageDownloadFailure) throw firstImageDownloadFailure;
+
+      let releaseImageResponse = () => {};
+      try {
+        const imageResponse = await ssrfSafeFetch(
+          candidate.contentUrl,
+          { signal: imageDownloadController.signal },
+          { httpsOnly: true, maxRedirects: 2 },
         );
-      }
-      const mimeType =
-        imageResponse.headers.get("content-type")?.split(";", 1)[0] ||
-        "image/png";
-      if (!mimeType.startsWith("image/")) {
-        fail(
-          `Google Slides returned a non-image asset for image ${candidate.imageIndex + 1} on slide ${candidate.slideIndex + 1}.`,
-          { errorCode: "google_slides_image_invalid", statusCode: 502 },
+        releaseImageResponse = registerImageResponse(imageResponse);
+        if (hasImageDownloadFailure) throw firstImageDownloadFailure;
+        if (!imageResponse.ok) {
+          await cancelResponseBody(imageResponse);
+          fail(
+            `Google Slides returned HTTP ${imageResponse.status} while downloading image ${candidate.imageIndex + 1} on slide ${candidate.slideIndex + 1}.`,
+            {
+              errorCode: "google_slides_image_download_failed",
+              statusCode: 502,
+            },
+          );
+        }
+        const mimeType =
+          imageResponse.headers.get("content-type")?.split(";", 1)[0] ||
+          "image/png";
+        if (!mimeType.startsWith("image/")) {
+          await cancelResponseBody(imageResponse);
+          fail(
+            `Google Slides returned a non-image asset for image ${candidate.imageIndex + 1} on slide ${candidate.slideIndex + 1}.`,
+            { errorCode: "google_slides_image_invalid", statusCode: 502 },
+          );
+        }
+        const data = await readBoundedResponseBytes(
+          imageResponse,
+          MAX_GOOGLE_SLIDES_IMAGE_BYTES,
+          {
+            errorCode: "google_slides_image_too_large",
+            message: `Google Slides image ${candidate.imageIndex + 1} on slide ${candidate.slideIndex + 1} exceeds the import size limit.`,
+          },
+          (byteCount) => {
+            if (
+              totalImageBytes + byteCount >
+              MAX_GOOGLE_SLIDES_TOTAL_IMAGE_BYTES
+            ) {
+              return {
+                errorCode: "google_slides_images_too_large",
+                message:
+                  "Google Slides images exceed the total import size limit.",
+              };
+            }
+            totalImageBytes += byteCount;
+            return null;
+          },
+          registerImageReader,
         );
+        return { data, mimeType };
+      } catch (error) {
+        const failure = stopImageDownloads(error);
+        await cancellationPromise;
+        throw failure;
+      } finally {
+        releaseImageResponse();
       }
-      return {
-        data: new Uint8Array(await imageResponse.arrayBuffer()),
-        mimeType,
-      };
     });
     imageDownloads.set(candidate.contentUrl, download);
     return download;
   };
 
-  return Promise.all(
+  const results = await Promise.allSettled(
     candidates.map(async (candidate) => {
       const { data, mimeType } = await downloadImage(candidate);
       return {
@@ -327,6 +528,11 @@ async function fetchGoogleSlidesImageFallbacks(
       };
     }),
   );
+  if (hasImageDownloadFailure) throw firstImageDownloadFailure;
+  return results.map((result) => {
+    if (result.status === "rejected") throw result.reason;
+    return result.value;
+  });
 }
 
 export default defineAction({

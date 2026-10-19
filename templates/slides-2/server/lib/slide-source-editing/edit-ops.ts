@@ -126,20 +126,6 @@ export function findImports(ast: t.File): ImportInfo[] {
   return out;
 }
 
-function collectTopLevelIdentifiers(ast: t.File): Set<string> {
-  // Only need to avoid colliding with anything resolvable by JSX —
-  // import bindings cover the common case. Local consts/lets are
-  // handled by source-level identifier scanning below.
-  const names = new Set<string>();
-  for (const imp of findImports(ast)) {
-    if (imp.defaultIdent) names.add(imp.defaultIdent);
-    for (const spec of imp.node.specifiers) {
-      if (!t.isImportDefaultSpecifier(spec)) names.add(spec.local.name);
-    }
-  }
-  return names;
-}
-
 export function safeAssetIdentifier(
   filename: string,
   taken: Set<string>,

@@ -1,6 +1,7 @@
 import { sanitizeSlideHtml } from "../app/lib/sanitize-slide-html.js";
 
 export const SLIDES_DECK_RESULT_RENDERER = "slides.deck-result";
+export const SLIDES_ADDED_SLIDE_RESULT_RENDERER = "slides.added-slide-result";
 
 const MAX_PREVIEW_SLIDES = 3;
 const MAX_PREVIEW_HTML_LENGTH = 12_000;
@@ -26,6 +27,62 @@ export interface SlidesDeckResult {
   title: string;
   slideCount: number;
   previews: SlidesDeckPreview[];
+}
+
+export interface SlidesAddedSlideResult {
+  deckId: string;
+  deckTitle: string;
+  slideId: string;
+  slideNumber: number;
+  slideCount: number;
+}
+
+export function projectSlidesAddedSlideResult(
+  value: unknown,
+): SlidesAddedSlideResult | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+
+  const result = value as Record<string, unknown>;
+  const deckId = typeof result.deckId === "string" ? result.deckId.trim() : "";
+  const deckTitle =
+    typeof result.deckTitle === "string" ? result.deckTitle.trim() : "";
+  const slideId =
+    typeof result.slideId === "string" ? result.slideId.trim() : "";
+  const slideNumber = result.slideNumber;
+  const slideCount = result.slideCount;
+
+  if (
+    !deckId ||
+    deckId.length > 200 ||
+    !deckTitle ||
+    !slideId ||
+    slideId.length > 200 ||
+    typeof slideNumber !== "number" ||
+    !Number.isSafeInteger(slideNumber) ||
+    slideNumber < 1 ||
+    typeof slideCount !== "number" ||
+    !Number.isSafeInteger(slideCount) ||
+    slideCount < slideNumber
+  ) {
+    return null;
+  }
+
+  return {
+    deckId,
+    deckTitle: deckTitle.slice(0, 180),
+    slideId,
+    slideNumber,
+    slideCount,
+  };
+}
+
+export function projectSlidesAddedSlidePreview(
+  value: unknown,
+  slideId: string,
+): SlidesDeckPreview | null {
+  if (!slideId) return null;
+  const deck = projectSlidesDeckResult(value);
+  return deck?.previews.find((preview) => preview.id === slideId) ?? null;
 }
 
 function projectSlidePreviews(value: unknown): SlidesDeckPreview[] {

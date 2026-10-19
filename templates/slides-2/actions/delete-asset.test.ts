@@ -5,7 +5,8 @@ type Clause =
   | { kind: "eq"; column: string; value: unknown }
   | { kind: "ne"; column: string; value: unknown }
   | { kind: "isNull"; column: string }
-  | { kind: "like"; column: string; value: string };
+  | { kind: "like"; column: string; value: string }
+  | { kind: "assetReference"; value: string };
 
 type Asset = {
   id: string;
@@ -18,10 +19,19 @@ type Asset = {
   type: string;
 };
 
+type Deck = {
+  id: string;
+  data: string;
+  ownerEmail: string;
+  orgId: string | null;
+};
+
 const mocks = vi.hoisted(() => ({
   email: "owner@example.com" as string | null,
   orgId: "org-1" as string | null,
   asset: null as Asset | null,
+  decks: [] as Deck[],
+  failDeckReferenceRead: false,
   aliases: [] as Asset[],
   scheduleCleanup: vi.fn(),
   events: [] as string[],
@@ -36,27 +46,41 @@ const mocks = vi.hoisted(() => ({
       deckId: "deckId",
       type: "type",
     },
+    decks: {
+      id: "id",
+      data: "data",
+      ownerEmail: "ownerEmail",
+      orgId: "orgId",
+    },
   },
 }));
 
-function matches(clause: Clause, asset: Asset): boolean {
+function matches(clause: Clause, row: Asset | Deck): boolean {
   switch (clause.kind) {
     case "and":
-      return clause.conditions.every((condition) => matches(condition, asset));
+      return clause.conditions.every((condition) => matches(condition, row));
     case "or":
-      return clause.conditions.some((condition) => matches(condition, asset));
+      return clause.conditions.some((condition) => matches(condition, row));
     case "eq":
-      return asset[clause.column as keyof Asset] === clause.value;
+      return (
+        (row as unknown as Record<string, unknown>)[clause.column] ===
+        clause.value
+      );
     case "ne":
-      return asset[clause.column as keyof Asset] !== clause.value;
+      return (
+        (row as unknown as Record<string, unknown>)[clause.column] !==
+        clause.value
+      );
     case "isNull":
-      return asset[clause.column as keyof Asset] == null;
+      return (row as unknown as Record<string, unknown>)[clause.column] == null;
     case "like": {
-      const value = asset[clause.column as keyof Asset];
+      const value = (row as unknown as Record<string, unknown>)[clause.column];
       return (
         typeof value === "string" && value.startsWith(clause.value.slice(0, -1))
       );
     }
+    case "assetReference":
+      return "data" in row && row.data.includes(clause.value);
   }
 }
 
@@ -97,6 +121,10 @@ vi.mock("drizzle-orm", () => ({
     column,
     value,
   }),
+  sql: (_strings: TemplateStringsArray, ...values: unknown[]): Clause => ({
+    kind: "assetReference",
+    value: String(values[0]),
+  }),
   or: (...conditions: Clause[]): Clause => ({ kind: "or", conditions }),
 }));
 
@@ -106,21 +134,44 @@ vi.mock("../server/db/index.js", () => ({
       mocks.events.push("transaction-begin");
       const tx = {
         select: (selection: Record<string, string>) => ({
-          from: () => ({
-            where: (clause: Clause) => ({
-              for: async (mode: string) => {
-                mocks.events.push(`asset-read-for-${mode}`);
-                if (!mocks.asset || !matches(clause, mocks.asset)) return [];
-                return [
-                  Object.fromEntries(
-                    Object.entries(selection).map(([key, column]) => [
-                      key,
-                      mocks.asset?.[column as keyof Asset],
-                    ]),
-                  ),
-                ];
-              },
-            }),
+          from: (table: unknown) => ({
+            where: (clause: Clause) => {
+              if (table === mocks.schema.decks) {
+                return {
+                  limit: async (count: number) => {
+                    mocks.events.push("deck-reference-read");
+                    if (mocks.failDeckReferenceRead) {
+                      throw new Error("deck reference query failed");
+                    }
+                    return mocks.decks
+                      .filter((deck) => matches(clause, deck))
+                      .slice(0, count)
+                      .map((deck) =>
+                        Object.fromEntries(
+                          Object.entries(selection).map(([key, column]) => [
+                            key,
+                            deck[column as keyof Deck],
+                          ]),
+                        ),
+                      );
+                  },
+                };
+              }
+              return {
+                for: async (mode: string) => {
+                  mocks.events.push(`asset-read-for-${mode}`);
+                  if (!mocks.asset || !matches(clause, mocks.asset)) return [];
+                  return [
+                    Object.fromEntries(
+                      Object.entries(selection).map(([key, column]) => [
+                        key,
+                        mocks.asset?.[column as keyof Asset],
+                      ]),
+                    ),
+                  ];
+                },
+              };
+            },
           }),
         }),
         delete: () => ({
@@ -179,6 +230,8 @@ describe("delete-asset", () => {
     mocks.email = "owner@example.com";
     mocks.orgId = "org-1";
     mocks.asset = imageAsset();
+    mocks.decks = [];
+    mocks.failDeckReferenceRead = false;
     mocks.aliases = [];
     mocks.scheduleCleanup.mockResolvedValue("cleanup-1");
     mocks.events.length = 0;
@@ -192,6 +245,7 @@ describe("delete-asset", () => {
     expect(mocks.events).toEqual([
       "transaction-begin",
       "asset-read-for-update",
+      "deck-reference-read",
       "cleanup-schedule",
       "metadata-delete",
       "transaction-commit",
@@ -205,6 +259,48 @@ describe("delete-asset", () => {
       url: "https://storage.example.test/asset-1.png",
     });
     expect(mocks.asset).toBeNull();
+  });
+
+  it("refuses deletion when a same-workspace deck references the image", async () => {
+    mocks.decks = [
+      {
+        id: "deck-1",
+        data: JSON.stringify({ sourceTsx: '<img src="asset://asset-1" />' }),
+        ownerEmail: "another-member@example.com",
+        orgId: "org-1",
+      },
+    ];
+
+    await expect(action.run({ id: "asset-1" } as never)).rejects.toMatchObject({
+      errorCode: "asset_delete_in_use",
+      statusCode: 409,
+    });
+
+    expect(mocks.events).toEqual([
+      "transaction-begin",
+      "asset-read-for-update",
+      "deck-reference-read",
+    ]);
+    expect(mocks.scheduleCleanup).not.toHaveBeenCalled();
+    expect(mocks.asset).not.toBeNull();
+  });
+
+  it("fails closed when the deck reference check cannot run", async () => {
+    const asset = mocks.asset;
+    mocks.failDeckReferenceRead = true;
+
+    await expect(action.run({ id: "asset-1" } as never)).rejects.toMatchObject({
+      errorCode: "asset_delete_reference_check_failed",
+      statusCode: 500,
+    });
+
+    expect(mocks.events).toEqual([
+      "transaction-begin",
+      "asset-read-for-update",
+      "deck-reference-read",
+    ]);
+    expect(mocks.scheduleCleanup).not.toHaveBeenCalled();
+    expect(mocks.asset).toBe(asset);
   });
 
   it("does nothing when a concurrent replacement already removed the source row", async () => {
@@ -255,6 +351,7 @@ describe("delete-asset", () => {
     expect(mocks.events).toEqual([
       "transaction-begin",
       "asset-read-for-update",
+      "deck-reference-read",
       "cleanup-schedule",
       "metadata-delete",
       "transaction-commit",
@@ -336,6 +433,7 @@ describe("delete-asset", () => {
     expect(mocks.events).toEqual([
       "transaction-begin",
       "asset-read-for-update",
+      "deck-reference-read",
       "cleanup-schedule",
     ]);
     expect(mocks.asset).not.toBeNull();

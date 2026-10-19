@@ -50,6 +50,11 @@ export default defineAction({
     }),
     summary: (args) => `Feature flag ${args.key}: ${args.operation}`,
   },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   run: async (args, ctx) => {
     const manager = await requireFeatureFlagManager(ctx ?? {});
     if (!getFeatureFlagDefinition(args.key)) {

@@ -13,6 +13,11 @@ export default defineAction({
     threadIds: z.array(z.string().min(1)).min(1).max(500),
     unread: z.boolean(),
   }),
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (args, ctx) => {
     await assertReviewableResourceAccess(
       args.resourceType,

@@ -1481,6 +1481,7 @@
     "upsert-workspace-user-group",
     "view-screen"
   ],
+  "slides-2": [],
   "tasks": [
     "apply-task-route",
     "bulk-delete-inbox-items",

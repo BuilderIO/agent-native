@@ -14,6 +14,11 @@ export default defineAction({
   schema: z.object({
     id: z.string().min(1).describe("User group ID to delete."),
   }),
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   run: async ({ id }, ctx) => {
     await assertWorkspaceUserGroupManager(ctx?.orgId, ctx?.userEmail);
     const orgId = ctx?.orgId ?? "";

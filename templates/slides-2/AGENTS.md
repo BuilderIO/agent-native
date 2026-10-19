@@ -49,6 +49,7 @@ Create and edit slide decks through Agent-Native chat and the visual editor, bac
 | `get-slide-source`, `update-slide-source` | Read source and save revision-checked source edits. |
 | `transform-slide-objects` | Insert, duplicate, delete, or transform source-backed objects. |
 | `control-slide-editor` | Save, undo, or redo the active editor tab. |
+| `control-deck-history` | Undo or redo a persisted edit in the active DeckEditor tab. |
 | `patch-deck` | Apply supported deck structure or style edits. |
 | `search-svgl-logos`, `import-svgl-logo` | Find a logo and import it as a slide asset. |
 | `export-pptx` | Export a deck as PowerPoint. |
@@ -58,6 +59,7 @@ Create and edit slide decks through Agent-Native chat and the visual editor, bac
 - `navigation` identifies the current view, deck, and slide. Home also records `homeTab` (`recent` or `templates`), `deckSearch`, and `deckFilter` (`all`, `created-by-me`, or `shared`); the templates route uses `search`; the themes route can include `themeId`.
 - `slides-selection` records selected source locations and their displayed properties.
 - `slides-open-panel` identifies the open editor panel.
+- `deck-history-status` exposes bounded, tab-scoped DeckEditor undo/redo availability and its current history version; `deck-history-command` queues one undo/redo command and records its result.
 - `slide-editor-status` exposes bounded, tab-scoped draft and undo/redo metadata; `slide-editor-command` is a one-shot editor command, not authorization.
 - `presenter-control-queue` stores bounded, short-lived presentation commands, including deck switches, until the console relays them to the live projection.
 

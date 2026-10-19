@@ -37,6 +37,11 @@ export default defineAction({
         ? `Deleted organization key ${args.name}`
         : `Deleted personal key ${args.name}`,
   },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   run: async (args, ctx) => {
     const email = ctx?.userEmail?.trim().toLowerCase();
     if (!email) fail("Not authenticated.", { statusCode: 401 });

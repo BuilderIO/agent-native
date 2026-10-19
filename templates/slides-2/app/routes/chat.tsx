@@ -19,6 +19,30 @@ const SEO_TITLE = "Slides 2 - Agent chat";
 const SEO_DESCRIPTION =
   "Chat with the Slides 2 agent to create, inspect, and refine presentations.";
 
+function readRouteSlideSelection(
+  search: string,
+  deckId: string | null,
+): SlidesAgentSelection | null {
+  if (!deckId) return null;
+  const params = new URLSearchParams(search);
+  const rawSlideId = params.get("slideId")?.trim();
+  const slideId = rawSlideId && rawSlideId.length <= 200 ? rawSlideId : null;
+  const rawSlideNumber = params.get("slideNumber");
+  const parsedSlideNumber = rawSlideNumber ? Number(rawSlideNumber) : NaN;
+  const slideNumber =
+    Number.isSafeInteger(parsedSlideNumber) && parsedSlideNumber >= 1
+      ? parsedSlideNumber
+      : undefined;
+
+  if (!slideId && slideNumber === undefined) return null;
+  return {
+    deckId,
+    ...(slideId ? { slideId } : {}),
+    ...(slideNumber === undefined ? {} : { slideNumber }),
+    items: [],
+  };
+}
+
 export function meta() {
   return [
     { title: SEO_TITLE },
@@ -37,8 +61,34 @@ export default function ChatRoute() {
   const navigate = useNavigate();
   const t = useT();
   const deckId = new URLSearchParams(location.search).get("deckId");
+  const routeSlideSelection = readRouteSlideSelection(location.search, deckId);
+  const routeSlideId = routeSlideSelection?.slideId ?? null;
+  const routeSlideNumber = routeSlideSelection?.slideNumber;
   const [slidesSelection, setSlidesSelection] =
-    useState<SlidesAgentSelection | null>(() => readPublishedSlidesSelection());
+    useState<SlidesAgentSelection | null>(
+      () => routeSlideSelection ?? readPublishedSlidesSelection(),
+    );
+  useEffect(() => {
+    if (!deckId || (!routeSlideId && routeSlideNumber === undefined)) return;
+    setSlidesSelection((current) => {
+      if (
+        current?.deckId === deckId &&
+        current.slideId === routeSlideId &&
+        current.slideNumber === routeSlideNumber &&
+        (current.items?.length ?? 0) === 0
+      ) {
+        return current;
+      }
+      return {
+        deckId,
+        ...(routeSlideId ? { slideId: routeSlideId } : {}),
+        ...(routeSlideNumber === undefined
+          ? {}
+          : { slideNumber: routeSlideNumber }),
+        items: [],
+      };
+    });
+  }, [deckId, routeSlideId, routeSlideNumber]);
   const scopeLabel = deckId
     ? getSlidesAgentScopeLabel(slidesSelection, deckId)
     : null;
@@ -54,7 +104,23 @@ export default function ChatRoute() {
         ...buildSlidesAgentContext(slidesSelection, deckId),
       }
     : null;
-  const scopeQuery = deckId ? `?deckId=${encodeURIComponent(deckId)}` : "";
+  const scopeParams = new URLSearchParams();
+  if (deckId) {
+    scopeParams.set("deckId", deckId);
+    if (slidesSelection?.deckId === deckId) {
+      if (slidesSelection.slideId?.trim()) {
+        scopeParams.set("slideId", slidesSelection.slideId.trim());
+      }
+      if (
+        typeof slidesSelection.slideNumber === "number" &&
+        Number.isSafeInteger(slidesSelection.slideNumber) &&
+        slidesSelection.slideNumber >= 1
+      ) {
+        scopeParams.set("slideNumber", String(slidesSelection.slideNumber));
+      }
+    }
+  }
+  const scopeQuery = scopeParams.size > 0 ? `?${scopeParams.toString()}` : "";
   const threadUrlSync = {
     routeThreadId: threadId ?? null,
     getPath: (id: string | null) =>

@@ -131,6 +131,106 @@ describe("InlineTextEditor formatting controls", () => {
     ]);
   });
 
+  it("undoes and redoes inline text and formatting before deck history", () => {
+    const node: ElementSnapshot = {
+      nodeId: "text-1",
+      line: 1,
+      column: 1,
+      tagName: "h1",
+      bounds: { x: 100, y: 120, width: 400, height: 80 },
+      text: "Hello",
+      styles: { fontSize: "24px" },
+    };
+    const onUndo = vi.fn();
+    const onRedo = vi.fn();
+
+    render(
+      <InlineTextEditor
+        node={node}
+        disabled={false}
+        t={t}
+        onCommit={vi.fn(async () => true)}
+        onCancel={() => {}}
+        onUndo={onUndo}
+        onRedo={onRedo}
+      />,
+    );
+
+    const editor = screen.getByRole("textbox", {
+      name: t("styleInspector.text"),
+    });
+    editor.textContent = "Edited";
+    fireEvent.input(editor);
+    fireEvent.keyDown(editor, { key: "z", ctrlKey: true });
+    expect(editor.textContent).toBe("Hello");
+    fireEvent.keyDown(editor, { key: "z", ctrlKey: true, shiftKey: true });
+    expect(editor.textContent).toBe("Edited");
+
+    const textNode = editor.firstChild;
+    if (!textNode) throw new Error("Expected the editable slide text");
+    const range = document.createRange();
+    range.setStart(textNode, 0);
+    range.setEnd(textNode, 3);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    fireEvent.click(
+      screen.getByRole("button", { name: t("slideTextMenu.bold") }),
+    );
+
+    const bold = screen.getByRole("button", {
+      name: t("slideTextMenu.bold"),
+    });
+    expect(bold.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.keyDown(editor, { key: "z", ctrlKey: true });
+    expect(bold.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.keyDown(editor, { key: "z", ctrlKey: true, shiftKey: true });
+    expect(bold.getAttribute("aria-pressed")).toBe("true");
+    expect(onUndo).not.toHaveBeenCalled();
+    expect(onRedo).not.toHaveBeenCalled();
+  });
+
+  it("commits inline text on the save shortcut and uses deck history when empty", async () => {
+    const node: ElementSnapshot = {
+      nodeId: "text-1",
+      line: 1,
+      column: 1,
+      tagName: "h1",
+      bounds: { x: 100, y: 120, width: 400, height: 80 },
+      text: "Hello",
+      styles: { fontSize: "24px" },
+    };
+    const onCommit = vi.fn(async () => true);
+    const onCancel = vi.fn();
+    const onUndo = vi.fn();
+
+    render(
+      <InlineTextEditor
+        node={node}
+        disabled={false}
+        t={t}
+        onCommit={onCommit}
+        onCancel={onCancel}
+        onUndo={onUndo}
+      />,
+    );
+
+    const editor = screen.getByRole("textbox", {
+      name: t("styleInspector.text"),
+    });
+    fireEvent.keyDown(editor, { key: "z", ctrlKey: true });
+    expect(onUndo).toHaveBeenCalledTimes(1);
+    expect(onCancel).toHaveBeenCalledTimes(1);
+
+    editor.textContent = "Edited";
+    fireEvent.input(editor);
+    fireEvent.keyDown(editor, { key: "s", metaKey: true });
+
+    await waitFor(() => expect(onCommit).toHaveBeenCalledTimes(1));
+    expect(onCancel).toHaveBeenCalledTimes(2);
+    expect(onUndo).toHaveBeenCalledTimes(1);
+  });
+
   it("commits text and closes inline editing when Escape is pressed", async () => {
     const node: ElementSnapshot = {
       nodeId: "text-1",

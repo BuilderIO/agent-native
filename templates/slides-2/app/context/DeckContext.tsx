@@ -601,9 +601,9 @@ interface DeckContextType {
     options?: SetDeckSlidesOptions,
   ) => void;
   markDeckDirty: (deckId: string) => void;
-  undo: (deckId?: string) => void;
-  redo: (deckId?: string) => void;
-  undoAvailability: Record<string, { canUndo: boolean; canRedo: boolean }>;
+  undo: (deckId?: string) => Promise<boolean>;
+  redo: (deckId?: string) => Promise<boolean>;
+  undoAvailability: Record<string, DeckUndoAvailability>;
   /** Called after each Undo/Redo with the objects the step changed. */
   subscribeUndoReveal: (listener: (reveal: UndoReveal) => void) => () => void;
 }
@@ -636,6 +636,23 @@ type PollControl = {
   onRead: (deckId: string | null, status: DeckRead["status"]) => void;
   onRouteChange: (openDeckId: string | null) => void;
 };
+
+type DeckUndoAvailability = {
+  canUndo: boolean;
+  canRedo: boolean;
+  historyVersion: number;
+};
+
+function emptyUndoAvailability(
+  historyVersions: ReadonlyMap<string, number>,
+): Record<string, DeckUndoAvailability> {
+  return Object.fromEntries(
+    [...historyVersions].map(([deckId, historyVersion]) => [
+      deckId,
+      { canUndo: false, canRedo: false, historyVersion },
+    ]),
+  );
+}
 
 const IDLE_POLL_CONTROL: PollControl = {
   pollNow: () => {},
@@ -4349,11 +4366,12 @@ export function DeckProvider({
   const decksRef = useRef<Deck[]>([]);
 
   const [undoAvailability, setUndoAvailability] = useState<
-    Record<string, { canUndo: boolean; canRedo: boolean }>
+    Record<string, DeckUndoAvailability>
   >({});
   const undoControllerRef = useRef(
     new Map<string, LocalOpUndoController<DeckUndoOp>>(),
   );
+  const undoHistoryVersionsRef = useRef(new Map<string, number>());
   const lastUndoDeckIdRef = useRef<string | null>(null);
   const undoRevealListenersRef = useRef(
     new Set<(reveal: UndoReveal) => void>(),
@@ -5076,11 +5094,15 @@ export function DeckProvider({
           const current = undoControllerRef.current.get(deckId);
           if (!current) return;
           lastUndoDeckIdRef.current = deckId;
+          const historyVersion =
+            (undoHistoryVersionsRef.current.get(deckId) ?? 0) + 1;
+          undoHistoryVersionsRef.current.set(deckId, historyVersion);
           setUndoAvailability((previous) => ({
             ...previous,
             [deckId]: {
               canUndo: current.canUndo(),
               canRedo: current.canRedo(),
+              historyVersion,
             },
           }));
         },
@@ -5106,7 +5128,7 @@ export function DeckProvider({
     }
     undoControllerRef.current.clear();
     lastUndoDeckIdRef.current = null;
-    setUndoAvailability({});
+    setUndoAvailability(emptyUndoAvailability(undoHistoryVersionsRef.current));
   }, []);
 
   const recordUndo = useCallback(
@@ -5675,7 +5697,7 @@ export function DeckProvider({
     }
     undoControllerRef.current.clear();
     lastUndoDeckIdRef.current = null;
-    setUndoAvailability({});
+    setUndoAvailability(emptyUndoAvailability(undoHistoryVersionsRef.current));
     lastExternalUpdateRef.current = Date.now();
     decksRef.current = [];
     setDeckScopeOrgId(nextOrgId);
@@ -6133,23 +6155,30 @@ export function DeckProvider({
   }, []);
 
   const undo = useCallback(
-    (deckId = currentOpenDeckIdFromWindow() ?? lastUndoDeckIdRef.current) => {
-      if (!deckId) return;
-      void undoControllerRef.current.get(deckId)?.undo();
+    async (
+      deckId = currentOpenDeckIdFromWindow() ?? lastUndoDeckIdRef.current,
+    ) => {
+      if (!deckId) return false;
+      return (await undoControllerRef.current.get(deckId)?.undo()) ?? false;
     },
     [],
   );
 
   const redo = useCallback(
-    (deckId = currentOpenDeckIdFromWindow() ?? lastUndoDeckIdRef.current) => {
-      if (!deckId) return;
-      void undoControllerRef.current.get(deckId)?.redo();
+    async (
+      deckId = currentOpenDeckIdFromWindow() ?? lastUndoDeckIdRef.current,
+    ) => {
+      if (!deckId) return false;
+      return (await undoControllerRef.current.get(deckId)?.redo()) ?? false;
     },
     [],
   );
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
+      const deckId = currentOpenDeckIdFromWindow();
+      if (!deckId) return;
+
       const target = e.target as HTMLElement;
       const isTyping =
         target.tagName === "TEXTAREA" ||
@@ -6160,15 +6189,15 @@ export function DeckProvider({
         if (isTyping) return;
         e.preventDefault();
         if (e.shiftKey) {
-          redo();
+          void redo(deckId);
         } else {
-          undo();
+          void undo(deckId);
         }
       }
       if ((e.metaKey || e.ctrlKey) && key === "y") {
         if (isTyping) return;
         e.preventDefault();
-        redo();
+        void redo(deckId);
       }
     };
     window.addEventListener("keydown", handleKey);

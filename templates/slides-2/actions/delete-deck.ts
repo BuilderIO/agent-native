@@ -63,16 +63,14 @@ function storedObjectGroups(
 function storedObjectWhere(
   asset: Pick<DeckUploadedAsset, "provider" | "providerObjectId" | "url">,
 ) {
-  const conditions = [eq(schema.uploadedAssets.url, asset.url)];
-  if (asset.providerObjectId !== null) {
-    conditions.push(
-      and(
-        eq(schema.uploadedAssets.provider, asset.provider),
-        eq(schema.uploadedAssets.providerObjectId, asset.providerObjectId),
-      ),
-    );
-  }
-  return or(...conditions);
+  const urlMatch = eq(schema.uploadedAssets.url, asset.url);
+  if (asset.providerObjectId === null) return urlMatch;
+
+  const providerObjectMatch = and(
+    eq(schema.uploadedAssets.provider, asset.provider),
+    eq(schema.uploadedAssets.providerObjectId, asset.providerObjectId),
+  );
+  return providerObjectMatch ? or(urlMatch, providerObjectMatch) : urlMatch;
 }
 
 function uploadedAssetCleanupScope(asset: DeckUploadedAsset) {

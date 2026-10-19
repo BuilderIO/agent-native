@@ -181,14 +181,10 @@ export function isAuthoringFuzzBrowserSessionUrl(
   requestUrl: string,
   baseUrl: string,
 ) {
-  let request: URL;
-  let base: URL;
-  try {
-    request = new URL(requestUrl);
-    base = new URL(baseUrl);
-  } catch {
-    return false;
-  }
+  if (!URL.canParse(requestUrl) || !URL.canParse(baseUrl)) return false;
+
+  const request = new URL(requestUrl);
+  const base = new URL(baseUrl);
   if (request.origin !== base.origin) return false;
 
   return (

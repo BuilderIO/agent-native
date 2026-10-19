@@ -84,10 +84,6 @@ function slideArtifactKey(artifact: SlideRenderArtifact): string {
   return `${artifact.deckId}:${artifact.slideId}:${artifact.revision}:${artifact.sourceHash}`;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
 function writeState(key: string, value: unknown) {
   void writeClientAppState(key, value, {
     keepalive: true,

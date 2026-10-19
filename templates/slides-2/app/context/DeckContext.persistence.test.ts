@@ -7703,6 +7703,64 @@ describe("DeckContext deck creation persistence", () => {
     );
   });
 
+  it.each([
+    { pathname: "/home", shortcut: "undo" },
+    { pathname: "/settings", shortcut: "undo" },
+    { pathname: "/home", shortcut: "redo" },
+    { pathname: "/settings", shortcut: "redo" },
+  ] as const)(
+    "ignores the $shortcut shortcut on $pathname after editing a deck",
+    async ({ pathname, shortcut }) => {
+      window.history.pushState({}, "", "/deck/shared-deck");
+      const { setAccessibleDeck, getAccessibleDeck } = setupFetch();
+      const { result } = renderHook(() => useDecks(), { wrapper });
+
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      setAccessibleDeck({
+        id: "shared-deck",
+        title: "Original title",
+        createdAt: "2026-05-12T00:00:00.000Z",
+        updatedAt: "2026-05-12T00:00:00.000Z",
+        slides: [],
+      });
+      await act(async () => {
+        await result.current.reloadDecks();
+      });
+
+      await act(async () => {
+        result.current.updateDeck("shared-deck", { title: "Edited title" });
+        await result.current.flushDeckSave("shared-deck");
+      });
+      await waitFor(() =>
+        expect(getAccessibleDeck()?.title).toBe("Edited title"),
+      );
+
+      const expectedTitle =
+        shortcut === "undo" ? "Edited title" : "Original title";
+      if (shortcut === "redo") {
+        await act(async () => {
+          result.current.undo("shared-deck");
+          await result.current.flushDeckSave("shared-deck");
+        });
+        await waitFor(() =>
+          expect(getAccessibleDeck()?.title).toBe("Original title"),
+        );
+      }
+
+      window.history.pushState({}, "", pathname);
+      const shortcutEvent = new KeyboardEvent("keydown", {
+        key: shortcut === "undo" ? "z" : "y",
+        metaKey: true,
+        cancelable: true,
+      });
+      act(() => window.dispatchEvent(shortcutEvent));
+
+      expect(shortcutEvent.defaultPrevented).toBe(false);
+      expect(result.current.getDeck("shared-deck")?.title).toBe(expectedTitle);
+      expect(getAccessibleDeck()?.title).toBe(expectedTitle);
+    },
+  );
+
   it("skips unchanged slide commits so one undo reaches the prior state", async () => {
     window.history.pushState({}, "", "/deck/shared-deck");
     const { setAccessibleDeck } = setupFetch();

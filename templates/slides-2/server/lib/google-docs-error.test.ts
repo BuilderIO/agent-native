@@ -6,7 +6,7 @@ describe("formatGoogleOAuthError", () => {
   it("turns common Google OAuth setup failures into actionable messages", () => {
     expect(
       formatGoogleOAuthError(new Error("redirect_uri_mismatch")),
-    ).toContain("current Slides callback URL");
+    ).toContain("current Slides 2 callback URL");
     expect(formatGoogleOAuthError(new Error("access_denied"))).toContain(
       "Connect Google again",
     );

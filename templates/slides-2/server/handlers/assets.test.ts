@@ -151,7 +151,6 @@ import {
   canSaveAsUploadedVideoAsset,
   reapOrphanedUploadedAssetObjects,
   reapOrphanedVideoAssetObjects,
-  sweepOrphanedUploadedAssetObjects,
   uploadImageAsset,
   uploadVideoAsset,
 } from "./assets";

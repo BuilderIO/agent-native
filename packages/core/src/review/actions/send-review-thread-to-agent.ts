@@ -15,6 +15,11 @@ export default defineAction({
   description:
     "Send one open review thread to the agent queue without routing other threads.",
   schema,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (args, ctx) => {
     const actionCtx = ctx as ReviewResourceContext | undefined;
     const access = await assertReviewableResourceAccess(

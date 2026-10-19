@@ -6,6 +6,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -13,6 +14,11 @@ const mocks = vi.hoisted(() => ({
   refetchStorageStatus: vi.fn(),
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
+  promptText: "",
+  promptComposerSettings: null as null | {
+    attachmentsEnabled?: boolean;
+    preserveDraftOnSubmit?: boolean;
+  },
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
@@ -28,6 +34,77 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 vi.mock("@/components/editor/UploadStorageGate", () => ({
   UploadStorageGate: () => null,
 }));
+vi.mock("@agent-native/toolkit/app/chat/composer/index", async () => {
+  const React = await import("react");
+  return {
+    PromptComposer: (props: {
+      actionButton?: ReactNode;
+      attachmentsEnabled?: boolean;
+      composerRef?: {
+        current: { submit?: () => Promise<boolean> } | null;
+      };
+      onEmptySubmit?: () => void | Promise<void>;
+      onSubmit: (
+        text: string,
+        files: File[],
+        references: unknown[],
+        options: Record<string, unknown>,
+      ) => void | Promise<void>;
+      placeholder?: string;
+      preserveDraftOnSubmit?: boolean;
+    }) => {
+      mocks.promptComposerSettings = {
+        attachmentsEnabled: props.attachmentsEnabled,
+        preserveDraftOnSubmit: props.preserveDraftOnSubmit,
+      };
+      if (props.composerRef) {
+        props.composerRef.current = {
+          submit: async () => {
+            if (mocks.promptText.trim()) {
+              await props.onSubmit(mocks.promptText, [], [], {});
+            } else {
+              await props.onEmptySubmit?.();
+            }
+            return true;
+          },
+        };
+      }
+      return React.createElement(
+        React.Fragment,
+        null,
+        React.createElement("textarea", {
+          placeholder: props.placeholder,
+          onChange: (event: Event) => {
+            mocks.promptText = (
+              event.currentTarget as HTMLTextAreaElement
+            ).value;
+          },
+        }),
+        props.actionButton,
+      );
+    },
+  };
+});
+vi.mock("@/components/ui/popover", async () => {
+  const React = await import("react");
+  return {
+    Popover: ({ children, open }: { children: ReactNode; open: boolean }) =>
+      open ? React.createElement("div", null, children) : null,
+    PopoverAnchor: () => null,
+    PopoverContent: ({
+      children,
+      "aria-label": label,
+    }: {
+      children: ReactNode;
+      "aria-label"?: string;
+    }) =>
+      React.createElement(
+        "div",
+        { role: "dialog", "aria-label": label },
+        children,
+      ),
+  };
+});
 vi.mock("@/hooks/use-slide-file-storage-status", () => ({
   useSlideFileStorageStatus: () => ({
     data: { configured: true },
@@ -56,6 +133,8 @@ function renderPopover(file: File) {
 describe("<ImageDropPromptPopover> upload failures", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.promptText = "";
+    mocks.promptComposerSettings = null;
     vi.stubGlobal(
       "fetch",
       vi.fn(() =>
@@ -82,10 +161,21 @@ describe("<ImageDropPromptPopover> upload failures", () => {
   it("sends a small image inline after a transient 503 with storage configured", async () => {
     renderPopover(new File(["image"], "dropped.png", { type: "image/png" }));
 
+    expect(mocks.promptComposerSettings).toEqual({
+      attachmentsEnabled: false,
+      preserveDraftOnSubmit: true,
+    });
+    fireEvent.change(
+      screen.getByPlaceholderText("raw.imagePromptPlaceholder"),
+      {
+        target: { value: "Use this as a style reference" },
+      },
+    );
     fireEvent.click(screen.getByRole("button", { name: "raw.sendToAgent" }));
 
     await waitFor(() => expect(mocks.sendToAgentChat).toHaveBeenCalledTimes(1));
     const submission = mocks.sendToAgentChat.mock.calls[0]?.[0];
+    expect(submission.message).toBe("Use this as a style reference");
     expect(submission.images[0]).toMatch(/^data:image\/png;base64,/);
     expect(submission.context).toContain("Hosted upload failed");
     expect(mocks.refetchStorageStatus).not.toHaveBeenCalled();

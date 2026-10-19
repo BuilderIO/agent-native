@@ -30,6 +30,11 @@ const schema = z
 export default defineAction({
   description: "Update an authored review comment body or canvas anchor.",
   schema,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   run: async (args, ctx) => {
     const actionCtx = ctx as ReviewResourceContext | undefined;
     const scope = {

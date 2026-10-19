@@ -18,6 +18,11 @@ export default defineAction({
       .describe("Workspace member email addresses to change."),
     operation: z.enum(["add", "remove"]).describe("Membership operation."),
   }),
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   run: async (args, ctx) => {
     await assertWorkspaceUserGroupManager(ctx?.orgId, ctx?.userEmail);
     return updateWorkspaceUserGroupMembers({

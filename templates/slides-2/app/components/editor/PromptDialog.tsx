@@ -21,13 +21,17 @@ import {
   useRef,
   useImperativeHandle,
 } from "react";
-import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status";
 import type { SlidesPromptSubmitOptions } from "@/lib/composer-context";
 import { isStorageSetupRequiredError } from "@/lib/image-drop-to-agent";
-import { isInsidePortaledLayer } from "@/lib/portaled-layer";
 import { createSlidesPromptAttachmentAdapter } from "@/lib/prompt-attachment-adapter";
 import {
   deleteUploadedPromptFile,
@@ -223,8 +227,6 @@ export default function PromptPopover({
   modelStatusChecksEnabled,
   requireAgentEngine,
   showMissingApiKeySetup,
-  anchorRef,
-  centered = false,
   presentation = "popover",
   context,
   controllerRef,
@@ -287,66 +289,6 @@ export default function PromptPopover({
     },
     [],
   );
-
-  // Position the popover after render so we can measure its actual size
-  useEffect(() => {
-    if (inline || !open || !panelRef.current) return;
-    const panel = panelRef.current;
-    const MARGIN = 12;
-
-    if (centered || !anchorRef?.current) {
-      panel.style.top = "50%";
-      panel.style.left = "50%";
-      panel.style.transform = "translate(-50%, -50%)";
-      return;
-    }
-
-    const anchor = anchorRef.current.getBoundingClientRect();
-    const panelRect = panel.getBoundingClientRect();
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-
-    let top = anchor.bottom + MARGIN;
-    if (top + panelRect.height > vh - MARGIN) {
-      top = Math.max(MARGIN, anchor.top - panelRect.height - MARGIN);
-    }
-
-    const anchorCenterX = anchor.left + anchor.width / 2;
-    let left = anchorCenterX - panelRect.width / 2;
-    if (left + panelRect.width > vw - MARGIN) {
-      left = vw - panelRect.width - MARGIN;
-    }
-    if (left < MARGIN) left = MARGIN;
-
-    panel.style.top = top + "px";
-    panel.style.left = left + "px";
-    panel.style.right = "auto";
-    panel.style.transform = "none";
-  });
-
-  // Close on outside click / escape
-  useEffect(() => {
-    if (inline || !open) return;
-    const handleClick = (e: MouseEvent) => {
-      if (isInsidePortaledLayer(e.target)) return;
-      if (
-        panelRef.current &&
-        !panelRef.current.contains(e.target as Node) &&
-        (!anchorRef?.current || !anchorRef.current.contains(e.target as Node))
-      ) {
-        onOpenChange(false);
-      }
-    };
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onOpenChange(false);
-    };
-    document.addEventListener("mousedown", handleClick);
-    document.addEventListener("keydown", handleKey);
-    return () => {
-      document.removeEventListener("mousedown", handleClick);
-      document.removeEventListener("keydown", handleKey);
-    };
-  }, [inline, open, onOpenChange, anchorRef]);
 
   const deleteUploadedFile = useCallback(deleteUploadedPromptFile, []);
   const uploadPromptFilesWithStorageMessage = useCallback(
@@ -707,7 +649,7 @@ export default function PromptPopover({
     }
   }, [open, retainingAttachments, resetEagerUploads, submitting]);
 
-  if (!open) return null;
+  if (inline && !open) return null;
 
   const importEnabled = Boolean(onImport && importFromLabel);
   const normalizedImportFromLabel = importFromLabel
@@ -727,28 +669,16 @@ export default function PromptPopover({
 
   const popover = (
     <>
-      {!inline && centered && (
-        <div
-          className="fixed inset-0 bg-foreground/40 z-[199]"
-          onClick={() => onOpenChange(false)}
-        />
-      )}
       <div
         ref={panelRef}
-        className={
-          inline
-            ? "w-full"
-            : "fixed z-[200] w-[min(500px,calc(100vw-24px))] rounded-xl border border-border/80 bg-popover shadow-xl shadow-black/15"
-        }
-        role={inline ? "group" : "dialog"}
-        aria-modal={inline ? undefined : true}
-        aria-label={title}
-        style={inline ? undefined : { top: 0, left: 0, visibility: "visible" }}
+        className={inline ? "w-full" : undefined}
+        role={inline ? "group" : undefined}
+        aria-label={inline ? title : undefined}
       >
         {!inline && (
-          <div className="flex items-center justify-between gap-3 px-4 pb-2.5 pt-3.5">
-            <span className="text-sm font-medium text-foreground">{title}</span>
-          </div>
+          <DialogHeader>
+            <DialogTitle>{title}</DialogTitle>
+          </DialogHeader>
         )}
 
         {importEnabled && (
@@ -884,12 +814,7 @@ export default function PromptPopover({
                   <Button
                     type="button"
                     variant="ghost"
-                    size="sm"
-                    className={
-                      inline
-                        ? undefined
-                        : "h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
-                    }
+                    size="xs"
                     disabled={loading || uploading || submitting}
                     onClick={() => chooseImportMode("pdf")}
                   >
@@ -899,12 +824,7 @@ export default function PromptPopover({
                   <Button
                     type="button"
                     variant="ghost"
-                    size="sm"
-                    className={
-                      inline
-                        ? undefined
-                        : "h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
-                    }
+                    size="xs"
                     disabled={loading || uploading || submitting}
                     onClick={() => chooseImportMode("google-slides")}
                   >
@@ -914,12 +834,7 @@ export default function PromptPopover({
                   <Button
                     type="button"
                     variant="ghost"
-                    size="sm"
-                    className={
-                      inline
-                        ? undefined
-                        : "h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
-                    }
+                    size="xs"
                     disabled={loading || uploading || submitting}
                     onClick={() => chooseImportMode("pptx")}
                   >
@@ -942,15 +857,17 @@ export default function PromptPopover({
           {importEnabled && importMode && (
             <div className="col-start-1 row-start-1 flex min-h-full flex-col px-4 pb-4 pt-3">
               <div className="flex items-center gap-2">
-                <button
+                <Button
                   type="button"
+                  variant="ghost-inset"
+                  size="icon-sm"
                   onClick={returnToPrompt}
                   disabled={importingSource !== null}
-                  className="-ms-1 inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
+                  className="-ms-1 shrink-0"
                   aria-label={t("home.backToPrompt")}
                 >
                   <IconArrowLeft className="size-4" />
-                </button>
+                </Button>
                 <span className="text-sm font-medium text-foreground">
                   {t("home.importModeTitle", { source: importModeLabel })}
                 </span>
@@ -968,7 +885,6 @@ export default function PromptPopover({
                         value={googleSlidesUrl}
                         placeholder={t("home.googleSlidesReferenceUrl")}
                         aria-label={t("home.googleSlidesReferenceUrl")}
-                        className="text-xs"
                         disabled={importingSource !== null || loading}
                         onChange={(event) =>
                           setGoogleSlidesUrl(event.target.value)
@@ -980,7 +896,7 @@ export default function PromptPopover({
                       <Button
                         type="button"
                         size="sm"
-                        className="shrink-0 text-xs"
+                        className="shrink-0"
                         disabled={
                           !googleSlidesUrl.trim() ||
                           importingSource !== null ||
@@ -1000,7 +916,7 @@ export default function PromptPopover({
                     <Button
                       type="button"
                       variant="outline"
-                      className="w-full justify-center gap-2"
+                      className="w-full justify-center"
                       disabled={importingSource !== null || loading}
                       onClick={() => {
                         if (fileStorageConfigured)
@@ -1037,5 +953,11 @@ export default function PromptPopover({
     </>
   );
 
-  return inline ? popover : createPortal(popover, document.body);
+  return inline ? (
+    popover
+  ) : (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent closeLabel={t("comments.close")}>{popover}</DialogContent>
+    </Dialog>
+  );
 }

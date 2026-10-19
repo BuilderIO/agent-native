@@ -9,7 +9,8 @@ type DataUrlOccurrence = { value: string; field: string };
 const URL_ATTRIBUTES = new Set(["data", "href", "poster", "src", "srcset"]);
 const DATA_URL_FIELDS = new Set(["url", "src", "dataurl", "href", "poster"]);
 const CSS_URL = /url\s*\(\s*(?:(["'])(.*?)\1|([^)]*?))\s*\)/gi;
-const SOURCE_DATA_URL = /data:[^\s"'`<>)}\]]+/gi;
+const SOURCE_DATA_URL =
+  /data:image\/[a-z0-9.+-]+(?:;[^,\s"'`<>]*)?,[^\s"'`<>)}\]]*/gi;
 
 const isElement = (node: P5.Node): node is P5.Element => "tagName" in node;
 const isText = (node: P5.Node): node is P5.TextNode =>

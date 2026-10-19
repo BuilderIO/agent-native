@@ -122,7 +122,7 @@ describe("Slides composer references", () => {
     );
 
     expect(mocks.integrationIntent).toHaveBeenCalledWith(
-      "slides",
+      "slides-2",
       "google_drive",
       { userEmail: "member@example.com", orgId: "org-one" },
     );

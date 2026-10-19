@@ -596,6 +596,11 @@ export default defineAction({
           "Either a data/url upload or an idempotencyKey cleanup is required.",
       },
     ),
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: true,
+  },
   run: async (args) => {
     const idempotencyKey = args.idempotencyKey?.trim();
     if (args.cleanup && idempotencyKey) {

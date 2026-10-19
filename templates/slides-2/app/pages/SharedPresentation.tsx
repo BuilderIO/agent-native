@@ -1,4 +1,8 @@
 import { appBasePath } from "@agent-native/core/client/api-path";
+import {
+  actionErrorMessage,
+  callAction,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import type { SharedDeckResponse } from "@shared/api";
@@ -13,11 +17,15 @@ import { mergeDesignSystemData } from "@/hooks/use-deck-design-system";
 interface SharedPresentationProps {
   initialDeck?: SharedDeckResponse | null;
   initialError?: string;
+  agentAccessDeckId?: string;
+  agentAccessToken?: string | null;
 }
 
 export default function SharedPresentation({
   initialDeck = null,
   initialError = "",
+  agentAccessDeckId,
+  agentAccessToken,
 }: SharedPresentationProps) {
   const t = useT();
   const { token } = useParams<{ token: string }>();
@@ -49,6 +57,34 @@ export default function SharedPresentation({
   }, [deck, t]);
 
   useEffect(() => {
+    if (agentAccessDeckId) {
+      if (!agentAccessToken) return;
+      let active = true;
+      setDeck(null);
+      setError("");
+      setLoading(true);
+      callAction<SharedDeckResponse, "get-agent-access-deck">(
+        "get-agent-access-deck",
+        { id: agentAccessDeckId, token: agentAccessToken },
+      )
+        .then((result) => {
+          if (active) setDeck(result);
+        })
+        .catch((error: unknown) => {
+          if (active) {
+            setError(
+              actionErrorMessage(error) ?? t("raw.sharedPresentationExpired"),
+            );
+          }
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+      return () => {
+        active = false;
+      };
+    }
+
     if (!token) return;
     if (initialDeck || initialError) {
       setDeck(initialDeck);
@@ -74,7 +110,14 @@ export default function SharedPresentation({
       .finally(() => {
         setLoading(false);
       });
-  }, [token, initialDeck, initialError]);
+  }, [
+    token,
+    initialDeck,
+    initialError,
+    agentAccessDeckId,
+    agentAccessToken,
+    t,
+  ]);
 
   if (loading) {
     return (
@@ -117,7 +160,7 @@ export default function SharedPresentation({
   return (
     <PresentationView
       slides={slides}
-      deckId={`__shared__/${token}`}
+      deckId={`__shared__/${token ?? agentAccessDeckId ?? "public"}`}
       startIndex={startIndex}
       aspectRatio={deck.aspectRatio}
       designSystem={designSystem}

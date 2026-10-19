@@ -2265,25 +2265,26 @@ async function findUploadedAssetForCleanup(
 }
 
 async function hasOtherUploadedAssetReference(
-  asset: Pick<
-    UploadedAssetCleanupOutboxRow,
-    "id" | "provider" | "providerObjectId" | "url"
-  >,
+  asset: Pick<UploadedAssetCleanupOutboxRow, "id" | "providerObjectId"> & {
+    provider: string;
+    url: string;
+  },
 ): Promise<boolean> {
-  if (!asset.provider || !asset.url) return false;
-  const matchingObject = [eq(schema.uploadedAssets.url, asset.url)];
-  if (asset.providerObjectId !== null) {
-    matchingObject.push(
-      and(
-        eq(schema.uploadedAssets.provider, asset.provider),
-        eq(schema.uploadedAssets.providerObjectId, asset.providerObjectId),
-      ),
-    );
-  }
+  const urlMatch = eq(schema.uploadedAssets.url, asset.url);
+  const providerObjectMatch =
+    asset.providerObjectId === null
+      ? undefined
+      : and(
+          eq(schema.uploadedAssets.provider, asset.provider),
+          eq(schema.uploadedAssets.providerObjectId, asset.providerObjectId),
+        );
+  const storedObjectMatch = providerObjectMatch
+    ? or(urlMatch, providerObjectMatch)
+    : urlMatch;
   const [reference] = await getDb()
     .select({ id: schema.uploadedAssets.id })
     .from(schema.uploadedAssets)
-    .where(and(ne(schema.uploadedAssets.id, asset.id), or(...matchingObject)))
+    .where(and(ne(schema.uploadedAssets.id, asset.id), storedObjectMatch))
     .limit(1);
   return Boolean(reference);
 }
@@ -2302,7 +2303,10 @@ function uploadedAssetCleanupScope(
 
 async function deleteUploadedAssetRowForCleanup(
   transaction: SlidesTransaction,
-  row: UploadedAssetCleanupOutboxRow,
+  row: Omit<UploadedAssetCleanupOutboxRow, "provider" | "url"> & {
+    provider: string;
+    url: string;
+  },
 ): Promise<void> {
   await transaction
     .delete(schema.uploadedAssets)
@@ -2438,7 +2442,15 @@ export async function reapOrphanedUploadedAssetObjects(
           });
           return;
         }
-        if (!claimed || !claimed.leaseToken) return;
+        if (!claimed) return;
+        const leaseToken = claimed.leaseToken;
+        if (!leaseToken) {
+          summary.failedAttempts += 1;
+          console.warn("[slides-upload] claimed cleanup has no lease token", {
+            assetId: claimed.id,
+          });
+          return;
+        }
 
         const cleanupScope = {
           assetId: claimed.id,
@@ -2450,7 +2462,7 @@ export async function reapOrphanedUploadedAssetObjects(
             const retried = await runWithRequestContext(requestContext, () =>
               retryOwnedUploadedAssetCleanup(
                 cleanupScope,
-                claimed.leaseToken!,
+                leaseToken,
                 claimed.attemptCount,
               ),
             );
@@ -2466,24 +2478,27 @@ export async function reapOrphanedUploadedAssetObjects(
 
         try {
           assertCleanupRunActive(options);
+          const provider = claimed.provider;
+          const url = claimed.url;
           if (
-            typeof claimed.provider !== "string" ||
-            typeof claimed.url !== "string" ||
-            !claimed.provider.trim() ||
-            !claimed.url.trim()
+            typeof provider !== "string" ||
+            typeof url !== "string" ||
+            !provider.trim() ||
+            !url.trim()
           ) {
             summary.failedAttempts += 1;
             await retry();
             return;
           }
+          const cleanupClaim = { ...claimed, leaseToken, provider, url };
 
           let asset: UploadedAssetCleanupRecord | null;
           try {
             asset = await runWithRequestContext(requestContext, () =>
               findUploadedAssetForCleanup(
-                claimed.ownerEmail,
-                claimed.id,
-                claimed.orgId,
+                cleanupClaim.ownerEmail,
+                cleanupClaim.id,
+                cleanupClaim.orgId,
               ),
             );
           } catch (error) {
@@ -2509,21 +2524,21 @@ export async function reapOrphanedUploadedAssetObjects(
                   })
                   .where(
                     and(
-                      eq(schema.uploadedAssetCleanupOutbox.id, claimed.id),
+                      eq(schema.uploadedAssetCleanupOutbox.id, cleanupClaim.id),
                       eq(
                         schema.uploadedAssetCleanupOutbox.ownerEmail,
-                        claimed.ownerEmail,
+                        cleanupClaim.ownerEmail,
                       ),
-                      claimed.orgId
+                      cleanupClaim.orgId
                         ? eq(
                             schema.uploadedAssetCleanupOutbox.orgId,
-                            claimed.orgId,
+                            cleanupClaim.orgId,
                           )
                         : isNull(schema.uploadedAssetCleanupOutbox.orgId),
                       eq(schema.uploadedAssetCleanupOutbox.state, "claimed"),
                       eq(
                         schema.uploadedAssetCleanupOutbox.leaseToken,
-                        claimed.leaseToken,
+                        leaseToken,
                       ),
                     ),
                   )
@@ -2534,18 +2549,18 @@ export async function reapOrphanedUploadedAssetObjects(
               return;
             }
             const removed = await runWithRequestContext(requestContext, () =>
-              clearRegisteredUploadedAsset(cleanupScope, claimed.leaseToken!),
+              clearRegisteredUploadedAsset(cleanupScope, leaseToken),
             );
             if (!removed) summary.failedAttempts += 1;
             return;
           }
 
           if (
-            claimed.intent === "delete" &&
+            cleanupClaim.intent === "delete" &&
             asset &&
-            asset.url === claimed.url &&
-            asset.provider === claimed.provider &&
-            asset.providerObjectId === claimed.providerObjectId &&
+            asset.url === cleanupClaim.url &&
+            asset.provider === cleanupClaim.provider &&
+            asset.providerObjectId === cleanupClaim.providerObjectId &&
             asset.deckId
           ) {
             summary.failedAttempts += 1;
@@ -2555,16 +2570,19 @@ export async function reapOrphanedUploadedAssetObjects(
 
           const hasOtherReference = await runWithRequestContext(
             requestContext,
-            () => hasOtherUploadedAssetReference(claimed),
+            () => hasOtherUploadedAssetReference(cleanupClaim),
           );
           if (hasOtherReference) {
             await runWithRequestContext(requestContext, () =>
               getDb().transaction(async (transaction) => {
-                await deleteUploadedAssetRowForCleanup(transaction, claimed);
+                await deleteUploadedAssetRowForCleanup(
+                  transaction,
+                  cleanupClaim,
+                );
                 const removed = await finishOwnedUploadedAssetCleanup(
                   transaction,
                   cleanupScope,
-                  claimed.leaseToken!,
+                  leaseToken,
                 );
                 if (!removed) {
                   throw new Error(
@@ -2578,9 +2596,9 @@ export async function reapOrphanedUploadedAssetObjects(
 
           assertCleanupRunActive(options);
           const deleted = await runWithRequestContext(requestContext, () =>
-            deleteUploadedFile(claimed.provider, {
-              id: claimed.providerObjectId ?? undefined,
-              url: claimed.url,
+            deleteUploadedFile(cleanupClaim.provider, {
+              id: cleanupClaim.providerObjectId ?? undefined,
+              url: cleanupClaim.url,
             }),
           );
           if (!deleted) {
@@ -2591,11 +2609,11 @@ export async function reapOrphanedUploadedAssetObjects(
 
           await runWithRequestContext(requestContext, () =>
             getDb().transaction(async (transaction) => {
-              await deleteUploadedAssetRowForCleanup(transaction, claimed);
+              await deleteUploadedAssetRowForCleanup(transaction, cleanupClaim);
               const removed = await finishOwnedUploadedAssetCleanup(
                 transaction,
                 cleanupScope,
-                claimed.leaseToken!,
+                leaseToken,
               );
               if (!removed) {
                 throw new Error("Cleanup outbox claim was no longer current.");

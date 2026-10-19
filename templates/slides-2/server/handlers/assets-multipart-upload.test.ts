@@ -2,13 +2,26 @@ import { beforeEach, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   uploadFile: vi.fn(),
+  deleteUploadedFile: vi.fn(),
   insertAsset: vi.fn(),
+  reserveUploadedAssetRegistration: vi.fn(),
+  recordUploadedAssetCleanupObject: vi.fn(),
+  cancelUploadedAssetRegistration: vi.fn(),
+  parkUnresolvedUploadedAssetRegistration: vi.fn(),
+  completeUploadedAssetRegistration: vi.fn(),
+  clearRegisteredUploadedAsset: vi.fn(),
+  claimFailedUploadedAssetRegistration: vi.fn(),
+  retryOwnedUploadedAssetCleanup: vi.fn(),
+  listDueUploadedAssetCleanups: vi.fn(),
+  listRegisteredUploadedAssetCleanups: vi.fn(),
+  claimDueUploadedAssetCleanup: vi.fn(),
   resolveSlidesRequestAuth: vi.fn(),
   assertDeckAssetUploadScope: vi.fn(),
+  registerDeckUploadedAsset: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/file-upload", () => ({
-  deleteUploadedFile: vi.fn(),
+  deleteUploadedFile: mocks.deleteUploadedFile,
   uploadFile: mocks.uploadFile,
 }));
 
@@ -19,8 +32,37 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 
 vi.mock("../db/index.js", () => ({
-  getDb: () => ({ insert: () => ({ values: mocks.insertAsset }) }),
+  getDb: () => ({
+    insert: () => ({ values: mocks.insertAsset }),
+    transaction: (callback: (transaction: unknown) => unknown) =>
+      callback({ insert: () => ({ values: mocks.insertAsset }) }),
+  }),
   schema: { uploadedAssets: {} },
+}));
+
+vi.mock("../lib/uploaded-asset-cleanup-outbox.js", () => ({
+  reserveUploadedAssetRegistration: (...args: unknown[]) =>
+    mocks.reserveUploadedAssetRegistration(...args),
+  recordUploadedAssetCleanupObject: (...args: unknown[]) =>
+    mocks.recordUploadedAssetCleanupObject(...args),
+  cancelUploadedAssetRegistration: (...args: unknown[]) =>
+    mocks.cancelUploadedAssetRegistration(...args),
+  parkUnresolvedUploadedAssetRegistration: (...args: unknown[]) =>
+    mocks.parkUnresolvedUploadedAssetRegistration(...args),
+  completeUploadedAssetRegistration: (...args: unknown[]) =>
+    mocks.completeUploadedAssetRegistration(...args),
+  clearRegisteredUploadedAsset: (...args: unknown[]) =>
+    mocks.clearRegisteredUploadedAsset(...args),
+  claimFailedUploadedAssetRegistration: (...args: unknown[]) =>
+    mocks.claimFailedUploadedAssetRegistration(...args),
+  retryOwnedUploadedAssetCleanup: (...args: unknown[]) =>
+    mocks.retryOwnedUploadedAssetCleanup(...args),
+  listDueUploadedAssetCleanups: (...args: unknown[]) =>
+    mocks.listDueUploadedAssetCleanups(...args),
+  listRegisteredUploadedAssetCleanups: (...args: unknown[]) =>
+    mocks.listRegisteredUploadedAssetCleanups(...args),
+  claimDueUploadedAssetCleanup: (...args: unknown[]) =>
+    mocks.claimDueUploadedAssetCleanup(...args),
 }));
 
 vi.mock("../lib/chunked-upload-session.js", () => ({
@@ -36,6 +78,8 @@ vi.mock("../lib/deck-asset-scope.js", async (importOriginal) => {
     ...actual,
     assertDeckAssetUploadScope: (...args: unknown[]) =>
       mocks.assertDeckAssetUploadScope(...args),
+    registerDeckUploadedAsset: (...args: unknown[]) =>
+      mocks.registerDeckUploadedAsset(...args),
   };
 });
 
@@ -58,6 +102,8 @@ import {
 } from "./assets";
 
 beforeEach(() => {
+  mocks.deleteUploadedFile.mockReset();
+  mocks.deleteUploadedFile.mockResolvedValue(true);
   mocks.uploadFile.mockReset();
   mocks.uploadFile.mockResolvedValue({
     provider: "test-storage",
@@ -65,6 +111,42 @@ beforeEach(() => {
   });
   mocks.insertAsset.mockReset();
   mocks.insertAsset.mockResolvedValue(undefined);
+  mocks.reserveUploadedAssetRegistration.mockReset();
+  mocks.reserveUploadedAssetRegistration.mockResolvedValue(
+    "registration-token",
+  );
+  mocks.recordUploadedAssetCleanupObject.mockReset();
+  mocks.recordUploadedAssetCleanupObject.mockResolvedValue(true);
+  mocks.cancelUploadedAssetRegistration.mockReset();
+  mocks.cancelUploadedAssetRegistration.mockResolvedValue(true);
+  mocks.parkUnresolvedUploadedAssetRegistration.mockReset();
+  mocks.parkUnresolvedUploadedAssetRegistration.mockResolvedValue(true);
+  mocks.completeUploadedAssetRegistration.mockReset();
+  mocks.completeUploadedAssetRegistration.mockResolvedValue(undefined);
+  mocks.clearRegisteredUploadedAsset.mockReset();
+  mocks.clearRegisteredUploadedAsset.mockResolvedValue(true);
+  mocks.claimFailedUploadedAssetRegistration.mockReset();
+  mocks.claimFailedUploadedAssetRegistration.mockResolvedValue(
+    "deletion-token",
+  );
+  mocks.retryOwnedUploadedAssetCleanup.mockReset();
+  mocks.retryOwnedUploadedAssetCleanup.mockResolvedValue(true);
+  mocks.listDueUploadedAssetCleanups.mockReset();
+  mocks.listDueUploadedAssetCleanups.mockResolvedValue([]);
+  mocks.listRegisteredUploadedAssetCleanups.mockReset();
+  mocks.listRegisteredUploadedAssetCleanups.mockResolvedValue([]);
+  mocks.claimDueUploadedAssetCleanup.mockReset();
+  mocks.claimDueUploadedAssetCleanup.mockResolvedValue(null);
+  mocks.registerDeckUploadedAsset.mockReset();
+  mocks.registerDeckUploadedAsset.mockImplementation(
+    async (args: {
+      row: unknown;
+      onRegistered?: (transaction: unknown) => Promise<void>;
+    }) => {
+      await mocks.insertAsset(args.row);
+      await args.onRegistered?.({} as never);
+    },
+  );
   mocks.resolveSlidesRequestAuth.mockReset();
   mocks.resolveSlidesRequestAuth.mockResolvedValue({
     ok: true,

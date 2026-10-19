@@ -18,6 +18,12 @@ import { getDb, schema } from "../server/db/index.js";
 import { appStateKey } from "../shared/app-state-tabs.js";
 import { isSlides2DeckData } from "../shared/deck-app-scope.js";
 import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
+import {
+  deckHistoryCommandSchema,
+  deckHistoryStatusSchema,
+  DECK_HISTORY_COMMAND_KEY,
+  DECK_HISTORY_STATUS_KEY,
+} from "../shared/deck-history-control.js";
 import { slides2DeckScope } from "../shared/deck-scope.js";
 import {
   slideEditorCommandSchema,
@@ -624,6 +630,47 @@ export default defineAction({
             `lastEditorCommand: id=${editorCommand.data.commandId} operation=${editorCommand.data.operation} status=${editorCommand.data.status}` +
               (editorCommand.data.failureCode
                 ? ` failure=${editorCommand.data.failureCode}`
+                : ""),
+          );
+        }
+      }
+
+      const deckHistoryStatusState = await readAppStateForCurrentTab(
+        appStateKey(DECK_HISTORY_STATUS_KEY),
+        { fallbackToGlobal: false },
+      );
+      const deckHistoryStatus = deckHistoryStatusSchema.safeParse(
+        deckHistoryStatusState,
+      );
+      if (
+        deckHistoryStatus.success &&
+        deckHistoryStatus.data.deckId === rows[0].id
+      ) {
+        lines.push(``);
+        lines.push(`### DeckEditor history`);
+        lines.push(
+          `editorSessionId: ${deckHistoryStatus.data.editorSessionId}`,
+        );
+        lines.push(`historyVersion: ${deckHistoryStatus.data.historyVersion}`);
+        lines.push(
+          `historyControls: canUndo=${deckHistoryStatus.data.canUndo} canRedo=${deckHistoryStatus.data.canRedo}`,
+        );
+        const historyCommandState = await readAppStateForCurrentTab(
+          appStateKey(DECK_HISTORY_COMMAND_KEY),
+          { fallbackToGlobal: false },
+        );
+        const historyCommand =
+          deckHistoryCommandSchema.safeParse(historyCommandState);
+        if (
+          historyCommand.success &&
+          historyCommand.data.deckId === deckHistoryStatus.data.deckId &&
+          historyCommand.data.editorSessionId ===
+            deckHistoryStatus.data.editorSessionId
+        ) {
+          lines.push(
+            `lastDeckHistoryCommand: id=${historyCommand.data.commandId} operation=${historyCommand.data.operation} status=${historyCommand.data.status}` +
+              (historyCommand.data.failureCode
+                ? ` failure=${historyCommand.data.failureCode}`
                 : ""),
           );
         }

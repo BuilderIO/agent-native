@@ -5,6 +5,7 @@ import {
   buildSlideSrcDoc,
   buildSlideFontFaceCss,
   isSlideFrameMessage,
+  isSlideFrameNavigationInput,
   isSlideRenderArtifact,
   resolveSlideAssetReference,
   type SlideFrameContext,
@@ -260,6 +261,106 @@ describe("OpenSlide sandbox protocol", () => {
     );
     expect(srcDoc).toContain("pointerType: event.pointerType");
     expect(srcDoc).toContain("pointerType: 'mouse'");
+  });
+
+  it("keeps click and wheel navigation inputs bounded", () => {
+    expect(
+      isSlideFrameNavigationInput({
+        type: "wheel",
+        deltaX: 0,
+        deltaY: 120,
+        deltaMode: 0,
+        ctrlKey: false,
+      }),
+    ).toBe(true);
+    expect(
+      isSlideFrameNavigationInput({
+        type: "click",
+        x: 0.2,
+        y: 0.8,
+        button: 0,
+        defaultPrevented: false,
+        interactive: false,
+        hasSelection: true,
+      }),
+    ).toBe(true);
+
+    for (const invalid of [
+      {
+        type: "wheel",
+        deltaX: 0,
+        deltaY: Number.NaN,
+        deltaMode: 0,
+        ctrlKey: false,
+      },
+      {
+        type: "wheel",
+        deltaX: 0,
+        deltaY: 1_000_001,
+        deltaMode: 0,
+        ctrlKey: false,
+      },
+      { type: "wheel", deltaX: 0, deltaY: 1, deltaMode: 3, ctrlKey: false },
+      {
+        type: "click",
+        x: -0.01,
+        y: 0.5,
+        button: 0,
+        defaultPrevented: false,
+        interactive: false,
+        hasSelection: false,
+      },
+      {
+        type: "click",
+        x: 0.5,
+        y: 1.01,
+        button: 0,
+        defaultPrevented: false,
+        interactive: false,
+        hasSelection: false,
+      },
+      {
+        type: "click",
+        x: 0.5,
+        y: 0.5,
+        button: -1,
+        defaultPrevented: false,
+        interactive: false,
+        hasSelection: false,
+      },
+    ]) {
+      expect(isSlideFrameNavigationInput(invalid)).toBe(false);
+    }
+  });
+
+  it("forwards open-slide click and keyboard affordances through the sandbox bridge", () => {
+    const srcDoc = buildSlideSrcDoc(artifact(), context.nonce, appOrigin);
+
+    expect(srcDoc).toContain(
+      'const navigationPassthrough = \'a, button, input, textarea, select, label, summary, iframe, video, audio, embed, object, [role="button"], [role="link"], [contenteditable="true"], [data-osd-interactive], [data-osd-chrome]\'',
+    );
+    expect(srcDoc).toContain("defaultPrevented: event.defaultPrevented");
+    expect(srcDoc).toContain(
+      "hasSelection: Boolean(window.getSelection()?.toString())",
+    );
+    expect(srcDoc).toContain(
+      "if (event.defaultPrevented || event.ctrlKey || target?.closest(navigationWheelIgnored)) return;",
+    );
+    expect(srcDoc).toContain(
+      "if (Math.abs(deltaY) <= Math.abs(deltaX)) return;",
+    );
+    expect(srcDoc).toContain(
+      "const isTypingTarget = target instanceof HTMLElement && (target.isContentEditable || target.matches('input, textarea'))",
+    );
+    expect(srcDoc).toContain(
+      'const isControlTarget = Boolean(target?.closest(\'button, a, input, textarea, select, summary, [role="dialog"], [role="menu"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="listbox"], [role="option"], [role="tablist"], [data-inspector-ui], [data-design-ui]\'))',
+    );
+    expect(srcDoc).toContain(
+      "send('keyboard', { keyboard: { key: event.key, keyCode: Math.max(0, Math.min(65535, event.keyCode | 0)), shiftKey: event.shiftKey, altKey: event.altKey, ctrlKey: event.ctrlKey, metaKey: event.metaKey, isTypingTarget, isControlTarget, isComposing: event.isComposing } });",
+    );
+    expect(srcDoc).toContain(
+      "if (command && !event.isComposing && event.keyCode !== 229 && ((!event.shiftKey && commandKey === 's') || (commandKey === 'a' && !isTypingTarget && !isControlTarget))) event.preventDefault();",
+    );
   });
 
   it("tracks the visible instance index and count for each source locator", () => {

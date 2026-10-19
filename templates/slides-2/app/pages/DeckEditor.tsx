@@ -142,6 +142,7 @@ import {
 } from "@/hooks/use-deck-access";
 import { useDeckAccessReload } from "@/hooks/use-deck-access-reload";
 import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
+import { useDeckHistoryActionBridge } from "@/hooks/use-deck-history-action-bridge";
 import { useDeckPresence } from "@/hooks/use-deck-presence";
 import { useDeckRole } from "@/hooks/use-deck-role";
 import {
@@ -1248,6 +1249,17 @@ export default function DeckEditor() {
     directoryWidget,
   );
   const canEdit = deckRole.canEdit && !readOnlyWidget;
+  const undoState = undoAvailability[id ?? ""];
+  useDeckHistoryActionBridge({
+    deckId: id,
+    historyVersion: undoState?.historyVersion ?? 0,
+    canUndo: canEdit && (undoState?.canUndo ?? false),
+    canRedo: canEdit && (undoState?.canRedo ?? false),
+    enabled: Boolean(id && deck),
+    undo,
+    redo,
+    flushDeckSave,
+  });
   // The widget's write grant carries no comment actions.
   const canComment = deckRole.canComment && !readOnlyWidget && !widgetEmbed;
   const generationContext =

@@ -64,9 +64,11 @@ describe("buildSlidesDeckGenerationContext", () => {
     );
     expect(agentChatPlugin).toContain("Explicit source import rule");
     expect(agentChatPlugin).toContain("importIntoDeck: true");
-    expect(agentChatPlugin).toContain('"import-file"');
-    expect(agentChatPlugin).toContain('"import-pptx"');
-    expect(agentChatPlugin).toContain('"import-google-slides-reference"');
+    expect(agentChatPlugin).toContain("call import-file with the persisted");
+    expect(agentChatPlugin).toContain("Use import-pptx with deckId");
+    expect(agentChatPlugin).toContain(
+      "call import-google-slides-reference with presentationUrl",
+    );
     expect(agentChatPlugin).toContain(
       "an attachment is reference context by default",
     );

@@ -31,6 +31,11 @@ const schema = z
 export default defineAction({
   description: "Restore a resource from a reusable version-history snapshot.",
   schema,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   run: async (args, ctx) => {
     const actionCtx = ctx as VersionedResourceContext | undefined;
     const scope = {

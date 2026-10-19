@@ -223,7 +223,9 @@ export default defineAction({
         statusCode: 404,
       });
     }
-    if (!previous.provider || !replacement.provider) {
+    const previousProvider = previous.provider;
+    const replacementProvider = replacement.provider;
+    if (!previousProvider || !replacementProvider) {
       fail("Image storage could not be verified.", {
         errorCode: "asset_replace_storage_unavailable",
         statusCode: 503,
@@ -262,7 +264,7 @@ export default defineAction({
     }
     const sameStoredFile =
       previous.url === replacement.url ||
-      (previous.provider === replacement.provider &&
+      (previousProvider === replacementProvider &&
         previous.providerObjectId !== null &&
         previous.providerObjectId === replacement.providerObjectId);
 
@@ -287,14 +289,14 @@ export default defineAction({
             url: replacement.url,
             type: replacement.type,
             size: replacement.size,
-            provider: replacement.provider,
+            provider: replacementProvider,
             providerObjectId: replacement.providerObjectId,
           })
           .where(
             and(
               ownedImageScope(id, ownerEmail, orgId),
               eq(schema.uploadedAssets.url, previous.url),
-              eq(schema.uploadedAssets.provider, previous.provider),
+              eq(schema.uploadedAssets.provider, previousProvider),
               previous.providerObjectId
                 ? eq(
                     schema.uploadedAssets.providerObjectId,
@@ -316,7 +318,7 @@ export default defineAction({
             and(
               ownedImageScope(replacementAssetId, ownerEmail, orgId),
               eq(schema.uploadedAssets.url, replacement.url),
-              eq(schema.uploadedAssets.provider, replacement.provider),
+              eq(schema.uploadedAssets.provider, replacementProvider),
               replacement.providerObjectId
                 ? eq(
                     schema.uploadedAssets.providerObjectId,
@@ -337,7 +339,7 @@ export default defineAction({
             assetId: replacementAssetId,
             ownerEmail,
             orgId: replacement.orgId,
-            provider: replacement.provider,
+            provider: replacementProvider,
             providerObjectId: replacement.providerObjectId,
             url: replacement.url,
           }),
@@ -357,7 +359,7 @@ export default defineAction({
             assetId: id,
             ownerEmail,
             orgId: previous.orgId,
-            provider: previous.provider,
+            provider: previousProvider,
             providerObjectId: previous.providerObjectId,
             url: previous.url,
           };
@@ -369,7 +371,7 @@ export default defineAction({
               assetId: id,
               ownerEmail,
               orgId: previous.orgId,
-              provider: previous.provider,
+              provider: previousProvider,
               providerObjectId: previous.providerObjectId,
               url: previous.url,
             }),

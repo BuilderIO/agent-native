@@ -111,6 +111,10 @@ import {
 } from "@/lib/slide-comment-anchor";
 import { TAB_ID } from "@/lib/tab-id";
 
+import {
+  OPEN_SLIDE_CANVAS_HEIGHT,
+  OPEN_SLIDE_CANVAS_WIDTH,
+} from "../open-slide-runtime/constants";
 import { OpenSlideCanvas } from "../open-slide-runtime/OpenSlideCanvas";
 import type {
   SlideDesignTokens,
@@ -288,6 +292,8 @@ type DragState = {
   initialRect?: Rect;
   initialRotation?: number;
   marquee?: Rect;
+  additive?: boolean;
+  initialSelection?: string[];
   guides?: ReturnType<typeof snapMove>["guides"];
 };
 
@@ -308,6 +314,15 @@ const RESIZE_HANDLES: Array<{ key: ResizeHandle; cursor: string }> = [
 
 function round(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+function isFullSlideBounds(bounds: Rect): boolean {
+  return (
+    Math.abs(bounds.x) < 1 &&
+    Math.abs(bounds.y) < 1 &&
+    bounds.width >= OPEN_SLIDE_CANVAS_WIDTH - 1 &&
+    bounds.height >= OPEN_SLIDE_CANVAS_HEIGHT - 1
+  );
 }
 
 function uniqueByLocator(nodes: ElementSnapshot[]): ElementSnapshot[] {
@@ -616,7 +631,7 @@ function SlideThumbnail({
             }
           >
             {visible && render.data ? (
-              <OpenSlideCanvas scale={0.085} flat>
+              <OpenSlideCanvas scale={0.085} flat blockInteractions>
                 <SandboxedSlide
                   artifact={render.data}
                   title={t("openSlidePresenter.slideLabel", {
@@ -908,14 +923,6 @@ export function OpenSlideEditor({
   const previewArtifactKey = artifact
     ? `${artifact.deckId}:${artifact.slideId}:${artifact.revision}:${artifact.sourceHash}`
     : null;
-  const activePreviewStepState =
-    previewStepState.artifactKey === previewArtifactKey
-      ? previewStepState
-      : {
-          artifactKey: previewArtifactKey,
-          stepCount: null,
-          revealedSteps: 0,
-        };
   const previousPanelRef = useRef<OpenSlideInspectorPanel>("format");
   useEffect(() => {
     if (activePanel !== "design") previousPanelRef.current = activePanel;
@@ -1662,6 +1669,10 @@ export function OpenSlideEditor({
           moved: false,
           nodeIds: [],
           initial: [],
+          additive: pointer.shiftKey,
+          ...(pointer.shiftKey
+            ? { initialSelection: [...selectedIdsRef.current] }
+            : {}),
           marquee: { x: pointer.x, y: pointer.y, width: 0, height: 0 },
         };
         return;
@@ -1890,19 +1901,28 @@ export function OpenSlideEditor({
         pointer.phase === "up"
       ) {
         const ids = nodes
-          .filter((node) => rectsIntersect(drag.marquee as Rect, node.bounds))
+          .filter(
+            (node) =>
+              !isFullSlideBounds(node.bounds) &&
+              rectsIntersect(drag.marquee as Rect, node.bounds),
+          )
           .map((node) => node.nodeId);
-        selectedIdsRef.current = ids;
-        setSelectedIds(ids);
-        inspect(ids);
+        const nextIds = drag.additive
+          ? [...new Set([...(drag.initialSelection ?? []), ...ids])]
+          : ids;
+        selectedIdsRef.current = nextIds;
+        setSelectedIds(nextIds);
+        inspect(nextIds);
       } else if (
         drag.mode === "marquee" &&
         !drag.moved &&
         pointer.phase === "up"
       ) {
-        selectedIdsRef.current = [];
-        setSelectedIds([]);
-        inspect([]);
+        if (!drag.additive) {
+          selectedIdsRef.current = [];
+          setSelectedIds([]);
+          inspect([]);
+        }
       }
       dragRef.current = null;
       setMarquee(null);
@@ -3768,6 +3788,8 @@ export function OpenSlideEditor({
                         t={t}
                         onCommit={commitInlineEdits}
                         onCancel={() => setInlineNode(null)}
+                        onUndo={() => void undo()}
+                        onRedo={() => void redo()}
                       />
                     ) : null}
                   </div>

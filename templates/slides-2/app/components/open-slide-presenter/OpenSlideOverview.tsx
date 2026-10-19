@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -120,9 +121,11 @@ export default function OpenSlideOverview({
           className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"
         >
           {Array.from({ length: total }, (_, slideIndex) => (
-            <button
+            <Button
               type="button"
               key={slideIndex}
+              variant="ghost"
+              size="sm"
               ref={slideIndex === focusedIndex ? focusedButtonRef : undefined}
               data-slide-overview-index={slideIndex}
               aria-label={labels.slideLabel(slideIndex + 1, total)}
@@ -130,7 +133,7 @@ export default function OpenSlideOverview({
               onFocus={() => setFocusedIndex(slideIndex)}
               onClick={() => onSelect(slideIndex)}
               className={cn(
-                "group flex min-w-0 flex-col gap-1.5 rounded-md p-1 text-left outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring",
+                "group h-auto w-full min-w-0 flex-col items-stretch justify-start gap-1.5 whitespace-normal rounded-md p-1 text-left font-normal outline-none transition-colors hover:bg-accent hover:text-current focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 active:scale-100",
                 slideIndex === focusedIndex && "bg-accent ring-2 ring-primary",
                 slideIndex === index &&
                   slideIndex !== focusedIndex &&
@@ -149,7 +152,7 @@ export default function OpenSlideOverview({
               <span className="px-1 text-xs text-muted-foreground">
                 {labels.slideLabel(slideIndex + 1, total)}
               </span>
-            </button>
+            </Button>
           ))}
         </div>
       </DialogContent>

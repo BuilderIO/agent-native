@@ -29,6 +29,9 @@ const sandboxPreviewMocks = vi.hoisted(() => ({
   initialRevealedSteps: null as number | null,
   onNavigationInput: null as ((input: unknown) => void) | null,
 }));
+const sandboxPointerMocks = vi.hoisted(() => ({
+  onPointer: null as ((pointer: FramePointer) => void) | null,
+}));
 const editorMocks = vi.hoisted(() => ({ showArrange: false }));
 const editorCommandMocks = vi.hoisted(() => ({
   appState: new Map<string, unknown>(),
@@ -50,6 +53,7 @@ beforeEach(() => {
   sandboxNodeMocks.nodes = null;
   sandboxPreviewMocks.initialRevealedSteps = null;
   sandboxPreviewMocks.onNavigationInput = null;
+  sandboxPointerMocks.onPointer = null;
   editorMocks.showArrange = false;
 });
 
@@ -128,20 +132,26 @@ vi.mock("@/components/open-slide-editor/OpenSlideImageCropControls", () => ({
 vi.mock("@/components/open-slide-editor/OpenSlideInspector", () => ({
   OpenSlideInspector: ({
     selected,
+    selectionCount,
     onArrange,
   }: {
     selected: ElementSnapshot | null;
+    selectionCount: number;
     onArrange: (direction: "front" | "forward" | "backward" | "back") => void;
-  }) =>
-    editorMocks.showArrange && selected ? (
-      <button
-        type="button"
-        data-testid="mock-bring-to-front"
-        onClick={() => onArrange("front")}
-      >
-        Bring to front
-      </button>
-    ) : null,
+  }) => (
+    <>
+      <output data-testid="mock-selection-count">{selectionCount}</output>
+      {editorMocks.showArrange && selected ? (
+        <button
+          type="button"
+          data-testid="mock-bring-to-front"
+          onClick={() => onArrange("front")}
+        >
+          Bring to front
+        </button>
+      ) : null}
+    </>
+  ),
 }));
 vi.mock("../open-slide-runtime/OpenSlideCanvas", () => ({
   OpenSlideCanvas: ({ children }: { children: ReactNode }) => (
@@ -168,6 +178,7 @@ vi.mock("../open-slide-runtime/SandboxedSlide", async () => {
     }) => {
       sandboxPreviewMocks.initialRevealedSteps = initialRevealedSteps ?? null;
       sandboxPreviewMocks.onNavigationInput = onNavigationInput ?? null;
+      sandboxPointerMocks.onPointer = onPointer;
       const node: ElementSnapshot = {
         nodeId: "node-1",
         line: sandboxNodeMocks.line,
@@ -389,6 +400,66 @@ function sourceLocation(sourceTsx: string, openingTag: string) {
 }
 
 describe("OpenSlideEditor shell layout", () => {
+  it("adds Shift-marquee targets and preserves selection on Shift-click blank canvas", async () => {
+    const firstNode: ElementSnapshot = {
+      nodeId: "node-1",
+      line: 1,
+      column: 0,
+      tagName: "div",
+      bounds: { x: 10, y: 10, width: 100, height: 50 },
+      text: "First",
+      styles: {},
+    };
+    const secondNode: ElementSnapshot = {
+      ...firstNode,
+      nodeId: "node-2",
+      line: 2,
+      bounds: { x: 200, y: 10, width: 100, height: 50 },
+      text: "Second",
+    };
+    sandboxNodeMocks.nodes = [firstNode, secondNode];
+    render(
+      <MemoryRouter>
+        <OpenSlideEditor {...createEditorProps()} />
+      </MemoryRouter>,
+    );
+
+    const pointer = (
+      phase: FramePointer["phase"],
+      x: number,
+      y: number,
+      pointerId: number,
+    ) => {
+      act(() =>
+        sandboxPointerMocks.onPointer?.({
+          phase,
+          pointerType: "mouse",
+          x,
+          y,
+          button: 0,
+          pointerId,
+          shiftKey: true,
+          altKey: false,
+          ctrlKey: false,
+          metaKey: false,
+          target: null,
+        }),
+      );
+    };
+
+    fireEvent.click(await screen.findByTestId("mock-slide-object"));
+    expect(screen.getByTestId("mock-selection-count").textContent).toBe("1");
+
+    pointer("down", 180, 0, 2);
+    pointer("move", 320, 70, 2);
+    pointer("up", 320, 70, 2);
+    expect(screen.getByTestId("mock-selection-count").textContent).toBe("2");
+
+    pointer("down", 400, 100, 3);
+    pointer("up", 400, 100, 3);
+    expect(screen.getByTestId("mock-selection-count").textContent).toBe("2");
+  });
+
   it("toggles Preview, reveals builds, and keeps the inspector shortcut available", async () => {
     render(
       <MemoryRouter>

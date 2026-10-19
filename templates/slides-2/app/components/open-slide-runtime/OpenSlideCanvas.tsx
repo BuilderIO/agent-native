@@ -9,6 +9,7 @@ type Props = {
   zoom?: number;
   center?: boolean;
   flat?: boolean;
+  blockInteractions?: boolean;
   onScaleChange?: (scale: number) => void;
 };
 
@@ -19,6 +20,7 @@ export function OpenSlideCanvas({
   zoom = 1,
   center = true,
   flat = false,
+  blockInteractions = false,
   onScaleChange,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -85,6 +87,13 @@ export function OpenSlideCanvas({
           {children}
         </div>
       </div>
+      {blockInteractions ? (
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 z-10"
+          data-open-slide-canvas-interaction-blocker
+        />
+      ) : null}
     </div>
   );
 }

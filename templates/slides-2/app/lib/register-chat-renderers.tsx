@@ -1,11 +1,14 @@
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { compactOutlineButtonClassName } from "@agent-native/toolkit/app/chat";
 import { ActionCard } from "@agent-native/toolkit/app/chat";
 import {
   registerActionChatRenderer,
   type ToolRendererProps,
 } from "@agent-native/toolkit/app/chat/agentkit-chat/index";
 import {
+  projectSlidesAddedSlidePreview,
+  projectSlidesAddedSlideResult,
+  SLIDES_ADDED_SLIDE_RESULT_RENDERER,
   projectSlidesDeckResult,
   SLIDES_DECK_RESULT_RENDERER,
 } from "@shared/action-ui";
@@ -14,6 +17,7 @@ import { Link } from "react-router";
 
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { Slide } from "@/context/DeckContext";
 
 export function SlidesDeckResultCard({ context }: ToolRendererProps) {
@@ -28,14 +32,8 @@ export function SlidesDeckResultCard({ context }: ToolRendererProps) {
         title={deck.title}
         detail={t("history.slideCount", { count: deck.slideCount })}
         status={t("deckResult.saved")}
-        className="rounded-none border-0 bg-transparent p-0 shadow-none"
         action={
-          <Button
-            asChild
-            size="sm"
-            variant="outline"
-            className={`${compactOutlineButtonClassName} transition-none active:scale-100`}
-          >
+          <Button asChild size="sm" variant="outline">
             <Link to={`/deck/${encodeURIComponent(deck.id)}`}>
               {t("deckEditor.accessApprovalOpenDeck")}
             </Link>
@@ -76,4 +74,84 @@ registerActionChatRenderer({
   id: "slides.deck-result",
   renderer: SLIDES_DECK_RESULT_RENDERER,
   Component: SlidesDeckResultCard,
+});
+
+export function SlidesAddedSlideResultCard({ context }: ToolRendererProps) {
+  const t = useT();
+  const result = projectSlidesAddedSlideResult(context.resultJson);
+  const { data, isPending } = useActionQuery(
+    "get-deck",
+    {
+      id: result?.deckId ?? "",
+      slideId: result?.slideId ?? "",
+      compact: "false",
+    },
+    { enabled: result !== null },
+  );
+
+  if (!result) return null;
+
+  const preview = projectSlidesAddedSlidePreview(data, result.slideId);
+  const chatParams = new URLSearchParams({
+    deckId: result.deckId,
+    slideId: result.slideId,
+    slideNumber: String(result.slideNumber),
+  });
+
+  return (
+    <div className="space-y-3">
+      <ActionCard
+        icon={<IconPresentation aria-hidden="true" />}
+        title={result.deckTitle}
+        detail={t("agent.slideNumber", { number: result.slideNumber })}
+        status={t("deckResult.saved")}
+        action={
+          <div className="flex flex-wrap items-center gap-2">
+            <Button asChild size="sm" variant="outline">
+              <Link
+                to={`/deck/${encodeURIComponent(result.deckId)}?slide=${result.slideNumber}`}
+              >
+                {t("deckEditor.accessApprovalOpenDeck")}
+              </Link>
+            </Button>
+            <Button asChild size="sm" variant="outline">
+              <Link to={`/chat?${chatParams.toString()}`}>
+                {t("deckEditor.continueInChat")}
+              </Link>
+            </Button>
+          </div>
+        }
+      />
+      {preview ? (
+        <div
+          className="aspect-video overflow-hidden rounded-md border border-border bg-muted"
+          data-slides-added-slide-preview
+          inert
+          aria-hidden="true"
+        >
+          <SlideRenderer
+            slide={
+              {
+                id: preview.id,
+                content: preview.content,
+                notes: "",
+                layout: preview.layout,
+              } satisfies Slide
+            }
+            thumbnail
+          />
+        </div>
+      ) : isPending ? (
+        <div className="aspect-video overflow-hidden rounded-md border border-border bg-muted p-2">
+          <Skeleton className="size-full" />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+registerActionChatRenderer({
+  id: "slides.added-slide-result",
+  renderer: SLIDES_ADDED_SLIDE_RESULT_RENDERER,
+  Component: SlidesAddedSlideResultCard,
 });

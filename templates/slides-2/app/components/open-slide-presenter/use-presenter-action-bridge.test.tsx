@@ -107,8 +107,7 @@ describe("usePresenterActionBridge", () => {
     expect(mocks.useDbSync).toHaveBeenLastCalledWith({
       ignoreSource: expect.any(String),
       realtime: {
-        reason:
-          "relay viewer-authorized presenter commands to the linked projection",
+        reason: "relay presenter commands to the linked projection",
       },
       pauseWhenHidden: false,
     });

@@ -17,6 +17,11 @@ const schema = z.object({
 export default defineAction({
   description: "Move an anchored review comment to a new canvas position.",
   schema,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   run: async (args, ctx) => {
     const actionCtx = ctx as ReviewResourceContext | undefined;
     const userEmail = actionCtx?.userEmail?.trim().toLowerCase();

@@ -1,104 +1,36 @@
-import {
-  AGENT_ACCESS_PARAM,
-  getConfiguredAppBasePath,
-  verifyScopedAgentAccessToken,
-} from "@agent-native/core/server";
+import { getConfiguredAppBasePath } from "@agent-native/core/server";
 import {
   AGENT_READABLE_RESOURCE_SCRIPT_TYPE,
-  SSR_QUERY_CACHE_KEY_HEADER,
   buildResourceSocialMeta,
   buildAgentReadableResourceDiscovery,
   normalizeDocumentTitle,
   safeJsonForHtml,
 } from "@agent-native/core/shared";
-import {
-  toSharedDeckSlide,
-  type SharedDeckResponse,
-  type SharedDeckSlide,
-} from "@shared/api";
 import { summarizeSlideContent } from "@shared/deck-title";
 import { eq } from "drizzle-orm";
-import { useEffect } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import type {
   HeadersArgs,
   LoaderFunctionArgs,
   MetaFunction,
 } from "react-router";
-import { data, useLoaderData } from "react-router";
+import { useLoaderData } from "react-router";
 
 import SharedPresentation from "@/pages/SharedPresentation";
 
 import { getDb, schema } from "../../server/db";
-import { slideRevealIssues } from "../../server/lib/slide-reveal-issues";
-import {
-  DECK_AGENT_CONTEXT_ENDPOINT,
-  DECK_AGENT_RESOURCE_KIND,
-} from "../../shared/agent-readable";
-
-type LoaderData =
-  | {
-      deck: SharedDeckResponse;
-      error?: undefined;
-      id: string;
-      basePath: string;
-      origin: string;
-      isPublic: boolean;
-      agentAccessToken?: string | null;
-    }
-  | {
-      deck: null;
-      error: string;
-      restricted?: { id: string; basePath: string };
-    };
-
-type DeckData = {
-  title?: string;
-  slides?: Array<Partial<SharedDeckSlide>>;
-  aspectRatio?: SharedDeckResponse["aspectRatio"];
-};
-
-const PRIVATE_AGENT_DECK_HEADERS = {
-  "Cache-Control": "private, max-age=0, no-store",
-  "Referrer-Policy": "no-referrer",
-  [SSR_QUERY_CACHE_KEY_HEADER]: "query",
-};
-
-function publicDeckLoaderData(payload: LoaderData, privateAgentAccess = false) {
-  if (!privateAgentAccess) return payload;
-  return data(payload, {
-    headers: PRIVATE_AGENT_DECK_HEADERS,
-  });
-}
+import { toSharedDeck } from "../../server/lib/shared-deck";
+import { DECK_AGENT_CONTEXT_ENDPOINT } from "../../shared/agent-readable";
 
 export function headers({ loaderHeaders }: HeadersArgs) {
-  return loaderHeaders;
-}
-
-function toSharedDeck(row: {
-  title: string | null;
-  data: string;
-}): SharedDeckResponse {
-  const data = JSON.parse(row.data) as DeckData;
-  return {
-    title: row.title || data.title || "Untitled",
-    slides: Array.isArray(data.slides)
-      ? data.slides.map((slide, index) =>
-          toSharedDeckSlide(slide, index, {
-            includeNotes: false,
-            revealIssues: slideRevealIssues(slide),
-          }),
-        )
-      : [],
-    aspectRatio: data.aspectRatio,
-  };
+  const headers = new Headers(loaderHeaders);
+  headers.set("Referrer-Policy", "no-referrer");
+  return headers;
 }
 
 export async function loader({ params, request }: LoaderFunctionArgs) {
   const id = params.id;
   if (!id) throw new Response("Not found", { status: 404 });
-  const agentAccessToken = new URL(request.url).searchParams.get(
-    AGENT_ACCESS_PARAM,
-  );
   const basePath = getConfiguredAppBasePath();
 
   const db = getDb();
@@ -113,30 +45,20 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
     .limit(1);
 
   if (!deck) throw new Response("Not found", { status: 404 });
-  const tokenAccess = agentAccessToken
-    ? verifyScopedAgentAccessToken(agentAccessToken, {
-        resourceKind: DECK_AGENT_RESOURCE_KIND,
-        resourceId: id,
-      }).ok
-    : false;
-  if (deck.visibility === "public" || tokenAccess) {
-    return publicDeckLoaderData(
-      {
-        deck: toSharedDeck(deck),
-        id,
-        basePath,
-        origin: new URL(request.url).origin,
-        isPublic: deck.visibility === "public",
-        agentAccessToken: tokenAccess ? agentAccessToken : null,
-      },
-      tokenAccess,
-    );
+  if (deck.visibility === "public") {
+    return {
+      deck: toSharedDeck(deck),
+      id,
+      basePath,
+      origin: new URL(request.url).origin,
+      isPublic: true,
+    };
   }
-  return publicDeckLoaderData({
+  return {
     deck: null,
     error: "restricted",
     restricted: { id, basePath },
-  });
+  };
 }
 
 export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
@@ -162,29 +84,60 @@ export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
 export default function PublicDeckRoute() {
   const data = useLoaderData<typeof loader>();
   const restricted = data.deck === null ? data.restricted : undefined;
+  const [agentAccess, setAgentAccess] = useState<{
+    deckId: string;
+    token: string;
+  } | null>(null);
+  const agentAccessRef = useRef<{ deckId: string; token: string } | null>(null);
 
-  useEffect(() => {
-    if (restricted) {
-      window.location.replace(`${restricted.basePath}/deck/${restricted.id}`);
+  useLayoutEffect(() => {
+    const url = new URL(window.location.href);
+    let token = url.searchParams.get("agent_access");
+    if (token !== null) {
+      url.searchParams.delete("agent_access");
+      window.history.replaceState(
+        window.history.state,
+        "",
+        `${url.pathname}${url.search}${url.hash}`,
+      );
     }
-  }, [restricted]);
 
-  if (restricted) return null;
-  if (data.deck === null) {
-    return (
-      <SharedPresentation initialDeck={data.deck} initialError={data.error} />
-    );
-  }
+    if (!restricted) return;
+    token ??=
+      agentAccessRef.current?.deckId === restricted.id
+        ? agentAccessRef.current.token
+        : null;
+    if (token) {
+      agentAccessRef.current = { deckId: restricted.id, token };
+      setAgentAccess(agentAccessRef.current);
+      return;
+    }
+    window.location.replace(`${restricted.basePath}/deck/${restricted.id}`);
+  }, [restricted]);
 
   return (
     <>
-      <AgentReadableDeckDiscovery
-        id={data.id}
-        title={data.deck.title}
-        basePath={data.basePath}
-        token={data.agentAccessToken}
+      {data.deck ? (
+        <AgentReadableDeckDiscovery
+          id={data.id}
+          title={data.deck.title}
+          basePath={data.basePath}
+        />
+      ) : agentAccess?.deckId === restricted?.id && restricted ? (
+        <AgentReadableDeckDiscovery
+          id={restricted.id}
+          basePath={restricted.basePath}
+          token={agentAccess.token}
+        />
+      ) : null}
+      <SharedPresentation
+        initialDeck={data.deck}
+        initialError={data.deck ? data.error : undefined}
+        agentAccessDeckId={restricted?.id}
+        agentAccessToken={
+          agentAccess?.deckId === restricted?.id ? agentAccess.token : null
+        }
       />
-      <SharedPresentation initialDeck={data.deck} initialError={data.error} />
     </>
   );
 }
@@ -217,7 +170,7 @@ function AgentReadableDeckDiscovery({
   id,
   title,
   basePath,
-  token,
+  token = null,
 }: {
   id: string;
   title?: string;

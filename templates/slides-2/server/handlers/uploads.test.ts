@@ -118,6 +118,7 @@ describe("Slides reference upload limits", () => {
     mockIsHostedSlidesRuntime.mockReturnValue(false);
     mockMintUploadedReference.mockReset();
     mockDeleteUploadedReference.mockReset();
+    mockDeleteUploadedReference.mockResolvedValue(true);
     mockReadMultipartFormData.mockReset();
     mockReadBoundedMultipartFormData.mockReset();
     mockAssertBodySize.mockReset();

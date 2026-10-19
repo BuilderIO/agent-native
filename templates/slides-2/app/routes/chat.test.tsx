@@ -141,4 +141,36 @@ describe("Slides chat route", () => {
       }),
     );
   });
+
+  it("uses and preserves an explicitly linked slide scope", () => {
+    publishSlidesSelection({
+      deckId: "deck-1",
+      slideId: "stale-slide",
+      slideNumber: 1,
+      items: [{ objectId: "stale-selection" }],
+    });
+
+    render(
+      <MemoryRouter
+        initialEntries={[
+          "/chat?deckId=deck%2F1&slideId=slide%2F2&slideNumber=2",
+        ]}
+      >
+        <Routes>
+          <Route path="/chat" element={<ChatRoute />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    const props = chatSurfaceMock.mock.lastCall?.[0] as {
+      scope: { context: string; label: string };
+      threadUrlSync: { getPath: (id: string | null) => string };
+    };
+    expect(props.scope.label).toBe("Slide 2");
+    expect(props.scope.context).toContain("Current slide id: slide/2.");
+    expect(props.scope.context).not.toContain("stale-selection");
+    expect(props.threadUrlSync.getPath("thread/1")).toBe(
+      "/chat/thread%2F1?deckId=deck%2F1&slideId=slide%2F2&slideNumber=2",
+    );
+  });
 });

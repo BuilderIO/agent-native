@@ -738,7 +738,7 @@ describe("chunked reference uploads", () => {
       expect(error).toHaveBeenCalledWith(
         "[slides-upload] failed finalization cleanup failed",
         expect.objectContaining({
-          error: "storage unavailable",
+          error: "No object storage is connected.",
           cleanupError: "cleanup failed",
         }),
       );

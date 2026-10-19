@@ -38,6 +38,10 @@ import {
   SLIDE_SOURCE_BYTE_LIMIT_MESSAGE,
 } from "../server/lib/slide-source-limits.js";
 import { trackSlides } from "../server/lib/slides-tracking.js";
+import {
+  projectSlidesAddedSlideResult,
+  SLIDES_ADDED_SLIDE_RESULT_RENDERER,
+} from "../shared/action-ui.js";
 import { isRealSlide } from "../shared/blank-slide.js";
 import { repairGeneratedDeckTitle } from "../shared/deck-title.js";
 import { generationTimingFields } from "../shared/generation-timing.js";
@@ -235,6 +239,11 @@ export default defineAction({
         });
       }
     }),
+  chatUI: {
+    renderer: SLIDES_ADDED_SLIDE_RESULT_RENDERER,
+    when: (_args, result) => projectSlidesAddedSlideResult(result) !== null,
+    projectResult: (_args, result) => projectSlidesAddedSlideResult(result),
+  },
   mcpApp: {
     compactCatalog: true,
     resource: embedApp({
@@ -817,6 +826,10 @@ export default defineAction({
       };
       const base = {
         deckId,
+        deckTitle:
+          (typeof deck.title === "string" ? deck.title.trim() : "") ||
+          currentTitle?.trim() ||
+          "",
         slideId: newSlideId,
         slideNumber: insertIndex + 1,
         position: insertIndex,

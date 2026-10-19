@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import { defineAction } from "@agent-native/core";
 import { assertAccess } from "@agent-native/core/sharing";
 import { toSharedDeckSlide } from "@shared/api";
-import { eq, lt } from "drizzle-orm";
+import { lt } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";

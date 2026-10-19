@@ -31,6 +31,11 @@ export default defineAction({
     model: z.string().optional(),
     segments: z.array(reportedSegmentSchema).default([]),
   }),
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (args): Promise<ContextManifest> => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw contextXrayAuthError();

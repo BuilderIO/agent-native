@@ -69,6 +69,11 @@ export default defineAction({
         : `Set ${scope} ${args.provider} models (${args.models?.length ?? 0})`;
     },
   },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (args, ctx) => {
     if (!ctx?.userEmail) fail("Not authenticated.", { statusCode: 401 });
     const provider = args.provider as ProviderModelSelectionProvider;

@@ -273,6 +273,7 @@ describe("add-slide", () => {
     });
 
     expect(result).toMatchObject({
+      deckTitle: "Test deck",
       slideId: "slide-new",
       _receipt: {
         changed: true,

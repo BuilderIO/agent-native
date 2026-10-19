@@ -21,6 +21,11 @@ const schema = z.object({
 export default defineAction({
   description: "Create a reusable version-history snapshot for a resource.",
   schema,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (args, ctx) => {
     const actionCtx = ctx as VersionedResourceContext | undefined;
     const access = await assertVersionedResourceAccess(

@@ -188,8 +188,7 @@ describe("exportDeckToGoogleSlides", () => {
     });
     const guard =
       "Slide 3 contains freeform positioned objects. Export this deck from the Slides editor with Export > PowerPoint so browser-rendered geometry is preserved.";
-    vi.mocked(fetch).mockImplementation((async (input: RequestInfo | URL) => {
-      const url = requestString(input);
+    vi.mocked(fetch).mockImplementation((async () => {
       return new Response(JSON.stringify({ error: guard }), {
         status: 500,
         headers: { "Content-Type": "application/json" },

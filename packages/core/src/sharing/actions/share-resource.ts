@@ -177,6 +177,11 @@ export default defineAction({
       ),
   }),
   needsApproval: needsExternalShareApproval,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: true,
+  },
   run: async (args, ctx) => {
     assertWidgetShareWriteGrant(ctx, "share-resource", args);
     const reg = requireShareableResource(args.resourceType);

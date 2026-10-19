@@ -7,7 +7,7 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { and, eq, isNull, like, or } from "drizzle-orm";
+import { and, eq, isNull, like, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -84,6 +84,37 @@ export default defineAction({
 
         if (!asset) return "missing";
         if (!asset.provider) return "storage_unavailable";
+
+        const deckScope = asset.orgId
+          ? eq(schema.decks.orgId, asset.orgId)
+          : and(
+              eq(schema.decks.ownerEmail, ownerEmail),
+              isNull(schema.decks.orgId),
+            );
+        let referencingDeck: { id: string } | undefined;
+        try {
+          [referencingDeck] = await tx
+            .select({ id: schema.decks.id })
+            .from(schema.decks)
+            .where(
+              and(
+                deckScope,
+                sql`position(${`asset://${asset.id}`} in ${schema.decks.data}) > 0`,
+              ),
+            )
+            .limit(1);
+        } catch {
+          fail("Could not verify whether the uploaded image is in use.", {
+            errorCode: "asset_delete_reference_check_failed",
+            statusCode: 500,
+          });
+        }
+        if (referencingDeck) {
+          fail(
+            "The uploaded image is used by a saved slide and cannot be deleted.",
+            { errorCode: "asset_delete_in_use", statusCode: 409 },
+          );
+        }
 
         await scheduleUploadedAssetDeletion(tx, {
           assetId: asset.id,

@@ -1,4 +1,8 @@
-import { SSR_QUERY_CACHE_KEY_HEADER } from "@agent-native/core/shared";
+// @vitest-environment happy-dom
+
+import { render, screen, waitFor } from "@testing-library/react";
+import { createElement, StrictMode } from "react";
+import { createMemoryRouter, RouterProvider } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const resultQueue = vi.hoisted(() => ({ current: [] as unknown[][] }));
@@ -9,18 +13,27 @@ const where = vi.hoisted(() => vi.fn(() => ({ limit })));
 const from = vi.hoisted(() => vi.fn(() => ({ where })));
 const select = vi.hoisted(() => vi.fn(() => ({ from })));
 const configuredBasePath = vi.hoisted(() => ({ current: "" }));
-const mockVerifyScopedAgentAccessToken = vi.hoisted(() =>
-  vi.fn((_token: unknown, _options: unknown) => ({ ok: false })),
-);
-
-vi.mock("@/pages/SharedPresentation", () => ({ default: () => null }));
+vi.mock("@/pages/SharedPresentation", () => ({
+  default: ({
+    agentAccessDeckId,
+    agentAccessToken,
+  }: {
+    agentAccessDeckId?: string;
+    agentAccessToken?: string | null;
+  }) =>
+    createElement(
+      "output",
+      {
+        "data-testid": "private-deck-access",
+        "data-deck-id": agentAccessDeckId,
+      },
+      agentAccessToken ?? "no-token",
+    ),
+}));
 vi.mock("@/components/ui/spinner", () => ({ Spinner: () => null }));
 
 vi.mock("@agent-native/core/server", () => ({
-  AGENT_ACCESS_PARAM: "agent_access",
   getConfiguredAppBasePath: () => configuredBasePath.current,
-  verifyScopedAgentAccessToken: (token: unknown, options: unknown) =>
-    mockVerifyScopedAgentAccessToken(token, options),
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -40,7 +53,12 @@ vi.mock("../../server/db", () => ({
   },
 }));
 
-import { buildDeckDiscovery, loader } from "../routes/p.$id";
+import {
+  buildDeckDiscovery,
+  headers as routeHeaders,
+  loader,
+} from "../routes/p.$id";
+import PublicDeckRoute from "../routes/p.$id";
 
 function unwrapLoaderData(result: Awaited<ReturnType<typeof loader>>) {
   const maybeWrapped = result as any;
@@ -63,7 +81,6 @@ describe("public deck route", () => {
     vi.clearAllMocks();
     configuredBasePath.current = "";
     resultQueue.current = [];
-    mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: false });
   });
 
   it("serves a public deck for every viewer without speaker notes", async () => {
@@ -136,25 +153,68 @@ describe("public deck route", () => {
     },
   );
 
-  it("uses a query-specific cache key for token-authorized deck pages", async () => {
-    mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: true });
+  it("keeps token-authorized private deck content out of server loader data", async () => {
     resultQueue.current = [deckRows("private")];
 
-    const result = (await loader(requestFor("deck-1", "tok+1"))) as any;
+    const result = unwrapLoaderData(
+      await loader(requestFor("deck-1", "tok+1")),
+    );
 
-    expect(mockVerifyScopedAgentAccessToken).toHaveBeenCalledWith("tok+1", {
-      resourceKind: "slides:deck",
-      resourceId: "deck-1",
+    expect(result).toEqual({
+      deck: null,
+      error: "restricted",
+      restricted: { id: "deck-1", basePath: "" },
     });
-    expect(result.type).toBe("DataWithResponseInit");
-    expect(result.init.headers).toEqual({
-      "Cache-Control": "private, max-age=0, no-store",
-      "Referrer-Policy": "no-referrer",
-      [SSR_QUERY_CACHE_KEY_HEADER]: "query",
-    });
-    expect(result.data.agentAccessToken).toBe("tok+1");
-    if (result.data.deck === null) throw new Error("expected tokenized deck");
-    expect(result.data.deck.title).toBe("Launch review");
+    expect(JSON.stringify(result)).not.toContain("internal talking points");
+    expect(JSON.stringify(result)).not.toContain("tok+1");
+  });
+
+  it("scrubs the private access token before forwarding it to the client deck view", async () => {
+    const token = "scoped+private-token";
+    const url = new URL(`${window.location.origin}/p/deck-1`);
+    url.searchParams.set("agent_access", token);
+    url.searchParams.set("slide", "2");
+    url.hash = "present";
+    window.history.replaceState(window.history.state, "", url.href);
+
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/p/:id",
+          loader: () => ({
+            deck: null,
+            error: "restricted",
+            restricted: { id: "deck-1", basePath: "" },
+          }),
+          Component: PublicDeckRoute,
+        },
+      ],
+      { initialEntries: [url.pathname + url.search + url.hash] },
+    );
+
+    render(
+      createElement(
+        StrictMode,
+        null,
+        createElement(RouterProvider, { router }),
+      ),
+    );
+
+    await waitFor(() => expect(window.location.search).toBe("?slide=2"));
+    expect(window.location.hash).toBe("#present");
+    expect(screen.getByTestId("private-deck-access").textContent).toBe(token);
+    expect(screen.getByTestId("private-deck-access").dataset.deckId).toBe(
+      "deck-1",
+    );
+  });
+
+  it("sets a path-invariant no-referrer policy while preserving cache headers", () => {
+    const responseHeaders = routeHeaders({
+      loaderHeaders: new Headers({ "Cache-Control": "public, max-age=60" }),
+    } as never);
+
+    expect(responseHeaders.get("Referrer-Policy")).toBe("no-referrer");
+    expect(responseHeaders.get("Cache-Control")).toBe("public, max-age=60");
   });
 
   it("404s when the deck does not exist", async () => {

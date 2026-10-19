@@ -44,6 +44,7 @@ const INITIAL_TOOL_NAMES = [
   "update-slide-source",
   "transform-slide-objects",
   "control-slide-editor",
+  "control-deck-history",
   "patch-deck",
   "search-svgl-logos",
   "import-svgl-logo",

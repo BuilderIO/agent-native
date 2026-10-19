@@ -65,7 +65,7 @@ describe("slides agent card", () => {
       const skillIds = card.skills.map((skill) => skill.id);
       expect(skillIds).toEqual(expect.arrayContaining(REQUIRED_SLIDES_ACTIONS));
       expect(actions["create-deck"]?.tool.description).toContain(
-        "standalone HTML artifact",
+        "source_runtime_export_required",
       );
       expect(actions["add-slide"]?.tool.description).toContain(
         "standalone HTML artifact",

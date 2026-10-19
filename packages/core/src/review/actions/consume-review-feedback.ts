@@ -15,6 +15,11 @@ export default defineAction({
   description:
     "Mark review feedback as consumed by the agent or reviewer workflow.",
   schema,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (args, ctx) => {
     const actionCtx = ctx as ReviewResourceContext | undefined;
     await assertReviewableResourceAccess(

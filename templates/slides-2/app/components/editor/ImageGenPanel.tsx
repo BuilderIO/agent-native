@@ -1,12 +1,21 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  PromptComposer,
+  type TiptapComposerHandle,
+} from "@agent-native/toolkit/app/chat/composer/index";
+import {
   DEFAULT_STYLE_REFERENCE_URLS,
   normalizeReferenceUrls,
 } from "@shared/api";
 import { IconX } from "@tabler/icons-react";
-import { useState, useEffect, useRef } from "react";
-import { createPortal } from "react-dom";
+import { useMemo, useRef, useState } from "react";
 
+import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+} from "@/components/ui/popover";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { WEBSITE_STYLE_REFERENCE_DIRECTIVE } from "@/lib/create-deck-generation";
 
@@ -106,30 +115,24 @@ export default function ImageGenPanel({
   anchorRef,
 }: ImageGenPanelProps) {
   const t = useT();
-  const [prompt, setPrompt] = useState("");
   const [disabledDefaults, setDisabledDefaults] = useState<Set<number>>(
     new Set(),
   );
   const { submit: agentSubmit } = useAgentGenerating();
-  const panelRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onOpenChange(false);
-    };
-    const handleClick = (e: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
-        onOpenChange(false);
-      }
-    };
-    document.addEventListener("keydown", handleKey);
-    document.addEventListener("mousedown", handleClick);
-    return () => {
-      document.removeEventListener("keydown", handleKey);
-      document.removeEventListener("mousedown", handleClick);
-    };
-  }, [open, onOpenChange]);
+  const composerRef = useRef<TiptapComposerHandle>(null);
+  const virtualAnchor = useMemo(
+    () => ({
+      current: {
+        get contextElement() {
+          return anchorRef?.current ?? document.body;
+        },
+        getBoundingClientRect: () =>
+          anchorRef?.current?.getBoundingClientRect() ??
+          new DOMRect(window.innerWidth / 2, window.innerHeight / 2, 0, 0),
+      },
+    }),
+    [anchorRef],
+  );
 
   const toggleDefaultRef = (index: number) => {
     setDisabledDefaults((prev) => {
@@ -140,7 +143,7 @@ export default function ImageGenPanel({
     });
   };
 
-  const handleGenerate = () => {
+  const handleGenerate = (prompt: string) => {
     const activeDefaultRefs = DEFAULT_STYLE_REFERENCE_URLS.filter(
       (_, i) => !disabledDefaults.has(i),
     );
@@ -157,113 +160,85 @@ export default function ImageGenPanel({
     const label = getImageGenerationLabel(prompt, slideContext?.slideIndex);
 
     agentSubmit(label, context);
-    setPrompt("");
     onOpenChange(false);
   };
 
-  if (!open) return null;
+  return (
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <PopoverAnchor virtualRef={virtualAnchor} />
+      <PopoverContent
+        side="bottom"
+        align="end"
+        sideOffset={8}
+        collisionPadding={12}
+        onOpenAutoFocus={(event) => event.preventDefault()}
+        className="w-[min(20rem,calc(100vw-24px))] overflow-hidden rounded-xl p-0 shadow-2xl shadow-black/60"
+      >
+        <div className="flex items-center justify-between px-4 pb-2 pt-3">
+          <h3 className="text-sm font-semibold text-foreground">
+            {t("editorToolbar.generateImage")}
+          </h3>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={() => onOpenChange(false)}
+            aria-label={t("comments.close")}
+          >
+            <IconX className="size-4" />
+          </Button>
+        </div>
 
-  let style: React.CSSProperties = {
-    position: "fixed",
-    top: "50%",
-    left: "50%",
-    transform: "translate(-50%, -50%)",
-    zIndex: 9999,
-  };
-
-  if (anchorRef?.current) {
-    const rect = anchorRef.current.getBoundingClientRect();
-    const vw = window.innerWidth;
-    if (vw < 640) {
-      style = {
-        position: "fixed",
-        top: rect.bottom + 8,
-        left: 12,
-        right: 12,
-        zIndex: 9999,
-      };
-    } else {
-      style = {
-        position: "fixed",
-        top: rect.bottom + 8,
-        right: Math.max(8, vw - rect.right),
-        zIndex: 9999,
-      };
-    }
-  }
-
-  return createPortal(
-    <div
-      ref={panelRef}
-      style={style}
-      className="w-[min(20rem,calc(100vw-24px))] bg-popover border border-border rounded-xl shadow-2xl shadow-black/60 overflow-hidden"
-    >
-      <div className="px-4 pt-3 pb-2 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-foreground">
-          {t("editorToolbar.generateImage")}
-        </h3>
-        <button
-          onClick={() => onOpenChange(false)}
-          className="text-muted-foreground/70 hover:text-muted-foreground transition-colors"
-          aria-label={t("comments.close")}
-        >
-          <IconX className="w-4 h-4" />
-        </button>
-      </div>
-
-      <div className="px-4 pb-4 space-y-3">
-        {/* Style References */}
-        <div>
+        <div className="space-y-3 px-4 pb-4">
           <div className="flex flex-wrap gap-1.5">
             {DEFAULT_STYLE_REFERENCE_URLS.map((url, i) => {
               const disabled = disabledDefaults.has(i);
               return (
-                <button
-                  key={i}
+                <Button
+                  key={url}
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-pressed={!disabled}
+                  aria-label={`${t("editorToolbar.generateImage")} ${i + 1}`}
                   onClick={() => toggleDefaultRef(i)}
-                  className={`relative w-10 h-10 rounded overflow-hidden border transition-all ${
+                  className={`relative size-10 overflow-hidden rounded border p-0 transition-all ${
                     disabled
                       ? "border-border opacity-25 grayscale"
                       : "border-[hsl(var(--slides-accent)/0.4)]"
                   }`}
                 >
-                  <img
-                    src={url}
-                    alt=""
-                    className="w-full h-full object-cover"
-                  />
+                  <img src={url} alt="" className="size-full object-cover" />
                   {disabled && (
-                    <div className="absolute inset-0 bg-foreground/40" />
+                    <span className="absolute inset-0 bg-foreground/40" />
                   )}
-                </button>
+                </Button>
               );
             })}
           </div>
-        </div>
 
-        {/* Prompt */}
-        <textarea
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          placeholder={t("raw.describeImagePlaceholder")}
-          className="w-full h-16 bg-muted border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/70 outline-none focus:border-[hsl(var(--slides-accent)/0.5)] resize-none"
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-              e.preventDefault();
-              handleGenerate();
+          <PromptComposer
+            composerRef={composerRef}
+            autoFocus
+            attachmentsEnabled={false}
+            showModelSelector={false}
+            voiceEnabled={false}
+            plusMenuMode="hidden"
+            layoutVariant="compact"
+            placeholder={t("raw.describeImagePlaceholder")}
+            onSubmit={(text) => handleGenerate(text)}
+            onEmptySubmit={() => handleGenerate("")}
+            actionButton={
+              <Button
+                type="button"
+                onClick={() => void composerRef.current?.submit?.()}
+              >
+                {t("raw.generate")}
+              </Button>
             }
-          }}
-        />
-
-        {/* Generate button */}
-        <button
-          onClick={handleGenerate}
-          className="w-full px-4 py-2 rounded-lg bg-[hsl(var(--slides-accent))] hover:bg-[hsl(var(--slides-accent-hover))] text-[hsl(var(--slides-accent-foreground))] text-sm font-medium transition-colors flex items-center justify-center gap-2"
-        >
-          {t("raw.generate")}
-        </button>
-      </div>
-    </div>,
-    document.body,
+          />
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }

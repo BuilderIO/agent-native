@@ -97,6 +97,15 @@ checks the active tab, editor session, history version, and saved source
 revision/hash before applying it. Tab-scoped editor state is a command target,
 not deck authorization; the action separately checks editor access.
 
+For Undo or Redo in the regular DeckEditor, use the `DeckEditor history`
+identity from the latest `view-screen` result with `control-deck-history`.
+Reuse the same command ID to read a queued command's result, and refresh
+`view-screen` before starting another command. The bridge checks deck editor
+access, active tab navigation, editor session, history version, and whether
+the requested direction is available before using the same local operation
+stack as the UI; it confirms the deck save has drained before reporting the
+command as applied.
+
 | Control | Behavior |
 | --- | --- |
 | Preview / Edit | Preview hides the slide rail and editing overlays, closes the inspector, and restarts the active source slide at its first build step. Click, Space, Right/Down, or PageDown advances builds before moving to the next slide; click, Left/Up, or PageUp moves backward through builds before moving to the previous slide. Escape returns to Edit. Edit restores the inspector state from before Preview unless the inspector was toggled with `i` while previewing. |

@@ -114,6 +114,19 @@ describe("slide inline image storage boundary", () => {
     );
   });
 
+  it("does not treat ordinary TSX data properties and labels as image URLs", () => {
+    expect(() =>
+      assertSlideInlineImagesPersistable(
+        {},
+        {
+          sourceTsx:
+            'const row = { data: items }; const label = "data: is a field label";',
+        },
+        "slide-3",
+      ),
+    ).not.toThrow();
+  });
+
   it("rejects malformed Excalidraw JSON instead of skipping the storage check", () => {
     expect(() =>
       assertSlideInlineImagesPersistable(

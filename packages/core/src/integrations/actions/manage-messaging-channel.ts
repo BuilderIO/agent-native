@@ -58,6 +58,11 @@ export default defineAction({
       }
     },
   }),
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: true,
+  },
   run: async ({ operation, platform, values }, ctx) => {
     switch (operation) {
       case "save-credentials":

@@ -1,14 +1,21 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { appBasePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  PromptComposer,
+  type TiptapComposerHandle,
+} from "@agent-native/toolkit/app/chat/composer/index";
 import { IconLoader2, IconX } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
 import { UploadStorageGate } from "@/components/editor/UploadStorageGate";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+} from "@/components/ui/popover";
 import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status";
 import {
   assetErrorTranslationKey,
@@ -21,9 +28,6 @@ import {
   type HostedImageUploadResult,
 } from "@/lib/image-drop-to-agent";
 import { parseUploadResponse } from "@/lib/upload-response";
-
-const POPOVER_WIDTH = 360;
-const POPOVER_MARGIN = 12;
 
 interface ImageDropPromptPopoverProps {
   open: boolean;
@@ -44,11 +48,27 @@ export default function ImageDropPromptPopover({
   const storageQuery = useSlideFileStorageStatus(open);
   const fileStorageConfigured =
     storageQuery.data?.configured === true && !storageQuery.isError;
-  const [prompt, setPrompt] = useState("");
   const [uploading, setUploading] = useState(false);
   const [storagePromptOpen, setStoragePromptOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const composerRef = useRef<TiptapComposerHandle>(null);
+  const virtualAnchor = useMemo(
+    () => ({
+      current: {
+        get contextElement() {
+          return document.body;
+        },
+        getBoundingClientRect: () =>
+          new DOMRect(
+            position?.x ?? window.innerWidth / 2,
+            position?.y ?? window.innerHeight / 2,
+            0,
+            0,
+          ),
+      },
+    }),
+    [position],
+  );
 
   const previewUrl = useMemo(() => {
     if (!file) return null;
@@ -61,54 +81,12 @@ export default function ImageDropPromptPopover({
   }, [previewUrl]);
 
   useEffect(() => {
-    if (!open) {
-      setPrompt("");
-      setUploading(false);
-      return;
-    }
-    const id = window.setTimeout(() => textareaRef.current?.focus(), 50);
-    return () => window.clearTimeout(id);
+    if (!open) setUploading(false);
   }, [open]);
 
-  useEffect(() => {
-    if (!open) return;
-    const onClickOutside = (e: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("mousedown", onClickOutside);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onClickOutside);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open, onClose]);
+  if (!file) return null;
 
-  const computedPosition = useMemo(() => {
-    if (!position) {
-      return { top: "50%", left: "50%", transform: "translate(-50%, -50%)" };
-    }
-    const vw = typeof window !== "undefined" ? window.innerWidth : 1024;
-    const vh = typeof window !== "undefined" ? window.innerHeight : 768;
-    const width = POPOVER_WIDTH;
-    const height = 460;
-    let left = position.x - width / 2;
-    let top = position.y + POPOVER_MARGIN;
-    if (left < POPOVER_MARGIN) left = POPOVER_MARGIN;
-    if (left + width > vw - POPOVER_MARGIN) left = vw - width - POPOVER_MARGIN;
-    if (top + height > vh - POPOVER_MARGIN) {
-      top = Math.max(POPOVER_MARGIN, position.y - height - POPOVER_MARGIN);
-    }
-    return { top: `${top}px`, left: `${left}px`, transform: "none" };
-  }, [position]);
-
-  if (!open || !file) return null;
-
-  const handleSubmit = async () => {
+  const handleSubmit = async (intent: string) => {
     if (!file) return;
     if (!fileStorageConfigured) {
       setStoragePromptOpen(true);
@@ -155,7 +133,7 @@ export default function ImageDropPromptPopover({
       }
 
       const payload = buildImageDropAgentPayload({
-        intent: prompt,
+        intent,
         contextHint,
         filename: file.name,
         upload,
@@ -195,97 +173,108 @@ export default function ImageDropPromptPopover({
     }
   };
 
-  return createPortal(
-    <div
-      ref={panelRef}
-      role="dialog"
-      aria-label={t("raw.imagePromptTitle")}
-      className="fixed z-[210] rounded-xl border border-border bg-popover shadow-2xl shadow-black/60"
-      style={{ width: POPOVER_WIDTH, ...computedPosition }}
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) onClose();
+      }}
     >
-      <div className="flex items-start justify-between gap-2 px-3.5 pt-3 pb-2">
-        <span className="text-sm font-medium text-foreground/90">
-          {t("raw.imagePromptTitle")}
-        </span>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label={t("comments.close")}
-          className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-        >
-          <IconX className="h-3.5 w-3.5" />
-        </button>
-      </div>
-
-      {previewUrl && (
-        <div className="px-3 pb-2">
-          <div className="overflow-hidden rounded-md border border-border bg-muted/40">
-            <img
-              src={previewUrl}
-              alt={file.name}
-              className="block max-h-40 w-full object-contain"
-            />
-          </div>
-          <p className="mt-1 truncate text-[11px] text-muted-foreground">
-            {file.name}
-          </p>
-        </div>
-      )}
-
-      <div className="px-3 pb-3">
-        <Textarea
-          ref={textareaRef}
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          onKeyDown={(e) => {
-            if (
-              (e.key === "Enter" && (e.metaKey || e.ctrlKey)) ||
-              (e.key === "Enter" && !e.shiftKey)
-            ) {
-              e.preventDefault();
-              if (!uploading) void handleSubmit();
-            }
-          }}
-          placeholder={t("raw.imagePromptPlaceholder")}
-          rows={3}
-          disabled={uploading}
-          className="resize-none text-sm"
-        />
-        <div className="mt-2 flex items-center justify-end gap-2">
+      <PopoverAnchor virtualRef={virtualAnchor} />
+      <PopoverContent
+        side="bottom"
+        align="center"
+        sideOffset={12}
+        collisionPadding={12}
+        onOpenAutoFocus={(event) => event.preventDefault()}
+        aria-label={t("raw.imagePromptTitle")}
+        className="w-[min(360px,calc(100vw-24px))] overflow-hidden rounded-xl p-0 shadow-2xl shadow-black/60"
+      >
+        <div className="flex items-start justify-between gap-2 px-3.5 pb-2 pt-3">
+          <h2 className="text-sm font-medium text-foreground/90">
+            {t("raw.imagePromptTitle")}
+          </h2>
           <Button
             type="button"
-            variant="ghost"
-            size="sm"
             onClick={onClose}
-            disabled={uploading}
+            variant="ghost"
+            size="icon"
+            aria-label={t("comments.close")}
           >
-            {t("slideTextMenu.cancel")}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => void handleSubmit()}
-            disabled={uploading}
-          >
-            {uploading ? (
-              <span className="inline-flex items-center gap-1.5">
-                <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-                {t("raw.uploading")}
-              </span>
-            ) : (
-              t("raw.sendToAgent")
-            )}
+            <IconX className="size-3.5" />
           </Button>
         </div>
-      </div>
-      <UploadStorageGate
-        configured={fileStorageConfigured}
-        unavailable={!storageQuery.isSuccess}
-        open={storagePromptOpen}
-        onOpenChange={setStoragePromptOpen}
-        onRetry={() => void storageQuery.refetch()}
-      />
-    </div>,
-    document.body,
+
+        {previewUrl && (
+          <div className="px-3 pb-2">
+            <div className="overflow-hidden rounded-md border border-border bg-muted/40">
+              <img
+                src={previewUrl}
+                alt={file.name}
+                className="block max-h-40 w-full object-contain"
+              />
+            </div>
+            <p className="mt-1 truncate text-[11px] text-muted-foreground">
+              {file.name}
+            </p>
+          </div>
+        )}
+
+        <div ref={panelRef} className="px-3 pb-3">
+          <PromptComposer
+            composerRef={composerRef}
+            autoFocus
+            attachmentsEnabled={false}
+            showModelSelector={false}
+            voiceEnabled={false}
+            plusMenuMode="hidden"
+            layoutVariant="compact"
+            ariaLabel={t("raw.imagePromptTitle")}
+            placeholder={t("raw.imagePromptPlaceholder")}
+            preserveDraftOnSubmit
+            disabled={uploading}
+            submitting={uploading}
+            onSubmit={(text) => handleSubmit(text)}
+            onEmptySubmit={() => handleSubmit("")}
+            actionButton={
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => void composerRef.current?.submit?.()}
+                disabled={uploading}
+              >
+                {uploading ? (
+                  <span className="inline-flex items-center gap-1.5">
+                    <IconLoader2 className="size-3.5 animate-spin" />
+                    {t("raw.uploading")}
+                  </span>
+                ) : (
+                  t("raw.sendToAgent")
+                )}
+              </Button>
+            }
+          />
+          <div className="mt-2 flex items-center justify-end gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={onClose}
+              disabled={uploading}
+            >
+              {t("slideTextMenu.cancel")}
+            </Button>
+          </div>
+        </div>
+        <UploadStorageGate
+          configured={fileStorageConfigured}
+          unavailable={!storageQuery.isSuccess}
+          open={storagePromptOpen}
+          onOpenChange={setStoragePromptOpen}
+          onRetry={() => void storageQuery.refetch()}
+          anchorRef={panelRef}
+        />
+      </PopoverContent>
+    </Popover>
   );
 }

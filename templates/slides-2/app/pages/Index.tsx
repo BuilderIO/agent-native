@@ -238,12 +238,6 @@ const HOME_SUGGESTION_IDS = new Set<HomeSuggestionId>([
   "explainer",
 ]);
 
-interface HomeSuggestion {
-  id: HomeSuggestionId;
-  label: string;
-  prompt: string;
-}
-
 type HomeSuggestionsResult = {
   status: "ready";
   suggestionIds: HomeSuggestionId[];
@@ -2798,14 +2792,16 @@ export default function Index({ active = true }: { active?: boolean }) {
         isHome ? (
           <div className="slides-home-mobile-toolbar flex min-w-0 flex-1 items-center gap-2">
             {openMobileSidebar ? (
-              <button
+              <Button
                 type="button"
+                variant="outline"
+                size="icon"
                 onClick={openMobileSidebar}
-                className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="shrink-0 text-muted-foreground hover:text-foreground"
                 aria-label={t("sidebar.openNavigation")}
               >
                 <IconMenu2 className="size-4" aria-hidden="true" />
-              </button>
+              </Button>
             ) : null}
             <div className="slides-home-mobile-import">
               <ImportDeckButton controller={deckImport} />
