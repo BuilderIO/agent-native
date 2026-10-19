@@ -101,7 +101,7 @@ describe("query-agent-native-analytics", () => {
       name: "FirstPartyAnalyticsUnsupportedSqlError",
       construct: "FILTER (WHERE ...)",
     });
-    mocks.queryFirstPartyAnalytics.mockRejectedValueOnce(error);
+    mocks.queryFirstPartyAnalyticsWithBackend.mockRejectedValueOnce(error);
 
     const thrown = await action.run({ sql }).catch((caught: Error) => caught);
 
@@ -129,7 +129,7 @@ describe("query-agent-native-analytics", () => {
       "unsupported_function",
       "First-party analytics queries cannot call unapproved SQL function div",
     );
-    mocks.queryFirstPartyAnalytics.mockRejectedValueOnce(error);
+    mocks.queryFirstPartyAnalyticsWithBackend.mockRejectedValueOnce(error);
 
     const thrown = await action.run({ sql }).catch((caught: Error) => caught);
 
@@ -177,7 +177,7 @@ describe("query-agent-native-analytics", () => {
         code,
         `private validator detail: ${sql}`,
       );
-      mocks.queryFirstPartyAnalytics.mockRejectedValueOnce(error);
+      mocks.queryFirstPartyAnalyticsWithBackend.mockRejectedValueOnce(error);
 
       const thrown = await action.run({ sql }).catch((caught: Error) => caught);
 
@@ -208,7 +208,7 @@ describe("query-agent-native-analytics", () => {
         name: "BigQueryBackendError",
         backendReason,
       });
-      mocks.queryFirstPartyAnalytics.mockRejectedValueOnce(error);
+      mocks.queryFirstPartyAnalyticsWithBackend.mockRejectedValueOnce(error);
 
       const thrown = await action
         .run({ sql: "SELECT event_count FROM analytics_event_daily_rollups" })
@@ -224,7 +224,7 @@ describe("query-agent-native-analytics", () => {
     const error = Object.assign(new Error("private timeout detail"), {
       name: "BigQueryQueryTimeoutError",
     });
-    mocks.queryFirstPartyAnalytics.mockRejectedValueOnce(error);
+    mocks.queryFirstPartyAnalyticsWithBackend.mockRejectedValueOnce(error);
 
     const thrown = await action
       .run({ sql: "SELECT event_count FROM analytics_event_daily_rollups" })
