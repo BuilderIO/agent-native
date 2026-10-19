@@ -509,7 +509,11 @@ function isRenderedElement(value: unknown): value is HTMLElement | SVGElement {
   );
 }
 
-/** The element a saved source-equivalent selector names, resolved the way the bridge built it. */
+/**
+ * The element a saved selector names. A source-equivalent path (body > ...) resolves the
+ * way the bridge built it; any other selector, such as the [data-loc] attribute selector a
+ * reprompt target carries, is a native selector.
+ */
 function selectorElement(
   canvas: HTMLElement,
   selector: string,
@@ -518,18 +522,23 @@ function selectorElement(
     "iframe[data-design-preview-iframe]",
   );
   const doc = iframe?.contentDocument;
-  return doc ? resolveSourceEquivalentSelector(doc, selector) : null;
+  if (!doc) return null;
+  if (!selector.startsWith("body > ")) {
+    try {
+      return doc.querySelector(selector);
+      // coercion-ok: a selector the browser cannot parse names no element.
+    } catch {
+      return null;
+    }
+  }
+  return resolveSourceEquivalentSelector(doc, selector);
 }
 
 function selectorPoint(
   canvas: HTMLElement,
   selector: string,
 ): ReviewAnchorPoint | null {
-  try {
-    return elementPoint(canvas, selectorElement(canvas, selector));
-  } catch {
-    return null;
-  }
+  return elementPoint(canvas, selectorElement(canvas, selector));
 }
 
 function elementAnchorAtPoint(
