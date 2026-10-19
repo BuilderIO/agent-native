@@ -169,6 +169,16 @@ const mockDb: any = {
       return { rows: [], rowsAffected: 0 };
     }
 
+    if (/UPDATE agent_runs\s+SET thread_projection_pending = TRUE/i.test(sql)) {
+      const [id] = args;
+      const row = rows.find(
+        (candidate) => candidate.id === id && candidate.status === "errored",
+      );
+      return row
+        ? { rows: [{ id }], rowsAffected: 1 }
+        : { rows: [], rowsAffected: 0 };
+    }
+
     if (
       /SELECT thread_id, COALESCE\(turn_id, id\) AS turn_id FROM agent_runs WHERE id = \?/i.test(
         sql,

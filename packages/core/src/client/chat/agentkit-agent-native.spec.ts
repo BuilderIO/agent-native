@@ -2756,6 +2756,47 @@ describe("createAgentNativeAgentKitTransport", () => {
     },
   );
 
+  it("matches queued submission metadata to the persisted queue message", async () => {
+    const threadId = "thread-queue-metadata";
+    const metadata = {
+      [AGENT_NATIVE_PROTOCOL_METADATA_KEY]: {
+        context: { browserTabId: "tab-queue-metadata", surface: "app" },
+        smartObjects: [{ id: "object-queue-metadata", kind: "document" }],
+      },
+    };
+    let mutation: Record<string, any> | undefined;
+    const fetcher = vi.fn(
+      async (_input: string | URL | Request, init?: RequestInit) => {
+        mutation = JSON.parse(String(init?.body)).mutation;
+        return json({
+          queuedMessages: [mutation?.message],
+          message: mutation?.message,
+        });
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+      adapter: { createId: () => "queued-metadata" },
+    });
+
+    await transport.queueMessage?.({
+      threadId,
+      id: "queued-metadata",
+      text: "Continue with this context",
+      metadata,
+      submissionPayload: {
+        threadId,
+        id: "queued-metadata",
+        text: "Continue with this context",
+      },
+    });
+
+    expect(mutation?.message.metadata).toEqual(metadata);
+    expect(mutation?.submissionPayload.metadata).toEqual(metadata);
+    await transport.dispose();
+  });
+
   it.each([
     "data:image/png;base64,INLINE_QUEUE_PIXELS",
     { type: "image", source: { type: "base64", data: "INLINE_QUEUE_PIXELS" } },

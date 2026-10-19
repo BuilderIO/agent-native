@@ -552,6 +552,62 @@ describe("agent chat queued-message route", () => {
     expect(threadStoreMocks.mutateThreadQueuedMessages).not.toHaveBeenCalled();
   });
 
+  it("accepts queued metadata when its submission receipt matches", async () => {
+    const h3App = await mountResourceRoutes();
+    const threadId = "thread-queued-metadata";
+    const message = {
+      id: "queued-metadata",
+      threadId,
+      text: "Continue with this context",
+      createdAt: new Date().toISOString(),
+      metadata: {
+        "x-agent-native": {
+          context: { browserTabId: "tab-queue-metadata", surface: "app" },
+          smartObjects: [{ id: "object-queue-metadata", kind: "document" }],
+        },
+      },
+    };
+    const submissionPayload = {
+      threadId,
+      id: message.id,
+      text: message.text,
+      metadata: message.metadata,
+    };
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue({
+      id: threadId,
+      scope: null,
+    });
+    threadStoreMocks.mutateThreadQueuedMessages.mockResolvedValue({
+      queuedMessages: [message],
+      message,
+    });
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads/${threadId}/queued`,
+      { userEmail: "user@example.test" },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          mutation: { type: "append", message, submissionPayload },
+        }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(threadStoreMocks.mutateThreadQueuedMessages).toHaveBeenCalledWith(
+      threadId,
+      expect.objectContaining({
+        type: "append",
+        message,
+        hashInput: submissionPayload,
+      }),
+      expect.any(Object),
+    );
+  });
+
   it("requires AI setup before claiming a queued prompt for dispatch", async () => {
     const h3App = await mountResourceRoutes();
     const setupRequired = Object.assign(new Error("Connect AI first"), {

@@ -14635,7 +14635,10 @@ export function createProductionAgentHandler(
                   .digest("hex")
                   .slice(0, 32)}`;
                 const namespacedToolCallId = (toolCallId: string) =>
-                  `${profileStepNamespace}:${toolCallId}`;
+                  `${profileStepNamespace}_${createHash("sha256")
+                    .update(toolCallId)
+                    .digest("hex")
+                    .slice(0, 24)}`;
                 const profileLoopOpts: Parameters<typeof runAgentLoop>[0] = {
                   engine,
                   model: profile.model ?? model,

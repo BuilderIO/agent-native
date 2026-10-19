@@ -4168,6 +4168,9 @@ export function createAgentNativeAgentKitTransport(
         interruptActiveRun,
         submissionPayload,
       }) => {
+        const queueSubmissionPayload = submissionPayload
+          ? { ...submissionPayload, metadata }
+          : undefined;
         const message: AgentQueuedMessage = {
           id:
             id ??
@@ -4189,7 +4192,9 @@ export function createAgentNativeAgentKitTransport(
         const result = await persistQueueMutation(threadId, {
           type: "append",
           message,
-          ...(submissionPayload ? { submissionPayload } : {}),
+          ...(queueSubmissionPayload
+            ? { submissionPayload: queueSubmissionPayload }
+            : {}),
         });
         if (result.submissionExpired) {
           throw Object.assign(

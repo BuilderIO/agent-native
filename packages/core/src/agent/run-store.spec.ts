@@ -915,7 +915,8 @@ describe("run store", () => {
       expect.stringContaining("No LLM provider is connected"),
     );
     expect(repair?.args[4]).toBe("missing_api_key");
-    expect(repair?.args[5]).toBe("run-missing-key-event");
+    expect(repair?.args[5]).toBe(false);
+    expect(repair?.args[6]).toBe("run-missing-key-event");
   });
 
   it("keeps an earlier stream error from reconciling as a later successful terminal event", async () => {
@@ -948,7 +949,8 @@ describe("run store", () => {
     expect(repair?.args[2]).toBe("provider_failed");
     expect(repair?.args[3]).toBe("model returned 500");
     expect(repair?.args[4]).toBe("error:provider_failed");
-    expect(repair?.args[5]).toBe("run-error-then-done");
+    expect(repair?.args[5]).toBe(false);
+    expect(repair?.args[6]).toBe("run-error-then-done");
     const eventLookup = execCalls.find((call) =>
       /SELECT seq, event_data, event_at/i.test(call.sql),
     );
@@ -981,7 +983,8 @@ describe("run store", () => {
     expect(repair?.args[1]).toBe(123_456);
     expect(repair?.args[2]).toBe("missing_credentials");
     expect(repair?.args[4]).toBe("missing_api_key");
-    expect(repair?.args[5]).toBe("run-missing-then-done");
+    expect(repair?.args[5]).toBe(false);
+    expect(repair?.args[6]).toBe("run-missing-then-done");
   });
 
   it("still repairs a synthetic stale-run event when a later done event was persisted", async () => {
@@ -1010,7 +1013,8 @@ describe("run store", () => {
     expect(repair?.args[2]).toBeNull();
     expect(repair?.args[3]).toBeNull();
     expect(repair?.args[4]).toBe("done");
-    expect(repair?.args[5]).toBe("run-stale-then-done");
+    expect(repair?.args[5]).toBe(false);
+    expect(repair?.args[6]).toBe("run-stale-then-done");
   });
 
   it("reconciles legacy terminal events without stamping repair time", async () => {
@@ -1579,7 +1583,8 @@ describe("run store", () => {
     );
     expect(update).toBeDefined();
     expect(update?.args[0]).toBe("completed");
-    expect(update?.args[2]).toBe("run-alive");
+    expect(update?.args[2]).toBe(false);
+    expect(update?.args[3]).toBe("run-alive");
   });
 
   it("getRunStatus returns the current status string for a run", async () => {
@@ -2095,7 +2100,7 @@ describe("run store", () => {
     await updateRunStatusIfRunning("run-terminal-if-running", "errored");
 
     const update = execCalls.find((call) =>
-      /UPDATE agent_runs SET status = \?, completed_at = \?, dispatch_payload = NULL WHERE id = \? AND status = 'running'/i.test(
+      /UPDATE agent_runs SET status = \?, completed_at = \?, dispatch_payload = NULL,\s*thread_projection_pending = CASE WHEN \? THEN TRUE ELSE thread_projection_pending END\s*WHERE id = \? AND status = 'running'/i.test(
         call.sql,
       ),
     );
@@ -2103,6 +2108,7 @@ describe("run store", () => {
     expect(update?.args).toEqual([
       "errored",
       expect.any(Number),
+      false,
       "run-terminal-if-running",
     ]);
   });
@@ -2252,15 +2258,25 @@ describe("run store", () => {
     ]);
   });
 
-  it("an idle fast-sweep tick costs one query, not one per sweep", async () => {
+  it("an idle fast-sweep tick does one projection scan and shares one running-row probe", async () => {
     await reapAllStaleRuns();
     await listUnclaimedBackgroundRunRows();
 
     const runTableReads = execCalls.filter((call) =>
       /FROM agent_runs/i.test(call.sql),
     );
-    expect(runTableReads).toHaveLength(1);
-    expect(runTableReads[0]?.sql).toContain("LIMIT 1");
+    const projectionReads = runTableReads.filter((call) =>
+      /thread_projection_pending IS TRUE/i.test(call.sql),
+    );
+    const runningRowProbes = runTableReads.filter((call) =>
+      /SELECT id FROM agent_runs\s+WHERE status = 'running' LIMIT 1/i.test(
+        call.sql,
+      ),
+    );
+    expect(projectionReads).toHaveLength(1);
+    expect(runningRowProbes).toHaveLength(1);
+    expect(runningRowProbes[0]?.sql).toContain("LIMIT 1");
+    expect(runTableReads).toHaveLength(2);
   });
 
   it("a running row makes both sweeps run their own scan again", async () => {

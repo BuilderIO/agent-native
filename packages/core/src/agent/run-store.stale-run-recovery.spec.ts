@@ -1,4 +1,12 @@
-import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 
@@ -15,6 +23,12 @@ let afterStaleCandidateScan: (() => Promise<void>) | undefined;
 
 afterAll(async () => {
   await pglite.close();
+});
+
+afterEach(async () => {
+  await pglite.exec(
+    "DELETE FROM agent_run_events; DELETE FROM agent_execution_leases; DELETE FROM agent_runs;",
+  );
 });
 
 function makeRawClient(withTransaction: boolean) {
