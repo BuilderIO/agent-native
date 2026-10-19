@@ -14,7 +14,6 @@ import {
   boundExternalDashboardDiagnostics,
   completeExternalDashboard,
   createExternalDashboard,
-  failExternalDashboard,
   listExternalDashboards,
   type ExternalDashboardElementDiagnostic,
 } from "../server/lib/bi-migration/external-dashboards-store.js";
@@ -29,6 +28,7 @@ import {
   requireSigmaMigrationContext,
   sigmaMigrationSetupLink,
 } from "../server/lib/bi-migration/sigma-migration.js";
+import { abandonSigmaImport } from "../server/lib/bi-migration/unfinished-import.js";
 import {
   createDashboardFolder,
   listDashboardFolders,
@@ -456,17 +456,17 @@ export default defineAction({
     let failureCode: "dashboard_write_failed" | "verification_failed" =
       "dashboard_write_failed";
     let dashboardWriteSucceeded = false;
+    const id = dashboardIdFor({
+      orgId: context.orgId,
+      userEmail: context.userEmail,
+      workbookId: args.workbookId,
+    });
     try {
       const installedAt = new Date().toISOString();
       const compiled = compileSigmaDashboard({
         inspection,
         review,
         installedAt,
-      });
-      const id = dashboardIdFor({
-        orgId: context.orgId,
-        userEmail: context.userEmail,
-        workbookId: args.workbookId,
       });
       const existing = await getDashboard(id, {
         email: context.email,
@@ -561,12 +561,14 @@ export default defineAction({
         _receipt,
       };
     } catch (error) {
-      await failExternalDashboard({
-        provider: "sigma",
-        sourceId: args.workbookId,
+      await abandonSigmaImport({
+        workbookId: args.workbookId,
         claimToken: claim.claimToken,
         failureCode,
-        preservePreviousMigration: !dashboardWriteSucceeded,
+        dashboardId: id,
+        wroteDashboard: dashboardWriteSucceeded,
+        firstImport: !args.remigrate && !args.recoverMissingDashboard,
+        ctx: { email: context.email, orgId: context.orgId },
       });
       throw error;
     }
