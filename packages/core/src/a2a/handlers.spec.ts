@@ -168,6 +168,25 @@ vi.mock("./task-store.js", () => {
       }
       return task;
     },
+    async cancelA2ATask(id: string, accessScope?: any) {
+      const task = tasks[id];
+      if (
+        !task ||
+        (accessScope &&
+          (task.ownerEmail?.toLowerCase() !==
+            accessScope.ownerEmail.toLowerCase() ||
+            (task.ownerScope ?? "").toLowerCase() !==
+              (accessScope.ownerScope ?? "").toLowerCase()))
+      )
+        return null;
+      task.status = {
+        state: "canceled",
+        message: task.status.message,
+        timestamp: new Date().toISOString(),
+      };
+      task.updatedAt = Date.now();
+      return task;
+    },
     async settleProcessingA2ATask(id: string, update: any) {
       const task = tasks[id];
       if (!task || task.status.state !== "processing") return null;

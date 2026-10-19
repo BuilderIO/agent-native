@@ -6699,6 +6699,8 @@ export async function runAgentLoop(opts: {
   finalResponseGuardRequestText?: string;
   threadId?: string;
   turnId?: string;
+  /** Reaper successors overlay completed durable steps missing from tool_done. */
+  recoverCompletedExecutionSteps?: boolean;
   loadedSkillSlugs?: readonly string[];
   runSoftTimeoutMs?: number;
   toolLimits?: {
@@ -7024,6 +7026,10 @@ export async function runAgentLoop(opts: {
   const journalRead = await loadPriorTurnToolCallJournal(
     opts.threadId,
     opts.turnId,
+    {
+      recoverCompletedExecutionSteps:
+        opts.recoverCompletedExecutionSteps === true,
+    },
   );
   const toolCallJournal =
     journalRead.status === "read" ? journalRead.toolCallJournal : null;
@@ -7089,7 +7095,8 @@ export async function runAgentLoop(opts: {
   toolCallHistory.push(...journaledPriorToolCalls);
   toolResultHistory.push(...journaledPriorToolResults);
   const unreadableJournalStop: TerminalActionStop | null =
-    journalRead.status === "unreadable" && internalContinuationTurn
+    journalRead.status === "unreadable" &&
+    (internalContinuationTurn || opts.recoverCompletedExecutionSteps === true)
       ? {
           message:
             "I stopped because I could not read this turn's run ledger, so I could not tell which steps had already finished. " +
@@ -9019,10 +9026,15 @@ export async function runAgentLoop(opts: {
             input: journalToolInput as Record<string, unknown>,
             result,
             ...(replayedFailure ? { isError: true } : {}),
+            ...(journaled.errorCode ? { errorCode: journaled.errorCode } : {}),
             completedSideEffect: true,
             replayed: true,
             ...(journaled.artifacts?.length
               ? { artifacts: journaled.artifacts }
+              : {}),
+            ...(journaled.mcpApp ? { mcpApp: journaled.mcpApp } : {}),
+            ...(journaled.fileMutation
+              ? { fileMutation: journaled.fileMutation }
               : {}),
             ...(journaled.chatUI && journaled.chatUIResult !== undefined
               ? {
@@ -13888,6 +13900,7 @@ export function createProductionAgentHandler(
           const journalRead = await loadPriorTurnToolCallJournal(
             effectiveThreadId,
             effectiveTurnId,
+            { recoverCompletedExecutionSteps: isReaperSuccessor },
           );
           if (
             (continueOf || isReaperSuccessor || isClientTurnContinuation) &&
@@ -14834,6 +14847,9 @@ export function createProductionAgentHandler(
           ...(options.toolLimits ? { toolLimits: options.toolLimits } : {}),
           ...(threadId
             ? { threadId: effectiveThreadId, turnId: effectiveTurnId }
+            : {}),
+          ...(isReaperSuccessor
+            ? { recoverCompletedExecutionSteps: true }
             : {}),
           ...(approvedToolCallsForExecution
             ? { approvedToolCalls: approvedToolCallsForExecution }

@@ -174,7 +174,7 @@ export interface BackgroundAutomationDeps {
 interface AutomationRunRef {
   current: string | null;
   threadId?: string;
-  started?: boolean;
+  completionCallbackStarted?: boolean;
 }
 
 export interface BackgroundAutomationRunOptions {
@@ -664,7 +664,7 @@ export async function runBackgroundAutomation(
         ...(runIdRef.threadId ? { threadId: runIdRef.threadId } : {}),
       },
     });
-    if (!runIdRef.started) {
+    if (!runIdRef.completionCallbackStarted) {
       await recordAutomationFailureOutcome(
         historyId,
         automation,
@@ -1313,6 +1313,7 @@ async function executeBackgroundAutomation(
       let hardAbortTimer: ReturnType<typeof setTimeout> | null = null;
       let hardTimedOut = false;
       let hardTimeoutProjectionRequired = false;
+      let hardTimeoutThreadProjectionSaved = false;
       const completionRunRef: AutomationRunRef = runIdRef ?? {
         current: runId,
         threadId: thread.id,
@@ -1488,6 +1489,7 @@ async function executeBackgroundAutomation(
             usageRef.current = await execute();
           },
           async (run) => {
+            completionRunRef.completionCallbackStarted = true;
             if (hardAbortTimer) {
               clearTimeout(hardAbortTimer);
               hardAbortTimer = null;
@@ -1528,6 +1530,7 @@ async function executeBackgroundAutomation(
                 run,
                 persistFailure,
               });
+              hardTimeoutThreadProjectionSaved = true;
             } catch (err) {
               if (err instanceof StaleExecutionFenceError && hardTimedOut) {
                 hardTimeoutProjectionRequired = true;
@@ -1642,7 +1645,22 @@ async function executeBackgroundAutomation(
           },
         );
 
-        completionRunRef.started = true;
+        void activeRun.finalized.then(
+          () => {
+            if (completionRunRef.completionCallbackStarted) return;
+            const failure = backgroundRunTerminalError(activeRun);
+            reject(
+              new BackgroundAutomationRunError(
+                failure?.message ??
+                  `Background automation ended with status: ${activeRun.status} and recorded no error detail`,
+                failure?.errorCode ??
+                  `background_automation_${activeRun.status}`,
+              ),
+            );
+          },
+          (error) =>
+            reject(error instanceof Error ? error : new Error(String(error))),
+        );
 
         hardAbortTimer = setTimeout(() => {
           hardAbortTimer = null;
@@ -1656,12 +1674,17 @@ async function executeBackgroundAutomation(
           void activeRun.finalized
             .catch(() => {})
             .then(async () => {
-              if (hardTimeoutProjectionRequired) {
+              if (
+                hardTimeoutProjectionRequired ||
+                !completionRunRef.completionCallbackStarted
+              ) {
                 try {
-                  await foldReapedRunIntoThread(runId, {
-                    error: timeoutError.message,
-                    errorCode: timeoutError.errorCode,
-                  });
+                  if (!hardTimeoutThreadProjectionSaved) {
+                    await foldReapedRunIntoThread(runId, {
+                      error: timeoutError.message,
+                      errorCode: timeoutError.errorCode,
+                    });
+                  }
                   await recordAutomationFailureOutcome(
                     historyId,
                     automation,

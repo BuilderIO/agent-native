@@ -9,6 +9,7 @@ afterAll(async () => {
 });
 
 const client = {
+  transaction: pglite.transaction,
   execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
     if (typeof input === "string") {
       await pglite.exec(input);
@@ -31,6 +32,7 @@ vi.mock("../db/client.js", () => ({
 }));
 
 const threads = new Map<string, string>();
+let threadDataBeforeFoldWrite: string | null = null;
 // What the watched thread held when the reaper started the run that replaces
 // a reaped one. Reading the watched thread waits briefly for that start, so a
 // replacement started before the reaped run is saved is seen every time.
@@ -50,8 +52,43 @@ vi.mock("../chat-threads/store.js", () => ({
       ? { id, threadData: threads.get(id), title: "", preview: "" }
       : null;
   },
-  updateThreadData: async (id: string, threadData: string) => {
+  updateThreadData: async (
+    id: string,
+    threadData: string,
+    _title: string,
+    _preview: string,
+    _messageCount: number,
+    options?: {
+      beforeUpdate?: (tx: {
+        execute: (
+          input: string | { sql: string; args?: unknown[] },
+        ) => Promise<{
+          rows: unknown[];
+          rowsAffected: number;
+        }>;
+      }) => Promise<boolean>;
+    },
+  ) => {
+    if (options?.beforeUpdate) {
+      const allowed = await options.beforeUpdate({
+        execute: async (input) => {
+          if (typeof input === "string") {
+            return { rows: [], rowsAffected: 0 };
+          }
+          if (threadDataBeforeFoldWrite !== null) {
+            threads.set(id, threadDataBeforeFoldWrite);
+            threadDataBeforeFoldWrite = null;
+          }
+          return {
+            rows: [{ thread_data: threads.get(id) }],
+            rowsAffected: 0,
+          };
+        },
+      });
+      if (!allowed) return false;
+    }
     threads.set(id, threadData);
+    return true;
   },
 }));
 
@@ -123,6 +160,7 @@ function savedMessages(thread: string): any[] {
 describe("a run the server reaps after its worker died", () => {
   beforeEach(() => {
     seq += 1;
+    threadDataBeforeFoldWrite = null;
   });
 
   it("saves the steps it finished into the thread, with its error", async () => {
@@ -183,6 +221,26 @@ describe("a run the server reaps after its worker died", () => {
     });
     threads.set(thread, later);
     await crashAfterSending(thread, turn, run);
+
+    expect(await reapIfStale(run, -1)).toBe(true);
+
+    expect(threads.get(thread)).toBe(later);
+  });
+
+  it("rechecks prompt ownership inside the thread-data write", async () => {
+    const thread = `thread-reaped-${seq}`;
+    const turn = `turn-reaped-${seq}`;
+    const run = `run-reaped-${seq}`;
+    threads.set(thread, JSON.stringify({ messages: [userTurn("Bill Ana")] }));
+    await crashAfterSending(thread, turn, run);
+    const nextPrompt = userTurn("Never mind");
+    (nextPrompt.message as any).metadata = {
+      custom: { submittedTurnId: `${turn}-later` },
+    };
+    const later = JSON.stringify({
+      messages: [userTurn("Bill Ana"), nextPrompt],
+    });
+    threadDataBeforeFoldWrite = later;
 
     expect(await reapIfStale(run, -1)).toBe(true);
 

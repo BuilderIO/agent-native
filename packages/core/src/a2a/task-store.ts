@@ -173,26 +173,29 @@ export async function createA2AApproval(input: {
 }): Promise<A2AApprovalRecord> {
   assertA2APersistablePayload(input.toolInput, "A2A approval input");
   await ensureTable();
-  const client = getDbExec();
   const id = crypto.randomUUID();
   const now = Date.now();
   const expiresAt = now + (input.ttlMs ?? 15 * 60_000);
-  await client.execute({
-    sql: `INSERT INTO a2a_approvals (id, task_id, owner_email, org_id, tool_name, tool_input, approval_key, call_id, status, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
-    args: [
-      id,
-      input.taskId,
-      input.ownerEmail,
-      input.orgId ?? null,
-      input.tool,
-      JSON.stringify(input.toolInput ?? {}),
-      input.approvalKey,
-      input.callId,
-      expiresAt,
-      now,
-      now,
-    ],
-  });
+  await withFencedExecutionWrite(
+    (tx) =>
+      tx.execute({
+        sql: `INSERT INTO a2a_approvals (id, task_id, owner_email, org_id, tool_name, tool_input, approval_key, call_id, status, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
+        args: [
+          id,
+          input.taskId,
+          input.ownerEmail,
+          input.orgId ?? null,
+          input.tool,
+          JSON.stringify(input.toolInput ?? {}),
+          input.approvalKey,
+          input.callId,
+          expiresAt,
+          now,
+          now,
+        ],
+      }),
+    { threadId: a2aTaskLeaseThreadId(input.taskId), turnId: input.taskId },
+  );
   return {
     id,
     taskId: input.taskId,
@@ -686,6 +689,9 @@ export async function failStuckA2ATask(
 ): Promise<boolean> {
   assertA2APersistablePayload(reason, "A2A task failure status");
   await ensureTable();
+  const { ensureRunTables, lockTaskExecutionLease, revokeTaskExecutionLease } =
+    await import("../agent/run-store.js");
+  await ensureRunTables();
   const client = getDbExec();
   const now = Date.now();
   const timestamp = new Date().toISOString();
@@ -697,29 +703,36 @@ export async function failStuckA2ATask(
     createdAtCutoff !== undefined
       ? `AND (updated_at <= ? OR created_at <= ?)`
       : `AND updated_at <= ?`;
-  const result = await client.execute({
-    sql: `UPDATE a2a_tasks
-            SET status_state = 'failed',
-                status_message = ?,
-                status_timestamp = ?,
-                updated_at = ?
-          WHERE id = ?
-            AND status_state = 'processing'
-            ${ageCondition}`,
-    args:
-      createdAtCutoff !== undefined
-        ? [
-            JSON.stringify(message),
-            timestamp,
-            now,
-            id,
-            processingCutoff,
-            createdAtCutoff,
-          ]
-        : [JSON.stringify(message), timestamp, now, id, processingCutoff],
+  return withDbTransaction(client, async (tx) => {
+    const leaseThreadId = a2aTaskLeaseThreadId(id);
+    await lockTaskExecutionLease(tx, leaseThreadId, id);
+    const result = await tx.execute({
+      sql: `UPDATE a2a_tasks
+              SET status_state = 'failed',
+                  status_message = ?,
+                  status_timestamp = ?,
+                  updated_at = ?
+            WHERE id = ?
+              AND status_state = 'processing'
+              ${ageCondition}`,
+      args:
+        createdAtCutoff !== undefined
+          ? [
+              JSON.stringify(message),
+              timestamp,
+              now,
+              id,
+              processingCutoff,
+              createdAtCutoff,
+            ]
+          : [JSON.stringify(message), timestamp, now, id, processingCutoff],
+    });
+    const affected = getAffectedRowCount(result);
+    if (affected === 1) {
+      await revokeTaskExecutionLease(tx, leaseThreadId, id);
+    }
+    return affected !== 0;
   });
-  const affected = getAffectedRowCount(result);
-  return affected !== 0;
 }
 
 export async function failStuckQueuedA2ATask(
@@ -834,6 +847,44 @@ export async function updateTask(
     },
     { threadId: a2aTaskLeaseThreadId(id), turnId: id },
   );
+}
+
+/** Cancel a task and revoke its worker generation in the same transaction. */
+export async function cancelA2ATask(
+  id: string,
+  accessScope?: A2ATaskAccessScope,
+): Promise<Task | null> {
+  await ensureTable();
+  const { ensureRunTables, lockTaskExecutionLease, revokeTaskExecutionLease } =
+    await import("../agent/run-store.js");
+  await ensureRunTables();
+  const client = getDbExec();
+  const predicate = taskAccessPredicate(accessScope);
+  return withDbTransaction(client, async (tx) => {
+    const leaseThreadId = a2aTaskLeaseThreadId(id);
+    await lockTaskExecutionLease(tx, leaseThreadId, id);
+    const { rows } = await tx.execute({
+      sql: `SELECT * FROM a2a_tasks WHERE id = ?${predicate.sql} FOR UPDATE`,
+      args: [id, ...predicate.args],
+    });
+    if (!rows[0]) return null;
+
+    const task = taskFromRow(rows[0]);
+    task.status = {
+      state: "canceled",
+      message: task.status.message,
+      timestamp: new Date().toISOString(),
+    };
+    const result = await tx.execute({
+      sql: `UPDATE a2a_tasks
+            SET status_state = 'canceled', status_timestamp = ?, updated_at = ?
+            WHERE id = ?${predicate.sql}`,
+      args: [task.status.timestamp, Date.now(), id, ...predicate.args],
+    });
+    if (getAffectedRowCount(result) !== 1) return null;
+    await revokeTaskExecutionLease(tx, leaseThreadId, id);
+    return task;
+  });
 }
 
 /**

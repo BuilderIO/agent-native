@@ -2527,11 +2527,11 @@ export async function processAgentTeamRun(
         const startedRun = startRun(
           runId,
           task.threadId,
-          async (send, signal) => {
+          async (send, signal, control) => {
             workerExecutionFence = currentExecutionFence();
             const wrappedSend = (event: AgentChatEvent) => {
-              if (leaseLost) return;
-              send(event);
+              if (leaseLost) return Promise.resolve();
+              const persistence = send(event);
               if (event.type === "text") {
                 accumulatedText = applyAgentTextEventToBuffer(
                   accumulatedText,
@@ -2558,6 +2558,7 @@ export async function processAgentTeamRun(
                 task.currentStep = "";
                 scheduleProgressWrite();
               }
+              return persistence;
             };
             await runWithRequestContext(
               {
@@ -2585,6 +2586,7 @@ export async function processAgentTeamRun(
                     messages,
                     actions: messageAwareActions,
                     send: wrappedSend,
+                    beforeWrite: control.flushEvents,
                     signal,
                     finalResponseGuard: createTaskMessageFinalGuard(
                       opts.taskId,

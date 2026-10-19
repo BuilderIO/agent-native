@@ -2861,6 +2861,55 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
     });
   });
 
+  it("settles and records a failure when the execution lease cannot be claimed", async () => {
+    const runStore = await import("../agent/run-store.js");
+    const history = await import("./run-history.js");
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    const automation = precondition("execution-lease-claim-failure");
+    const historyId = await history.startAutomationRun({
+      owner: automation.resource.owner,
+      automation: automation.name,
+      path: automation.resource.path,
+    });
+    const claim = vi
+      .spyOn(runStore, "claimTurnExecutionLease")
+      .mockRejectedValueOnce(new Error("lease store unavailable"));
+    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockClear();
+
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<{ state: "timeout" }>((resolve) => {
+      timeout = setTimeout(() => resolve({ state: "timeout" }), 1_000);
+    });
+    try {
+      const result = await Promise.race([
+        runBackgroundAutomation(
+          runOptions(automation, { historyId, hardTimeoutMs: 100 }),
+          standardDeps,
+        ).then(
+          () => ({ state: "resolved" as const }),
+          (error) => ({ state: "rejected" as const, error }),
+        ),
+        timeoutPromise,
+      ]);
+
+      expect(result.state).toBe("rejected");
+      if (result.state !== "rejected")
+        throw new Error("The automation did not settle after lease failure.");
+      expect(result.error).toMatchObject({
+        errorCode: "aborted_execution-lease-claim-failed",
+      });
+      expect(runAgentLoopDirectWithSoftTimeout).not.toHaveBeenCalled();
+      expect(await history.getAutomationRun(historyId)).toMatchObject({
+        status: "error",
+        errorCode: "aborted_execution-lease-claim-failed",
+      });
+    } finally {
+      if (timeout) clearTimeout(timeout);
+      claim.mockRestore();
+    }
+  });
+
   it("settles an expired recovery deadline with its previous worker's journal evidence", async () => {
     const runStore = await import("../agent/run-store.js");
     const history = await import("./run-history.js");

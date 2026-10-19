@@ -63,13 +63,6 @@ export async function foldReapedRunIntoThread(
     const repo = normalizeThreadRepository(
       JSON.parse(thread.threadData || "{}"),
     );
-    const last = repo.messages.at(-1)?.message ?? repo.messages.at(-1);
-    const ownsLast =
-      last?.role === "user"
-        ? isRunPrompt(last, { runId, ...run })
-        : last?.role === "assistant" &&
-          last.metadata?.custom?.turnId === run.turnId;
-    if (!ownsLast) return;
     const folded = foldAssistantTurn(repo, assistant, {
       runId,
       turnId: run.turnId,
@@ -81,6 +74,28 @@ export async function foldReapedRunIntoThread(
       thread.title,
       meta.preview || thread.preview,
       folded.messages.length,
+      {
+        beforeUpdate: async (tx) => {
+          const { rows } = await tx.execute({
+            sql: `SELECT thread_data FROM chat_threads
+                  WHERE id = ? AND owner_email = ? FOR UPDATE`,
+            args: [run.threadId, thread.ownerEmail],
+          });
+          const currentThreadData = (
+            rows[0] as { thread_data?: string } | undefined
+          )?.thread_data;
+          if (typeof currentThreadData !== "string") return false;
+          const currentRepo = normalizeThreadRepository(
+            JSON.parse(currentThreadData || "{}"),
+          );
+          const last =
+            currentRepo.messages.at(-1)?.message ?? currentRepo.messages.at(-1);
+          return last?.role === "user"
+            ? isRunPrompt(last, { runId, ...run })
+            : last?.role === "assistant" &&
+                last.metadata?.custom?.turnId === run.turnId;
+        },
+      },
     );
   });
 }

@@ -10,6 +10,7 @@ import {
   resolveAgentChatProcessRunDispatchPath,
 } from "../agent/durable-background.js";
 import {
+  StaleExecutionFenceError,
   withExecutionFence,
   type ExecutionFence,
 } from "../agent/execution-fence.js";
@@ -48,6 +49,7 @@ import { assertA2APersistablePayload } from "./persistence-safety.js";
 import {
   createTask,
   createOrReuseTask,
+  cancelA2ATask,
   getTask,
   getTaskOwnership,
   updateTask,
@@ -351,6 +353,7 @@ export async function processA2ATaskFromQueue(
 
   try {
     await withExecutionFence(fence, async () => {
+      if (!(await touchProcessingA2ATask(taskId))) return;
       const workerAbort = new AbortController();
       const heartbeat = setInterval(() => {
         renewTaskExecutionLease(fence)
@@ -382,8 +385,14 @@ export async function processA2ATaskFromQueue(
         clearInterval(heartbeat);
       }
     });
+  } catch (error) {
+    if (!(error instanceof StaleExecutionFenceError)) throw error;
   } finally {
-    await releaseTurnExecutionLease(fence);
+    try {
+      await releaseTurnExecutionLease(fence);
+    } catch (error) {
+      if (!(error instanceof StaleExecutionFenceError)) throw error;
+    }
   }
 }
 
@@ -1516,11 +1525,7 @@ async function handleCancel(
   );
   if (denied) return denied;
 
-  const task = await updateTask(
-    id,
-    { state: "canceled" },
-    taskAccessScope(ownership, event),
-  );
+  const task = await cancelA2ATask(id, taskAccessScope(ownership, event));
   if (!task) {
     return jsonRpcError(0, -32001, "Task not found");
   }

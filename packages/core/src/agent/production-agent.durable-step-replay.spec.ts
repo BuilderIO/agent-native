@@ -8,29 +8,57 @@ import type {
 } from "./engine/types.js";
 import { withExecutionFence } from "./execution-fence.js";
 import type { AgentLoopFinalResponseGuardContext } from "./production-agent.js";
+import type { AgentExecutionStepIntent } from "./run-store.js";
 import type { AgentChatEvent } from "./types.js";
 
 const durableStep = vi.hoisted(() => ({
   resultJson: undefined as string | undefined,
+  priorEvents: [] as AgentChatEvent[],
+  completedSteps: [] as {
+    stepId: string;
+    operationId: string;
+    toolName: string;
+    inputJson: string;
+    resultJson: string;
+  }[],
 }));
 
 vi.mock("./run-store.js", async (importOriginal) => {
   const original = await importOriginal<typeof import("./run-store.js")>();
   return {
     ...original,
-    beginAgentExecutionStep: vi.fn(async () =>
-      durableStep.resultJson === undefined
-        ? { status: "execute" as const, wasDispatched: false }
-        : {
-            status: "completed" as const,
-            resultJson: durableStep.resultJson,
-            errorJson: null,
-          },
+    getCurrentTurnEventsForThread: vi.fn(async () => durableStep.priorEvents),
+    getCompletedAgentExecutionSteps: vi.fn(
+      async (_threadId: string, _turnId: string, stepIds: string[]) =>
+        durableStep.completedSteps.filter((step) =>
+          stepIds.includes(step.stepId),
+        ),
     ),
-    markAgentExecutionStepDispatched: vi.fn(async () => {}),
-    completeAgentExecutionStep: vi.fn(async (_intent, resultJson: string) => {
-      durableStep.resultJson = resultJson;
+    beginAgentExecutionStep: vi.fn(async (intent: AgentExecutionStepIntent) => {
+      const completed = durableStep.completedSteps.find(
+        (step) => step.stepId === intent.stepId,
+      );
+      return completed
+        ? {
+            status: "completed" as const,
+            resultJson: completed.resultJson,
+            errorJson: null,
+          }
+        : { status: "execute" as const, wasDispatched: false };
     }),
+    markAgentExecutionStepDispatched: vi.fn(async () => {}),
+    completeAgentExecutionStep: vi.fn(
+      async (intent: AgentExecutionStepIntent, resultJson: string) => {
+        durableStep.resultJson = resultJson;
+        durableStep.completedSteps.push({
+          stepId: intent.stepId,
+          operationId: intent.operationId,
+          toolName: intent.toolName,
+          inputJson: intent.inputJson,
+          resultJson,
+        });
+      },
+    ),
   };
 });
 
@@ -55,11 +83,14 @@ const mcpApp = {
   toolInput: {},
   toolResult: { content: [{ type: "text", text: "Deck saved" }] },
 };
-const toolCall = (): EngineContentPart => ({
+const toolCall = (
+  id = "step-1",
+  input: Record<string, unknown> = {},
+): EngineContentPart => ({
   type: "tool-call",
-  id: "step-1",
+  id,
   name: "create-deck",
-  input: {},
+  input,
 });
 const text = (value: string): EngineContentPart => ({
   type: "text",
@@ -99,6 +130,8 @@ function engineFor(
 
 beforeEach(() => {
   durableStep.resultJson = undefined;
+  durableStep.priorEvents = [];
+  durableStep.completedSteps = [];
 });
 
 describe("durable execution step replay", () => {
@@ -275,5 +308,297 @@ describe("durable execution step replay", () => {
       { tool: "create-deck", ...receipt },
     ]);
     expect(seenMessages[2]).toContain("The deck was saved, but not checked.");
+  });
+
+  it("recovers a completed reaper step when the provider regenerates its call with a new id", async () => {
+    const actionRun = vi.fn(async () => ({
+      [MCP_ACTION_RESULT_MARKER]: true as const,
+      text: "Deck saved",
+      raw: { deckId: "deck-1", title: "Quarterly plan", _receipt: receipt },
+      serverId: "mcp-server",
+      toolName: "create-deck",
+      originalToolName: "create-deck",
+      input: {},
+      mcpApp,
+    }));
+    const action = {
+      tool: {
+        description: "Create a deck",
+        parameters: { type: "object" as const, properties: {} },
+      },
+      readOnly: false,
+      run: actionRun,
+    };
+    const persistedEvents: AgentChatEvent[] = [];
+    const interrupted = withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor([[toolCall("provider-id-before-reaper")]], []),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Create a deck." }] },
+        ],
+        actions: { "create-deck": action },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        send: (event) => {
+          if (event.type === "tool_done")
+            throw new Error("simulated stop after durable completion");
+          persistedEvents.push(event);
+        },
+        signal: new AbortController().signal,
+      }),
+    );
+
+    await expect(interrupted).rejects.toThrow(
+      "simulated stop after durable completion",
+    );
+    expect(actionRun).toHaveBeenCalledTimes(1);
+    expect(
+      persistedEvents.filter((event) => event.type === "tool_start"),
+    ).toEqual([
+      expect.objectContaining({
+        type: "tool_start",
+        id: "provider-id-before-reaper",
+        tool: "create-deck",
+      }),
+    ]);
+
+    durableStep.priorEvents = persistedEvents;
+    const firstReaperEvents: AgentChatEvent[] = [];
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [
+            [toolCall("provider-id-before-reaper")],
+            [text("The deck is ready.")],
+          ],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Create a deck." }] },
+        ],
+        actions: { "create-deck": action },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        recoverCompletedExecutionSteps: true,
+        send: (event) => firstReaperEvents.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+    expect(firstReaperEvents).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        id: "provider-id-before-reaper",
+        completedSideEffect: true,
+        replayed: true,
+      }),
+    );
+
+    durableStep.priorEvents = [...persistedEvents, ...firstReaperEvents];
+    const resumedEvents: AgentChatEvent[] = [];
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [
+            [toolCall("provider-id-after-reaper")],
+            [text("The deck is ready.")],
+          ],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Create a deck." }] },
+        ],
+        actions: { "create-deck": action },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        recoverCompletedExecutionSteps: true,
+        send: (event) => resumedEvents.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(actionRun).toHaveBeenCalledTimes(1);
+    expect(resumedEvents).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        id: "provider-id-after-reaper",
+        tool: "create-deck",
+        result: expect.stringContaining("Deck saved"),
+        completedSideEffect: true,
+        replayed: true,
+      }),
+    );
+  });
+
+  it("fails closed when a completed committed step conflicts with a noncommitted done event", async () => {
+    const actionRun = vi.fn(async () => ({
+      [MCP_ACTION_RESULT_MARKER]: true as const,
+      text: "Deck saved",
+      raw: { deckId: "deck-1", title: "Quarterly plan", _receipt: receipt },
+      serverId: "mcp-server",
+      toolName: "create-deck",
+      originalToolName: "create-deck",
+      input: {},
+      mcpApp,
+    }));
+    const action = {
+      tool: {
+        description: "Create a deck",
+        parameters: { type: "object" as const, properties: {} },
+      },
+      readOnly: false,
+      run: actionRun,
+    };
+    const persistedEvents: AgentChatEvent[] = [];
+    const interrupted = withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor([[toolCall("provider-id-before-reaper")]], []),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Create a deck." }] },
+        ],
+        actions: { "create-deck": action },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        send: (event) => {
+          if (event.type === "tool_done") {
+            persistedEvents.push({ ...event, completedSideEffect: false });
+            throw new Error("simulated contradictory persisted event");
+          }
+          persistedEvents.push(event);
+        },
+        signal: new AbortController().signal,
+      }),
+    );
+
+    await expect(interrupted).rejects.toThrow(
+      "simulated contradictory persisted event",
+    );
+    expect(actionRun).toHaveBeenCalledTimes(1);
+    durableStep.priorEvents = persistedEvents;
+
+    const resumedEvents: AgentChatEvent[] = [];
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor([[toolCall("provider-id-after-reaper")]], []),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Create a deck." }] },
+        ],
+        actions: { "create-deck": action },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        recoverCompletedExecutionSteps: true,
+        send: (event) => resumedEvents.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(actionRun).toHaveBeenCalledTimes(1);
+    expect(resumedEvents).not.toContainEqual(
+      expect.objectContaining({
+        type: "tool_start",
+        id: "provider-id-after-reaper",
+      }),
+    );
+    expect(resumedEvents).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "tool_call_journal_unreadable",
+      }),
+    );
+  });
+
+  it("does not dispatch when a completed reaper step has malformed evidence", async () => {
+    const actionRun = vi.fn(async () => ({
+      [MCP_ACTION_RESULT_MARKER]: true as const,
+      text: "Deck saved",
+      raw: { deckId: "deck-1", title: "Quarterly plan", _receipt: receipt },
+      serverId: "mcp-server",
+      toolName: "create-deck",
+      originalToolName: "create-deck",
+      input: {},
+      mcpApp,
+    }));
+    const action = {
+      tool: {
+        description: "Create a deck",
+        parameters: { type: "object" as const, properties: {} },
+      },
+      readOnly: false,
+      run: actionRun,
+    };
+    const persistedEvents: AgentChatEvent[] = [];
+    const interrupted = withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor([[toolCall("provider-id-before-reaper")]], []),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Create a deck." }] },
+        ],
+        actions: { "create-deck": action },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        send: (event) => {
+          if (event.type === "tool_done")
+            throw new Error("simulated stop after durable completion");
+          persistedEvents.push(event);
+        },
+        signal: new AbortController().signal,
+      }),
+    );
+
+    await expect(interrupted).rejects.toThrow(
+      "simulated stop after durable completion",
+    );
+    durableStep.priorEvents = persistedEvents;
+    durableStep.completedSteps[0]!.resultJson = "{invalid-json";
+
+    const resumedEvents: AgentChatEvent[] = [];
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor([[toolCall("provider-id-after-reaper")]], []),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Create a deck." }] },
+        ],
+        actions: { "create-deck": action },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        recoverCompletedExecutionSteps: true,
+        send: (event) => resumedEvents.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(actionRun).toHaveBeenCalledTimes(1);
+    expect(resumedEvents).not.toContainEqual(
+      expect.objectContaining({
+        type: "tool_start",
+        id: "provider-id-after-reaper",
+      }),
+    );
+    expect(resumedEvents).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "tool_call_journal_unreadable",
+      }),
+    );
   });
 });

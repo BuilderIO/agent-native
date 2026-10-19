@@ -497,41 +497,58 @@ const getRunMock = vi.fn();
 const subscribeToRunMock = vi.fn();
 const persistedRunEventIds: string[] = [];
 const persistedTerminalRunEventIds: string[] = [];
+let heldToolStartEventWrite: Promise<void> | null = null;
+let persistedToolStartEventWrites = 0;
 const startRunWork: Promise<void>[] = [];
 const activeRunMocks = new Map<string, any>();
 vi.mock("../agent/run-manager.js", () => ({
   startRun: (
     runId: string,
     threadId: string,
-    runFn: (send: any, signal: any) => Promise<void>,
+    runFn: (send: any, signal: any, control: any) => Promise<void>,
     onComplete?: (run: any) => Promise<void>,
     options?: any,
   ) => {
     const work = (async () => {
       const events: any[] = [];
       const pendingEventWrites: Promise<unknown>[] = [];
-      const send = (e: any) => {
+      const send = (e: any): Promise<void> => {
         events.push({ seq: events.length, event: e });
-        if (options?.persistEvent) {
-          const terminal = [
-            "done",
-            "error",
-            "missing_api_key",
-            "loop_limit",
-            "auto_continue",
-          ].includes(e?.type);
-          if (terminal) return;
-          pendingEventWrites.push(
-            options
-              .persistEvent(async () => {}, {
-                terminal: false,
-                eventData: JSON.stringify(e),
-              })
-              .then(() => {
-                persistedRunEventIds.push(runId);
-              }),
-          );
+        const terminal = [
+          "done",
+          "error",
+          "missing_api_key",
+          "loop_limit",
+          "auto_continue",
+        ].includes(e?.type);
+        if (terminal) return Promise.resolve();
+        if (e?.type === "tool_start" && heldToolStartEventWrite) {
+          const heldWrite = heldToolStartEventWrite;
+          heldToolStartEventWrite = null;
+          const write = heldWrite.then(() => {
+            persistedToolStartEventWrites += 1;
+          });
+          pendingEventWrites.push(write);
+          return write;
         }
+        if (options?.persistEvent) {
+          const write = options
+            .persistEvent(async () => {}, {
+              terminal: false,
+              eventData: JSON.stringify(e),
+            })
+            .then(() => {
+              persistedRunEventIds.push(runId);
+            });
+          pendingEventWrites.push(write);
+          return write;
+        }
+        return Promise.resolve();
+      };
+      const control = {
+        flushEvents: async () => {
+          await Promise.all(pendingEventWrites);
+        },
       };
       const signal = {
         aborted: false,
@@ -540,7 +557,7 @@ vi.mock("../agent/run-manager.js", () => ({
       };
       let status: "completed" | "errored" = "completed";
       try {
-        await runFn(send, signal);
+        await runFn(send, signal, control);
       } catch {
         status = "errored";
       }
@@ -813,6 +830,8 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     getActiveRunForThreadAsyncMock.mockResolvedValue(null);
     persistedRunEventIds.length = 0;
     persistedTerminalRunEventIds.length = 0;
+    heldToolStartEventWrite = null;
+    persistedToolStartEventWrites = 0;
     subscribeToRunMock.mockReset();
     getRunEventsSinceMock.mockReset();
     getRunEventsSinceMock.mockResolvedValue([]);
@@ -858,6 +877,44 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     );
     expect(threadData.get("thread-1")).toContain("the result");
   }, 20_000);
+
+  it("flushes tool_start persistence before dispatching a write", async () => {
+    let releaseToolStartWrite!: () => void;
+    heldToolStartEventWrite = new Promise<void>((resolve) => {
+      releaseToolStartWrite = resolve;
+    });
+    let toolStartSent = false;
+    let actionDispatched = false;
+    runAgentLoopMock.mockImplementation(async (opts: any) => {
+      const persistence = opts.send({
+        type: "tool_start",
+        id: "send-email-1",
+        tool: "send-email",
+        input: {},
+      });
+      expect(persistence).toBeInstanceOf(Promise);
+      toolStartSent = true;
+      await opts.beforeWrite();
+      expect(persistedToolStartEventWrites).toBe(1);
+      actionDispatched = true;
+    });
+    await seedTask("tool-start-event-order");
+
+    const processing = processAgentTeamRun({
+      taskId: "tool-start-event-order",
+      mode: "start",
+      resolveConfig: async () => resolveConfig(),
+    });
+    try {
+      await vi.waitFor(() => expect(toolStartSent).toBe(true));
+      expect(actionDispatched).toBe(false);
+    } finally {
+      releaseToolStartWrite();
+    }
+    await processing;
+
+    expect(actionDispatched).toBe(true);
+  });
 
   it("keeps a committed Stop after a continuation is requeued", async () => {
     const taskId = "continuation-stop-race";

@@ -869,6 +869,70 @@ export async function recordLateAgentExecutionStepOutcome(
   }
 }
 
+export interface CompletedAgentExecutionStep {
+  stepId: string;
+  operationId: string;
+  toolName: string;
+  inputJson: string;
+  resultJson: string;
+}
+
+/** Read completed outcomes only for the unfinished calls named by the ledger. */
+export async function getCompletedAgentExecutionSteps(
+  threadId: string,
+  turnId: string,
+  stepIds: readonly string[],
+): Promise<CompletedAgentExecutionStep[]> {
+  const ids = [...new Set(stepIds.filter((id) => id.trim().length > 0))];
+  if (ids.length === 0) return [];
+
+  await ensureRunTables();
+  const completed: CompletedAgentExecutionStep[] = [];
+  const batchSize = 200;
+  for (let offset = 0; offset < ids.length; offset += batchSize) {
+    const batch = ids.slice(offset, offset + batchSize);
+    const rows = await getDbExec().execute({
+      sql: `SELECT step_id, operation_id, tool_name, input_json, result_json
+            FROM agent_execution_steps
+            WHERE thread_id = ? AND turn_id = ? AND status = 'completed'
+              AND step_id IN (${batch.map(() => "?").join(", ")})`,
+      args: [threadId, turnId, ...batch],
+    });
+    for (const raw of rows.rows) {
+      const row = raw as {
+        step_id?: unknown;
+        operation_id?: unknown;
+        tool_name?: unknown;
+        input_json?: unknown;
+        result_json?: unknown;
+      };
+      if (typeof row.step_id !== "string" || !batch.includes(row.step_id)) {
+        throw new Error(
+          "Completed execution-step lookup returned an invalid step id",
+        );
+      }
+      if (
+        typeof row.operation_id !== "string" ||
+        typeof row.tool_name !== "string" ||
+        typeof row.input_json !== "string" ||
+        typeof row.result_json !== "string"
+      ) {
+        throw new Error(
+          `Completed execution step ${row.step_id} has an incomplete stored intent or result`,
+        );
+      }
+      completed.push({
+        stepId: row.step_id,
+        operationId: row.operation_id,
+        toolName: row.tool_name,
+        inputJson: row.input_json,
+        resultJson: row.result_json,
+      });
+    }
+  }
+  return completed;
+}
+
 const LEDGER_RESULT_MAX_CHARS = 8_000;
 const LEDGER_CHAT_UI_RESULT_MAX_BYTES = 64 * 1024;
 
@@ -3014,6 +3078,29 @@ async function lockTurnExecutionLease(
     generation: String(row.generation),
     isLive: truthySqlValue(row.lease_is_live),
   };
+}
+
+/** Serialize a task lifecycle change with worker lease claims and writes. */
+export async function lockTaskExecutionLease(
+  db: DbExec,
+  threadId: string,
+  turnId: string,
+): Promise<void> {
+  await lockTurnExecutionLease(db, threadId, turnId);
+}
+
+/** Revoke a task worker while its lifecycle transaction holds the lease lock. */
+export async function revokeTaskExecutionLease(
+  db: DbExec,
+  threadId: string,
+  turnId: string,
+): Promise<void> {
+  await db.execute({
+    sql: `UPDATE agent_execution_leases
+          SET lease_expires_at = clock_timestamp(), updated_at = clock_timestamp()
+          WHERE thread_id = ? AND turn_id = ?`,
+    args: [threadId, turnId],
+  });
 }
 
 async function revokeExecutionLeasesForRuns(
