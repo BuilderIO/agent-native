@@ -93,7 +93,7 @@ export default defineAction({
     openWorldHint: true,
   },
   description:
-    "Check or set the warehouse events model that first-party Analytics charts read instead of the raw event table. `check` (any org member) reads the model's table metadata and dry-runs the chart projection against it as the app, reporting whether the app can query it and the most bytes a chart reading yesterday's full UTC day, or the whole model, could scan (every column); it runs and bills no query. `set` (org admin, needs approval) runs the same check and saves the model only if it passes. `clear` (org admin, needs approval) sends charts back to the raw table. Charts that read columns or events the model lacks, alerts, and onboarding journeys keep reading the raw table either way.",
+    "Check or set the warehouse events model that first-party Analytics charts read instead of the raw event table. `check` (any org member) reads the model's table metadata and dry-runs the chart projection against it as the app, reporting whether the app can query it and the most bytes one read of yesterday's full UTC day, or of the whole model, could scan (every column; a chart that reads the model more than once, such as a self-join, scans that much per read); it runs and bills no query. `set` (org admin, needs approval) runs the same check and saves the model only if it passes. `clear` (org admin, needs approval) sends charts back to the raw table. Charts that read columns or events the model lacks, alerts, and onboarding journeys keep reading the raw table either way.",
   schema: z.object({
     mode: z.enum(["check", "set", "clear"]),
     table: z
