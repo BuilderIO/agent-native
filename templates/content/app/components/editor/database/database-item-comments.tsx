@@ -11,11 +11,13 @@ import {
 
 /**
  * Opens a row with its Comments showing: one thread when `threadId` is set,
- * otherwise the list. Without a provider, rows show no Comment markers.
+ * a new comment on the Property `propertyId` names, otherwise the list.
+ * Without a provider, rows show no Comment markers.
  */
 export type OpenDatabaseItemComments = (
   item: ContentDatabaseItem,
   threadId: string | null,
+  propertyId?: string,
 ) => void;
 
 export const DatabaseItemCommentsContext =

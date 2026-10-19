@@ -303,6 +303,13 @@ describe("propertyThreadTarget", () => {
       value: `${day(10, 30)} - ${day(11, 2)}`,
       state: "changed",
     });
+    // Recorded while Due was still a number.
+    expect(
+      propertyThreadTarget(
+        { propertyId: "due", propertyName: "Due", propertyValue: "12" },
+        [due],
+      ),
+    ).toEqual({ name: "Due", value: "12", state: "changed" });
   });
 });
 

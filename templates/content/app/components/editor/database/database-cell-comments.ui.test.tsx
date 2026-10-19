@@ -88,6 +88,7 @@ let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
 let client: QueryClient;
 let stored: ReturnType<typeof comment>[];
+let listFails: boolean;
 const openComments = vi.fn();
 const json = (body: unknown) =>
   new Response(JSON.stringify(body), {
@@ -98,7 +99,11 @@ const urlOf = (input: RequestInfo | URL) =>
 const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = urlOf(input);
   const body = init?.body ? JSON.parse(init.body as string) : {};
-  if (url.includes("list-comments")) return json({ comments: stored });
+  if (url.includes("list-comments")) {
+    return listFails
+      ? new Response("{}", { status: 500 })
+      : json({ comments: stored });
+  }
   if (url.includes("add-comment")) {
     stored = [
       ...stored,
@@ -123,6 +128,7 @@ beforeEach(() => {
   fetch.mockClear();
   openComments.mockReset();
   stored = [];
+  listFails = false;
   client = new QueryClient({
     defaultOptions: { mutations: { retry: false }, queries: { retry: false } },
   });
@@ -176,6 +182,22 @@ const button = (scope: ParentNode, label: string) =>
   );
 const calls = (action: string) =>
   fetch.mock.calls.filter(([input]) => urlOf(input).includes(action));
+const startButton = () =>
+  container.querySelector<HTMLButtonElement>(
+    "[data-database-cell-comment-start]",
+  )!;
+
+function stubHover(canHover: boolean) {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn((query: string) => ({
+      matches: query === "(any-hover: none)" ? !canHover : false,
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })),
+  );
+}
 
 describe("Comments on a Collection table cell", () => {
   it("starts a Property comment from scratch on a cell, for someone who can comment but not edit", async () => {
@@ -281,6 +303,37 @@ describe("Comments on a Collection table cell", () => {
       resolved: true,
     });
     expect(card()).toBeNull();
+    // The marker goes once the row's counts refresh.
+    expect(document.activeElement).toBe(startButton());
+  });
+
+  it("keeps unsent text when the cell's own button is clicked again, and closes an empty card", async () => {
+    await render(cell(row({ canComment: true, canEdit: true })));
+    await act(async () => startButton().click());
+    await settle();
+    await act(async () => startButton().click());
+    await settle();
+    expect(card()).toBeNull();
+
+    await act(async () => startButton().click());
+    await settle();
+    await setRichEditorValue(richEditor(card()!)!, "Should this be Done?");
+    await act(async () => startButton().click());
+    await settle();
+    expect(richEditor(card()!)?.textContent).toContain("Should this be Done?");
+  });
+
+  it("on a touch screen, writes the new comment in the row's peek", async () => {
+    stubHover(false);
+    await render(cell(row({ canComment: true, canEdit: true })));
+    await act(async () => startButton().click());
+    await settle();
+    expect(openComments).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "item-1" }),
+      null,
+      "status",
+    );
+    expect(card()).toBeNull();
   });
 
   it("reads a cell's threads again when its marker is newer than the cache", async () => {
@@ -310,6 +363,35 @@ describe("Comments on a Collection table cell", () => {
     expect(
       card()!.querySelector('[data-thread-card="t-status"]'),
     ).not.toBeNull();
+  });
+
+  it("closes a card whose read fails, and refreshes a marker that no longer matches", async () => {
+    const rows = ["action", "get-content-database", { documentId: "db" }];
+    client.setQueryData(rows, { items: [{ document: { id: "row-1" } }] });
+    const marked = row(
+      { canComment: true, canEdit: true },
+      {
+        open: 1,
+        properties: { status: { open: 1, latestThreadId: "t-status" } },
+      },
+    );
+    const marker = () =>
+      container.querySelector<HTMLButtonElement>(
+        "[data-database-cell-comments]",
+      )!;
+
+    listFails = true;
+    await render(cell(marked));
+    await act(async () => marker().click());
+    await settle();
+    expect(card()).toBeNull();
+
+    // Someone else resolved the thread since the row was read.
+    listFails = false;
+    await act(async () => marker().click());
+    await settle();
+    expect(card()).toBeNull();
+    expect(client.getQueryState(rows)?.isInvalidated).toBe(true);
   });
 
   it("offers no way to start a comment to someone who can only view", async () => {

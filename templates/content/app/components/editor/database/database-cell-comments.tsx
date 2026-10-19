@@ -8,6 +8,7 @@ import {
   IconMessage,
   IconMessagePlus,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   type MutableRefObject,
   useContext,
@@ -22,7 +23,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { type CommentThread, useComments } from "@/hooks/use-comments";
+import {
+  type CommentThread,
+  collectionRowsShowingDocumentFilter,
+  useComments,
+} from "@/hooks/use-comments";
 import { cn } from "@/lib/utils";
 
 import { CommentDraftProvider } from "../comment-drafts";
@@ -32,6 +37,7 @@ import {
   useCommentReplyDrafts,
   usePendingCommentDraft,
 } from "../CommentsSidebar";
+import { deviceCannotHover } from "./ContentTable";
 import {
   DatabaseItemCommentsContext,
   databaseCommentMarkerClassName,
@@ -79,9 +85,18 @@ function isEditableTarget(target: EventTarget | null) {
 export function DatabaseCellComments({
   item,
   property,
+  rowSelected = false,
+  besideEditButton = false,
 }: {
   item: ContentDatabaseItem;
   property: DocumentProperty;
+  /**
+   * Touch screens can't hover, so there the Comment button shows on a
+   * selected row's cells, like the row's selection controls.
+   */
+  rowSelected?: boolean;
+  /** The cell's value editor keeps its own button at the cell's end. */
+  besideEditButton?: boolean;
 }) {
   const t = useT();
   const { session } = useSession();
@@ -89,11 +104,25 @@ export function DatabaseCellComments({
   const [card, setCard] = useState<CellCommentCard | null>(null);
   const cardKeyRef = useRef(0);
   const openerRef = useRef<HTMLButtonElement | null>(null);
+  const controlsRef = useRef<HTMLSpanElement>(null);
+  const startRef = useRef<HTMLButtonElement>(null);
   // Set while the card holds unsent text, so a stray click or Escape keeps it.
   const keepOpenRef = useRef(false);
   // Set when focus belongs elsewhere once the card closes: wherever the user
   // clicked, or the row's peek, which closes if focus returns to the table.
   const skipFocusReturnRef = useRef(false);
+  const [layer, setLayer] = useState<HTMLDivElement | null>(null);
+  const [overflowing, setOverflowing] = useState(false);
+  useEffect(() => {
+    if (!layer || typeof ResizeObserver === "undefined") return;
+    const measure = () =>
+      setOverflowing(layer.scrollHeight > layer.clientHeight + 1);
+    const observer = new ResizeObserver(measure);
+    observer.observe(layer);
+    for (const child of layer.children) observer.observe(child);
+    measure();
+    return () => observer.disconnect();
+  }, [layer, card?.key]);
 
   if (!openComments) return null;
   const { canComment, canResolve } = databaseItemCommentAccess(item);
@@ -103,11 +132,23 @@ export function DatabaseCellComments({
   if (!summary && !canComment && !card) return null;
 
   const open = (mode: CellCommentCard["mode"], opener: HTMLButtonElement) => {
+    // A card holding unsent text stays as it is.
+    if (keepOpenRef.current) return;
+    if (card?.mode === mode) {
+      close();
+      return;
+    }
     openerRef.current = opener;
     skipFocusReturnRef.current = false;
     setCard({ mode, key: ++cardKeyRef.current });
   };
   const close = () => setCard(null);
+  // Once its last thread is resolved, the marker that opened the card goes
+  // away, so focus returns to the cell's Comment button instead.
+  const settle = () => {
+    if (startRef.current) openerRef.current = startRef.current;
+    close();
+  };
   const startLabel = t("comments.commentOnProperty", { name });
   const markerLabel = summary
     ? t("comments.openPropertyComments", { count: summary.open, name })
@@ -126,20 +167,35 @@ export function DatabaseCellComments({
           aria-hidden="true"
         />
       </PopoverPrimitive.Anchor>
-      <span className="relative flex min-h-6 shrink-0 items-center">
+      <span
+        ref={controlsRef}
+        className="relative ms-auto flex min-h-6 shrink-0 items-center"
+      >
         {canComment ? (
           <Tooltip>
             <TooltipTrigger asChild>
               <button
+                ref={startRef}
                 type="button"
                 className={cn(
-                  "pointer-events-none absolute end-full top-0 me-0.5 flex size-6 items-center justify-center rounded bg-background text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-focus-within/cell:pointer-events-auto group-focus-within/cell:opacity-100 group-hover/cell:pointer-events-auto group-hover/cell:opacity-100 [@media(any-hover:none)]:hidden",
+                  "pointer-events-none absolute end-full top-0 flex size-6 items-center justify-center rounded bg-background text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-focus-within/cell:pointer-events-auto group-focus-within/cell:opacity-100 group-hover/cell:pointer-events-auto group-hover/cell:opacity-100 [@media(any-hover:none)]:hidden",
+                  besideEditButton ? "me-6" : "me-0.5",
                   card?.mode === "start" && "pointer-events-auto opacity-100",
+                  rowSelected &&
+                    "[@media(any-hover:none)]:pointer-events-auto [@media(any-hover:none)]:flex [@media(any-hover:none)]:opacity-100",
                 )}
                 aria-label={startLabel}
+                aria-haspopup="dialog"
+                aria-expanded={card?.mode === "start"}
                 data-database-cell-comment-start
                 onClick={(event) => {
                   event.stopPropagation();
+                  // A card is cramped under a phone's keyboard, so touch
+                  // screens write the comment in the row's peek.
+                  if (deviceCannotHover()) {
+                    openComments(item, null, propertyId);
+                    return;
+                  }
                   open("start", event.currentTarget);
                 }}
               >
@@ -156,6 +212,8 @@ export function DatabaseCellComments({
                 type="button"
                 className={databaseCommentMarkerClassName}
                 aria-label={markerLabel}
+                aria-haspopup="dialog"
+                aria-expanded={card?.mode === "read"}
                 data-database-cell-comments={summary.open}
                 onClick={(event) => {
                   event.stopPropagation();
@@ -172,11 +230,13 @@ export function DatabaseCellComments({
       </span>
       <PopoverPrimitive.Portal>
         <PopoverPrimitive.Content
+          ref={setLayer}
           align="end"
           sideOffset={4}
           collisionPadding={12}
           className="database-cell-comment-card"
           data-database-cell-comment-card={card?.mode}
+          data-overflowing={overflowing ? "" : undefined}
           onOpenAutoFocus={(event) => {
             if (card?.mode !== "start") return;
             // The composer takes focus once it mounts, but only from the page.
@@ -199,8 +259,16 @@ export function DatabaseCellComments({
             }
           }}
           onInteractOutside={(event) => {
-            if (keepOpenRef.current) event.preventDefault();
-            else skipFocusReturnRef.current = true;
+            // The cell's own buttons switch or close the card when clicked.
+            if (
+              keepOpenRef.current ||
+              (event.target instanceof Node &&
+                controlsRef.current?.contains(event.target))
+            ) {
+              event.preventDefault();
+            } else {
+              skipFocusReturnRef.current = true;
+            }
           }}
         >
           {card ? (
@@ -220,6 +288,7 @@ export function DatabaseCellComments({
                 currentUserOrgId={session?.orgId ?? undefined}
                 keepOpenRef={keepOpenRef}
                 onClose={close}
+                onSettled={settle}
                 onOpenRow={(threadId) => {
                   // The peek returns focus to the cell when it closes.
                   skipFocusReturnRef.current = true;
@@ -246,6 +315,7 @@ function DatabaseCellCommentCard({
   currentUserOrgId,
   keepOpenRef,
   onClose,
+  onSettled,
   onOpenRow,
 }: {
   item: ContentDatabaseItem;
@@ -257,9 +327,11 @@ function DatabaseCellCommentCard({
   currentUserOrgId?: string;
   keepOpenRef: MutableRefObject<boolean>;
   onClose: () => void;
+  onSettled: () => void;
   onOpenRow: (threadId: string) => void;
 }) {
   const t = useT();
+  const queryClient = useQueryClient();
   const documentId = item.document.id;
   const propertyId = property.definition.id;
   const { data: threads, isLoading, refetch } = useComments(documentId);
@@ -278,7 +350,22 @@ function DatabaseCellCommentCard({
 
   useEffect(() => {
     if (mode === "read") {
-      void refetch().finally(() => setListedSinceOpen(true));
+      const marked = item.comments?.properties[propertyId]?.open ?? 0;
+      void refetch()
+        .then(({ data }) => {
+          const open = data?.filter(
+            (thread) =>
+              thread.property?.propertyId === propertyId && !thread.resolved,
+          ).length;
+          // A marker that no longer matches refreshes the row's counts.
+          if (open !== undefined && open !== marked) {
+            void queryClient.invalidateQueries({
+              ...collectionRowsShowingDocumentFilter(documentId),
+              refetchType: "active",
+            });
+          }
+        })
+        .finally(() => setListedSinceOpen(true));
       return;
     }
     setPendingComment({
@@ -305,21 +392,24 @@ function DatabaseCellCommentCard({
   const postedThread = postedThreadId
     ? propertyThreads.find((thread) => thread.threadId === postedThreadId)
     : undefined;
-  // Resolving the last thread, or the one just posted, closes the card.
+  // Resolving the last thread, or the one just posted, closes the card, as
+  // does a read that found none or failed.
   const settled =
     !pendingComment &&
-    !!threads &&
     (postedThreadId
       ? postedThread?.resolved === true
       : mode === "read" && listedSinceOpen && openThreads.length === 0);
   useEffect(() => {
-    if (settled) onClose();
-  }, [settled, onClose]);
+    if (settled) onSettled();
+  }, [settled, onSettled]);
 
   const openReplyThreadId = replyDrafts.openReply?.threadId ?? null;
+  // Text still being written or sent; a failed send puts it back.
   const unsent =
+    !!pendingComment?.submitting ||
     !!pendingComment?.text.trim() ||
-    (!!openReplyThreadId && !!replyDrafts.get(openReplyThreadId).text.trim());
+    (!!openReplyThreadId && !!replyDrafts.get(openReplyThreadId).text.trim()) ||
+    propertyThreads.some((thread) => replyDrafts.isSubmitting(thread.threadId));
   useEffect(() => {
     keepOpenRef.current = unsent;
     return () => {

@@ -79,23 +79,25 @@ export interface PropertyThreadTarget {
   state: "current" | "changed" | "removed" | "unknown";
 }
 
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const ISO_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
+
+/** ISO text as Properties show dates; anything else as it was written. */
+function readableDate(text: string) {
+  if (ISO_DATE.test(text)) return formatPropertyDate(text);
+  if (ISO_DATE_TIME.test(text)) return formatPropertyDateTime(text);
+  return text;
+}
+
 /**
  * A remembered value as its Property shows values. Comments remember dates
- * as ISO text, and a range as "start - end".
+ * as ISO text, and a range as "start - end". A value recorded before the
+ * Property became a date keeps its text.
  */
 function readablePropertyValue(value: string, type: string | undefined) {
-  if (type === "date") {
-    return value
-      .split(" - ")
-      .map((part) =>
-        /T\d{2}:\d{2}/.test(part)
-          ? formatPropertyDateTime(part)
-          : formatPropertyDate(part),
-      )
-      .join(" - ");
-  }
+  if (type === "date") return value.split(" - ").map(readableDate).join(" - ");
   if (type === "created_time" || type === "last_edited_time") {
-    return formatPropertyDateTime(value);
+    return readableDate(value);
   }
   return value;
 }

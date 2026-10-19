@@ -448,12 +448,14 @@ export interface PageEditorSession {
 
 /**
  * Opens the Page with its Comments showing: one thread when `threadId` is
- * set, otherwise the list. A new `key` asks again.
+ * set, a new comment on the Property `propertyId` names, otherwise the list.
+ * A new `key` asks again.
  */
 export interface PageCommentIntent {
   key: number;
   documentId: string;
   threadId?: string | null;
+  propertyId?: string;
 }
 
 export interface PageEditorSurfaceProps extends DocumentEditorProps {
@@ -7917,7 +7919,7 @@ function PageEditorSessionBody({
       handledCommentIntentRef.current === commentIntent.key
     )
       return;
-    const threadId = commentIntent.threadId;
+    const { threadId, propertyId } = commentIntent;
     if (threadId) {
       // Wait for the thread; a thread that is gone opens the list instead.
       if (!threads) return;
@@ -7926,14 +7928,28 @@ function PageEditorSessionBody({
         activateCommentThread(threadId);
         return;
       }
+    } else if (propertyId) {
+      // Wait for the Properties; one that is gone opens the list instead.
+      if (!pageProperties) return;
+      handledCommentIntentRef.current = commentIntent.key;
+      const property = pageProperties.find(
+        (candidate) => candidate.definition.id === propertyId,
+      );
+      if (property && canComment) {
+        startPropertyComment(property);
+        return;
+      }
     }
     handledCommentIntentRef.current = commentIntent.key;
     handleUtilityPanelChange("comments");
   }, [
     activateCommentThread,
+    canComment,
     commentIntent,
     documentId,
     handleUtilityPanelChange,
+    pageProperties,
+    startPropertyComment,
     threads,
   ]);
 

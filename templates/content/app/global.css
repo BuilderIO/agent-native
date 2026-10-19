@@ -2469,6 +2469,13 @@ audio.media-block__content {
     32rem,
     calc(var(--radix-popover-content-available-height) - 0.5rem)
   );
+  max-height: calc(var(--radix-popover-content-available-height) - 0.5rem);
+}
+/* Threads taller than the room scroll rather than run off the screen. Only
+   then, since scrolling clips the cards' shadows. */
+.database-cell-comment-card[data-overflowing] {
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .database-cell-comment-card [data-comments-sidebar] {
   padding-bottom: 0;

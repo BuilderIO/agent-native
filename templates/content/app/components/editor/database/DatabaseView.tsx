@@ -1931,11 +1931,16 @@ function DatabaseTable({
   }
 
   // Opens the row with its Comments showing, from a count or a cell marker.
-  const previewItemComments: OpenDatabaseItemComments = (item, threadId) => {
+  const previewItemComments: OpenDatabaseItemComments = (
+    item,
+    threadId,
+    propertyId,
+  ) => {
     if (openWorkspaceFiles(item)) return;
     seedDatabaseItemDocumentCaches(queryClient, item);
     prioritizeBuilderBodyHydrationForItem(item);
     if (activeView.openPagesIn === "full_page") {
+      // A full page links to a thread, not to a new comment on a Property.
       const path = databaseItemPagePath(
         item.document.id,
         databaseId,
@@ -1953,6 +1958,7 @@ function DatabaseTable({
       key: ++previewCommentIntentSequenceRef.current,
       documentId: item.document.id,
       threadId,
+      propertyId,
     };
     if (item.document.id === previewDocumentId) {
       setPreviewCommentIntent(intent);
@@ -18721,7 +18727,16 @@ function DatabaseTableRow({
             ) : (
               value
             )}
-            <DatabaseCellComments item={item} property={itemProperty} />
+            <DatabaseCellComments
+              item={item}
+              property={itemProperty}
+              rowSelected={selected}
+              besideEditButton={
+                canEdit &&
+                itemProperty.editable &&
+                itemProperty.definition.type === "relation"
+              }
+            />
           </div>
         );
       })}

@@ -42,7 +42,8 @@ function subscribeToNoHover(onChange: () => void) {
   return () => media.removeEventListener("change", onChange);
 }
 
-function deviceCannotHover() {
+/** Whether no pointer on this device can hover, as on a phone. */
+export function deviceCannotHover() {
   return (
     typeof window !== "undefined" &&
     typeof window.matchMedia === "function" &&
