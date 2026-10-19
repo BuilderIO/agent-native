@@ -46,6 +46,7 @@ vi.mock("../server/handlers/image-providers/index.js", () => ({
 }));
 
 vi.mock("../server/lib/reference-image-fetch.js", () => ({
+  MAX_REFERENCE_IMAGE_COUNT: 8,
   MAX_REFERENCE_IMAGE_INPUT_COUNT: 32,
   fetchReferenceImages: (
     ...args: Parameters<typeof mockFetchReferenceImages>
@@ -107,6 +108,8 @@ describe("generate-image-api", () => {
       imageData: Buffer.from("local-image"),
       mimeType: "image/png",
       model: "gemini",
+      provider: "gemini",
+      referenceImagesSubmitted: 0,
     });
     mockGetProvider.mockResolvedValue({ generate: mockProviderGenerate });
     mockUploadFile.mockResolvedValue({
@@ -126,6 +129,57 @@ describe("generate-image-api", () => {
       source: "slides-local",
       prompt: "a sunset",
       url: "https://cdn.example.com/local.png",
+      provider: "gemini",
+      referenceImages: {
+        submittedToProvider: 0,
+      },
+    });
+  });
+
+  it("reports the number of references submitted to the selected provider", async () => {
+    const images = Array.from({ length: 6 }, (_, index) => ({
+      data: `image-${index + 1}`,
+      mimeType: "image/png",
+      byteLength: 1,
+    }));
+    mockFetchReferenceImages.mockResolvedValue({
+      requested: 6,
+      attempted: 6,
+      loaded: 6,
+      failed: 0,
+      skipped: 0,
+      totalBytes: 6,
+      images,
+      failures: [],
+      skippedReasons: [],
+    });
+    mockProviderGenerate.mockResolvedValue({
+      imageData: Buffer.from("local-image"),
+      mimeType: "image/png",
+      model: "gemini-3.1-flash-image",
+      provider: "gemini",
+      referenceImagesSubmitted: 4,
+    });
+    mockGetProvider.mockResolvedValue({ generate: mockProviderGenerate });
+    mockUploadFile.mockResolvedValue({
+      url: "https://cdn.example.com/local.png",
+    });
+
+    const result = await action.run({
+      prompt: "a sunset",
+      referenceImageUrls: Array.from(
+        { length: 6 },
+        (_, index) => `https://cdn.example.com/style-${index + 1}.png`,
+      ),
+    });
+
+    expect(result).toMatchObject({
+      provider: "gemini",
+      referenceImages: {
+        requested: 6,
+        loaded: 6,
+        submittedToProvider: 4,
+      },
     });
   });
 

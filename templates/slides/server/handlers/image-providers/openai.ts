@@ -117,6 +117,7 @@ export class OpenAIProvider implements ImageProvider {
       mimeType,
       model: "gpt-image-2",
       provider: "openai",
+      referenceImagesSubmitted: referenceImages.length,
     };
   }
 

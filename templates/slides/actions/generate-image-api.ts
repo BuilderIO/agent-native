@@ -10,6 +10,7 @@ import {
 } from "../server/lib/assets-image-delegation.js";
 import {
   fetchReferenceImages,
+  MAX_REFERENCE_IMAGE_COUNT,
   MAX_REFERENCE_IMAGE_INPUT_COUNT,
 } from "../server/lib/reference-image-fetch.js";
 import {
@@ -18,6 +19,7 @@ import {
 } from "../server/lib/slide-image-insertion.js";
 import {
   DEFAULT_STYLE_REFERENCE_URLS,
+  MAX_GEMINI_REFERENCE_IMAGE_COUNT,
   normalizeReferenceUrls,
 } from "../shared/api.js";
 import getDeckAction from "./get-deck.js";
@@ -150,7 +152,7 @@ export default defineAction({
       .max(MAX_REFERENCE_IMAGE_INPUT_COUNT)
       .optional()
       .describe(
-        `Up to ${MAX_REFERENCE_IMAGE_INPUT_COUNT} style reference URLs for local generation; forwarded to Assets only when useBrandLibrary is true`,
+        `Up to ${MAX_REFERENCE_IMAGE_INPUT_COUNT} style reference URLs; local generation fetches at most ${MAX_REFERENCE_IMAGE_COUNT}, and Gemini submits the first ${MAX_GEMINI_REFERENCE_IMAGE_COUNT} loaded references. Check the returned referenceImages counts for omissions and provider submissions.`,
       ),
   }),
   run: async (args) => {
@@ -273,11 +275,14 @@ export default defineAction({
       showToUser: imagePreviewMarkdown(prompt, uploaded.url),
       url: uploaded.url,
       model: result.model,
+      provider: result.provider,
       prompt,
       referenceImages: {
         requested: referenceBatch.requested,
         attempted: referenceBatch.attempted,
         loaded: referenceBatch.loaded,
+        submittedToProvider:
+          result.referenceImagesSubmitted ?? refImages.length,
         failed: referenceBatch.failed,
         skipped: referenceBatch.skipped,
         bytesLoaded: referenceBatch.totalBytes,

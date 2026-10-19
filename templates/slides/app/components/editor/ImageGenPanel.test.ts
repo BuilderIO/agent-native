@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { MAX_REFERENCE_IMAGE_COUNT } from "../../../shared/api.js";
+import {
+  MAX_GEMINI_REFERENCE_IMAGE_COUNT,
+  MAX_REFERENCE_IMAGE_COUNT,
+} from "../../../shared/api.js";
 import {
   buildImageGenerationContext,
   getImageGenerationLabel,
@@ -53,7 +56,10 @@ describe("buildImageGenerationContext", () => {
       `referenceImageUrls set to this exact array: ${JSON.stringify(includedReferences)}.`,
     );
     expect(context).toContain(
-      `3 were omitted. Tell the user that only the first ${MAX_REFERENCE_IMAGE_COUNT} references will be used`,
+      `3 were omitted before generation. Tell the user about the omitted URLs`,
+    );
+    expect(context).toContain(
+      `Gemini submits only the first ${MAX_GEMINI_REFERENCE_IMAGE_COUNT} loaded references`,
     );
     expect(context).not.toContain(references[MAX_REFERENCE_IMAGE_COUNT]);
   });

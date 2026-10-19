@@ -1,6 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
   DEFAULT_STYLE_REFERENCE_URLS,
+  MAX_GEMINI_REFERENCE_IMAGE_COUNT,
   MAX_REFERENCE_IMAGE_COUNT,
   normalizeReferenceUrls,
 } from "@shared/api";
@@ -61,6 +62,9 @@ export function buildImageGenerationContext({
     'Do not browse, search, or inspect brand assets for style phrases like "Builder.io" unless the user explicitly asks to set up, import, save, or apply a brand/design system.',
   );
   contextParts.push(WEBSITE_STYLE_REFERENCE_DIRECTIVE);
+  contextParts.push(
+    `The action result reports how many loaded references reached the provider. Gemini submits only the first ${MAX_GEMINI_REFERENCE_IMAGE_COUNT} loaded references; OpenAI submits all loaded references. After generation, report requested references the action skipped or the provider did not submit. Do not claim every requested reference influenced the image.`,
+  );
 
   const normalizedReferenceUrls = normalizeReferenceUrls(referenceImageUrls);
   const styleReferenceUrls = normalizedReferenceUrls.slice(
@@ -76,7 +80,7 @@ export function buildImageGenerationContext({
   }
   if (omittedReferenceCount > 0) {
     contextParts.push(
-      `Image generation can use at most ${MAX_REFERENCE_IMAGE_COUNT} reference images, so ${omittedReferenceCount} were omitted. Tell the user that only the first ${MAX_REFERENCE_IMAGE_COUNT} references will be used, and ask them to narrow the references if the omitted ones matter.`,
+      `Only the first ${MAX_REFERENCE_IMAGE_COUNT} reference URLs are sent to the action, so ${omittedReferenceCount} were omitted before generation. Tell the user about the omitted URLs and ask them to narrow the references if the omitted ones matter.`,
     );
   }
 

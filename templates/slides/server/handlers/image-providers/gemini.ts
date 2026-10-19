@@ -3,6 +3,7 @@ import {
   resolveGeminiApiKey,
 } from "@agent-native/core/server";
 
+import { MAX_GEMINI_REFERENCE_IMAGE_COUNT } from "../../../shared/api.js";
 import type {
   ImageProvider,
   ImageProviderConfig,
@@ -35,10 +36,12 @@ export class GeminiProvider implements ImageProvider {
       );
     const client = new GoogleGenAI({ apiKey });
 
-    const shuffled = [...referenceImages].sort(() => Math.random() - 0.5);
-    const selectedRefs = shuffled.slice(0, 4);
+    const selectedRefs = referenceImages.slice(
+      0,
+      MAX_GEMINI_REFERENCE_IMAGE_COUNT,
+    );
     console.log(
-      `[Gemini] Using ${selectedRefs.length} of ${referenceImages.length} reference images (randomly selected)`,
+      `[Gemini] Using the first ${selectedRefs.length} of ${referenceImages.length} reference images`,
     );
 
     const contents: any[] = [];
@@ -124,6 +127,7 @@ export class GeminiProvider implements ImageProvider {
                 mimeType: part.inlineData.mimeType || "image/png",
                 model: usedModel,
                 provider: "gemini",
+                referenceImagesSubmitted: selectedRefs.length,
               };
             }
           }

@@ -70,4 +70,35 @@ describe("GeminiProvider", () => {
     expect(prompt).toContain("Quarterly planning deck");
     expect(prompt).not.toContain("<h1>");
   });
+
+  it("submits the first four references deterministically", async () => {
+    generateContentMock.mockResolvedValue({
+      candidates: [
+        {
+          content: {
+            parts: [
+              { inlineData: { data: "aGVsbG8=", mimeType: "image/png" } },
+            ],
+          },
+        },
+      ],
+    });
+    const references = Array.from({ length: 6 }, (_, index) => ({
+      data: `image-${index + 1}`,
+      mimeType: "image/png",
+    }));
+
+    const result = await new GeminiProvider().generate(
+      "a red circle",
+      references,
+    );
+
+    const request = generateContentMock.mock.calls[0][0];
+    expect(
+      request.contents
+        .filter((part: { inlineData?: { data: string } }) => part.inlineData)
+        .map((part: { inlineData: { data: string } }) => part.inlineData.data),
+    ).toEqual(["image-1", "image-2", "image-3", "image-4"]);
+    expect(result.referenceImagesSubmitted).toBe(4);
+  });
 });
