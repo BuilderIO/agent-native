@@ -1,5 +1,5 @@
 import { ActionContractError } from "@agent-native/core/action";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import type { DocumentSourceInfo } from "../shared/api.js";
@@ -7,6 +7,7 @@ import {
   githubFileWebUrl,
   parseGitHubSourceTable,
 } from "../shared/github-source.js";
+import { chunks } from "./_batch-utils.js";
 
 interface DocumentSourceColumns {
   sourceMode?: string | null;
@@ -106,4 +107,72 @@ export async function assertCollectionAcceptsNewRows(
     "This collection follows a GitHub folder, so its rows come from the files there. Add a Markdown file in GitHub; Content adds the row after the next push.",
     { errorCode: "SOURCE_READ_ONLY", statusCode: 409 },
   );
+}
+
+/**
+ * A collection that follows a GitHub folder holds only pages that follow its
+ * files. A page restored from Trash into one has no file there: the sync
+ * moved it to Trash when its file left, or it was in Trash before the link.
+ * It comes back with its comments, History and sub-pages as an ordinary page,
+ * out of the collection's rows, as a local folder sync leaves a page whose
+ * file is gone. Rows restored along with their collection stay rows.
+ */
+export async function releaseRestoredPagesFromGitHubCollections(
+  db: ReturnType<typeof getDb>,
+  documentIds: string[],
+  ownerEmail: string,
+  now: string,
+): Promise<string[]> {
+  const restored = new Set(documentIds);
+  const releasedFrom = new Set<string>();
+  for (const batch of chunks(documentIds, 90)) {
+    const memberships = await db
+      .select({
+        itemId: schema.contentDatabaseItems.id,
+        documentId: schema.contentDatabaseItems.documentId,
+        databaseId: schema.contentDatabaseItems.databaseId,
+        databaseDocumentId: schema.contentDatabases.documentId,
+      })
+      .from(schema.contentDatabaseItems)
+      .innerJoin(
+        schema.contentDatabases,
+        eq(schema.contentDatabases.id, schema.contentDatabaseItems.databaseId),
+      )
+      .innerJoin(
+        schema.contentDatabaseSources,
+        and(
+          eq(
+            schema.contentDatabaseSources.databaseId,
+            schema.contentDatabaseItems.databaseId,
+          ),
+          eq(schema.contentDatabaseSources.sourceType, "github"),
+        ),
+      )
+      .where(inArray(schema.contentDatabaseItems.documentId, batch));
+    for (const membership of memberships) {
+      if (restored.has(membership.databaseDocumentId)) continue;
+      releasedFrom.add(membership.databaseId);
+      await db
+        .delete(schema.contentDatabaseItems)
+        .where(eq(schema.contentDatabaseItems.id, membership.itemId));
+      await db
+        .update(schema.documents)
+        .set({
+          sourceMode: null,
+          sourceKind: null,
+          sourcePath: null,
+          sourceRootPath: null,
+          sourceUpdatedAt: null,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(schema.documents.id, membership.documentId),
+            eq(schema.documents.ownerEmail, ownerEmail),
+            eq(schema.documents.sourceMode, "github"),
+          ),
+        );
+    }
+  }
+  return [...releasedFrom];
 }
