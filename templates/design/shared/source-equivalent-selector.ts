@@ -48,6 +48,25 @@ export function isEditorInjectedElement(el: Element): boolean {
   );
 }
 
+/**
+ * Marks a selector built by this walker. Selectors persisted before the walker existed
+ * have no prefix and resolve with native querySelector, as they did on main.
+ */
+export const SOURCE_PATH_PREFIX = "source:";
+
+/**
+ * The source-path selector a review anchor persists. Only review anchors carry the prefix,
+ * so the source walk applies to them and never to a legacy native selector.
+ */
+export function reviewSourceSelector(el: Element): string {
+  const path = buildSourceEquivalentSelector(el);
+  return path ? SOURCE_PATH_PREFIX + path : "";
+}
+
+export function isSourcePathSelector(selector: string): boolean {
+  return selector.startsWith(SOURCE_PATH_PREFIX);
+}
+
 export function buildSourceEquivalentSelector(el: Element | null): string {
   if (!el || !el.ownerDocument) return "";
   const doc = el.ownerDocument;
@@ -90,7 +109,10 @@ export function resolveSourceEquivalentSelector(
   doc: Document,
   selector: string,
 ): Element | null {
-  const parts = selector.split(" > ");
+  const path = isSourcePathSelector(selector)
+    ? selector.slice(SOURCE_PATH_PREFIX.length)
+    : selector;
+  const parts = path.split(" > ");
   if (parts[0] !== "body") return null;
   let current: Element | null = doc.body;
   for (let partIndex = 1; partIndex < parts.length; partIndex += 1) {

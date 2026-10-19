@@ -3,7 +3,9 @@ import {
   buildSourceEquivalentSelector,
   isEditorInjectedElement,
   isSourceLocationMatch,
+  isSourcePathSelector,
   resolveSourceEquivalentSelector,
+  reviewSourceSelector,
 } from "../../../../shared/source-equivalent-selector";
 /**
  * Lightweight hit-test bridge — injected into every inline Edit canvas iframe so the
@@ -1726,7 +1728,7 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
     ) {
       if (
         current.matches(
-          "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[id]",
+          "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[data-loc],[id]",
         )
       ) {
         identifiedAncestor = current;
@@ -1886,7 +1888,7 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
         : "";
       var reviewPointSelector =
         reviewPointElement && !reviewPointNodeId
-          ? buildSourceEquivalentSelector(reviewPointElement)
+          ? reviewSourceSelector(reviewPointElement)
           : "";
       // Every hit carries its box and a selector: a node id such as data-loc may not resolve
       // back to an element in the parent, and the selector re-finds the element after layout moves.
@@ -1894,7 +1896,7 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
         ? reviewPointElement.getBoundingClientRect()
         : null;
       var reviewPointHitSelector = reviewPointElement
-        ? buildSourceEquivalentSelector(reviewPointElement)
+        ? reviewSourceSelector(reviewPointElement)
         : "";
       (window.parent as Window).postMessage(
         {
@@ -1928,7 +1930,7 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
       }
       // Mirrors the parent's selectorElement: body paths use the source walk, any other selector is native.
       var reviewSelectorElement: Element | null = null;
-      if (reviewSelector.indexOf("body > ") === 0) {
+      if (isSourcePathSelector(reviewSelector)) {
         reviewSelectorElement = resolveSourceEquivalentSelector(
           document,
           reviewSelector,

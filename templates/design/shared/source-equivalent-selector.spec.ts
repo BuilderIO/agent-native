@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildSourceEquivalentSelector,
   isSourceLocationMatch,
+  reviewSourceSelector,
   resolveSourceEquivalentSelector,
 } from "./source-equivalent-selector";
 
@@ -34,11 +35,12 @@ describe("source-equivalent selectors", () => {
     expect(resolveSourceEquivalentSelector(doc, selector)).toBe(target);
   });
 
-  it("accepts a bare tag segment from a selector saved before the count was written", () => {
+  it("walks a review anchor's prefixed selector the same as its bare path", () => {
     const doc = documentWith("<main><p id='only'>a</p></main>");
+    const target = doc.getElementById("only");
 
-    expect(resolveSourceEquivalentSelector(doc, "body > main > p")).toBe(
-      doc.getElementById("only"),
+    expect(resolveSourceEquivalentSelector(doc, "source:body > main > p")).toBe(
+      target,
     );
   });
 
@@ -68,5 +70,14 @@ describe("source-equivalent selectors", () => {
 
     expect(isSourceLocationMatch(located, "a.tsx:1")).toBe(true);
     expect(isSourceLocationMatch(plain, "plain")).toBe(false);
+  });
+
+  it("prefixes the review selector and leaves an unbuildable one empty", () => {
+    const doc = documentWith("<main><p id='target'>a</p></main>");
+
+    expect(reviewSourceSelector(doc.getElementById("target") as Element)).toBe(
+      "source:body > main:nth-of-type(1) > p:nth-of-type(1)",
+    );
+    expect(reviewSourceSelector(doc.body)).toBe("");
   });
 });

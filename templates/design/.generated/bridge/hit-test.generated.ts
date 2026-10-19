@@ -37,6 +37,14 @@ export const hitTestBridgeScript: string = `"use strict";
   function isEditorInjectedElement(el) {
     return !!(el.getAttribute && (el.getAttribute("data-agent-native-edit-overlay") !== null || el.getAttribute("data-agent-native-hit-test-preview") !== null));
   }
+  var SOURCE_PATH_PREFIX = "source:";
+  function reviewSourceSelector(el) {
+    const path = buildSourceEquivalentSelector(el);
+    return path ? SOURCE_PATH_PREFIX + path : "";
+  }
+  function isSourcePathSelector(selector) {
+    return selector.startsWith(SOURCE_PATH_PREFIX);
+  }
   function buildSourceEquivalentSelector(el) {
     if (!el || !el.ownerDocument) return "";
     const doc = el.ownerDocument;
@@ -70,7 +78,8 @@ export const hitTestBridgeScript: string = `"use strict";
     return parts.join(" > ");
   }
   function resolveSourceEquivalentSelector(doc, selector) {
-    const parts = selector.split(" > ");
+    const path = isSourcePathSelector(selector) ? selector.slice(SOURCE_PATH_PREFIX.length) : selector;
+    const parts = path.split(" > ");
     if (parts[0] !== "body") return null;
     let current = doc.body;
     for (let partIndex = 1; partIndex < parts.length; partIndex += 1) {
@@ -1280,7 +1289,7 @@ export const hitTestBridgeScript: string = `"use strict";
       var current = element;
       while (current && current !== document.body && current !== document.documentElement) {
         if (current.matches(
-          "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[id]"
+          "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[data-loc],[id]"
         )) {
           identifiedAncestor = current;
           break;
@@ -1403,9 +1412,9 @@ export const hitTestBridgeScript: string = `"use strict";
           reviewPointY
         );
         var reviewPointNodeId = reviewPointElement ? getNodeId(reviewPointElement) : "";
-        var reviewPointSelector = reviewPointElement && !reviewPointNodeId ? buildSourceEquivalentSelector(reviewPointElement) : "";
+        var reviewPointSelector = reviewPointElement && !reviewPointNodeId ? reviewSourceSelector(reviewPointElement) : "";
         var reviewPointBox = reviewPointElement ? reviewPointElement.getBoundingClientRect() : null;
-        var reviewPointHitSelector = reviewPointElement ? buildSourceEquivalentSelector(reviewPointElement) : "";
+        var reviewPointHitSelector = reviewPointElement ? reviewSourceSelector(reviewPointElement) : "";
         window.parent.postMessage(
           {
             type: "agent-native:review-anchor-at-point-result",
@@ -1435,7 +1444,7 @@ export const hitTestBridgeScript: string = `"use strict";
           return;
         }
         var reviewSelectorElement = null;
-        if (reviewSelector.indexOf("body > ") === 0) {
+        if (isSourcePathSelector(reviewSelector)) {
           reviewSelectorElement = resolveSourceEquivalentSelector(
             document,
             reviewSelector

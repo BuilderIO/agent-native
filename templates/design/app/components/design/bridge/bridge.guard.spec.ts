@@ -14431,7 +14431,7 @@ it(
         tagName: "h1",
       });
       expect(result.selectorAnchor).toMatchObject({
-        targetSelector: "body > div:nth-of-type(1) > span:nth-of-type(1)",
+        targetSelector: "source:body > div:nth-of-type(1) > span:nth-of-type(1)",
         tagName: "span",
       });
       expect(result.selectorAnchor.nodeId).toBeUndefined();

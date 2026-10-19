@@ -28,9 +28,10 @@ import { ReviewCommentComposer } from "@agent-native/toolkit/app/review";
 import { canvasToScreenPoint, screenToCanvasPoint } from "@shared/canvas-math";
 import type { NodeRewriteTarget } from "@shared/node-rewrite";
 import {
-  buildSourceEquivalentSelector,
   isSourceLocationMatch,
+  isSourcePathSelector,
   resolveSourceEquivalentSelector,
+  reviewSourceSelector,
 } from "@shared/source-equivalent-selector";
 import {
   IconChevronDown,
@@ -497,6 +498,16 @@ function stopReviewOverlayEvent(event: { stopPropagation: () => void }) {
 }
 
 /**
+ * The anchor without its selector. A selector seeded at drop time is a structural guess, and
+ * it must not outlive the node id the bridge then finds.
+ */
+function withoutSelector(anchor: DesignReviewAnchor): DesignReviewAnchor {
+  const copy: DesignReviewAnchor = { ...anchor };
+  delete copy.selector;
+  return copy;
+}
+
+/**
  * Preview-frame elements belong to another realm, so instanceof against this window's
  * HTMLElement or SVGElement is false for them. Check the shape instead.
  */
@@ -510,7 +521,7 @@ function isRenderedElement(value: unknown): value is HTMLElement | SVGElement {
 }
 
 /**
- * The element a saved selector names. A source-equivalent path (body > ...) resolves the
+ * The element a saved selector names. A source-equivalent path (source:body > ...) resolves the
  * way the bridge built it; any other selector, such as the [data-loc] attribute selector a
  * reprompt target carries, is a native selector.
  */
@@ -523,7 +534,7 @@ function selectorElement(
   );
   const doc = iframe?.contentDocument;
   if (!doc) return null;
-  if (!selector.startsWith("body > ")) {
+  if (!isSourcePathSelector(selector)) {
     try {
       return doc.querySelector(selector);
       // coercion-ok: a selector the browser cannot parse names no element.
@@ -608,7 +619,7 @@ function elementAnchorAtPoint(
         ?.value ?? undefined;
     const targetSelector = nodeId
       ? undefined
-      : buildSourceEquivalentSelector(anchor) || undefined;
+      : reviewSourceSelector(anchor) || undefined;
     return {
       ...(nodeId ? { nodeId } : {}),
       ...(targetSelector ? { targetSelector } : {}),
@@ -2009,7 +2020,9 @@ export function ReviewCanvasPins({
           return {
             ...current,
             anchor: {
-              ...current.anchor,
+              ...(nodeFoundById
+                ? withoutSelector(current.anchor)
+                : current.anchor),
               ...(nodeId ? { nodeId } : {}),
               ...(anchorSelector ? { selector: anchorSelector } : {}),
               point: current.anchor.point,
@@ -2300,10 +2313,11 @@ export function ReviewCanvasPins({
       const instruction = pin.draft;
       const resolved = resolveReviewAnchor(pin.anchor, () => null);
       const nodeId = resolved?.anchor.nodeId;
+      // The anchor's own selector names the instance when a repeated source location has no node.
       const targetSelector =
         typeof pin.metadata.targetSelector === "string"
           ? pin.metadata.targetSelector
-          : undefined;
+          : (resolved?.anchor.selector ?? undefined);
       if (
         !instruction.trim() ||
         (!nodeId && !targetSelector) ||
@@ -2402,10 +2416,11 @@ export function ReviewCanvasPins({
       const instruction = pin.draft;
       const resolved = resolveReviewAnchor(pin.anchor, () => null);
       const nodeId = resolved?.anchor.nodeId;
+      // The anchor's own selector names the instance when a repeated source location has no node.
       const targetSelector =
         typeof pin.metadata.targetSelector === "string"
           ? pin.metadata.targetSelector
-          : undefined;
+          : (resolved?.anchor.selector ?? undefined);
       if (
         !instruction.trim() ||
         (!nodeId && !targetSelector) ||
