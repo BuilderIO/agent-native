@@ -1498,11 +1498,33 @@ export function ReviewCanvasPins({
     key: string;
     target: ReviewHoverTarget | null;
   } | null>(null);
+  // A saved selector-only anchor has no hover to snapshot, so it highlights from the selector.
+  const popoverAnchorSelector = draftPin
+    ? (draftPin.anchor.selector ?? null)
+    : (() => {
+        const thread = threads.find(
+          (candidate) => candidate.root.threadId === activeThreadId,
+        );
+        return thread
+          ? (resolveReviewAnchor(thread.root.anchor, () => null)?.anchor
+              .selector ?? null)
+          : null;
+      })();
   useEffect(() => {
-    if (popoverKey) {
-      setPopoverHover({ key: popoverKey, target: hoverTargetRef.current });
-    }
-  }, [popoverKey]);
+    if (!popoverKey) return;
+    setPopoverHover((current) =>
+      current?.key === popoverKey
+        ? current
+        : {
+            key: popoverKey,
+            target:
+              hoverTargetRef.current ??
+              (popoverAnchorSelector
+                ? { nodeId: null, selector: popoverAnchorSelector, box: null }
+                : null),
+          },
+    );
+  }, [popoverAnchorSelector, popoverKey]);
   const popoverSnapshot =
     popoverHover?.key === popoverKey ? popoverHover.target : null;
   // A layout change re-measures the snapshot's box from this selector.

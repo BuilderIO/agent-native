@@ -1270,6 +1270,38 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
     return parts.join(" > ");
   }
 
+  // Walks the selector the way buildSourceEquivalentSelector counted it. querySelector
+  // would count the generated and injected siblings that the builder skips.
+  function resolveSourceEquivalentSelector(selector: string): Element | null {
+    var parts = selector.split(" > ");
+    if (parts[0] !== "body") return null;
+    var current: Element | null = document.body;
+    for (var partIndex = 1; partIndex < parts.length; partIndex += 1) {
+      var match = /^([a-z][a-z0-9-]*):nth-of-type\((\d+)\)$/.exec(
+        parts[partIndex],
+      );
+      if (!match || !current) return null;
+      var tag = match[1];
+      var wanted = Number(match[2]);
+      var generated = alpineGeneratedChildrenOf(current);
+      var seen = 0;
+      var found: Element | null = null;
+      for (var i = 0; i < current.children.length; i += 1) {
+        var sib: Element = current.children[i];
+        if (sib.tagName.toLowerCase() !== tag) continue;
+        if (generated.indexOf(sib) !== -1) continue;
+        if (isEditorInjectedElement(sib)) continue;
+        seen += 1;
+        if (seen === wanted) {
+          found = sib;
+          break;
+        }
+      }
+      current = found;
+    }
+    return current;
+  }
+
   function isMultiTrackGrid(container: Element) {
     var styles = window.getComputedStyle(container);
     return (
@@ -1993,8 +2025,9 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
       }
       var reviewSelectorElement: Element | null = null;
       try {
-        reviewSelectorElement = document.querySelector(reviewSelector);
+        reviewSelectorElement = resolveSourceEquivalentSelector(reviewSelector);
       } catch (_err) {}
+      if (reviewSelectorElement === document.body) reviewSelectorElement = null;
       var reviewSelectorBox = reviewSelectorElement
         ? reviewSelectorElement.getBoundingClientRect()
         : null;

@@ -861,6 +861,35 @@ export const hitTestBridgeScript: string = `"use strict";
       parts.unshift("body");
       return parts.join(" > ");
     }
+    function resolveSourceEquivalentSelector(selector) {
+      var parts = selector.split(" > ");
+      if (parts[0] !== "body") return null;
+      var current = document.body;
+      for (var partIndex = 1; partIndex < parts.length; partIndex += 1) {
+        var match = /^([a-z][a-z0-9-]*):nth-of-type\\((\\d+)\\)$/.exec(
+          parts[partIndex]
+        );
+        if (!match || !current) return null;
+        var tag = match[1];
+        var wanted = Number(match[2]);
+        var generated = alpineGeneratedChildrenOf(current);
+        var seen = 0;
+        var found = null;
+        for (var i = 0; i < current.children.length; i += 1) {
+          var sib = current.children[i];
+          if (sib.tagName.toLowerCase() !== tag) continue;
+          if (generated.indexOf(sib) !== -1) continue;
+          if (isEditorInjectedElement(sib)) continue;
+          seen += 1;
+          if (seen === wanted) {
+            found = sib;
+            break;
+          }
+        }
+        current = found;
+      }
+      return current;
+    }
     function isMultiTrackGrid(container) {
       var styles = window.getComputedStyle(container);
       return (styles.display === "grid" || styles.display === "inline-grid") && (styles.gridTemplateColumns || "").split(" ").filter(Boolean).length > 1;
@@ -1392,9 +1421,10 @@ export const hitTestBridgeScript: string = `"use strict";
         }
         var reviewSelectorElement = null;
         try {
-          reviewSelectorElement = document.querySelector(reviewSelector);
+          reviewSelectorElement = resolveSourceEquivalentSelector(reviewSelector);
         } catch (_err) {
         }
+        if (reviewSelectorElement === document.body) reviewSelectorElement = null;
         var reviewSelectorBox = reviewSelectorElement ? reviewSelectorElement.getBoundingClientRect() : null;
         try {
           window.parent.postMessage(
