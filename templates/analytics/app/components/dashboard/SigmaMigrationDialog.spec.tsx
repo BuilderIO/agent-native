@@ -389,7 +389,6 @@ describe("SigmaMigrationDialog", () => {
         name: "Pipeline Review",
         path: "Builder/Sales",
         status: "not_started",
-        retryableByCurrentUser: true,
       },
       {
         id: "workbook-imported",
@@ -402,7 +401,6 @@ describe("SigmaMigrationDialog", () => {
         migratedOwnerEmail: "joe@example.com",
         migratedOwnerName: "Joe Cosby",
         migratedByTeammate: true,
-        retryableByCurrentUser: true,
       },
       {
         id: "workbook-running",
@@ -410,7 +408,38 @@ describe("SigmaMigrationDialog", () => {
         status: "migrating",
         migratingByEmail: "bob@example.com",
         migratingByName: null,
-        retryableByCurrentUser: true,
+      },
+      {
+        id: "workbook-mine-running",
+        name: "Churn",
+        status: "migrating",
+        migratingByEmail: "alice@example.com",
+      },
+      {
+        id: "workbook-mine-stalled",
+        name: "Bookings",
+        status: "migrating",
+        migratingByEmail: "alice@example.com",
+        canRetryStaleClaim: true,
+      },
+      {
+        id: "workbook-teammate-deleted",
+        name: "Renewals",
+        status: "migrated",
+        migratedOwnerEmail: "bob@example.com",
+        migratedByTeammate: true,
+      },
+      {
+        id: "workbook-teammate-failed",
+        name: "Expansion",
+        status: "failed",
+      },
+      {
+        id: "workbook-teammate-stalled",
+        name: "Forecast",
+        status: "migrating",
+        migratingByEmail: "bob@example.com",
+        canRetryStaleClaim: true,
       },
     ];
 
@@ -436,11 +465,7 @@ describe("SigmaMigrationDialog", () => {
     it("lists every workbook without a preview or folder paths", async () => {
       await renderDialog();
 
-      expect(rowIds()).toEqual([
-        "workbook-new",
-        "workbook-imported",
-        "workbook-running",
-      ]);
+      expect(rowIds()).toEqual(workbooks.map((workbook) => workbook.id));
       expect(container.textContent).not.toContain("Builder/");
       expect(clientMocks.requestedActions).not.toContain(
         "inspect-sigma-workbook",
@@ -510,6 +535,52 @@ describe("SigmaMigrationDialog", () => {
       expect(running.querySelector('[role="tooltip"]')?.textContent).toBe(
         "dashboardOverview.sigmaMigratingTooltip(bob@example.com)",
       );
+    });
+
+    it("shows the user's own running import as in progress, not Migrate", async () => {
+      await renderDialog();
+      const mine = row("workbook-mine-running");
+
+      expect(mine.getAttribute("data-state")).toBe("taken");
+      expect(mine.querySelector("button")).toBeNull();
+      expect(mine.querySelector('[role="tooltip"]')?.textContent).toBe(
+        "dashboardOverview.sigmaMigratingTooltip(alice@example.com)",
+      );
+    });
+
+    it("offers Migrate again on the user's own stalled import", async () => {
+      await renderDialog();
+      const stalled = row("workbook-mine-stalled");
+
+      expect(stalled.getAttribute("data-state")).toBeNull();
+      expect(stalled.querySelector("button")?.textContent).toBe(
+        "dashboardOverview.sigmaMigrate",
+      );
+    });
+
+    it("names the owner of a teammate's import whose dashboard is gone, without a link", async () => {
+      await renderDialog();
+      const deleted = row("workbook-teammate-deleted");
+
+      expect(deleted.getAttribute("data-state")).toBe("taken");
+      expect(deleted.querySelector("a")).toBeNull();
+      expect(deleted.querySelector("button")).toBeNull();
+      expect(deleted.textContent).toContain("dashboardOverview.sigmaOwnedBy");
+    });
+
+    it("offers Migrate on a teammate's failed or stalled import", async () => {
+      await renderDialog();
+
+      for (const id of [
+        "workbook-teammate-failed",
+        "workbook-teammate-stalled",
+      ]) {
+        const retryable = row(id);
+        expect(retryable.getAttribute("data-state")).toBeNull();
+        expect(retryable.querySelector("button")?.textContent).toBe(
+          "dashboardOverview.sigmaMigrate",
+        );
+      }
     });
   });
 });

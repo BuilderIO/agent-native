@@ -255,6 +255,25 @@ describe("list-sigma-workbooks", () => {
     expect(result.workbooks[0]).not.toHaveProperty("dashboardId");
   });
 
+  it("marks the caller's own import as in progress, with their name", async () => {
+    mocks.listMigrations.mockResolvedValue([
+      migratedRow({
+        status: "migrating",
+        targetDashboardId: null,
+        migratedByCurrentUser: true,
+        migratedByEmail: "alice@example.com",
+      }),
+    ]);
+
+    const result: any = await listSigmaWorkbooks.run({});
+
+    expect(result.workbooks[0]).toMatchObject({
+      status: "migrating",
+      migratingByEmail: "alice@example.com",
+    });
+    expect(result.workbooks[0]).not.toHaveProperty("canRetryStaleClaim");
+  });
+
   it("names owners and migrators from one profile lookup", async () => {
     mocks.listWorkbooks.mockResolvedValue({
       workbooks: [

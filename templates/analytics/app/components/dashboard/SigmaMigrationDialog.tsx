@@ -74,7 +74,6 @@ type SigmaWorkbook = {
   canRetryStaleClaim?: boolean;
   flaggedCount?: number;
   migratedByTeammate?: boolean;
-  retryableByCurrentUser: boolean;
 };
 
 type SigmaWorkbookListResult = {
@@ -924,8 +923,7 @@ function isWorkbookListResult(
         (workbook.migratingByEmail === undefined ||
           typeof workbook.migratingByEmail === "string") &&
         isOptionalName(workbook.migratedOwnerName) &&
-        isOptionalName(workbook.migratingByName) &&
-        typeof workbook.retryableByCurrentUser === "boolean",
+        isOptionalName(workbook.migratingByName),
     ) &&
     (result.nextPage === undefined ||
       result.nextPage === null ||
@@ -994,16 +992,25 @@ function WorkbookRow({
   workbook: SigmaWorkbook;
   t: ReturnType<typeof useT>;
 }) {
+  // Migrate shows only where the server would let this user start an import:
+  // a new or failed workbook, a stalled import they may take over, or their
+  // own import whose dashboard is gone.
+  const canMigrate =
+    workbook.status === "not_started" ||
+    workbook.status === "failed" ||
+    Boolean(workbook.canRecoverMissingDashboard) ||
+    Boolean(workbook.canRetryStaleClaim);
   const dashboardPath =
-    workbook.status === "migrated" && !workbook.canRecoverMissingDashboard
+    workbook.status === "migrated" && !canMigrate
       ? safeDashboardPath(workbook.dashboardId ?? null)
       : null;
-  const migratingBy =
-    workbook.status === "migrating" && workbook.migratingByEmail
-      ? workbook.migratingByEmail
+  const migrating = workbook.status === "migrating" && !canMigrate;
+  const migratingBy = migrating ? (workbook.migratingByEmail ?? null) : null;
+  const ownerEmail =
+    workbook.status === "migrated" && !canMigrate
+      ? (workbook.migratedOwnerEmail ?? null)
       : null;
-  const ownerEmail = dashboardPath ? workbook.migratedOwnerEmail : null;
-  const muted = Boolean(dashboardPath || migratingBy);
+  const muted = !canMigrate;
   return (
     <TableRow
       data-workbook-id={workbook.id}
@@ -1054,18 +1061,20 @@ function WorkbookRow({
               label={ownerLabel(ownerEmail, workbook.migratedOwnerName)}
             />
           </span>
-        ) : migratingBy ? (
+        ) : migrating ? (
           <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
             <IconLoader2 aria-hidden="true" className="size-4 animate-spin" />
-            <OwnerAvatar
-              email={migratingBy}
-              name={workbook.migratingByName ?? null}
-              label={t("dashboardOverview.sigmaMigratingTooltip", {
-                name: ownerLabel(migratingBy, workbook.migratingByName),
-              })}
-            />
+            {migratingBy ? (
+              <OwnerAvatar
+                email={migratingBy}
+                name={workbook.migratingByName ?? null}
+                label={t("dashboardOverview.sigmaMigratingTooltip", {
+                  name: ownerLabel(migratingBy, workbook.migratingByName),
+                })}
+              />
+            ) : null}
           </span>
-        ) : (
+        ) : canMigrate ? (
           <Tooltip>
             <TooltipTrigger asChild>
               {/* A disabled button gets no pointer events, so the span carries the hover. */}
@@ -1079,7 +1088,7 @@ function WorkbookRow({
               {t("dashboardOverview.sigmaMigrateComingSoon")}
             </TooltipContent>
           </Tooltip>
-        )}
+        ) : null}
       </TableCell>
     </TableRow>
   );

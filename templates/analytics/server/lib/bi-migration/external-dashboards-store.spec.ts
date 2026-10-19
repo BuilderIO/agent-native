@@ -205,111 +205,7 @@ describe("external dashboard migration store", () => {
     ).resolves.toEqual({ claimed: false, reason: "already_migrated" });
   });
 
-  it("links a hand-migrated dashboard once and refuses a second target", async () => {
-    const linked = await store.linkExternalDashboard({
-      provider: "sigma",
-      sourceId: "workbook_link",
-      sourceName: "ARR Changes",
-      targetDashboardId: "arr-changes",
-    });
-    expect(linked).toMatchObject({
-      status: "migrated",
-      sourceName: "ARR Changes",
-      targetDashboardId: "arr-changes",
-      migratedByCurrentUser: true,
-      migratedByEmail: "alice@example.com",
-    });
-    expect(linked.migratedAt).toEqual(expect.any(String));
-
-    // Linking the same pair again is a no-op success.
-    await expect(
-      store.linkExternalDashboard({
-        provider: "sigma",
-        sourceId: "workbook_link",
-        targetDashboardId: "arr-changes",
-      }),
-    ).resolves.toMatchObject({ targetDashboardId: "arr-changes" });
-
-    await expect(
-      store.linkExternalDashboard({
-        provider: "sigma",
-        sourceId: "workbook_link",
-        targetDashboardId: "another-dashboard",
-      }),
-    ).rejects.toMatchObject({
-      errorCode: "external_dashboard_already_linked",
-      statusCode: 409,
-    });
-
-    state.userEmail = "bob@example.com";
-    await expect(
-      store.linkExternalDashboard({
-        provider: "sigma",
-        sourceId: "workbook_link",
-        targetDashboardId: "arr-changes",
-      }),
-    ).rejects.toMatchObject({ statusCode: 409 });
-    await expect(
-      store.claimExternalDashboard({
-        provider: "sigma",
-        sourceId: "workbook_link",
-      }),
-    ).resolves.toEqual({ claimed: false, reason: "already_migrated" });
-  });
-
-  it("does not link over an import that is still running", async () => {
-    await store.createExternalDashboard({
-      provider: "sigma",
-      sourceId: "workbook_running",
-    });
-    const claim = await store.claimExternalDashboard({
-      provider: "sigma",
-      sourceId: "workbook_running",
-    });
-    expect(claim.claimed).toBe(true);
-
-    await expect(
-      store.linkExternalDashboard({
-        provider: "sigma",
-        sourceId: "workbook_running",
-        targetDashboardId: "hand-built",
-      }),
-    ).rejects.toMatchObject({ statusCode: 409 });
-  });
-
-  it("links a source whose earlier import failed", async () => {
-    await store.createExternalDashboard({
-      provider: "sigma",
-      sourceId: "workbook_failed",
-    });
-    const claim = await store.claimExternalDashboard({
-      provider: "sigma",
-      sourceId: "workbook_failed",
-    });
-    if (!claim.claimed) throw new Error("expected migration claim");
-    await store.failExternalDashboard({
-      provider: "sigma",
-      sourceId: "workbook_failed",
-      claimToken: claim.claimToken,
-      failureCode: "unsupported_content",
-    });
-
-    state.userEmail = "bob@example.com";
-    await expect(
-      store.linkExternalDashboard({
-        provider: "sigma",
-        sourceId: "workbook_failed",
-        targetDashboardId: "hand-built",
-      }),
-    ).resolves.toMatchObject({
-      status: "migrated",
-      failureCode: null,
-      migratedByEmail: "bob@example.com",
-      targetDashboardId: "hand-built",
-    });
-  });
-
-  it("retries failures and restricts retries and remigration to the original migrator", async () => {
+  it("lets a teammate retry a failed import, but only the migrator re-imports", async () => {
     await store.createExternalDashboard({
       provider: "sigma",
       sourceId: "workbook_2",
@@ -335,39 +231,36 @@ describe("external dashboard migration store", () => {
     });
 
     state.userEmail = "bob@example.com";
-    await expect(
-      store.claimExternalDashboard({
-        provider: "sigma",
-        sourceId: "workbook_2",
-      }),
-    ).rejects.toMatchObject({ statusCode: 403 });
-
-    state.userEmail = "alice@example.com";
     const retry = await store.claimExternalDashboard({
       provider: "sigma",
       sourceId: "workbook_2",
     });
     expect(retry.claimed).toBe(true);
     if (!retry.claimed) throw new Error("expected retry claim");
-    await store.completeExternalDashboard({
-      provider: "sigma",
-      sourceId: "workbook_2",
-      claimToken: retry.claimToken,
-      targetDashboardId: "native-dashboard-2",
-      elementDiagnostics: [],
-      flaggedCount: 0,
-    });
+    await expect(
+      store.completeExternalDashboard({
+        provider: "sigma",
+        sourceId: "workbook_2",
+        claimToken: retry.claimToken,
+        targetDashboardId: "native-dashboard-2",
+        elementDiagnostics: [],
+        flaggedCount: 0,
+      }),
+    ).resolves.toMatchObject({ migratedByEmail: "bob@example.com" });
 
-    state.userEmail = "bob@example.com";
+    state.userEmail = "alice@example.com";
     await expect(
       store.claimExternalDashboard({
         provider: "sigma",
         sourceId: "workbook_2",
         remigrate: true,
       }),
-    ).rejects.toMatchObject({ statusCode: 403 });
+    ).rejects.toMatchObject({
+      errorCode: "original_migrator_required",
+      statusCode: 403,
+    });
 
-    state.userEmail = "alice@example.com";
+    state.userEmail = "bob@example.com";
     expect(
       await store.claimExternalDashboard({
         provider: "sigma",
@@ -458,14 +351,14 @@ describe("external dashboard migration store", () => {
       }),
     ).resolves.toMatchObject([{ canRetryStaleClaim: true }]);
 
+    // A teammate may take over a stuck first import.
     state.userEmail = "bob@example.com";
     await expect(
       store.listExternalDashboards({
         provider: "sigma",
         sourceIds: ["workbook_3"],
       }),
-    ).resolves.toMatchObject([{ canRetryStaleClaim: false }]);
-    state.userEmail = "alice@example.com";
+    ).resolves.toMatchObject([{ canRetryStaleClaim: true }]);
 
     const recovered = await store.claimExternalDashboard({
       provider: "sigma",
@@ -475,6 +368,7 @@ describe("external dashboard migration store", () => {
     if (!recovered.claimed) throw new Error("expected stale claim recovery");
     expect(recovered.claimToken).not.toBe(first.claimToken);
 
+    state.userEmail = "alice@example.com";
     await expect(
       store.completeExternalDashboard({
         provider: "sigma",
@@ -486,6 +380,7 @@ describe("external dashboard migration store", () => {
       }),
     ).rejects.toMatchObject({ statusCode: 409 });
 
+    state.userEmail = "bob@example.com";
     await expect(
       store.completeExternalDashboard({
         provider: "sigma",
@@ -496,6 +391,64 @@ describe("external dashboard migration store", () => {
         flaggedCount: 0,
       }),
     ).resolves.toMatchObject({ status: "migrated" });
+  });
+
+  it("keeps a stuck re-import with its migrator", async () => {
+    await store.createExternalDashboard({
+      provider: "sigma",
+      sourceId: "workbook_4",
+    });
+    const first = await store.claimExternalDashboard({
+      provider: "sigma",
+      sourceId: "workbook_4",
+    });
+    if (!first.claimed) throw new Error("expected migration claim");
+    await store.completeExternalDashboard({
+      provider: "sigma",
+      sourceId: "workbook_4",
+      claimToken: first.claimToken,
+      targetDashboardId: "native-dashboard-4",
+      elementDiagnostics: [],
+      flaggedCount: 0,
+    });
+    const reimport = await store.claimExternalDashboard({
+      provider: "sigma",
+      sourceId: "workbook_4",
+      remigrate: true,
+    });
+    expect(reimport.claimed).toBe(true);
+    const staleAt = new Date(
+      Date.now() - store.EXTERNAL_DASHBOARD_CLAIM_STALE_AFTER_MS - 1000,
+    ).toISOString();
+    await client.query(
+      `UPDATE bi_migration_external_dashboards
+       SET migration_claimed_at = $1
+       WHERE org_id = $2 AND provider = $3 AND source_id = $4`,
+      [staleAt, "org-1", "sigma", "workbook_4"],
+    );
+
+    state.userEmail = "bob@example.com";
+    await expect(
+      store.listExternalDashboards({
+        provider: "sigma",
+        sourceIds: ["workbook_4"],
+      }),
+    ).resolves.toMatchObject([{ canRetryStaleClaim: false }]);
+    await expect(
+      store.claimExternalDashboard({
+        provider: "sigma",
+        sourceId: "workbook_4",
+      }),
+    ).resolves.toEqual({ claimed: false, reason: "in_progress" });
+
+    state.userEmail = "alice@example.com";
+    await expect(
+      store.claimExternalDashboard({
+        provider: "sigma",
+        sourceId: "workbook_4",
+        remigrate: true,
+      }),
+    ).resolves.toMatchObject({ claimed: true });
   });
 
   it("requires an authenticated user and active organization", async () => {

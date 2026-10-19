@@ -477,11 +477,9 @@ the caller's Sigma connection returns, so status follows Sigma access. For a
 migrated workbook it returns the dashboard id, link, and owner email and
 display name to every org member, and the title and `canOpen: true` only when the caller can open
 the dashboard. Point users at that dashboard, or its owner for access, instead
-of importing again. When a user built a dashboard from a Sigma workbook by
-hand, link the two with `link-sigma-dashboard` (`workbookId`, `dashboardId`).
-It needs the caller to own the SQL dashboard and to be able to open the
-workbook in Sigma, refuses a workbook that is already migrated or being
-migrated, stamps `config.origin`, and never changes panels or sharing.
+of importing again. Anyone whose Sigma login can open a workbook may retry its
+failed import or take over an import stuck for ten minutes; only the person who
+migrated a workbook may re-import it.
 
 If Sigma adds verifiable source mapping in the future, the planned import will
 create a private snapshot in the user's personal `Sigma` folder. Other source

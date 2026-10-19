@@ -263,7 +263,7 @@ function toSummary(
     : Number.NaN;
   const canRetryStaleClaim =
     row.status === "migrating" &&
-    migratedByCurrentUser &&
+    (migratedByCurrentUser || row.migratedAt === null) &&
     Number.isFinite(migrationClaimedAt) &&
     migrationClaimedAt <= Date.now() - EXTERNAL_DASHBOARD_CLAIM_STALE_AFTER_MS;
   return SummarySchema.parse({
@@ -406,10 +406,13 @@ export async function claimExternalDashboard(input: {
     eq(table.status, "not_started"),
     eq(table.status, "failed"),
   );
+  // Anyone who can open the workbook may retry a failed import or take over a
+  // stuck first import. A stuck re-import keeps the earlier dashboard, so only
+  // its migrator may take that over.
   const canRecoverStaleClaim = and(
     eq(table.status, "migrating"),
     lt(table.migrationClaimedAt, staleBefore),
-    sameMigrator,
+    or(sameMigrator, isNull(table.migratedAt)),
   );
   const canRemigrate = parsed.remigrate
     ? and(eq(table.status, "migrated"), sameMigrator)
@@ -431,7 +434,6 @@ export async function claimExternalDashboard(input: {
         eq(table.orgId, orgId),
         eq(table.provider, parsed.provider),
         eq(table.sourceId, parsed.sourceId),
-        or(isNull(table.originalMigratorEmail), sameMigrator),
         or(canStart, canRecoverStaleClaim, canRemigrate),
       ),
     )
@@ -454,19 +456,16 @@ export async function claimExternalDashboard(input: {
     .limit(1);
   if (!existing) return { claimed: false, reason: "not_found" };
 
-  if (existing.status === "migrated" && !parsed.remigrate) {
-    return { claimed: false, reason: "already_migrated" };
-  }
-  if (
-    existing.originalMigratorEmail &&
-    existing.originalMigratorEmail.toLowerCase() !== userEmail
-  ) {
-    fail("Only the original migrator may retry or remigrate this source.", {
-      errorCode: "original_migrator_required",
-      statusCode: 403,
-    });
-  }
   if (existing.status === "migrated") {
+    if (
+      parsed.remigrate &&
+      existing.originalMigratorEmail?.trim().toLowerCase() !== userEmail
+    ) {
+      fail("Only the person who migrated this workbook can re-import it.", {
+        errorCode: "original_migrator_required",
+        statusCode: 403,
+      });
+    }
     return { claimed: false, reason: "already_migrated" };
   }
   return { claimed: false, reason: "in_progress" };
@@ -581,74 +580,4 @@ export async function failExternalDashboard(input: {
     migratedAt: null,
     preservePreviousMigration: parsed.preservePreviousMigration,
   });
-}
-
-const LinkSchema = z
-  .object({
-    provider: ProviderSchema,
-    sourceId: SourceIdSchema,
-    sourceName: z.string().trim().max(200).optional(),
-    targetDashboardId: z.string().trim().min(1).max(200),
-  })
-  .strict();
-
-/**
- * Record a source that was migrated by hand as migrated to an existing
- * dashboard. One conditional update decides the race: it only lands on a row
- * nobody has migrated yet, or on the caller's own link to the same dashboard.
- */
-export async function linkExternalDashboard(input: {
-  provider: "sigma";
-  sourceId: string;
-  sourceName?: string;
-  targetDashboardId: string;
-}): Promise<ExternalDashboardSummary> {
-  const parsed = LinkSchema.parse(input);
-  await createExternalDashboard({
-    provider: parsed.provider,
-    sourceId: parsed.sourceId,
-    ...(parsed.sourceName ? { sourceName: parsed.sourceName } : {}),
-  });
-  const { orgId, userEmail } = requireExternalDashboardContext();
-  const now = new Date().toISOString();
-  const table = schema.externalDashboardMigrations;
-  const [row] = await getDb()
-    .update(table)
-    .set({
-      status: "migrated",
-      targetDashboardId: parsed.targetDashboardId,
-      originalMigratorEmail: userEmail,
-      migrationClaimedAt: null,
-      migrationClaimToken: null,
-      failureCode: null,
-      providerStatus: null,
-      elementDiagnostics: "[]",
-      flaggedCount: 0,
-      migratedAt: now,
-      updatedAt: now,
-    })
-    .where(
-      and(
-        eq(table.orgId, orgId),
-        eq(table.provider, parsed.provider),
-        eq(table.sourceId, parsed.sourceId),
-        or(
-          eq(table.status, "not_started"),
-          eq(table.status, "failed"),
-          and(
-            eq(table.status, "migrated"),
-            eq(table.targetDashboardId, parsed.targetDashboardId),
-            eq(table.originalMigratorEmail, userEmail),
-          ),
-        ),
-      ),
-    )
-    .returning();
-  if (!row) {
-    fail("This source is already migrated or being migrated.", {
-      errorCode: "external_dashboard_already_linked",
-      statusCode: 409,
-    });
-  }
-  return toSummary(row, userEmail);
 }

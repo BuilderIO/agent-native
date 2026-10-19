@@ -190,8 +190,6 @@ export interface SqlDashboardConfig {
     version?: string;
     installedAt?: string;
   };
-  /** The BI-tool source this dashboard was migrated or linked from. */
-  origin?: DashboardOrigin;
   filters?: DashboardFilter[];
   variables?: Record<string, string>;
   columns?: number;
@@ -199,14 +197,6 @@ export interface SqlDashboardConfig {
   annotations?: DashboardAnnotations;
   /** Panels the repair already delivered; a removed one stays removed only while this survives whole-config saves. */
   introducedPanels?: string[];
-}
-
-export interface DashboardOrigin {
-  provider: "sigma";
-  /** The source workbook id, matching `bi_migration_external_dashboards.source_id`. */
-  sourceId: string;
-  sourceName?: string;
-  linkedAt: string;
 }
 
 /** Dashboard-level settings for key dates and data notes; per-panel `events` stay in panel config. */

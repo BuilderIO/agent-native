@@ -134,8 +134,7 @@ export default defineAction({
           : undefined;
         return owner?.ownerEmail.toLowerCase() ?? migration.migratedByEmail;
       }
-      return migration?.status === "migrating" &&
-        !migration.migratedByCurrentUser
+      return migration?.status === "migrating"
         ? migration.migratedByEmail
         : null;
     };
@@ -227,8 +226,6 @@ export default defineAction({
         ...(migration?.flaggedCount
           ? { flaggedCount: migration.flaggedCount }
           : {}),
-        retryableByCurrentUser:
-          status !== "failed" || migration?.migratedByCurrentUser === true,
         ...(migration?.status === "migrated" && !migration.migratedByCurrentUser
           ? { migratedByTeammate: true }
           : {}),
