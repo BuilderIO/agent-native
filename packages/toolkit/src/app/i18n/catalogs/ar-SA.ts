@@ -177,7 +177,6 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.creditsActivate": "تفعيل الأرصدة المجانية",
   "onboarding.creditsFinePrint":
     "سيؤدي هذا إلى إنشاء حساب Builder.io مجاني. بالمتابعة، فأنت توافق على",
-  "onboarding.creditsConnectExisting": "الاتصال بحساب Builder.io موجود",
   "onboarding.creditsMoreInfo": "المزيد من المعلومات",
   "onboarding.creditsSubtitle":
     "احصل على أرصدة مجانية لنماذج LLM وJev والتخزين والمزيد لهذا التطبيق بنقرة واحدة من Builder.io.",

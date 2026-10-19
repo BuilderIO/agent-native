@@ -180,7 +180,6 @@ const messages = {
   "onboarding.creditsActivate": "Activate free credits",
   "onboarding.creditsFinePrint":
     "This will create a free Builder.io account. By continuing, you agree to our",
-  "onboarding.creditsConnectExisting": "Connect an existing Builder.io account",
   "onboarding.creditsMoreInfo": "More info",
   "onboarding.creditsSubtitle":
     "Get free credits for LLMs, Jev, storage, and more for this app in one click from Builder.io.",

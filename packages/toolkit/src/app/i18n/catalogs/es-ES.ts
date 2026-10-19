@@ -186,8 +186,6 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.creditsActivate": "Activar créditos gratuitos",
   "onboarding.creditsFinePrint":
     "Esto creará una cuenta de Builder.io gratuita. Al continuar, aceptas nuestros",
-  "onboarding.creditsConnectExisting":
-    "Conectar una cuenta de Builder.io existente",
   "onboarding.creditsMoreInfo": "Más información",
   "onboarding.creditsSubtitle":
     "Obtén créditos gratuitos para LLMs, Jev, almacenamiento y más para esta app con un solo clic de Builder.io.",

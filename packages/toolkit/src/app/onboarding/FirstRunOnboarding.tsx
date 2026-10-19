@@ -219,6 +219,20 @@ export function FirstRunOnboarding({
   const canTrackOnboardingScreen =
     (!loading && profile !== null) || canRenderRoleWithoutProfile;
   const setupSkippable = profile?.appId === "clips";
+  const [setupExperimentDecision, setSetupExperimentDecision] = useState<
+    boolean | null
+  >(null);
+  const setupVariant = useMemo(
+    () =>
+      (previewMode && getPreviewFirstRunSetupVariant(window.location.search)) ||
+      assignFirstRunSetupVariant(),
+    [previewMode],
+  );
+  // The credits arm offers Skip in every app, so analytics must mark the choice step optional there too.
+  const choiceSkippable =
+    setupSkippable ||
+    (setupVariant === "credits" &&
+      (previewMode || setupExperimentDecision === true));
   const [extensionPlacement, setExtensionPlacement] =
     useState<FirstRunExtensionPlacement>("after-setup");
   const [extensionIndex, setExtensionIndex] = useState(0);
@@ -267,7 +281,7 @@ export function FirstRunOnboarding({
       extensionPlacement,
       extensionIndex,
       extensionStepIndex,
-      setupSkippable,
+      choiceSkippable,
     ).step_index ?? 0,
   );
   const progressWidth = `${Math.min(
@@ -278,15 +292,6 @@ export function FirstRunOnboarding({
   const [moreInfoOpen, setMoreInfoOpen] = useState(false);
   const [skipConfirmOpen, setSkipConfirmOpen] = useState(false);
   const skipGoBackRef = useRef<HTMLButtonElement>(null);
-  const [setupExperimentDecision, setSetupExperimentDecision] = useState<
-    boolean | null
-  >(null);
-  const setupVariant = useMemo(
-    () =>
-      (previewMode && getPreviewFirstRunSetupVariant(window.location.search)) ||
-      assignFirstRunSetupVariant(),
-    [previewMode],
-  );
   useEffect(() => {
     if (!previewMode || !previewStep) return;
     setScreen(previewStep === "references" ? "extension" : previewStep);
@@ -307,7 +312,7 @@ export function FirstRunOnboarding({
           extensionPlacement,
           stepExtensionIndex,
           stepIndex,
-          setupSkippable,
+          choiceSkippable,
         ),
       );
     },
@@ -318,7 +323,7 @@ export function FirstRunOnboarding({
       extensionPlacement,
       extensionStepIndex,
       previewMode,
-      setupSkippable,
+      choiceSkippable,
     ],
   );
   const trackFirstRunStepSkipped = useCallback(
@@ -337,7 +342,7 @@ export function FirstRunOnboarding({
           extensionPlacement,
           stepExtensionIndex,
           stepIndex,
-          setupSkippable,
+          choiceSkippable,
         ),
         reason,
       });
@@ -349,7 +354,7 @@ export function FirstRunOnboarding({
       extensionPlacement,
       extensionStepIndex,
       previewMode,
-      setupSkippable,
+      choiceSkippable,
     ],
   );
   const completionAttemptRef = useRef<{
@@ -444,7 +449,7 @@ export function FirstRunOnboarding({
       extensionPlacement,
       extensionIndex,
       extensionStepIndex,
-      setupSkippable,
+      choiceSkippable,
     );
     const key = [step.step_id, step.extension_id, step.step_index].join(":");
     if (stepViewRef.current?.key !== key) {
@@ -487,7 +492,7 @@ export function FirstRunOnboarding({
           extensionPlacement,
           extensionIndex,
           extensionStepIndex,
-          setupSkippable,
+          choiceSkippable,
         ),
         reason: "page_exit",
       });
@@ -504,7 +509,7 @@ export function FirstRunOnboarding({
     previewMode,
     canTrackOnboardingScreen,
     screen,
-    setupSkippable,
+    choiceSkippable,
   ]);
   const beginBeforeSetup = useCallback(() => {
     if (beforeSetupExtensions.length === 0) {
@@ -1139,17 +1144,26 @@ export function FirstRunOnboarding({
                 <PopoverContent
                   side="top"
                   align="end"
-                  className="w-96 space-y-3 p-4 text-left"
+                  portalled={false}
+                  aria-labelledby="first-run-credits-skip-title"
+                  aria-describedby="first-run-credits-skip-body"
+                  className="w-96 max-w-[calc(100vw-2rem)] space-y-3 p-4 text-left"
                   onOpenAutoFocus={(event) => {
                     event.preventDefault();
                     skipGoBackRef.current?.focus();
                   }}
                 >
                   <div className="space-y-1">
-                    <p className="text-sm font-semibold text-foreground">
+                    <p
+                      id="first-run-credits-skip-title"
+                      className="text-sm font-semibold text-foreground"
+                    >
                       {t("agentChat.onboarding.creditsSkipConfirmTitle")}
                     </p>
-                    <p className="text-xs leading-5 text-muted-foreground">
+                    <p
+                      id="first-run-credits-skip-body"
+                      className="text-xs leading-5 text-muted-foreground"
+                    >
                       {t("agentChat.onboarding.creditsSkipConfirmBody")}
                     </p>
                   </div>

@@ -171,7 +171,6 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.creditsActivate": "激活免费额度",
   "onboarding.creditsFinePrint":
     "这将创建一个免费的 Builder.io 账户。继续表示您同意我们的",
-  "onboarding.creditsConnectExisting": "连接现有 Builder.io 账户",
   "onboarding.creditsMoreInfo": "更多信息",
   "onboarding.creditsSubtitle":
     "从 Builder.io 一键获取适用于此应用的 LLM、Jev、存储等免费额度。",
