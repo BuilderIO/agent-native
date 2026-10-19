@@ -583,6 +583,37 @@ export function renderCurrentDateLiterals(
   return rendered + sql.slice(cursor);
 }
 
+function getQuerySnapshot(
+  sql: string,
+  now: Date,
+  preserveCurrentDate: boolean,
+) {
+  const query = preserveCurrentDate ? sql : renderCurrentDateLiterals(sql, now);
+  const tokens = lexAgentSql(query, { dialect: "bigquery" });
+  let hasBareCurrentDate = false;
+  let hasUnresolvedCall = false;
+  for (let index = 0; index < tokens.length; index++) {
+    const token = tokens[index];
+    if (
+      token.kind !== "word" ||
+      token.value !== "current_date" ||
+      tokens[index - 1]?.text === "."
+    ) {
+      continue;
+    }
+    if (tokens[index + 1]?.text === "(") hasUnresolvedCall = true;
+    else hasBareCurrentDate = true;
+  }
+  return {
+    query,
+    // Bare CURRENT_DATE and identifiers share a token; keep their SQL intact.
+    cacheIdentity: hasBareCurrentDate
+      ? `${query}\n/* agent-native-utc-date:${now.toISOString().slice(0, 10)} */`
+      : query,
+    hasUnresolvedCall,
+  };
+}
+
 function getL1(
   key: string,
   generation: number,
@@ -1277,14 +1308,18 @@ async function runQueryAttempt(
     appEventsTable,
     signal,
   );
-  const cacheableSql = preserveCurrentDate
-    ? resolvedSql
-    : renderCurrentDateLiterals(resolvedSql);
+  const snapshot = getQuerySnapshot(
+    resolvedSql,
+    new Date(),
+    preserveCurrentDate,
+  );
+  const cacheableSql = snapshot.query;
   const assertDateUnchanged = () => {
     throwIfAborted(signal);
     if (
       !preserveCurrentDate &&
-      renderCurrentDateLiterals(resolvedSql) !== cacheableSql
+      getQuerySnapshot(resolvedSql, new Date(), false).cacheIdentity !==
+        snapshot.cacheIdentity
     ) {
       throw new BigQueryDateRolloverError();
     }
@@ -1293,27 +1328,18 @@ async function runQueryAttempt(
     assertDateUnchanged();
     return { ...result, cached: true };
   };
-  const hasUnresolvedCurrentDate = lexAgentSql(cacheableSql, {
-    dialect: "bigquery",
-  }).some(
-    (token, index, tokens) =>
-      token.kind === "word" &&
-      token.value === "current_date" &&
-      tokens[index - 1]?.text !== ".",
-  );
-
   const cacheKey = getCacheKey(
     options.sourceGeneration
-      ? `${cacheableSql}
+      ? `${snapshot.cacheIdentity}
 ${sourceGenerationCacheKey(options.sourceGeneration)}`
-      : cacheableSql,
+      : snapshot.cacheIdentity,
     projectId,
     cacheScope,
   );
   const forceRefresh = options.forceRefresh === true;
   let cacheFence: CacheFence | null = null;
   // Unresolved zones can change date at a boundary the app cannot compute.
-  if (!hasUnresolvedCurrentDate) {
+  if (!preserveCurrentDate && !snapshot.hasUnresolvedCall) {
     try {
       if (forceRefresh) {
         const acquired = await acquireForcedRefresh(
