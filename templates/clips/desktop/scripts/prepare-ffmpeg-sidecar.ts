@@ -73,9 +73,10 @@ const CONFIGURE_ARGS = [
   // Containers we read (native mp4/mov, plus webm from browser recordings)
   // and write.
   "--enable-demuxer=mov,matroska,wav,mp3,aac,ogg",
-  "--enable-muxer=mp4,mov,null,wav",
+  // The configure component is pcm_f32le; the runtime muxer is named f32le.
+  "--enable-muxer=mp4,mov,null,wav,pcm_f32le",
   "--enable-decoder=h264,hevc,aac,aac_at,pcm_s16le,pcm_s16be,pcm_f32le,mp3,opus,vorbis,vp8,vp9",
-  "--enable-encoder=aac,aac_at,h264_videotoolbox,hevc_videotoolbox,pcm_s16le",
+  "--enable-encoder=aac,aac_at,h264_videotoolbox,hevc_videotoolbox,pcm_s16le,pcm_f32le",
   "--enable-parser=h264,hevc,aac,opus,vp8,vp9,mpegaudio",
   // The audio pass, plus the video filters the compression path uses.
   "--enable-filter=aformat,anull,aresample,volume,volumedetect,loudnorm,afftdn,pan,aselect,atrim,format,scale,fps,null,copy,trim,amix,apad",
@@ -99,8 +100,8 @@ const REQUIRED_FILTERS = [
   "amix",
   "apad",
 ];
-const REQUIRED_ENCODERS = ["aac", "h264_videotoolbox"];
-const REQUIRED_MUXERS = ["mp4"];
+const REQUIRED_ENCODERS = ["aac", "h264_videotoolbox", "pcm_f32le"];
+const REQUIRED_MUXERS = ["mp4", "f32le"];
 
 function log(message) {
   console.log(`[ffmpeg-sidecar] ${message}`);
