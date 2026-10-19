@@ -168,6 +168,8 @@ Cuando se omite `needsApproval`, el comportamiento no cambia ni un solo byte. No
 
 Esto funciona igual para las acciones heredadas de estilo `parameters` y para las acciones basadas en esquema. También funciona igual para el agente dentro de la app, los subagentes, A2A y los invocadores de MCP, porque todas las superficies del agente pasan por el mismo bucle.
 
+Las llamadas hechas a través de la [API HTTP](/docs/http-api) con un bearer token o una clave de API omiten la tarjeta de aprobación: la ruta ejecuta la acción directamente, igual que para la propia interfaz de la app. Para que las llamadas de un agente requieran aprobación, conéctalo por [MCP](/docs/external-agents) en lugar de llamar a las rutas HTTP.
+
 ### Cómo se pausa el bucle {#loop}
 
 Cuando el agente llama a una acción con guarda y esta llamada específica **no** ha sido aprobada todavía, el bucle **no** ejecuta `run()`. En su lugar:
