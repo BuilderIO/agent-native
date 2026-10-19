@@ -1196,8 +1196,11 @@ describe("GitHub folder freshness", () => {
     await as(() =>
       linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
     );
-    // A push that touches every file but leaves each page as it was.
+    // A push that touches every file but leaves each page as it was, and
+    // adds one that's skipped. A skipped file has no row, so every run reads
+    // it again.
     github.commit({
+      "docs/0.md": "BINARY",
       "docs/1.md": "# One\n\n",
       "docs/2.md": "# Two\n\n",
       "docs/3.md": "# Three\n\n",
@@ -1211,20 +1214,20 @@ describe("GitHub folder freshness", () => {
       return JSON.parse(source!.metadataJson).github?.progress;
     };
     github.state.blobReads = 0;
-    github.state.hangAfterBlobReads = 1;
+    github.state.hangAfterBlobReads = 2;
     const first = await as(() =>
       syncGitHubSource({ sourceId: id, budgetMs: 1_500 }),
     );
     expect(first).toMatchObject({ state: "partial", updated: 0, unchanged: 1 });
-    expect(await progress()).toEqual({ done: 1, total: 3 });
+    expect(await progress()).toEqual({ done: 2, total: 4 });
 
-    // The next run does one more file. No row changes, but the status line
-    // moves on, so readers hear about it.
+    // The next run reads the skipped file again and gets one file further. No
+    // row changes, but the status line moves on, so readers hear about it.
     github.state.blobReads = 0;
     changes.length = 0;
     await checkedAgo(database.id, 2 * 60_000);
     await as(() => getDatabase.run({ databaseId: database.id }));
-    expect(await progress()).toEqual({ done: 2, total: 3 });
+    expect(await progress()).toEqual({ done: 3, total: 4 });
     expect(changes).toEqual([
       expect.objectContaining({
         key: "sync-github-folder",

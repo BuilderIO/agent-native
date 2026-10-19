@@ -1857,12 +1857,20 @@ export async function syncGitHubSource(
     );
     await release(
       (current) => {
-        // Files an earlier run finished for this commit are no longer in
-        // `work`, so the count carries them on rather than restarting at zero.
-        const carried =
-          current.pendingCommitSha === head.sha
-            ? (current.progress?.done ?? 0)
-            : 0;
+        // A commit's files don't change, so a run that carries on a push keeps
+        // the total the push started with and counts what's left. Its own
+        // list is shorter, and still holds skipped files, which have no row
+        // and are read again every run. The count never goes back.
+        const before =
+          current.pendingCommitSha === head.sha ? current.progress : null;
+        const total = before?.total ?? work.length + result.trashed + gone.size;
+        const progress = {
+          done: Math.min(
+            total,
+            Math.max(before?.done ?? 0, total - result.remaining),
+          ),
+          total,
+        };
         return {
           ...current,
           checkedAt: now,
@@ -1880,10 +1888,7 @@ export async function syncGitHubSource(
               }
             : {
                 pendingCommitSha: head.sha,
-                progress: {
-                  done: carried + done + result.trashed,
-                  total: carried + work.length + result.trashed + gone.size,
-                },
+                progress,
               }),
         };
       },
