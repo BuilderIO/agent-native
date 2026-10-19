@@ -4090,6 +4090,120 @@ describe("autoLayout", () => {
     );
   });
 
+  it("restores generated alignment when flex display comes from a class", () => {
+    const flex = applyVisualEdit(
+      `<div data-agent-native-node-id="box" class="flex"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+        containerStyles: { display: "flex" },
+      },
+    );
+    const withoutInlineDisplay = applyVisualEdit(flex.content, {
+      kind: "style",
+      operation: "remove",
+      target: { nodeId: "box" },
+      property: "display",
+    });
+    const aligned = applyVisualEdit(withoutInlineDisplay.content, {
+      kind: "style",
+      target: { nodeId: "box" },
+      property: "place-items",
+      value: "center",
+    });
+    const removed = applyVisualEdit(aligned.content, {
+      kind: "style",
+      operation: "remove",
+      target: { nodeId: "box" },
+      property: "place-items",
+    });
+
+    expect(withoutInlineDisplay.content.match(/<div[^>]*>/)?.[0]).not.toMatch(
+      /\bdisplay\s*:/,
+    );
+    expect(removed.content).toMatch(/align-items:\s*flex-start/);
+    expect(removed.content).toContain(
+      "data-agent-native-generated-flex-align-items",
+    );
+  });
+
+  it("restores generated alignment when flex display comes from a stylesheet", () => {
+    const flex = applyVisualEdit(
+      `<style>.stack { display: flex; }</style><div data-agent-native-node-id="box" class="stack"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+        containerStyles: { display: "flex" },
+      },
+    );
+    const withoutInlineDisplay = applyVisualEdit(flex.content, {
+      kind: "style",
+      operation: "remove",
+      target: { nodeId: "box" },
+      property: "display",
+    });
+    const aligned = applyVisualEdit(withoutInlineDisplay.content, {
+      kind: "style",
+      target: { nodeId: "box" },
+      property: "place-items",
+      value: "center",
+    });
+    const removed = applyVisualEdit(aligned.content, {
+      kind: "style",
+      operation: "remove",
+      target: { nodeId: "box" },
+      property: "place-items",
+    });
+
+    expect(withoutInlineDisplay.content.match(/<div[^>]*>/)?.[0]).not.toMatch(
+      /\bdisplay\s*:/,
+    );
+    expect(removed.content).toMatch(/align-items:\s*flex-start/);
+    expect(removed.content).toContain(
+      "data-agent-native-generated-flex-align-items",
+    );
+  });
+
+  it("does not restore flex alignment when grid display comes from a class or stylesheet", () => {
+    for (const html of [
+      `<div data-agent-native-node-id="box" class="grid"><span>A</span></div>`,
+      `<style>.stack { display: grid; }</style><div data-agent-native-node-id="box" class="stack"><span>A</span></div>`,
+    ]) {
+      const flex = applyVisualEdit(html, {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+        containerStyles: { display: "flex" },
+      });
+      const withoutInlineDisplay = applyVisualEdit(flex.content, {
+        kind: "style",
+        operation: "remove",
+        target: { nodeId: "box" },
+        property: "display",
+      });
+      const aligned = applyVisualEdit(withoutInlineDisplay.content, {
+        kind: "style",
+        target: { nodeId: "box" },
+        property: "place-items",
+        value: "center",
+      });
+      const removed = applyVisualEdit(aligned.content, {
+        kind: "style",
+        operation: "remove",
+        target: { nodeId: "box" },
+        property: "place-items",
+      });
+      const targetTag = removed.content.match(/<div[^>]*>/)?.[0] ?? "";
+
+      expect(targetTag).not.toMatch(/\balign-items\s*:/);
+      expect(removed.content).not.toContain(
+        "data-agent-native-generated-flex-align-items",
+      );
+    }
+  });
+
   it("preserves authored alignment when removing a generated declaration", () => {
     const html = `<div data-agent-native-node-id="box" data-agent-native-generated-flex-align-items="flex-start" style="display:flex; align-items:center; align-items:flex-start; place-items:center"><span>A</span></div>`;
     const removed = applyVisualEdit(html, {

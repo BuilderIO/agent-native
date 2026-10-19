@@ -10532,19 +10532,35 @@ function reconcileGeneratedFlexAlignment(
       const display = effectiveStyleDeclarations(declarations).find(
         (declaration) => cssPropertyKey(declaration.prop) === "display",
       )?.value;
-      const displayValue = display?.trim().toLowerCase();
+      const displayValue = display?.trim().toLowerCase() || undefined;
+      const elements = parseHtmlElements(html);
+      const parent =
+        updatedElement.parentIndex === undefined
+          ? undefined
+          : elements[updatedElement.parentIndex];
+      const classDisplay = layoutFor(updatedElement, parent)
+        .display?.trim()
+        .toLowerCase();
+      const stylesheetDisplay = displayValue
+        ? null
+        : stylesheetPropertyValues(html, updatedElement, elements, ["display"]);
+      const displayCandidates = new Set([
+        ...(stylesheetDisplay?.values.map((value) =>
+          value.trim().toLowerCase(),
+        ) ?? []),
+        ...(classDisplay ? [classDisplay] : []),
+      ]);
+      const flexDisplayValue =
+        displayValue ??
+        (stylesheetDisplay?.unknown || displayCandidates.size !== 1
+          ? undefined
+          : [...displayCandidates][0]);
+      const isFlexContainer =
+        flexDisplayValue === "flex" || flexDisplayValue === "inline-flex";
       const hasAuthoredAlignment =
         hasCrossAxisAlignmentUtilityClass(updatedElement) ||
-        stylesheetMaySetAlignItems(
-          html,
-          updatedElement,
-          parseHtmlElements(html),
-        );
-      if (
-        displayValue &&
-        displayValue !== "flex" &&
-        displayValue !== "inline-flex"
-      ) {
+        stylesheetMaySetAlignItems(html, updatedElement, elements);
+      if (!isFlexContainer) {
         keepMarker = false;
       } else if (!hasAuthoredAlignment) {
         setStyleDeclaration(declarations, "align-items", generatedValue);
@@ -10590,6 +10606,21 @@ function stylesheetMaySetAlignItems(
   target: ParsedElement,
   elements: readonly ParsedElement[],
 ): boolean {
+  const result = stylesheetPropertyValues(html, target, elements, [
+    "align-items",
+    "place-items",
+  ]);
+  return result.unknown || result.values.length > 0;
+}
+
+function stylesheetPropertyValues(
+  html: string,
+  target: ParsedElement,
+  elements: readonly ParsedElement[],
+  properties: readonly string[],
+): { unknown: boolean; values: string[] } {
+  const values: string[] = [];
+  let unknown = false;
   const tagRe =
     /<!--[\s\S]*?-->|<![A-Za-z][^>]*>|<\/?\s*([A-Za-z][A-Za-z0-9:-]*)\b/g;
   let match: RegExpExecArray | null;
@@ -10636,7 +10667,7 @@ function stylesheetMaySetAlignItems(
         !attributes.some((attribute) => attribute.lowerName === "disabled") &&
         (mediaValue === null || mediaQueryListMayMatchScreen(mediaValue))
       ) {
-        return true;
+        return { unknown: true, values };
       }
       continue;
     }
@@ -10665,28 +10696,33 @@ function stylesheetMaySetAlignItems(
           stylesheet.walkAtRules("import", () => {
             importedStylesheet = true;
           });
-          if (importedStylesheet) return true;
-          let matchingAlignmentRule = false;
+          if (importedStylesheet) return { unknown: true, values };
           stylesheet.walkRules((rule) => {
             if (
               stylesheetRuleMayApplyOnScreen(rule) &&
-              rule.nodes?.some(
-                (declaration) =>
-                  declaration.type === "decl" &&
-                  isCrossAxisAlignmentProperty(declaration.prop),
-              ) &&
               rule.selectors.some((selector) =>
                 stylesheetSelectorMayMatchElement(selector, target, elements),
               )
             ) {
-              matchingAlignmentRule = true;
+              for (const declaration of rule.nodes ?? []) {
+                if (
+                  declaration.type === "decl" &&
+                  properties.includes(cssPropertyKey(declaration.prop))
+                ) {
+                  values.push(declaration.value);
+                }
+              }
             }
           });
-          if (matchingAlignmentRule) return true;
         } catch (error) {
           if (!(error instanceof CssSyntaxError)) throw error;
-          if (/@import\b|\b(?:align-items|place-items)\s*:/i.test(css)) {
-            return true;
+          const propertyPattern = properties.join("|");
+          if (
+            new RegExp(`@import\\b|\\b(?:${propertyPattern})\\s*:`, "i").test(
+              css,
+            )
+          ) {
+            unknown = true;
           }
         }
       }
@@ -10699,7 +10735,7 @@ function stylesheetMaySetAlignItems(
       tagRe.lastIndex = close?.closeEnd ?? html.length;
     }
   }
-  return false;
+  return { unknown, values };
 }
 
 function stylesheetHrefCanLoad(href: string): boolean {
