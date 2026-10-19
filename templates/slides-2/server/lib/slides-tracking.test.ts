@@ -28,7 +28,7 @@ describe("trackSlides", () => {
 
     expect(mockTrack).toHaveBeenCalledWith(
       "deck_exported",
-      { output_id: "deck-1", app_name: "slides", template_name: "slides" },
+      { output_id: "deck-1", app_name: "slides-2", template_name: "slides-2" },
       { userId: "owner@example.com" },
     );
   });
@@ -52,8 +52,8 @@ describe("trackSlides", () => {
         thread_id: "thread-1",
         caller: "tool",
         output_id: "deck-1",
-        app_name: "slides",
-        template_name: "slides",
+        app_name: "slides-2",
+        template_name: "slides-2",
       },
       ctx,
     );

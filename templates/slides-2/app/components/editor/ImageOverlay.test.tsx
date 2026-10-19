@@ -52,7 +52,7 @@ describe("<ImageOverlay>", () => {
     );
 
     expect(
-      screen.getAllByRole("button").map((button) => button.textContent),
+      screen.getAllByRole("menuitem").map((item) => item.textContent),
     ).toEqual([
       "Generate",
       "Asset Library",
@@ -60,9 +60,11 @@ describe("<ImageOverlay>", () => {
       "Download",
       "Fit: Cover",
     ]);
-    expect(screen.queryByRole("button", { name: "Search" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Logo" })).toBeNull();
-    expect(screen.getByRole("combobox", { name: "Position" })).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: "Search" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Logo" })).toBeNull();
+    const positionSelect = screen.getByRole("combobox", { name: "Position" });
+    expect(positionSelect).toBeTruthy();
+    fireEvent.click(positionSelect);
     expect(
       screen.getAllByRole("option").map((option) => option.textContent),
     ).toEqual([
@@ -77,15 +79,13 @@ describe("<ImageOverlay>", () => {
       "Bottom Right",
     ]);
 
-    fireEvent.change(screen.getByRole("combobox", { name: "Position" }), {
-      target: { value: "right bottom" },
-    });
+    fireEvent.click(screen.getByRole("option", { name: "Bottom Right" }));
     expect(onChangeObjectPosition).toHaveBeenCalledWith("right bottom");
 
-    fireEvent.click(screen.getByRole("button", { name: "Download" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Download" }));
     expect(onDownload).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(screen.getByRole("button", { name: "Fit: Cover" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Fit: Cover" }));
     expect(onToggleObjectFit).toHaveBeenCalledTimes(1);
   });
 
@@ -106,7 +106,7 @@ describe("<ImageOverlay>", () => {
       />,
     );
 
-    expect(screen.queryByRole("button", { name: "Fit: Cover" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Fit: Cover" })).toBeNull();
     expect(screen.queryByRole("combobox", { name: "Position" })).toBeNull();
   });
 });

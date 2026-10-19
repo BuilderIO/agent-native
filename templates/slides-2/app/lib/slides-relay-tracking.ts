@@ -27,8 +27,8 @@ export function trackSlidesRelay(
     }
     void track(name, {
       ...properties,
-      app_name: "slides",
-      template_name: "slides",
+      app_name: "slides-2",
+      template_name: "slides-2",
     }).catch(() => {
       // coercion-ok: a failed analytics send must never surface to the user.
     });

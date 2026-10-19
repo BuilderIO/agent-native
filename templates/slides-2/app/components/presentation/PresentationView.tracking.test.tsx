@@ -62,8 +62,8 @@ describe("PresentationView analytics", () => {
       output_type: "deck",
       slide_count: 3,
       is_shared: false,
-      app_name: "slides",
-      template_name: "slides",
+      app_name: "slides-2",
+      template_name: "slides-2",
     });
 
     act(() => {
@@ -91,8 +91,8 @@ describe("PresentationView analytics", () => {
       slides_advanced: 2,
       max_slide_index: 2,
       fullscreen: false,
-      app_name: "slides",
-      template_name: "slides",
+      app_name: "slides-2",
+      template_name: "slides-2",
     });
   });
 

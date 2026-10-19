@@ -11,6 +11,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 import type { ElementSnapshot, SourceEdit, SourceEditOp } from "./types";
 
@@ -294,14 +295,14 @@ export function InlineTextEditor({
               className="size-4 rounded-sm border border-foreground/15"
               style={{ backgroundColor: textColor }}
             />
-            <input
+            <Input
               type="color"
               value={textColor}
               disabled={disabled}
               onChange={(event) =>
                 applyInlineStyle("color", event.currentTarget.value)
               }
-              className="absolute inset-0 size-full cursor-pointer opacity-0"
+              className="absolute inset-0 size-full cursor-pointer border-0 bg-transparent p-0 opacity-0"
             />
           </label>
           <span aria-hidden="true" className="mx-0.5 h-4 w-px bg-border" />

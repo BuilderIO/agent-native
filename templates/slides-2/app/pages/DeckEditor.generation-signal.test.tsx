@@ -1891,8 +1891,8 @@ describe("DeckEditor generation signal wiring", () => {
       expect(trackEvent).toHaveBeenCalledWith(
         "output_viewed",
         expect.objectContaining({
-          app_name: "slides",
-          template_name: "slides",
+          app_name: "slides-2",
+          template_name: "slides-2",
           output_id: "deck-1",
           output_type: "deck",
           slide_count: 1,
@@ -3977,8 +3977,8 @@ describe("DeckEditor generation signal wiring", () => {
         output_type: "deck",
         slide_count: 1,
         view_mode: "live",
-        app_name: "slides",
-        template_name: "slides",
+        app_name: "slides-2",
+        template_name: "slides-2",
       }),
     );
 

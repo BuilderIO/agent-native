@@ -568,11 +568,13 @@ export function OpenSlideAssetBrowser({
                           key={asset.id}
                           className="group min-w-0 overflow-hidden rounded-md border border-border bg-card"
                         >
-                          <button
+                          <Button
+                            variant="ghost"
+                            size="sm"
                             type="button"
                             disabled={!canInsert || insertingAssetId !== null}
                             onClick={() => void chooseAsset(asset)}
-                            className="block w-full min-w-0 text-start transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                            className="block h-auto w-full min-w-0 rounded-none p-0 text-start font-normal text-inherit transition-colors active:scale-100 hover:bg-accent/40 hover:text-inherit focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50"
                             aria-label={asset.filename}
                             title={asset.filename}
                           >
@@ -602,7 +604,7 @@ export function OpenSlideAssetBrowser({
                                 ? t("designSystemSetup.saving")
                                 : asset.filename}
                             </span>
-                          </button>
+                          </Button>
                           {scope === "global" &&
                           asset.type.startsWith("image/") ? (
                             <div className="flex justify-end gap-1 border-t border-border px-2 py-1">

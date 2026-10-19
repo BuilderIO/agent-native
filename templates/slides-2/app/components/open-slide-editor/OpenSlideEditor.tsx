@@ -563,75 +563,83 @@ function SlideThumbnail({
   }, []);
 
   return (
-    <button
-      ref={setNodeRef}
-      type="button"
-      onClick={onSelect}
-      {...attributes}
-      {...listeners}
-      onKeyDown={(event) => {
-        listeners?.onKeyDown?.(event);
-        if (
-          event.defaultPrevented ||
-          isDragging ||
-          event.altKey ||
-          event.ctrlKey ||
-          event.metaKey ||
-          event.shiftKey
-        ) {
-          return;
-        }
-        if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-          event.preventDefault();
-          event.stopPropagation();
-          onNavigate(event.key === "ArrowUp" ? -1 : 1);
-        }
-      }}
-      data-open-slide-thumbnail-index={slideIndex}
-      aria-label={t("editorSidebar.selectSlide", { number: slide.slideNumber })}
-      aria-current={selected ? "true" : undefined}
-      className={`group grid w-full grid-cols-[28px_minmax(0,1fr)] items-start gap-2 rounded-md p-2 text-start transition-colors ${selected ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"}`}
-      style={{
-        transform: CSS.Transform.toString(transform),
-        transition,
-        touchAction: dragDisabled ? undefined : "none",
-        opacity: isDragging ? 0.6 : undefined,
-      }}
+    <Button
+      asChild
+      variant="ghost"
+      size="sm"
+      className={`group grid h-auto w-full grid-cols-[28px_minmax(0,1fr)] items-start gap-2 rounded-md p-2 text-start font-normal transition-colors active:scale-100 ${selected ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"}`}
     >
-      <span className="pt-1 text-xs tabular-nums text-muted-foreground">
-        {slide.slideNumber}
-      </span>
-      <span className="min-w-0">
-        <span
-          ref={frameRef}
-          className={
-            /* guard:allow-raw-color — thumbnail previews render the fixed white slide canvas. */ `relative block aspect-video overflow-hidden rounded border bg-white ${selected ? "border-primary" : "border-border"}`
+      <button
+        ref={setNodeRef}
+        type="button"
+        onClick={onSelect}
+        {...attributes}
+        {...listeners}
+        onKeyDown={(event) => {
+          listeners?.onKeyDown?.(event);
+          if (
+            event.defaultPrevented ||
+            isDragging ||
+            event.altKey ||
+            event.ctrlKey ||
+            event.metaKey ||
+            event.shiftKey
+          ) {
+            return;
           }
-        >
-          {visible && render.data ? (
-            <OpenSlideCanvas scale={0.085} flat>
-              <SandboxedSlide
-                artifact={render.data}
-                title={t("openSlidePresenter.slideLabel", {
-                  index: slide.slideNumber,
-                })}
-                onNodes={() => {}}
-                onPointer={() => {}}
-              />
-            </OpenSlideCanvas>
-          ) : (
-            <span className="absolute inset-0 flex items-center justify-center bg-muted/40 px-3 text-center text-[10px] text-muted-foreground">
-              {slide.textPreview || ""}
-            </span>
-          )}
+          if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+            event.preventDefault();
+            event.stopPropagation();
+            onNavigate(event.key === "ArrowUp" ? -1 : 1);
+          }
+        }}
+        data-open-slide-thumbnail-index={slideIndex}
+        aria-label={t("editorSidebar.selectSlide", {
+          number: slide.slideNumber,
+        })}
+        aria-current={selected ? "true" : undefined}
+        style={{
+          transform: CSS.Transform.toString(transform),
+          transition,
+          touchAction: dragDisabled ? undefined : "none",
+          opacity: isDragging ? 0.6 : undefined,
+        }}
+      >
+        <span className="pt-1 text-xs tabular-nums text-muted-foreground">
+          {slide.slideNumber}
         </span>
-        {slide.textPreview ? (
-          <span className="mt-1 block truncate text-[11px] text-muted-foreground">
-            {slide.textPreview}
+        <span className="min-w-0">
+          <span
+            ref={frameRef}
+            className={
+              /* guard:allow-raw-color — thumbnail previews render the fixed white slide canvas. */ `relative block aspect-video overflow-hidden rounded border bg-white ${selected ? "border-primary" : "border-border"}`
+            }
+          >
+            {visible && render.data ? (
+              <OpenSlideCanvas scale={0.085} flat>
+                <SandboxedSlide
+                  artifact={render.data}
+                  title={t("openSlidePresenter.slideLabel", {
+                    index: slide.slideNumber,
+                  })}
+                  onNodes={() => {}}
+                  onPointer={() => {}}
+                />
+              </OpenSlideCanvas>
+            ) : (
+              <span className="absolute inset-0 flex items-center justify-center bg-muted/40 px-3 text-center text-[10px] text-muted-foreground">
+                {slide.textPreview || ""}
+              </span>
+            )}
           </span>
-        ) : null}
-      </span>
-    </button>
+          {slide.textPreview ? (
+            <span className="mt-1 block truncate text-[11px] text-muted-foreground">
+              {slide.textPreview}
+            </span>
+          ) : null}
+        </span>
+      </button>
+    </Button>
   );
 }
 
@@ -675,55 +683,61 @@ function SlideOverviewThumbnail({
   }, []);
 
   return (
-    <button
-      type="button"
-      autoFocus={selected}
-      data-slide-overview-index={index}
-      data-slide-overview-active={selected ? "true" : undefined}
-      aria-label={t("openSlidePresenter.slideLabel", {
-        index: slide.slideNumber,
-      })}
-      aria-current={selected ? "true" : undefined}
-      onFocus={() => onFocus(index)}
-      onClick={onSelect}
-      className={`group flex h-[216px] w-full min-w-0 flex-col gap-1.5 rounded-md p-1 text-start outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring ${focused ? "bg-accent ring-2 ring-primary" : selected ? "bg-accent" : ""}`}
+    <Button
+      asChild
+      variant="ghost"
+      size="sm"
+      className={`group flex h-[216px] w-full min-w-0 flex-col gap-1.5 rounded-md p-1 text-start font-normal outline-none transition-colors active:scale-100 hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${focused ? "bg-accent ring-2 ring-primary" : selected ? "bg-accent" : ""}`}
     >
-      <span
-        ref={frameRef}
-        className="pointer-events-none relative block aspect-video w-full overflow-hidden rounded border border-border bg-muted"
-      >
-        {visible && render.data ? (
-          <OpenSlideCanvas flat>
-            <SandboxedSlide
-              artifact={render.data}
-              title={t("openSlidePresenter.slideLabel", {
-                index: slide.slideNumber,
-              })}
-              onNodes={() => {}}
-              onPointer={() => {}}
-            />
-          </OpenSlideCanvas>
-        ) : (
-          <span className="absolute inset-0 grid place-items-center bg-muted/40 text-2xl font-semibold text-muted-foreground">
-            {slide.slideNumber}
-          </span>
-        )}
-        {selected ? (
-          <span
-            aria-hidden="true"
-            className="absolute right-2 top-2 rounded-sm bg-destructive px-2 py-0.5 text-[10px] leading-4 font-semibold tracking-wide text-destructive-foreground"
-          >
-            {t("openSlideEditor.now")}
-          </span>
-        ) : null}
-      </span>
-      <span className="px-1 text-xs text-muted-foreground">
-        {t("openSlidePresenter.position", {
+      <button
+        type="button"
+        autoFocus={selected}
+        data-slide-overview-index={index}
+        data-slide-overview-active={selected ? "true" : undefined}
+        aria-label={t("openSlidePresenter.slideLabel", {
           index: slide.slideNumber,
-          total,
         })}
-      </span>
-    </button>
+        aria-current={selected ? "true" : undefined}
+        onFocus={() => onFocus(index)}
+        onClick={onSelect}
+      >
+        <span
+          ref={frameRef}
+          className="pointer-events-none relative block aspect-video w-full overflow-hidden rounded border border-border bg-muted"
+        >
+          {visible && render.data ? (
+            <OpenSlideCanvas flat>
+              <SandboxedSlide
+                artifact={render.data}
+                title={t("openSlidePresenter.slideLabel", {
+                  index: slide.slideNumber,
+                })}
+                onNodes={() => {}}
+                onPointer={() => {}}
+              />
+            </OpenSlideCanvas>
+          ) : (
+            <span className="absolute inset-0 grid place-items-center bg-muted/40 text-2xl font-semibold text-muted-foreground">
+              {slide.slideNumber}
+            </span>
+          )}
+          {selected ? (
+            <span
+              aria-hidden="true"
+              className="absolute right-2 top-2 rounded-sm bg-destructive px-2 py-0.5 text-[10px] leading-4 font-semibold tracking-wide text-destructive-foreground"
+            >
+              {t("openSlideEditor.now")}
+            </span>
+          ) : null}
+        </span>
+        <span className="px-1 text-xs text-muted-foreground">
+          {t("openSlidePresenter.position", {
+            index: slide.slideNumber,
+            total,
+          })}
+        </span>
+      </button>
+    </Button>
   );
 }
 

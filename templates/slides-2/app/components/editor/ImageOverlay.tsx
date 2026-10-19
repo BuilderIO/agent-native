@@ -7,9 +7,23 @@ import {
   IconMaximize,
   IconMinimize,
 } from "@tabler/icons-react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   IMAGE_OBJECT_POSITION_VALUES,
   type ImageObjectPosition,
@@ -43,39 +57,24 @@ export default function ImageOverlay({
   onClose,
 }: ImageOverlayProps) {
   const t = useT();
-  const menuRef = useRef<HTMLDivElement>(null);
+  const [menuElement, setMenuElement] = useState<HTMLDivElement | null>(null);
   const [menuHeight, setMenuHeight] = useState(0);
+  const closedRef = useRef(false);
   const isPlaceholder = src.startsWith("placeholder:");
 
-  useEffect(() => {
-    const handleClick = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("mousedown", handleClick);
-    document.addEventListener("keydown", handleKey);
-    return () => {
-      document.removeEventListener("mousedown", handleClick);
-      document.removeEventListener("keydown", handleKey);
-    };
-  }, [onClose]);
-
   useLayoutEffect(() => {
-    const height = menuRef.current?.getBoundingClientRect().height;
+    const height = menuElement?.getBoundingClientRect().height;
     if (height && height !== menuHeight) setMenuHeight(height);
-  }, [anchorRect, isPlaceholder, menuHeight, objectFit]);
+  }, [anchorRect, isPlaceholder, menuElement, menuHeight, objectFit]);
 
   const menuWidth = 180;
   const vw = window.innerWidth;
   const vh = window.innerHeight;
+  const isMobile = vw < 640;
   let left: number;
   let top: number;
 
-  if (vw < 640) {
+  if (isMobile) {
     left = Math.max(8, (vw - menuWidth) / 2);
     top = anchorRect.bottom + 8;
   } else {
@@ -86,112 +85,196 @@ export default function ImageOverlay({
   const maxTop = Math.max(8, vh - (menuHeight || 220) - 8);
   top = Math.max(8, Math.min(top, maxTop));
 
+  const closeMenu = () => {
+    if (closedRef.current) return;
+    closedRef.current = true;
+    onClose();
+  };
+
+  const positionOptions: Array<{ value: ImageObjectPosition; label: string }> =
+    [
+      {
+        value: "left top",
+        label: `${t("styleInspector.top")} ${t("styleInspector.left")}`,
+      },
+      {
+        value: "center top",
+        label: `${t("styleInspector.top")} ${t("styleInspector.center")}`,
+      },
+      {
+        value: "right top",
+        label: `${t("styleInspector.top")} ${t("styleInspector.right")}`,
+      },
+      { value: "left center", label: t("styleInspector.left") },
+      { value: "center center", label: t("styleInspector.center") },
+      { value: "right center", label: t("styleInspector.right") },
+      {
+        value: "left bottom",
+        label: `${t("styleInspector.bottom")} ${t("styleInspector.left")}`,
+      },
+      {
+        value: "center bottom",
+        label: `${t("styleInspector.bottom")} ${t("styleInspector.center")}`,
+      },
+      {
+        value: "right bottom",
+        label: `${t("styleInspector.bottom")} ${t("styleInspector.right")}`,
+      },
+    ];
+
+  const triggerLeft = isMobile ? left : left - 9;
+  const triggerTop = isMobile ? top - 9 : top;
+
   return createPortal(
-    <div
-      ref={menuRef}
-      className="image-overlay-menu"
-      style={{ top, left, width: menuWidth }}
+    <DropdownMenu
+      open
+      modal={false}
+      onOpenChange={(open) => {
+        if (!open) closeMenu();
+      }}
     >
-      <button
-        onClick={() => {
-          onGenerate();
-          onClose();
-        }}
-        className="image-overlay-btn"
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-hidden="true"
+          style={{
+            position: "fixed",
+            top: triggerTop,
+            left: triggerLeft,
+            width: 1,
+            height: 1,
+            padding: 0,
+            border: 0,
+            opacity: 0,
+            pointerEvents: "none",
+          }}
+        />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        ref={setMenuElement}
+        side={isMobile ? "bottom" : "right"}
+        align="start"
+        sideOffset={8}
+        avoidCollisions={false}
+        className="image-overlay-menu w-[180px] min-w-0"
+        style={{ overflow: "visible" }}
       >
-        <IconPhoto className="w-3.5 h-3.5 text-primary" />
-        {t("raw.generate")}
-      </button>
-      <button
-        onClick={() => {
-          onLibrary();
-          onClose();
-        }}
-        className="image-overlay-btn"
-      >
-        <IconFolderOpen className="w-3.5 h-3.5 text-primary" />
-        {t("editorToolbar.assetLibrary")}
-      </button>
-      <button
-        onClick={() => {
-          onUpload();
-          onClose();
-        }}
-        className="image-overlay-btn"
-      >
-        <IconUpload className="w-3.5 h-3.5 text-muted-foreground" />
-        {t("raw.upload")}
-      </button>
-      <button
-        onClick={() => {
-          onDownload();
-          onClose();
-        }}
-        className="image-overlay-btn"
-        disabled={!src}
-      >
-        <IconDownload className="w-3.5 h-3.5 text-muted-foreground" />
-        {t("raw.download")}
-      </button>
-      {!isPlaceholder && (
-        <>
-          <div className="mx-1.5 border-t border-border" />
-          <button onClick={onToggleObjectFit} className="image-overlay-btn">
-            {objectFit === "cover" ? (
-              <IconMinimize className="w-3.5 h-3.5 text-muted-foreground" />
-            ) : (
-              <IconMaximize className="w-3.5 h-3.5 text-muted-foreground" />
-            )}
-            {objectFit === "cover" ? t("raw.fitCover") : t("raw.fitContain")}
-          </button>
-          {objectFit === "cover" && (
-            <label className="image-overlay-position">
-              <span>{t("styleInspector.position")}</span>
-              <select
-                aria-label={t("styleInspector.position")}
-                value={objectPosition}
-                onChange={(event) => {
-                  const value = event.currentTarget.value;
-                  if (
-                    IMAGE_OBJECT_POSITION_VALUES.includes(
-                      value as ImageObjectPosition,
-                    )
-                  ) {
-                    onChangeObjectPosition(value as ImageObjectPosition);
-                  }
+        <div className="flex max-h-[calc(100vh_-_28px)] flex-col gap-0.5 overflow-y-auto">
+          <DropdownMenuItem
+            className="gap-2.5 px-3.5 py-2.5 text-[13px] font-medium text-popover-foreground/80"
+            onSelect={() => {
+              onGenerate();
+              closeMenu();
+            }}
+          >
+            <IconPhoto className="size-3.5 text-primary" aria-hidden="true" />
+            {t("raw.generate")}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            className="gap-2.5 px-3.5 py-2.5 text-[13px] font-medium text-popover-foreground/80"
+            onSelect={() => {
+              onLibrary();
+              closeMenu();
+            }}
+          >
+            <IconFolderOpen
+              className="size-3.5 text-primary"
+              aria-hidden="true"
+            />
+            {t("editorToolbar.assetLibrary")}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            className="gap-2.5 px-3.5 py-2.5 text-[13px] font-medium text-popover-foreground/80"
+            onSelect={() => {
+              onUpload();
+              closeMenu();
+            }}
+          >
+            <IconUpload
+              className="size-3.5 text-muted-foreground"
+              aria-hidden="true"
+            />
+            {t("raw.upload")}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            className="gap-2.5 px-3.5 py-2.5 text-[13px] font-medium text-popover-foreground/80"
+            disabled={!src}
+            onSelect={() => {
+              onDownload();
+              closeMenu();
+            }}
+          >
+            <IconDownload
+              className="size-3.5 text-muted-foreground"
+              aria-hidden="true"
+            />
+            {t("raw.download")}
+          </DropdownMenuItem>
+          {!isPlaceholder && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="gap-2.5 px-3.5 py-2.5 text-[13px] font-medium text-popover-foreground/80"
+                onSelect={(event) => {
+                  event.preventDefault();
+                  onToggleObjectFit();
                 }}
               >
-                <option value="left top">
-                  {t("styleInspector.top")} {t("styleInspector.left")}
-                </option>
-                <option value="center top">
-                  {t("styleInspector.top")} {t("styleInspector.center")}
-                </option>
-                <option value="right top">
-                  {t("styleInspector.top")} {t("styleInspector.right")}
-                </option>
-                <option value="left center">{t("styleInspector.left")}</option>
-                <option value="center center">
-                  {t("styleInspector.center")}
-                </option>
-                <option value="right center">
-                  {t("styleInspector.right")}
-                </option>
-                <option value="left bottom">
-                  {t("styleInspector.bottom")} {t("styleInspector.left")}
-                </option>
-                <option value="center bottom">
-                  {t("styleInspector.bottom")} {t("styleInspector.center")}
-                </option>
-                <option value="right bottom">
-                  {t("styleInspector.bottom")} {t("styleInspector.right")}
-                </option>
-              </select>
-            </label>
+                {objectFit === "cover" ? (
+                  <IconMinimize
+                    className="size-3.5 text-muted-foreground"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <IconMaximize
+                    className="size-3.5 text-muted-foreground"
+                    aria-hidden="true"
+                  />
+                )}
+                {objectFit === "cover"
+                  ? t("raw.fitCover")
+                  : t("raw.fitContain")}
+              </DropdownMenuItem>
+              {objectFit === "cover" && (
+                <div className="flex min-w-0 items-center gap-2 rounded-sm px-3.5 py-2 text-[13px] font-medium text-popover-foreground/80 hover:bg-accent focus-within:bg-accent">
+                  <span className="shrink-0">
+                    {t("styleInspector.position")}
+                  </span>
+                  <Select
+                    value={objectPosition}
+                    onValueChange={(value) => {
+                      if (
+                        IMAGE_OBJECT_POSITION_VALUES.includes(
+                          value as ImageObjectPosition,
+                        )
+                      ) {
+                        onChangeObjectPosition(value as ImageObjectPosition);
+                      }
+                    }}
+                  >
+                    <SelectTrigger
+                      size="sm"
+                      aria-label={t("styleInspector.position")}
+                      className="h-8 min-w-0 flex-1 border-0 bg-transparent px-1 py-0 text-[13px] shadow-none focus:ring-0 focus:ring-offset-0"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent container={menuElement}>
+                      {positionOptions.map(({ value, label }) => (
+                        <SelectItem key={value} value={value}>
+                          {label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </>
           )}
-        </>
-      )}
-    </div>,
+        </div>
+      </DropdownMenuContent>
+    </DropdownMenu>,
     document.body,
   );
 }

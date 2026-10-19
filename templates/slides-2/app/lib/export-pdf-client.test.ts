@@ -145,8 +145,8 @@ describe("exportDeckAsPdf", () => {
       status: "completed",
       slide_count: 1,
       generation_attempt_id: "attempt-1",
-      app_name: "slides",
-      template_name: "slides",
+      app_name: "slides-2",
+      template_name: "slides-2",
     });
   });
 

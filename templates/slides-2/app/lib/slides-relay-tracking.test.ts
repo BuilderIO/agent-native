@@ -55,13 +55,13 @@ describe("trackSlidesRelay", () => {
     expect(mocks.track).not.toHaveBeenCalled();
   });
 
-  it("adds the Slides app keys", () => {
+  it("adds the Slides-2 app keys", () => {
     trackSlidesRelay("deck_ready_viewed", { output_id: "deck-1" });
 
     expect(mocks.track).toHaveBeenCalledWith("deck_ready_viewed", {
       output_id: "deck-1",
-      app_name: "slides",
-      template_name: "slides",
+      app_name: "slides-2",
+      template_name: "slides-2",
     });
   });
 });

@@ -1462,8 +1462,8 @@ export default function DeckEditor() {
     void claimOutputView(analyticsSessionId, id).then((claim) => {
       if (claim !== "claimed") return;
       trackEvent("output_viewed", {
-        app_name: "slides",
-        template_name: "slides",
+        app_name: "slides-2",
+        template_name: "slides-2",
         output_id: id,
         output_type: "deck",
         slide_count: slideCount,

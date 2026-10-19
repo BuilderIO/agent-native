@@ -31,6 +31,7 @@ import {
 import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import { Button } from "@/components/ui/button";
 import { useDecks } from "@/context/DeckContext";
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 import {
@@ -410,13 +411,16 @@ export function Layout({ children }: LayoutProps) {
         {/* Mobile-only nav strip with hamburger — only when there's no page toolbar */}
         {showMobileNavigation && (
           <div className="flex h-12 items-center border-b border-border px-4 md:hidden shrink-0">
-            <button
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
               onClick={openMobileSidebar}
-              className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:text-foreground cursor-pointer"
+              className="text-muted-foreground hover:text-foreground"
               aria-label={t("sidebar.openNavigation")}
             >
               <IconMenu2 className="h-4 w-4" />
-            </button>
+            </Button>
           </div>
         )}
         {!ownToolbar && !isChatRoute && <Header />}

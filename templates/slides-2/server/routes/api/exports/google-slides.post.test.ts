@@ -180,8 +180,8 @@ describe("google slides export route analytics", () => {
       status: "completed",
       slide_count: 4,
       generation_attempt_id: "attempt-1",
-      app_name: "slides",
-      template_name: "slides",
+      app_name: "slides-2",
+      template_name: "slides-2",
     });
     expect(mocks.track.mock.calls[0][2]).toEqual({
       userId: "user@example.com",
@@ -242,8 +242,8 @@ describe("google slides export route analytics", () => {
       render_location: "browser",
       status: "failed",
       error_type: "google_not_connected",
-      app_name: "slides",
-      template_name: "slides",
+      app_name: "slides-2",
+      template_name: "slides-2",
     });
   });
 });

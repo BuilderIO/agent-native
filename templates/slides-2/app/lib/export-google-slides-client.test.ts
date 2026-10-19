@@ -289,8 +289,8 @@ describe("exportDeckToGoogleSlides", () => {
       status: "failed",
       error_type: "export_error",
       slide_count: 1,
-      app_name: "slides",
-      template_name: "slides",
+      app_name: "slides-2",
+      template_name: "slides-2",
     });
     expect(fetch).not.toHaveBeenCalled();
   });
