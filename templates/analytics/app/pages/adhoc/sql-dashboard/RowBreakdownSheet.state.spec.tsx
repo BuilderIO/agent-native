@@ -4,7 +4,9 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
-import { readAppStateForCurrentTab } from "../../../../../../packages/core/src/application-state/script-helpers";
+const { readAppStateForCurrentTab } = await vi.importActual<{
+  readAppStateForCurrentTab: (key: string) => Promise<unknown>;
+}>("../../../../../../packages/core/src/application-state/script-helpers");
 
 (
   globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
