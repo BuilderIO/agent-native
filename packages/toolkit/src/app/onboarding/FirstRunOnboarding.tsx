@@ -1131,7 +1131,7 @@ export function FirstRunOnboarding({
                 <PopoverContent
                   side="top"
                   align="end"
-                  className="w-72 space-y-3 p-4 text-left"
+                  className="w-80 space-y-3 p-4 text-left"
                 >
                   <div className="space-y-1">
                     <p className="text-sm font-semibold text-foreground">
@@ -1141,23 +1141,34 @@ export function FirstRunOnboarding({
                       {t("agentChat.onboarding.creditsSkipConfirmBody")}
                     </p>
                   </div>
-                  <div className="flex justify-end gap-2">
+                  <div className="flex items-center justify-between gap-2">
                     <Button
                       type="button"
-                      variant="secondary"
+                      variant="ghost"
                       size="sm"
-                      data-testid="first-run-credits-skip-confirm"
-                      onClick={skipSetup}
+                      className="px-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
+                      onClick={() => void handleOpenSettings()}
                     >
-                      {t("agentChat.onboarding.creditsSkipAnyway")}
+                      {t("agentChat.onboarding.creditsUseCustomKeys")}
                     </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      onClick={() => setSkipConfirmOpen(false)}
-                    >
-                      {t("agentChat.onboarding.creditsSkipGoBack")}
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        data-testid="first-run-credits-skip-confirm"
+                        onClick={skipSetup}
+                      >
+                        {t("agentChat.onboarding.creditsSkipAnyway")}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => setSkipConfirmOpen(false)}
+                      >
+                        {t("agentChat.onboarding.creditsSkipGoBack")}
+                      </Button>
+                    </div>
                   </div>
                 </PopoverContent>
               </Popover>

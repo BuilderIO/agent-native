@@ -191,6 +191,7 @@ const messages = {
     "Agent-Native apps need an LLM connected to use most features. Most functionality won't work without one.",
   "onboarding.creditsSkipGoBack": "Go back",
   "onboarding.creditsSkipAnyway": "Skip anyway",
+  "onboarding.creditsUseCustomKeys": "Use custom keys",
   "onboarding.creditsSkipBody":
     "If you skip, you'll need to connect your own keys to use AI and storage.",
   "onboarding.builderActivating": "Activating Builder.io free credits",

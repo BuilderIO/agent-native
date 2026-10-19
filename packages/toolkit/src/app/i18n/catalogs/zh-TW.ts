@@ -183,6 +183,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Agent-Native 應用程式需要連接 LLM 才能使用大部分功能。沒有 LLM，大部分功能都無法運作。",
   "onboarding.creditsSkipGoBack": "返回",
   "onboarding.creditsSkipAnyway": "仍然跳過",
+  "onboarding.creditsUseCustomKeys": "使用自訂金鑰",
   "onboarding.creditsSkipBody":
     "如果您跳過，您將需要連線自己的密鑰才能使用 AI 和儲存空間。",
   "onboarding.builderConnect": "連線至 Builder.io",

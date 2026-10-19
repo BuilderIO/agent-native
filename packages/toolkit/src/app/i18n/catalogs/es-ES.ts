@@ -198,6 +198,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Las apps de Agent-Native necesitan un LLM conectado para usar la mayoría de las funciones. La mayoría no funcionará sin uno.",
   "onboarding.creditsSkipGoBack": "Volver",
   "onboarding.creditsSkipAnyway": "Omitir de todas formas",
+  "onboarding.creditsUseCustomKeys": "Usar claves personalizadas",
   "onboarding.creditsSkipBody":
     "Si omites, tendrás que conectar tus propias claves para usar IA y almacenamiento.",
   "onboarding.builderConnect": "Conectar Builder.io",

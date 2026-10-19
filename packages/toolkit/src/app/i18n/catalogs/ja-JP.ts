@@ -196,6 +196,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Agent-Native アプリでは、ほとんどの機能を使うために LLM の接続が必要です。LLM がないと、ほとんどの機能は動作しません。",
   "onboarding.creditsSkipGoBack": "戻る",
   "onboarding.creditsSkipAnyway": "それでもスキップ",
+  "onboarding.creditsUseCustomKeys": "カスタムキーを使用",
   "onboarding.creditsSkipBody":
     "スキップする場合は、AI とストレージを使用するために独自のキーを接続する必要があります。",
   "onboarding.builderConnect": "Builder.io に接続",
