@@ -1,6 +1,12 @@
-import { readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import {
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import path, { join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const docsDir = join(__dirname, "..", "docs");
@@ -49,9 +55,11 @@ function main() {
   );
 }
 
+// Node resolves symlinks for import.meta.url but not for argv[1]; compare
+// real paths, or a run through a linked path skips the build and exits 0.
 if (
   process.argv[1] &&
-  import.meta.url === pathToFileURL(process.argv[1]).href
+  realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)
 ) {
   main();
 }
