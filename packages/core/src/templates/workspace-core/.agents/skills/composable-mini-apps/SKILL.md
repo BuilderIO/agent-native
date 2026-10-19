@@ -1,8 +1,8 @@
 ---
 name: composable-mini-apps
 description: >-
-  Build many focused workspace apps that compose through agent discovery and
-  A2A. Use when designing headless mini-apps or cross-app workflows.
+  Build focused workspace apps and cross-app workflows, using A2A only when a
+  task needs a peer-owned capability. Use when designing mini-app boundaries.
 scope: dev
 ---
 
@@ -12,15 +12,20 @@ scope: dev
 
 Prefer many one-job apps in a workspace over one oversized app. A headless app
 can own a provider, dataset, workflow, or specialist action surface without a
-full UI; the main agent composes those apps through discovery and A2A.
+full UI. This architecture does not make every task a cross-app task: use the
+current app's actions by default. Call a peer only when the user asks or the
+outcome requires data, credentials, or a capability only that peer can provide.
+A peer's availability or ability to enrich the result is not enough. The app
+that owns an artifact remains responsible for authoring and editing it.
 
 ## Shape
 
 - Give each mini-app one clear job, a concise `package.json` description, and
   action names that describe the job it owns.
 - Keep provider credentials and upstream API details in the app that owns that
-  provider or workflow. Other apps should delegate to it instead of copying its
-  integration code.
+  provider or workflow. When a task needs its peer-exclusive data, credentials,
+  or capability, delegate that bounded work instead of copying integration
+  code.
 - Use a tiny status/config screen only when users need to inspect state. A
   pure headless app is fine when its job is invoked by agents, automations, or
   sibling apps.
