@@ -67,6 +67,7 @@ import {
   TextSelection,
   type Transaction,
 } from "@tiptap/pm/state";
+import { CellSelection, cellAround } from "@tiptap/pm/tables";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import {
   useEditor,
@@ -738,6 +739,25 @@ const NotionMarkdownShortcuts = Extension.create({
 });
 
 const CustomTable = BaseTable.extend({
+  addKeyboardShortcuts() {
+    return {
+      ...this.parent?.(),
+      // Escape leaves the editor (`contentEditorEscape`), and Tab can't leave a
+      // table, so from a cell's text the first Escape only selects the cell.
+      Escape: ({ editor }) => {
+        const { selection } = editor.state;
+        if (selection instanceof CellSelection) return false;
+        const $cell = cellAround(selection.$from);
+        if (!$cell) return false;
+        editor.view.dispatch(
+          editor.state.tr.setSelection(
+            CellSelection.create(editor.state.doc, $cell.pos),
+          ),
+        );
+        return true;
+      },
+    };
+  },
   addAttributes() {
     return {
       ...this.parent?.(),
@@ -3351,7 +3371,9 @@ export function VisualEditor({
       }),
       Extension.create({
         name: "contentEditorEscape",
-        priority: 0,
+        // Last, so editor Escape handlers such as the table's run first. Not 0:
+        // TipTap reads a priority of 0 as unset, which puts this first instead.
+        priority: 1,
         addProseMirrorPlugins() {
           return [
             new Plugin({
