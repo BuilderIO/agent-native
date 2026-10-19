@@ -1551,14 +1551,22 @@ async function matchRenames(
       if (file && row && !file.renamedFrom) claim(file, row, rename.from);
     }
   }
+  // Files that left, by contents, read once: a folder of 2,000 moved files
+  // would otherwise read every stored row for every arriving file.
+  const goneByBlob = new Map<string, string[]>();
+  for (const [path, row] of gone) {
+    const blobSha = rowState(row)?.blobSha;
+    if (!blobSha) continue;
+    const paths = goneByBlob.get(blobSha);
+    if (paths) paths.push(path);
+    else goneByBlob.set(blobSha, [path]);
+  }
   for (const file of added) {
     if (file.renamedFrom) continue;
-    for (const [path, row] of gone) {
-      if (rowState(row)?.blobSha === file.entry.sha) {
-        claim(file, row, path);
-        break;
-      }
-    }
+    const paths = goneByBlob.get(file.entry.sha);
+    const from = paths?.shift();
+    const row = from ? gone.get(from) : undefined;
+    if (from && row) claim(file, row, from);
   }
 }
 

@@ -783,6 +783,8 @@ describe("GitHub folder source", () => {
     github.commit({
       "docs/a.md": "# Alpha\n\nSame text.\n",
       "docs/b.md": "---\nid: page-b\n---\n# Beta\n",
+      // The same contents twice: each copy keeps a page of its own.
+      "docs/c.md": "# Alpha\n\nSame text.\n",
     });
     const database = await newCollection();
     await as(() =>
@@ -793,9 +795,10 @@ describe("GitHub folder source", () => {
     github.commit({
       "docs/renamed-a.md": "# Alpha\n\nSame text.\n",
       "docs/renamed-b.md": "---\nid: page-b\n---\n# Beta, edited\n",
+      "docs/renamed-c.md": "# Alpha\n\nSame text.\n",
     });
     const synced = await as(() => syncFolder.run({ databaseId: database.id }));
-    expect(synced.sync).toMatchObject({ renamed: 2, trashed: 0, created: 0 });
+    expect(synced.sync).toMatchObject({ renamed: 3, trashed: 0, created: 0 });
     const after = await liveRows(database.id);
     expect(after.map((row) => row.documentId).sort()).toEqual(
       before.map((row) => row.documentId).sort(),
