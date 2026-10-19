@@ -39,6 +39,8 @@ import {
 } from "./engine/credential-errors.js";
 import {
   currentExecutionFence,
+  ExecutionFenceError,
+  MissingExecutionFenceError,
   lockAndAssertCurrentExecutionFences,
   StaleExecutionFenceError,
   type ExecutionFence,
@@ -1067,7 +1069,7 @@ export async function writeLedgerEntry(
       { threadId },
     );
   } catch (error) {
-    if (error instanceof StaleExecutionFenceError) throw error;
+    if (error instanceof ExecutionFenceError) throw error;
     // Ledger is best-effort; never surface failures to the caller.
   }
 }
@@ -1176,7 +1178,8 @@ export async function clearLedgerForThread(threadId: string): Promise<void> {
         }),
       { threadId },
     );
-  } catch {
+  } catch (error) {
+    if (error instanceof MissingExecutionFenceError) throw error;
     // Best-effort.
   }
 }
@@ -2024,7 +2027,7 @@ export async function setRunError(
       { runId },
     );
   } catch (error) {
-    if (error instanceof StaleExecutionFenceError) throw error;
+    if (error instanceof ExecutionFenceError) throw error;
     // Diagnostics are best-effort; never let them break completion.
   }
 }
@@ -2058,7 +2061,7 @@ export async function setRunTerminalReason(
       { runId },
     );
   } catch (error) {
-    if (error instanceof StaleExecutionFenceError) throw error;
+    if (error instanceof ExecutionFenceError) throw error;
     // Diagnostics are best-effort; never let them break completion.
   }
 }
@@ -2358,7 +2361,7 @@ export async function recordRunDiagnostic(
       );
     }
   } catch (error) {
-    if (error instanceof StaleExecutionFenceError) throw error;
+    if (error instanceof ExecutionFenceError) throw error;
     // Diagnostics are best-effort; never let them break the run or the route.
   }
 }

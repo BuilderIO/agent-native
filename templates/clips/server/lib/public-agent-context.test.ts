@@ -428,6 +428,13 @@ describe("describeAgentAccessFailure", () => {
   });
 });
 
+const YOUTUBE_RECORDING = {
+  sourceAppName: "YouTube",
+  sourceWindowTitle: "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+  videoUrl: "https://www.youtube.com/embed/jNQXAC9IVRw",
+  videoFormat: "mp4",
+};
+
 describe("loadRecordingMediaBytes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -594,9 +601,46 @@ describe("loadRecordingMediaBytes", () => {
     ).rejects.toThrow(/legacy Loom embed/i);
     expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
   });
+
+  it("does not fetch bytes for YouTube clips", async () => {
+    await expect(
+      loadRecordingMediaBytes(makeRecording(YOUTUBE_RECORDING) as any),
+    ).rejects.toThrow(/YouTube's embedded player/);
+    expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
+  });
 });
 
 describe("buildPublicAgentContext", () => {
+  it("tells agents a YouTube clip has no frames and offers no frame API", () => {
+    const context = buildPublicAgentContext({
+      event: {
+        url: new URL(
+          "https://clips.example.com/api/agent-context.json?id=rec-1",
+        ),
+        req: {
+          headers: new Headers(),
+        },
+      } as any,
+      access: {
+        recording: makeRecording(YOUTUBE_RECORDING) as any,
+        viewerIsOwner: false,
+        agentLinkCreatorEmail: null,
+        apiToken: "signed-token",
+      },
+      transcript: null,
+      agentSegments: [],
+      chapters: [{ startMs: 1000, title: "Chapter" }],
+      comments: [],
+      reactions: [],
+      ctas: [],
+    });
+
+    expect(context.clip.sourceProvider).toBe("youtube");
+    expect(context.apis).not.toHaveProperty("frame");
+    expect(context.recommendedFrames).toEqual([]);
+    expect(context.instructions.join(" ")).toMatch(/frames aren't available/i);
+  });
+
   it("omits frame APIs and recommended frames for legacy Loom embed imports", () => {
     const context = buildPublicAgentContext({
       event: {

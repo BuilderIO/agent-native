@@ -5,7 +5,10 @@
  */
 
 import { getAgentClipReadiness } from "@shared/agent-context";
-import { isLoomEmbedBackedRecording } from "@shared/loom";
+import {
+  embedFramesUnavailableReason,
+  recordingEmbedProvider,
+} from "@shared/embed-provider";
 import {
   getQuery,
   setResponseHeader,
@@ -45,7 +48,7 @@ export function sendFrameJson<T>(
 /**
  * Grant access to a clip's frames, or answer with the JSON failure that says
  * why not: no access, a redaction hold, a clip still preparing or failed, or
- * a legacy Loom embed with no Clips-hosted video.
+ * a YouTube or legacy Loom embed with no Clips-hosted video.
  */
 export async function loadAgentFrameAccess(
   event: H3Event,
@@ -123,15 +126,17 @@ export async function loadAgentFrameAccess(
     };
   }
 
-  if (isLoomEmbedBackedRecording(recording)) {
+  const embedProvider = recordingEmbedProvider(recording);
+  if (embedProvider) {
     return {
       ok: false,
       body: sendFrameJson(event, 422, {
         failureKind: "unsupported",
-        error:
-          "Frame extraction is not available for legacy Loom embed imports.",
+        error: embedFramesUnavailableReason(embedProvider),
         nextStep:
-          "This clip has an embedded Loom player instead of a Clips-hosted video file. Open the embedded player for visual review, or reimport the video into Clips before requesting frames.",
+          embedProvider === "youtube"
+            ? "Do not retry this frame request. Read the transcript around the moment instead (apis.transcript), or open the clip to watch it in YouTube's player."
+            : "This clip has an embedded Loom player instead of a Clips-hosted video file. Open the embedded player for visual review, or reimport the video into Clips before requesting frames.",
       }),
     };
   }

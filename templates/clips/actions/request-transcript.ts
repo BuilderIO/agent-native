@@ -5,7 +5,7 @@ import { resolveHasBuilderGatewayCredential } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import { transcribeWithBuilder } from "@agent-native/core/transcription/builder";
-import { and, eq, or } from "drizzle-orm";
+import { and, eq, isNull, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -15,6 +15,10 @@ import {
   getCurrentOwnerEmail,
   ownerEmailMatches,
 } from "../server/lib/recordings.js";
+import {
+  hasTranscriptContent,
+  saveTranscriptVersion,
+} from "../server/lib/transcript-versions.js";
 import { isBuilderCreditsExhaustedMessage } from "../shared/builder-credits.js";
 import { normalizeLoomShareUrl } from "../shared/loom.js";
 import { isAutoTitleReplaceable } from "../shared/title-source.js";
@@ -54,7 +58,10 @@ import {
   fetchLoomTranscript,
   loomTranscriptUnavailableMessage,
 } from "./lib/loom-transcript.js";
-import { isLoomRecording } from "./lib/native-media.js";
+import {
+  assertTranscribableRecordingMedia,
+  isLoomRecording,
+} from "./lib/native-media.js";
 import { isLikelyMismatchedTranscriptLanguage } from "./lib/provider-transcript.js";
 import { prepareRecordingTranscriptionAudio } from "./lib/recording-audio-source.js";
 import regenerateSummary from "./regenerate-summary.js";
@@ -72,7 +79,10 @@ type RecordingMediaRow = {
   durationMs?: number | null;
 };
 
-type StartedFromTranscript = { importId: string | null };
+type StartedFromTranscript = {
+  importId: string | null;
+  updatedAt: string | null;
+};
 
 function recordingTrackingSource(
   ownerEmail: string,
@@ -1023,11 +1033,12 @@ const requestTranscriptAction = defineAction({
       ),
   }),
   run: async (args, context?: ActionRunContext) => {
-    await assertAccess("recording", args.recordingId, "editor");
+    const access = await assertAccess("recording", args.recordingId, "editor");
 
     const db = getDb();
 
     if (context?.caller === "tool" || context?.caller === "frontend") {
+      assertTranscribableRecordingMedia(access.resource);
       const [existingTranscript] = await db
         .select({
           status: schema.recordingTranscripts.status,
@@ -1154,6 +1165,7 @@ const requestTranscriptAction = defineAction({
               args.replaceImportId !== undefined
                 ? args.replaceImportId
                 : (existingNativeTranscript?.importId ?? null),
+            updatedAt: existingNativeTranscript?.updatedAt ?? null,
           }
         : undefined;
     if (args.retryAttempt !== undefined) {
@@ -1190,6 +1202,11 @@ const requestTranscriptAction = defineAction({
         });
       }
     }
+
+    // Past here the transcript comes from the recording's audio. A ready
+    // transcript, such as an imported one on a YouTube clip, was kept above,
+    // so the follow-up job import-transcript queues still fills its summary.
+    assertTranscribableRecordingMedia(access.resource);
 
     if (
       !args.force &&
@@ -1598,6 +1615,26 @@ async function upsertTranscriptRow(
     expectedMediaUpdatedAt = recording.mediaUpdatedAt;
   }
 
+  const retryCount = row.status === "ready" ? 0 : (row.retryCount ?? undefined);
+  const updatedAt = new Date().toISOString();
+  const t = schema.recordingTranscripts;
+  const set = {
+    ownerEmail: row.ownerEmail,
+    status: row.status,
+    failureReason: row.failureReason,
+    failureCode: row.status === "failed" ? (row.failureCode ?? null) : null,
+    ...(row.language ? { language: row.language } : {}),
+    ...(row.segmentsJson ? { segmentsJson: row.segmentsJson } : {}),
+    ...(row.fullText !== undefined ? { fullText: row.fullText } : {}),
+    ...(retryCount !== undefined ? { retryCount } : {}),
+    ...(row.replaceTranscript ? { source: null, importId: null } : {}),
+    updatedAt,
+  };
+  const replaceImportId = row.replaceTranscript?.importId;
+  const replaceable = replaceImportId
+    ? or(notImportedTranscript(), eq(t.importId, replaceImportId))
+    : notImportedTranscript();
+
   return db.transaction(async (tx) => {
     const [locked] = await tx
       .select({ id: schema.recordings.id })
@@ -1619,59 +1656,74 @@ async function upsertTranscriptRow(
       );
     }
 
-    const t = schema.recordingTranscripts;
-    const [existing] = await tx
-      .select({ recordingId: t.recordingId })
-      .from(t)
-      .where(eq(t.recordingId, row.recordingId))
-      .limit(1);
-    const retryCount =
-      row.status === "ready" ? 0 : (row.retryCount ?? undefined);
-    const updatedAt = new Date().toISOString();
-    const set = {
-      ownerEmail: row.ownerEmail,
-      status: row.status,
-      failureReason: row.failureReason,
-      failureCode: row.status === "failed" ? (row.failureCode ?? null) : null,
-      ...(row.language ? { language: row.language } : {}),
-      ...(row.segmentsJson ? { segmentsJson: row.segmentsJson } : {}),
-      ...(row.fullText !== undefined ? { fullText: row.fullText } : {}),
-      ...(retryCount !== undefined ? { retryCount } : {}),
-      ...(row.replaceTranscript ? { source: null, importId: null } : {}),
-      updatedAt,
-    };
-    const replaceImportId = row.replaceTranscript?.importId;
-    const replaceable = replaceImportId
-      ? or(notImportedTranscript(), eq(t.importId, replaceImportId))
-      : notImportedTranscript();
-
-    if (existing) {
-      const updated = await tx
-        .update(t)
-        .set(set)
-        .where(and(eq(t.recordingId, row.recordingId), replaceable))
+    const lockCurrent = () =>
+      tx
+        .select()
+        .from(t)
+        .where(eq(t.recordingId, row.recordingId))
+        .for("update")
+        .then((rows) => rows[0]);
+    let current = await lockCurrent();
+    if (!current) {
+      const inserted = await tx
+        .insert(t)
+        .values({
+          recordingId: row.recordingId,
+          ownerEmail: row.ownerEmail,
+          language: row.language ?? "en",
+          segmentsJson: row.segmentsJson ?? "[]",
+          fullText: row.fullText ?? "",
+          status: row.status,
+          failureReason: row.failureReason,
+          failureCode:
+            row.status === "failed" ? (row.failureCode ?? null) : null,
+          retryCount: retryCount ?? 0,
+          createdAt: row.now,
+          updatedAt,
+        })
+        .onConflictDoNothing({ target: t.recordingId })
         .returning({ recordingId: t.recordingId });
-      return updated.length > 0;
+      if (inserted.length > 0) return true;
+      // An import or another pass created the row since the read; it takes
+      // the same guarded update as any existing row.
+      current = await lockCurrent();
+      if (!current) return false;
     }
-    // An import can create the row at any point; its guarded upsert still wins.
-    const inserted = await tx
-      .insert(t)
-      .values({
-        recordingId: row.recordingId,
-        ownerEmail: row.ownerEmail,
-        language: row.language ?? "en",
-        segmentsJson: row.segmentsJson ?? "[]",
-        fullText: row.fullText ?? "",
-        status: row.status,
-        failureReason: row.failureReason,
-        failureCode: row.status === "failed" ? (row.failureCode ?? null) : null,
-        retryCount: retryCount ?? 0,
-        createdAt: row.now,
-        updatedAt,
-      })
-      .onConflictDoUpdate({ target: t.recordingId, set, setWhere: replaceable })
+    const updated = await tx
+      .update(t)
+      .set(set)
+      .where(
+        and(
+          eq(t.recordingId, row.recordingId),
+          replaceable,
+          row.replaceTranscript
+            ? row.replaceTranscript.updatedAt === null
+              ? isNull(t.updatedAt)
+              : eq(t.updatedAt, row.replaceTranscript.updatedAt)
+            : undefined,
+        ),
+      )
       .returning({ recordingId: t.recordingId });
-    return inserted.length > 0;
+    if (updated.length === 0) return false;
+    // An explicit regenerate replaces the whole transcript, like an import,
+    // so it always keeps the one it replaces: the same words can still carry
+    // an imported transcript's timings, speakers, language and source. Other
+    // writes keep one only when they take its words away, by replacing them
+    // or hiding them behind another status; rewriting only the cue shapes of
+    // the same words replaces nothing.
+    if (
+      hasTranscriptContent(current) &&
+      (row.replaceTranscript ||
+        set.status !== "ready" ||
+        (set.fullText !== undefined &&
+          set.fullText.trim() !== current.fullText.trim()))
+    ) {
+      await saveTranscriptVersion(tx, current, {
+        reason: row.replaceTranscript ? "regenerate" : "automatic",
+        replacedBy: null,
+      });
+    }
+    return true;
   });
 }
 

@@ -205,6 +205,7 @@ import {
 } from "../shared/test-traffic.js";
 import type { TrackingMeta } from "../tracking/registry.js";
 import { actionPreparationContinuationNote } from "./action-continuation-guidance.js";
+import { agentErrorDetails } from "./action-error-details.js";
 import {
   drainAgentWarnings,
   formatAgentWarningsForToolResult,
@@ -9380,6 +9381,7 @@ export async function runAgentLoop(opts: {
         // handler returned does not.
         let toolResultLost = false;
         let toolErrorCode: string | undefined;
+        let toolErrorDetailsLine = "";
         let mcpApp:
           | import("../mcp-client/app-result.js").AgentMcpAppPayload
           | undefined;
@@ -9785,6 +9787,7 @@ export async function runAgentLoop(opts: {
           toolErrorCode = isActionContractError(err)
             ? err.errorCode
             : undefined;
+          toolErrorDetailsLine = agentErrorDetails(err)?.line ?? "";
           result = signal.aborted
             ? INTERRUPTED_TOOL_RESULT_MARKER
             : thrownToolResult(err);
@@ -9799,7 +9802,13 @@ export async function runAgentLoop(opts: {
         if (isError) {
           receipt = undefined;
           if (result !== INTERRUPTED_TOOL_RESULT_MARKER) {
+            // Details go on after the loop breakers and the precondition
+            // stop read the result: a retry id that changes on every attempt
+            // must not make the same failure look like a new one.
             result = finalizeToolErrorResult(result);
+            if (toolErrorDetailsLine) {
+              result = `${result}\n${toolErrorDetailsLine}`;
+            }
           }
         } else {
           fileMutation = actionEntry.fileMutationProof?.(toolCall.input);

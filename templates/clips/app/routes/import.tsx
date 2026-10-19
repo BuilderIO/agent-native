@@ -5,6 +5,7 @@ import {
 import { callAction, getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { AgentMark } from "@agent-native/toolkit/app/shared";
+import { isYouTubeUrl } from "@shared/youtube";
 import {
   IconArrowLeft,
   IconCheck,
@@ -173,6 +174,9 @@ export default function ImportRoute() {
       event.preventDefault();
       const url = loomUrl.trim();
       if (!url || busy) return;
+      const failureTitle = isYouTubeUrl(url)
+        ? t("recordRoute.couldNotImportVideo")
+        : t("recordRoute.couldNotImportLoom");
 
       setLoomError(null);
       setPhase("importing");
@@ -197,10 +201,11 @@ export default function ImportRoute() {
           recordingId?: string;
           status?: string;
           storageSetupRequired?: boolean;
+          provider?: string;
         };
         const recordingId = result?.recordingId;
         if (!recordingId) {
-          throw new Error(t("recordRoute.couldNotImportLoom"));
+          throw new Error(failureTitle);
         }
 
         clearTimers();
@@ -223,7 +228,11 @@ export default function ImportRoute() {
         await copyRecordingLink(recordingId);
         await writeNavigateAppState(recordingId);
 
-        completeImportToast(t("recordRoute.loomImported"));
+        completeImportToast(
+          result.provider === "youtube"
+            ? t("recordRoute.youtubeImported")
+            : t("recordRoute.loomImported"),
+        );
         setPhase("done");
         timeoutsRef.current.push(
           setTimeout(() => setPhase("leaving"), 1900),
@@ -236,9 +245,9 @@ export default function ImportRoute() {
         const message =
           err instanceof Error
             ? userFacingActionErrorMessage(err.message)
-            : t("recordRoute.couldNotImportLoom");
+            : failureTitle;
         setLoomError(message);
-        failImportToast(t("recordRoute.couldNotImportLoom"), {
+        failImportToast(failureTitle, {
           description: message,
           duration: 12_000,
         });

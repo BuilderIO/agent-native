@@ -167,6 +167,53 @@ describe("hosted Clips storage mode pinning", () => {
     expect(mockReserveHostedClipAllowance).not.toHaveBeenCalled();
   });
 
+  it("refuses a file over the hosted limit before reserving a grant", async () => {
+    state.activeProvider = null;
+    mockGetHostedClipAllowanceSnapshot.mockResolvedValue({
+      status: "available",
+      remainingCount: 3,
+      denialReason: null,
+    });
+    const resolveWithSize = (sizeBytes: number) =>
+      resolveClipsVideoStorage({
+        intent: "new",
+        recordingId: "recording-1",
+        email: "owner@example.com",
+        sizeBytes,
+      });
+
+    await expect(resolveWithSize(250 * 1024 * 1024 + 1)).rejects.toMatchObject({
+      statusCode: 413,
+      errorCode: "upload_too_large",
+      // One byte over still reads as over the limit, not as the limit itself.
+      message: expect.stringMatching(
+        /250\.1 MB.*free hosted storage takes clips up to 250 MB.*up to 2 GB/,
+      ),
+      details: {
+        sizeBytes: 250 * 1024 * 1024 + 1,
+        maxUploadBytes: 250 * 1024 * 1024,
+        storageMode: "hosted",
+      },
+    });
+    expect(mockReserveHostedClipAllowance).not.toHaveBeenCalled();
+
+    await expect(resolveWithSize(250 * 1024 * 1024)).resolves.toMatchObject({
+      mode: "hosted",
+    });
+    expect(mockReserveHostedClipAllowance).toHaveBeenCalledOnce();
+  });
+
+  it("does not apply the hosted limit to the user's own storage", async () => {
+    await expect(
+      resolveClipsVideoStorage({
+        intent: "new",
+        recordingId: "recording-1",
+        email: "owner@example.com",
+        sizeBytes: 300 * 1024 * 1024,
+      }),
+    ).resolves.toMatchObject({ mode: "own", provider: state.activeProvider });
+  });
+
   it("keeps an in-flight hosted recording pinned after Builder connects", async () => {
     state.recordingRows = [{ storageMode: "hosted" }];
     state.activeProvider = { id: "builder", name: "Builder.io" };
