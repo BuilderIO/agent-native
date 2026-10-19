@@ -627,7 +627,7 @@ export function buildPastedSvgLayer(
   const width = round(size.width);
   const height = round(size.height);
   return {
-    html: `<div data-agent-native-node-id="${uniqueId("pasted-svg")}" data-agent-native-layer-name="${escapeAttribute(name)}" data-an-primitive="frame" style="position:absolute;width:${width}px;height:${height}px">${vectors.join("")}</div>`,
+    html: `<div data-agent-native-node-id="${uniqueId("pasted-svg")}" data-agent-native-layer-name="${escapeAttribute(name)}" data-an-primitive="frame" data-an-svg-vector-group="" style="position:absolute;width:${width}px;height:${height}px">${vectors.join("")}</div>`,
     width,
     height,
   };

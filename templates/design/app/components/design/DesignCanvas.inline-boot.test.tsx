@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 
 import { SESSION_REPLAY_IFRAME_PROBE } from "@agent-native/core/client/host";
-import { act } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -9,6 +10,13 @@ import { DesignCanvas } from "./DesignCanvas";
 
 let container: HTMLDivElement;
 let root: Root;
+let queryClient: QueryClient;
+
+function renderWithQueryClient(children: ReactNode) {
+  root.render(
+    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>,
+  );
+}
 
 beforeEach(() => {
   (
@@ -25,6 +33,7 @@ beforeEach(() => {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
+  queryClient = new QueryClient();
 });
 
 afterEach(async () => {
@@ -38,7 +47,7 @@ describe("DesignCanvas inline boot", () => {
   it("reports an inline srcdoc document booted once it loads", async () => {
     const onBootReady = vi.fn();
     await act(async () => {
-      root.render(
+      renderWithQueryClient(
         <DesignCanvas
           content="<!doctype html><html><body><h1>Inline</h1></body></html>"
           contentKey="screen-inline"
@@ -78,7 +87,7 @@ describe("DesignCanvas inline boot", () => {
     );
     const onBootReady = vi.fn();
     await act(async () => {
-      root.render(
+      renderWithQueryClient(
         <DesignCanvas
           content="<!doctype html><html><body><h1>Inline</h1></body></html>"
           contentKey="screen-inline"

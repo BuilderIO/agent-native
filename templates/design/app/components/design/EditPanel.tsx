@@ -473,6 +473,7 @@ interface EditPanelProps {
     fileId: string,
     content: string,
     updatedAt?: string,
+    beforeContent?: string,
   ) => void;
   /**
    * Edits a file's HTML through the editor. A shader on a frame drawn on the

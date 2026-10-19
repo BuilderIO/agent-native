@@ -86,6 +86,10 @@ export type PastePlacement = "inside" | "after";
 export interface PastePlacementDecision {
   placement: PastePlacement;
   targetNodeId: string;
+  position?: { x: number; y: number };
+  positionError?:
+    | "paste-position-geometry-unavailable"
+    | "paste-position-geometry-invalid";
 }
 
 function resolvePastePlacement(
@@ -114,6 +118,7 @@ export function resolvePastePlacementForSelection(args: {
   content: string;
   source?: CodeLayerSource;
   selectedElement: ElementInfo | null | undefined;
+  point?: { x: number; y: number };
 }): PastePlacementDecision | null {
   if (!args.content || !args.selectedElement) return null;
   const projection = buildCodeLayerProjection(args.content, {
@@ -124,7 +129,46 @@ export function resolvePastePlacementForSelection(args: {
     args.selectedElement,
   );
   if (!node) return null;
-  return resolvePastePlacement(pasteTargetFromCodeLayerNode(node));
+  const decision = resolvePastePlacement(pasteTargetFromCodeLayerNode(node));
+  if (!args.point) return decision;
+  const container =
+    decision.placement === "inside"
+      ? node
+      : projection.nodes.find((candidate) => candidate.id === node.parentId);
+  const display =
+    decision.placement === "inside"
+      ? args.selectedElement.computedStyles?.display
+      : (args.selectedElement.parentDisplay ??
+        args.selectedElement.parentLayout?.display);
+  const flow = container ? describeFlowContainer(container).kind : "none";
+  if (
+    flow === "flex" ||
+    flow === "grid" ||
+    display === "flex" ||
+    display === "inline-flex" ||
+    display === "grid" ||
+    display === "inline-grid"
+  )
+    return decision;
+  const origin =
+    decision.placement === "inside"
+      ? args.selectedElement.boundingRect
+      : (args.selectedElement.positionContainingBlockOrigin ??
+        args.selectedElement.parentBoundingRect);
+  if (!origin)
+    return {
+      ...decision,
+      positionError: "paste-position-geometry-unavailable",
+    };
+  if (![origin.x, origin.y, args.point.x, args.point.y].every(Number.isFinite))
+    return { ...decision, positionError: "paste-position-geometry-invalid" };
+  return {
+    ...decision,
+    position: {
+      x: args.point.x - origin.x,
+      y: args.point.y - origin.y,
+    },
+  };
 }
 
 export interface PasteSourceAnchor {

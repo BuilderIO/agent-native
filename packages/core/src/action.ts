@@ -1809,7 +1809,23 @@ function zodDefToJsonSchema(def: any): any {
   }
 
   if (type === "literal") {
-    return { type: typeof def.value, enum: [def.value] };
+    const values = Array.isArray(def.values)
+      ? def.values
+      : def.values instanceof Set
+        ? [...def.values]
+        : [def.value];
+    const jsonTypeOf = (value: unknown) =>
+      value === null ? "null" : typeof value;
+    const uniqueTypes = [...new Set(values.map(jsonTypeOf))];
+    if (uniqueTypes.length === 1) {
+      return { type: uniqueTypes[0], enum: values };
+    }
+    return {
+      anyOf: values.map((value: unknown) => ({
+        type: jsonTypeOf(value),
+        enum: [value],
+      })),
+    };
   }
 
   if (type === "array") {

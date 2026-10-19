@@ -47,7 +47,13 @@ import {
   pageHasWebMcpHost,
 } from "../design-editor-shared";
 import { isCurrentRuntimeLayerSnapshot } from "../export-snapshot-frame";
+import {
+  captureNativeCurrentFramePng,
+  NativeCurrentFramePngError,
+} from "../native-current-frame-png";
 import { NativeExportRenderError } from "../native-export-render";
+import { uploadNativePngAttachment } from "../native-png-attachment-client";
+import { NativePngEncodingError } from "../native-png-encoding";
 import {
   formatPendingVisualStylePrompt,
   formatVisualEditClipboardPrompt,
@@ -55,6 +61,11 @@ import {
   shouldShowPendingVisualStyleApply,
 } from "../pending-edits";
 import { PngCaptureError, type PngCaptureScope } from "../png-export-render";
+import {
+  NativeLocalExportClientError,
+  useNativeLocalExportRequests,
+  type NativeLocalExportHandler,
+} from "../use-native-local-export-requests";
 import { type VisualEditPromptResult } from "../VisualEditWebMcp";
 import type { EditorActiveScreenAndGeometry } from "./use-editor-active-screen-and-geometry";
 import type { EditorCanvasAndScreens } from "./use-editor-canvas-and-screens";
@@ -871,6 +882,8 @@ export function useEditorExportAndHandoff({
       runRenderPngBlob(
         {
           activeCanvasSourceType,
+          designId: id,
+          fileId: activeFile?.id,
           canEditDesign,
           canvasFrameGeometryById: exportCanvasFrameGeometryById,
           overviewScreens,
@@ -883,6 +896,8 @@ export function useEditorExportAndHandoff({
       ),
     [
       activeCanvasSourceType,
+      id,
+      activeFile?.id,
       canEditDesign,
       exportCanvasFrameGeometryById,
       overviewScreens,
@@ -976,6 +991,113 @@ export function useEditorExportAndHandoff({
       triggerBlobDownload,
     ],
   );
+
+  const handleNativeLocalPng = useCallback<NativeLocalExportHandler>(
+    async (request, signal) => {
+      const iframe = canvasIframeRef.current;
+      if (
+        !id ||
+        !iframe?.isConnected ||
+        viewMode !== "single" ||
+        activeCanvasSourceType !== "inline" ||
+        activeFile?.id !== request.fileId ||
+        iframe.clientWidth !== request.export.viewport.width ||
+        iframe.clientHeight !== request.export.viewport.height
+      )
+        throw new NativeLocalExportClientError(
+          "scene-unavailable",
+          "scene-unavailable",
+        );
+      const frameWindow = iframe.contentWindow as
+        | (Window & {
+            __agentNativeSourceProvenance?: { versionHash?: string };
+          })
+        | null;
+      if (
+        frameWindow?.__agentNativeSourceProvenance?.versionHash !==
+        request.expectedVersionHash
+      )
+        throw new NativeLocalExportClientError("source-stale", "source-stale");
+      if (pngExportingRef.current)
+        throw new NativeLocalExportClientError(
+          "client-unavailable",
+          "client-unavailable",
+        );
+      if (!request.ownerDocumentId)
+        throw new NativeLocalExportClientError(
+          "client-unavailable",
+          "client-unavailable",
+        );
+      pngExportingRef.current = true;
+      setPngExporting(true);
+      try {
+        const blob = await captureNativeCurrentFramePng({
+          designId: id,
+          fileId: request.fileId,
+          iframe,
+          pixelRatio: request.export.pixelRatio,
+          cropRect: request.export.cropRect,
+          selectedNodeIds: request.export.selectedNodeIds,
+          signal,
+        });
+        if (signal.aborted) throw signal.reason;
+        let attachment;
+        try {
+          attachment = await uploadNativePngAttachment({
+            designId: id,
+            requestId: request.requestId,
+            documentId: request.ownerDocumentId,
+            tabId: request.tabId,
+            png: blob,
+            signal,
+          });
+        } catch {
+          if (signal.aborted) throw signal.reason;
+          throw new NativeLocalExportClientError(
+            "upload-failed",
+            "upload-failed",
+          );
+        }
+        triggerBlobDownload(blob, fallbackExportName("png"));
+        return attachment;
+      } catch (error) {
+        if (error instanceof NativePngEncodingError)
+          throw new NativeLocalExportClientError("encode-failed", error.code);
+        if (error instanceof NativeCurrentFramePngError)
+          throw new NativeLocalExportClientError(
+            error.code === "source-stale"
+              ? "source-stale"
+              : error.code === "scene-unavailable"
+                ? "scene-unavailable"
+                : "render-failed",
+            error.code,
+          );
+        throw error;
+      } finally {
+        pngExportingRef.current = false;
+        setPngExporting(false);
+      }
+    },
+    [
+      activeCanvasSourceType,
+      activeFile?.id,
+      canvasIframeRef,
+      fallbackExportName,
+      id,
+      triggerBlobDownload,
+      viewMode,
+    ],
+  );
+
+  useNativeLocalExportRequests({
+    designId: id,
+    enabled: Boolean(id),
+    onExport: handleNativeLocalPng,
+    onError: (error) => {
+      console.error("Local native PNG failed:", error);
+      toast.error(t("designEditor.toasts.pngExportError"));
+    },
+  });
 
   const handleDownloadPdf = useCallback(
     async (

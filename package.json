@@ -278,7 +278,8 @@
       "@anthropic-ai/sdk": ">=0.90.0",
       "hono": ">=4.12.4",
       "@expo/dom-webview": "57.0.1",
-      "shell-quote": "1.9.0"
+      "shell-quote": "1.9.0",
+      "@electric-sql/pglite": "0.5.9"
     }
   }
 }
