@@ -243,6 +243,7 @@ export type VisualStyleProperty =
   | "order"
   | "align-self"
   | "align-items"
+  | "place-items"
   | "align-content"
   | "justify-content"
   | "justify-items"
@@ -787,6 +788,7 @@ const STYLE_PROPERTIES = [
   "order",
   "align-self",
   "align-items",
+  "place-items",
   "align-content",
   "justify-content",
   "justify-items",
@@ -6662,7 +6664,11 @@ function applyStyleEdit(
   );
   let content = replaceOrInsertAttribute(html, element, "style", nextStyle);
   if (isCrossAxisAlignmentProperty(property)) {
-    content = clearGeneratedFlexAlignmentMarker(content, element);
+    content = clearGeneratedFlexAlignmentMarker(
+      content,
+      element,
+      cssPropertyKey(property) === "place-items",
+    );
   }
   if (property === "fill" || property === "stroke") {
     content = removeAttributeFromHtml(
@@ -7086,7 +7092,11 @@ function applyStyleRemoveEdit(
     ? replaceOrInsertAttribute(html, styleElement, "style", nextStyle)
     : removeAttributeFromHtml(html, styleElement, "style");
   if (isCrossAxisAlignmentProperty(property)) {
-    content = clearGeneratedFlexAlignmentMarker(content, styleElement);
+    content = clearGeneratedFlexAlignmentMarker(
+      content,
+      styleElement,
+      cssPropertyKey(property) === "place-items",
+    );
   }
   if (route.kind === "vector-paint") {
     if (property === "stroke") {
@@ -10477,8 +10487,37 @@ function isCrossAxisAlignmentProperty(property: string): boolean {
 function clearGeneratedFlexAlignmentMarker(
   html: string,
   element: ParsedElement,
+  removeGeneratedDeclaration = false,
 ): string {
-  const updatedElement = parseHtmlElements(html)[element.index];
+  let updatedElement = parseHtmlElements(html)[element.index];
+  if (!updatedElement) return html;
+  if (removeGeneratedDeclaration) {
+    const generatedValue = attributeValue(
+      updatedElement,
+      GENERATED_FLEX_ALIGNMENT_ATTRIBUTE,
+    );
+    const style = attributeValue(updatedElement, "style");
+    const declarations = parseStyleDeclarations(style);
+    const currentAlignItems = effectiveStyleDeclarations(declarations).find(
+      (declaration) => cssPropertyKey(declaration.prop) === "align-items",
+    );
+    if (
+      generatedValue !== null &&
+      currentAlignItems &&
+      !currentAlignItems.important &&
+      currentAlignItems.value
+        .replace(/\s*!important\s*$/i, "")
+        .trim()
+        .toLowerCase() === generatedValue.trim().toLowerCase()
+    ) {
+      currentAlignItems.remove();
+      const nextStyle = serializeStyleDeclarations(declarations);
+      html = nextStyle.trim()
+        ? replaceOrInsertAttribute(html, updatedElement, "style", nextStyle)
+        : removeAttributeFromHtml(html, updatedElement, "style");
+      updatedElement = parseHtmlElements(html)[element.index];
+    }
+  }
   return updatedElement
     ? removeAttributeFromHtml(
         html,
