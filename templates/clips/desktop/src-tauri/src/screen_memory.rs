@@ -4073,40 +4073,112 @@ fn prune_events(app: &AppHandle, cutoff: DateTime<Utc>) -> Result<(), String> {
             ))
         })
         .collect::<Vec<_>>();
-    if let Some(active) = app
-        .state::<ScreenMemoryState>()
-        .inner
-        .lock()
-        .ok()
-        .and_then(|runtime| {
+    let state = app.state::<ScreenMemoryState>();
+    {
+        let runtime = state.inner.lock().map_err(|error| error.to_string())?;
+        coverage.extend(in_flight_event_coverage(
             runtime
                 .active
                 .as_ref()
-                .map(|active| active.started_at_iso.clone())
-        })
-        .and_then(|started_at| DateTime::parse_from_rfc3339(&started_at).ok())
-    {
-        coverage.push((active.with_timezone(&Utc), Utc::now()));
+                .map(|active| active.started_at_iso.as_str()),
+            runtime.suspended_active.as_ref().map(|suspended| {
+                (
+                    suspended.active.started_at_iso.as_str(),
+                    suspended.ended_at_iso.as_str(),
+                )
+            }),
+            Utc::now(),
+        )?);
     }
-    let state = app.state::<ScreenMemoryState>();
-    let _event_log = state.event_log.lock().map_err(|error| error.to_string())?;
-    prune_events_path(&path, cutoff, &coverage)
+    prune_events_path(&state.event_log, &path, cutoff, &coverage)
+}
+
+fn in_flight_event_coverage(
+    active_started_at: Option<&str>,
+    suspended_range: Option<(&str, &str)>,
+    now: DateTime<Utc>,
+) -> Result<Vec<(DateTime<Utc>, DateTime<Utc>)>, String> {
+    let parse = |value: &str| {
+        DateTime::parse_from_rfc3339(value)
+            .map(|value| value.with_timezone(&Utc))
+            .map_err(|error| format!("screen memory capture time invalid: {error}"))
+    };
+    let mut coverage = Vec::new();
+    if let Some(started_at) = active_started_at {
+        coverage.push((parse(started_at)?, now));
+    }
+    if let Some((started_at, ended_at)) = suspended_range {
+        coverage.push((parse(started_at)?, parse(ended_at)?));
+    }
+    Ok(coverage)
 }
 
 fn prune_events_path(
+    event_log: &Mutex<()>,
     path: &Path,
     cutoff: DateTime<Utc>,
     coverage: &[(DateTime<Utc>, DateTime<Utc>)],
 ) -> Result<(), String> {
-    let file = File::open(path).map_err(|e| format!("screen memory events open failed: {e}"))?;
-    let events = BufReader::new(file)
-        .lines()
-        .map(|line| {
-            let line = line.map_err(|e| format!("screen memory events read failed: {e}"))?;
-            serde_json::from_str::<ScreenMemoryEvent>(&line)
-                .map_err(|e| format!("screen memory event decode failed: {e}"))
-        })
-        .collect::<Result<Vec<_>, String>>()?;
+    let _event_log = event_log.lock().map_err(|error| error.to_string())?;
+    let file = match File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(format!("screen memory events open failed: {error}")),
+    };
+    prune_events_from_reader(BufReader::new(file), path, cutoff, coverage)
+}
+
+fn prune_events_from_reader(
+    mut reader: impl BufRead,
+    path: &Path,
+    cutoff: DateTime<Utc>,
+    coverage: &[(DateTime<Utc>, DateTime<Utc>)],
+) -> Result<(), String> {
+    let source_modified = std::fs::metadata(path)
+        .and_then(|metadata| metadata.modified())
+        .map_err(|error| format!("screen memory events modification time unavailable: {error}"))?;
+    let mut events = Vec::new();
+    let mut malformed = Vec::new();
+    loop {
+        let mut line = Vec::new();
+        let read = reader
+            .read_until(b'\n', &mut line)
+            .map_err(|error| format!("screen memory events read failed: {error}"))?;
+        if read == 0 {
+            break;
+        }
+        match serde_json::from_slice::<ScreenMemoryEvent>(&line) {
+            Ok(event) => events.push(event),
+            Err(_) => malformed.push(line),
+        }
+    }
+    if !malformed.is_empty() {
+        // The segment prefix gives quarantined records the same bounded orphan-file
+        // retention as interrupted captures, using the source log's last write time.
+        let quarantine = path.with_file_name(format!(
+            "segment-events-quarantine-{}-{}.jsonl",
+            Utc::now().timestamp_millis(),
+            SEGMENT_COUNTER.fetch_add(1, Ordering::Relaxed),
+        ));
+        let mut file = File::options()
+            .write(true)
+            .create_new(true)
+            .open(&quarantine)
+            .map_err(|error| format!("screen memory event quarantine failed: {error}"))?;
+        for line in &malformed {
+            file.write_all(line)
+                .map_err(|error| format!("screen memory event quarantine write failed: {error}"))?;
+        }
+        file.set_modified(source_modified)
+            .map_err(|error| format!("screen memory event quarantine timestamp failed: {error}"))?;
+        file.sync_all()
+            .map_err(|error| format!("screen memory event quarantine sync failed: {error}"))?;
+        eprintln!(
+            "[clips-tray] quarantined {} malformed Screen Memory events in {}",
+            malformed.len(),
+            quarantine.display(),
+        );
+    }
     let retained = retain_events_with_media_coverage(events, cutoff, coverage);
     let temporary_path = path.with_extension("jsonl.tmp");
     let mut file = File::create(&temporary_path)
@@ -4254,15 +4326,8 @@ fn delete_all_segments(app: &AppHandle) -> Result<ScreenMemoryDeleteResult, Stri
         remove_file_if_exists(&segment_metadata_path(app, &segment.id)?)?;
         deleted_segments += 1;
     }
-    for entry in std::fs::read_dir(&dir)
-        .map_err(|e| format!("screen memory directory read failed: {e}"))?
-        .flatten()
-    {
-        let path = entry.path();
-        if path.is_file() {
-            remove_file_if_exists(&path)?;
-        }
-    }
+    let event_log = state.as_ref().map(|state| &state.event_log);
+    clear_history_files(&dir, event_log)?;
     crate::rewind_chapters::clear(&dir)?;
     crate::rewind_clip::clear_preview_artifacts(app)?;
     if let Some(state) = state.as_ref() {
@@ -4275,6 +4340,23 @@ fn delete_all_segments(app: &AppHandle) -> Result<ScreenMemoryDeleteResult, Stri
         deleted_segments,
         deleted_bytes,
     })
+}
+
+fn clear_history_files(dir: &Path, event_log: Option<&Mutex<()>>) -> Result<(), String> {
+    let _event_log = event_log
+        .map(|event_log| event_log.lock().map_err(|error| error.to_string()))
+        .transpose()?;
+    for entry in std::fs::read_dir(dir)
+        .map_err(|error| format!("screen memory directory read failed: {error}"))?
+    {
+        let entry =
+            entry.map_err(|error| format!("screen memory directory entry failed: {error}"))?;
+        let path = entry.path();
+        if path.is_file() {
+            remove_file_if_exists(&path)?;
+        }
+    }
+    Ok(())
 }
 
 fn remove_file_if_exists(path: &Path) -> Result<(), String> {
@@ -4952,17 +5034,29 @@ command = "keep"
 
     #[test]
     fn event_pruning_keeps_the_original_log_when_a_later_line_is_unreadable() {
+        struct UnreadableTail;
+        impl std::io::Read for UnreadableTail {
+            fn read(&mut self, _buffer: &mut [u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::other("injected read failure"))
+            }
+        }
         let dir = retention_fixture_dir("unreadable-events");
         let path = dir.join(SCREEN_MEMORY_EVENTS_JSONL);
         let cutoff = DateTime::parse_from_rfc3339("2026-07-14T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
         let mut original = serde_json::to_vec(&event("2026-07-14T11:59:59Z")).unwrap();
-        original.extend_from_slice(b"\n\xff\n");
+        original.push(b'\n');
+        let first_line_len = original.len();
         original.extend_from_slice(&serde_json::to_vec(&event("2026-07-14T12:00:01Z")).unwrap());
         std::fs::write(&path, &original).unwrap();
 
-        let result = prune_events_path(
+        let reader = BufReader::new(std::io::Read::chain(
+            std::io::Cursor::new(&original[..first_line_len]),
+            UnreadableTail,
+        ));
+        let result = prune_events_from_reader(
+            reader,
             &path,
             cutoff,
             &[(cutoff, cutoff + ChronoDuration::hours(1))],
@@ -4971,22 +5065,74 @@ command = "keep"
         assert!(result.unwrap_err().contains("events read failed"));
         assert_eq!(std::fs::read(&path).unwrap(), original);
         assert!(!path.with_extension("jsonl.tmp").exists());
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
-    fn event_pruning_keeps_the_original_log_when_an_event_cannot_be_decoded() {
+    fn malformed_events_are_quarantined_without_blocking_retention() {
         let dir = retention_fixture_dir("invalid-events");
         let path = dir.join(SCREEN_MEMORY_EVENTS_JSONL);
-        let cutoff = Utc::now();
-        let original = b"{incomplete event}\n";
+        let cutoff = DateTime::parse_from_rfc3339("2026-07-14T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut original = serde_json::to_vec(&event("2026-07-14T11:59:59Z")).unwrap();
+        original.extend_from_slice(b"\n{incomplete event}\n\xff\n");
+        let mut expected = serde_json::to_vec(&event("2026-07-14T12:00:01Z")).unwrap();
+        expected.push(b'\n');
+        original.extend_from_slice(&expected);
         std::fs::write(&path, original).unwrap();
+        let source_modified = std::fs::metadata(&path).unwrap().modified().unwrap();
+        let event_log = Mutex::new(());
+        let coverage = [(cutoff, cutoff + ChronoDuration::hours(1))];
 
-        assert!(prune_events_path(&path, cutoff, &[])
-            .unwrap_err()
-            .contains("event decode failed"));
-        assert_eq!(std::fs::read(&path).unwrap(), original);
-        assert!(!path.with_extension("jsonl.tmp").exists());
+        prune_events_path(&event_log, &path, cutoff, &coverage).unwrap();
+
+        assert_eq!(std::fs::read(&path).unwrap(), expected);
+        let quarantines = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| {
+                path.file_name()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .starts_with("segment-events-quarantine-")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(quarantines.len(), 1);
+        let quarantine = &quarantines[0];
+        assert_eq!(
+            std::fs::metadata(quarantine).unwrap().modified().unwrap(),
+            source_modified
+        );
+        assert_eq!(
+            std::fs::read(quarantine).unwrap(),
+            b"{incomplete event}\n\xff\n"
+        );
+        prune_events_path(&event_log, &path, cutoff, &coverage).unwrap();
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2);
+        remove_orphaned_segment_files(
+            &dir,
+            std::time::SystemTime::now() - 8 * HOUR,
+            &BTreeSet::new(),
+        )
+        .unwrap();
+        assert!(quarantine.exists());
+        File::options()
+            .write(true)
+            .open(quarantine)
+            .unwrap()
+            .set_modified(std::time::SystemTime::now() - 9 * HOUR)
+            .unwrap();
+        remove_orphaned_segment_files(
+            &dir,
+            std::time::SystemTime::now() - 8 * HOUR,
+            &BTreeSet::new(),
+        )
+        .unwrap();
+        assert!(!quarantine.exists());
+        assert_eq!(std::fs::read(&path).unwrap(), expected);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -5004,6 +5150,7 @@ command = "keep"
         std::fs::write(&path, original).unwrap();
 
         prune_events_path(
+            &Mutex::new(()),
             &path,
             cutoff,
             &[(cutoff, cutoff + ChronoDuration::hours(1))],
@@ -5015,6 +5162,74 @@ command = "keep"
         assert_eq!(std::fs::read(&path).unwrap(), expected);
         assert!(!path.with_extension("jsonl.tmp").exists());
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn clear_history_waits_for_an_event_log_rewrite_before_removing_files() {
+        let dir = retention_fixture_dir("clear-during-rewrite");
+        let path = dir.join(SCREEN_MEMORY_EVENTS_JSONL);
+        let temporary_path = path.with_extension("jsonl.tmp");
+        std::fs::write(&path, b"old history").unwrap();
+        std::fs::write(&temporary_path, b"retained history").unwrap();
+        let event_log = Arc::new(Mutex::new(()));
+        let rewrite = event_log.lock().unwrap();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+        let clear_dir = dir.clone();
+        let clear_log = event_log.clone();
+        let clear = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            finished_tx
+                .send(clear_history_files(&clear_dir, Some(&clear_log)))
+                .unwrap();
+        });
+        started_rx.recv().unwrap();
+        assert!(matches!(
+            finished_rx.recv_timeout(Duration::from_millis(100)),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        ));
+        std::fs::rename(temporary_path, &path).unwrap();
+        drop(rewrite);
+        finished_rx
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap()
+            .unwrap();
+        clear.join().unwrap();
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn suspended_segment_events_remain_within_their_exact_capture_coverage() {
+        let cutoff = DateTime::parse_from_rfc3339("2026-07-14T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let coverage = in_flight_event_coverage(
+            None,
+            Some(("2026-07-14T12:01:00Z", "2026-07-14T12:05:00Z")),
+            cutoff + ChronoDuration::hours(1),
+        )
+        .unwrap();
+        let retained = retain_events_with_media_coverage(
+            vec![
+                event("2026-07-14T11:59:59Z"),
+                event("2026-07-14T12:03:00Z"),
+                event("2026-07-14T12:06:00Z"),
+            ],
+            cutoff,
+            &coverage,
+        );
+        assert_eq!(
+            retained
+                .iter()
+                .map(|event| event.captured_at.as_str())
+                .collect::<Vec<_>>(),
+            ["2026-07-14T12:03:00Z"]
+        );
+        assert!(
+            in_flight_event_coverage(None, Some(("invalid", "2026-07-14T12:05:00Z")), cutoff)
+                .is_err()
+        );
     }
 
     #[test]
