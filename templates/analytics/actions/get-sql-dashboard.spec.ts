@@ -45,6 +45,11 @@ vi.mock("../server/lib/dashboards-store", () => ({
   getDashboardForReview: mocks.getDashboardForReview,
 }));
 
+vi.mock("@agent-native/core/settings", () => ({
+  getOrgSetting: vi.fn(async () => null),
+  getUserSetting: vi.fn(async () => null),
+}));
+
 vi.mock("../server/lib/dashboard-seeds", () => ({
   loadDashboardSeed: mocks.loadDashboardSeed,
 }));
@@ -177,6 +182,20 @@ describe("get-sql-dashboard seed fallback", () => {
     expect(result.name).toBe("Funnel");
     expect(result.builtin.id).toBe("skills-cli-funnel");
   });
+
+  it.each(["skills-cli-funnel", "builtin-risk-meeting"])(
+    "rejects hidden saved fallback when builtin %s is unavailable",
+    async (id) => {
+      mocks.getDashboard.mockResolvedValue({
+        id,
+        kind: "sql",
+        config: { name: "Stale hidden dashboard", panels: [] },
+        hiddenBy: "analytics:builtin-dashboards",
+      });
+      mocks.loadDashboardSeed.mockReturnValue(null);
+      await expect(getSqlDashboard.run({ id })).rejects.toThrow(/not found/i);
+    },
+  );
 
   it("returns a saved empty dashboard instead of rehydrating its seed", async () => {
     mocks.getDashboard.mockResolvedValue({

@@ -1647,10 +1647,13 @@ export async function persistDashboardVisibilityChange(
         tx,
       );
     }
-    await tx
+    const mutation = await tx
       .update(schema.dashboards)
       .set(update)
-      .where(eq(schema.dashboards.id, resource.id));
+      .where(
+        and(dashboardWritableFilter(), eq(schema.dashboards.id, resource.id)),
+      );
+    assertDashboardMutationApplied(mutation, resource.id);
   });
 }
 
@@ -1773,12 +1776,15 @@ export async function createDashboardRevisionSnapshot(
   await assertDashboardEditable(dashboardId, ctx);
   const dashboard = await getDashboard(dashboardId, ctx);
   if (!dashboard) return null;
-  return snapshotDashboardRevision(
-    getDb(),
-    dashboard,
-    ctx,
-    chatContext ?? requestRevisionChatContext(),
-  );
+  return (getDb() as any).transaction(async (tx: any) => {
+    await lockWritableDashboard(tx, dashboardId);
+    return snapshotDashboardRevision(
+      tx,
+      dashboard,
+      ctx,
+      chatContext ?? requestRevisionChatContext(),
+    );
+  });
 }
 
 /**
@@ -1803,7 +1809,7 @@ export async function createDashboardRevisionSnapshot(
  */
 function assertNotBuiltinDashboard(
   id: string,
-  existing: DashboardRecord | null,
+  existing: Pick<DashboardRecord, "hiddenBy"> | null,
 ): void {
   const builtin = existing
     ? existing.hiddenBy === BUILTIN_DASHBOARD_HIDDEN_BY
@@ -1814,6 +1820,34 @@ function assertNotBuiltinDashboard(
       { errorCode: "builtin_dashboard_read_only", statusCode: 409 },
     );
   }
+}
+
+/** The deploy pass preserves updatedAt, so version fencing alone cannot detect it. */
+export function dashboardWritableFilter() {
+  return sql`${schema.dashboards.hiddenBy} IS DISTINCT FROM ${BUILTIN_DASHBOARD_HIDDEN_BY}`;
+}
+
+export function assertDashboardMutationApplied(
+  result: unknown,
+  id: string,
+): void {
+  const affected = affectedRowCount(result);
+  if (affected === undefined) {
+    throw new Error(
+      "The Postgres dashboard mutation did not report an affected-row count.",
+    );
+  }
+  if (affected === 0) throw new DashboardConflictError(id);
+}
+
+async function lockWritableDashboard(db: any, id: string): Promise<void> {
+  const [row] = await db
+    .select({ id: schema.dashboards.id, hiddenBy: schema.dashboards.hiddenBy })
+    .from(schema.dashboards)
+    .where(eq(schema.dashboards.id, id))
+    .for("update");
+  if (!row) throw new DashboardConflictError(id);
+  assertNotBuiltinDashboard(id, row);
 }
 
 export interface DashboardUpsertOutcome {
@@ -1895,8 +1929,11 @@ async function upsertDashboardWithOutcome(
           .set(setValues)
           .where(
             and(
-              eq(schema.dashboards.id, id),
-              eq(schema.dashboards.updatedAt, observedUpdatedAt),
+              dashboardWritableFilter(),
+              and(
+                eq(schema.dashboards.id, id),
+                eq(schema.dashboards.updatedAt, observedUpdatedAt),
+              ),
             ),
           )
           .returning();
@@ -1924,7 +1961,7 @@ async function upsertDashboardWithOutcome(
         const [row] = await writeDb
           .update(schema.dashboards)
           .set(setValues)
-          .where(eq(schema.dashboards.id, id))
+          .where(and(dashboardWritableFilter(), eq(schema.dashboards.id, id)))
           .returning();
         if (!row) {
           throw new Error(
@@ -2201,9 +2238,12 @@ export async function certifyDashboardWithRetry(
       })
       .where(
         and(
-          eq(schema.dashboards.id, id),
-          eq(schema.dashboards.orgId, ctx.orgId),
-          eq(schema.dashboards.updatedAt, existing.updatedAt),
+          dashboardWritableFilter(),
+          and(
+            eq(schema.dashboards.id, id),
+            eq(schema.dashboards.orgId, ctx.orgId),
+            eq(schema.dashboards.updatedAt, existing.updatedAt),
+          ),
         ),
       );
     const affected = affectedRowCount(updateResult);
@@ -2383,8 +2423,11 @@ async function restoreDashboardRevisionAt(
       })
       .where(
         and(
-          eq(schema.dashboards.id, dashboardId),
-          eq(schema.dashboards.updatedAt, observedUpdatedAt),
+          dashboardWritableFilter(),
+          and(
+            eq(schema.dashboards.id, dashboardId),
+            eq(schema.dashboards.updatedAt, observedUpdatedAt),
+          ),
         ),
       );
     const affected = affectedRowCount(updateResult);
@@ -2441,10 +2484,11 @@ export async function archiveDashboard(
   });
   const db = getDb() as any;
   const now = nowIso();
-  await db
+  const mutation = await db
     .update(schema.dashboards)
     .set({ archivedAt: now, updatedAt: now, updatedBy: ctx.email })
-    .where(eq(schema.dashboards.id, id));
+    .where(and(dashboardWritableFilter(), eq(schema.dashboards.id, id)));
+  assertDashboardMutationApplied(mutation, id);
   const [row] = await db
     .select()
     .from(schema.dashboards)
@@ -2478,10 +2522,11 @@ export async function unarchiveDashboard(
   }
   const db = getDb() as any;
   const persist = async (writeDb: any) => {
-    await writeDb
+    const mutation = await writeDb
       .update(schema.dashboards)
       .set({ archivedAt: null, updatedAt: nowIso(), updatedBy: ctx.email })
-      .where(eq(schema.dashboards.id, id));
+      .where(and(dashboardWritableFilter(), eq(schema.dashboards.id, id)));
+    assertDashboardMutationApplied(mutation, id);
   };
   if (!existing.hiddenAt) {
     await db.transaction(async (tx: any) => {
@@ -2522,7 +2567,7 @@ export async function hideDashboard(
   });
   const db = getDb() as any;
   const now = nowIso();
-  await db
+  const mutation = await db
     .update(schema.dashboards)
     .set({
       hiddenAt: now,
@@ -2530,7 +2575,8 @@ export async function hideDashboard(
       updatedAt: now,
       updatedBy: ctx.email,
     })
-    .where(eq(schema.dashboards.id, id));
+    .where(and(dashboardWritableFilter(), eq(schema.dashboards.id, id)));
+  assertDashboardMutationApplied(mutation, id);
   const [row] = await db
     .select()
     .from(schema.dashboards)
@@ -2573,10 +2619,11 @@ export async function unhideDashboard(
     patch.ownerEmail = ctx.email;
   }
   const persist = async (writeDb: any) => {
-    await writeDb
+    const mutation = await writeDb
       .update(schema.dashboards)
       .set(patch)
-      .where(eq(schema.dashboards.id, id));
+      .where(and(dashboardWritableFilter(), eq(schema.dashboards.id, id)));
+    assertDashboardMutationApplied(mutation, id);
   };
   if (!existing.archivedAt) {
     await db.transaction(async (tx: any) => {
@@ -2615,7 +2662,10 @@ export async function removeDashboard(
     orgId: ctx.orgId ?? undefined,
   });
   const db = getDb() as any;
-  await db.delete(schema.dashboards).where(eq(schema.dashboards.id, id));
+  const mutation = await db
+    .delete(schema.dashboards)
+    .where(and(dashboardWritableFilter(), eq(schema.dashboards.id, id)));
+  assertDashboardMutationApplied(mutation, id);
   await db
     .delete(schema.dashboardRevisions)
     .where(eq(schema.dashboardRevisions.dashboardId, id));
@@ -3599,12 +3649,8 @@ export async function saveDashboardView(
   await assertDashboardEditable(dashboardId, ctx);
   const db = getDb() as any;
   const row = await db.transaction(async (tx: any) => {
+    await lockWritableDashboard(tx, dashboardId);
     if (view.isDefault) {
-      await tx
-        .select({ id: schema.dashboards.id })
-        .from(schema.dashboards)
-        .where(eq(schema.dashboards.id, dashboardId))
-        .for("update");
       await tx
         .update(schema.dashboardViews)
         .set({ isDefault: false })
@@ -3693,14 +3739,17 @@ export async function deleteDashboardView(
 ): Promise<void> {
   await assertDashboardEditable(dashboardId, ctx);
   const db = getDb() as any;
-  await db
-    .delete(schema.dashboardViews)
-    .where(
-      and(
-        eq(schema.dashboardViews.id, viewId),
-        eq(schema.dashboardViews.dashboardId, dashboardId),
-      ),
-    );
+  await db.transaction(async (tx: any) => {
+    await lockWritableDashboard(tx, dashboardId);
+    await tx
+      .delete(schema.dashboardViews)
+      .where(
+        and(
+          eq(schema.dashboardViews.id, viewId),
+          eq(schema.dashboardViews.dashboardId, dashboardId),
+        ),
+      );
+  });
   const dash = await getDashboard(dashboardId, ctx);
   if (dash) {
     recordScopedChange(

@@ -206,7 +206,7 @@ async function readInstalls(
   ]);
   const installs: Record<string, BuiltinDashboardInstall> = {};
   for (const [id, install] of Object.entries(personal ?? {})) {
-    if (installedPersonally(id) || !scope.orgId) {
+    if (installedPersonally(id) || id === "google-analytics" || !scope.orgId) {
       installs[id] = install as BuiltinDashboardInstall;
     }
   }
@@ -266,7 +266,11 @@ export async function installBuiltinDashboardOnce(
   scope: Scope,
   builtinId: string,
 ): Promise<void> {
-  if ((await readInstalls(scope))[builtinId]) return;
+  const installs =
+    scope.orgId && !installedPersonally(builtinId)
+      ? await getOrgSetting(scope.orgId, BUILTIN_DASHBOARD_INSTALLS_KEY)
+      : await getUserSetting(scope.email, BUILTIN_DASHBOARD_INSTALLS_KEY);
+  if (installs?.[builtinId]) return;
   await recordBuiltinDashboardInstall(scope, builtinId, {});
 }
 

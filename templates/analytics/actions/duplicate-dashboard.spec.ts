@@ -101,6 +101,25 @@ describe("duplicate-dashboard", () => {
     expect(result).toMatchObject({ name: "Mine", copiedFrom: "sales" });
   });
 
+  it.each(["demo-node-exporter-0a1b2c3d", "builtin-risk-meeting"])(
+    "does not duplicate hidden %s when its builtin is unavailable",
+    async (id) => {
+      mocks.getDashboard.mockResolvedValue({
+        id,
+        kind: "sql",
+        title: "Stale copy",
+        config: { name: "Stale copy", panels: [] },
+        hiddenBy: "analytics:builtin-dashboards",
+      });
+      mocks.loadBuiltinDashboard.mockResolvedValue(null);
+      await expect(duplicateDashboard.run({ id })).rejects.toThrow(
+        /not found/i,
+      );
+      expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+      expect(mocks.listDashboardSummaries).not.toHaveBeenCalled();
+    },
+  );
+
   it("fails for a dashboard the caller can't read", async () => {
     mocks.loadBuiltinDashboard.mockResolvedValue(null);
 

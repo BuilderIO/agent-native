@@ -56,6 +56,7 @@ export interface BuiltinDashboardPassResult {
   hidden: number;
   kept: number;
   alreadyChecked: number;
+  skippedConcurrent: number;
   keptByReason: Partial<Record<KeepReason, number>>;
   byBuiltin: Record<string, { hidden: number; kept: number }>;
 }
@@ -221,6 +222,7 @@ export async function runBuiltinDashboardPass(
     hidden: 0,
     kept: 0,
     alreadyChecked: 0,
+    skippedConcurrent: 0,
     keptByReason: {},
     byBuiltin: {},
   };
@@ -299,6 +301,65 @@ export async function runBuiltinDashboardPass(
       if (refs.notes.has(row.id)) reasons.push("data_notes");
 
       const outcome = reasons.length === 0 ? "hidden" : "kept";
+      const persisted =
+        dryRun ||
+        (await db.transaction(async (tx: any) => {
+          if (outcome === "hidden") {
+            const hidden = await tx
+              .update(schema.dashboards)
+              .set({
+                hiddenAt: new Date().toISOString(),
+                hiddenBy: BUILTIN_DASHBOARD_HIDDEN_BY,
+              })
+              .where(
+                and(
+                  eq(schema.dashboards.id, row.id),
+                  eq(schema.dashboards.updatedAt, row.updatedAt),
+                  isNull(schema.dashboards.hiddenAt),
+                ),
+              )
+              .returning({ id: schema.dashboards.id });
+            // Somebody saved it mid-pass; the next deploy decides it afresh.
+            if (hidden.length === 0) return false;
+
+            // Adopt bindings only after locking an unchanged, pristine copy.
+            if (install && builtinId !== BUILTIN_DEMO_DASHBOARD_ID) {
+              const scope = { email: row.ownerEmail, orgId: row.orgId ?? null };
+              if (install.bindings || install.programIds) {
+                if (!(await loadBuiltinDashboard(builtinId, scope))) {
+                  await recordBuiltinDashboardInstall(
+                    scope,
+                    builtinId,
+                    install,
+                  );
+                }
+              } else if (
+                (SEED_BUILTIN_DASHBOARD_IDS as readonly string[]).includes(
+                  builtinId,
+                )
+              ) {
+                await installBuiltinDashboardOnce(scope, builtinId);
+              }
+            }
+          }
+          await tx
+            .insert(schema.analyticsBuiltinDashboardChecks)
+            .values({
+              dashboardId: row.id,
+              builtinId,
+              outcome,
+              reasons: JSON.stringify(reasons),
+              ownerEmail: row.ownerEmail,
+              orgId: row.orgId ?? null,
+              rowUpdatedAt: row.updatedAt,
+            })
+            .onConflictDoNothing();
+          return true;
+        }));
+      if (!persisted) {
+        result.skippedConcurrent++;
+        continue;
+      }
       result.checked++;
       result[outcome]++;
       const tally = (result.byBuiltin[builtinId] ??= { hidden: 0, kept: 0 });
@@ -306,58 +367,6 @@ export async function runBuiltinDashboardPass(
       for (const reason of reasons) {
         result.keptByReason[reason] = (result.keptByReason[reason] ?? 0) + 1;
       }
-      if (dryRun) continue;
-
-      // Kept copies can contain private or edited bindings; only adopt pristine copies.
-      if (
-        outcome === "hidden" &&
-        install &&
-        builtinId !== BUILTIN_DEMO_DASHBOARD_ID
-      ) {
-        const scope = { email: row.ownerEmail, orgId: row.orgId ?? null };
-        if (install.bindings || install.programIds) {
-          if (!(await loadBuiltinDashboard(builtinId, scope))) {
-            await recordBuiltinDashboardInstall(scope, builtinId, install);
-          }
-        } else if (
-          (SEED_BUILTIN_DASHBOARD_IDS as readonly string[]).includes(builtinId)
-        ) {
-          await installBuiltinDashboardOnce(scope, builtinId);
-        }
-      }
-
-      await db.transaction(async (tx: any) => {
-        if (outcome === "hidden") {
-          const hidden = await tx
-            .update(schema.dashboards)
-            .set({
-              hiddenAt: new Date().toISOString(),
-              hiddenBy: BUILTIN_DASHBOARD_HIDDEN_BY,
-            })
-            .where(
-              and(
-                eq(schema.dashboards.id, row.id),
-                eq(schema.dashboards.updatedAt, row.updatedAt),
-                isNull(schema.dashboards.hiddenAt),
-              ),
-            )
-            .returning({ id: schema.dashboards.id });
-          // Somebody saved it mid-pass; the next deploy decides it afresh.
-          if (hidden.length === 0) return;
-        }
-        await tx
-          .insert(schema.analyticsBuiltinDashboardChecks)
-          .values({
-            dashboardId: row.id,
-            builtinId,
-            outcome,
-            reasons: JSON.stringify(reasons),
-            ownerEmail: row.ownerEmail,
-            orgId: row.orgId ?? null,
-            rowUpdatedAt: row.updatedAt,
-          })
-          .onConflictDoNothing();
-      });
     }
   }
   return result;

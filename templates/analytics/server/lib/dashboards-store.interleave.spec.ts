@@ -85,6 +85,7 @@ const state = vi.hoisted(() => ({
   revisions: [] as any[],
   analysisRevisions: [] as any[],
   otherDashboards: [] as DashboardRow[],
+  hideBeforeNextMutation: false,
   loseNextCas: false,
   alwaysLoseCas: false,
   updateAttempts: 0,
@@ -93,6 +94,13 @@ const state = vi.hoisted(() => ({
   legacySettings: null as Record<string, unknown> | null,
   writes: [] as Array<{ table: string; inTransaction: boolean }>,
 }));
+
+function hideBeforeMutation() {
+  if (!state.hideBeforeNextMutation) return;
+  state.hideBeforeNextMutation = false;
+  state.dashboard.hiddenAt = "2026-10-01T00:00:00.000Z";
+  state.dashboard.hiddenBy = "analytics:builtin-dashboards";
+}
 
 function columnName(column: unknown): string | null {
   if (!column || typeof column !== "object") return null;
@@ -106,7 +114,13 @@ function matchesRow(predicate: unknown, row: Record<string, unknown>): boolean {
     column?: unknown;
     value?: unknown;
     conditions?: unknown[];
+    strings?: string[];
+    values?: unknown[];
   };
+  if (p.kind === "sql" && p.strings?.join("").includes("IS DISTINCT FROM")) {
+    const name = columnName(p.values?.[0]);
+    return name ? row[name] !== p.values?.[1] : false;
+  }
   if (p.kind === "and") {
     return (p.conditions ?? []).every((condition) =>
       matchesRow(condition, row),
@@ -123,6 +137,14 @@ function rowsResult(rows: unknown[]) {
   const result: any = Promise.resolve(rows);
   result.orderBy = () => rowsResult(rows);
   result.limit = () => rowsResult(rows);
+  result.for = () => {
+    hideBeforeMutation();
+    return rowsResult(
+      rows.map((row: any) =>
+        row.id === state.dashboard.id ? { ...state.dashboard } : row,
+      ),
+    );
+  };
   return result;
 }
 
@@ -310,6 +332,12 @@ vi.mock("../db/index.js", () => {
     execute: async () => undefined,
     delete: (table: unknown) => ({
       where: async (predicate: unknown) => {
+        if (table === schema.dashboards) {
+          hideBeforeMutation();
+          return {
+            rowsAffected: matchesRow(predicate, state.dashboard) ? 1 : 0,
+          };
+        }
         if (table === schema.dashboardRevisions) {
           state.revisions = state.revisions.filter(
             (r) => !matchesRow(predicate, r),
@@ -342,6 +370,7 @@ vi.mock("../db/index.js", () => {
               return { rowsAffected: 1 };
             }
             if (table !== schema.dashboards) return { rowsAffected: 0 };
+            hideBeforeMutation();
             state.updateAttempts += 1;
             state.writes.push({
               table: "dashboards",
@@ -461,6 +490,7 @@ beforeEach(() => {
   state.revisions = [];
   state.analysisRevisions = [];
   state.otherDashboards = [];
+  state.hideBeforeNextMutation = false;
   state.loseNextCas = false;
   state.alwaysLoseCas = false;
   state.updateAttempts = 0;
@@ -511,6 +541,109 @@ describe("dashboards-store concurrency", () => {
       });
 
       expect(state.dashboard).toEqual(before);
+      expect(state.writes).toEqual([]);
+      expect(state.revisions).toEqual([]);
+    },
+  );
+
+  it.each([true, false])(
+    "rejects a save hidden between read and write (explicit fence: %s)",
+    async (explicitFence) => {
+      const before = { ...state.dashboard };
+      state.hideBeforeNextMutation = true;
+
+      await expect(
+        upsertDashboard(
+          "traffic",
+          "sql",
+          { name: "Traffic", panels: [panel("custom")] },
+          ctx,
+          explicitFence ? before.updatedAt : undefined,
+        ),
+      ).rejects.toThrow();
+
+      expect(state.dashboard.config).toBe(before.config);
+      expect(state.dashboard.updatedAt).toBe(before.updatedAt);
+      expect(state.dashboard.hiddenBy).toBe("analytics:builtin-dashboards");
+      expect(state.revisions).toEqual([]);
+    },
+  );
+
+  it.each([
+    ["archive", () => archiveDashboard("traffic", ctx)],
+    ["hide", () => hideDashboard("traffic", ctx)],
+    ["delete", () => removeDashboard("traffic", ctx)],
+    ["unhide", () => unhideDashboard("traffic", ctx)],
+    [
+      "visibility",
+      () =>
+        persistDashboardVisibilityChange(
+          { id: "traffic", title: "Traffic", orgId: null },
+          "private",
+          { visibility: "public" },
+          ctx,
+        ),
+    ],
+  ])(
+    "rejects %s when the deploy pass hides after preflight",
+    async (_name, mutate) => {
+      const before = { ...state.dashboard };
+      state.hideBeforeNextMutation = true;
+
+      await expect(mutate()).rejects.toBeInstanceOf(DashboardConflictError);
+
+      expect(state.dashboard).toEqual({
+        ...before,
+        hiddenAt: "2026-10-01T00:00:00.000Z",
+        hiddenBy: "analytics:builtin-dashboards",
+      });
+    },
+  );
+
+  it("rejects revision restore hidden between read and write without adding history", async () => {
+    state.revisions = [
+      {
+        id: "revision-1",
+        dashboardId: "traffic",
+        kind: "sql",
+        title: "Traffic",
+        config: JSON.stringify({
+          name: "Traffic",
+          panels: [panel("restored")],
+        }),
+        createdAt: state.dashboard.updatedAt,
+        createdBy: ctx.email,
+        chatContext: null,
+      },
+    ];
+    const before = { ...state.dashboard };
+    state.hideBeforeNextMutation = true;
+
+    await expect(
+      restoreDashboardRevision("traffic", "revision-1", ctx, before.updatedAt),
+    ).rejects.toBeInstanceOf(DashboardConflictError);
+
+    expect(state.dashboard.config).toBe(before.config);
+    expect(state.dashboard.updatedAt).toBe(before.updatedAt);
+    expect(state.revisions).toHaveLength(1);
+  });
+
+  it.each([
+    ["snapshot", () => createDashboardRevisionSnapshot("traffic", ctx)],
+    [
+      "save view",
+      () => saveDashboardView("traffic", { name: "View", filters: {} }, ctx),
+    ],
+    ["delete view", () => deleteDashboardView("traffic", "view-1", ctx)],
+  ])(
+    "rejects %s when hidden before acquiring the parent row lock",
+    async (_name, mutate) => {
+      state.hideBeforeNextMutation = true;
+
+      await expect(mutate()).rejects.toMatchObject({
+        errorCode: "builtin_dashboard_read_only",
+      });
+
       expect(state.writes).toEqual([]);
       expect(state.revisions).toEqual([]);
     },
