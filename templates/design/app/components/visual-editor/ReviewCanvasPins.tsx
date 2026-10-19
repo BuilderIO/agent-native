@@ -1704,20 +1704,7 @@ export function ReviewCanvasPins({
       if (resolved.anchor.nodeId || resolved.anchor.selector) {
         const element = resolved.anchor.nodeId
           ? findNodeElement(canvas, resolved.anchor.nodeId)
-          : (() => {
-              const iframe = canvas.querySelector<HTMLIFrameElement>(
-                "iframe[data-design-preview-iframe]",
-              );
-              try {
-                return (
-                  iframe?.contentDocument?.querySelector(
-                    resolved.anchor.selector!,
-                  ) ?? null
-                );
-              } catch {
-                return null;
-              }
-            })();
+          : selectorElement(canvas, resolved.anchor.selector!);
         if (element instanceof HTMLElement || element instanceof SVGElement) {
           element.scrollIntoView({ block: "center", inline: "center" });
           const previousBoxShadow = element.style.boxShadow;
@@ -2312,16 +2299,8 @@ export function ReviewCanvasPins({
         createdAt: new Date().toISOString(),
       };
       let element = nodeId ? findNodeElement(canvas!, nodeId) : null;
-      if (!element && targetSelector) {
-        const iframe = canvas?.querySelector<HTMLIFrameElement>(
-          "iframe[data-design-preview-iframe]",
-        );
-        try {
-          element =
-            iframe?.contentDocument?.querySelector(targetSelector) ?? null;
-        } catch {
-          element = null;
-        }
+      if (!element && targetSelector && canvas) {
+        element = selectorElement(canvas, targetSelector);
       }
       setAgentSubmitting(true);
       try {
@@ -2411,16 +2390,8 @@ export function ReviewCanvasPins({
         ...(targetSelector ? { selector: targetSelector } : {}),
       };
       let element = nodeId ? findNodeElement(canvas!, nodeId) : null;
-      if (!element && targetSelector) {
-        const iframe = canvas?.querySelector<HTMLIFrameElement>(
-          "iframe[data-design-preview-iframe]",
-        );
-        try {
-          element =
-            iframe?.contentDocument?.querySelector(targetSelector) ?? null;
-        } catch {
-          element = null;
-        }
+      if (!element && targetSelector && canvas) {
+        element = selectorElement(canvas, targetSelector);
       }
       setAgentSubmitting(true);
       try {

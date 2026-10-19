@@ -74,7 +74,7 @@ export const hitTestBridgeScript: string = `"use strict";
     if (parts[0] !== "body") return null;
     let current = doc.body;
     for (let partIndex = 1; partIndex < parts.length; partIndex += 1) {
-      const match = /^([a-z][a-z0-9-]*)(?::nth-of-type\\((\\d+)\\))?$/.exec(
+      const match = /^([^\\s:()>]+)(?::nth-of-type\\((\\d+)\\))?$/.exec(
         parts[partIndex] ?? ""
       );
       if (!match || !current) return null;

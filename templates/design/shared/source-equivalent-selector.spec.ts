@@ -41,6 +41,14 @@ describe("source-equivalent selectors", () => {
     );
   });
 
+  it("resolves tag names with underscores or dots", () => {
+    const doc = documentWith("<main><my_panel id='panel'>a</my_panel></main>");
+
+    expect(resolveSourceEquivalentSelector(doc, "body > main > my_panel")).toBe(
+      doc.getElementById("panel"),
+    );
+  });
+
   it("returns null for a path that no longer exists", () => {
     const doc = documentWith("<main><p>a</p></main>");
 
