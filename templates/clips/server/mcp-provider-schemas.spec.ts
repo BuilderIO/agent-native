@@ -17,7 +17,7 @@ describe("Clips MCP catalogs", () => {
     template = await loadTemplateMcpConformance(projectRoot);
   }, 180_000);
 
-  it("offers chapter editing, comment replies and video imports in the compact catalog", async () => {
+  it("offers chapter editing, comment threads and video imports in the compact catalog", async () => {
     const names = (await template.listCatalog("default")).map(
       (tool) => tool.name,
     );
@@ -25,6 +25,7 @@ describe("Clips MCP catalogs", () => {
       expect.arrayContaining([
         "set-chapters",
         "reply-to-comment",
+        "list-comments",
         "import-loom-recording",
       ]),
     );

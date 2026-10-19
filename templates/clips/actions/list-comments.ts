@@ -8,6 +8,7 @@ import { hydrateCommentAuthorNames } from "../server/lib/user-identities.js";
 import { displayCommentMentions } from "../shared/comment-mentions.js";
 
 export default defineAction({
+  mcpApp: { compactCatalog: true },
   description:
     "List threaded comments for a recording, sorted by videoTimestampMs then createdAt.",
   schema: z.object({
