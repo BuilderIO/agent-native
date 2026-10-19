@@ -3258,8 +3258,19 @@ const FEEDBACK_ATTACHMENT_COVERAGE_REGEX_CASES = [
   [false, "I attached a screenshot to the report."],
   [false, "Please inspect the image before reproducing the bug."],
 ];
-const A2A_OVERDELEGATION_RE =
-  /\b(?:way too|too|so|overly)\s+(?:eager|quick|frequent|often|ready|inclined)\b[^.!?\n]{0,80}\b(?:a2a|call-agent|(?:delegat\w*|handoff\w*)\s+(?:to\s+)?(?:another|different|peer)\s+(?:app|agent))\b|\b(?:a2a|call-agent)\b[^.!?\n]{0,35}\b(?:delegat\w*|handoff\w*)\b[^.!?\n]{0,40}\b(?:irrelevant|unnecessary|not relevant|too eager|too much)\b|\b(?:don['’]?t|do not|shouldn['’]?t|should not|never|stop)\s+(?:delegat\w*|call\w*|use\w*)\b[^.!?\n]{0,80}\b(?:a2a|call-agent|(?:the\s+)?assets\s+(?:app|agent)\b|(?:the\s+)?(?:design|analytics|slides|content)\s+app\b|(?:another|different|peer)\s+(?:app|agent))\b/i;
+const A2A_NEGATION_RE = String.raw`\b(?:don['’]?t|do not|shouldn['’]?t|should not|never|stop)\s+`;
+const A2A_NEGATED_DIRECT_PEER_RE = String.raw`(?:delegate\w*\s+(?:to\s+)?|call\w*\s+)(?:the\s+)?(?:assets|design|analytics|slides|content|another|different|peer)\s+(?:app|agent)\b(?!['’]s)`;
+const A2A_NEGATED_USE_PEER_RE = String.raw`use\s+(?:the\s+)?(?:assets|design|analytics|slides|content)\s+(?:app|agent)\b(?!['’]s)`;
+const A2A_OVERDELEGATION_RE = new RegExp(
+  [
+    String.raw`\b(?:way too|too|so|overly)\s+(?:eager|quick|frequent|often|ready|inclined)\b[^.!?\n]{0,80}\b(?:a2a|call-agent|(?:delegat\w*|handoff\w*)\s+(?:to\s+)?(?:another|different|peer)\s+(?:app|agent))\b`,
+    String.raw`\b(?:a2a|call-agent)\b[^.!?\n]{0,35}\b(?:delegat\w*|handoff\w*)\b[^.!?\n]{0,40}\b(?:irrelevant|unnecessary|not relevant|too eager|too much)\b`,
+    `${A2A_NEGATION_RE}use\\s+(?:a2a|call-agent)\\b`,
+    `${A2A_NEGATION_RE}${A2A_NEGATED_DIRECT_PEER_RE}`,
+    `${A2A_NEGATION_RE}${A2A_NEGATED_USE_PEER_RE}`,
+  ].join("|"),
+  "i",
+);
 const A2A_OVERDELEGATION_REGEX_CASES = [
   [true, "We are being way too eager to use A2A when it is not relevant."],
   [true, "Slides should not delegate to the Design app for slide generation."],
@@ -3278,6 +3289,16 @@ const A2A_OVERDELEGATION_REGEX_CASES = [
   [false, "The Assets app is not available in this workspace."],
   [false, "Never use stock assets for this slide."],
   [false, "Never use the Design color system for this slide."],
+  [false, "Never use the Design app's color palette on this slide."],
+  [
+    false,
+    "Don't use local image generation; use the Assets app for the brand library.",
+  ],
+  [
+    false,
+    "Use the Assets app for this image because the user asked for its brand library.",
+  ],
+  [true, "Don't use the Assets app; generate this image locally."],
   [
     false,
     "Delegate coding tasks to sub-agents when the user asks for parallel work.",

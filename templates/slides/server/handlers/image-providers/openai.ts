@@ -35,7 +35,7 @@ export class OpenAIProvider implements ImageProvider {
     const size = mapSize(config?.aspectRatio, config?.size);
     const quality = mapQuality(config?.quality);
 
-    const body = {
+    const body: Record<string, unknown> = {
       model: "gpt-image-2",
       prompt: fullPrompt,
       n: 1,
@@ -44,21 +44,28 @@ export class OpenAIProvider implements ImageProvider {
       output_format: config?.outputFormat || "png",
     };
 
+    const endpoint =
+      referenceImages.length > 0
+        ? "https://api.openai.com/v1/images/edits"
+        : "https://api.openai.com/v1/images/generations";
+    if (referenceImages.length > 0) {
+      body.images = referenceImages.map((reference) => ({
+        image_url: `data:${reference.mimeType};base64,${reference.data}`,
+      }));
+    }
+
     console.log(
       `[OpenAI] Generating with gpt-image-2 (size=${size}, quality=${quality})`,
     );
 
-    const result = await fetchWithRetry(
-      "https://api.openai.com/v1/images/generations",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
+    const result = await fetchWithRetry(endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
       },
-    );
+      body: JSON.stringify(body),
+    });
 
     const json = await result.json();
 
@@ -75,7 +82,11 @@ export class OpenAIProvider implements ImageProvider {
 
     const buffer = Buffer.from(imageB64, "base64");
     const mimeType =
-      config?.outputFormat === "webp" ? "image/webp" : "image/png";
+      config?.outputFormat === "webp"
+        ? "image/webp"
+        : config?.outputFormat === "jpeg"
+          ? "image/jpeg"
+          : "image/png";
 
     console.log(
       `[OpenAI] Success — ${Math.round(buffer.length / 1024)}KB ${mimeType}`,
@@ -208,7 +219,7 @@ function buildOpenAIPrompt(
   let fullPrompt = prompt;
 
   if (referenceImages.length > 0) {
-    fullPrompt = `Create a professional, modern illustration for a presentation slide. The style should be: dark background with clean, minimal design. Use a sophisticated color palette with dark tones and subtle accent colors. No glow effects, no neon, no bloom — keep lighting flat and subtle. Match a premium tech brand aesthetic.
+    fullPrompt = `Create a professional, modern illustration for a presentation slide. Use the provided reference images as visual style guidance. The style should be: dark background with clean, minimal design. Use a sophisticated color palette with dark tones and subtle accent colors. No glow effects, no neon, no bloom — keep lighting flat and subtle. Match a premium tech brand aesthetic.
 
 Subject: ${prompt}`;
   }

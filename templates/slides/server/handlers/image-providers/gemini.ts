@@ -56,7 +56,7 @@ export class GeminiProvider implements ImageProvider {
         text: buildStylePrompt(prompt, selectedRefs.length, context),
       });
     } else {
-      contents.push({ text: prompt });
+      contents.push({ text: buildPromptWithContext(prompt, context) });
     }
 
     const imageConfig: Record<string, string> = {};
@@ -181,6 +181,13 @@ function cappedContext(label: string, value?: string): string {
       ? `${text.slice(0, NON_RENDERABLE_CONTEXT_LIMIT)}...`
       : text;
   return `\n\n${label} (topic/style context only; do not render these words): ${capped}`;
+}
+
+function buildPromptWithContext(
+  prompt: string,
+  context?: { slideContent?: string; deckText?: string },
+): string {
+  return `${prompt}${cappedContext("Current slide", context?.slideContent)}${cappedContext("Deck", context?.deckText)}`;
 }
 
 function buildStylePrompt(
