@@ -1437,8 +1437,7 @@ function wrapRunWithServicePrincipalGrant(
           orgId: ctx!.orgId,
           // A missing name only passes an unrestricted grant.
           actionName: ctx!.actionName ?? "",
-          caller: ctx!.caller,
-          ownInvocation: true,
+          ownInvocation: ctx!,
         }),
       )
       .then(() => run(args, ctx));

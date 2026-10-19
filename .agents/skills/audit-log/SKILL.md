@@ -115,9 +115,11 @@ minimum useful addition is `target: () => ({ type, id })`.
   is a snapshot: passing one made during the call to a later write records
   that write as part of the approved call, so call `auditAttribution` at write
   time for work that is not.
-  `recordServicePrincipalDenial` records outside the running frame unless its
-  caller passes `ownInvocation: true`, which only `defineAction`'s own grant
-  check does, so a refused child or agent run never borrows an approval. A
+  `recordServicePrincipalDenial` records only the source its caller knows,
+  outside the running frame, unless the caller passes the refused call's run
+  context as `ownInvocation`. Only `defineAction`'s own grant check does: its
+  row keeps that call's client, network and run ids and its frame's approval,
+  while a refused child or agent run borrows none of the enclosing call's. A
   dispatcher that pauses another call records that row inside
   `runOutsideActionInvocation`, and `recordInvalidActionCall` records a call
   refused for invalid arguments there too. A dispatcher vouches for the call

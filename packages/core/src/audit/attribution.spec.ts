@@ -731,6 +731,33 @@ describe("a refusal of another call", () => {
     caller: "mcp" as const,
     actionName,
   });
+  // An MCP call carrying every field a run context can attribute.
+  const mcpServiceCall = (actionName: string) => ({
+    ...serviceCall(actionName),
+    mcpClient: {
+      name: "Example Client",
+      version: "1.0",
+      oauthClientId: "example-oauth-client",
+    },
+    networkProtocol: "mcp" as const,
+    networkId: "mcp-session-1",
+    networkPeer: "example-peer",
+    threadId: "thread-1",
+    turnId: "turn-1",
+    runId: "run-1",
+  });
+  const mcpCallRow = {
+    caller: "mcp",
+    reportedClientName: "Example Client",
+    reportedClientVersion: "1.0",
+    oauthClientId: "example-oauth-client",
+    networkProtocol: "mcp",
+    networkId: "mcp-session-1",
+    networkPeer: "example-peer",
+    threadId: "thread-1",
+    turnId: "turn-1",
+    runId: "run-1",
+  };
   const a2aReview = {
     auditOverride: { ...replayIds, approval: "a2a-review" as const },
   };
@@ -776,6 +803,30 @@ describe("a refusal of another call", () => {
     });
   }
 
+  function mcpCoreInside() {
+    return approvalGated(() =>
+      runWithRequestContext({ userEmail: SERVICE, orgId: "org-1" }, () =>
+        executeMcpActionCall(
+          {
+            appId: undefined,
+            identity: {
+              userEmail: SERVICE,
+              identityAssurance: "service",
+              orgDomain: undefined,
+            },
+            approvalCallerKey: undefined,
+            canRequestApproval: false,
+          },
+          {
+            name: "refused",
+            args: {},
+            callable: { refused: refused as ActionEntry },
+          },
+        ),
+      ),
+    );
+  }
+
   it("does not carry an accepted MCP call's approval to a child its code bridge refuses", async () => {
     allow("run-code");
     await runActionInvocation(runCode, { code }, serviceCall("run-code"), {
@@ -814,33 +865,44 @@ describe("a refusal of another call", () => {
 
   it("does not carry an approval to a call the MCP tool-call core refuses inside it", async () => {
     allow("outer");
-    const outer = approvalGated(() =>
-      runWithRequestContext({ userEmail: SERVICE, orgId: "org-1" }, () =>
-        executeMcpActionCall(
-          {
-            appId: undefined,
-            identity: {
-              userEmail: SERVICE,
-              identityAssurance: "service",
-              orgDomain: undefined,
-            },
-            approvalCallerKey: undefined,
-            canRequestApproval: false,
-          },
-          {
-            name: "refused",
-            args: {},
-            callable: { refused: refused as ActionEntry },
-          },
-        ),
-      ),
-    );
-    await runActionInvocation(outer, {}, serviceCall("outer"), {
+    await runActionInvocation(mcpCoreInside(), {}, serviceCall("outer"), {
       mcpClientAccepted: true,
     });
 
     expect(refusals()).toEqual([["refused", null, null]]);
   });
+
+  it.each([
+    ["its code bridge", "run-code", () => runCode, { code }],
+    ["its agent loop", "outer", loopInside, {}],
+    ["the MCP tool-call core", "outer", mcpCoreInside, {}],
+  ])(
+    "gives none of an accepted MCP call's attribution to a call %s refuses inside it",
+    async (_label, name, entry, args) => {
+      allow(name);
+      await runActionInvocation(entry(), args, mcpServiceCall(name), {
+        mcpClientAccepted: true,
+      });
+
+      expect(
+        recorded.filter((row) => row.targetType === "service-principal"),
+      ).toEqual([
+        expect.objectContaining({
+          action: "refused",
+          reportedClientName: null,
+          reportedClientVersion: null,
+          oauthClientId: null,
+          networkProtocol: null,
+          networkId: null,
+          networkPeer: null,
+          threadId: null,
+          turnId: null,
+          runId: null,
+          approval: null,
+        }),
+      ]);
+    },
+  );
 
   it.each(["tryClaimRunSlot", "insertRun"] as const)(
     "does not carry an A2A review to a run %s refuses to admit inside it",
@@ -886,6 +948,29 @@ describe("a refusal of another call", () => {
       ).rejects.toThrow();
 
       expect(refusals()).toEqual([["refused", threadId, approval]]);
+    },
+  );
+
+  it.each([
+    ["no approval", undefined, null],
+    [
+      "an accepted MCP call's approval",
+      { mcpClientAccepted: true as const },
+      "mcp-client-accepted",
+    ],
+  ])(
+    "keeps the refused call's own client, network and run ids, with %s, on its refusal of itself",
+    async (_label, evidence, approval) => {
+      allow("something-else");
+      await expect(
+        runActionInvocation(refused, {}, mcpServiceCall("refused"), evidence),
+      ).rejects.toThrow();
+
+      expect(
+        recorded.filter((row) => row.targetType === "service-principal"),
+      ).toEqual([
+        expect.objectContaining({ action: "refused", ...mcpCallRow, approval }),
+      ]);
     },
   );
 });
