@@ -1631,6 +1631,16 @@ export async function syncGitHubSource(
     () => budget.abort(),
     Math.max(0, deadline - Date.now()),
   );
+  // Counts what this run writes. A run that fails partway still reports the
+  // rows it changed first, so readers hear about them.
+  const result = emptyResult("synced", null);
+  const failed = (problem: GitHubSourceState["problem"]): GitHubSyncResult => ({
+    ...emptyResult("error", state.pendingCommitSha, problem),
+    created: result.created,
+    updated: result.updated,
+    renamed: result.renamed,
+    trashed: result.trashed,
+  });
   try {
     // Pages left without images get rebuilt once storage is set up, even
     // when the branch hasn't moved.
@@ -1798,7 +1808,7 @@ export async function syncGitHubSource(
         (retryImages && (previous.imagesWaiting ?? 0) > 0)
       );
     });
-    const result = emptyResult("synced", head.sha);
+    result.commitSha = head.sha;
     result.unchanged = planned.length - work.length - stillSkipped.length;
     const readSkips: GitHubReadSkip[] = [...stillSkipped];
     let done = 0;
@@ -1937,7 +1947,7 @@ export async function syncGitHubSource(
           lastRefreshedAt: now,
         }),
       ).catch(() => {});
-      return emptyResult("error", state.pendingCommitSha, {
+      return failed({
         code: "unavailable",
         message:
           "GitHub didn't answer in time. The background sync tries again.",
@@ -1971,7 +1981,7 @@ export async function syncGitHubSource(
       throw error;
     }
     if (!named && options.throwUnexpectedErrors) throw error;
-    return emptyResult("error", state.pendingCommitSha, problem);
+    return failed(problem);
   } finally {
     clearTimeout(budgetTimer);
   }

@@ -113,9 +113,10 @@ export function githubSyncChangedRows(result: GitHubSyncResult) {
 /**
  * Tells everyone who can read the collection that its rows or status changed.
  * It is the event the sync action sends, so open pages, tables, page lists,
- * Trash and the status line update in place.
+ * Trash and the status line update in place. An action whose sync failed
+ * sends it too, since a failed action sends no change event of its own.
  */
-function recordGitHubSyncChange(
+export function announceGitHubSyncChange(
   databaseDocumentId: string,
   owner: string | null,
 ) {
@@ -136,22 +137,7 @@ async function announceSync(
 ) {
   if (result.state === "busy") return;
   if (!githubSyncChangedRows(result) && !(await statusChanged(link))) return;
-  recordGitHubSyncChange(link.databaseDocumentId, owner);
-}
-
-/**
- * For an action whose sync failed after storing the failure on the link, like
- * a refresh that reports it as an error. A failed action sends no change event
- * of its own, so this tells readers when the status line changed.
- */
-export async function announceFailedGitHubSync(args: {
-  sourceId: string;
-  databaseDocumentId: string;
-  owner: string | null;
-  shownBefore: string;
-}) {
-  if ((await readGitHubStatusShown(args.sourceId)) === args.shownBefore) return;
-  recordGitHubSyncChange(args.databaseDocumentId, args.owner);
+  announceGitHubSyncChange(link.databaseDocumentId, owner);
 }
 
 async function syncBeforeRead(link: GitHubLink | undefined) {

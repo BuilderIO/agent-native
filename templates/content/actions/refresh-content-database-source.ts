@@ -19,10 +19,7 @@ import {
   storeSecondarySourceRows,
   updateReadOnlySourceMetadata,
 } from "./_database-source-utils.js";
-import {
-  announceFailedGitHubSync,
-  readGitHubStatusShown,
-} from "./_github-source-freshness.js";
+import { announceGitHubSyncChange } from "./_github-source-freshness.js";
 import { githubSyncSummary, syncGitHubSource } from "./_github-source.js";
 import { serializeDatabase } from "./_property-utils.js";
 
@@ -76,19 +73,20 @@ export default defineAction({
     let skippedOverlappingBuilderRefresh = false;
     let githubSummary: string | null = null;
     if (source.sourceType === "github") {
-      const shownBefore = await readGitHubStatusShown(source.id);
       const result = await syncGitHubSource({
         sourceId: source.id,
         budgetMs: args.fullRefresh === true ? 25_000 : 6_000,
         throwConnectionErrors: true,
         throwUnexpectedErrors: true,
-      }).catch(async (error: unknown) => {
-        await announceFailedGitHubSync({
-          sourceId: source.id,
-          databaseDocumentId: database.documentId,
-          owner: getRequestUserEmail() ?? null,
-          shownBefore,
-        }).catch((announceError: unknown) => {
+      }).catch((error: unknown) => {
+        // A sync that fails may have written rows first, and it stores the
+        // problem on the link, so readers hear about it either way.
+        try {
+          announceGitHubSyncChange(
+            database.documentId,
+            getRequestUserEmail() ?? null,
+          );
+        } catch (announceError) {
           // The caller still gets the sync's error; other tabs catch up on their next read.
           console.warn(
             "[github-source] change event failed:",
@@ -96,7 +94,7 @@ export default defineAction({
               ? announceError.message
               : String(announceError),
           );
-        });
+        }
         throw error;
       });
       githubSummary = githubSyncSummary(source.sourceName, result);

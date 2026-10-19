@@ -1427,6 +1427,70 @@ describe("GitHub folder freshness", () => {
     ]);
   });
 
+  it("tells readers about rows a failing sync wrote, though the link already showed its problem", async () => {
+    const { database } = await linkBaseFolder();
+    const { GitHubSourceError } =
+      await import("../server/lib/github-source-client.js");
+    const lostConnection = () =>
+      new GitHubSourceError(
+        "connection",
+        "GitHub no longer accepts the saved connection. Reconnect GitHub.",
+        401,
+      );
+    const announced = [
+      expect.objectContaining({
+        key: "sync-github-folder",
+        resourceType: "document",
+        resourceId: database.documentId,
+      }),
+    ];
+    const faqContent = async () =>
+      (await liveRows(database.id)).find(
+        (row) => row.sourcePath === "docs/faq.md",
+      )!.content;
+    // A push of two files whose second read fails the way the first sync did.
+    const pushFailingPartway = (failure: () => Error, faq: string) => {
+      github.commit({
+        ...BASE_FILES,
+        "docs/faq.md": faq,
+        "docs/getting-started.md": `${faq}\nStarted.\n`,
+      });
+      github.state.duringBlobRead = async () => {
+        github.state.duringBlobRead = async () => {
+          throw failure();
+        };
+      };
+      changes.length = 0;
+    };
+
+    // A background sync.
+    github.state.failure = lostConnection();
+    await checkedAgo(database.id, 2 * 60_000);
+    await runGitHubSourceSweep({ deadlineAt: Date.now() + 60_000 });
+    github.state.failure = null;
+    pushFailingPartway(lostConnection, EDITED_FAQ);
+    await checkedAgo(database.id, 2 * 60_000);
+    await runGitHubSourceSweep({ deadlineAt: Date.now() + 60_000 });
+    expect(await faqContent()).toContain("forum");
+    expect(changes).toEqual(announced);
+
+    // A refresh, which fails with the error.
+    github.state.failure = new Error("socket hang up");
+    await expect(
+      as(() => refreshSource.run({ databaseId: database.id })),
+    ).rejects.toThrow("socket hang up");
+    github.state.failure = null;
+    pushFailingPartway(
+      () => new Error("socket hang up"),
+      "# Frequently asked\n\nAnswers moved to the wiki.\n",
+    );
+    await expect(
+      as(() => refreshSource.run({ databaseId: database.id })),
+    ).rejects.toThrow("socket hang up");
+    expect(await faqContent()).toContain("wiki");
+    expect(changes).toEqual(announced);
+  });
+
   it("tells readers when a background sync finds or clears a problem", async () => {
     const { database } = await linkBaseFolder();
     const { GitHubSourceError } =
