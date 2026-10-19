@@ -647,13 +647,18 @@ export function createClipAgentWebMcpActions({
         throw new Error("Clip agent context is unavailable");
       const { startMs, endMs, fps } = parseFrameSheetInput(input);
       const payload = await fetchAgentJson(agentContextUrl, runtime.signal);
-      if (!optionalRecord(payload.apis)?.frames) {
+      const apis = optionalRecord(payload.apis);
+      if (!apis?.frames) {
         const status = stringValue(optionalRecord(payload.clip)?.status);
         if (status === "uploading" || status === "processing") {
           throw new Error("Clip is not ready for frame extraction yet");
         }
+        // A screenshot still lists its single frame. Without that, no frame
+        // can be read at all (a failed clip or a Loom embed).
         throw new Error(
-          "Frame sheets are only available for videos. Use clips-get-frame for a single frame or the picture.",
+          apis?.frame
+            ? "Frame sheets are only available for videos. Use clips-get-frame to see the picture."
+            : "Frame extraction is not available for this clip. Use the transcript instead.",
         );
       }
 

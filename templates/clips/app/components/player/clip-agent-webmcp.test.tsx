@@ -475,7 +475,7 @@ describe("Clip WebMCP tools", () => {
     expect(pastEnd.instructions).toContain("X-Clips-Frame-Sheet-Times");
   });
 
-  it("explains that a screenshot has no frame sheet", async () => {
+  it("explains why a clip has no frame sheet", async () => {
     const registrations: Array<{ tool: any }> = [];
     const modelContext = {
       registerTool: vi.fn(async (tool) => registrations.push({ tool })),
@@ -505,6 +505,22 @@ describe("Clip WebMCP tools", () => {
         { signal: new AbortController().signal },
       ),
     ).rejects.toThrow(/only available for videos/);
+
+    // A failed clip or a Loom embed lists no frames at all.
+    const { frame: _frame, ...noFrameApis } = screenshotApis;
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        ...contextPayload(),
+        clip: { ...contextPayload().clip, status: "failed" },
+        apis: noFrameApis,
+      }),
+    );
+    await expect(
+      framesTool.execute(
+        { startMs: 0 },
+        { signal: new AbortController().signal },
+      ),
+    ).rejects.toThrow(/not available for this clip\. Use the transcript/);
   });
 
   it("does not advertise frame extraction before a clip is ready", async () => {
