@@ -62,6 +62,7 @@ test("Cmd/Ctrl+R renames the canvas-selected layer inline and Enter saves only t
   expectOnlyChanged(before, after, ["alpha"]);
 });
 
+// This seed does not produce horizontal overflow, so the reported scroll regression is not reproduced here.
 test("Escape in the Cmd/Ctrl+R rename field discards the typed name and leaves the Layers panel unscrolled", async ({
   app,
   page,

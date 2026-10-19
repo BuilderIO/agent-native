@@ -785,6 +785,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     onActiveToolChange,
     onCreatePrimitive,
     onPrimitiveCreated,
+    onPrimitivesCreated,
     onUpdatePenPath,
     onPrimitiveReparent,
     onCreateScreenFrame,
@@ -6798,22 +6799,34 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     const selectedPersisted = selectedDraftIds
       .map((id) => persistedByDraftId.get(id))
       .filter((entry): entry is PersistedDraftPrimitive => Boolean(entry));
-    const persistedEntries =
-      selectedPersisted.length > 0
-        ? selectedPersisted
-        : Array.from(persistedByDraftId.values());
-    const lastPersisted = persistedEntries[persistedEntries.length - 1];
+    const persistedEntries = Array.from(persistedByDraftId.values());
+    const lastPersisted =
+      selectedPersisted[selectedPersisted.length - 1] ??
+      persistedEntries[persistedEntries.length - 1];
     if (lastPersisted && lastPersisted.frameId !== "__board__") {
+      const created = persistedEntries.map(({ frameId, nodeId }) => ({
+        screenId: frameId,
+        nodeId,
+      }));
+      const selected = {
+        screenId: lastPersisted.frameId,
+        nodeId: lastPersisted.nodeId,
+      };
       // This runs from an effect, and onPrimitiveCreated calls flushSync, which React refuses mid-commit.
-      queueMicrotask(() =>
-        onPrimitiveCreated?.(lastPersisted.frameId, lastPersisted.nodeId, {
-          preserveActiveTool: true,
-        }),
-      );
+      queueMicrotask(() => {
+        if (onPrimitivesCreated) {
+          onPrimitivesCreated(created, selected, { preserveActiveTool: true });
+        } else {
+          onPrimitiveCreated?.(selected.screenId, selected.nodeId, {
+            preserveActiveTool: true,
+          });
+        }
+      });
     }
   }, [
     onCreatePrimitive,
     onPrimitiveCreated,
+    onPrimitivesCreated,
     persistDraftPrimitive,
     updateDraftPrimitives,
     updateSelectedDraftIds,
@@ -7900,10 +7913,19 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                   lastPersisted.frameId !== boardFileId &&
                   lastPersisted.frameId !== "__board__"
                 ) {
-                  onPrimitiveCreated?.(
-                    lastPersisted.frameId,
-                    lastPersisted.nodeId,
-                  );
+                  const created = persisted.map(({ frameId, nodeId }) => ({
+                    screenId: frameId,
+                    nodeId,
+                  }));
+                  const selected = {
+                    screenId: lastPersisted.frameId,
+                    nodeId: lastPersisted.nodeId,
+                  };
+                  if (onPrimitivesCreated) {
+                    onPrimitivesCreated(created, selected);
+                  } else {
+                    onPrimitiveCreated?.(selected.screenId, selected.nodeId);
+                  }
                 }
               }
             }
@@ -7948,10 +7970,19 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                   lastPersisted.frameId !== boardFileId &&
                   lastPersisted.frameId !== "__board__"
                 ) {
-                  onPrimitiveCreated?.(
-                    lastPersisted.frameId,
-                    lastPersisted.nodeId,
-                  );
+                  const created = persisted.map(({ frameId, nodeId }) => ({
+                    screenId: frameId,
+                    nodeId,
+                  }));
+                  const selected = {
+                    screenId: lastPersisted.frameId,
+                    nodeId: lastPersisted.nodeId,
+                  };
+                  if (onPrimitivesCreated) {
+                    onPrimitivesCreated(created, selected);
+                  } else {
+                    onPrimitiveCreated?.(selected.screenId, selected.nodeId);
+                  }
                 }
               }
             }
@@ -7970,6 +8001,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       installDragListeners,
       boardFileId,
       onPrimitiveCreated,
+      onPrimitivesCreated,
       persistDraftPrimitive,
       updateDraftPrimitives,
       updateDraftPrimitivesRefOnly,
@@ -8246,24 +8278,55 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         y: previewPoint.y,
         width: previewWidth,
         height: previewHeight,
-        canDuplicate: !!onDuplicate,
+        canDuplicate: false,
         moved: false,
       });
       setIsDragging(true);
-      setDragCursor(e.altKey ? "copy" : null);
+      setDragCursor(null);
 
-      let lastCanDuplicate = !!onDuplicate;
+      let lastCanDuplicate = false;
       let lastMoved = false;
-      let lastCursor: string | null = e.altKey ? "copy" : null;
+      let lastCursor: string | null = null;
+      let lastPointer = origin;
+      let altDragOrigin: { x: number; y: number } | null = e.altKey
+        ? origin
+        : null;
+      let movedAfterAlt = false;
 
-      const handleMouseMove = (ev: MouseEvent) => {
-        const dx = ev.clientX - origin.x;
-        const dy = ev.clientY - origin.y;
-        const moved = Math.hypot(dx, dy) >= DUPLICATE_DRAG_THRESHOLD;
+      const canDuplicateAt = (
+        pointer: { x: number; y: number },
+        altPressed: boolean,
+        moved: boolean,
+      ) => {
+        if (altPressed) {
+          altDragOrigin ??= lastPointer;
+          if (
+            Math.hypot(
+              pointer.x - altDragOrigin.x,
+              pointer.y - altDragOrigin.y,
+            ) >= DUPLICATE_DRAG_THRESHOLD
+          ) {
+            movedAfterAlt = true;
+          }
+        } else {
+          altDragOrigin = null;
+          movedAfterAlt = false;
+        }
+        return moved && altPressed && movedAfterAlt;
+      };
+
+      const updateDuplicateFeedback = (
+        pointer: { x: number; y: number },
+        altPressed: boolean,
+      ) => {
+        const moved =
+          Math.hypot(pointer.x - origin.x, pointer.y - origin.y) >=
+          DUPLICATE_DRAG_THRESHOLD;
+        const canDuplicate =
+          !!onDuplicate && canDuplicateAt(pointer, altPressed, moved);
         const rect = surfaceRef.current?.getBoundingClientRect();
-        const x = rect ? ev.clientX - rect.left + 16 : ev.clientX;
-        const y = rect ? ev.clientY - rect.top + 16 : ev.clientY;
-        const canDuplicate = !!onDuplicate && ev.altKey;
+        const x = rect ? pointer.x - rect.left + 16 : pointer.x;
+        const y = rect ? pointer.y - rect.top + 16 : pointer.y;
 
         const el = duplicatePreviewElRef.current;
         if (el) {
@@ -8286,24 +8349,48 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           });
         }
 
-        const cursor = ev.altKey ? "copy" : null;
+        const cursor = canDuplicate ? "copy" : null;
         if (cursor !== lastCursor) {
           lastCursor = cursor;
           setDragCursor(cursor);
         }
       };
 
+      const handleAltKeyDown = (ev: KeyboardEvent) => {
+        if (ev.key !== "Alt" || ev.repeat) return;
+        altDragOrigin = lastPointer;
+        movedAfterAlt = false;
+        updateDuplicateFeedback(lastPointer, true);
+      };
+      const handleAltKeyUp = (ev: KeyboardEvent) => {
+        if (ev.key !== "Alt") return;
+        altDragOrigin = null;
+        movedAfterAlt = false;
+        updateDuplicateFeedback(lastPointer, false);
+      };
+      window.addEventListener("keydown", handleAltKeyDown, true);
+      window.addEventListener("keyup", handleAltKeyUp, true);
+
+      const handleMouseMove = (ev: MouseEvent) => {
+        lastPointer = { x: ev.clientX, y: ev.clientY };
+        updateDuplicateFeedback(lastPointer, ev.altKey);
+      };
+
       const cleanupDuplicateGesture = () => {
+        window.removeEventListener("keydown", handleAltKeyDown, true);
+        window.removeEventListener("keyup", handleAltKeyUp, true);
         setDuplicatePreview(null);
         duplicateCleanup.current = null;
         finishDrag();
       };
 
       const handleMouseUp = (ev: MouseEvent) => {
+        const pointer = { x: ev.clientX, y: ev.clientY };
         const moved =
-          Math.hypot(ev.clientX - origin.x, ev.clientY - origin.y) >=
+          Math.hypot(pointer.x - origin.x, pointer.y - origin.y) >=
           DUPLICATE_DRAG_THRESHOLD;
-        const shouldDuplicate = moved && ev.altKey;
+        const shouldDuplicate =
+          !!onDuplicate && canDuplicateAt(pointer, ev.altKey, moved);
 
         if (onDuplicate && shouldDuplicate) {
           suppressNextPick.current = true;
@@ -11019,8 +11106,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       nodeId: selectedPenPathNodeId,
       path: canvasPath,
       sourceOffset: {
-        x: offset.x - renderOffset.x,
-        y: offset.y - renderOffset.y,
+        x: offset.x - scrollX - renderOffset.x,
+        y: offset.y - scrollY - renderOffset.y,
       },
     };
   }, [boardFileId, getCanvasPoint, penActive, selectedPenPathNodeId]);
@@ -12668,6 +12755,23 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             onStartResize={beginBoardElementResize}
             onStartRotate={() => {}}
             onStartDrag={beginBoardElementDrag}
+            onDoubleClick={
+              onBoardIframeHotkey
+                ? (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onBoardIframeHotkey({
+                      key: "Enter",
+                      code: "Enter",
+                      metaKey: false,
+                      ctrlKey: false,
+                      shiftKey: false,
+                      altKey: false,
+                      repeat: false,
+                    });
+                  }
+                : undefined
+            }
           />
         ) : null}
 
@@ -15506,6 +15610,7 @@ function SelectionBox({
   onStartResize,
   onStartRotate,
   onStartDrag,
+  onDoubleClick,
   boardObject = false,
   edgeOutwardReach,
 }: {
@@ -15517,6 +15622,7 @@ function SelectionBox({
   onStartResize: (handle: ResizeHandle, e: React.MouseEvent) => void;
   onStartRotate: (e: React.MouseEvent) => void;
   onStartDrag?: (e: React.MouseEvent) => void;
+  onDoubleClick?: (e: React.MouseEvent<HTMLSpanElement>) => void;
   boardObject?: boolean;
   edgeOutwardReach?: Record<EdgeHandle, number>;
 }) {
@@ -15545,6 +15651,7 @@ function SelectionBox({
           data-frame-drag-surface
           className="pointer-events-auto absolute inset-0 z-[5] cursor-move"
           onMouseDown={onStartDrag}
+          onDoubleClick={onDoubleClick}
         />
       ) : null}
       <ResizeHandles

@@ -4,38 +4,52 @@ import * as jose from "jose";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  CHATGPT_SUBSCRIPTION_ACTIVE_ACCOUNT_SETTING_KEY,
   CHATGPT_SUBSCRIPTION_RESOURCE,
   CHATGPT_SUBSCRIPTION_SCOPES,
 } from "../agent/chatgpt-subscription-contract.js";
 import { CHATGPT_SUBSCRIPTION_LAB } from "../labs/core-labs.js";
-import { _resetLabRegistryForTests, registerLabs } from "../labs/registry.js";
 
 const mocks = vi.hoisted(() => ({
+  getLabDefinition: vi.fn(),
   getUserLabEnabled: vi.fn(),
-  listOAuthAccountsByOwner: vi.fn(),
+  getSetting: vi.fn(),
   getUserSetting: vi.fn(),
+  listOAuthAccountsByOwner: vi.fn(),
+  mutateSetting: vi.fn(),
   putUserSetting: vi.fn(),
+  deleteUserSetting: vi.fn(),
   readOAuthCredentialState: vi.fn(),
 }));
 
 vi.mock("../labs/store.js", () => mocks);
+// Lab registration lives on globalThis; pin the registered/unregistered
+// boundary here instead of sharing that process-global map with other specs.
+vi.mock("../labs/registry.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../labs/registry.js")>()),
+  getLabDefinition: mocks.getLabDefinition,
+}));
 // Account reads hit the settings and OAuth tables, which a fresh test database
 // does not have. Each read defaults to "no account"; a test that seeds an
-// account must set the mock itself. The unresolved-scope test asserts that the
-// credential check never reads them; its status call reads them on purpose.
-// The mocked credential reader skips isChatGPTCredential, so seeded credentials
-// must pass that validator by hand.
+// account must set the mock itself. Unsupported unresolved or forwarded scopes
+// must not read those accounts. The mocked credential reader skips
+// isChatGPTCredential, so seeded credentials must pass that validator by hand.
 vi.mock("../oauth-tokens/index.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../oauth-tokens/index.js")>()),
   listOAuthAccountsByOwner: mocks.listOAuthAccountsByOwner,
   readOAuthCredentialState: mocks.readOAuthCredentialState,
+}));
+vi.mock("../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/store.js")>()),
+  getSetting: mocks.getSetting,
+  mutateSetting: mocks.mutateSetting,
 }));
 vi.mock("../settings/user-settings.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../settings/user-settings.js")>()),
   getUserSetting: mocks.getUserSetting,
   mutateUserSetting: vi.fn(),
   putUserSetting: mocks.putUserSetting,
-  deleteUserSetting: vi.fn(),
+  deleteUserSetting: mocks.deleteUserSetting,
 }));
 
 import {
@@ -56,12 +70,15 @@ const NONCE = "fresh-test-nonce";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.getLabDefinition.mockImplementation((key: string) =>
+    key === CHATGPT_SUBSCRIPTION_LAB.key ? CHATGPT_SUBSCRIPTION_LAB : null,
+  );
   mocks.getUserLabEnabled.mockResolvedValue(false);
-  mocks.listOAuthAccountsByOwner.mockResolvedValue([]);
+  mocks.getSetting.mockResolvedValue(null);
   mocks.getUserSetting.mockResolvedValue(null);
+  mocks.listOAuthAccountsByOwner.mockResolvedValue([]);
+  mocks.mutateSetting.mockResolvedValue({});
   mocks.readOAuthCredentialState.mockResolvedValue({ kind: "missing" });
-  _resetLabRegistryForTests();
-  registerLabs([CHATGPT_SUBSCRIPTION_LAB]);
 });
 
 describe("ChatGPT subscription OAuth contract", () => {
@@ -226,6 +243,167 @@ describe("ChatGPT subscription OAuth contract", () => {
     expect(mocks.listOAuthAccountsByOwner).toHaveBeenCalled();
   });
 
+  it("reports saved accounts in an unsupported status without granting access", async () => {
+    mocks.getUserLabEnabled.mockResolvedValue(true);
+    const subject = "subject-alice";
+    const accountId = `siwc_${crypto
+      .createHash("sha256")
+      .update(JSON.stringify(["alice@example.com", CLIENT_ID, subject]))
+      .digest("hex")}`;
+    const resourceSuffix = `:resource:${crypto
+      .createHash("sha256")
+      .update(CHATGPT_SUBSCRIPTION_RESOURCE)
+      .digest("hex")}`;
+    const legacyResourceSuffix = `:resource:${crypto
+      .createHash("sha256")
+      .update("https://chatgpt.com/backend-api/codex/responses")
+      .digest("hex")}`;
+    mocks.listOAuthAccountsByOwner.mockResolvedValue([
+      { accountId: `${accountId}${resourceSuffix}` },
+      { accountId: `user:alice@example.com${legacyResourceSuffix}` },
+    ]);
+    const credential = {
+      clientId: CLIENT_ID,
+      subject,
+      email: "alice@example.com",
+      displayName: "Alice",
+      extAgentHostId: "urn:uuid:11111111-1111-4111-8111-111111111111",
+      idToken: "id-token-alice",
+      tokenExpiresAt: Date.now() + 60 * 60 * 1000,
+      grantedScopes: [...CHATGPT_SUBSCRIPTION_SCOPES],
+      tokens: {
+        access_token: "access-alice",
+        refresh_token: "refresh-alice",
+      },
+    };
+    mocks.readOAuthCredentialState.mockResolvedValue({
+      kind: "connected",
+      credential,
+    });
+    let activeAccountSetting: { accountId: string } | null = { accountId };
+    mocks.getUserSetting.mockImplementation(async (_email, key) =>
+      key === CHATGPT_SUBSCRIPTION_ACTIVE_ACCOUNT_SETTING_KEY
+        ? activeAccountSetting
+        : null,
+    );
+    mocks.putUserSetting.mockImplementation(async (_email, key, value) => {
+      if (key === CHATGPT_SUBSCRIPTION_ACTIVE_ACCOUNT_SETTING_KEY) {
+        activeAccountSetting = value as { accountId: string };
+      }
+    });
+    mocks.deleteUserSetting.mockImplementation(async (_email, key) => {
+      if (key === CHATGPT_SUBSCRIPTION_ACTIVE_ACCOUNT_SETTING_KEY) {
+        activeAccountSetting = null;
+      }
+    });
+
+    await runWithRequestContext(
+      {
+        isLoopbackRequest: false,
+        isDirectLoopbackRequest: false,
+        requestOrigin: "https://app.example.com",
+        orgScope: "organization",
+      },
+      async () => {
+        await expect(
+          hasChatGPTSubscriptionCredential("alice@example.com"),
+        ).resolves.toBe(false);
+        await expect(
+          getChatGPTSubscriptionStatus("alice@example.com"),
+        ).resolves.toMatchObject({
+          supported: false,
+          localLoopback: false,
+          connected: false,
+          activeAccountId: accountId,
+          activeAccount: expect.objectContaining({
+            id: accountId,
+            active: true,
+          }),
+          accounts: [
+            expect.objectContaining({
+              id: accountId,
+              email: "alice@example.com",
+              label: "Alice",
+              connected: true,
+              active: true,
+            }),
+          ],
+          legacyRegistrationCleanupAvailable: true,
+        });
+        await expect(
+          getChatGPTSubscriptionAccess("alice@example.com"),
+        ).rejects.toThrow("available only from a local app");
+
+        activeAccountSetting = null;
+        await expect(
+          getChatGPTSubscriptionStatus("alice@example.com"),
+        ).resolves.toMatchObject({
+          supported: false,
+          activeAccountId: accountId,
+          activeAccount: expect.objectContaining({
+            id: accountId,
+            active: true,
+          }),
+          accounts: [expect.objectContaining({ id: accountId, active: true })],
+          legacyRegistrationCleanupAvailable: true,
+        });
+        expect(mocks.putUserSetting).toHaveBeenCalledWith(
+          "alice@example.com",
+          CHATGPT_SUBSCRIPTION_ACTIVE_ACCOUNT_SETTING_KEY,
+          { accountId },
+        );
+
+        activeAccountSetting = { accountId: `siwc_${"b".repeat(64)}` };
+        mocks.deleteUserSetting.mockClear();
+        mocks.putUserSetting.mockClear();
+        await expect(
+          getChatGPTSubscriptionStatus("alice@example.com"),
+        ).resolves.toMatchObject({
+          supported: false,
+          activeAccountId: accountId,
+          activeAccount: expect.objectContaining({
+            id: accountId,
+            active: true,
+          }),
+        });
+        expect(mocks.deleteUserSetting).toHaveBeenCalledWith(
+          "alice@example.com",
+          CHATGPT_SUBSCRIPTION_ACTIVE_ACCOUNT_SETTING_KEY,
+        );
+        expect(mocks.putUserSetting).toHaveBeenCalledWith(
+          "alice@example.com",
+          CHATGPT_SUBSCRIPTION_ACTIVE_ACCOUNT_SETTING_KEY,
+          { accountId },
+        );
+
+        mocks.readOAuthCredentialState.mockResolvedValue({
+          kind: "reconnect_required",
+          credential,
+        });
+        await expect(
+          getChatGPTSubscriptionStatus("alice@example.com"),
+        ).resolves.toMatchObject({
+          supported: false,
+          reconnectRequired: true,
+          activeAccount: expect.objectContaining({
+            id: accountId,
+            connected: false,
+            reconnectRequired: true,
+          }),
+          accounts: [
+            expect.objectContaining({
+              id: accountId,
+              active: true,
+              connected: false,
+              reconnectRequired: true,
+            }),
+          ],
+          legacyRegistrationCleanupAvailable: true,
+        });
+      },
+    );
+  });
+
   it("surfaces lab preference read failures instead of treating them as off", async () => {
     const error = new Error("settings unavailable");
     mocks.getUserLabEnabled.mockRejectedValue(error);
@@ -246,7 +424,7 @@ describe("ChatGPT subscription OAuth contract", () => {
   });
 
   it("reports unsupported when the app did not register the ChatGPT lab", async () => {
-    _resetLabRegistryForTests();
+    mocks.getLabDefinition.mockReturnValue(null);
 
     await runWithRequestContext(
       {
@@ -287,6 +465,9 @@ describe("ChatGPT subscription OAuth contract", () => {
           localLoopback: false,
           supportReason: "requires_local_loopback",
         });
+        expect(mocks.getUserLabEnabled).not.toHaveBeenCalled();
+        expect(mocks.listOAuthAccountsByOwner).not.toHaveBeenCalled();
+        expect(mocks.getUserSetting).not.toHaveBeenCalled();
         await expect(
           getChatGPTSubscriptionAccess("alice@example.com"),
         ).rejects.toThrow("available only from a local app");

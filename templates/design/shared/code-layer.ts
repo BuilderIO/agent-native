@@ -1,4 +1,4 @@
-import type { Declaration, Root } from "postcss";
+import type { Declaration, Root, Rule } from "postcss";
 import CssSyntaxError from "postcss/lib/css-syntax-error";
 import parseCss from "postcss/lib/parse";
 
@@ -243,6 +243,7 @@ export type VisualStyleProperty =
   | "order"
   | "align-self"
   | "align-items"
+  | "place-items"
   | "align-content"
   | "justify-content"
   | "justify-items"
@@ -787,6 +788,7 @@ const STYLE_PROPERTIES = [
   "order",
   "align-self",
   "align-items",
+  "place-items",
   "align-content",
   "justify-content",
   "justify-items",
@@ -2403,7 +2405,19 @@ function layoutFor(
             ? "stretch"
             : classes.has("items-baseline")
               ? "baseline"
-              : undefined);
+              : classes.has("place-items-start")
+                ? "start"
+                : classes.has("place-items-center")
+                  ? "center"
+                  : classes.has("place-items-end")
+                    ? "end"
+                    : classes.has("place-items-stretch")
+                      ? "stretch"
+                      : classes.has("place-items-baseline")
+                        ? "baseline"
+                        : classes.has("place-items-normal")
+                          ? "normal"
+                          : undefined);
   const justifyContent =
     style["justify-content"] ??
     (classes.has("justify-start")
@@ -4126,10 +4140,37 @@ export function buildCodeLayerTree(
 }
 
 function normalizeSelectorForMatch(selector: string): string {
-  return selector
-    .trim()
-    .replace(/\s*>\s*/g, " > ")
-    .replace(/\s+/g, " ");
+  let normalized = "";
+  let quote: string | null = null;
+  let escaped = false;
+  let bracketDepth = 0;
+  let parenDepth = 0;
+  for (const character of selector.trim()) {
+    if (quote) {
+      normalized += character;
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      normalized += character;
+      continue;
+    }
+    if (character === "[") bracketDepth += 1;
+    if (character === "]") bracketDepth -= 1;
+    if (character === "(") parenDepth += 1;
+    if (character === ")") parenDepth -= 1;
+    if (character === ">" && bracketDepth === 0 && parenDepth === 0) {
+      normalized = `${normalized.trimEnd()} > `;
+    } else if (/\s/.test(character) && bracketDepth === 0 && parenDepth === 0) {
+      if (normalized && !normalized.endsWith(" ")) normalized += " ";
+    } else {
+      normalized += character;
+    }
+  }
+  return normalized.trim();
 }
 
 function selectorPartTag(selectorPart: string): string | null {
@@ -4216,12 +4257,186 @@ function unescapeCssAttributeValue(value: string): string {
   return value.replace(/\\"/g, '"').replace(/\\\\/g, "\\");
 }
 
+function splitCssListAtTopLevel(value: string): string[] | null {
+  const result: string[] = [];
+  let start = 0;
+  let quote: string | null = null;
+  let bracketDepth = 0;
+  let parenDepth = 0;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (!character) continue;
+    if (character === "\\") {
+      index += 1;
+      continue;
+    }
+    if (quote) {
+      if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      continue;
+    }
+    if (character === "[") bracketDepth += 1;
+    else if (character === "]") bracketDepth -= 1;
+    else if (bracketDepth === 0 && character === "(") parenDepth += 1;
+    else if (bracketDepth === 0 && character === ")") parenDepth -= 1;
+    if (bracketDepth < 0 || parenDepth < 0) return null;
+    if (character === "," && bracketDepth === 0 && parenDepth === 0) {
+      result.push(value.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  if (quote || bracketDepth !== 0 || parenDepth !== 0) return null;
+  result.push(value.slice(start).trim());
+  return result;
+}
+
+function extractNotPseudoSelectors(
+  selector: string,
+): { selector: string; negatedSelectors: string[] } | null {
+  let remaining = "";
+  const negatedSelectors: string[] = [];
+  let quote: string | null = null;
+  let bracketDepth = 0;
+
+  for (let index = 0; index < selector.length; index += 1) {
+    const character = selector[index];
+    if (!character) continue;
+    if (character === "\\") {
+      remaining += character;
+      const escaped = selector[index + 1];
+      if (escaped) {
+        remaining += escaped;
+        index += 1;
+      }
+      continue;
+    }
+    if (quote) {
+      remaining += character;
+      if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      remaining += character;
+      continue;
+    }
+    if (character === "[") bracketDepth += 1;
+    else if (character === "]") bracketDepth -= 1;
+    if (bracketDepth < 0) return null;
+
+    if (
+      bracketDepth === 0 &&
+      selector.slice(index, index + 5).toLowerCase() === ":not("
+    ) {
+      let depth = 1;
+      let innerQuote: string | null = null;
+      let innerBracketDepth = 0;
+      let end = index + 5;
+      for (; end < selector.length; end += 1) {
+        const innerCharacter = selector[end];
+        if (!innerCharacter) continue;
+        if (innerCharacter === "\\") {
+          end += 1;
+          continue;
+        }
+        if (innerQuote) {
+          if (innerCharacter === innerQuote) innerQuote = null;
+          continue;
+        }
+        if (innerCharacter === '"' || innerCharacter === "'") {
+          innerQuote = innerCharacter;
+          continue;
+        }
+        if (innerCharacter === "[") innerBracketDepth += 1;
+        else if (innerCharacter === "]") innerBracketDepth -= 1;
+        else if (innerBracketDepth === 0 && innerCharacter === "(") {
+          depth += 1;
+        } else if (innerBracketDepth === 0 && innerCharacter === ")") {
+          depth -= 1;
+          if (depth === 0) break;
+        }
+      }
+      if (depth !== 0 || innerQuote || innerBracketDepth !== 0) return null;
+      const argumentsList = splitCssListAtTopLevel(
+        selector.slice(index + 5, end),
+      );
+      if (!argumentsList || argumentsList.some((value) => !value)) return null;
+      negatedSelectors.push(...argumentsList);
+      index = end;
+      continue;
+    }
+    remaining += character;
+  }
+  if (quote || bracketDepth !== 0) return null;
+  return { selector: remaining, negatedSelectors };
+}
+
+function isSupportedStaticSelector(selector: string): boolean {
+  const extracted = extractNotPseudoSelectors(selector);
+  if (!extracted) return false;
+  if (
+    extracted.negatedSelectors.some(
+      (nested) => !isSupportedStaticSelector(nested),
+    )
+  ) {
+    return false;
+  }
+  let base = extracted.selector.trim();
+  const nthOfType = base.match(/:nth-of-type\(\d+\)$/);
+  if (nthOfType?.index !== undefined) {
+    base = base.slice(0, nthOfType.index);
+  }
+  if (!base) return true;
+
+  if (base.startsWith("*")) {
+    base = base.slice(1);
+  } else {
+    const tag = base.match(/^[A-Za-z][A-Za-z0-9-]*/);
+    if (tag?.[0]) base = base.slice(tag[0].length);
+  }
+
+  while (base) {
+    const identifier = base.match(/^[.#][A-Za-z_][A-Za-z0-9_-]*/);
+    if (identifier?.[0]) {
+      base = base.slice(identifier[0].length);
+      continue;
+    }
+
+    const attribute = base.match(
+      /^\[([A-Za-z_][A-Za-z0-9_:.-]*)=(?:"(?:\\"|[^"])*"|'(?:\\'|[^'])*')\]/,
+    );
+    if (attribute?.[0]) {
+      base = base.slice(attribute[0].length);
+      continue;
+    }
+
+    return false;
+  }
+  return true;
+}
+
 function simpleSelectorMatchesElement(
   element: ParsedElement,
   selector: string,
 ): boolean {
   let remaining = selector.trim();
   if (!remaining) return false;
+
+  const extractedNotSelectors = extractNotPseudoSelectors(remaining);
+  if (!extractedNotSelectors) return true;
+  remaining = extractedNotSelectors.selector.trim() || "*";
+  for (const negatedSelector of extractedNotSelectors.negatedSelectors) {
+    if (
+      isSupportedStaticSelector(negatedSelector) &&
+      simpleSelectorMatchesElement(element, negatedSelector)
+    ) {
+      return false;
+    }
+  }
 
   const nthMatch = remaining.match(/:nth-of-type\((\d+)\)$/);
   if (nthMatch?.[1]) {
@@ -4234,16 +4449,9 @@ function simpleSelectorMatchesElement(
     return false;
   }
 
-  const idMatch = remaining.match(/#([A-Za-z_][A-Za-z0-9_-]*)/);
-  if (idMatch?.[1] && attributeValue(element, "id") !== idMatch[1]) {
-    return false;
-  }
-
-  const attributes = Array.from(
-    remaining.matchAll(
-      /\[([A-Za-z_][A-Za-z0-9_:.-]*)=(?:"((?:\\"|[^"])*)"|'((?:\\'|[^'])*)')\]/g,
-    ),
-  );
+  const attributeSelectorPattern =
+    /\[([A-Za-z_][A-Za-z0-9_:.-]*)=(?:"((?:\\"|[^"])*)"|'((?:\\'|[^'])*)')\]/g;
+  const attributes = Array.from(remaining.matchAll(attributeSelectorPattern));
   for (const match of attributes) {
     const name = match[1];
     if (!name) return false;
@@ -4251,9 +4459,18 @@ function simpleSelectorMatchesElement(
     if (attributeValue(element, name) !== expected) return false;
   }
 
+  const outsideAttributeValues = remaining.replace(
+    attributeSelectorPattern,
+    " ",
+  );
+  const idMatch = outsideAttributeValues.match(/#([A-Za-z_][A-Za-z0-9_-]*)/);
+  if (idMatch?.[1] && attributeValue(element, "id") !== idMatch[1]) {
+    return false;
+  }
+
   const classes = classList(element);
   const requiredClasses = Array.from(
-    remaining.matchAll(/\.([A-Za-z_][A-Za-z0-9_-]*)/g),
+    outsideAttributeValues.matchAll(/\.([A-Za-z_][A-Za-z0-9_-]*)/g),
     (match) => match[1],
   ).filter((value): value is string => Boolean(value));
   if (requiredClasses.some((className) => !classes.includes(className))) {
@@ -4265,7 +4482,8 @@ function simpleSelectorMatchesElement(
     idMatch ||
     attributes.length > 0 ||
     requiredClasses.length > 0 ||
-    nthMatch,
+    nthMatch ||
+    remaining === "*",
   );
 }
 
@@ -6445,6 +6663,15 @@ function applyStyleEdit(
     property,
   );
   let content = replaceOrInsertAttribute(html, element, "style", nextStyle);
+  if (isCrossAxisAlignmentProperty(property)) {
+    content = reconcileGeneratedFlexAlignment(
+      content,
+      element,
+      cssPropertyKey(property) === "place-items"
+        ? "place-items-set"
+        : undefined,
+    );
+  }
   if (property === "fill" || property === "stroke") {
     content = removeAttributeFromHtml(
       content,
@@ -6866,6 +7093,15 @@ function applyStyleRemoveEdit(
   let content = nextStyle.trim()
     ? replaceOrInsertAttribute(html, styleElement, "style", nextStyle)
     : removeAttributeFromHtml(html, styleElement, "style");
+  if (isCrossAxisAlignmentProperty(property)) {
+    content = reconcileGeneratedFlexAlignment(
+      content,
+      styleElement,
+      cssPropertyKey(property) === "place-items"
+        ? "place-items-remove"
+        : undefined,
+    );
+  }
   if (route.kind === "vector-paint") {
     if (property === "stroke") {
       content = clearVectorStrokeGradientState(
@@ -9934,6 +10170,9 @@ function holdsOpen(value: string, extent: number): boolean {
   return Number.parseFloat(trimmed) >= extent;
 }
 
+const GENERATED_FLEX_ALIGNMENT_ATTRIBUTE =
+  "data-agent-native-generated-flex-align-items";
+
 function applyAutoLayout(
   html: string,
   build: ProjectionBuild,
@@ -10055,8 +10294,8 @@ function applyAutoLayout(
   };
   const containerStyles = intent.containerStyles;
   const writtenProperties: VisualStyleProperty[] = [];
+  const declared: Array<[VisualStyleProperty, string]> = [];
   if (containerStyles) {
-    const declared: Array<[VisualStyleProperty, string]> = [];
     for (const [rawProperty, rawValue] of Object.entries(containerStyles)) {
       const property = normalizeStyleProperty(rawProperty);
       if (!property || !isSafeStyleValue(property, rawValue)) {
@@ -10065,6 +10304,34 @@ function applyAutoLayout(
       declared.push([property, rawValue.trim()]);
     }
     if (declared.length === 0) return "needsAgent";
+  }
+
+  const declaresAlignItems = declared.some(
+    ([property]) => cssPropertyKey(property) === "align-items",
+  );
+  const generatedFlexAlignment = attributeValue(
+    element,
+    GENERATED_FLEX_ALIGNMENT_ATTRIBUTE,
+  );
+  const currentAlignItems = effectiveStyleDeclarations(declarations).find(
+    (declaration) => cssPropertyKey(declaration.prop) === "align-items",
+  );
+  const generatedFlexAlignmentWasPresent =
+    generatedFlexAlignment !== null &&
+    currentAlignItems !== undefined &&
+    !currentAlignItems.important &&
+    currentAlignItems.value
+      .replace(/\s*!important\s*$/i, "")
+      .trim()
+      .toLowerCase() === generatedFlexAlignment.trim().toLowerCase();
+  let nextGeneratedFlexAlignment: string | null = null;
+  let removedGeneratedFlexAlignment = false;
+  if (generatedFlexAlignmentWasPresent && !declaresAlignItems) {
+    removeStyleDeclarations(declarations, ["align-items"]);
+    removedGeneratedFlexAlignment = true;
+  }
+
+  if (containerStyles) {
     for (const [property, value] of declared) {
       setOrReplace(property, value);
       writtenProperties.push(property);
@@ -10075,12 +10342,44 @@ function applyAutoLayout(
     setOrReplace("gap", gap);
     writtenProperties.push("display", "flex-direction", "gap");
   }
-  let result = replaceOrInsertAttribute(
-    html,
-    element,
-    "style",
-    serializeStyleDeclarations(declarations),
-  );
+  if (
+    removedGeneratedFlexAlignment &&
+    nextGeneratedFlexAlignment === null &&
+    !writtenProperties.includes("align-items")
+  ) {
+    writtenProperties.push("align-items");
+  }
+  const effectiveDeclarations = effectiveStyleDeclarations(declarations);
+  const hasAuthoredCrossAxisAlignment =
+    effectiveDeclarations.some((declaration) =>
+      isCrossAxisAlignmentProperty(declaration.prop),
+    ) ||
+    (!generatedFlexAlignmentWasPresent &&
+      node.layout.alignItems !== undefined) ||
+    hasCrossAxisAlignmentUtilityClass(element) ||
+    stylesheetMaySetAlignItems(html, element, build.elements);
+  const displayValue = effectiveDeclarations
+    .find((declaration) => cssPropertyKey(declaration.prop) === "display")
+    ?.value.replace(/\s*!important\s*$/i, "")
+    .trim()
+    .toLowerCase();
+  const isFlexContainer = displayValue
+    ? displayValue === "flex" || displayValue === "inline-flex"
+    : node.layout.isFlexContainer;
+  if (isFlexContainer && !hasAuthoredCrossAxisAlignment) {
+    setOrReplace("align-items", "flex-start");
+    nextGeneratedFlexAlignment = "flex-start";
+    writtenProperties.push("align-items");
+  }
+  let result = patchElementAttributes(html, [
+    {
+      element,
+      attributes: {
+        style: serializeStyleDeclarations(declarations),
+        [GENERATED_FLEX_ALIGNMENT_ATTRIBUTE]: nextGeneratedFlexAlignment,
+      },
+    },
+  ]);
 
   const updatedElements = parseHtmlElements(result);
   const stableAttrPairs: Array<[string, string]> = [];
@@ -10182,6 +10481,753 @@ function applyAutoLayout(
       confidence: 0.88,
     },
   };
+}
+
+function isCrossAxisAlignmentProperty(property: string): boolean {
+  const key = cssPropertyKey(property);
+  return key === "align-items" || key === "place-items";
+}
+
+function reconcileGeneratedFlexAlignment(
+  html: string,
+  element: ParsedElement,
+  placeItemsAction?: "place-items-set" | "place-items-remove",
+): string {
+  let updatedElement = parseHtmlElements(html)[element.index];
+  if (!updatedElement) return html;
+  const generatedValue = attributeValue(
+    updatedElement,
+    GENERATED_FLEX_ALIGNMENT_ATTRIBUTE,
+  );
+  if (placeItemsAction && generatedValue !== null) {
+    const declarations = parseStyleDeclarations(
+      attributeValue(updatedElement, "style"),
+    );
+    const alignItems = declarations.declarations.filter(
+      (declaration) => cssPropertyKey(declaration.prop) === "align-items",
+    );
+    const currentAlignItems = effectiveStyleDeclarations(declarations).find(
+      (declaration) => cssPropertyKey(declaration.prop) === "align-items",
+    );
+    const isGeneratedAlignment =
+      currentAlignItems !== undefined &&
+      !currentAlignItems.important &&
+      currentAlignItems.value.trim().toLowerCase() ===
+        generatedValue.trim().toLowerCase();
+    let updateStyle = false;
+    let keepMarker = true;
+
+    if (placeItemsAction === "place-items-set") {
+      if (isGeneratedAlignment) {
+        currentAlignItems.remove();
+        updateStyle = true;
+      }
+    } else if (isGeneratedAlignment && currentAlignItems) {
+      if (alignItems.some((declaration) => declaration !== currentAlignItems)) {
+        currentAlignItems.remove();
+        updateStyle = true;
+        keepMarker = false;
+      }
+    } else if (!currentAlignItems) {
+      const elements = parseHtmlElements(html);
+      const displayMode = effectiveDisplayMode(
+        html,
+        updatedElement,
+        elements,
+        declarations,
+      );
+      const hasAuthoredAlignment =
+        hasCrossAxisAlignmentUtilityClass(updatedElement) ||
+        stylesheetMaySetAlignItems(html, updatedElement, elements);
+      if (displayMode === "non-flex") {
+        keepMarker = false;
+      } else if (displayMode === "flex" && !hasAuthoredAlignment) {
+        setStyleDeclaration(declarations, "align-items", generatedValue);
+        updateStyle = true;
+      } else if (displayMode === "flex") {
+        keepMarker = false;
+      }
+    } else {
+      keepMarker = false;
+    }
+
+    if (updateStyle) {
+      const nextStyle = serializeStyleDeclarations(declarations);
+      html = nextStyle.trim()
+        ? replaceOrInsertAttribute(html, updatedElement, "style", nextStyle)
+        : removeAttributeFromHtml(html, updatedElement, "style");
+      updatedElement = parseHtmlElements(html)[element.index];
+    }
+    if (keepMarker) return html;
+  }
+  return updatedElement
+    ? removeAttributeFromHtml(
+        html,
+        updatedElement,
+        GENERATED_FLEX_ALIGNMENT_ATTRIBUTE,
+      )
+    : html;
+}
+
+function hasCrossAxisAlignmentUtilityClass(element: ParsedElement): boolean {
+  return classList(element).some((className) => {
+    if (/(?:^|:)!?\[(?:align-items|place-items):/i.test(className)) {
+      return true;
+    }
+    const variants = className.split(":");
+    const utility = variants[variants.length - 1]?.replace(/^!/, "");
+    return utility?.startsWith("items-") || utility?.startsWith("place-items-");
+  });
+}
+
+type CssSpecificity = readonly [number, number, number, number];
+
+type DisplayCascadeCandidate = {
+  value: string;
+  important: boolean;
+  specificity: CssSpecificity;
+  sourceOrder: number;
+  source: "inline" | "stylesheet" | "utility";
+};
+
+type DisplayMode = "flex" | "non-flex" | "unknown";
+
+const DISPLAY_UTILITY_VALUES: Readonly<Record<string, string>> = {
+  block: "block",
+  contents: "contents",
+  flex: "flex",
+  "flow-root": "flow-root",
+  grid: "grid",
+  hidden: "none",
+  inline: "inline",
+  "inline-block": "inline-block",
+  "inline-flex": "inline-flex",
+  "inline-grid": "inline-grid",
+  "list-item": "list-item",
+  table: "table",
+};
+
+function effectiveDisplayMode(
+  html: string,
+  target: ParsedElement,
+  elements: readonly ParsedElement[],
+  inlineStyle: ParsedStyleDeclarations,
+): DisplayMode {
+  const candidates: DisplayCascadeCandidate[] = effectiveStyleDeclarations(
+    inlineStyle,
+  )
+    .filter((declaration) => cssPropertyKey(declaration.prop) === "display")
+    .map((declaration, sourceOrder) => ({
+      value: declaration.value,
+      important: declaration.important,
+      specificity: [1, 0, 0, 0] as const,
+      sourceOrder,
+      source: "inline",
+    }));
+  const stylesheet = stylesheetPropertyValues(html, target, elements, [
+    "display",
+  ]);
+  const hasInlineImportantDisplay = candidates.some(
+    (candidate) => candidate.important,
+  );
+  if (stylesheet.unknown && !hasInlineImportantDisplay) return "unknown";
+  candidates.push(...stylesheet.declarations);
+
+  const classCandidates: DisplayCascadeCandidate[] = [];
+  for (const token of classList(target)) {
+    const parsed = parseClassToken(token);
+    const variantUtility = parsed.utility.slice(
+      parsed.utility.lastIndexOf(":") + 1,
+    );
+    const important = variantUtility.startsWith("!");
+    const utility = important ? variantUtility.slice(1) : variantUtility;
+    const value = DISPLAY_UTILITY_VALUES[utility];
+    if (!value) {
+      if (/^\[display\s*:/i.test(utility)) {
+        return "unknown";
+      }
+      continue;
+    }
+    if (parsed.prefix !== "base" || parsed.utility.includes(":")) {
+      return "unknown";
+    }
+    classCandidates.push({
+      value,
+      important,
+      specificity: [0, 0, 1, 0],
+      sourceOrder: classCandidates.length,
+      source: "utility",
+    });
+  }
+  candidates.push(...classCandidates);
+
+  for (let leftIndex = 0; leftIndex < candidates.length; leftIndex += 1) {
+    const left = candidates[leftIndex];
+    if (!left) continue;
+    for (
+      let rightIndex = leftIndex + 1;
+      rightIndex < candidates.length;
+      rightIndex += 1
+    ) {
+      const right = candidates[rightIndex];
+      if (
+        !right ||
+        left.value.trim().toLowerCase() === right.value.trim().toLowerCase()
+      ) {
+        continue;
+      }
+      if (
+        left.important === right.important &&
+        compareCssSpecificity(left.specificity, right.specificity) === 0 &&
+        (left.source === "utility" || right.source === "utility")
+      ) {
+        return "unknown";
+      }
+    }
+  }
+
+  let winner: DisplayCascadeCandidate | undefined;
+  for (const candidate of candidates) {
+    if (!winner) {
+      winner = candidate;
+      continue;
+    }
+    if (candidate.important !== winner.important) {
+      if (candidate.important) winner = candidate;
+      continue;
+    }
+    const specificity = compareCssSpecificity(
+      candidate.specificity,
+      winner.specificity,
+    );
+    if (
+      specificity > 0 ||
+      (specificity === 0 && candidate.sourceOrder > winner.sourceOrder)
+    ) {
+      winner = candidate;
+    }
+  }
+
+  if (!winner) return "non-flex";
+  const value = normalizeDisplayValue(winner.value);
+  if (value === null) return "unknown";
+  return value === "flex" || value === "inline-flex" ? "flex" : "non-flex";
+}
+
+function compareCssSpecificity(
+  left: CssSpecificity,
+  right: CssSpecificity,
+): number {
+  for (let index = 0; index < left.length; index += 1) {
+    const difference = left[index]! - right[index]!;
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
+function normalizeDisplayValue(value: string): string | null {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized || /\b(?:var|env|attr)\s*\(/.test(normalized)) return null;
+  if (
+    ["flex", "inline-flex", "block flex", "inline flex"].includes(normalized)
+  ) {
+    return "flex";
+  }
+  if (
+    [
+      "block flow",
+      "block flow-root",
+      "block grid",
+      "block list-item",
+      "block math",
+      "block table",
+      "block",
+      "contents",
+      "flow-root",
+      "grid",
+      "inline",
+      "inline flow",
+      "inline flow-root",
+      "inline grid",
+      "inline-block",
+      "inline-grid",
+      "inline list-item",
+      "inline math",
+      "inline table",
+      "inline-table",
+      "list-item",
+      "math",
+      "none",
+      "ruby",
+      "ruby-base",
+      "ruby-base-container",
+      "ruby-text",
+      "ruby-text-container",
+      "run-in",
+      "table",
+      "table-caption",
+      "table-cell",
+      "table-column",
+      "table-column-group",
+      "table-footer-group",
+      "table-header-group",
+      "table-row",
+      "table-row-group",
+    ].includes(normalized)
+  ) {
+    return normalized;
+  }
+  return null;
+}
+
+function stylesheetMaySetAlignItems(
+  html: string,
+  target: ParsedElement,
+  elements: readonly ParsedElement[],
+): boolean {
+  const result = stylesheetPropertyValues(html, target, elements, [
+    "align-items",
+    "place-items",
+  ]);
+  return result.unknown || result.values.length > 0;
+}
+
+function stylesheetPropertyValues(
+  html: string,
+  target: ParsedElement,
+  elements: readonly ParsedElement[],
+  properties: readonly string[],
+): {
+  unknown: boolean;
+  values: string[];
+  declarations: DisplayCascadeCandidate[];
+} {
+  const values: string[] = [];
+  const declarations: DisplayCascadeCandidate[] = [];
+  let unknown = false;
+  let sourceOrder = 0;
+  const tagRe =
+    /<!--[\s\S]*?-->|<![A-Za-z][^>]*>|<\/?\s*([A-Za-z][A-Za-z0-9:-]*)\b/g;
+  let match: RegExpExecArray | null;
+  while ((match = tagRe.exec(html))) {
+    let raw = match[0];
+    if (raw.startsWith("<!")) continue;
+    const tagEnd = findHtmlTagEnd(html, match.index);
+    raw = html.slice(match.index, tagEnd === -1 ? html.length : tagEnd);
+    tagRe.lastIndex = match.index + raw.length;
+    const tag = match[1]?.toLowerCase();
+    if (!tag || raw.startsWith("</")) continue;
+
+    const inTemplate =
+      (tag === "style" || tag === "link") &&
+      isOffsetInsideTemplateInterior(html, match.index);
+    if (tag === "link") {
+      if (inTemplate) continue;
+      const attributes = parseAttributes(raw, match.index);
+      const rel = attributes.find((attribute) => attribute.lowerName === "rel");
+      const href = attributes.find(
+        (attribute) => attribute.lowerName === "href",
+      );
+      const media = attributes.find(
+        (attribute) => attribute.lowerName === "media",
+      );
+      const relValue =
+        rel && typeof rel.value === "string"
+          ? decodeBasicHtmlEntities(rel.value).toLowerCase()
+          : "";
+      const mediaValue = media
+        ? typeof media.value === "string"
+          ? decodeBasicHtmlEntities(media.value)
+          : ""
+        : null;
+      const hrefValue =
+        typeof href?.value === "string"
+          ? decodeBasicHtmlEntities(href.value).trim()
+          : "";
+      if (
+        relValue.split(/\s+/).includes("stylesheet") &&
+        hrefValue !== "" &&
+        stylesheetHrefCanLoad(hrefValue) &&
+        !isGoogleFontsStylesheet(hrefValue) &&
+        !attributes.some((attribute) => attribute.lowerName === "disabled") &&
+        (mediaValue === null || mediaQueryListMayMatchScreen(mediaValue))
+      ) {
+        return { unknown: true, values, declarations };
+      }
+      continue;
+    }
+
+    if (tag === "style") {
+      const close = findClosingTag(html, "style", match.index + raw.length);
+      const mediaAttribute = parseAttributes(raw, match.index).find(
+        (attribute) => attribute.lowerName === "media",
+      );
+      const mediaValue = mediaAttribute
+        ? typeof mediaAttribute.value === "string"
+          ? decodeBasicHtmlEntities(mediaAttribute.value)
+          : ""
+        : null;
+      const mediaCanApply =
+        mediaValue === null || mediaQueryListMayMatchScreen(mediaValue);
+      const mediaIsUnconditionallyActive =
+        mediaValue === null ||
+        mediaQueryListDefinitelyMatchesScreen(mediaValue);
+      if (!inTemplate && mediaCanApply) {
+        const css = html.slice(
+          match.index + raw.length,
+          close?.closeStart ?? html.length,
+        );
+        try {
+          const stylesheet = parseCss(css, { map: false });
+          let importedStylesheet = false;
+          stylesheet.walkAtRules("import", () => {
+            importedStylesheet = true;
+          });
+          if (importedStylesheet) {
+            return { unknown: true, values, declarations };
+          }
+          stylesheet.walkRules((rule) => {
+            if (!stylesheetRuleMayApplyOnScreen(rule)) return;
+            let winningSpecificity: CssSpecificity | undefined;
+            let uncertainSelector = false;
+            for (const selector of rule.selectors) {
+              const specificity = stylesheetSelectorSpecificity(selector);
+              if (!specificity) {
+                if (
+                  stylesheetSelectorMayMatchElement(selector, target, elements)
+                ) {
+                  uncertainSelector = true;
+                }
+                continue;
+              }
+              if (
+                stylesheetSelectorMayMatchElement(selector, target, elements) &&
+                (!winningSpecificity ||
+                  compareCssSpecificity(specificity, winningSpecificity) > 0)
+              ) {
+                winningSpecificity = specificity;
+              }
+            }
+            for (const declaration of rule.nodes ?? []) {
+              const declarationOrder = sourceOrder;
+              sourceOrder += 1;
+              if (
+                declaration.type !== "decl" ||
+                !properties.includes(cssPropertyKey(declaration.prop))
+              ) {
+                continue;
+              }
+              if (!uncertainSelector && !winningSpecificity) continue;
+              values.push(declaration.value);
+              if (
+                uncertainSelector ||
+                stylesheetRuleHasUnknownCascade(rule) ||
+                !mediaIsUnconditionallyActive
+              ) {
+                unknown = true;
+                continue;
+              }
+              if (winningSpecificity) {
+                declarations.push({
+                  value: declaration.value,
+                  important: declaration.important,
+                  specificity: winningSpecificity,
+                  sourceOrder: declarationOrder,
+                  source: "stylesheet",
+                });
+              }
+            }
+          });
+        } catch (error) {
+          if (!(error instanceof CssSyntaxError)) throw error;
+          const propertyPattern = properties.join("|");
+          if (
+            new RegExp(`@import\\b|\\b(?:${propertyPattern})\\s*:`, "i").test(
+              css,
+            )
+          ) {
+            unknown = true;
+          }
+        }
+      }
+      tagRe.lastIndex = close?.closeEnd ?? html.length;
+      continue;
+    }
+
+    if (["script", "textarea", "title", "noscript"].includes(tag)) {
+      const close = findClosingTag(html, tag, match.index + raw.length);
+      tagRe.lastIndex = close?.closeEnd ?? html.length;
+    }
+  }
+  return { unknown, values, declarations };
+}
+
+function stylesheetSelectorSpecificity(
+  selector: string,
+): CssSpecificity | null {
+  const normalized = normalizeSelectorForMatch(selector);
+  if (!normalized) return null;
+  let ids = 0;
+  let classes = 0;
+  let elements = 0;
+  let canStartType = true;
+
+  for (let index = 0; index < normalized.length; ) {
+    const character = normalized[index];
+    if (!character) return null;
+    if (character === ">" || /\s/.test(character)) {
+      canStartType = true;
+      index += 1;
+      continue;
+    }
+    if (character === "[") {
+      const attribute = normalized
+        .slice(index)
+        .match(
+          /^\[[A-Za-z_][A-Za-z0-9_:.-]*=(?:"(?:\\.|[^"])*"|'(?:\\.|[^'])*')\]/,
+        );
+      if (!attribute) return null;
+      classes += 1;
+      canStartType = false;
+      index += attribute[0].length;
+      continue;
+    }
+    if (character === "#" || character === ".") {
+      const identifier = normalized
+        .slice(index + 1)
+        .match(/^[A-Za-z_][A-Za-z0-9_-]*/)?.[0];
+      if (!identifier) return null;
+      if (character === "#") ids += 1;
+      else classes += 1;
+      canStartType = false;
+      index += identifier.length + 1;
+      continue;
+    }
+    if (character === "*") {
+      if (!canStartType) return null;
+      canStartType = false;
+      index += 1;
+      continue;
+    }
+    if (character === ":") return null;
+    if (canStartType && /[A-Za-z]/.test(character)) {
+      const tag = normalized.slice(index).match(/^[A-Za-z][A-Za-z0-9:-]*/)?.[0];
+      if (!tag) return null;
+      elements += 1;
+      canStartType = false;
+      index += tag.length;
+      continue;
+    }
+    return null;
+  }
+  return [0, ids, classes, elements];
+}
+
+function stylesheetRuleHasUnknownCascade(rule: Rule): boolean {
+  let parent = rule.parent;
+  while (parent) {
+    if (parent.type === "atrule") {
+      if (parent.name.toLowerCase() !== "media") return true;
+      const media = parent.params.trim().toLowerCase();
+      if (!["all", "screen", "not print"].includes(media)) return true;
+    }
+    const ancestor = parent.parent;
+    parent = ancestor && ancestor.type !== "document" ? ancestor : undefined;
+  }
+  return false;
+}
+
+function stylesheetHrefCanLoad(href: string): boolean {
+  try {
+    return new URL(href, "https://design.invalid").protocol !== "javascript:";
+  } catch {
+    // coercion-ok: Invalid hrefs cannot identify a loadable stylesheet.
+    return false;
+  }
+}
+
+function isGoogleFontsStylesheet(href: string): boolean {
+  try {
+    const url = new URL(href, "https://design.invalid");
+    return (
+      url.hostname.toLowerCase() === "fonts.googleapis.com" &&
+      (url.pathname === "/css" || url.pathname === "/css2")
+    );
+  } catch {
+    // coercion-ok: Invalid hrefs are non-matches in this predicate.
+    return false;
+  }
+}
+
+function stylesheetRuleMayApplyOnScreen(rule: Rule): boolean {
+  let parent = rule.parent;
+  while (parent) {
+    if (
+      parent.type === "atrule" &&
+      parent.name.toLowerCase() === "media" &&
+      !mediaQueryListMayMatchScreen(parent.params)
+    ) {
+      return false;
+    }
+    const ancestor = parent.parent;
+    parent = ancestor && ancestor.type !== "document" ? ancestor : undefined;
+  }
+  return true;
+}
+
+function mediaQueryListMayMatchScreen(params: string): boolean {
+  const queries = splitCssListAtTopLevel(params);
+  if (!queries) return true;
+  return queries.some((query) => {
+    let remaining = query.trim();
+    if (!remaining) return true;
+
+    const negated = /^not\b/i.test(remaining);
+    if (negated) remaining = remaining.replace(/^not\b\s*/i, "");
+    else remaining = remaining.replace(/^only\b\s*/i, "");
+
+    const mediaTypeMatch = remaining.match(/^([A-Za-z][A-Za-z0-9-]*)\b/);
+    if (!mediaTypeMatch) return true;
+    const mediaType = mediaTypeMatch[1]?.toLowerCase();
+    if (!mediaType) return true;
+    const hasCondition =
+      remaining.slice(mediaTypeMatch[0].length).trim() !== "";
+    if (negated && hasCondition) return true;
+    if (mediaType === "print" || mediaType === "speech") return negated;
+    if (mediaType === "screen" || mediaType === "all") return !negated;
+    return true;
+  });
+}
+
+function mediaQueryListDefinitelyMatchesScreen(params: string): boolean {
+  const queries = splitCssListAtTopLevel(params);
+  if (!queries) return false;
+  return queries.some((query) => {
+    let remaining = query.trim().toLowerCase();
+    if (!remaining) return false;
+
+    const negated = /^not\b/.test(remaining);
+    if (negated) remaining = remaining.replace(/^not\b\s*/, "");
+    else remaining = remaining.replace(/^only\b\s*/, "");
+
+    const mediaType = remaining.match(/^([a-z][a-z0-9-]*)\b/)?.[1];
+    if (!mediaType || remaining.slice(mediaType.length).trim() !== "") {
+      return false;
+    }
+    if (mediaType === "all" || mediaType === "screen") return !negated;
+    if (mediaType === "print" || mediaType === "speech") return negated;
+    return false;
+  });
+}
+
+function stylesheetSelectorMayMatchElement(
+  selector: string,
+  target: ParsedElement,
+  elements: readonly ParsedElement[],
+): boolean {
+  const normalized = normalizeSelectorForMatch(selector);
+  if (!normalized) return false;
+
+  const parts: Array<{
+    selector: string;
+    relation: "child" | "descendant" | null;
+  }> = [];
+  let current = "";
+  let relation: "child" | "descendant" | null = null;
+  let quote: string | null = null;
+  let bracketDepth = 0;
+  let parenDepth = 0;
+
+  const pushPart = (): boolean => {
+    const value = current.trim();
+    if (!value) return false;
+    parts.push({ selector: value, relation });
+    current = "";
+    relation = null;
+    return true;
+  };
+
+  for (const character of normalized) {
+    if (quote) {
+      current += character;
+      if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      current += character;
+      continue;
+    }
+    if (character === "[") bracketDepth += 1;
+    if (character === "]") bracketDepth -= 1;
+    if (character === "(") parenDepth += 1;
+    if (character === ")") parenDepth -= 1;
+    if (bracketDepth < 0 || parenDepth < 0) return true;
+
+    if (bracketDepth === 0 && parenDepth === 0) {
+      if (character === ">") {
+        if (current.trim() && !pushPart()) return true;
+        if (relation === "child") return true;
+        relation = "child";
+        continue;
+      }
+      if (character === "+" || character === "~") return true;
+      if (/\s/.test(character)) {
+        if (current.trim()) {
+          pushPart();
+          relation ??= "descendant";
+        }
+        continue;
+      }
+    }
+    current += character;
+  }
+  if (quote || bracketDepth !== 0 || parenDepth !== 0) return true;
+  if (current.trim()) pushPart();
+  if (relation !== null || parts.length === 0) return true;
+  if (parts.some((part) => !isSupportedStaticSelector(part.selector))) {
+    return true;
+  }
+
+  const matchesAt = (element: ParsedElement, index: number): boolean => {
+    const part = parts[index];
+    if (
+      !part ||
+      (part.selector !== "*" &&
+        !simpleSelectorMatchesElement(element, part.selector))
+    ) {
+      return false;
+    }
+    if (index === 0) return true;
+
+    const previousIndex = index - 1;
+    if (part.relation === "child") {
+      const parent =
+        element.parentIndex === undefined
+          ? undefined
+          : elements[element.parentIndex];
+      return parent ? matchesAt(parent, previousIndex) : false;
+    }
+
+    let parentIndex = element.parentIndex;
+    while (parentIndex !== undefined) {
+      const parent = elements[parentIndex];
+      if (!parent) break;
+      if (matchesAt(parent, previousIndex)) return true;
+      parentIndex = parent.parentIndex;
+    }
+    return false;
+  };
+
+  const lastPart = parts[parts.length - 1];
+  if (!lastPart) return false;
+  if (
+    lastPart.selector !== "*" &&
+    !simpleSelectorMatchesElement(target, lastPart.selector)
+  ) {
+    return false;
+  }
+  return matchesAt(target, parts.length - 1);
 }
 
 const BLOCK_LEVEL_TAGS = new Set([
@@ -10931,15 +11977,28 @@ export function applyOrdinaryVisualStyleBatch(
     status: "applied",
     content: patchElementAttributes(
       html,
-      [...updatesByElement.values()].map((update) => ({
-        element: update.element,
-        attributes: { style: update.style },
-      })),
+      [...updatesByElement.values()].map((update) => {
+        const editsAlignment = [...update.values.keys()].some(
+          isCrossAxisAlignmentProperty,
+        );
+        return {
+          element: update.element,
+          attributes: {
+            style: update.style,
+            ...(editsAlignment
+              ? { [GENERATED_FLEX_ALIGNMENT_ATTRIBUTE]: null }
+              : {}),
+          },
+        };
+      }),
     ),
   };
 }
 
-const EDITOR_ONLY_ATTRIBUTES: readonly string[] = ["data-agent-native-node-id"];
+const EDITOR_ONLY_ATTRIBUTES: readonly string[] = [
+  "data-agent-native-node-id",
+  GENERATED_FLEX_ALIGNMENT_ATTRIBUTE,
+];
 
 export function stripEditorOnlyAttributes(html: string): string {
   if (!html || typeof html !== "string") return html ?? "";

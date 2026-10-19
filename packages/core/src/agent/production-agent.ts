@@ -5,6 +5,7 @@ import {
   AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY,
   MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS,
   MAX_AGENT_REQUEST_ATTACHMENTS,
+  type AgentSubmissionPayload,
   type AgentSuggestion,
 } from "@agent-native/agentkit/protocol";
 import Ajv, { type ErrorObject, type ValidateFunction } from "ajv";
@@ -22,10 +23,9 @@ import "../authorization/check-action.js";
 import { parseA2AAgentActivityPart } from "../a2a/activity.js";
 import type { A2AConnectionRequestMetadata, Task } from "../a2a/types.js";
 import {
-  actionCallEmitsChange,
-  actionCallIsReadOnly,
   actionCallIsRetrySafe,
   actionChangeResource,
+  classifyActionCall,
 } from "../action-call-classification.js";
 import {
   ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
@@ -35,12 +35,21 @@ import {
   AgentConnectionRequiredError,
   describeToolParameterSignature,
   isActionContractError,
-  runActionWithExecutionOutcome,
   isActionHiddenFromEveryAgentSurface,
   isAgentActionStopError,
   isAgentConnectionRequiredError,
+  actionCallIntent,
+  type ActionExecutionOutcome,
+  invocationEffect,
+  runPreparedActionCall,
+  boundActionCallIntent,
+  preparedCallArguments,
+  recordInvalidActionCall,
   type ActionAutomationContext,
+  type ActionCallIntent,
+  type PreparedActionCall,
   type ActionCaller,
+  type ActionRunContext,
   type WriteReceipt,
   stripUnsupportedSchemaKeywords,
 } from "../action.js";
@@ -53,6 +62,7 @@ import {
 import { readAppState } from "../application-state/script-helpers.js";
 import {
   detectArtifactReceipts,
+  isArtifactReceipt,
   type ArtifactReceipt,
 } from "../artifacts/detect.js";
 import { isReadOnlyShellCommand } from "../coding-tools/index.js";
@@ -85,10 +95,17 @@ import {
 } from "../file-upload/owned-attachment.js";
 import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
 import { canonicalImageReferenceUrl } from "../file-upload/thread-image-history.js";
+import {
+  derivedTool,
+  plainJsonSnapshot,
+  UninterpretedSchema,
+  UnusableSchemaError,
+  usableInputSchema,
+} from "../json-schema/unusable-schema.js";
+import { assertUsableSchema } from "../json-schema/usable-schema.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
 import { extractMcpToolResultImages } from "../mcp-client/index.js";
 import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
-import { isObjectOnly } from "../mcp/tool-input-schema.js";
 import {
   describeSettingsViewForAgent,
   SETTINGS_VIEW_STATE_KEY,
@@ -149,6 +166,7 @@ import {
 } from "../server/request-context.js";
 import { secretKeyNames } from "../server/secret-key-aliases.js";
 import { fireInternalDispatch } from "../server/self-dispatch.js";
+import { reportUnusableToolSchema } from "../server/unusable-tool-schema.js";
 import {
   retryContextFromRequest,
   type RefusedTurnRetryContext,
@@ -185,6 +203,7 @@ import {
   drainAgentWarnings,
   formatAgentWarningsForToolResult,
 } from "./action-warnings.js";
+import { approvalKeyWithArguments } from "./approval-key.js";
 import {
   CONTINUE_UNAVAILABLE_CODE,
   type ContinueTrigger,
@@ -249,6 +268,7 @@ import {
   resolveMainChatMaxOutputTokens,
   resolveMaxOutputTokensForEngine,
 } from "./engine/output-tokens.js";
+import { SYSTEM_PROMPT_CACHE_SPLIT } from "./engine/prompt-cache.js";
 import { PROVIDER_TO_ENV } from "./engine/provider-env-vars.js";
 import {
   JOURNALED_TOOL_REPLAY_PREFIX,
@@ -275,6 +295,7 @@ import type {
   EngineToolResultPart,
 } from "./engine/types.js";
 import { EngineError } from "./engine/types.js";
+import { currentExecutionFence } from "./execution-fence.js";
 import {
   FOLLOW_UP_SUGGESTIONS_COMPLETION_SYSTEM_PROMPT,
   FOLLOW_UP_SUGGESTIONS_INSTRUCTION,
@@ -331,6 +352,7 @@ import {
   getRun,
   abortRun,
   abortRunDurably,
+  abortRunAtSafeBoundaryDurably,
   abortTurnByRefDurably,
   abortTurnDurably,
   getSlotHoldingRunId,
@@ -345,6 +367,12 @@ import type { ActiveRun } from "./run-manager.js";
 import {
   writeLedgerEntry,
   readLedgerEntry,
+  beginAgentExecutionStep,
+  completeAgentExecutionStep,
+  markAgentExecutionStepDispatched,
+  markAgentExecutionStepUnknown,
+  recordLateAgentExecutionStepOutcome,
+  type AgentExecutionStepIntent,
   clearLedgerForThread,
   type AgentTurnInitiator,
   AgentTurnInitiatorMismatchError,
@@ -355,6 +383,7 @@ import {
   markRunAborted,
   updateRunHeartbeat,
   updateRunStatusIfRunning,
+  updateRunTerminalStateIfRunning,
   setRunError,
   setRunTerminalReason,
   claimBackgroundRun,
@@ -380,14 +409,18 @@ import {
 } from "./tool-approval-store.js";
 import type { AgentToolApprovalBinding } from "./tool-approval-store.js";
 import {
-  findCompletedJournalEntry,
+  findReplayableJournalEntry,
   isUnavailableToolCallInput,
+  journalCallEffects,
+  journalCallIdentities,
+  type JournalCallEffect,
 } from "./tool-call-journal.js";
 import {
   redactSensitiveFields,
   sanitizeToolErrorText,
   sanitizeToolErrorValue,
 } from "./tool-error-redaction.js";
+import { formatToolIndex } from "./tool-index.js";
 import {
   describeToolResultImages,
   extractAgentImagesFromActionResult,
@@ -449,6 +482,7 @@ export const BACKGROUND_REAPER_SAFETY_MARGIN_MS = 2_000;
 export const BACKGROUND_CLAIM_POLL_MS = 400;
 export const BACKGROUND_PRECLAIM_HEARTBEAT_MS = 1_500;
 export const BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS = 15_000;
+const INLINE_CLAIM_RETRY_MS = 250;
 
 export type BackgroundDispatchOutcome =
   | { action: "stream" }
@@ -568,7 +602,18 @@ export async function resolveBackgroundDispatchOutcome(opts: {
   try {
     claimedInline = await opts.claim(opts.runId);
   } catch {
-    claimedInline = false;
+    await sleep(INLINE_CLAIM_RETRY_MS);
+    try {
+      claimedInline = await opts.claim(opts.runId);
+    } catch (error) {
+      // Subscribing is still the safe move (the worker may hold the claim and
+      // the stale reaper covers it if not), but a claim that cannot be written
+      // must be visible rather than look like "the worker already claimed".
+      console.error(
+        `[background-dispatch] inline claim failed twice for runId=${opts.runId}:`,
+        error instanceof Error ? error.message : error,
+      );
+    }
   }
   if (claimedInline) {
     return {
@@ -1148,6 +1193,12 @@ export interface ActionEntry {
    *  Schema dialect when the schema omits `$schema`. */
   fromMcpServer?: boolean;
   mcpAnnotations?: import("../action.js").ActionMcpToolAnnotations;
+  mcpOutputContract?: import("../action-output-contract.js").ActionMcpOutputContract;
+  /** Hints the framework supplies for an action that declares none, such as a
+   *  file a dev server discovers. MCP advertises them only when
+   *  `mcpAnnotations` is absent. They are a conservative guess, not a reviewed
+   *  decision, so they never count as the action declaring its hints. */
+  mcpAnnotationDefaults?: import("../action.js").ActionMcpToolAnnotations;
   deferLoading?: boolean;
   publicAgent?: import("../action.js").PublicAgentActionConfig;
   readOnly?: boolean;
@@ -1619,6 +1670,21 @@ export function isPlanModeToolCallAllowed(
   input: unknown,
   entry: ActionEntry,
 ): boolean {
+  return planModeAllowsCall(
+    name,
+    input,
+    entry,
+    classifyActionCall(entry, input).planModeRead,
+  );
+}
+
+/** The plan gate for a call already classified, so its predicate runs once. */
+function planModeAllowsCall(
+  name: string,
+  input: unknown,
+  entry: ActionEntry,
+  planModeRead: boolean,
+): boolean {
   if (entry.allowInPlanMode === false) return false;
   if (PLAN_MODE_BLOCKED_READONLY_TOOLS.has(name)) return false;
 
@@ -1626,22 +1692,10 @@ export function isPlanModeToolCallAllowed(
     return isPlanModeReadOnlyBashCall(input);
   }
 
-  if (entry.planMode) {
-    if (!matchesPlanModeInputPolicy(input, entry.planMode)) {
-      return false;
-    }
-    try {
-      const effect =
-        typeof entry.planMode.effect === "function"
-          ? entry.planMode.effect(input)
-          : entry.planMode.effect;
-      return effect === "read";
-    } catch {
-      return false;
-    }
+  if (entry.planMode && !matchesPlanModeInputPolicy(input, entry.planMode)) {
+    return false;
   }
-
-  return entry.readOnly === true;
+  return planModeRead;
 }
 
 function isPlanModeReadOnlyBashCall(input: unknown): boolean {
@@ -1672,20 +1726,45 @@ function createPlanModeGuardedAction(
   return {
     ...entry,
     readOnly: true,
-    tool: {
+    tool: derivedTool(entry.tool, {
       ...entry.tool,
       description: `${entry.tool.description}\n\nPlan mode: ${guidance}`,
       parameters: projectPlanModeParameters(
         entry.tool.parameters,
         entry.planMode,
       ),
-    },
-    run: async (args, context) => {
-      if (!isPlanModeToolCallAllowed(name, args, entry)) {
-        return planModeBlockedMessage(name, "call is not read-only");
-      }
-      return entry.run(args, context);
-    },
+    }),
+    run: planModeGuardedRun(entry, (call) =>
+      planModeAllowsCall(
+        name,
+        preparedCallArguments(call),
+        entry,
+        call.planModeRead,
+      )
+        ? undefined
+        : planModeBlockedMessage(name, "call is not read-only"),
+    ),
+  };
+}
+
+/**
+ * A plan-mode entry's run: the gate reads the call as prepared, and only that
+ * preparation runs. An invalid call is recorded and refused, never dispatched.
+ */
+function planModeGuardedRun(
+  entry: ActionEntry,
+  refusal: (call: PreparedActionCall) => string | undefined,
+): ActionEntry["run"] {
+  return async (args, context) => {
+    const ctx = context ?? ({} as ActionRunContext);
+    // The loop's prepared call arrives bound; any other caller prepares here.
+    const intent =
+      boundActionCallIntent(ctx, args) ?? (await actionCallIntent(entry, args));
+    if (!intent.valid) {
+      await recordInvalidActionCall(entry, args, ctx, intent.error);
+      throw intent.error;
+    }
+    return refusal(intent) ?? runPreparedActionCall(entry, intent, ctx);
   };
 }
 
@@ -1693,16 +1772,15 @@ function createPlanModeBashAction(entry: ActionEntry): ActionEntry {
   return {
     ...entry,
     readOnly: true,
-    tool: {
+    tool: derivedTool(entry.tool, {
       ...entry.tool,
       description: `${entry.tool.description}\n\nPlan mode: only read-only inspection commands such as pwd, ls, find, rg, grep, cat, sed -n, head, tail, wc, and git status/diff/show/log are allowed.`,
-    },
-    run: async (args, context) => {
-      if (!isPlanModeReadOnlyBashCall(args)) {
-        return planModeBlockedMessage("bash", "command is not read-only");
-      }
-      return entry.run(args, context);
-    },
+    }),
+    run: planModeGuardedRun(entry, (call) =>
+      isPlanModeReadOnlyBashCall(preparedCallArguments(call))
+        ? undefined
+        : planModeBlockedMessage("bash", "command is not read-only"),
+    ),
   };
 }
 
@@ -1715,10 +1793,10 @@ function createPlanModeBlockedAction(
     ...entry,
     allowInPlanMode: false,
     readOnly: true,
-    tool: {
+    tool: derivedTool(entry.tool, {
       ...entry.tool,
       description: `${entry.tool.description}\n\nPlan mode blocked: ${reason ?? "not available while planning"}.`,
-    },
+    }),
     run: async () => planModeBlockedMessage(name, reason),
   };
 }
@@ -1915,11 +1993,15 @@ export interface ProductionAgentOptions {
     threadId: string | undefined;
     message: string;
     agentKitMessageId?: string;
+    submissionPayload?: AgentSubmissionPayload;
     attachments?: AgentChatAttachment[];
     queuedMessageId?: string;
     queuedMessageClaimId?: string;
     submissionExpiresAt?: unknown;
-  }) => void | Promise<void>;
+  }) =>
+    | void
+    | { duplicateRunId?: string }
+    | Promise<void | { duplicateRunId?: string }>;
   /**
    * The turn was refused before a run started (no usable model credential).
    * `runId` is the turn id the client already uses as its run id.
@@ -4064,6 +4146,138 @@ export interface AgentLoopToolResultSummary {
   receipt?: WriteReceipt;
 }
 
+interface DurableExecutionStepOutcome {
+  result: string;
+  isError: boolean;
+  errorCode?: string;
+  completedSideEffect: boolean;
+  replayTruncated?: boolean;
+  artifacts?: ArtifactReceipt[];
+  receipt?: WriteReceipt;
+  mcpApp?: import("../mcp-client/app-result.js").AgentMcpAppPayload;
+  chatUI?: import("../action-ui.js").ActionChatUIConfig;
+  chatUIResult?: unknown;
+  fileMutation?: AgentFileMutationProof;
+}
+
+const MAX_DURABLE_EXECUTION_STEP_OUTCOME_BYTES = 512 * 1024;
+const DURABLE_EXECUTION_STEP_TRUNCATION_NOTICE =
+  "\n\n[Some result details were too large to retain for recovery.]";
+
+function serializeDurableExecutionStepOutcome(
+  outcome: DurableExecutionStepOutcome,
+): string {
+  try {
+    const serialized = JSON.stringify(stripInlineBytes(outcome, "placeholder"));
+    if (
+      Buffer.byteLength(serialized, "utf8") <=
+      MAX_DURABLE_EXECUTION_STEP_OUTCOME_BYTES
+    ) {
+      return serialized;
+    }
+  } catch (error) {
+    if (!(error instanceof TypeError)) throw error;
+  }
+
+  const resultLimit = 40_000;
+  const compactResult = `${outcome.result.slice(0, resultLimit)}${DURABLE_EXECUTION_STEP_TRUNCATION_NOTICE}`;
+  const omittedFields = [
+    "artifacts",
+    "mcpApp",
+    "chatUI",
+    "chatUIResult",
+    "fileMutation",
+  ];
+  const compact: DurableExecutionStepOutcome & {
+    replayOmittedFields: string[];
+  } = {
+    result: compactResult,
+    isError: outcome.isError,
+    completedSideEffect: outcome.completedSideEffect,
+    replayTruncated: true,
+    replayOmittedFields: omittedFields,
+    ...(outcome.errorCode ? { errorCode: outcome.errorCode } : {}),
+    ...(outcome.receipt ? { receipt: outcome.receipt } : {}),
+  };
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(compact);
+  } catch (error) {
+    if (!(error instanceof TypeError)) throw error;
+    compact.replayOmittedFields.push("receipt");
+    delete compact.receipt;
+    compact.result = DURABLE_EXECUTION_STEP_TRUNCATION_NOTICE.trim();
+    serialized = JSON.stringify(compact);
+  }
+  if (
+    Buffer.byteLength(serialized, "utf8") <=
+    MAX_DURABLE_EXECUTION_STEP_OUTCOME_BYTES
+  ) {
+    return serialized;
+  }
+
+  if (compact.receipt !== undefined) {
+    compact.replayOmittedFields.push("receipt");
+    delete compact.receipt;
+  }
+  compact.result = DURABLE_EXECUTION_STEP_TRUNCATION_NOTICE.trim();
+  serialized = JSON.stringify(compact);
+  if (
+    Buffer.byteLength(serialized, "utf8") >
+    MAX_DURABLE_EXECUTION_STEP_OUTCOME_BYTES
+  ) {
+    throw new Error("Execution step outcome could not be bounded for recovery");
+  }
+  return serialized;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function durableExecutionStepReceipt(value: unknown): WriteReceipt | undefined {
+  return value === undefined
+    ? undefined
+    : readWriteReceipt({ _receipt: value });
+}
+
+function durableExecutionStepMcpApp(
+  value: unknown,
+): import("../mcp-client/app-result.js").AgentMcpAppPayload | undefined {
+  if (
+    !isRecord(value) ||
+    typeof value.serverId !== "string" ||
+    typeof value.toolName !== "string" ||
+    typeof value.originalToolName !== "string" ||
+    typeof value.resourceUri !== "string" ||
+    !isRecord(value.toolInput) ||
+    !isRecord(value.toolResult)
+  ) {
+    return undefined;
+  }
+  return value as unknown as import("../mcp-client/app-result.js").AgentMcpAppPayload;
+}
+
+function durableExecutionStepChatUI(
+  value: unknown,
+): import("../action-ui.js").ActionChatUIConfig | undefined {
+  if (!isRecord(value) || typeof value.renderer !== "string") return undefined;
+  return value as unknown as import("../action-ui.js").ActionChatUIConfig;
+}
+
+function durableExecutionStepFileMutation(
+  value: unknown,
+): AgentFileMutationProof | undefined {
+  if (
+    !isRecord(value) ||
+    typeof value.path !== "string" ||
+    typeof value.contentSha256 !== "string"
+  ) {
+    return undefined;
+  }
+  return { path: value.path, contentSha256: value.contentSha256 };
+}
+
 export type { ToolWriteReceipt };
 
 export interface AgentLoopFinalResponseGuardContext {
@@ -4433,9 +4647,118 @@ type CachedReadOnlyToolResult = {
   images?: EngineToolResultPart["images"];
 };
 
+/**
+ * The tool calls of a continued turn that are reads, classified from their
+ * validated arguments like the calls they now replay, block, or dedupe. A
+ * call whose preparation the run's abort or its deadline cut short is not.
+ */
+async function readOnlyToolCallsFromHistory(
+  messages: EngineMessage[],
+  actions: Record<string, ActionEntry>,
+  signal: AbortSignal,
+  timeoutMsFor: (entry: ActionEntry) => number,
+): Promise<ReadonlySet<unknown>> {
+  const readOnly = new Set<unknown>();
+  if (!isInternalContinuationTurn(messages)) return readOnly;
+  const turnMessages = messages.slice(
+    findCurrentTurnStartForContinuation(messages),
+  );
+  await Promise.all(
+    turnMessages.flatMap((message) =>
+      message.role !== "assistant"
+        ? []
+        : message.content.map(async (part) => {
+            if (part.type !== "tool-call") return;
+            const entry = actions[part.name];
+            if (!entry) return;
+            const prepared = await prepareToolCall(
+              entry,
+              part.input,
+              signal,
+              timeoutMsFor(entry),
+            );
+            if (
+              prepared.status === "prepared" &&
+              intentIsReadOnly(prepared.intent)
+            ) {
+              readOnly.add(part);
+            }
+          }),
+    ),
+  );
+  return readOnly;
+}
+
+/**
+ * Whether a result in a continued turn's history ends what the reads before it
+ * returned: a call recorded as having written or as unknown, read or not and
+ * failed or not, or a write that succeeded.
+ */
+function historyResultInvalidatesReads(
+  part: EngineToolResultPart,
+  readOnly: boolean,
+  priorCallEffects: ReadonlyMap<string, JournalCallEffect>,
+): boolean {
+  if (
+    part.outcome === "unknown" ||
+    (priorCallEffects.get(part.toolCallId) ?? "none") !== "none"
+  ) {
+    return true;
+  }
+  return !readOnly && part.isError !== true;
+}
+
+/**
+ * The key a read's result is reused under: the exact identity of the
+ * arguments it ran with, never its raw input, which defaults can prepare
+ * differently from one call to the next.
+ */
+function preparedToolCallKey(toolName: string, argumentsHash: string): string {
+  return `${toolName}#${argumentsHash}`;
+}
+
+/**
+ * A continued turn's earlier tool results, in order, each with the latest call
+ * before it that has its id, and the key its result may be reused under: the
+ * identity it recorded running with. A call that recorded none, or whose id
+ * another call shares, has no key and is never reused.
+ */
+function* historyToolResults(
+  turnMessages: readonly EngineMessage[],
+  actions: Record<string, ActionEntry>,
+  readOnlyCalls: ReadonlySet<unknown>,
+  priorCallIdentities: ReadonlyMap<string, string>,
+) {
+  const calls = new Map<
+    string,
+    { name: string; key?: string; readOnly: boolean; dedupe: boolean }
+  >();
+  for (const message of turnMessages) {
+    for (const part of message.content) {
+      if (message.role === "assistant" && part.type === "tool-call") {
+        const argumentsHash = priorCallIdentities.get(part.id);
+        calls.set(part.id, {
+          name: part.name,
+          ...(argumentsHash
+            ? { key: preparedToolCallKey(part.name, argumentsHash) }
+            : {}),
+          readOnly: readOnlyCalls.has(part),
+          dedupe: actions[part.name]?.dedupe !== false,
+        });
+      } else if (message.role !== "assistant" && part.type === "tool-result") {
+        const call = calls.get(part.toolCallId);
+        if (call) yield { part, call };
+      }
+    }
+  }
+}
+
 function seedReadOnlyToolResultsFromHistory(
   messages: EngineMessage[],
   actions: Record<string, ActionEntry>,
+  readOnlyCalls: ReadonlySet<unknown>,
+  priorCallEffects: ReadonlyMap<string, JournalCallEffect>,
+  priorCallIdentities: ReadonlyMap<string, string>,
   seed?: Map<string, CachedReadOnlyToolResult>,
 ): Map<string, CachedReadOnlyToolResult> {
   const cache = new Map<string, CachedReadOnlyToolResult>(seed);
@@ -4444,42 +4767,22 @@ function seedReadOnlyToolResultsFromHistory(
   const turnStart = findCurrentTurnStartForContinuation(messages);
   const turnMessages = messages.slice(turnStart);
 
-  const pendingToolCalls = new Map<
-    string,
-    { name: string; input: unknown; readOnly: boolean; dedupe: boolean }
-  >();
-  for (const message of turnMessages) {
-    if (message.role === "assistant") {
-      for (const part of message.content) {
-        if (part.type !== "tool-call") continue;
-        const entry = actions[part.name];
-        pendingToolCalls.set(part.id, {
-          name: part.name,
-          input: part.input,
-          readOnly: entry
-            ? actionCallIsReadOnly(entry, part.input, false)
-            : false,
-          dedupe: entry?.dedupe !== false,
-        });
-      }
+  for (const { part, call } of historyToolResults(
+    turnMessages,
+    actions,
+    readOnlyCalls,
+    priorCallIdentities,
+  )) {
+    if (historyResultInvalidatesReads(part, call.readOnly, priorCallEffects)) {
+      cache.clear();
       continue;
     }
-
-    for (const part of message.content) {
-      if (part.type !== "tool-result") continue;
-      const call = pendingToolCalls.get(part.toolCallId);
-      if (!call) continue;
-      if (!call.readOnly) {
-        if (part.isError !== true || part.outcome === "unknown") cache.clear();
-        continue;
-      }
-      if (!call.dedupe) continue;
-      if (!isReusableReadOnlyToolResult(part)) continue;
-      cache.set(toolCallCacheKey(call.name, call.input), {
-        content: part.content,
-        ...(part.images?.length ? { images: part.images } : {}),
-      });
-    }
+    if (!call.readOnly || !call.dedupe || !call.key) continue;
+    if (!isReusableReadOnlyToolResult(part)) continue;
+    cache.set(call.key, {
+      content: part.content,
+      ...(part.images?.length ? { images: part.images } : {}),
+    });
   }
 
   return cache;
@@ -4509,65 +4812,49 @@ function resurfacedDuplicateReadOnlyToolResult(
 function seedDuplicateReadOnlyToolCallsFromHistory(
   messages: EngineMessage[],
   actions: Record<string, ActionEntry>,
+  readOnlyCalls: ReadonlySet<unknown>,
+  priorCallEffects: ReadonlyMap<string, JournalCallEffect>,
+  priorCallIdentities: ReadonlyMap<string, string>,
 ): Map<string, number> {
   const repeats = new Map<string, number>();
   if (!isInternalContinuationTurn(messages)) return repeats;
 
-  const turnStart = findCurrentTurnStartForContinuation(messages);
-  const pendingToolCalls = new Map<
-    string,
-    { name: string; input: unknown; readOnly: boolean; dedupe: boolean }
-  >();
+  const turnMessages = messages.slice(
+    findCurrentTurnStartForContinuation(messages),
+  );
   const reusableReadKeys = new Set<string>();
 
-  for (const message of messages.slice(turnStart)) {
-    if (message.role === "assistant") {
-      for (const part of message.content) {
-        if (part.type !== "tool-call") continue;
-        const entry = actions[part.name];
-        pendingToolCalls.set(part.id, {
-          name: part.name,
-          input: part.input,
-          readOnly: entry
-            ? actionCallIsReadOnly(entry, part.input, false)
-            : false,
-          dedupe: entry?.dedupe !== false,
-        });
+  for (const { part, call } of historyToolResults(
+    turnMessages,
+    actions,
+    readOnlyCalls,
+    priorCallIdentities,
+  )) {
+    if (historyResultInvalidatesReads(part, call.readOnly, priorCallEffects)) {
+      repeats.clear();
+      reusableReadKeys.clear();
+      continue;
+    }
+    if (!call.readOnly || !call.dedupe || !call.key || part.isError === true)
+      continue;
+
+    const cacheKey = call.key;
+    if (part.content === visibleDuplicateReadOnlyToolResult(call.name)) {
+      if (reusableReadKeys.has(cacheKey)) {
+        repeats.set(cacheKey, (repeats.get(cacheKey) ?? 0) + 1);
       }
       continue;
     }
-
-    for (const part of message.content) {
-      if (part.type !== "tool-result") continue;
-      const call = pendingToolCalls.get(part.toolCallId);
-      if (!call) continue;
-      if (!call.readOnly) {
-        if (part.isError !== true || part.outcome === "unknown") {
-          repeats.clear();
-          reusableReadKeys.clear();
-        }
-        continue;
-      }
-      if (!call.dedupe || part.isError === true) continue;
-
-      const cacheKey = toolCallCacheKey(call.name, call.input);
-      if (part.content === visibleDuplicateReadOnlyToolResult(call.name)) {
-        if (reusableReadKeys.has(cacheKey)) {
-          repeats.set(cacheKey, (repeats.get(cacheKey) ?? 0) + 1);
-        }
-        continue;
-      }
-      if (
-        part.content.startsWith(
-          resurfacedDuplicateReadOnlyToolResultPrefix(call.name),
-        )
-      ) {
-        if (reusableReadKeys.has(cacheKey)) repeats.set(cacheKey, 0);
-        continue;
-      }
-      if (isReusableReadOnlyToolResult(part)) {
-        reusableReadKeys.add(cacheKey);
-      }
+    if (
+      part.content.startsWith(
+        resurfacedDuplicateReadOnlyToolResultPrefix(call.name),
+      )
+    ) {
+      if (reusableReadKeys.has(cacheKey)) repeats.set(cacheKey, 0);
+      continue;
+    }
+    if (isReusableReadOnlyToolResult(part)) {
+      reusableReadKeys.add(cacheKey);
     }
   }
 
@@ -4633,6 +4920,7 @@ export function isCachedToolResultVisibleInContext(
 }
 
 const INTERRUPTED_TOOL_LEDGER_RECOVERY_TIMEOUT_MS = 5_000;
+const DEFAULT_TOOL_TIMEOUT_MS = 12 * 60_000;
 const MAX_IDENTICAL_TOOL_ERRORS = 3;
 export const MAX_SAME_ERROR_ACROSS_ARGUMENTS = 3;
 export const MAX_IDENTICAL_TOOL_CALLS = 8;
@@ -4705,24 +4993,79 @@ function isLoopBreakerStop(stop: TerminalActionStop): boolean {
   return LOOP_BREAKER_STOP_CODES.has(stop.errorCode ?? "");
 }
 
-function seedWriteToolInterruptionsFromHistory(
+/**
+ * Earlier calls whose outcome is unknown, counted by tool and by the exact
+ * arguments each was prepared with. Any of them holds back every later write
+ * of its tool, whatever its arguments; a read only when it is prepared
+ * exactly as one of them was, which a call recorded without an identity
+ * never is.
+ */
+interface UnknownOutcomes {
+  tools: Map<string, number>;
+  calls: Map<string, number>;
+}
+
+function noteUnknownOutcome(
+  outcomes: UnknownOutcomes,
+  tool: string,
+  argumentsHash: string | undefined,
+): void {
+  outcomes.tools.set(tool, (outcomes.tools.get(tool) ?? 0) + 1);
+  if (!argumentsHash) return;
+  const key = preparedToolCallKey(tool, argumentsHash);
+  outcomes.calls.set(key, (outcomes.calls.get(key) ?? 0) + 1);
+}
+
+function noUnknownOutcomes(): UnknownOutcomes {
+  return { tools: new Map(), calls: new Map() };
+}
+
+/** Each count in `from` that is larger than the one in `into`. */
+function mergeUnknownOutcomes(into: UnknownOutcomes, from: UnknownOutcomes) {
+  for (const kind of ["tools", "calls"] as const) {
+    for (const [key, count] of from[kind]) {
+      into[kind].set(key, Math.max(into[kind].get(key) ?? 0, count));
+    }
+  }
+}
+
+/**
+ * Adds to `outcomes` those a continued turn starts with, from its journal's
+ * interrupted calls and from its history. Both record the same calls, and
+ * another loop of the request may have counted them too, so they merge by
+ * the larger count.
+ */
+function seedUnknownOutcomes(
+  outcomes: UnknownOutcomes,
   messages: EngineMessage[],
-  actions: Record<string, ActionEntry>,
-): Map<string, number> {
-  const interruptions = new Map<string, number>();
-  if (!isInternalContinuationTurn(messages)) return interruptions;
+  readOnlyCalls: ReadonlySet<unknown>,
+  priorCallEffects: ReadonlyMap<string, JournalCallEffect>,
+  priorCallIdentities: ReadonlyMap<string, string>,
+  interrupted: readonly { tool: string; argumentsHash?: string }[],
+): void {
+  const fromJournal = noUnknownOutcomes();
+  for (const entry of interrupted) {
+    noteUnknownOutcome(fromJournal, entry.tool, entry.argumentsHash);
+  }
+  mergeUnknownOutcomes(outcomes, fromJournal);
+  if (!isInternalContinuationTurn(messages)) return;
 
   const turnStart = findCurrentTurnStartForContinuation(messages);
   const turnMessages = messages.slice(turnStart);
 
-  const pendingToolCalls = new Map<string, { name: string; input: unknown }>();
+  const fromHistory = noUnknownOutcomes();
+  const pendingToolCalls = new Map<
+    string,
+    { name: string; readOnly: boolean }
+  >();
   for (const message of turnMessages) {
     if (message.role === "assistant") {
       for (const part of message.content) {
         if (part.type !== "tool-call") continue;
-        const entry = actions[part.name];
-        if (entry && actionCallIsReadOnly(entry, part.input, false)) continue;
-        pendingToolCalls.set(part.id, { name: part.name, input: part.input });
+        pendingToolCalls.set(part.id, {
+          name: part.name,
+          readOnly: readOnlyCalls.has(part),
+        });
       }
       continue;
     }
@@ -4731,20 +5074,30 @@ function seedWriteToolInterruptionsFromHistory(
       if (part.type !== "tool-result") continue;
       const call = pendingToolCalls.get(part.toolCallId);
       if (!call) continue;
+      // What the call's run recorded decides, however it prepares now. Only
+      // a call that recorded nothing is judged by its result, by `main`'s
+      // rule for a write, and holds back writes alone.
+      const effect = priorCallEffects.get(part.toolCallId);
       if (
-        part.outcome === "unknown" ||
-        isInterruptedToolResult(part.content) ||
-        (part.isError === true &&
-          typeof part.content === "string" &&
-          isToolCallTimeoutResult(part.content))
+        effect
+          ? effect === "unknown"
+          : !call.readOnly &&
+            (part.outcome === "unknown" ||
+              isInterruptedToolResult(part.content) ||
+              (part.isError === true &&
+                typeof part.content === "string" &&
+                isToolCallTimeoutResult(part.content)))
       ) {
-        const key = toolCallCacheKey(call.name, call.input);
-        interruptions.set(key, (interruptions.get(key) ?? 0) + 1);
+        noteUnknownOutcome(
+          fromHistory,
+          call.name,
+          effect && priorCallIdentities.get(part.toolCallId),
+        );
       }
     }
   }
 
-  return interruptions;
+  mergeUnknownOutcomes(outcomes, fromHistory);
 }
 
 export function actionsToEngineTools(
@@ -4753,11 +5106,9 @@ export function actionsToEngineTools(
   const tools: EngineTool[] = [];
   for (const [name, entry] of Object.entries(actions)) {
     if (entry.agentTool === false || entry.uiOnly === true) continue;
-    const inputSchema = normalizeToolInputSchema(entry.tool.parameters);
-    if (!inputSchema) {
-      console.warn(
-        `[agent] Skipping tool "${name}" because its input schema is not an object.`,
-      );
+    const inputSchema = usableInputSchema(entry, normalizeToolInputSchema);
+    if (inputSchema instanceof UnusableSchemaError) {
+      reportUnusableToolSchema("agent", name, inputSchema);
       continue;
     }
     tools.push({
@@ -4783,6 +5134,8 @@ export type AgentToolCallExecutionResult =
   | {
       status: "failed";
       output: string;
+      /** Set when known: a call can fail after its side effect completed. */
+      completedSideEffect?: boolean;
       terminalError?: Extract<AgentChatEvent, { type: "error" }>;
     };
 
@@ -4817,7 +5170,10 @@ export interface AgentApprovalBinding {
   toolName: string;
   /** The entry's `revision` when the call was made; null when it has none. */
   toolRevision: string | null;
+  /** The arguments the call runs with, input validation and defaults applied. */
   input: unknown;
+  /** Fingerprint of `input`; an approval binds it, so a call that would run different arguments is asked again. */
+  argumentsHash: string;
   callId: string;
   approvalKey: string;
   approvalId?: string;
@@ -4952,10 +5308,15 @@ export async function executeAgentToolCall(
         completed?.result ?? `Awaiting human approval to run ${options.name}.`,
     };
   }
+  const completedEffect =
+    typeof completed?.completedSideEffect === "boolean"
+      ? { completedSideEffect: completed.completedSideEffect }
+      : {};
   if (terminalError) {
     return {
       status: "failed",
       output: completed?.result ?? terminalError.error,
+      ...completedEffect,
       terminalError,
     };
   }
@@ -4965,15 +5326,10 @@ export async function executeAgentToolCall(
       output: `The ${options.name} tool did not return a result.`,
     };
   }
-  if (completed.isError) {
-    return { status: "failed", output: completed.result };
-  }
   return {
-    status: "completed",
+    status: completed.isError ? "failed" : "completed",
     output: completed.result,
-    ...(typeof completed.completedSideEffect === "boolean"
-      ? { completedSideEffect: completed.completedSideEffect }
-      : {}),
+    ...completedEffect,
   };
 }
 
@@ -5085,7 +5441,7 @@ function readToolSearchHistory(messages: EngineMessage[]): {
 
 export const TOOL_NO_LONGER_AVAILABLE_PREFIX =
   "Error: Tool no longer available";
-const MAX_DROPPED_TOOL_NOTE_NAMES = 20;
+const MAX_TOOL_NOTE_NAMES = 20;
 // History is client-supplied on some transports, so only tool-name-shaped
 // strings reach the prompt.
 const HISTORY_TOOL_NAME_PATTERN = /^[A-Za-z0-9_.:-]{1,128}$/;
@@ -5127,14 +5483,41 @@ function isHistoryToolName(name: unknown): name is string {
   return typeof name === "string" && HISTORY_TOOL_NAME_PATTERN.test(name);
 }
 
-function formatDroppedToolsNote(names: readonly string[], max: number): string {
-  const shown = names.slice(0, max);
+function formatToolNamesNote(
+  lead: string,
+  names: readonly string[],
+  tail: string,
+): string {
+  const shown = names.slice(0, MAX_TOOL_NOTE_NAMES);
   const more = names.length - shown.length;
-  return (
-    `Tools loaded earlier in this conversation are no longer available: ${shown.join(", ")}` +
-    (more > 0 ? ` (and ${more} more)` : "") +
-    ". Do not call them; use tool-search for alternatives."
+  return `${lead}: ${shown.join(", ")}${more > 0 ? ` (and ${more} more)` : ""}${tail}`;
+}
+
+const UNREADABLE_TOOL_SEARCH_NOTE =
+  "Earlier tool-search results could not be read, so the tools they loaded are not active. Reload any you still need with tool-search `names`.";
+
+function insertToolIndex(systemPrompt: string, toolIndex: string): string {
+  if (!toolIndex) return systemPrompt;
+  const split = systemPrompt.indexOf(SYSTEM_PROMPT_CACHE_SPLIT);
+  return split < 0
+    ? `${systemPrompt}\n\n${toolIndex}`
+    : `${systemPrompt.slice(0, split)}\n\n${toolIndex}\n\n${systemPrompt.slice(split)}`;
+}
+
+// In-process continuations rerun the loop on the same messages, so a note the
+// first pass appended must not be appended again.
+function appendUserContextNoteOnce(
+  messages: EngineMessage[],
+  text: string,
+): void {
+  const alreadyNoted = messages.some(
+    (message) =>
+      message.role === "user" &&
+      message.content.some(
+        (part) => part.type === "text" && part.text === text,
+      ),
   );
+  if (!alreadyNoted) appendUserContextNote(messages, text);
 }
 
 function appendUserContextNote(messages: EngineMessage[], text: string): void {
@@ -5166,21 +5549,17 @@ export function formatToolNoLongerAvailable(name: string): string {
   );
 }
 
-function normalizeToolInputSchema(
+export function normalizeToolInputSchema(
   schema: ActionTool["parameters"] | undefined,
-): EngineTool["inputSchema"] | null {
-  if (!schema) return { type: "object", properties: {} };
-  if (!isObjectOnly(schema)) return null;
-  type ToolParams = NonNullable<ActionTool["parameters"]>;
-  let cloned: ToolParams;
-  try {
-    cloned = JSON.parse(JSON.stringify(schema)) as ToolParams;
-  } catch {
-    // A schema that will not round-trip cannot be safely rewritten, and
-    // shipping it unsanitized is how this class of 400 reaches the provider.
-    return null;
+): EngineTool["inputSchema"] {
+  // `false` is a schema too, one that accepts nothing.
+  if (schema === undefined || schema === null) {
+    return { type: "object", properties: {} };
   }
-  const safe = stripUnsupportedSchemaKeywords(cloned);
+  const verdict = assertUsableSchema(plainJsonSnapshot(schema));
+  const safe = stripUnsupportedSchemaKeywords<unknown>(
+    verdict instanceof UninterpretedSchema ? verdict.schema : verdict,
+  ) as NonNullable<ActionTool["parameters"]>;
   return {
     ...safe,
     type: "object",
@@ -5359,6 +5738,7 @@ const INTERRUPTED_TOOL_LEDGER_POLL_MS =
 async function waitForInterruptedToolLedgerEntry(opts: {
   threadId: string;
   toolKey: string;
+  argumentsHash: string;
   toolName: string;
   timeoutMs: number;
   signal: AbortSignal;
@@ -5375,7 +5755,7 @@ async function waitForInterruptedToolLedgerEntry(opts: {
   for (let attempt = 0; attempt < maxPolls; attempt++) {
     if (opts.signal.aborted) return null;
     const ledgerResult = await readLedgerEntry(opts.threadId, opts.toolKey);
-    if (ledgerResult !== null) return ledgerResult;
+    if (ledgerResult?.argumentsHash === opts.argumentsHash) return ledgerResult;
 
     if (attempt >= maxPolls - 1) break;
     opts.send({
@@ -5999,6 +6379,105 @@ function stripOptionalToolPlaceholders(
     : { value, changed: false };
 }
 
+/** The repairs the loop makes to a model's tool input before anything reads it. */
+function repairToolCallInput(
+  entry: ActionEntry | undefined,
+  input: unknown,
+): { input: unknown; changed: boolean } {
+  if (!entry || getStrictToolInputValidator(entry)) {
+    return { input, changed: false };
+  }
+  const placeholders = normalizeOptionalToolPlaceholders(
+    entry.tool.parameters,
+    input,
+  );
+  const json = coerceStringifiedJsonToolValues(
+    entry.tool.parameters,
+    placeholders.input,
+  );
+  return { input: json.input, changed: placeholders.changed || json.changed };
+}
+
+/**
+ * A tool call's validated arguments and their classification, from its
+ * repaired input. Every gate on the call reads this, so a default cannot turn
+ * a call its raw input classifies as a read into a write past them.
+ */
+function toolCallIntent(
+  entry: ActionEntry,
+  input: unknown,
+): Promise<ActionCallIntent> {
+  return actionCallIntent(
+    entry,
+    coerceRawToolInput(entry, repairToolCallInput(entry, input).input),
+  );
+}
+
+/**
+ * Raw JSON Schema validation coerces scalars ("true" to true) in the value it
+ * checks, and the handler runs the preparation's snapshot, so the coercion
+ * happens on a copy before it. Whether the input is valid is decided where
+ * the call is declined.
+ */
+function coerceRawToolInput(entry: ActionEntry, input: unknown): unknown {
+  if (
+    input === undefined ||
+    getStrictToolInputValidator(entry) ||
+    !shouldValidateRawToolParameters(entry)
+  ) {
+    return input;
+  }
+  const copy = structuredClone(input);
+  validateRawToolInput(entry, copy);
+  return copy;
+}
+
+/** A tool call's preparation, or what cut it short. */
+type PreparedToolCall =
+  | { readonly status: "prepared"; readonly intent: ActionCallIntent }
+  | { readonly status: "aborted" }
+  | { readonly status: "timed-out"; readonly timeoutMs: number };
+
+/**
+ * Prepares a tool call within the run's abort and the call's deadline. Input
+ * validation can wait on an async refinement before anything dispatches, and
+ * a preparation cut short never becomes an intent, so its call never runs.
+ */
+async function prepareToolCall(
+  entry: ActionEntry,
+  input: unknown,
+  signal: AbortSignal,
+  timeoutMs: number,
+): Promise<PreparedToolCall> {
+  if (signal.aborted) return { status: "aborted" };
+  let cutShort!: (outcome: PreparedToolCall) => void;
+  const stopped = new Promise<PreparedToolCall>((resolve) => {
+    cutShort = resolve;
+  });
+  const onAbort = () => cutShort({ status: "aborted" });
+  signal.addEventListener("abort", onAbort, { once: true });
+  const timer = setTimeout(
+    () => cutShort({ status: "timed-out", timeoutMs }),
+    timeoutMs,
+  );
+  try {
+    return await Promise.race([
+      toolCallIntent(entry, input).then(
+        (intent): PreparedToolCall => ({ status: "prepared", intent }),
+      ),
+      stopped,
+    ]);
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener("abort", onAbort);
+  }
+}
+
+/** Whether an intent is a valid read: an invalid call never runs as one. */
+function intentIsReadOnly(intent: ActionCallIntent | undefined): boolean {
+  return intent?.valid === true && intent.readOnly === true;
+}
+
 function normalizeOptionalToolPlaceholders(
   schema: RawJsonSchema | undefined,
   input: unknown,
@@ -6223,10 +6702,12 @@ export async function runAgentLoop(opts: {
   };
   systemSections?: import("../shared/context-xray.js").ContextManifestSystemSection[];
   actions: Record<string, ActionEntry>;
-  send: (event: AgentChatEvent) => void;
+  send: (event: AgentChatEvent) => void | Promise<void>;
   signal: AbortSignal;
   beforeWrite?: () => Promise<void>;
   unknownWriteToolNames?: Set<string>;
+  /** The request's unknown outcomes, which each of its loops feeds and holds by. */
+  unknownOutcomes?: UnknownOutcomes;
   internalContinuation?: boolean;
   onModelInput?: ModelInputObserver;
   /**
@@ -6275,6 +6756,9 @@ export async function runAgentLoop(opts: {
   finalResponseGuardRequestText?: string;
   threadId?: string;
   turnId?: string;
+  /** Recovery paths overlay completed durable steps missing from tool_done. */
+  recoverCompletedExecutionSteps?: boolean;
+  durableStepIdForToolCall?: (toolCallId: string) => string;
   loadedSkillSlugs?: readonly string[];
   runSoftTimeoutMs?: number;
   toolLimits?: {
@@ -6372,6 +6856,20 @@ export async function runAgentLoop(opts: {
   );
   let activeTools = limitProviderTools(tools, PROVIDER_CORE_TOOL_NAMES);
   const activeToolNames = new Set(activeTools.map((tool) => tool.name));
+  // Built from the initial tool set, before earlier loads are restored, so it is
+  // identical every turn and stays inside the cached system-prompt prefix.
+  const systemPromptWithToolIndex = insertToolIndex(
+    systemPrompt,
+    formatToolIndex(
+      [...availableToolMap.keys()].filter(
+        (name) =>
+          !activeToolNames.has(name) &&
+          name !== TOOL_SEARCH_ACTION_NAME &&
+          name !== FOLLOW_UP_SUGGESTIONS_TOOL_NAME &&
+          !isUnavailableActionEntry(actions[name]),
+      ),
+    ),
+  );
   let appAuthorizationPromise:
     | Promise<import("../org/app-roles.js").AppAuthorizationContext | null>
     | undefined;
@@ -6487,9 +6985,20 @@ export async function runAgentLoop(opts: {
     console.warn(
       `[agent-loop] ${priorSearches.unreadable} earlier tool-search result(s) could not be read, so the tools they loaded were not restored (runId=${opts.runId ?? "none"})`,
     );
+    appendUserContextNoteOnce(messages, UNREADABLE_TOOL_SEARCH_NOTE);
   }
   // Newest searches lead, so they win if history alone overflows the cap.
-  expandActiveTools(priorSearches.names.reverse());
+  const restoredSearches = expandActiveTools(priorSearches.names.reverse());
+  if (restoredSearches.overflow.length > 0) {
+    appendUserContextNoteOnce(
+      messages,
+      formatToolNamesNote(
+        "Tools loaded earlier were not reloaded because the active tool limit was reached",
+        restoredSearches.overflow,
+        ". Load the ones you still need with tool-search `names`.",
+      ),
+    );
+  }
   // Each run resolves the caller's current tools, so a tool the conversation
   // already used or loaded can be gone now. Calls to it are told so rather
   // than "Unknown tool", and loaded ones that went away are named up front.
@@ -6500,19 +7009,14 @@ export async function runAgentLoop(opts: {
       (!availableToolMap.has(name) || isUnavailableActionEntry(actions[name])),
   );
   if (droppedToolNames.length > 0) {
-    // In-process continuations rerun this loop on the same messages.
-    const note = formatDroppedToolsNote(
-      droppedToolNames,
-      MAX_DROPPED_TOOL_NOTE_NAMES,
+    appendUserContextNoteOnce(
+      messages,
+      formatToolNamesNote(
+        "Tools loaded earlier in this conversation are no longer available",
+        droppedToolNames,
+        ". Do not call them; use tool-search for alternatives.",
+      ),
     );
-    const alreadyNoted = messages.some(
-      (message) =>
-        message.role === "user" &&
-        message.content.some(
-          (part) => part.type === "text" && part.text === note,
-        ),
-    );
-    if (!alreadyNoted) appendUserContextNote(messages, note);
   }
 
   const processorChain =
@@ -6549,6 +7053,13 @@ export async function runAgentLoop(opts: {
         backgroundFunction: isInBackgroundFunctionRuntime(),
       }),
   );
+  const toolTimeoutMsFor = (entry: ActionEntry): number => {
+    const requested =
+      entry.timeoutMs ?? opts.toolLimits?.timeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS;
+    return runToolTimeoutCeilingMs > 0
+      ? Math.min(requested, runToolTimeoutCeilingMs)
+      : requested;
+  };
   const toolCallHistory: AgentLoopToolCallSummary[] = [];
   const sourceSweepToolCallHistory = seedSourceSweepToolCallsFromHistory(
     messages,
@@ -6573,6 +7084,10 @@ export async function runAgentLoop(opts: {
   const journalRead = await loadPriorTurnToolCallJournal(
     opts.threadId,
     opts.turnId,
+    {
+      recoverCompletedExecutionSteps:
+        opts.recoverCompletedExecutionSteps === true,
+    },
   );
   const toolCallJournal =
     journalRead.status === "read" ? journalRead.toolCallJournal : null;
@@ -6632,13 +7147,14 @@ export async function runAgentLoop(opts: {
       (slug, page) => skillPageIntactInHistory(sentMessages, slug, page),
     );
     return loadedSkillsContext
-      ? `${systemPrompt}\n\n${loadedSkillsContext}`
-      : systemPrompt;
+      ? `${systemPromptWithToolIndex}\n\n${loadedSkillsContext}`
+      : systemPromptWithToolIndex;
   };
   toolCallHistory.push(...journaledPriorToolCalls);
   toolResultHistory.push(...journaledPriorToolResults);
   const unreadableJournalStop: TerminalActionStop | null =
-    journalRead.status === "unreadable" && internalContinuationTurn
+    journalRead.status === "unreadable" &&
+    (internalContinuationTurn || opts.recoverCompletedExecutionSteps === true)
       ? {
           message:
             "I stopped because I could not read this turn's run ledger, so I could not tell which steps had already finished. " +
@@ -6648,19 +7164,50 @@ export async function runAgentLoop(opts: {
         }
       : null;
 
+  const historyReadOnlyCalls = await readOnlyToolCallsFromHistory(
+    messages,
+    actions,
+    signal,
+    toolTimeoutMsFor,
+  );
+  const priorCallEffects =
+    journalRead.status === "read" && journalRead.toolCallJournal
+      ? journalCallEffects(journalRead.toolCallJournal, journalRead.events)
+      : new Map<string, JournalCallEffect>();
+  const priorCallIdentities = journalCallIdentities(
+    journalRead.status === "read" ? journalRead.events : [],
+    messages.slice(findCurrentTurnStartForContinuation(messages)),
+  );
   const readOnlyToolResultCache = seedReadOnlyToolResultsFromHistory(
     messages,
     actions,
+    historyReadOnlyCalls,
+    priorCallEffects,
+    priorCallIdentities,
   );
   const duplicateReadOnlyToolCalls = seedDuplicateReadOnlyToolCallsFromHistory(
     messages,
     actions,
+    historyReadOnlyCalls,
+    priorCallEffects,
+    priorCallIdentities,
   );
-  const writeToolInterruptions = seedWriteToolInterruptionsFromHistory(
+  const unknownOutcomes = opts.unknownOutcomes ?? noUnknownOutcomes();
+  seedUnknownOutcomes(
+    unknownOutcomes,
     messages,
-    actions,
+    historyReadOnlyCalls,
+    priorCallEffects,
+    priorCallIdentities,
+    internalContinuationTurn ? (toolCallJournal?.interrupted ?? []) : [],
   );
-  const unknownWriteToolNames = opts.unknownWriteToolNames ?? new Set<string>();
+  // Names a caller shares between its own loops hold back writes, as before.
+  for (const tool of opts.unknownWriteToolNames ?? []) {
+    unknownOutcomes.tools.set(
+      tool,
+      Math.max(unknownOutcomes.tools.get(tool) ?? 0, 1),
+    );
+  }
   const {
     sameArguments: repeatedToolErrors,
     sameTool: repeatedToolErrorsAnyArgs,
@@ -7733,6 +8280,33 @@ export async function runAgentLoop(opts: {
     const toolNamesLoadedThisStep = new Set<string>();
     let countedAlreadyLoadedSearchThisStep = false;
 
+    // One preparation per call, read by batching, by every gate in
+    // runToolCall, and by the run itself. Batching resolves it before dispatch
+    // so runToolCall reads it without yielding: a parallel batch relies on
+    // each call's repeat count and stops landing before the next call is
+    // dispatched.
+    const toolCallIntents = new WeakMap<
+      import("./engine/types.js").EngineToolCallPart,
+      PreparedToolCall | undefined
+    >();
+    const resolveToolCallIntent = async (
+      toolCall: import("./engine/types.js").EngineToolCallPart,
+    ): Promise<PreparedToolCall | undefined> => {
+      if (toolCallIntents.has(toolCall)) return toolCallIntents.get(toolCall);
+      const entry = actions[toolCall.name];
+      const prepared =
+        entry && !isUnavailableActionEntry(entry)
+          ? await prepareToolCall(
+              entry,
+              toolCall.input,
+              signal,
+              toolTimeoutMsFor(entry),
+            )
+          : undefined;
+      toolCallIntents.set(toolCall, prepared);
+      return prepared;
+    };
+
     const runToolCall = async (
       toolCall: import("./engine/types.js").EngineToolCallPart,
     ): Promise<EngineContentPart> => {
@@ -7741,33 +8315,20 @@ export async function runAgentLoop(opts: {
       const actionEntry = isUnavailableActionEntry(registeredEntry)
         ? undefined
         : registeredEntry;
-      const strictToolInput = getStrictToolInputValidator(actionEntry);
-      const placeholderNormalization =
-        actionEntry && !strictToolInput
-          ? normalizeOptionalToolPlaceholders(
-              actionEntry.tool.parameters,
-              toolCall.input,
-            )
-          : { input: toolCall.input, changed: false };
-      if (placeholderNormalization.changed) {
-        toolCall = { ...toolCall, input: placeholderNormalization.input };
+      const prepared = toolCallIntents.has(toolCall)
+        ? toolCallIntents.get(toolCall)
+        : await resolveToolCallIntent(toolCall);
+      const intent =
+        prepared?.status === "prepared" ? prepared.intent : undefined;
+      const repairedInput = repairToolCallInput(actionEntry, toolCall.input);
+      if (repairedInput.changed) {
+        toolCall = { ...toolCall, input: repairedInput.input };
       }
-      const jsonStringCoercion =
-        actionEntry && !strictToolInput
-          ? coerceStringifiedJsonToolValues(
-              actionEntry.tool.parameters,
-              toolCall.input,
-            )
-          : { input: toolCall.input, changed: false };
-      if (jsonStringCoercion.changed) {
-        toolCall = { ...toolCall, input: jsonStringCoercion.input };
-      }
-      const actionIsReadOnly = actionEntry
-        ? actionCallIsReadOnly(actionEntry, toolCall.input, false)
-        : false;
-      const actionRetrySafe = actionEntry
-        ? actionCallIsRetrySafe(actionEntry, toolCall.input)
-        : false;
+      const actionIsReadOnly = intentIsReadOnly(intent);
+      const actionRetrySafe =
+        actionEntry && intent?.valid
+          ? actionCallIsRetrySafe(actionEntry, preparedCallArguments(intent))
+          : false;
       const repeatGuardStopFromThisCall = noteRepeatedToolCall(
         toolCall.name,
         toolCall.input,
@@ -7799,33 +8360,53 @@ export async function runAgentLoop(opts: {
       const wireToolInput = JSON.stringify(toolCall.input ?? {});
       const journalToolInput = JSON.parse(wireToolInput);
       let toolDoneEmitted = false;
+      let toolDonePersistenceFailed = false;
+      let executionStepFinalizationAttempted = false;
+      let executionStepOutcomeRecorded = false;
       let actionInvoked = false;
-      let actionRefused = false;
-      const actionExecutionOutcome = { refused: false };
+      // Live once invoked, so an abandoned call still reads what ran in it.
+      const actionExecutionOutcome: ActionExecutionOutcome = { refused: false };
+      const ranEffect = (settled: Parameters<typeof invocationEffect>[2]) =>
+        actionInvoked && actionEntry
+          ? invocationEffect(actionEntry, actionExecutionOutcome, {
+              readOnly: actionIsReadOnly,
+              retrySafe: actionRetrySafe,
+              ...settled,
+            })
+          : { effect: "none" as const, changed: false };
+      // Exact identity of the arguments the call runs with, once prepared.
+      let argumentsHash: string | undefined;
       const emitToolDone = (
         event: Extract<AgentChatEvent, { type: "tool_done" }>,
-      ) => {
+      ): Promise<void> => {
+        // A read's outcome is unknown only once a write entered in it, so it
+        // holds back its action's writes as a write's would.
         if (event.outcomeUnknown) {
-          unknownWriteToolNames.add(toolCall.name);
+          opts.unknownWriteToolNames?.add(toolCall.name);
+          noteUnknownOutcome(unknownOutcomes, toolCall.name, argumentsHash);
         }
         // A write that errored after it was invoked may still have committed,
         // retry-safe or not, so cached reads of its target are stale.
         if (
           event.outcomeUnknown ||
           (event.isError &&
-            actionInvoked &&
-            !actionIsReadOnly &&
-            !actionRefused)
+            (event.completedSideEffect === true ||
+              (actionInvoked &&
+                !actionIsReadOnly &&
+                !actionExecutionOutcome.refused)))
         ) {
           readOnlyToolResultCache.clear();
           duplicateReadOnlyToolCalls.clear();
         }
         if (event.id) settleRepeatedToolCall(event.id);
-        send(event);
-        toolDoneEmitted = true;
+        const persisted = Promise.resolve(
+          send(argumentsHash ? { ...event, argumentsHash } : event),
+        ).then(() => {
+          toolDoneEmitted = true;
+        });
+        persisted.catch(() => {});
+        return persisted;
       };
-      const toolInputNormalized =
-        placeholderNormalization.changed || jsonStringCoercion.changed;
       const normalizedToolInput = normalizeToolCallInputForHistory(
         toolCall.input,
         toolCall.name,
@@ -7944,31 +8525,93 @@ export async function runAgentLoop(opts: {
         };
         return result;
       };
-      const declineToolCall = (guidance: string): EngineContentPart => {
+      // What an error the call threw tells the model. A connection request or
+      // a stop takes its own path whether the run or the call's input
+      // validation raised it.
+      const thrownToolResult = (err: any): string => {
+        if (isAgentConnectionRequiredError(err)) {
+          const message = connectionRequiredMessage(
+            sanitizeToolErrorValue(err.message) ||
+              `Connect ${err.provider} to continue.`,
+            err.reason,
+          );
+          requestedConnection ??= {
+            requestId: randomUUID(),
+            provider: err.provider,
+            reason: err.reason,
+            appId: err.appId,
+            detail: message,
+            source: err.source,
+          };
+          turnYieldedToUser = true;
+          requestedActionStop ??= {
+            message,
+            errorCode: "connection-required",
+          };
+          return sanitizeToolErrorValue(err.toolResult || message);
+        }
+        if (isAgentActionStopError(err)) {
+          const message =
+            sanitizeToolErrorValue(err.message) ||
+            `Stopped after ${toolCall.name} failed.`;
+          directStop = {
+            message,
+            explicit: err.errorCode === "permanent_precondition",
+          };
+          if (!directStop.explicit && !permanentPreconditionRemedy(message)) {
+            requestedActionStop ??= {
+              message,
+              ...(err.errorCode ? { errorCode: err.errorCode } : {}),
+            };
+          }
+          return sanitizeToolErrorValue(err.toolResult || message);
+        }
+        if (
+          isActionContractError(err) &&
+          err.errorCode === "permanent_precondition"
+        ) {
+          const message = sanitizeToolErrorValue(err.message);
+          directStop = { message, explicit: true };
+          return `Error running ${toolCall.name}: ${message}`;
+        }
+        const message = sanitizeToolErrorValue(err);
+        const errorCode =
+          isActionContractError(err) && err.errorCode !== "action_failed"
+            ? ` (errorCode: ${err.errorCode})`
+            : "";
+        return `Error running ${toolCall.name}: ${message}${errorCode}${rateLimitRecoveryHint(message, err)}`;
+      };
+      const declineToolCall = (
+        guidance: string,
+        isError = false,
+      ): Promise<EngineContentPart> => {
         const result = finalizeToolErrorResult(guidance);
-        send({
-          type: "tool_start",
-          id: toolCall.id,
-          tool: toolCall.name,
-          input: journalToolInput as Record<string, string>,
-        });
-        emitToolDone({
-          type: "tool_done",
-          id: toolCall.id,
-          tool: toolCall.name,
-          input: journalToolInput as Record<string, unknown>,
-          result,
-          isError: true,
-          completedSideEffect: false,
-        });
-        recordToolResult(result, true);
-        return {
-          type: "tool-result" as const,
-          toolCallId: toolCall.id,
-          toolName: toolCall.name,
-          toolInput: wireToolInput,
-          content: result,
-        };
+        return (async () => {
+          await send({
+            type: "tool_start",
+            id: toolCall.id,
+            tool: toolCall.name,
+            input: journalToolInput as Record<string, string>,
+          });
+          await emitToolDone({
+            type: "tool_done",
+            id: toolCall.id,
+            tool: toolCall.name,
+            input: journalToolInput as Record<string, unknown>,
+            result,
+            isError: true,
+            completedSideEffect: false,
+          });
+          recordToolResult(result, true);
+          return {
+            type: "tool-result" as const,
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+            toolInput: wireToolInput,
+            content: result,
+            ...(isError ? { isError: true } : {}),
+          };
+        })();
       };
 
       if (sourceSweepGuard) {
@@ -7996,13 +8639,13 @@ export async function runAgentLoop(opts: {
         ) {
           requestedActionStop ??= approvedToolUnavailableStop(toolCall.name);
         }
-        send({
+        await send({
           type: "tool_start",
           id: toolCall.id,
           tool: toolCall.name,
           input: journalToolInput as Record<string, string>,
         });
-        emitToolDone({
+        await emitToolDone({
           type: "tool_done",
           id: toolCall.id,
           tool: toolCall.name,
@@ -8020,6 +8663,23 @@ export async function runAgentLoop(opts: {
           content: result,
           isError: true,
         };
+      }
+
+      if (prepared?.status === "aborted") {
+        recordToolResult(INTERRUPTED_TOOL_RESULT_MARKER, false);
+        return {
+          type: "tool-result" as const,
+          toolCallId: toolCall.id,
+          toolName: toolCall.name,
+          toolInput: wireToolInput,
+          content: INTERRUPTED_TOOL_RESULT_MARKER,
+        };
+      }
+      if (prepared?.status === "timed-out") {
+        return declineToolCall(
+          `Tool call timed out before the action started after ${prepared.timeoutMs / 1000} seconds`,
+          true,
+        );
       }
 
       // Before approval, so a human is never asked to approve a call the
@@ -8049,21 +8709,82 @@ export async function runAgentLoop(opts: {
         }
       }
 
+      const toolCallSchemaError = toolCallErrors.get(toolCall.id);
+      if (toolCallSchemaError && !repairedInput.changed) {
+        return declineToolCall(
+          toolInputSchemaErrorResult(
+            toolCall.name,
+            toolCallSchemaError.input,
+            toolCallSchemaError.error,
+            actionEntry.tool.parameters,
+            toolCallTruncatedByOutputCap,
+          ),
+          true,
+        );
+      }
+      const rawToolInputError = validateRawToolInput(
+        actionEntry,
+        toolCall.input,
+      );
+      if (rawToolInputError) {
+        return declineToolCall(
+          toolInputSchemaErrorResult(
+            toolCall.name,
+            toolCall.input,
+            rawToolInputError,
+            actionEntry.tool.parameters,
+            toolCallTruncatedByOutputCap,
+          ),
+          true,
+        );
+      }
+      if (!intent?.valid) {
+        await recordInvalidActionCall(
+          actionEntry,
+          toolCall.input,
+          {
+            actionName: toolCall.name,
+            caller: opts.actionCaller ?? "tool",
+            networkProtocol: opts.networkProtocol,
+            networkId: opts.networkId,
+            networkPeer: opts.networkPeer,
+            userEmail: userEmail ?? undefined,
+            orgId: opts.orgId ?? getRequestOrgId() ?? null,
+            ...(opts.threadId ? { threadId: opts.threadId } : {}),
+            ...(opts.turnId ? { turnId: opts.turnId } : {}),
+          },
+          intent?.error,
+        );
+        return declineToolCall(thrownToolResult(intent?.error), true);
+      }
+
       const approvalKey = toolCallCacheKey(toolCall.name, toolCall.input);
-      const requestedApproval = approvedToolCallKeys.delete(approvalKey);
-      const approvalBinding: AgentApprovalBinding = {
+      // The exact arguments the call runs with, defaults applied, bind its
+      // approval: a resumed call whose preparation differs is asked again. A
+      // key without them approves only where `consumeApproval` checks the
+      // arguments its record bound.
+      argumentsHash = intent.argumentsHash;
+      const requestedApproval =
+        approvedToolCallKeys.delete(
+          approvalKeyWithArguments(approvalKey, argumentsHash),
+        ) ||
+        (opts.consumeApproval !== undefined &&
+          approvedToolCallKeys.delete(approvalKey));
+      // Each hook gets its own binding, and its own copy of the arguments.
+      const approvalBinding = (): AgentApprovalBinding => ({
         toolName: toolCall.name,
         toolRevision: actionEntry.revision ?? null,
-        input: toolCall.input,
+        input: preparedCallArguments(intent),
+        argumentsHash,
         callId: toolCall.id,
         approvalKey,
         ...(requestedApproval && opts.approvedToolCallAskId
           ? { approvalId: opts.approvedToolCallAskId }
           : {}),
-      };
+      });
       const wasApproved =
         requestedApproval && opts.consumeApproval
-          ? await opts.consumeApproval(approvalBinding)
+          ? await opts.consumeApproval(approvalBinding())
           : requestedApproval;
       if (actionEntry.needsApproval && !wasApproved) {
         let mustApprove = false;
@@ -8071,16 +8792,19 @@ export async function runAgentLoop(opts: {
           mustApprove =
             typeof actionEntry.needsApproval === "function"
               ? Boolean(
-                  await actionEntry.needsApproval(toolCall.input, {
-                    userEmail: getRequestUserEmail(),
-                    orgId: getRequestOrgId() ?? null,
-                    appId: opts.appId,
-                    caller: opts.actionCaller ?? "tool",
-                    automation: opts.automation,
-                    networkProtocol: opts.networkProtocol,
-                    networkId: opts.networkId,
-                    networkPeer: opts.networkPeer,
-                  }),
+                  await actionEntry.needsApproval(
+                    preparedCallArguments(intent),
+                    {
+                      userEmail: getRequestUserEmail(),
+                      orgId: getRequestOrgId() ?? null,
+                      appId: opts.appId,
+                      caller: opts.actionCaller ?? "tool",
+                      automation: opts.automation,
+                      networkProtocol: opts.networkProtocol,
+                      networkId: opts.networkId,
+                      networkPeer: opts.networkPeer,
+                    },
+                  ),
                 )
               : actionEntry.needsApproval === true;
         } catch {
@@ -8092,7 +8816,7 @@ export async function runAgentLoop(opts: {
           opts.isToolAlwaysAllowed
         ) {
           try {
-            mustApprove = !(await opts.isToolAlwaysAllowed(approvalBinding));
+            mustApprove = !(await opts.isToolAlwaysAllowed(approvalBinding()));
           } catch {
             // Fail closed: an unreadable policy must leave the approval gate in
             // place instead of turning a storage outage into authorization.
@@ -8101,8 +8825,8 @@ export async function runAgentLoop(opts: {
         }
         if (mustApprove) {
           const askId =
-            (await opts.onApprovalRequired?.(approvalBinding)) || undefined;
-          send({
+            (await opts.onApprovalRequired?.(approvalBinding())) || undefined;
+          await send({
             type: "tool_start",
             id: toolCall.id,
             tool: toolCall.name,
@@ -8113,6 +8837,7 @@ export async function runAgentLoop(opts: {
             tool: toolCall.name,
             input: journalToolInput as Record<string, string>,
             approvalKey,
+            argumentsHash,
             ...(actionEntry.allowPersistentApproval === false
               ? { allowPersistentApproval: false }
               : {}),
@@ -8123,7 +8848,7 @@ export async function runAgentLoop(opts: {
             const { recordActionAudit } = await import("../audit/record.js");
             await recordActionAudit({
               config: undefined,
-              args: toolCall.input,
+              args: preparedCallArguments(intent),
               ctx: {
                 actionName: toolCall.name,
                 caller: opts.actionCaller ?? "tool",
@@ -8144,7 +8869,7 @@ export async function runAgentLoop(opts: {
             `Awaiting human approval to run "${toolCall.name}". This action did ` +
             `NOT execute — a human must approve this specific call before it ` +
             `can run. The turn is paused; do not retry.`;
-          emitToolDone({
+          await emitToolDone({
             type: "tool_done",
             id: toolCall.id,
             tool: toolCall.name,
@@ -8170,15 +8895,7 @@ export async function runAgentLoop(opts: {
       }
 
       const DEFAULT_TOOL_RESULT_CHARS = 50_000;
-      const DEFAULT_TOOL_TIMEOUT_MS = 12 * 60_000;
-      const requestedToolTimeoutMs =
-        actionEntry.timeoutMs ??
-        opts.toolLimits?.timeoutMs ??
-        DEFAULT_TOOL_TIMEOUT_MS;
-      const toolTimeoutMs =
-        runToolTimeoutCeilingMs > 0
-          ? Math.min(requestedToolTimeoutMs, runToolTimeoutCeilingMs)
-          : requestedToolTimeoutMs;
+      const toolTimeoutMs = toolTimeoutMsFor(actionEntry);
       const configuredToolMaxResultChars =
         actionEntry.maxResultChars ??
         opts.toolLimits?.maxResultChars ??
@@ -8191,33 +8908,194 @@ export async function runAgentLoop(opts: {
             )
           : configuredToolMaxResultChars;
 
-      if (!actionIsReadOnly && toolCallJournal) {
-        const journaled = findCompletedJournalEntry(
+      const executionFence = currentExecutionFence();
+      const executionStepId = toolCall.id
+        ? (opts.durableStepIdForToolCall?.(toolCall.id) ?? toolCall.id)
+        : undefined;
+      const executionStepIntent: AgentExecutionStepIntent | null =
+        executionFence && executionStepId
+          ? {
+              threadId: executionFence.threadId,
+              turnId: executionFence.turnId,
+              runId: executionFence.runId,
+              generation: executionFence.generation,
+              stepId: executionStepId,
+              operationId: executionStepId,
+              toolName: toolCall.name,
+              inputJson: JSON.stringify({
+                argumentsHash,
+                input: stripInlineBytes(
+                  preparedCallArguments(intent),
+                  "placeholder",
+                ),
+              }),
+              replayPolicy: actionIsReadOnly
+                ? "read-only"
+                : actionRetrySafe
+                  ? "retry-safe"
+                  : "never",
+            }
+          : null;
+      const executionStepAdmission = executionStepIntent
+        ? await beginAgentExecutionStep(executionStepIntent)
+        : null;
+      const replayDurableExecutionStep = async (
+        resultJson: string,
+      ): Promise<EngineContentPart> => {
+        let outcome: Record<string, unknown>;
+        try {
+          const parsed: unknown = JSON.parse(resultJson);
+          if (!isRecord(parsed))
+            throw new TypeError("Expected an outcome object");
+          outcome = parsed;
+        } catch {
+          throw new Error(
+            `Execution step ${toolCall.id} has an unreadable stored result`,
+          );
+        }
+        if (typeof outcome.result !== "string") {
+          throw new Error(
+            `Execution step ${toolCall.id} has no stored result text`,
+          );
+        }
+        const isError = outcome.isError === true;
+        const completedSideEffect = outcome.completedSideEffect === true;
+        const artifacts = Array.isArray(outcome.artifacts)
+          ? outcome.artifacts.filter(isArtifactReceipt)
+          : [];
+        const errorCode =
+          typeof outcome.errorCode === "string" ? outcome.errorCode : undefined;
+        const receipt = durableExecutionStepReceipt(outcome.receipt);
+        const mcpApp = durableExecutionStepMcpApp(outcome.mcpApp);
+        const chatUI = durableExecutionStepChatUI(outcome.chatUI);
+        const fileMutation = durableExecutionStepFileMutation(
+          outcome.fileMutation,
+        );
+        const result = `${RECOVERED_TOOL_REPLAY_PREFIX}${outcome.result}`;
+        await send({
+          type: "tool_start",
+          id: toolCall.id,
+          tool: toolCall.name,
+          input: journalToolInput as Record<string, string>,
+        });
+        await emitToolDone({
+          type: "tool_done",
+          id: toolCall.id,
+          tool: toolCall.name,
+          input: journalToolInput as Record<string, unknown>,
+          result,
+          ...(isError ? { isError: true } : {}),
+          ...(errorCode ? { errorCode } : {}),
+          completedSideEffect,
+          replayed: true,
+          ...(artifacts.length > 0 ? { artifacts } : {}),
+          ...(mcpApp ? { mcpApp } : {}),
+          ...(chatUI ? { chatUI } : {}),
+          ...(chatUI && outcome.chatUIResult !== undefined
+            ? { chatUIResult: outcome.chatUIResult }
+            : {}),
+          ...(fileMutation ? { fileMutation } : {}),
+        });
+        recordToolResult(result, isError, artifacts, receipt);
+        if (!isError) {
+          noteToolCallSucceeded(actionEntry, toolCall.name, toolCall.input);
+        }
+        if (completedSideEffect) {
+          resetAfterSuccessfulWrite(toolCall.name, toolCall.input);
+        }
+        return {
+          type: "tool-result" as const,
+          toolCallId: toolCall.id,
+          toolName: toolCall.name,
+          toolInput: wireToolInput,
+          content: result,
+          ...(isError ? { isError: true } : {}),
+        };
+      };
+
+      if (executionStepAdmission?.status === "completed") {
+        if (executionStepAdmission.resultJson === null) {
+          throw new Error(`Execution step ${toolCall.id} has no stored result`);
+        }
+        rollbackRepeatedToolCall();
+        return replayDurableExecutionStep(executionStepAdmission.resultJson);
+      }
+      if (executionStepAdmission?.status === "unknown") {
+        const result =
+          `The ${toolCall.name} action was interrupted and its result is unknown. ` +
+          "I stopped without running it again. Check whether it completed before asking me to retry.";
+        await send({
+          type: "tool_start",
+          id: toolCall.id,
+          tool: toolCall.name,
+          input: journalToolInput as Record<string, string>,
+        });
+        await emitToolDone({
+          type: "tool_done",
+          id: toolCall.id,
+          tool: toolCall.name,
+          input: journalToolInput as Record<string, unknown>,
+          result,
+          isError: true,
+          errorCode: "write_tool_outcome_unknown",
+          outcomeUnknown: true,
+        });
+        recordToolResult(result, true);
+        requestedActionStop ??= {
+          message: result,
+          errorCode: "write_tool_outcome_unknown",
+        };
+        return {
+          type: "tool-result" as const,
+          toolCallId: toolCall.id,
+          toolName: toolCall.name,
+          toolInput: wireToolInput,
+          content: result,
+          isError: true,
+        };
+      }
+
+      // A continued turn replays only what this call recorded committing,
+      // for arguments prepared exactly as these are, or a write recorded
+      // before calls had identities, by its raw input; anything else runs
+      // fresh.
+      if (toolCallJournal) {
+        const journaled = findReplayableJournalEntry(
           toolCallJournal,
           toolCall.name,
-          toolCall.input,
+          argumentsHash,
           consumedJournalKeys,
+          actionIsReadOnly ? undefined : { input: toolCall.input },
         );
         if (journaled) {
           rollbackRepeatedToolCall();
           const recordedResult = journaled.result ?? "";
           const result = `${JOURNALED_TOOL_REPLAY_PREFIX}${recordedResult}`;
+          // A call that failed after its changes were saved replays as that
+          // failure, not as a success and not as work still to do.
+          const replayedFailure = journaled.isError === true;
           send({
             type: "tool_start",
             id: toolCall.id,
             tool: toolCall.name,
             input: journalToolInput as Record<string, string>,
           });
-          emitToolDone({
+          await emitToolDone({
             type: "tool_done",
             id: toolCall.id,
             tool: toolCall.name,
             input: journalToolInput as Record<string, unknown>,
             result,
+            ...(replayedFailure ? { isError: true } : {}),
+            ...(journaled.errorCode ? { errorCode: journaled.errorCode } : {}),
             completedSideEffect: true,
             replayed: true,
             ...(journaled.artifacts?.length
               ? { artifacts: journaled.artifacts }
+              : {}),
+            ...(journaled.mcpApp ? { mcpApp: journaled.mcpApp } : {}),
+            ...(journaled.fileMutation
+              ? { fileMutation: journaled.fileMutation }
               : {}),
             ...(journaled.chatUI && journaled.chatUIResult !== undefined
               ? {
@@ -8226,7 +9104,102 @@ export async function runAgentLoop(opts: {
                 }
               : {}),
           });
-          recordToolResult(result, false, journaled.artifacts);
+          recordToolResult(result, replayedFailure, journaled.artifacts);
+          if (!replayedFailure) {
+            noteToolCallSucceeded(actionEntry, toolCall.name, toolCall.input);
+          }
+          resetAfterSuccessfulWrite(toolCall.name, toolCall.input);
+          return {
+            type: "tool-result" as const,
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+            toolInput: wireToolInput,
+            content: result,
+            ...(replayedFailure ? { isError: true } : {}),
+          };
+        }
+      }
+
+      // An unknown write cannot become fresh work merely by rewording its
+      // arguments, or by eliding its tool pair from the replayed history.
+      const priorInterruptionsBeforeStepReplay = actionIsReadOnly
+        ? (unknownOutcomes.calls.get(
+            preparedToolCallKey(toolCall.name, argumentsHash),
+          ) ?? 0)
+        : (unknownOutcomes.tools.get(toolCall.name) ?? 0);
+      const interruptedCallMatchesStep =
+        executionStepAdmission?.status === "execute" &&
+        executionStepAdmission.wasDispatched &&
+        (actionIsReadOnly || actionRetrySafe) &&
+        toolCallJournal?.interrupted.some(
+          (entry) => entry.id === toolCall.id,
+        ) === true;
+      const priorInterruptions =
+        interruptedCallMatchesStep && priorInterruptionsBeforeStepReplay === 1
+          ? 0
+          : priorInterruptionsBeforeStepReplay;
+
+      if (priorInterruptions > 0) {
+        // Only a result recorded for these exact arguments is recovered. Any
+        // other leaves the earlier attempt unknown, so the call stops below
+        // instead of running again.
+        const ledgerResult =
+          opts.threadId && !executionStepIntent
+            ? await waitForInterruptedToolLedgerEntry({
+                threadId: opts.threadId,
+                toolKey: preparedToolCallKey(toolCall.name, argumentsHash),
+                argumentsHash,
+                toolName: toolCall.name,
+                timeoutMs: Math.min(
+                  toolTimeoutMs,
+                  INTERRUPTED_TOOL_LEDGER_RECOVERY_TIMEOUT_MS,
+                ),
+                signal,
+                send,
+              })
+            : null;
+        if (ledgerResult !== null) {
+          rollbackRepeatedToolCall();
+          const result = RECOVERED_TOOL_REPLAY_PREFIX + ledgerResult.result;
+          const recoveredActionResult = parseRecoveredActionResult(
+            ledgerResult.result,
+            ledgerResult.resultIsString,
+          );
+          const hasStoredChatUIResult = "chatUIResult" in ledgerResult;
+          const recoveredChatUIResult = hasStoredChatUIResult
+            ? { value: ledgerResult.chatUIResult }
+            : recoveredActionResult;
+          const resolvedChatUI = recoveredChatUIResult
+            ? actionChatUIForResult(
+                toolCall.name,
+                actionEntry,
+                toolCall.input as Record<string, unknown>,
+                recoveredChatUIResult?.value,
+                false,
+                hasStoredChatUIResult,
+              )
+            : undefined;
+          await send({
+            type: "tool_start",
+            id: toolCall.id,
+            tool: toolCall.name,
+            input: journalToolInput as Record<string, string>,
+          });
+          await emitToolDone({
+            type: "tool_done",
+            id: toolCall.id,
+            tool: toolCall.name,
+            input: journalToolInput as Record<string, unknown>,
+            result,
+            completedSideEffect: true,
+            replayed: true,
+            ...(ledgerResult.artifacts.length > 0
+              ? { artifacts: ledgerResult.artifacts }
+              : {}),
+            ...(resolvedChatUI ? { chatUI: resolvedChatUI.chatUI } : {}),
+            ...(resolvedChatUI ? { chatUIResult: resolvedChatUI.result } : {}),
+          });
+          recordToolResult(result, false, ledgerResult.artifacts);
           noteToolCallSucceeded(actionEntry, toolCall.name, toolCall.input);
           resetAfterSuccessfulWrite(toolCall.name, toolCall.input);
           return {
@@ -8237,124 +9210,38 @@ export async function runAgentLoop(opts: {
             content: result,
           };
         }
-      }
-
-      if (!actionIsReadOnly) {
-        const writeCacheKey = toolCallCacheKey(toolCall.name, toolCall.input);
-        // An unknown write cannot become fresh work merely by rewording its
-        // arguments, or by eliding its tool pair from the replayed history.
-        const unknownJournalCalls = internalContinuationTurn
-          ? (toolCallJournal?.interrupted.filter(
-              (entry) => entry.tool === toolCall.name,
-            ).length ?? 0)
-          : 0;
-        const priorInterruptions = Math.max(
-          writeToolInterruptions.get(writeCacheKey) ?? 0,
-          unknownJournalCalls,
-          unknownWriteToolNames.has(toolCall.name) ? 1 : 0,
-        );
-
-        if (priorInterruptions > 0) {
-          const ledgerResult = opts.threadId
-            ? await waitForInterruptedToolLedgerEntry({
-                threadId: opts.threadId,
-                toolKey: writeCacheKey,
-                toolName: toolCall.name,
-                timeoutMs: Math.min(
-                  toolTimeoutMs,
-                  INTERRUPTED_TOOL_LEDGER_RECOVERY_TIMEOUT_MS,
-                ),
-                signal,
-                send,
-              })
-            : null;
-          if (ledgerResult !== null) {
-            rollbackRepeatedToolCall();
-            const result = RECOVERED_TOOL_REPLAY_PREFIX + ledgerResult.result;
-            const recoveredActionResult = parseRecoveredActionResult(
-              ledgerResult.result,
-              ledgerResult.resultIsString,
-            );
-            const hasStoredChatUIResult = "chatUIResult" in ledgerResult;
-            const recoveredChatUIResult = hasStoredChatUIResult
-              ? { value: ledgerResult.chatUIResult }
-              : recoveredActionResult;
-            const resolvedChatUI = recoveredChatUIResult
-              ? actionChatUIForResult(
-                  toolCall.name,
-                  actionEntry,
-                  toolCall.input as Record<string, unknown>,
-                  recoveredChatUIResult?.value,
-                  false,
-                  hasStoredChatUIResult,
-                )
-              : undefined;
-            send({
-              type: "tool_start",
-              id: toolCall.id,
-              tool: toolCall.name,
-              input: journalToolInput as Record<string, string>,
-            });
-            emitToolDone({
-              type: "tool_done",
-              id: toolCall.id,
-              tool: toolCall.name,
-              input: journalToolInput as Record<string, unknown>,
-              result,
-              completedSideEffect: true,
-              replayed: true,
-              ...(ledgerResult.artifacts.length > 0
-                ? { artifacts: ledgerResult.artifacts }
-                : {}),
-              ...(resolvedChatUI ? { chatUI: resolvedChatUI.chatUI } : {}),
-              ...(resolvedChatUI
-                ? { chatUIResult: resolvedChatUI.result }
-                : {}),
-            });
-            recordToolResult(result, false, ledgerResult.artifacts);
-            noteToolCallSucceeded(actionEntry, toolCall.name, toolCall.input);
-            resetAfterSuccessfulWrite(toolCall.name, toolCall.input);
-            return {
-              type: "tool-result" as const,
-              toolCallId: toolCall.id,
-              toolName: toolCall.name,
-              toolInput: wireToolInput,
-              content: result,
-            };
-          }
-          const result =
-            `The ${toolCall.name} action was interrupted ${priorInterruptions} time(s), and I could not recover its result. ` +
-            `I stopped without running it again. Check whether it completed before asking me to retry.`;
-          send({
-            type: "tool_start",
-            id: toolCall.id,
-            tool: toolCall.name,
-            input: journalToolInput as Record<string, string>,
-          });
-          emitToolDone({
-            type: "tool_done",
-            id: toolCall.id,
-            tool: toolCall.name,
-            input: journalToolInput as Record<string, unknown>,
-            result,
-            isError: true,
-          });
-          recordToolResult(result, true);
-          requestedActionStop ??= {
-            message:
-              `I stopped before running ${toolCall.name} again. ${priorInterruptions === 1 ? "An earlier attempt" : `${priorInterruptions} earlier attempts`} may have already saved changes and I could not confirm the result. ` +
-              `Check what was saved, then reply "continue" and I will verify it before doing anything else.`,
-            errorCode: "write_tool_outcome_unknown",
-          };
-          return {
-            type: "tool-result" as const,
-            toolCallId: toolCall.id,
-            toolName: toolCall.name,
-            toolInput: wireToolInput,
-            content: result,
-            isError: true,
-          };
-        }
+        const result =
+          `The ${toolCall.name} action was interrupted ${priorInterruptions} time(s), and I could not recover its result. ` +
+          `I stopped without running it again. Check whether it completed before asking me to retry.`;
+        await send({
+          type: "tool_start",
+          id: toolCall.id,
+          tool: toolCall.name,
+          input: journalToolInput as Record<string, string>,
+        });
+        await emitToolDone({
+          type: "tool_done",
+          id: toolCall.id,
+          tool: toolCall.name,
+          input: journalToolInput as Record<string, unknown>,
+          result,
+          isError: true,
+        });
+        recordToolResult(result, true);
+        requestedActionStop ??= {
+          message:
+            `I stopped before running ${toolCall.name} again. ${priorInterruptions === 1 ? "An earlier attempt" : `${priorInterruptions} earlier attempts`} may have already saved changes and I could not confirm the result. ` +
+            `Check what was saved, then reply "continue" and I will verify it before doing anything else.`,
+          errorCode: "write_tool_outcome_unknown",
+        };
+        return {
+          type: "tool-result" as const,
+          toolCallId: toolCall.id,
+          toolName: toolCall.name,
+          toolInput: wireToolInput,
+          content: result,
+          isError: true,
+        };
       }
 
       if (signal.aborted) {
@@ -8368,7 +9255,7 @@ export async function runAgentLoop(opts: {
         };
       }
 
-      send({
+      await send({
         type: "tool_start",
         id: toolCall.id,
         tool: toolCall.name,
@@ -8376,79 +9263,17 @@ export async function runAgentLoop(opts: {
       });
 
       try {
-        const toolCallSchemaError = toolCallErrors.get(toolCall.id);
-        if (toolCallSchemaError && !toolInputNormalized) {
-          const result = finalizeToolErrorResult(
-            toolInputSchemaErrorResult(
-              toolCall.name,
-              toolCallSchemaError.input,
-              toolCallSchemaError.error,
-              actionEntry?.tool.parameters,
-              toolCallTruncatedByOutputCap,
-            ),
-          );
-          emitToolDone({
-            type: "tool_done",
-            id: toolCall.id,
-            tool: toolCall.name,
-            input: journalToolInput as Record<string, unknown>,
-            result,
-            isError: true,
-            completedSideEffect: false,
-          });
-          recordToolResult(result, true);
-          return {
-            type: "tool-result" as const,
-            toolCallId: toolCall.id,
-            toolName: toolCall.name,
-            toolInput: wireToolInput,
-            content: result,
-            isError: true,
-          };
-        }
-
-        const rawToolInputError = validateRawToolInput(
-          actionEntry,
-          toolCall.input,
-        );
-        if (rawToolInputError) {
-          const result = finalizeToolErrorResult(
-            toolInputSchemaErrorResult(
-              toolCall.name,
-              toolCall.input,
-              rawToolInputError,
-              actionEntry.tool.parameters,
-              toolCallTruncatedByOutputCap,
-            ),
-          );
-          emitToolDone({
-            type: "tool_done",
-            id: toolCall.id,
-            tool: toolCall.name,
-            input: journalToolInput as Record<string, unknown>,
-            result,
-            isError: true,
-            completedSideEffect: false,
-          });
-          recordToolResult(result, true);
-          return {
-            type: "tool-result" as const,
-            toolCallId: toolCall.id,
-            toolName: toolCall.name,
-            toolInput: wireToolInput,
-            content: result,
-            isError: true,
-          };
-        }
-
         const cacheKey =
           actionIsReadOnly && actionEntry.dedupe !== false
-            ? toolCallCacheKey(toolCall.name, toolCall.input)
+            ? preparedToolCallKey(toolCall.name, argumentsHash)
             : null;
         const cachedResult = cacheKey
           ? readOnlyToolResultCache.get(cacheKey)
           : undefined;
         if (cacheKey && cachedResult) {
+          if (executionStepIntent) {
+            await markAgentExecutionStepDispatched(executionStepIntent);
+          }
           const previousResult = cachedResult.content;
           const visible = isCachedToolResultVisibleInContext(
             contextMessages,
@@ -8475,7 +9300,21 @@ export async function runAgentLoop(opts: {
               previousResult,
             );
           }
-          emitToolDone({
+          if (executionStepIntent) {
+            executionStepFinalizationAttempted = true;
+            await completeAgentExecutionStep(
+              executionStepIntent,
+              JSON.stringify({
+                result,
+                isError: false,
+                completedSideEffect: false,
+              }),
+            );
+            executionStepFinalizationAttempted = false;
+            executionStepOutcomeRecorded = true;
+          }
+          toolDonePersistenceFailed = true;
+          await emitToolDone({
             type: "tool_done",
             id: toolCall.id,
             tool: toolCall.name,
@@ -8483,6 +9322,7 @@ export async function runAgentLoop(opts: {
             result,
             completedSideEffect: false,
           });
+          toolDonePersistenceFailed = false;
           recordToolResult(result, false);
           return {
             type: "tool-result" as const,
@@ -8498,10 +9338,15 @@ export async function runAgentLoop(opts: {
 
         if (
           opts.executionMode === "plan" &&
-          !isPlanModeToolCallAllowed(toolCall.name, toolCall.input, actionEntry)
+          !planModeAllowsCall(
+            toolCall.name,
+            preparedCallArguments(intent),
+            actionEntry,
+            intent.planModeRead,
+          )
         ) {
           const result = planModeBlockedMessage(toolCall.name);
-          emitToolDone({
+          await emitToolDone({
             type: "tool_done",
             id: toolCall.id,
             tool: toolCall.name,
@@ -8524,6 +9369,7 @@ export async function runAgentLoop(opts: {
         let result: string;
         let chatUIResult: unknown;
         let isError = false;
+        let thrown: unknown;
         // A deadline or abort after invocation leaves a zombie that may still
         // commit, so a retry-safe action stays blocked for it; an error the
         // handler returned does not.
@@ -8559,6 +9405,7 @@ export async function runAgentLoop(opts: {
           const actionUserEmail = opts.ownerEmail ?? getRequestUserEmail();
           const actionOrgId = opts.orgId ?? getRequestOrgId() ?? null;
           const requestContext = getRequestContext();
+          const preparedIntent = intent;
           // The app-authorization lookup must stay inside the raced action. If it
           // were awaited before the race, a deadline firing during the await would
           // reject nothing: the abort listener is attached only inside the race,
@@ -8569,6 +9416,15 @@ export async function runAgentLoop(opts: {
               actionOrgId,
             );
             if (!actionIsReadOnly) await opts.beforeWrite?.();
+            if (timeoutSignal.aborted) {
+              throw new Error(timeoutMessage());
+            }
+            if (signal.aborted) {
+              throw new Error("Run aborted");
+            }
+            if (executionStepIntent) {
+              await markAgentExecutionStepDispatched(executionStepIntent);
+            }
             if (timeoutSignal.aborted) {
               throw new Error(timeoutMessage());
             }
@@ -8610,12 +9466,11 @@ export async function runAgentLoop(opts: {
               ...(opts.turnId ? { turnId: opts.turnId } : {}),
             };
             actionInvoked = true;
-            return runActionWithExecutionOutcome(
-              actionEntry.run,
-              toolCall.input as Record<string, string>,
+            return runPreparedActionCall(
+              actionEntry,
+              preparedIntent,
               actionContext,
               actionExecutionOutcome,
-              actionEntry,
             );
           };
           const actionPromise = Promise.resolve(
@@ -8637,14 +9492,19 @@ export async function runAgentLoop(opts: {
           // the result to the durable ledger keyed by (threadId, toolKey) so the
           // next continuation chunk can recover it instead of re-executing the
           // side effect.
-          if (opts.threadId && !actionIsReadOnly) {
+          if (opts.threadId) {
             const ledgerThreadId = opts.threadId;
-            const ledgerToolKey = toolCallCacheKey(
+            const ledgerArgumentsHash = argumentsHash;
+            const ledgerToolKey = preparedToolCallKey(
               toolCall.name,
-              toolCall.input,
+              ledgerArgumentsHash,
             );
             const zombieLedgerPromise = actionPromise
               .then(async (zombieRaw: unknown) => {
+                await new Promise<void>((resolve) => setTimeout(resolve, 0));
+                if (!toolResultLost) return;
+                // A call is recovered only when it may have written.
+                if (ranEffect({}).effect === "none") return;
                 const zombieMcp = isMcpActionResult(zombieRaw)
                   ? zombieRaw
                   : null;
@@ -8659,14 +9519,17 @@ export async function runAgentLoop(opts: {
                 const zombieResultForAgent = zombieMcp
                   ? zombieMcp.text
                   : extractAgentImagesFromActionResult(zombieRaw).value;
+                const zombieResultMetadata =
+                  zombieMcp?.raw ?? zombieResultForAgent;
                 const zombieStr =
                   typeof zombieResultForAgent === "string"
                     ? zombieResultForAgent
                     : JSON.stringify(zombieResultForAgent, null, 2);
                 const zombieArtifacts = detectArtifactReceipts(
-                  zombieResultForAgent,
+                  zombieResultMetadata,
                   toolCall.name,
                 );
+                const zombieReceipt = readWriteReceipt(zombieResultMetadata);
                 const zombieChatUI = actionChatUIForResult(
                   toolCall.name,
                   actionEntry,
@@ -8674,19 +9537,60 @@ export async function runAgentLoop(opts: {
                   zombieResultForAgent,
                   false,
                 );
-                await writeLedgerEntry(
-                  ledgerThreadId,
-                  ledgerToolKey,
-                  zombieStr,
-                  zombieArtifacts,
-                  typeof zombieResultForAgent === "string",
-                  zombieChatUI
-                    ? JSON.stringify(zombieChatUI.result)
-                    : undefined,
+                const zombieFileMutation = actionEntry.fileMutationProof?.(
+                  toolCall.input,
                 );
+                if (executionStepIntent) {
+                  await recordLateAgentExecutionStepOutcome(
+                    executionStepIntent,
+                    serializeDurableExecutionStepOutcome({
+                      result: stripInlineBytes(zombieStr, "placeholder").slice(
+                        0,
+                        toolMaxResultChars,
+                      ),
+                      isError: false,
+                      completedSideEffect: true,
+                      artifacts: zombieArtifacts,
+                      ...(zombieReceipt ? { receipt: zombieReceipt } : {}),
+                      ...(zombieMcp?.mcpApp
+                        ? { mcpApp: zombieMcp.mcpApp }
+                        : {}),
+                      ...(zombieChatUI
+                        ? {
+                            chatUI: zombieChatUI.chatUI,
+                            chatUIResult: zombieChatUI.result,
+                          }
+                        : {}),
+                      ...(zombieFileMutation
+                        ? { fileMutation: zombieFileMutation }
+                        : {}),
+                    }),
+                  );
+                }
+                if (!executionStepIntent) {
+                  await writeLedgerEntry(
+                    ledgerThreadId,
+                    ledgerToolKey,
+                    zombieStr,
+                    zombieArtifacts,
+                    typeof zombieResultForAgent === "string",
+                    zombieChatUI
+                      ? JSON.stringify(zombieChatUI.result)
+                      : undefined,
+                    ledgerArgumentsHash,
+                  );
+                }
               })
-              .catch(() => {
-                // Action errored in the zombie — no result to ledger.
+              .catch((error) => {
+                captureError(error, {
+                  route: "/_agent-native/agent-chat",
+                  aiTraceId: opts.runId,
+                  tags: {
+                    component: "agent-execution-step",
+                    phase: "late-outcome-persistence",
+                    tool: toolCall.name,
+                  },
+                });
               });
             void retainRequestDbPoolScope(zombieLedgerPromise);
           }
@@ -8737,8 +9641,9 @@ export async function runAgentLoop(opts: {
           }
           chatUIResult = resultForAgent;
           // Before stringify and truncation: a large result must not lose it.
-          receipt = readWriteReceipt(resultForAgent);
-          toolArtifacts = detectArtifactReceipts(resultForAgent, toolCall.name);
+          const resultMetadata = mcpResult?.raw ?? resultForAgent;
+          receipt = readWriteReceipt(resultMetadata);
+          toolArtifacts = detectArtifactReceipts(resultMetadata, toolCall.name);
           if (toolResultImages) {
             imageNotes = [
               ...describeToolResultImages(toolResultImages),
@@ -8858,67 +9763,32 @@ export async function runAgentLoop(opts: {
             }
           }
         } catch (err: any) {
-          actionRefused = actionExecutionOutcome.refused;
+          if (
+            executionStepFinalizationAttempted ||
+            executionStepOutcomeRecorded ||
+            toolDonePersistenceFailed
+          ) {
+            toolDonePersistenceFailed = true;
+            throw err;
+          }
+          thrown = err;
           toolResultLost =
             signal.aborted ||
             isToolCallTimeoutResult(String((err as Error)?.message ?? err));
           toolErrorCode = isActionContractError(err)
             ? err.errorCode
             : undefined;
-          if (signal.aborted) {
-            result = INTERRUPTED_TOOL_RESULT_MARKER;
-          } else if (isAgentConnectionRequiredError(err)) {
-            const message = connectionRequiredMessage(
-              sanitizeToolErrorValue(err.message) ||
-                `Connect ${err.provider} to continue.`,
-              err.reason,
-            );
-            result = sanitizeToolErrorValue(err.toolResult || message);
-            requestedConnection ??= {
-              requestId: randomUUID(),
-              provider: err.provider,
-              reason: err.reason,
-              appId: err.appId,
-              detail: message,
-              source: err.source,
-            };
-            turnYieldedToUser = true;
-            requestedActionStop ??= {
-              message,
-              errorCode: "connection-required",
-            };
-          } else if (isAgentActionStopError(err)) {
-            const message =
-              sanitizeToolErrorValue(err.message) ||
-              `Stopped after ${toolCall.name} failed.`;
-            result = sanitizeToolErrorValue(err.toolResult || message);
-            directStop = {
-              message,
-              explicit: err.errorCode === "permanent_precondition",
-            };
-            if (!directStop.explicit && !permanentPreconditionRemedy(message)) {
-              requestedActionStop ??= {
-                message,
-                ...(err.errorCode ? { errorCode: err.errorCode } : {}),
-              };
-            }
-          } else if (
-            isActionContractError(err) &&
-            err.errorCode === "permanent_precondition"
-          ) {
-            const message = sanitizeToolErrorValue(err.message);
-            directStop = { message, explicit: true };
-            result = `Error running ${toolCall.name}: ${message}`;
-          } else {
-            const message = sanitizeToolErrorValue(err);
-            const errorCode =
-              isActionContractError(err) && err.errorCode !== "action_failed"
-                ? ` (errorCode: ${err.errorCode})`
-                : "";
-            result = `Error running ${toolCall.name}: ${message}${errorCode}${rateLimitRecoveryHint(message, err)}`;
-          }
+          result = signal.aborted
+            ? INTERRUPTED_TOOL_RESULT_MARKER
+            : thrownToolResult(err);
           isError = true;
         }
+        const call = actionExecutionOutcome.record;
+        const { effect: callEffect, changed: callChanged } = ranEffect(
+          isError
+            ? { failed: { error: thrown, lost: toolResultLost } }
+            : { receipt },
+        );
         if (isError) {
           receipt = undefined;
           if (result !== INTERRUPTED_TOOL_RESULT_MARKER) {
@@ -8928,7 +9798,9 @@ export async function runAgentLoop(opts: {
           fileMutation = actionEntry.fileMutationProof?.(toolCall.input);
           // Only a write or a receipt is progress; a read-only call between
           // redundant searches is the same repeating step.
-          if (!actionIsReadOnly || receipt) alreadyLoadedToolSearches = 0;
+          if (callEffect === "committed" || receipt) {
+            alreadyLoadedToolSearches = 0;
+          }
           if (receipt && receipt.verified !== true) {
             usage.receiptUnverifiedCount =
               (usage.receiptUnverifiedCount ?? 0) + 1;
@@ -8952,25 +9824,24 @@ export async function runAgentLoop(opts: {
           isError,
         );
 
-        if (!isError) {
+        // A write refreshes other sessions, including one that failed after
+        // it ran: its changes are applied all the same.
+        if (callChanged) {
           try {
             const { notifyActionChangeInBackground } =
               await import("../server/action-change.js");
-            if (actionCallEmitsChange(actionEntry, toolCall.input, false)) {
-              const owner =
-                opts.ownerEmail ?? getRequestUserEmail() ?? undefined;
-              const orgId = opts.orgId ?? getRequestOrgId() ?? undefined;
-              notifyActionChangeInBackground({
-                actionName: toolCall.name,
-                ...actionChangeResource(
-                  actionEntry,
-                  toolCall.input,
-                  chatUIResult,
-                ),
-                ...(owner ? { owner } : {}),
-                ...(orgId ? { orgId } : {}),
-              });
-            }
+            const owner = opts.ownerEmail ?? getRequestUserEmail() ?? undefined;
+            const orgId = opts.orgId ?? getRequestOrgId() ?? undefined;
+            notifyActionChangeInBackground({
+              actionName: toolCall.name,
+              ...actionChangeResource(
+                actionEntry,
+                call ? call.args : toolCall.input,
+                isError ? undefined : chatUIResult,
+              ),
+              ...(owner ? { owner } : {}),
+              ...(orgId ? { orgId } : {}),
+            });
           } catch (error) {
             console.warn(
               "Could not notify the action-change poller after a tool call",
@@ -8979,7 +9850,43 @@ export async function runAgentLoop(opts: {
           }
         }
 
-        emitToolDone({
+        if (executionStepIntent) {
+          executionStepFinalizationAttempted = true;
+          if (toolResultLost || callEffect === "unknown") {
+            await markAgentExecutionStepUnknown(executionStepIntent);
+          } else {
+            await completeAgentExecutionStep(
+              executionStepIntent,
+              serializeDurableExecutionStepOutcome({
+                result: stripInlineBytes(result, "placeholder").slice(
+                  0,
+                  toolMaxResultChars,
+                ),
+                isError,
+                errorCode: toolErrorCode,
+                completedSideEffect: callEffect === "committed",
+                artifacts: toolArtifacts,
+                ...(receipt ? { receipt } : {}),
+                ...(mcpApp ? { mcpApp } : {}),
+                ...(resolvedChatUI
+                  ? {
+                      chatUI: resolvedChatUI.chatUI,
+                      chatUIResult: resolvedChatUI.result,
+                    }
+                  : {}),
+                ...(fileMutation ? { fileMutation } : {}),
+              }),
+              isError
+                ? JSON.stringify({ errorCode: toolErrorCode })
+                : undefined,
+            );
+          }
+          executionStepFinalizationAttempted = false;
+          executionStepOutcomeRecorded = true;
+        }
+
+        toolDonePersistenceFailed = true;
+        await emitToolDone({
           type: "tool_done",
           id: toolCall.id,
           tool: toolCall.name,
@@ -8987,34 +9894,34 @@ export async function runAgentLoop(opts: {
           result,
           ...(isError ? { isError: true } : {}),
           ...(toolErrorCode ? { errorCode: toolErrorCode } : {}),
-          ...(isError
-            ? actionInvoked &&
-              !actionIsReadOnly &&
-              !actionRefused &&
-              (!actionRetrySafe || toolResultLost)
-              ? { outcomeUnknown: true as const }
-              : { completedSideEffect: false }
-            : receipt
-              ? { completedSideEffect: receipt.changed }
-              : !actionIsReadOnly
-                ? { completedSideEffect: true }
-                : {}),
+          ...(callEffect === "unknown"
+            ? { outcomeUnknown: true as const }
+            : isError || receipt || callEffect === "committed"
+              ? { completedSideEffect: callEffect === "committed" }
+              : {}),
           ...(mcpApp ? { mcpApp } : {}),
           ...(resolvedChatUI ? { chatUI: resolvedChatUI.chatUI } : {}),
           ...(resolvedChatUI ? { chatUIResult: resolvedChatUI.result } : {}),
           ...(fileMutation ? { fileMutation } : {}),
           ...(toolArtifacts.length > 0 ? { artifacts: toolArtifacts } : {}),
         });
+        toolDonePersistenceFailed = false;
         recordToolResult(result, isError, toolArtifacts, receipt);
-        if (!isError) {
+        if (isError) {
+          if (callEffect === "committed") {
+            resetAfterSuccessfulWrite(toolCall.name, toolCall.input);
+          }
+        } else {
           noteToolCallSucceeded(actionEntry, toolCall.name, toolCall.input);
-          if (cacheKey) {
+          // A read whose nested call wrote, or may have, has changed what
+          // it read; its result must not be served again.
+          if (callEffect !== "none" || !actionIsReadOnly) {
+            resetAfterSuccessfulWrite(toolCall.name, toolCall.input);
+          } else if (cacheKey) {
             readOnlyToolResultCache.set(cacheKey, {
               content: result,
               ...(toolResultImages?.length ? { images: toolResultImages } : {}),
             });
-          } else if (!actionIsReadOnly) {
-            resetAfterSuccessfulWrite(toolCall.name, toolCall.input);
           }
         }
         return {
@@ -9029,19 +9936,21 @@ export async function runAgentLoop(opts: {
             : {}),
         };
       } finally {
-        if (!toolDoneEmitted) {
+        if (!toolDoneEmitted && !toolDonePersistenceFailed) {
           const result = `Error running ${toolCall.name}: tool execution ended before returning a result.`;
-          emitToolDone({
+          toolDonePersistenceFailed = true;
+          await emitToolDone({
             type: "tool_done",
             id: toolCall.id,
             tool: toolCall.name,
             input: journalToolInput as Record<string, unknown>,
             result,
             isError: true,
-            ...(actionInvoked && !actionIsReadOnly && !actionRefused
+            ...(ranEffect({ failed: { lost: true } }).effect === "unknown"
               ? { outcomeUnknown: true as const }
               : { completedSideEffect: false }),
           });
+          toolDonePersistenceFailed = false;
           recordToolResult(result, true);
         }
       }
@@ -9058,15 +9967,21 @@ export async function runAgentLoop(opts: {
     };
 
     type ParallelBatchKind = "read" | "parallel-write";
-    const getParallelBatchKind = (
+    const getParallelBatchKind = async (
       toolCall: import("./engine/types.js").EngineToolCallPart,
-    ): ParallelBatchKind | null => {
+    ): Promise<ParallelBatchKind | null> => {
+      const prepared = await resolveToolCallIntent(toolCall);
       const entry = actions[toolCall.name];
       if (!entry) return null;
       if (entry.needsApproval !== undefined || entry.endsTurn === true) {
         return null;
       }
-      if (actionCallIsReadOnly(entry, toolCall.input, false)) return "read";
+      if (
+        prepared?.status === "prepared" &&
+        intentIsReadOnly(prepared.intent)
+      ) {
+        return "read";
+      }
       if (entry.parallelSafe === true) return "parallel-write";
       return null;
     };
@@ -9130,7 +10045,7 @@ export async function runAgentLoop(opts: {
         toolResultParts.push(skipToolCallAfterStop(toolCall));
         continue;
       }
-      const batchKind = getParallelBatchKind(toolCall);
+      const batchKind = await getParallelBatchKind(toolCall);
       if (batchKind) {
         if (parallelBatchKind && parallelBatchKind !== batchKind) {
           await flushParallelBatch();
@@ -9833,16 +10748,12 @@ export async function markBackgroundContinuationChunkTerminal(opts: {
   continuationReason: AgentLoopContinuationReason;
   terminalEvent?: AgentChatEvent;
   deps?: {
-    updateRunStatusIfRunning?: typeof updateRunStatusIfRunning;
-    setRunError?: typeof setRunError;
-    setRunTerminalReason?: typeof setRunTerminalReason;
+    updateRunTerminalStateIfRunning?: typeof updateRunTerminalStateIfRunning;
   };
 }): Promise<boolean> {
-  const updateStatus =
-    opts.deps?.updateRunStatusIfRunning ?? updateRunStatusIfRunning;
-  const persistError = opts.deps?.setRunError ?? setRunError;
-  const setTerminalReason =
-    opts.deps?.setRunTerminalReason ?? setRunTerminalReason;
+  const persistTerminalState =
+    opts.deps?.updateRunTerminalStateIfRunning ??
+    updateRunTerminalStateIfRunning;
   const terminalEvent = opts.terminalEvent;
   const isTerminalFailure =
     terminalEvent?.type === "error" ||
@@ -9853,27 +10764,21 @@ export async function markBackgroundContinuationChunkTerminal(opts: {
       : terminalEvent?.type === "missing_api_key"
         ? "missing_api_key"
         : opts.continuationReason;
-  const updated = await updateStatus(
-    opts.runId,
-    isTerminalFailure ? "errored" : "completed",
-  );
-  if (updated) {
-    await setTerminalReason(opts.runId, terminalReason);
-    if (terminalEvent?.type === "error") {
-      await persistError(
-        opts.runId,
-        terminalEvent.errorCode,
-        terminalEvent.details || terminalEvent.error,
-      );
-    } else if (terminalEvent?.type === "missing_api_key") {
-      await persistError(
-        opts.runId,
-        LLM_MISSING_CREDENTIALS_ERROR_CODE,
-        LLM_MISSING_CREDENTIALS_MESSAGE,
-      );
-    }
-  }
-  return updated;
+  return persistTerminalState(opts.runId, {
+    status: isTerminalFailure ? "errored" : "completed",
+    terminalReason,
+    ...(terminalEvent?.type === "error"
+      ? {
+          errorCode: terminalEvent.errorCode,
+          errorDetail: terminalEvent.details || terminalEvent.error,
+        }
+      : terminalEvent?.type === "missing_api_key"
+        ? {
+            errorCode: LLM_MISSING_CREDENTIALS_ERROR_CODE,
+            errorDetail: LLM_MISSING_CREDENTIALS_MESSAGE,
+          }
+        : {}),
+  });
 }
 
 export async function claimBackgroundWorkerRunEarly(opts: {
@@ -10687,6 +11592,21 @@ export async function chainServerDrivenContinuation(opts: {
       await d.markRunAborted(runId, "user").catch(() => {});
       return;
     }
+    const continuationTerminalEvent = {
+      type: "auto_continue" as const,
+      reason: continuationReason,
+    };
+    const terminalMarked = await d.markBackgroundContinuationChunkTerminal({
+      runId,
+      continuationReason,
+      terminalEvent: run.events.at(-1)?.event,
+    });
+    if (!terminalMarked) {
+      throw new Error(
+        `Could not release run ${runId} for continuation ${nextRunId}`,
+      );
+    }
+    run.continuationTerminalEvent = continuationTerminalEvent;
     const dispatchBody = nextRowInserted
       ? {
           internalContinuation: true,
@@ -10786,24 +11706,9 @@ export async function chainServerDrivenContinuation(opts: {
             ? lastDispatchErr.message
             : lastDispatchErr,
         );
-        // The turn continues in the pre-inserted successor, so this chunk is
-        // truncated, never completed, and its stream ends with the same
-        // continuation signal a dispatched handoff sends.
-        const statusUpdated = await d
-          .updateRunStatusIfRunning(runId, "truncated")
-          .catch(() => false);
-        if (statusUpdated) {
-          await d
-            .setRunTerminalReason(
-              runId,
-              "background_continuation_dispatch_deferred",
-            )
-            .catch(() => {});
-        }
-        run.continuationTerminalEvent = {
-          type: "auto_continue",
-          reason: continuationReason,
-        };
+        // The turn continues in the pre-inserted successor, so this chunk was
+        // already terminalized before dispatch and can be redispatched by the
+        // sweep without waiting for this worker to release its lease.
         return;
       }
       throw lastDispatchErr instanceof Error
@@ -10817,17 +11722,6 @@ export async function chainServerDrivenContinuation(opts: {
         `chain_dispatch_sent nextRunId=${nextRunId} reason=${continuationReason}`,
       )
       .catch(() => {});
-    await d
-      .markBackgroundContinuationChunkTerminal({
-        runId,
-        continuationReason,
-        terminalEvent: run.events.at(-1)?.event,
-      })
-      .catch(() => {});
-    run.continuationTerminalEvent = {
-      type: "auto_continue",
-      reason: continuationReason,
-    };
   } catch (chainErr) {
     const failureCode =
       chainErr instanceof DurableAttachmentReferenceRequiredError
@@ -11038,6 +11932,7 @@ export function createProductionAgentHandler(
       queuedMessageId,
       queuedMessageClaimId,
       agentKitMessageId: requestedAgentKitMessageId,
+      submissionPayload: requestedSubmissionPayload,
       internalContinuation: submittedInternalContinuation,
       autoContinueOfRunId: requestedAutoContinueOfRunId,
       continueOfRunId: requestedContinueOfRunId,
@@ -11104,6 +11999,27 @@ export function createProductionAgentHandler(
       requestedAgentKitMessageId.trim().length <= 200
         ? requestedAgentKitMessageId.trim() || undefined
         : undefined;
+    let submissionPayload: AgentSubmissionPayload | undefined;
+    if (requestedSubmissionPayload !== undefined) {
+      if (
+        !requestedSubmissionPayload ||
+        typeof requestedSubmissionPayload !== "object" ||
+        Array.isArray(requestedSubmissionPayload)
+      ) {
+        setResponseStatus(event, 400);
+        return { error: "Invalid submissionPayload" };
+      }
+      const candidate = requestedSubmissionPayload;
+      if (
+        candidate.threadId !== threadId ||
+        typeof candidate.id !== "string" ||
+        candidate.id !== agentKitMessageId
+      ) {
+        setResponseStatus(event, 400);
+        return { error: "submissionPayload does not match this message" };
+      }
+      submissionPayload = candidate;
+    }
 
     const backgroundRunMarker =
       preInjectedBody &&
@@ -11254,6 +12170,94 @@ export function createProductionAgentHandler(
           anonymous: runRequestContext?.agentRunAnonymous === true,
         }
       : undefined;
+    if (
+      submissionPayload &&
+      ownerEmail &&
+      threadId &&
+      !internalContinuation &&
+      !queuedMessageId &&
+      !queuedMessageClaimId &&
+      !isBackgroundWorker
+    ) {
+      const {
+        getQueuedSubmissionReceipt,
+        hashQueuedSubmissionPayload,
+        resolveThreadAccess,
+      } = await import("../chat-threads/store.js");
+      const receipt = await getQueuedSubmissionReceipt(
+        threadId,
+        String(submissionPayload.id),
+      );
+      if (receipt) {
+        const accessibleThread = await resolveThreadAccess(
+          ownerEmail,
+          threadId,
+          "editor",
+          { orgId: getRequestOrgId() ?? undefined },
+        );
+        if (!accessibleThread) {
+          setResponseStatus(event, 404);
+          return { error: "Thread not found" };
+        }
+        const payloadHash = hashQueuedSubmissionPayload(
+          threadId,
+          submissionPayload,
+        );
+        const actorMatches =
+          receipt.actor.email.trim().toLowerCase() ===
+            ownerEmail.trim().toLowerCase() &&
+          (receipt.actor.orgId ?? null) === (getRequestOrgId() ?? null) &&
+          (receipt.actor.orgScope ?? null) ===
+            (runRequestContext?.orgScope ?? null) &&
+          receipt.actor.anonymous ===
+            (runRequestContext?.agentRunAnonymous === true) &&
+          (receipt.actor.authUserId ?? null) ===
+            (runRequestContext?.authUserId ?? null);
+        if (!actorMatches || receipt.payloadHash !== payloadHash) {
+          setResponseStatus(event, 409);
+          return {
+            error:
+              "This message ID was already used for a different submission",
+            code: "queued_message_id_conflict",
+            retryable: false,
+          };
+        }
+        if (receipt.state === "submitted") {
+          if (!receipt.submittedRunId) {
+            setResponseStatus(event, 503);
+            return {
+              error: "The accepted submission has no replayable run",
+              code: "queued_message_run_unavailable",
+              retryable: true,
+            };
+          }
+          const stream = subscribeToRun(receipt.submittedRunId, 0);
+          if (!stream) {
+            setResponseStatus(event, 503);
+            return {
+              error: "The accepted submission run is no longer replayable",
+              code: "queued_message_run_unavailable",
+              retryable: true,
+            };
+          }
+          setResponseHeader(event, "Content-Type", "text/event-stream");
+          setResponseHeader(event, "Cache-Control", "no-cache");
+          setResponseHeader(event, "Connection", "keep-alive");
+          setResponseHeader(event, "X-Run-Id", receipt.submittedRunId);
+          setResponseHeader(event, "X-Dispatch-Mode", "replay");
+          return stream;
+        }
+        if (receipt.state === "queued") {
+          return runSlotBusy(event, null);
+        }
+        setResponseStatus(event, 409);
+        return {
+          error: "This message ID is no longer available for submission",
+          code: "queued_message_id_terminal",
+          retryable: false,
+        };
+      }
+    }
     if (dispatchToBackground && !turnInitiator) {
       setResponseStatus(event, 401);
       return { error: "Background agent runs require a persisted initiator" };
@@ -12700,6 +13704,11 @@ export function createProductionAgentHandler(
       threadId.trim().length > 0 &&
       typeof requestTurnId === "string" &&
       requestTurnId.trim().length > 0;
+    const shouldRecoverCompletedExecutionSteps =
+      isChainedBackgroundContinuation ||
+      isReaperSuccessor ||
+      Boolean(continueOf) ||
+      isClientTurnContinuation;
     const runId = backgroundRunMarker?.runId ?? generateRunId();
     const effectiveThreadId = threadId ?? runId;
     const effectiveTurnId =
@@ -12738,6 +13747,9 @@ export function createProductionAgentHandler(
       threadId.trim().length > 0 &&
       isAgentChatForegroundSelfChainEnabled();
     let foregroundRunRowInserted = false;
+    let setupResumeClaim:
+      | Awaited<ReturnType<typeof claimSetupResume>>
+      | undefined;
 
     if (threadId && !isBackgroundWorker) {
       if (
@@ -12748,7 +13760,7 @@ export function createProductionAgentHandler(
         return { ok: true, stopped: true };
       }
       const setupResumeOfRunId = setupResumeRefusedRunId(body);
-      const setupResumeClaim =
+      setupResumeClaim =
         setupResumeOfRunId && ownerEmail
           ? await claimSetupResume({
               ownerEmail,
@@ -12837,6 +13849,7 @@ export function createProductionAgentHandler(
         toolRevision: binding.toolRevision,
         callId: binding.callId,
         approvalKey: binding.approvalKey,
+        argumentsHash: binding.argumentsHash,
         ...(binding.approvalId ? { approvalId: binding.approvalId } : {}),
       };
     };
@@ -12938,6 +13951,10 @@ export function createProductionAgentHandler(
           const journalRead = await loadPriorTurnToolCallJournal(
             effectiveThreadId,
             effectiveTurnId,
+            {
+              recoverCompletedExecutionSteps:
+                shouldRecoverCompletedExecutionSteps,
+            },
           );
           if (
             (continueOf || isReaperSuccessor || isClientTurnContinuation) &&
@@ -12961,7 +13978,8 @@ export function createProductionAgentHandler(
               journalRead.status === "read"
                 ? journalRead.toolCallJournal
                 : null,
-            ...(isReaperSuccessor && journalRead.status === "read"
+            ...(shouldRecoverCompletedExecutionSteps &&
+            journalRead.status === "read"
               ? { events: journalRead.events }
               : {}),
           });
@@ -13043,12 +14061,13 @@ export function createProductionAgentHandler(
 
     if (options.onRunPrepared && !internalContinuation && !isBackgroundWorker) {
       try {
-        await options.onRunPrepared({
+        const prepared = await options.onRunPrepared({
           runId,
           turnId: effectiveTurnId,
           threadId,
           message: messageToPersist,
           ...(agentKitMessageId ? { agentKitMessageId } : {}),
+          ...(submissionPayload ? { submissionPayload } : {}),
           attachments: requestAttachments,
           ...submissionExpiryMetadata(requestMetadata),
           ...(typeof queuedMessageId === "string" && queuedMessageId.trim()
@@ -13059,6 +14078,33 @@ export function createProductionAgentHandler(
             ? { queuedMessageClaimId: queuedMessageClaimId.trim() }
             : {}),
         });
+        const duplicateRunId =
+          prepared &&
+          typeof prepared.duplicateRunId === "string" &&
+          prepared.duplicateRunId.trim()
+            ? prepared.duplicateRunId.trim()
+            : undefined;
+        if (duplicateRunId) {
+          if (foregroundRunRowInserted) {
+            await markRunAborted(runId, "duplicate_submission");
+          }
+          await setupResumeClaim?.release();
+          const stream = subscribeToRun(duplicateRunId, 0);
+          if (!stream) {
+            setResponseStatus(event, 503);
+            return {
+              error: "The accepted submission run is no longer replayable",
+              code: "queued_message_run_unavailable",
+              retryable: true,
+            };
+          }
+          setResponseHeader(event, "Content-Type", "text/event-stream");
+          setResponseHeader(event, "Cache-Control", "no-cache");
+          setResponseHeader(event, "Connection", "keep-alive");
+          setResponseHeader(event, "X-Run-Id", duplicateRunId);
+          setResponseHeader(event, "X-Dispatch-Mode", "replay");
+          return stream;
+        }
       } catch (error) {
         if (foregroundRunRowInserted) {
           const terminalized = await updateRunStatusIfRunning(runId, "errored");
@@ -13538,7 +14584,7 @@ export function createProductionAgentHandler(
           await options.onRunStart(send, threadId ?? runId, runId);
         }
 
-        const unknownWriteToolNames = new Set<string>();
+        const unknownOutcomes = noUnknownOutcomes();
         if (customAgentRefs.length > 0) {
           const ownerEmail = getRequestUserEmail();
           if (!ownerEmail) throw new Error("no authenticated user");
@@ -13583,6 +14629,17 @@ export function createProductionAgentHandler(
                   extensionContentReads: undefined,
                   extensionExcerptReads: undefined,
                 };
+                const profileStepNamespace = `custom_${createHash("sha256")
+                  .update(
+                    JSON.stringify([ref.refId || ref.path || ref.name, index]),
+                  )
+                  .digest("hex")
+                  .slice(0, 32)}`;
+                const namespacedToolCallId = (toolCallId: string) =>
+                  `${profileStepNamespace}_${createHash("sha256")
+                    .update(toolCallId)
+                    .digest("hex")
+                    .slice(0, 24)}`;
                 const profileLoopOpts: Parameters<typeof runAgentLoop>[0] = {
                   engine,
                   model: profile.model ?? model,
@@ -13610,9 +14667,13 @@ export function createProductionAgentHandler(
                   runId,
                   threadId: effectiveThreadId,
                   turnId: effectiveTurnId,
+                  durableStepIdForToolCall: namespacedToolCallId,
                   beforeWrite: control.flushEvents,
-                  unknownWriteToolNames,
+                  unknownOutcomes,
                   internalContinuation,
+                  ...(shouldRecoverCompletedExecutionSteps
+                    ? { recoverCompletedExecutionSteps: true }
+                    : {}),
                   send: (event) => {
                     if (event.type === "text") {
                       responseText += event.text;
@@ -13630,12 +14691,7 @@ export function createProductionAgentHandler(
                         id:
                           event.id === undefined
                             ? undefined
-                            : `custom_${createHash("sha256")
-                                .update(
-                                  JSON.stringify([runId, index, event.id]),
-                                )
-                                .digest("hex")
-                                .slice(0, 32)}`,
+                            : namespacedToolCallId(event.id),
                       });
                     }
                   },
@@ -13816,7 +14872,7 @@ export function createProductionAgentHandler(
           systemSections: contextXraySystemSections,
           actions: requestActions,
           beforeWrite: control.flushEvents,
-          unknownWriteToolNames,
+          unknownOutcomes,
           internalContinuation,
           send,
           signal,
@@ -13856,6 +14912,9 @@ export function createProductionAgentHandler(
           ...(options.toolLimits ? { toolLimits: options.toolLimits } : {}),
           ...(threadId
             ? { threadId: effectiveThreadId, turnId: effectiveTurnId }
+            : {}),
+          ...(shouldRecoverCompletedExecutionSteps
+            ? { recoverCompletedExecutionSteps: true }
             : {}),
           ...(approvedToolCallsForExecution
             ? { approvedToolCalls: approvedToolCallsForExecution }
@@ -14124,6 +15183,7 @@ export function createProductionAgentHandler(
             ? "foreground-self-chain"
             : "foreground",
         runRowAlreadyInserted: foregroundRunRowInserted,
+        executionLease: true,
         // Resolved AFTER stored-model/experiment overrides — the same value
         // actually sent to the engine, not the raw client-requested model.
         // No userId here: `ownerEmail` is the only identity known at this
@@ -14165,6 +15225,7 @@ export {
   getRun,
   abortRun,
   abortRunDurably,
+  abortRunAtSafeBoundaryDurably,
   abortTurnByRefDurably,
   abortTurnDurably,
   subscribeToRun,

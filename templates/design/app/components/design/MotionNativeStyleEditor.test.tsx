@@ -216,7 +216,7 @@ describe("MotionNativeStyleEditor", () => {
     });
   }
 
-  it("orders easing presets like Figma, with Hold first", async () => {
+  it("orders easing presets with Hold first", async () => {
     await renderPicker();
     await openEasingPicker();
 
@@ -817,7 +817,7 @@ describe("MotionNativeStyleEditor", () => {
     );
   });
 
-  it("orders easing choices like Figma's curve and spring controls", async () => {
+  it("orders easing choices across curve and spring controls", async () => {
     await render();
     await openStyleDetails();
 

@@ -72,6 +72,7 @@ vi.mock("@agent-native/toolkit/app/extensions", () => ({
     return null;
   },
   ExtensionSlot: () => null,
+  isExtensionApiPath: () => false,
 }));
 
 import { formatSqlChartError, limitChartRows, SqlChart } from "./SqlChart";

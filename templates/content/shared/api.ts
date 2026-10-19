@@ -583,6 +583,22 @@ export interface ContentDatabaseItem {
   canonicalKey?: string | null;
   sourceOverlays?: ContentDatabaseSourceOverlay[];
   rowRevision?: string;
+  /** Open Comment threads on this row, when it has any the viewer can read. */
+  comments?: ContentDatabaseItemComments;
+}
+
+export interface ContentDatabaseItemComments {
+  /** Open threads on the row's Page, whatever each one targets. */
+  open: number;
+  /** Open threads on each Property, keyed by Property ID. */
+  properties: Record<
+    string,
+    {
+      open: number;
+      /** The most recently started open thread on that Property. */
+      latestThreadId: string;
+    }
+  >;
 }
 
 export interface ContentDatabaseMutationTarget {
