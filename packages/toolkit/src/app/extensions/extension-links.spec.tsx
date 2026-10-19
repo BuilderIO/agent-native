@@ -1,0 +1,632 @@
+// @vitest-environment happy-dom
+import React, { act, useRef } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const embedState = vi.hoisted(() => ({ active: false }));
+const chatMocks = vi.hoisted(() => ({ openMcpAppHostLink: vi.fn() }));
+
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
+  openMcpAppHostLink: chatMocks.openMcpAppHostLink,
+}));
+
+vi.mock("@agent-native/core/client/host", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/host")>()),
+  isEmbedMcpChatBridgeActive: () => embedState.active,
+}));
+
+import {
+  EXTENSION_LINK_CHANNEL_ACK_MESSAGE_TYPE,
+  EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE,
+  EXTENSION_LINK_CHANNEL_READY_MESSAGE_TYPE,
+  EXTENSION_NAVIGATE_SAME_ORIGIN_MESSAGE_TYPE,
+  EXTENSION_OPEN_EXTERNAL_LINK_MESSAGE_TYPE,
+} from "@agent-native/core/extensions/html-shell";
+
+import {
+  extensionFrameNameWithLinkNonce,
+  isExtensionApiPath,
+  useExternalExtensionLinks,
+} from "./extension-links.js";
+
+function LinkFrame({
+  onHostPortReady,
+}: {
+  onHostPortReady?: (port: MessagePort) => void;
+}) {
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const nonce = useExternalExtensionLinks(iframeRef, "stable-frame", {
+    onReady: () =>
+      iframeRef.current?.setAttribute("data-link-channel-ready", "true"),
+    onHostPortReady,
+  });
+
+  return (
+    <iframe
+      ref={iframeRef}
+      key={nonce ?? "no-nonce"}
+      srcDoc={
+        nonce ? `<script data-link-nonce="${nonce}"></script>` : undefined
+      }
+      sandbox="allow-scripts allow-forms"
+    />
+  );
+}
+
+describe("isExtensionApiPath", () => {
+  it("rejects extension API namespaces when path segments are encoded", () => {
+    expect(isExtensionApiPath("/%5Fagent-native/extensions/ext/render")).toBe(
+      true,
+    );
+    expect(isExtensionApiPath("/_agent-native/%74ools/ext/render")).toBe(true);
+    expect(isExtensionApiPath("/dashboards/example")).toBe(false);
+  });
+});
+
+describe("useExternalExtensionLinks", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  const ports = new Set<MessagePort>();
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    embedState.active = false;
+    chatMocks.openMcpAppHostLink.mockReset();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    vi.useRealTimers();
+    container.remove();
+    for (const port of ports) port.close();
+    ports.clear();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  async function connectFrame(
+    onHostPortReady?: (port: MessagePort) => void,
+    options: { initialLoadBeforeHello?: boolean; acknowledge?: boolean } = {},
+  ) {
+    await act(async () => {
+      root.render(<LinkFrame onHostPortReady={onHostPortReady} />);
+    });
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector("iframe")?.getAttribute("srcdoc"),
+      ).toContain("data-link-nonce=");
+    });
+
+    const iframe = container.querySelector("iframe") as HTMLIFrameElement;
+    const nonce =
+      iframe.getAttribute("srcdoc")?.match(/data-link-nonce="([^"]+)"/)?.[1] ??
+      "";
+    expect(nonce).toMatch(/^[0-9a-f]{48}$/);
+
+    if (options.initialLoadBeforeHello) {
+      act(() => iframe.dispatchEvent(new Event("load")));
+    }
+
+    const channel = new MessageChannel();
+    ports.add(channel.port1);
+    ports.add(channel.port2);
+    channel.port1.start();
+    const ready = new Promise<void>((resolve) => {
+      channel.port1.addEventListener("message", function onMessage(event) {
+        if (event.data?.type !== EXTENSION_LINK_CHANNEL_READY_MESSAGE_TYPE) {
+          return;
+        }
+        channel.port1.removeEventListener("message", onMessage);
+        if (options.acknowledge !== false) {
+          channel.port1.postMessage({
+            type: EXTENSION_LINK_CHANNEL_ACK_MESSAGE_TYPE,
+          });
+        }
+        resolve();
+      });
+    });
+
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE,
+            nonce,
+          },
+          origin: "null",
+          source: iframe.contentWindow,
+          ports: [channel.port2],
+        }),
+      );
+    });
+    await ready;
+    if (options.acknowledge !== false) {
+      await vi.waitFor(() => {
+        expect(iframe.getAttribute("data-link-channel-ready")).toBe("true");
+      });
+    }
+
+    return { iframe, nonce, childPort: channel.port1 };
+  }
+
+  async function sendExternalLink(
+    href: string,
+    options: {
+      openInNewContext?: boolean;
+      userActivated?: boolean | "unavailable";
+    } = {},
+  ) {
+    const frame = await connectFrame();
+    stubUserActivation(options.userActivated ?? true);
+    await act(async () => {
+      frame.childPort.postMessage({
+        type: EXTENSION_OPEN_EXTERNAL_LINK_MESSAGE_TYPE,
+        href,
+        ...(options.openInNewContext === undefined
+          ? {}
+          : { openInNewContext: options.openInNewContext }),
+      });
+    });
+    return frame;
+  }
+
+  function stubUserActivation(active: boolean | "unavailable") {
+    vi.stubGlobal("navigator", {
+      ...navigator,
+      userActivation:
+        active === "unavailable" ? undefined : { isActive: active },
+    } as unknown as Navigator);
+  }
+
+  async function sendSameOriginNavigation(
+    href: string,
+    active: boolean | "unavailable" = true,
+  ) {
+    const frame = await connectFrame();
+    stubUserActivation(active);
+    await act(async () => {
+      frame.childPort.postMessage({
+        type: EXTENSION_NAVIGATE_SAME_ORIGIN_MESSAGE_TYPE,
+        href,
+      });
+    });
+    return frame;
+  }
+
+  it("keeps the host nonce out of the extension URL", () => {
+    const source =
+      "https://analytics.example/dashboard?view=compact#metric?range=7d&group=team%20alpha";
+    const nonce = "a".repeat(48);
+    const originalFragment = new URL(source).hash.slice(1);
+    const frameName = extensionFrameNameWithLinkNonce(nonce);
+
+    expect(frameName).toBe(`__agent_native_link_nonce=${nonce}`);
+    expect(source).not.toContain(nonce);
+    expect(new URL(source).hash).toBe(`#${originalFragment}`);
+    expect(source).not.toContain("__agent_native_link_nonce");
+  });
+
+  it("keeps an app fragment that resembles the reserved marker unchanged", () => {
+    const source =
+      "https://analytics.example/dashboard#__agent_native_link_nonce=app&tab=one";
+    const frameName = extensionFrameNameWithLinkNonce("a".repeat(48));
+
+    expect(frameName).not.toContain("tab=one");
+    expect(new URL(source).hash).toBe("#__agent_native_link_nonce=app&tab=one");
+    expect(source).not.toContain(frameName);
+  });
+
+  it("only grants a host bridge port once for a document nonce", async () => {
+    const hostPorts: MessagePort[] = [];
+    const frame = await connectFrame((port) => {
+      hostPorts.push(port);
+      ports.add(port);
+    });
+    expect(hostPorts).toHaveLength(1);
+
+    // The first document's hello can precede the iframe element's load event.
+    act(() => frame.iframe.dispatchEvent(new Event("load")));
+
+    // A replacement document shares the WindowProxy and opaque origin, and
+    // can attempt to replay the first document's nonce before its load event.
+    const replay = new MessageChannel();
+    ports.add(replay.port1);
+    ports.add(replay.port2);
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE,
+            nonce: frame.nonce,
+          },
+          origin: "null",
+          source: frame.iframe.contentWindow,
+          ports: [replay.port2],
+        }),
+      );
+    });
+    act(() => frame.iframe.dispatchEvent(new Event("load")));
+
+    expect(hostPorts).toHaveLength(1);
+  });
+
+  it("rejects a same-nonce hello before the child acknowledges the channel", async () => {
+    const hostPorts: MessagePort[] = [];
+    const frame = await connectFrame(
+      (port) => {
+        hostPorts.push(port);
+        ports.add(port);
+      },
+      { acknowledge: false },
+    );
+    expect(hostPorts).toHaveLength(1);
+
+    const retry = new MessageChannel();
+    ports.add(retry.port1);
+    ports.add(retry.port2);
+    retry.port1.start();
+    const retryReady = vi.fn();
+    retry.port1.addEventListener("message", retryReady);
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE,
+            nonce: frame.nonce,
+          },
+          origin: "null",
+          source: frame.iframe.contentWindow,
+          ports: [retry.port2],
+        }),
+      );
+    });
+    expect(hostPorts).toHaveLength(1);
+    expect(retryReady).not.toHaveBeenCalled();
+  });
+
+  it("ignores nonce-only link requests before channel acknowledgement", async () => {
+    const frame = await connectFrame(undefined, { acknowledge: false });
+    const assign = vi.fn();
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    vi.stubGlobal("location", { ...window.location, assign });
+    vi.stubGlobal("navigator", {
+      ...navigator,
+      userActivation: { isActive: true },
+    });
+
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: EXTENSION_NAVIGATE_SAME_ORIGIN_MESSAGE_TYPE,
+            href: "https://analytics.example/dashboards/forged",
+            nonce: frame.nonce,
+          },
+          origin: "null",
+          source: frame.iframe.contentWindow,
+          ports: [],
+        }),
+      );
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: EXTENSION_OPEN_EXTERNAL_LINK_MESSAGE_TYPE,
+            href: "https://example.com/forged",
+            nonce: frame.nonce,
+          },
+          origin: "null",
+          source: frame.iframe.contentWindow,
+          ports: [],
+        }),
+      );
+    });
+
+    expect(assign).not.toHaveBeenCalled();
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it("reconnects the acknowledged channel after a BFCache restore", async () => {
+    const hostPorts: MessagePort[] = [];
+    const frame = await connectFrame((port) => {
+      hostPorts.push(port);
+      ports.add(port);
+    });
+    expect(hostPorts).toHaveLength(1);
+
+    const pagehide = new Event("pagehide");
+    Object.defineProperty(pagehide, "persisted", { value: true });
+    act(() => window.dispatchEvent(pagehide));
+
+    const pageshow = new Event("pageshow");
+    Object.defineProperty(pageshow, "persisted", { value: true });
+    act(() => window.dispatchEvent(pageshow));
+
+    const restored = new MessageChannel();
+    ports.add(restored.port1);
+    ports.add(restored.port2);
+    restored.port1.start();
+    const ready = new Promise<void>((resolve) => {
+      restored.port1.addEventListener("message", function onMessage(event) {
+        if (event.data?.type !== EXTENSION_LINK_CHANNEL_READY_MESSAGE_TYPE) {
+          return;
+        }
+        restored.port1.removeEventListener("message", onMessage);
+        restored.port1.postMessage({
+          type: EXTENSION_LINK_CHANNEL_ACK_MESSAGE_TYPE,
+        });
+        resolve();
+      });
+    });
+
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE,
+            nonce: frame.nonce,
+          },
+          origin: "null",
+          source: frame.iframe.contentWindow,
+          ports: [restored.port2],
+        }),
+      );
+    });
+    await ready;
+    await vi.waitFor(() => {
+      expect(hostPorts).toHaveLength(2);
+      expect(frame.iframe.getAttribute("data-link-channel-ready")).toBe("true");
+    });
+  });
+
+  it("recovers when a frame navigates after its initial handshake", async () => {
+    const frame = await connectFrame(undefined, {
+      initialLoadBeforeHello: true,
+    });
+    const originalIframe = frame.iframe;
+    vi.useFakeTimers();
+    act(() => originalIframe.dispatchEvent(new Event("load")));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2500);
+    });
+
+    const recoveredIframe = container.querySelector(
+      "iframe",
+    ) as HTMLIFrameElement;
+    const recoveredNonce =
+      recoveredIframe
+        .getAttribute("srcdoc")
+        ?.match(/data-link-nonce="([^"]+)"/)?.[1] ?? "";
+    expect(recoveredNonce).not.toBe(frame.nonce);
+  });
+
+  it("renews a spent nonce when a reloaded frame retries its channel", async () => {
+    const frame = await connectFrame(undefined, {
+      initialLoadBeforeHello: true,
+    });
+
+    act(() => frame.iframe.dispatchEvent(new Event("load")));
+    const retry = new MessageChannel();
+    ports.add(retry.port1);
+    ports.add(retry.port2);
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE,
+            nonce: frame.nonce,
+          },
+          origin: "null",
+          source: frame.iframe.contentWindow,
+          ports: [retry.port2],
+        }),
+      );
+    });
+
+    await vi.waitFor(() => {
+      const recoveredIframe = container.querySelector("iframe");
+      expect(recoveredIframe).not.toBe(frame.iframe);
+      expect(
+        recoveredIframe
+          ?.getAttribute("srcdoc")
+          ?.match(/data-link-nonce="([^"]+)"/)?.[1],
+      ).not.toBe(frame.nonce);
+    });
+  });
+
+  it("falls back immediately when the MCP host declines synchronously", async () => {
+    const href = "https://example.com/metric";
+    embedState.active = true;
+    chatMocks.openMcpAppHostLink.mockReturnValue(false);
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+
+    await sendExternalLink(href);
+
+    expect(chatMocks.openMcpAppHostLink).toHaveBeenCalledWith(href);
+    expect(open).toHaveBeenCalledWith(href, "_blank", "noopener,noreferrer");
+  });
+
+  it.each([
+    ["resolves false", () => Promise.resolve(false), "navigate"],
+    [
+      "rejects",
+      () => Promise.reject(new Error("host unavailable")),
+      "navigate",
+    ],
+    ["resolves true", () => Promise.resolve(true), "close"],
+  ] as const)(
+    "uses the reserved tab when MCP host %s",
+    async (_label, request, action) => {
+      const href = "https://example.com/metric";
+      embedState.active = true;
+      chatMocks.openMcpAppHostLink.mockImplementation(request);
+      const state = { closed: false };
+      const popup = {
+        get closed() {
+          return state.closed;
+        },
+        opener: window,
+        close: vi.fn(() => {
+          state.closed = true;
+        }),
+        location: { replace: vi.fn() },
+      } as unknown as Window;
+      const open = vi.spyOn(window, "open").mockImplementation(() => popup);
+
+      await sendExternalLink(href);
+      await vi.waitFor(() => {
+        expect(
+          action === "close" ? popup.close : popup.location.replace,
+        ).toHaveBeenCalled();
+      });
+
+      expect(open).toHaveBeenCalledWith("about:blank", "_blank");
+      expect(popup.opener).toBeNull();
+      if (action === "navigate") {
+        expect(popup.location.replace).toHaveBeenCalledWith(href);
+        expect(popup.close).not.toHaveBeenCalled();
+      } else {
+        expect(popup.close).toHaveBeenCalledTimes(1);
+        expect(popup.location.replace).not.toHaveBeenCalled();
+      }
+    },
+  );
+
+  it("keeps standard-browser links on the existing direct popup path", async () => {
+    const href = "https://example.com/metric";
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+
+    await sendExternalLink(href);
+
+    expect(chatMocks.openMcpAppHostLink).not.toHaveBeenCalled();
+    expect(open).toHaveBeenCalledWith(href, "_blank", "noopener,noreferrer");
+  });
+
+  it("rejects same-origin links unless the core router marks a new context", async () => {
+    const href = new URL("/dashboards/metric", window.location.href).href;
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+
+    await sendExternalLink(href);
+
+    expect(open).not.toHaveBeenCalled();
+    expect(chatMocks.openMcpAppHostLink).not.toHaveBeenCalled();
+  });
+
+  it("allows a same-origin link when explicitly opened in a new context", async () => {
+    const href = new URL("/dashboards/metric", window.location.href).href;
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+
+    await sendExternalLink(href, { openInNewContext: true });
+
+    expect(open).toHaveBeenCalledWith(href, "_blank", "noopener,noreferrer");
+  });
+
+  it("does not open extension API routes outside their iframe sandbox", async () => {
+    const href = new URL(
+      "/_agent-native/extensions/ext-1/render",
+      window.location.href,
+    ).href;
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+
+    await sendExternalLink(href, { openInNewContext: true });
+
+    expect(open).not.toHaveBeenCalled();
+    expect(chatMocks.openMcpAppHostLink).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when user activation is unavailable", async () => {
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+
+    await sendExternalLink("https://example.com/metric", {
+      userActivated: "unavailable",
+    });
+
+    expect(open).not.toHaveBeenCalled();
+    expect(chatMocks.openMcpAppHostLink).not.toHaveBeenCalled();
+  });
+
+  it("fails closed on same-origin navigation when user activation is unavailable", async () => {
+    const assign = vi
+      .spyOn(window.location, "assign")
+      .mockImplementation(() => {});
+
+    await sendSameOriginNavigation(
+      new URL("/dashboards/metric", window.location.href).href,
+      "unavailable",
+    );
+
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "/_agent-native/auth/logout",
+    "/_agent-native/actions/update-profile",
+  ])("blocks same-origin framework endpoint navigation to %s", async (path) => {
+    const assign = vi
+      .spyOn(window.location, "assign")
+      .mockImplementation(() => {});
+
+    await sendSameOriginNavigation(new URL(path, window.location.href).href);
+
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "/_agent-native/auth/logout",
+    "/_agent-native/actions/update-profile",
+  ])("does not open framework endpoint %s in a new context", async (path) => {
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+
+    await sendExternalLink(new URL(path, window.location.href).href, {
+      openInNewContext: true,
+    });
+
+    expect(open).not.toHaveBeenCalled();
+    expect(chatMocks.openMcpAppHostLink).not.toHaveBeenCalled();
+  });
+
+  it("routes explicitly opened same-origin links through the MCP host", async () => {
+    const href = new URL("/dashboards/metric", window.location.href).href;
+    embedState.active = true;
+    chatMocks.openMcpAppHostLink.mockReturnValue(false);
+    vi.spyOn(window, "open").mockImplementation(() => null);
+
+    await sendExternalLink(href, { openInNewContext: true });
+
+    expect(chatMocks.openMcpAppHostLink).toHaveBeenCalledWith(href);
+  });
+
+  it.each([
+    "javascript:alert(1)",
+    "ftp://example.com/metric",
+    "https://user:password@example.com/metric",
+  ])(
+    "does not let openInNewContext bypass URL validation for %s",
+    async (href) => {
+      const open = vi.spyOn(window, "open").mockImplementation(() => null);
+
+      await sendExternalLink(href, { openInNewContext: true });
+
+      expect(open).not.toHaveBeenCalled();
+      expect(chatMocks.openMcpAppHostLink).not.toHaveBeenCalled();
+    },
+  );
+
+  it("still requires user activation for explicitly opened same-origin links", async () => {
+    const href = new URL("/dashboards/metric", window.location.href).href;
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+
+    await sendExternalLink(href, {
+      openInNewContext: true,
+      userActivated: false,
+    });
+
+    expect(open).not.toHaveBeenCalled();
+    expect(chatMocks.openMcpAppHostLink).not.toHaveBeenCalled();
+  });
+});

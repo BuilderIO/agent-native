@@ -562,7 +562,10 @@ export async function runLoomImportJob({
           notTakenDown(),
         ),
       )
-      .returning({ id: schema.recordings.id });
+      .returning({
+        id: schema.recordings.id,
+        mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
+      });
     if (!mediaReady) {
       console.warn("[loom-import] lease lost before ready", {
         recordingId,
@@ -648,14 +651,42 @@ export async function runLoomImportJob({
       };
       // An import can create the row at any point, so this is one guarded
       // upsert rather than a read and then an insert.
-      await db
-        .insert(schema.recordingTranscripts)
-        .values({ recordingId, ...transcriptValues, createdAt: now })
-        .onConflictDoUpdate({
-          target: schema.recordingTranscripts.recordingId,
-          set: transcriptValues,
-          setWhere: notImportedTranscript(),
+      const saved = await db.transaction(async (tx) => {
+        const [locked] = await tx
+          .select({ id: schema.recordings.id })
+          .from(schema.recordings)
+          .where(
+            and(
+              eq(schema.recordings.id, recordingId),
+              eq(schema.recordings.mediaUpdatedAt, mediaReady.mediaUpdatedAt),
+            ),
+          )
+          .for("update");
+        if (!locked) return false;
+        await tx
+          .insert(schema.recordingTranscripts)
+          .values({ recordingId, ...transcriptValues, createdAt: now })
+          .onConflictDoUpdate({
+            target: schema.recordingTranscripts.recordingId,
+            set: transcriptValues,
+            setWhere: notImportedTranscript(),
+          });
+        return true;
+      });
+      if (!saved) {
+        console.info(
+          `[clips] Loom transcript superseded by a media edit for ${recordingId}; queuing transcription for the current media.`,
+        );
+        await dispatchPostFinalizeJob({
+          recordingId,
+          kind: "transcript",
+        }).catch((err) => {
+          console.warn("[clips] Loom transcript retry queue failed", {
+            recordingId,
+            error: err instanceof Error ? err.message : String(err),
+          });
         });
+      }
     } catch (err) {
       console.warn("[clips] Loom transcript persistence skipped", {
         recordingId,

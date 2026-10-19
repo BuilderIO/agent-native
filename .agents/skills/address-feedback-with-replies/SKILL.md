@@ -19,7 +19,18 @@ thread and follow `review-latest-feedback`'s single-owner reply rule.
 This workflow handles clear bugs and concrete design/UX feedback about existing
 repo-owned surfaces. In Slack sweeps, follow `review-latest-feedback` for
 eligibility: do not exclude Design feedback because it is visual or subjective;
-new capability requests still require the invoking identity's `:upvote:`.
+new capability requests still require the invoking identity's `:upvote:`. For
+every report root this actor owns with `👀`, `✅`, or `🎫`, keep one concise,
+current same-actor status reply after the latest human message. Reconcile root
+marks with every directly verified scope (`✅`) and every distinct unfinished
+human/team action (`🎫`), including actions that are unassigned or unaccepted.
+Record `owner: unassigned` and `status: unassigned` until a named person
+explicitly accepts the action; record the exact acceptance only after their
+reply. A Slack `🎫` is a workflow reaction, not proof that an external tracker
+ticket exists. Read back the reply and reactions. Reuse the status while
+evidence, disposition, and next action remain current; update it when one
+changes. The linked `review-latest-feedback` reaction reference owns the exact
+proof, acceptance, and inventory rules.
 Praise, status updates, merge or review requests, bot forwards, duplicates, and
 other unrelated messages stay out of scope. Content remains with Alice unless
 the user explicitly assigns it.
@@ -229,9 +240,9 @@ non-repeating question only if one specific required detail still blocks it.
 4. Verify each fix with the smallest relevant test, typecheck, action read-back,
    or browser path. Keep source-tested, built, installed, deployed, and live
    observations separate.
-5. Prepare one short status for each unclustered clear bug and owning parent
-   marked `👀`. Record clustered source links and disposition in the owner
-   thread or linked work; do not send duplicate replies:
+5. Prepare or reuse one short current status for each report root this actor
+   owns with `👀`, `✅`, or `🎫`. Record clustered source links and disposition
+   in the owner thread or linked work; do not send duplicate replies:
    - **Fixed** - name the verified fix and remaining scope, and link the PR.
      For an open beta app PR, say it should reach beta soon after merge. If it
      has merged, say so without claiming it is live. Do not send a routine
@@ -256,8 +267,8 @@ non-repeating question only if one specific required detail still blocks it.
    afterward to confirm the reply landed under the intended parent. Use the
    exact parent timestamp as `thread_ts`; never reply to a search-result
    timestamp or an adjacent thread. Before ending the run, mechanically
-   audit the reply ledger: for each claimed parent, record its reply timestamp
-   or owner-thread link, disposition, and eye state. A terminal state in the
+   audit the reply ledger: for every owned report root, record its current
+   same-actor reply timestamp or owner-thread link, disposition, and root marks. A terminal state in the
    thread or linked work needs no duplicate reply. Record **Owned elsewhere**
    only when the latest update confirms another active owner; preserve foreign
    eyes. Record non-owning **Clustered** rows in the owner thread or linked
@@ -283,8 +294,10 @@ reporter reply to one short, plain-language paragraph. Start with
 `ty for the feedback -` or `thanks for the feedback -`; end with
 `this was sent from a bot.`.
 
-Say what changed, what meaningful scope remains, and the next action/owner or
-ticket if one is needed. For a beta app fix in an open PR, link it and say it
+Say what changed, what meaningful scope remains, and the next action/owner.
+Link an external tracker ticket only if one exists. The workflow's Slack `🎫`
+reaction tracks a handoff; it does not mean an external ticket was created or
+assigned. For a beta app fix in an open PR, link it and say it
 should reach beta soon after merge; do not give an exact date or claim it is
 live. If work continues beyond this run, name the concrete action and owner.
 For a clarification, ask one direct question only when reporter input changes

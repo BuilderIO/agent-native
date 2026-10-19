@@ -81,7 +81,7 @@ describe("sourceHealthState", () => {
     ).toBe("connected");
   });
 
-  it("preserves configured credentials when the workspace grant is not yet active", () => {
+  it("reports a granted connection that is still checking", () => {
     expect(
       sourceHealthState(
         "amplitude",
@@ -116,7 +116,28 @@ describe("sourceHealthState", () => {
           ],
         }),
       ),
-    ).toBe("configured");
+    ).toBe("checking");
+  });
+
+  it("preserves the provider-level checking state in the overview", () => {
+    expect(
+      sourceHealthState(
+        "dbt",
+        statusData({
+          providers: [
+            {
+              provider: "dbt",
+              label: "dbt Cloud",
+              configured: true,
+              connectionHealth: "checking",
+              configuredKeys: [],
+              missingRequiredKeys: [],
+              optionalKeys: [],
+            },
+          ],
+        }),
+      ),
+    ).toBe("checking");
   });
 
   function dbtData(
@@ -490,7 +511,7 @@ describe("sourceHealthState", () => {
           },
         }),
       ),
-    ).toBe("error");
+    ).toBe("unknown");
     expect(
       sourceHealthState(
         "amplitude",
@@ -513,10 +534,10 @@ describe("sourceHealthState", () => {
           },
         }),
       ),
-    ).toBe("error");
+    ).toBe("unknown");
   });
 
-  it("treats an unknown provider configuration as an error", () => {
+  it("treats an unknown provider configuration as unknown", () => {
     expect(
       sourceHealthState(
         "github",
@@ -533,6 +554,6 @@ describe("sourceHealthState", () => {
           ],
         }),
       ),
-    ).toBe("error");
+    ).toBe("unknown");
   });
 });

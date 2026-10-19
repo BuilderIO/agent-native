@@ -645,6 +645,7 @@ export default {
     notConnected: "未接続",
     needsReauth: "再認証が必要",
     error: "エラー",
+    unknown: "不明",
     indexNotImported: "生成されたインデックスはまだインポートされていません。",
     indexUnreadable:
       "保存されたインデックスを読み取れません。有効なインデックスをアップロードしてください。",
@@ -1231,6 +1232,8 @@ export default {
     addEventToSeeResults: "イベントを追加し、選択して結果を確認します",
     queryError: "Query error: {{message}}",
     noDataReturned: "データが返されませんでした",
+    incompleteResultsWarning:
+      "この結果は不完全な可能性があります。行やソースデータの欠落により合計値が変わる場合があります。",
     rowsRange: "{{start}}-{{end}} of {{total}}",
     filterBy: "フィルター条件",
     pickPropertyToFilter: "フィルタリングするプロパティを選択してください",
@@ -1354,6 +1357,23 @@ export default {
     resetFilters: "フィルターをリセット",
     collapseFilters: "フィルターを折りたたむ",
     expandFilters: "フィルターを展開する",
+    drilldownChartPoints: "グラフのデータポイント",
+    drilldownPreviousPage: "グラフのデータポイントの前のページ",
+    drilldownNextPage: "グラフのデータポイントの次のページ",
+    drilldownPageRange: "全{{total}}件中{{start}}～{{end}}件を表示",
+    drilldownFilterRows: "行をフィルター",
+    drilldownShowSql: "SQLを表示",
+    drilldownHideSql: "SQLを非表示",
+    drilldownDownloadCsv: "CSVをダウンロード",
+    drilldownShowing: "{{total}} 件中 {{shown}} 件を表示",
+    drilldownCsvTruncated:
+      "不完全なエクスポート: クエリに一致した {{total}} 件のうち、最初の {{loaded}} 件のみ読み込まれました。フィルター適用後、このファイルには {{exported}} 件が含まれます。",
+    drilldownCountMismatch:
+      "グラフは {{chart}} ですが、一致したレコードは {{total}} 件です",
+    drilldownAggregateOnly:
+      "このパネルには集計行しかありません。クリックしたポイントに一致する行を強調表示しています。",
+    drilldownNoRecords: "一致するレコードがありません",
+    drilldownLoadFailed: "レコードを読み込めませんでした",
     filterSeries: "Filter",
     chartTimeRangeOverride: "このチャートの期間を上書き",
     chartTimeRangeInherit: "ダッシュボードの期間",

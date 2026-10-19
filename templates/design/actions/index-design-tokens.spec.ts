@@ -235,6 +235,40 @@ describe("index-design-tokens design-system access boundary", () => {
     });
   });
 
+  it("omits malformed hex values from source CSS and saved selections", async () => {
+    const fakeDesign = {
+      id: "design_1",
+      data: JSON.stringify({
+        tweakSelections: { "--color-legacy-invalid": "#GGGGGG" },
+      }),
+      designSystemId: null,
+    };
+
+    mockResolveAccess.mockResolvedValue({
+      role: "editor",
+      resource: fakeDesign,
+    });
+    mockFrom.mockReturnValue({
+      where: () =>
+        Promise.resolve([
+          {
+            filename: "tokens.css",
+            content:
+              ":root { --color-source-invalid: #GGGGGG; --color-source-valid: #123; }",
+          },
+        ]),
+    });
+
+    const result = await action.run({ designId: "design_1" });
+    const cssVars = result.tokens.map(
+      (token: { cssVar: string }) => token.cssVar,
+    );
+
+    expect(cssVars).not.toContain("--color-source-invalid");
+    expect(cssVars).not.toContain("--color-legacy-invalid");
+    expect(cssVars).toContain("--color-source-valid");
+  });
+
   it("uses the stored type instead of guessing from the name", async () => {
     const fakeDesign = {
       id: "design_1",

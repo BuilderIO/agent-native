@@ -191,6 +191,8 @@ export interface SqlDashboardConfig {
   columns?: number;
   panels: SqlPanel[];
   annotations?: DashboardAnnotations;
+  /** Panels the repair already delivered; a removed one stays removed only while this survives whole-config saves. */
+  introducedPanels?: string[];
 }
 
 /** Dashboard-level settings for key dates and data notes; per-panel `events` stay in panel config. */

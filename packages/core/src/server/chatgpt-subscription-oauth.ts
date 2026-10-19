@@ -330,29 +330,38 @@ function callbackUriForEvent(event: H3Event): string | null {
     : null;
 }
 
-function currentRequestIsLocalLoopback(): boolean {
-  if (getRequestRunContext()?.isBackgroundWorker === true) return false;
+type CurrentRequestLoopbackAccess = "local" | "untrusted" | "non_loopback";
+
+function currentRequestLoopbackAccess(): CurrentRequestLoopbackAccess {
   const context = getRequestContext();
+  if (!context || typeof context.isLoopbackRequest !== "boolean") {
+    return "untrusted";
+  }
+  if (!context.isLoopbackRequest) return "non_loopback";
+  if (getRequestRunContext()?.isBackgroundWorker === true) return "untrusted";
   if (
-    !context?.isLoopbackRequest ||
     !context.isDirectLoopbackRequest ||
     !context.requestOrigin ||
     context.orgId ||
-    context.orgScope !== "personal"
+    context.orgScope !== "personal" ||
+    !URL.canParse(context.requestOrigin)
   ) {
-    return false;
+    return "untrusted";
   }
-  if (!URL.canParse(context.requestOrigin)) return false;
   const origin = new URL(context.requestOrigin);
-  return (
-    origin.protocol === "http:" &&
+  return origin.protocol === "http:" &&
     origin.hostname === "127.0.0.1" &&
     origin.username === "" &&
     origin.password === "" &&
     origin.pathname === "/" &&
     origin.search === "" &&
     origin.hash === ""
-  );
+    ? "local"
+    : "untrusted";
+}
+
+function currentRequestIsLocalLoopback(): boolean {
+  return currentRequestLoopbackAccess() === "local";
 }
 
 async function stableHostId(): Promise<string> {
@@ -779,32 +788,34 @@ async function accountSummaries(
   );
 }
 
+function selectAccountSummary(
+  accounts: ChatGPTSubscriptionAccountSummary[],
+  activeAccountId: string | null,
+): ChatGPTSubscriptionAccountSummary | null {
+  return (
+    accounts.find((account) => account.id === activeAccountId) ??
+    (accounts.length === 1 ? (accounts[0] ?? null) : null)
+  );
+}
+
 async function activeAccount(
   email: string,
   accounts?: ChatGPTSubscriptionAccountSummary[],
 ): Promise<ChatGPTSubscriptionAccountSummary | null> {
   const accountRows = accounts ?? (await accountSummaries(email));
   const activeId = await readActiveAccountId(email);
-  if (!activeId) {
-    if (accountRows.length === 1) {
-      await writeActiveAccountId(email, accountRows[0]!.id);
-      return { ...accountRows[0]!, active: true };
-    }
-    return null;
-  }
-  const active = accountRows.find((account) => account.id === activeId);
-  if (!active) {
+  const selected = selectAccountSummary(accountRows, activeId);
+  if (activeId && !accountRows.some((account) => account.id === activeId)) {
     await deleteUserSetting(
       normalizedEmail(email),
       CHATGPT_SUBSCRIPTION_ACTIVE_ACCOUNT_SETTING_KEY,
     );
-    if (accountRows.length === 1) {
-      await writeActiveAccountId(email, accountRows[0]!.id);
-      return { ...accountRows[0]!, active: true };
-    }
-    return null;
   }
-  return { ...active, active: true };
+  if (!selected) return null;
+  if (selected.id !== activeId) {
+    await writeActiveAccountId(email, selected.id);
+  }
+  return { ...selected, active: true };
 }
 
 export async function hasChatGPTSubscriptionCredential(
@@ -824,10 +835,11 @@ export async function hasChatGPTSubscriptionCredential(
 export async function getChatGPTSubscriptionStatus(
   email: string,
 ): Promise<ChatGPTSubscriptionStatus> {
-  const localLoopback = currentRequestIsLocalLoopback();
+  const loopbackAccess = currentRequestLoopbackAccess();
+  const localLoopback = loopbackAccess === "local";
   const labEnabled =
     localLoopback && (await chatGPTSubscriptionLabEnabled(email));
-  if (!labEnabled) {
+  if (loopbackAccess === "untrusted" || (localLoopback && !labEnabled)) {
     return {
       supported: false,
       localLoopback,
@@ -839,6 +851,28 @@ export async function getChatGPTSubscriptionStatus(
       activeAccount: null,
       accounts: [],
       legacyRegistrationCleanupAvailable: false,
+    };
+  }
+  if (!localLoopback) {
+    const [accounts, legacyRegistrationCleanupAvailable] = await Promise.all([
+      accountSummaries(email),
+      hasLegacyCredential(email),
+    ]);
+    const selected = await activeAccount(email, accounts);
+    return {
+      supported: false,
+      localLoopback,
+      supportReason: "requires_local_loopback",
+      connected: false,
+      reconnectRequired: Boolean(selected?.reconnectRequired),
+      accountId: null,
+      activeAccountId: selected?.id ?? null,
+      activeAccount: selected ? { ...selected, active: true } : null,
+      accounts: accounts.map((account) => ({
+        ...account,
+        active: account.id === selected?.id,
+      })),
+      legacyRegistrationCleanupAvailable,
     };
   }
   const [accounts, legacyRegistrationCleanupAvailable] = await Promise.all([

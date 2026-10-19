@@ -1179,9 +1179,15 @@ describe("ChatGPT directory template profiles", () => {
       const stubbedActions = {
         ...productionActions,
         ...Object.fromEntries(
+          // The stub enforces no input schema, so it declares none to
+          // prepare a call against.
           readNames.map((name) => [
             name,
-            { ...productionActions[name]!, run: async () => payload },
+            {
+              ...productionActions[name]!,
+              schema: undefined,
+              run: async () => payload,
+            },
           ]),
         ),
       };

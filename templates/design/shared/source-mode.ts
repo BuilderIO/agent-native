@@ -380,11 +380,20 @@ export function designScreenSourceTypeFromData(
         : null))
     : null;
 
-  return (
-    screenSourceType ??
+  if (screenSourceType) return screenSourceType;
+  if (
+    !isRecord(screen) &&
+    isRecord(legacyScreen) &&
+    typeof legacyScreen.sourceFile === "string" &&
+    legacyScreen.sourceFile.trim().length > 0
+  ) {
+    return "localhost";
+  }
+  const designSourceType =
     normalizeDesignSourceType(data.sourceType) ??
-    normalizeDesignSourceType(data.sourceMode)
-  );
+    normalizeDesignSourceType(data.sourceMode);
+  // Canonical screenMetadata stays inline without an explicit source type.
+  return designSourceType === "localhost" ? "inline" : designSourceType;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -1461,6 +1461,15 @@ export const runContentMigrations = runMigrations(
     },
     {
       version: 122,
+      name: "content-comment-property-targets",
+      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS property_id TEXT;
+        ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS property_name TEXT;
+        ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS property_value TEXT;
+        CREATE INDEX IF NOT EXISTS document_comments_document_idx
+          ON document_comments (document_id, owner_email)`,
+    },
+    {
+      version: 123,
       name: "content-preview-draft-base-content-hash",
       sql: `ALTER TABLE document_preview_drafts ADD COLUMN IF NOT EXISTS base_content_hash TEXT`,
     },

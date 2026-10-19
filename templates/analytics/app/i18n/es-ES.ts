@@ -651,6 +651,7 @@ export default {
     notConnected: "No conectado",
     needsReauth: "Requiere reautenticación",
     error: "Error",
+    unknown: "Desconocido",
     indexNotImported: "No se ha importado ningún índice generado.",
     indexUnreadable:
       "No se pudo leer el índice guardado. Sube un índice válido.",
@@ -1253,6 +1254,8 @@ export default {
       "Añade un evento y selecciónalo para ver los resultados.",
     queryError: "Query error: {{message}}",
     noDataReturned: "No se devolvieron datos",
+    incompleteResultsWarning:
+      "Este resultado puede estar incompleto. La falta de filas o datos de origen puede afectar los totales.",
     rowsRange: "{{start}}-{{end}} of {{total}}",
     filterBy: "Filtrar por",
     pickPropertyToFilter: "Elige una propiedad para filtrar",
@@ -1375,6 +1378,23 @@ export default {
     resetFilters: "Restablecer filtros",
     collapseFilters: "Contraer filtros",
     expandFilters: "Ampliar filtros",
+    drilldownChartPoints: "Puntos del gráfico",
+    drilldownPreviousPage: "Página anterior de puntos del gráfico",
+    drilldownNextPage: "Página siguiente de puntos del gráfico",
+    drilldownPageRange: "Mostrando {{start}}–{{end}} de {{total}}",
+    drilldownFilterRows: "Filtrar filas",
+    drilldownShowSql: "Mostrar SQL",
+    drilldownHideSql: "Ocultar SQL",
+    drilldownDownloadCsv: "Descargar CSV",
+    drilldownShowing: "Mostrando {{shown}} de {{total}} registros",
+    drilldownCsvTruncated:
+      "Exportación incompleta: la consulta encontró {{total}} registros, pero solo se cargaron los primeros {{loaded}}; este archivo incluye {{exported}} después de filtrar.",
+    drilldownCountMismatch:
+      "El gráfico muestra {{chart}}, pero coinciden {{total}} registros",
+    drilldownAggregateOnly:
+      "Este panel solo tiene filas agregadas. Las filas del punto seleccionado aparecen resaltadas.",
+    drilldownNoRecords: "No hay registros coincidentes",
+    drilldownLoadFailed: "No se pudieron cargar los registros",
     filterSeries: "Filter",
     chartTimeRangeOverride: "Anular el rango de tiempo de este gráfico",
     chartTimeRangeInherit: "Rango del panel",

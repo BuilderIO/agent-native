@@ -658,6 +658,7 @@ export default {
     notConnected: "Non connecté",
     needsReauth: "Réauthentification requise",
     error: "Erreur",
+    unknown: "Inconnu",
     indexNotImported: "Aucun index généré n’a été importé.",
     indexUnreadable:
       "Impossible de lire l’index enregistré. Importez un index valide.",
@@ -1259,6 +1260,8 @@ export default {
       "Ajoutez un événement et sélectionnez-le pour voir les résultats",
     queryError: "Query error: {{message}}",
     noDataReturned: "Aucune donnée renvoyée",
+    incompleteResultsWarning:
+      "Ce résultat peut être incomplet. Des lignes ou des données source manquantes peuvent fausser les totaux.",
     rowsRange: "{{start}}-{{end}} of {{total}}",
     filterBy: "Filtrer par",
     pickPropertyToFilter: "Choisissez une propriété à filtrer",
@@ -1382,6 +1385,23 @@ export default {
     resetFilters: "Réinitialiser les filtres",
     collapseFilters: "Réduire les filtres",
     expandFilters: "Développer les filtres",
+    drilldownChartPoints: "Points du graphique",
+    drilldownPreviousPage: "Page précédente des points du graphique",
+    drilldownNextPage: "Page suivante des points du graphique",
+    drilldownPageRange: "Affichage de {{start}} à {{end}} sur {{total}}",
+    drilldownFilterRows: "Filtrer les lignes",
+    drilldownShowSql: "Afficher le SQL",
+    drilldownHideSql: "Masquer le SQL",
+    drilldownDownloadCsv: "Télécharger le CSV",
+    drilldownShowing: "Affichage de {{shown}} sur {{total}} enregistrements",
+    drilldownCsvTruncated:
+      "Export incomplet : la requête correspond à {{total}} enregistrements, mais seuls les {{loaded}} premiers ont été chargés ; ce fichier en contient {{exported}} après filtrage.",
+    drilldownCountMismatch:
+      "Le graphique affiche {{chart}}, mais {{total}} enregistrements correspondent",
+    drilldownAggregateOnly:
+      "Ce panneau ne contient que des lignes agrégées. Les lignes du point cliqué sont mises en évidence.",
+    drilldownNoRecords: "Aucun enregistrement correspondant",
+    drilldownLoadFailed: "Impossible de charger les enregistrements",
     filterSeries: "Filter",
     chartTimeRangeOverride: "Remplacer la plage horaire de ce graphique",
     chartTimeRangeInherit: "Plage du tableau de bord",
