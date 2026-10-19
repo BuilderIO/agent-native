@@ -7,7 +7,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { ActionContractError, defineAction } from "../action.js";
+import { ActionContractError, defineAction, fail } from "../action.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { mcpToolsToActionEntries } from "../mcp-client/index.js";
 import { registerErrorCaptureProvider } from "../server/capture-error.js";
@@ -2241,6 +2241,42 @@ describe("direct tools/call after the action has run", () => {
     ]);
     expect(markers()).toHaveLength(1);
     expect(JSON.stringify([read, write])).not.toContain(ticket);
+  });
+
+  it("gives a failure's details to an app catalog but not to a directory catalog", async () => {
+    const run = async () =>
+      fail("An import is already running", {
+        errorCode: "import_in_progress",
+        details: { importId: "imp_1" },
+      });
+    const app = await call({ run, ...annotations(false) });
+    expect(app.content).toEqual([
+      {
+        type: "text",
+        text:
+          "Error: An import is already running (errorCode: import_in_progress)\n" +
+          'Error details: {"importId":"imp_1"}',
+      },
+    ]);
+    expect(app.structuredContent).toEqual({
+      error: {
+        message: "An import is already running",
+        errorCode: "import_in_progress",
+        details: { importId: "imp_1" },
+      },
+    });
+
+    const listed = await call(
+      { run, ...annotations(false) },
+      directory((_name, value) => value),
+    );
+    expect(listed.content).toEqual([
+      {
+        type: "text",
+        text: "Error: An import is already running (errorCode: import_in_progress)",
+      },
+    ]);
+    expect(listed.structuredContent).toBeUndefined();
   });
 
   it("captures the checked failure of a write it reports as completed", async () => {

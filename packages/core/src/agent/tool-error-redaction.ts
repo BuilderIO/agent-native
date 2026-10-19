@@ -1,10 +1,13 @@
+import { EMBED_RESULT_SENSITIVE_KEYS } from "../mcp/embed-redaction.js";
+
 const REDACTED = "[REDACTED]";
 
 const SENSITIVE_FIELD_PATTERN =
   /^(authorization|cookie|api[_-]?key|password|secret|token|access[_-]?token|refresh[_-]?token|bearer)$/i;
 
-// Only the trailing words of a compound name count, so cursors such as
-// `nextPageToken` that an agent needs for a retry stay visible.
+// Only the trailing words of a compound name count. A `…Token` is a
+// credential unless it is a cursor such as `nextPageToken`, which an agent
+// needs for a retry. A `…Ticket` can redeem an embed session.
 const SENSITIVE_LAST_WORDS = new Set([
   "authorization",
   "cookie",
@@ -14,23 +17,33 @@ const SENSITIVE_LAST_WORDS = new Set([
   "password",
   "secret",
   "secrets",
+  "ticket",
 ]);
 const SENSITIVE_LAST_WORD_PAIRS = new Set([
   "access key",
-  "access token",
   "api key",
-  "api token",
-  "auth token",
-  "bearer token",
-  "id token",
   "private key",
-  "refresh token",
   "secret key",
-  "session token",
+]);
+const CURSOR_TOKEN_QUALIFIERS = new Set([
+  "continuation",
+  "cursor",
+  "idempotency",
+  "next",
+  "page",
+  "prev",
+  "previous",
+  "resume",
+  "sync",
 ]);
 
 function isSensitiveCompoundFieldName(key: string): boolean {
-  if (SENSITIVE_FIELD_PATTERN.test(key)) return true;
+  if (
+    SENSITIVE_FIELD_PATTERN.test(key) ||
+    EMBED_RESULT_SENSITIVE_KEYS.has(key)
+  ) {
+    return true;
+  }
   const words = key
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
     .toLowerCase()
@@ -39,6 +52,9 @@ function isSensitiveCompoundFieldName(key: string): boolean {
   const last = words.at(-1);
   if (!last) return false;
   if (SENSITIVE_LAST_WORDS.has(last)) return true;
+  if (last === "token") {
+    return words.length > 1 && !CURSOR_TOKEN_QUALIFIERS.has(words.at(-2)!);
+  }
   return (
     words.length > 1 && SENSITIVE_LAST_WORD_PAIRS.has(`${words.at(-2)} ${last}`)
   );
@@ -48,7 +64,8 @@ const OPENAI_LIKE_SECRET_PATTERN =
   /(^|[^A-Za-z0-9_-])(sk-(?:proj-|svcacct-)?[A-Za-z0-9_-]{24,})(?=$|[^A-Za-z0-9_-])/g;
 
 /**
- * `compoundNames` also redacts names such as `clientSecret` or `x-api-key`.
+ * `compoundNames` also redacts names such as `clientSecret`, `x-api-key`,
+ * `githubToken` or `embedTicket`.
  * Tool-error text leaves it off and keeps names like `mySecret` readable.
  */
 export function redactSensitiveFields(

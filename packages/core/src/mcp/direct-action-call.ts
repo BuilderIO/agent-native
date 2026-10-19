@@ -199,7 +199,9 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         const errorCode = mcpActionErrorCode(err);
         const { errorType, errorMessage } = describeMcpError(err);
         const message = redactEmbedText(errorText(err));
-        const details = agentErrorDetails(err);
+        // A directory profile decides what its catalog shows, and it
+        // projects only the message.
+        const details = directoryCatalog ? undefined : agentErrorDetails(err);
         const detailsLine = details && redactEmbedText(details.line);
         return {
           ...toolCallError(

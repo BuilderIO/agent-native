@@ -59,7 +59,7 @@ describe("agentErrorDetails", () => {
     expect(result?.line).not.toContain("SENSITIVE_VALUE");
   });
 
-  it("redacts compound credential names but keeps a retry cursor", () => {
+  it("redacts compound credential names and embed tickets but keeps a retry cursor", () => {
     const error = thrown(() =>
       fail("Upstream refused", {
         details: {
@@ -69,7 +69,14 @@ describe("agentErrorDetails", () => {
             auth_token: "SENSITIVE_VALUE",
             privateKey: "SENSITIVE_VALUE",
           },
+          githubToken: "SENSITIVE_VALUE",
+          oauth_token: "SENSITIVE_VALUE",
+          embed: {
+            embedTicket: "SENSITIVE_VALUE",
+            embedExpiresAt: "2026-10-19T00:00:00Z",
+          },
           nextPageToken: "page_2",
+          sync_token: "sync_2",
           maxTokens: 4000,
         },
       }),
@@ -79,7 +86,11 @@ describe("agentErrorDetails", () => {
       clientSecret: "[REDACTED]",
       "x-api-key": "[REDACTED]",
       oauth: { auth_token: "[REDACTED]", privateKey: "[REDACTED]" },
+      githubToken: "[REDACTED]",
+      oauth_token: "[REDACTED]",
+      embed: { embedTicket: "[REDACTED]", embedExpiresAt: "[REDACTED]" },
       nextPageToken: "page_2",
+      sync_token: "sync_2",
       maxTokens: 4000,
     });
   });
