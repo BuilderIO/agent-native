@@ -5,7 +5,6 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import dotenv from "dotenv";
-import { minimatch } from "minimatch";
 
 import {
   isMigrationManifestActive,
@@ -20,6 +19,7 @@ import {
   addMinimumReleaseAgeExclude,
   pnpmWorkspacePackagePatterns,
   pnpmWorkspaceListsProject,
+  workspaceMemberMatcher,
 } from "./workspace-yaml.js";
 
 const AGENT_NATIVE_SCOPE = "@agent-native/";
@@ -786,8 +786,12 @@ export function detectUpgradeProject(cwd: string): UpgradeProject | null {
           if (hasWorkspaceYaml) {
             packageFiles.push(...workspacePackageFiles(dir, workspaceYaml));
           } else if (workspacePatterns.length > 0) {
+            // npm reads `\` as `/` and drops a leading `/`.
+            const patterns = workspacePatterns.map((pattern) =>
+              pattern.replace(/\\/g, "/").replace(/^(!?)\/+/, "$1"),
+            );
             packageFiles.push(
-              ...workspacePackageFilesForPatterns(dir, workspacePatterns),
+              ...workspacePackageFilesForPatterns(dir, patterns),
             );
           }
         } catch (error) {
@@ -817,98 +821,57 @@ function packageWorkspacePatterns(pkg: PackageJsonLike | undefined): string[] {
 }
 
 function workspacePackageFiles(root: string, workspaceYaml: string): string[] {
-  const patterns = parseWorkspacePackagePatterns(workspaceYaml);
+  const patterns = pnpmWorkspacePackagePatterns(
+    fs.readFileSync(workspaceYaml, "utf-8"),
+  );
   return workspacePackageFilesForPatterns(root, patterns);
 }
 
+// Walks from each glob's literal base, as pnpm does, and keeps what the
+// membership check's matcher lists, so both always agree on the members.
 function workspacePackageFilesForPatterns(
   root: string,
   patterns: string[],
 ): string[] {
-  const included = new Set<string>();
-  const excluded = new Set<string>();
-  for (const rawPattern of patterns) {
-    const exclude = rawPattern.startsWith("!");
-    const pattern = exclude ? rawPattern.slice(1) : rawPattern;
-    const files = packageFilesForWorkspacePattern(root, pattern);
-    for (const file of files) {
-      if (exclude) excluded.add(file);
-      else included.add(file);
+  const matcher = workspaceMemberMatcher(patterns);
+  const files = new Set<string>();
+  const visit = (dir: string, relDir: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+      const rel = relDir ? `${relDir}/${entry.name}` : entry.name;
+      if (!matcher.mayContain(rel)) continue;
+      const child = path.join(dir, entry.name);
+      const file = path.join(child, "package.json");
+      if (matcher.lists(rel) && workspacePathStat(file)) files.add(file);
+      // A symlinked member counts, but walking into links could loop.
+      if (entry.isDirectory()) visit(child, rel);
     }
+  };
+  for (const base of matcher.bases) {
+    // The membership check's relative paths never match an absolute glob.
+    if (path.isAbsolute(base)) continue;
+    const dir = path.resolve(root, base);
+    if (!workspacePathStat(dir)?.isDirectory()) continue;
+    const file = path.join(dir, "package.json");
+    if (base && matcher.lists(base) && workspacePathStat(file)) files.add(file);
+    visit(dir, base);
   }
-  return Array.from(included)
-    .filter((file) => !excluded.has(file))
-    .sort();
+  return Array.from(files).sort();
 }
 
-function parseWorkspacePackagePatterns(workspaceYaml: string): string[] {
-  const text = fs.readFileSync(workspaceYaml, "utf-8");
-  const patterns = pnpmWorkspacePackagePatterns(text);
-  return patterns.length ? patterns : ["apps/*", "packages/*"];
-}
-
-function packageFilesForWorkspacePattern(
-  root: string,
-  pattern: string,
-): string[] {
-  const normalized = pattern.replace(/\\/g, "/").replace(/\/+$/g, "");
-  if (!normalized || normalized.includes("node_modules")) return [];
-  if (normalized.endsWith("/*")) {
-    const base = path.join(root, normalized.slice(0, -2));
-    if (!workspacePathExists(base)) return [];
-    return fs
-      .readdirSync(base, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => path.join(base, entry.name, "package.json"))
-      .filter(workspacePathExists);
-  }
-  const wildcardIndex = normalized.search(/[?*[{]/u);
-  if (wildcardIndex !== -1) {
-    const literalPrefix = normalized.slice(0, wildcardIndex);
-    const prefixSlash = literalPrefix.lastIndexOf("/");
-    const scanRoot = path.join(
-      root,
-      prefixSlash === -1 ? "" : literalPrefix.slice(0, prefixSlash),
-    );
-    const manifestPattern = `${normalized}/package.json`;
-    return collectPackageFilesRecursive(scanRoot).filter((file) =>
-      minimatch(
-        path.relative(root, file).split(path.sep).join("/"),
-        manifestPattern,
-        { dot: true },
-      ),
-    );
-  }
-  const file = path.join(root, normalized, "package.json");
-  return workspacePathExists(file) ? [file] : [];
-}
-
-function workspacePathExists(filePath: string): boolean {
+function workspacePathStat(filePath: string): fs.Stats | null {
   try {
-    fs.statSync(filePath);
-    return true;
+    return fs.statSync(filePath);
   } catch (error) {
     const code =
       error && typeof error === "object" && "code" in error
         ? error.code
         : undefined;
-    if (code === "ENOENT" || code === "ENOTDIR") return false;
+    if (code === "ENOENT" || code === "ENOTDIR" || code === "ELOOP") {
+      return null;
+    }
     throw error;
   }
-}
-
-function collectPackageFilesRecursive(dir: string): string[] {
-  if (!workspacePathExists(dir)) return [];
-  const files: string[] = [];
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    if (entry.name === "node_modules" || entry.name === ".git") continue;
-    const child = path.join(dir, entry.name);
-    const pkg = path.join(child, "package.json");
-    if (workspacePathExists(pkg)) files.push(pkg);
-    files.push(...collectPackageFilesRecursive(child));
-  }
-  return files;
 }
 
 function isYarnPnpProject(projectRoot: string): boolean {

@@ -20,6 +20,7 @@ import {
   shouldBumpAgentNativeVersion,
   type UpgradeIo,
 } from "./upgrade.js";
+import { pnpmWorkspaceListsProject } from "./workspace-yaml.js";
 
 const tmpRoots: string[] = [];
 const toolkitVersionRange = ">=0.23.0";
@@ -364,6 +365,28 @@ describe("detectUpgradeProject + doctor", () => {
         name: "@agent-native/core",
         file: path.join(root, "apps/mail/package.json"),
       }),
+    ]);
+  });
+
+  it("reads npm workspace globs with a backslash or a leading slash", () => {
+    const root = makeTempProject({
+      kind: "workspace",
+      rootPkg: { name: "ws", workspaces: ["apps\\*", "/packages/*"] },
+      workspaces: {
+        "apps/mail": { name: "mail" },
+        "packages/ui": { name: "ui" },
+      },
+    });
+    fs.rmSync(path.join(root, "pnpm-workspace.yaml"));
+
+    expect(
+      detectUpgradeProject(root)?.packageFiles.map((file) =>
+        path.relative(root, file).split(path.sep).join("/"),
+      ),
+    ).toEqual([
+      "package.json",
+      "apps/mail/package.json",
+      "packages/ui/package.json",
     ]);
   });
 
@@ -1486,6 +1509,110 @@ describe("runUpgrade", () => {
       ).toBe(workspaceYaml);
     });
 
+    it.each([
+      [
+        "./-prefixed globs",
+        'packages:\n  - "./apps/**"\n  - "!./apps/internal"\n',
+        ["apps/linked", "apps/web", "apps/web/nested"],
+      ],
+      [
+        "a negated extglob",
+        'packages:\n  - "apps/!(internal)"\n',
+        ["apps/linked", "apps/web"],
+      ],
+      [
+        "hidden directories",
+        'packages:\n  - "apps/*"\n  - ".tools/*"\n',
+        [".tools/cli", "apps/internal", "apps/linked", "apps/web"],
+      ],
+      [
+        "a leading # or !!",
+        'packages:\n  - "apps/*"\n  - "!!apps/internal"\n  - "#hash/*"\n',
+        ["#hash/x", "apps/internal", "apps/linked", "apps/web"],
+      ],
+      ["no packages list", "minimumReleaseAge: 1440\n", []],
+      ["an empty packages key", "packages:\nminimumReleaseAge: 1440\n", []],
+    ])(
+      "lists the same members as the membership check with %s",
+      (_, workspaceYaml, members) => {
+        const dirs = [
+          "apps/web",
+          "apps/web/nested",
+          "apps/internal",
+          "apps/.cache",
+          "apps/node_modules/dep",
+          ".tools/cli",
+          "#hash/x",
+          "other/pkg",
+        ];
+        const root = makeTempProject({
+          kind: "workspace",
+          rootPkg: { name: "workspace", private: true },
+          workspaceYaml,
+          workspaces: Object.fromEntries(
+            dirs.map((dir) => [dir, { name: dir }]),
+          ),
+        });
+        const linkTarget = fs.mkdtempSync(
+          path.join(os.tmpdir(), "an-upgrade-"),
+        );
+        tmpRoots.push(linkTarget);
+        fs.writeFileSync(path.join(linkTarget, "package.json"), "{}");
+        fs.symlinkSync(
+          linkTarget,
+          path.join(root, "apps", "linked"),
+          "junction",
+        );
+
+        const listed = detectUpgradeProject(root)!.packageFiles.map((file) =>
+          path.relative(root, path.dirname(file)).split(path.sep).join("/"),
+        );
+
+        expect(listed.sort()).toEqual(["", ...members]);
+        expect(
+          [...dirs, "apps/linked"]
+            .filter((dir) => pnpmWorkspaceListsProject(workspaceYaml, dir))
+            .sort(),
+        ).toEqual(members);
+      },
+    );
+
+    it("lists members through a symlinked base and a relative base outside the root, not an absolute one", () => {
+      const parent = fs.mkdtempSync(path.join(os.tmpdir(), "an-upgrade-"));
+      tmpRoots.push(parent);
+      for (const dir of [
+        "workspace",
+        "shared/web",
+        "outside/lib",
+        "absolute/lib",
+      ]) {
+        fs.mkdirSync(path.join(parent, dir), { recursive: true });
+        fs.writeFileSync(path.join(parent, dir, "package.json"), "{}");
+      }
+      const root = path.join(parent, "workspace");
+      const absolute = path.join(parent, "absolute").split(path.sep).join("/");
+      const workspaceYaml = `packages:\n  - "apps/*"\n  - "../outside/*"\n  - "${absolute}/*"\n`;
+      fs.writeFileSync(path.join(root, "pnpm-workspace.yaml"), workspaceYaml);
+      fs.symlinkSync(
+        path.join(parent, "shared"),
+        path.join(root, "apps"),
+        "junction",
+      );
+      fs.symlinkSync("loop-b", path.join(parent, "shared", "loop-a"));
+      fs.symlinkSync("loop-a", path.join(parent, "shared", "loop-b"));
+
+      const listed = detectUpgradeProject(root)!.packageFiles.map((file) =>
+        path.relative(root, path.dirname(file)).split(path.sep).join("/"),
+      );
+
+      expect(listed.sort()).toEqual(["", "../outside/lib", "apps/web"]);
+      expect(
+        ["apps/web", "../outside/lib"].filter((dir) =>
+          pnpmWorkspaceListsProject(workspaceYaml, dir),
+        ),
+      ).toEqual(["apps/web", "../outside/lib"]);
+    });
+
     it("updates a workspace whose only @agent-native dependency is in a member app", async () => {
       const root = makeTempProject({
         kind: "workspace",
@@ -1815,6 +1942,7 @@ describe("runUpgrade", () => {
     it.each([
       ["a flow-style list of other globs", 'packages: ["services/*"]\n'],
       ["no packages list", ""],
+      ["an empty packages key", "packages:\n"],
       ["an exclusion for it", 'packages:\n  - "apps/*"\n  - "!apps/web"\n'],
     ])(
       "leaves a parent workspace alone when its packages has %s",
@@ -1921,6 +2049,37 @@ describe("runUpgrade", () => {
       expect(readFileSync(path.join(memberDir, "package.json"), "utf-8")).toBe(
         packageJson,
       );
+    });
+
+    it("stops with a failed step when a parent workspace's packages list is invalid", async () => {
+      const workspaceYaml = olderWorkspaceYaml.replace(
+        'packages:\n  - "apps/*"\n',
+        'packages: "apps/*"\n',
+      );
+      const root = makeTempProject({
+        kind: "workspace",
+        rootPkg: { name: "old-workspace", private: true },
+        workspaceYaml,
+        apps: {
+          web: {
+            name: "web",
+            dependencies: { "@agent-native/core": "latest" },
+          },
+        },
+      });
+      const { io, out } = captureIo();
+
+      expect(
+        await runUpgrade(
+          ["--cwd", path.join(root, "apps", "web"), ...skipArgs],
+          io,
+        ),
+      ).toBe(1);
+
+      expect(out.join("\n")).toContain("[failed] release-age");
+      expect(
+        fs.readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf-8"),
+      ).toBe(workspaceYaml);
     });
 
     it("updates a symlinked workspace file through its target", async () => {

@@ -1,47 +1,81 @@
 import path from "node:path";
 
-import { minimatch } from "minimatch";
+import { Minimatch } from "minimatch";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 // pnpm-workspace.yaml helpers: text-preserving edits shared by `create` and
 // `upgrade`, and the workspace discovery and membership checks it runs.
 
 // Directories pnpm skips when it globs for workspace projects.
-const PNPM_IGNORED_PROJECT_GLOBS = [
-  "**/node_modules/**",
-  "**/bower_components/**",
-];
+const PNPM_IGNORED_PROJECT_DIRS = ["node_modules", "bower_components"];
+
+/**
+ * Matches directories (relative to the workspace root, `/`-separated) against
+ * workspace globs the way pnpm 10 finds projects: each glob is matched as
+ * `<glob>/package.json` with any leading `./` dropped, `!` excludes,
+ * node_modules and bower_components never count, and a hidden directory
+ * counts only when a glob names it. `bases` are the directories a walk starts
+ * from (each glob's leading literal segments), and `mayContain` tells it
+ * whether a directory can hold a match.
+ */
+export function workspaceMemberMatcher(patterns: string[]): {
+  bases: string[];
+  lists: (dir: string) => boolean;
+  mayContain: (dir: string) => boolean;
+} {
+  // pnpm reads a leading `#` or a second `!` literally.
+  const manifestGlob = (pattern: string) =>
+    new Minimatch(path.posix.join(pattern, "package.json"), {
+      nocomment: true,
+      nonegate: true,
+    });
+  const included = patterns
+    .filter((pattern) => !pattern.startsWith("!"))
+    .map(manifestGlob);
+  const excluded = patterns
+    .filter((pattern) => pattern.startsWith("!"))
+    .map((pattern) => manifestGlob(pattern.slice(1)));
+  const ignored = (dir: string) =>
+    dir.split("/").some((part) => PNPM_IGNORED_PROJECT_DIRS.includes(part));
+  return {
+    bases: Array.from(
+      new Set(
+        included.flatMap((glob) =>
+          glob.set.map((parts) => {
+            const magic = parts.findIndex((part) => typeof part !== "string");
+            return parts
+              .slice(0, magic === -1 ? parts.length - 1 : magic)
+              .join("/");
+          }),
+        ),
+      ),
+    ),
+    lists: (dir) => {
+      const manifest = path.posix.join(dir, "package.json");
+      return (
+        !ignored(dir) &&
+        included.some((glob) => glob.match(manifest)) &&
+        !excluded.some((glob) => glob.match(manifest))
+      );
+    },
+    mayContain: (dir) =>
+      !ignored(dir) && included.some((glob) => glob.match(dir, true)),
+  };
+}
 
 /**
  * Whether a pnpm workspace lists the project at `projectDir` (relative to the
- * workspace root, `/`-separated). Mirrors pnpm: each `packages` glob, with `!`
- * for exclusions, is matched as `<glob>/package.json`, and a workspace without
- * a `packages` list holds only its root. A `packages` value pnpm would reject
- * lists nothing. Throws when the YAML cannot be parsed.
+ * workspace root, `/`-separated), by the rule in `workspaceMemberMatcher`. A
+ * workspace without a `packages` list holds only its root. Throws when the
+ * YAML or its `packages` list is invalid.
  */
 export function pnpmWorkspaceListsProject(
   yaml: string,
   projectDir: string,
 ): boolean {
-  const parsed: unknown = parseYaml(yaml);
-  const packages = isPlainRecord(parsed) ? parsed.packages : undefined;
-  if (!Array.isArray(packages)) return false;
-  const manifest = path.posix.join(projectDir, "package.json");
-  if (PNPM_IGNORED_PROJECT_GLOBS.some((glob) => minimatch(manifest, glob))) {
-    return false;
-  }
-  const matches = (pattern: string) =>
-    minimatch(manifest, path.posix.join(pattern, "package.json"));
-  let included = false;
-  for (const pattern of packages) {
-    if (typeof pattern !== "string" || !pattern) return false;
-    if (pattern.startsWith("!")) {
-      if (matches(pattern.slice(1))) return false;
-    } else if (matches(pattern)) {
-      included = true;
-    }
-  }
-  return included;
+  return workspaceMemberMatcher(pnpmWorkspacePackagePatterns(yaml)).lists(
+    projectDir,
+  );
 }
 
 /** Return pnpm workspace package globs from either block- or flow-style YAML. */
@@ -51,8 +85,8 @@ export function pnpmWorkspacePackagePatterns(yaml: string): string[] {
   if (!isPlainRecord(parsed)) {
     throw new Error("pnpm-workspace.yaml must contain a mapping");
   }
-  if (!Object.hasOwn(parsed, "packages")) return [];
   const packages: unknown = parsed.packages;
+  if (packages == null) return [];
   if (!Array.isArray(packages)) {
     throw new Error("pnpm-workspace.yaml packages must be an array");
   }
