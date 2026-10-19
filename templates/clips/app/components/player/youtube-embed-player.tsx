@@ -33,8 +33,11 @@ import { useOptimisticReactions } from "./use-optimistic-reactions";
 import type { VideoPlayerHandle, VideoPlayerProps } from "./video-player";
 
 // YouTube exposes no time events, so the clock is read on an interval while
-// playing. 100 ms keeps the transcript highlight on its cue.
+// playing. The page hears about it at the native player's timeupdate pace, and
+// at once when playback crosses a transcript cue, so the highlight lands on
+// its cue without re-rendering the whole page on every read.
 const CLOCK_POLL_MS = 100;
+const CLOCK_PUBLISH_MS = 250;
 // How far from a seek's target, and for how long, the reported time is
 // treated as the pre-seek clock.
 const SEEK_SETTLE_TOLERANCE_MS = 1000;
@@ -85,6 +88,7 @@ export const YouTubeEmbedPlayer = forwardRef<
     comments,
     chapters,
     reactions,
+    transcriptSegments,
     theaterMode,
     onTheaterToggle,
     cta,
@@ -120,6 +124,7 @@ export const YouTubeEmbedPlayer = forwardRef<
   const [currentMs, setCurrentMs] = useState(startMs ?? 0);
   const currentMsRef = useRef(startMs ?? 0);
   const [playerDurationMs, setPlayerDurationMs] = useState(0);
+  const playerDurationMsRef = useRef(0);
   const [speed, setSpeed] = useState(() =>
     readPlaybackSpeedPreference(defaultSpeed),
   );
@@ -173,11 +178,10 @@ export const YouTubeEmbedPlayer = forwardRef<
     const seconds = readSeconds(() => player.getDuration());
     if (!seconds) return;
     const ms = Math.round(seconds * 1000);
-    setPlayerDurationMs((previous) => {
-      if (previous === ms) return previous;
-      callbacksRef.current.onDurationChange?.(ms);
-      return ms;
-    });
+    if (ms === playerDurationMsRef.current) return;
+    playerDurationMsRef.current = ms;
+    setPlayerDurationMs(ms);
+    callbacksRef.current.onDurationChange?.(ms);
   }, []);
 
   // The API relays YouTube's clock by message, so right after seekTo() it
@@ -207,6 +211,25 @@ export const YouTubeEmbedPlayer = forwardRef<
     const player = playerRef.current;
     const ms = player ? readPlayerMs(player) : null;
     if (ms !== null && ms !== currentMsRef.current) publishTime(ms);
+  }, [publishTime, readPlayerMs]);
+
+  const cueBoundaries = useMemo(
+    () => (transcriptSegments ?? []).flatMap((s) => [s.startMs, s.endMs]),
+    [transcriptSegments],
+  );
+  const cueBoundariesRef = useRef(cueBoundaries);
+  cueBoundariesRef.current = cueBoundaries;
+
+  const pollClock = useCallback(() => {
+    const player = playerRef.current;
+    const ms = player ? readPlayerMs(player) : null;
+    if (ms === null) return;
+    const lastMs = currentMsRef.current;
+    const crossedCue = cueBoundariesRef.current.some(
+      (boundaryMs) => boundaryMs > lastMs && boundaryMs <= ms,
+    );
+    if (ms >= lastMs && ms - lastMs < CLOCK_PUBLISH_MS && !crossedCue) return;
+    publishTime(ms);
   }, [publishTime, readPlayerMs]);
 
   useEffect(() => {
@@ -328,9 +351,9 @@ export const YouTubeEmbedPlayer = forwardRef<
 
   useEffect(() => {
     if (!isPlaying) return;
-    const timer = window.setInterval(syncClock, CLOCK_POLL_MS);
+    const timer = window.setInterval(pollClock, CLOCK_POLL_MS);
     return () => window.clearInterval(timer);
-  }, [isPlaying, syncClock]);
+  }, [isPlaying, pollClock]);
 
   const getLiveMs = useCallback(() => {
     const player = playerRef.current;

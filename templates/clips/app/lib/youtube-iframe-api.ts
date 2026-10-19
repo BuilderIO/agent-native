@@ -81,9 +81,12 @@ export function loadYouTubeIframeApi(): Promise<YouTubeNamespace> {
     const timeout = window.setTimeout(() => {
       fail(new Error("YouTube's player took too long to load."));
     }, IFRAME_API_TIMEOUT_MS);
-    // A failed load is retried on the next mount instead of being cached.
+    // A failed load is retried on the next mount instead of being cached, so
+    // it hands the global ready hook back rather than leaving a stale handler
+    // for the next attempt to chain onto.
     const fail = (error: Error) => {
       window.clearTimeout(timeout);
+      window.onYouTubeIframeAPIReady = previousReady;
       apiPromise = null;
       script.remove();
       reject(error);
