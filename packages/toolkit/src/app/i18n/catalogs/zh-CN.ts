@@ -171,10 +171,21 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.creditsActivate": "激活免费额度",
   "onboarding.creditsFinePrint":
     "这将创建一个免费的 Builder.io 账户。继续表示您同意我们的",
-  "onboarding.creditsConnectExisting": "连接现有 Builder.io 账户",
   "onboarding.creditsMoreInfo": "更多信息",
-  "onboarding.creditsSkipBody":
-    "如果您跳过，您需要连接自己的密钥才能使用 AI 和存储。",
+  "onboarding.creditsSubtitle":
+    "从 Builder.io 一键获取适用于此应用的 LLM、Jev、存储等免费额度。",
+  "onboarding.creditsLearnMore": "了解更多",
+  "onboarding.creditsSkip": "跳过",
+  "onboarding.creditsSkipConfirmTitle": "确定要跳过吗？",
+  "onboarding.creditsSkipConfirmBody":
+    "Agent-Native 应用需要连接 LLM 才能使用大部分功能。没有 LLM，大部分功能都无法使用。",
+  "onboarding.creditsSkipGoBack": "返回",
+  "onboarding.creditsSkipAnyway": "仍然跳过",
+  "onboarding.creditsUseCustomKeys": "使用自定义密钥",
+  "onboarding.creditsAboutLabel": "关于免费额度",
+  "onboarding.creditsActivating": "正在激活免费额度",
+  "onboarding.creditsActivatingTooltip":
+    "Builder 提供 LLM、Jev、存储等免费额度，无需自备密钥即可使用此应用的 AI 功能。",
   "onboarding.builderConnect": "连接 Builder.io",
   "onboarding.builderActivating": "正在激活 Builder.io 免费额度",
   "onboarding.builderConnecting": "正在设置 Builder.io 免费额度",
