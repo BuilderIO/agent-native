@@ -70,9 +70,21 @@ class FakeDocumentFragment {
 class FakeWebAnimation {
   currentTime: number | null = 0;
   paused = false;
+  readonly finished: Promise<void>;
+  private resolveFinished: () => void = () => {};
+
+  constructor() {
+    this.finished = new Promise((resolve) => {
+      this.resolveFinished = resolve;
+    });
+  }
 
   pause(): void {
     this.paused = true;
+  }
+
+  finish(): void {
+    this.resolveFinished();
   }
 }
 
@@ -1595,6 +1607,66 @@ describe("Motion Text source and runtime", () => {
         compileMotionTextRuntime({ version: 2, animations: [rotating] }),
         target,
       );
+      expect(target.style.clipPath).toBe("");
+    });
+
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+    const handlesOf = (target: FakeElement) =>
+      unitsOf(target).flatMap((unit) =>
+        unit.animations.map((animation) => animation.handle),
+      );
+
+    it("lifts the crop once a move that plays once has finished", async () => {
+      const target = textTarget("AB");
+      target.style.clipPath = "";
+      executeRuntime(
+        compileMotionTextRuntime(
+          { version: 2, animations: [{ ...rotating, clipContent: true }] },
+          "once",
+        ),
+        target,
+      );
+      expect(target.style.clipPath).toBe("inset(0)");
+
+      handlesOf(target).forEach((handle) => handle.finish());
+      await settle();
+      expect(target.style.clipPath).toBe("");
+    });
+
+    it("keeps the crop of a looping move", async () => {
+      const target = textTarget("AB");
+      target.style.clipPath = "";
+      executeRuntime(
+        compileMotionTextRuntime(
+          { version: 2, animations: [{ ...rotating, clipContent: true }] },
+          "loop",
+        ),
+        target,
+      );
+
+      handlesOf(target).forEach((handle) => handle.finish());
+      await settle();
+      expect(target.style.clipPath).toBe("inset(0)");
+    });
+
+    it("does not let an earlier run's finished move lift the newer run's crop", async () => {
+      const target = textTarget("AB");
+      target.style.clipPath = "";
+      const animations = compileMotionTextRuntime(
+        { version: 2, animations: [{ ...rotating, clipContent: true }] },
+        "once",
+      );
+      executeRuntime(animations, target);
+      const earlier = handlesOf(target);
+      target.replaceChildren(new FakeTextNode("AB"));
+      executeRuntime(animations, target);
+
+      earlier.forEach((handle) => handle.finish());
+      await settle();
+      expect(target.style.clipPath).toBe("inset(0)");
+
+      handlesOf(target).forEach((handle) => handle.finish());
+      await settle();
       expect(target.style.clipPath).toBe("");
     });
 
