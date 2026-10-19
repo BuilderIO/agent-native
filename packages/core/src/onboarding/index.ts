@@ -7,6 +7,7 @@ export type {
   OnboardingStepStatus,
   OnboardingCapability,
   OnboardingAppProfile,
+  WorkspaceBuilderIncludedServiceId,
   WorkspaceBuilderOnlyServiceId,
   WorkspaceProviderServiceId,
   WorkspaceServiceId,

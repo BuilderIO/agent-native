@@ -15,6 +15,7 @@ import {
   matchSearchFields,
   paginateSearchResults,
   semanticScopeCompatibility,
+  semanticScopeForDictionaryEntry,
   semanticScopeForSearch,
 } from "../server/lib/analytics-term-matcher.js";
 import { mergeDataDictionaryEntry } from "../server/lib/data-dictionary-overlays.js";
@@ -121,22 +122,24 @@ export default defineAction({
             ])
           : { score: 0, matchedTerms: [] };
         if (q && score <= 0) return [];
-        const declaredScope =
-          typeof e.semanticScope === "string" && e.semanticScope !== "unknown"
-            ? e.semanticScope
-            : "";
-        const inferredScope = semanticScopeForSearch(
-          [e.metric, e.definition, e.source, e.table]
-            .filter((value): value is string => typeof value === "string")
-            .join(" "),
-        );
-        const candidateScope = declaredScope || inferredScope;
+        const candidateScope = semanticScopeForDictionaryEntry(e);
         const scopeRank = semanticScopeCompatibility(
           candidateScope,
           requestedScope,
         );
         const trustRank = dataDictionaryTrustRank(e);
-        return [{ entry: e, score, matchedTerms, scopeRank, trustRank }];
+        return [
+          {
+            entry: { ...e, semanticScope: candidateScope } as Record<
+              string,
+              unknown
+            >,
+            score,
+            matchedTerms,
+            scopeRank,
+            trustRank,
+          },
+        ];
       })
       .sort((a, b) => {
         if (b.trustRank !== a.trustRank) return b.trustRank - a.trustRank;

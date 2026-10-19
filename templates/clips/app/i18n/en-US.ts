@@ -1,5 +1,21 @@
 const messages = {
   meetingAsk: { resizeOrDismissAnswers: "Resize or dismiss answers" },
+  meetingBrowserConfirmation:
+    "Clips sees microphone activity in this browser, but can't tell which tab is in the meeting.",
+  meetingReplacement: {
+    title: "Meeting notes need attention",
+    description:
+      "The previous meeting's notes couldn't be saved. Copy them before starting this meeting.",
+    copyAndStart: "Copy notes and start",
+    actionFailed: "Could not continue meeting recovery. Try again.",
+  },
+  quitRecovery: {
+    title: "Clips is still finishing the meeting",
+    body: "Clips hasn't finished stopping and saving this meeting. The latest transcript may be lost if you quit now.",
+    keepOpen: "Keep Clips open",
+    quitAnyway: "Quit anyway",
+    actionFailed: "Clips couldn't update the quit recovery state. Try again.",
+  },
   lookbackContext: {
     includeLast: "Include last",
     whatIsThis: "What is this?",
@@ -865,8 +881,9 @@ const messages = {
     labVideoEditingDescription: "Try the new video editor.",
     labMeetings: "Meetings and transcription",
     labMeetingsDescription: "Try automatic meeting capture and transcription.",
-    labWisprFlow: "Voice dictation",
-    labWisprFlowDescription: "Show or hide voice dictation in Clips Desktop.",
+    labVoiceDictation: "Voice dictation",
+    labVoiceDictationDescription:
+      "Show or hide voice dictation in Clips Desktop.",
     labLookbackContext: "Include earlier screen time",
     labLookbackContextDescription:
       "Attach up to five minutes of screen time from before a recording as passive context.",
@@ -1514,6 +1531,9 @@ const messages = {
     disconnected: "Microphone disconnected.",
   },
   storageSetup: {
+    builderStorageOffer:
+      "Builder.io's free tier includes video storage, with one-click setup.",
+    customKeys: "Custom keys",
     builderConnectPopupError:
       "Builder.io couldn't open. If this app is embedded in a chat, open it in a browser tab; otherwise, try again.",
     builderConnectError:
@@ -1534,8 +1554,7 @@ const messages = {
       "Couldn't confirm that Builder.io storage is ready. Try again.",
     builderConnected: "Builder.io connected",
     waitingForBuilder: "Waiting for Builder...",
-    description:
-      "Store recorded videos with Builder.io or S3-compatible storage. Builder.io includes free hosting and AI credits.",
+    description: "Choose where to store your recorded videos.",
     createBuilderAccount: "Use Builder.io",
     signInWithBuilderAccount: "Sign in with Builder.io account",
     free: "Free",
@@ -1563,12 +1582,28 @@ const messages = {
     placeholder: "Clip title",
     editLabel: "Edit clip title",
   },
+  chapterList: {
+    add: "Add chapters",
+    editLabel: "Edit chapters",
+    placeholder: "0:00 Introduction\n1:30 Next section",
+    errorLineShape:
+      'Line {{line}}: put a time then a title, e.g. "0:48 Saved note dates".',
+    errorBadTime: 'Line {{line}}: "{{value}}" isn\'t a time like 0:48.',
+    errorDuplicate: "Line {{line}}: there's already a chapter at {{value}}.",
+    errorPastEnd: "Line {{line}}: {{value}} is past the end of the clip.",
+    changedWhileEditing:
+      "Chapters changed while you were editing. Check your lines, then Save again to replace them.",
+  },
   chapters: {
     title: "Chapters",
     addHere: "Add here",
     empty: "No chapters yet.",
     remove: "Remove chapter",
     saveFailed: "Failed to save chapters",
+    changedElsewhere:
+      "Chapters were changed elsewhere, so your last change wasn't saved.",
+    unreadable:
+      "Some saved chapters can't be read, so changes can't be saved here. Ask the agent to replace the chapters.",
     duplicateAtPoint: "A chapter already exists at this point",
     defaultTitle: "Chapter {{count}}",
     seekTo: "Seek to {{time}}",
@@ -2053,6 +2088,32 @@ const messages = {
     copy: "Copy",
     copied: "Copied",
     copyFailed: "Couldn't copy",
+    flowStarting: "Starting dictation…",
+    flowFinalizing: "Finishing dictation…",
+    flowBusy: "Finishing the previous dictation…",
+    flowTranscribing: "Transcribing…",
+    flowCleaning: "Cleaning up text…",
+    flowPasting: "Pasting text…",
+    flowSavingHistory: "Saving to history…",
+    flowPasted: "Pasted",
+    flowCopied: "Copied to clipboard",
+    flowPastedHistoryFailed: "Pasted, but history wasn’t saved",
+    flowCopiedHistoryFailed: "Copied, but history wasn’t saved",
+    flowHistoryNotSaved: "Dictation history wasn’t saved",
+    flowPermissionFailed: "Microphone permission is off",
+    flowMicrophoneUnavailable: "Microphone unavailable",
+    flowProviderFailed: "Couldn’t transcribe speech",
+    flowMeetingCaptureActive: "Stop the meeting recording before dictating",
+    flowPasteFailed: "Couldn’t paste transcript",
+    flowCancelled: "Dictation canceled",
+    flowRetryHistory: "Retry saving history",
+    flowDismiss: "Dismiss",
+    flowTranscriptRecovery: "Transcript recovery",
+    flowOriginalTranscript: "Show original transcript",
+    flowCleanupSkipped: "Text cleanup was skipped; original text was kept",
+    flowBacktrackSkipped: "Text editing was skipped; recognized text was kept",
+    flowCancelDictation: "Cancel dictation",
+    flowCopying: "Copying transcript…",
     aiProcessed: "AI Processed",
     aiCleaned: "AI cleaned",
     original: "Original",

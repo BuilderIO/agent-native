@@ -1,6 +1,8 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
   DEFAULT_STYLE_REFERENCE_URLS,
+  MAX_GEMINI_REFERENCE_IMAGE_COUNT,
+  MAX_REFERENCE_IMAGE_COUNT,
   normalizeReferenceUrls,
 } from "@shared/api";
 import { IconX } from "@tabler/icons-react";
@@ -48,7 +50,7 @@ export function buildImageGenerationContext({
   const contextParts: string[] = [];
 
   contextParts.push(
-    "Generate 3 image variations by calling the registered `generate-image-api` action three times with the same prompt. That action delegates to the Assets app so the images come from the brand library; never call an image-generation API directly from slides.",
+    "Generate 3 image variations by calling the registered `generate-image-api` action three times with the same prompt. It uses Slides' local image provider by default. Set useBrandLibrary: true only when the user asks for Assets' brand library or a capability only Assets provides; do not hand off because Assets is available.",
   );
   contextParts.push(
     "The deliverables must be actual generated image assets from the action. Do not create placeholder HTML/CSS, oversized icon compositions, inline SVGs, or text-only mockups.",
@@ -60,11 +62,25 @@ export function buildImageGenerationContext({
     'Do not browse, search, or inspect brand assets for style phrases like "Builder.io" unless the user explicitly asks to set up, import, save, or apply a brand/design system.',
   );
   contextParts.push(WEBSITE_STYLE_REFERENCE_DIRECTIVE);
+  contextParts.push(
+    `The action result reports how many loaded references reached the provider. Gemini submits only the first ${MAX_GEMINI_REFERENCE_IMAGE_COUNT} loaded references; OpenAI submits all loaded references. After generation, report requested references the action skipped or the provider did not submit. Do not claim every requested reference influenced the image.`,
+  );
 
-  const styleReferenceUrls = normalizeReferenceUrls(referenceImageUrls);
+  const normalizedReferenceUrls = normalizeReferenceUrls(referenceImageUrls);
+  const styleReferenceUrls = normalizedReferenceUrls.slice(
+    0,
+    MAX_REFERENCE_IMAGE_COUNT,
+  );
+  const omittedReferenceCount =
+    normalizedReferenceUrls.length - styleReferenceUrls.length;
   if (styleReferenceUrls.length > 0) {
     contextParts.push(
       `Call \`generate-image-api\` with referenceImageUrls set to this exact array: ${JSON.stringify(styleReferenceUrls)}.`,
+    );
+  }
+  if (omittedReferenceCount > 0) {
+    contextParts.push(
+      `Only the first ${MAX_REFERENCE_IMAGE_COUNT} reference URLs are sent to the action, so ${omittedReferenceCount} were omitted before generation. Tell the user about the omitted URLs and ask them to narrow the references if the omitted ones matter.`,
     );
   }
 
@@ -85,7 +101,7 @@ export function buildImageGenerationContext({
       `Current slide content:\n\`\`\`\n${slideContext.slideContent}\n\`\`\``,
     );
     contextParts.push(
-      `Pass deckId, slideId, slideContent, and referenceImageUrls to the action so Assets can ground the generation in this slide.`,
+      `Pass deckId, slideId, slideContent, and referenceImageUrls to the action for this slide. Do not set useBrandLibrary unless the user requests Assets' brand library or an Assets-exclusive capability.`,
     );
   }
 

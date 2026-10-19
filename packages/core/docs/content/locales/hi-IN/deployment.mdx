@@ -23,6 +23,15 @@ Shared login और same-origin app-to-app communication के साथ कई
 
 </Cards>
 
+## ऐसे एजेंट जो अपने functions के जीवनकाल से ज्यादा जीते हैं {#durable-agents}
+
+एजेंट runs यह नहीं मानते कि उन्हें start करने वाला function जीवित रहेगा। हर
+run आपके database में tracked होता है, इसलिए एक turn जो serverless function की time limit तक पहुंचता है
+एक नई invocation में जारी रहता है, एक reconnecting browser reply को
+वहीं से ले सकता है, और एक function जो turn के बीच crash हो जाता है वह recover होता है बजाय chat को
+stuck रहने देने के। यही है जो समान agent को serverless hosts पर सस्ते में चलाता है, providers के बीच code changes के बिना move कर सकता है, और deployment को
+अपने ऐप के rest से share कर सकता है। देखें [ऐसे एजेंट जो किसी भी host पर जीते हैं](/docs/durable-background-runs#survive-any-host)।
+
 ## Deploy करने से पहले: persistent database चुनें {#persistent-database}
 
 हर deployed ऐप को एक persistent PostgreSQL database चाहिए। Local development में

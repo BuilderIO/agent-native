@@ -916,6 +916,10 @@ export default {
       animations: "Animações",
       pathEditAmbiguous:
         "Esta camada tem várias animações de posição, então não é possível editar o caminho com precisão.",
+      pathEditPositionConflict:
+        "Esta camada já tem outra animação de posição, então o caminho dela não pode ser curvado.",
+      positionStyleConflict:
+        "Esta camada já tem uma animação de posição que não pode ser combinada com outra.",
       animationStyles: {
         title: "Animações",
         createTitle: "Criar novo estilo de animação",
@@ -1849,6 +1853,8 @@ export default {
         "Escolha uma rota para adicionar como novo quadro, ou digite um caminho.",
       searchPlaceholder: "Buscar rotas…",
       noRoutes: "Nenhuma rota encontrada",
+      noDiscoveredRoutes:
+        "Nenhuma rota foi encontrada neste app. Digite um caminho para adicionar uma tela.",
       useCustomPath: 'Adicionar "{{path}}"',
       viewportDesktop: "Desktop",
       viewportMobile: "Celular",
@@ -2126,8 +2132,8 @@ export default {
         title: "Renderizado pelo servidor local",
       },
       fusion: {
-        label: "Fusion remoto",
-        title: "Renderizado pelo Fusion",
+        label: "Builder remoto",
+        title: "Renderizado pelo Builder",
       },
       inline: {
         label: "Embutido",

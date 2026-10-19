@@ -7,6 +7,11 @@ import {
 } from "../server/lib/key-dates-store.js";
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   description:
     "Delete one key date by id. It disappears from every dashboard that shows its set.",
   schema: z.object({

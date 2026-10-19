@@ -758,10 +758,7 @@ describe("agent chat process-run failure finalization", () => {
         status: "running",
       })),
       recordRunDiagnostic: vi.fn(async () => {}),
-      setRunError: vi.fn(async () => {}),
-      setRunTerminalReason: vi.fn(async () => {}),
-      updateRunStatusIfRunning: vi.fn(async () => true),
-      ensureTerminalRunEvent: vi.fn(async () => {}),
+      finalizeClaimedBackgroundRunFailure: vi.fn(async () => true),
     };
   }
 
@@ -781,23 +778,29 @@ describe("agent chat process-run failure finalization", () => {
       "route_threw",
       "setup exploded",
     );
-    expect(d.setRunError).toHaveBeenCalledWith(
+    expect(d.finalizeClaimedBackgroundRunFailure).toHaveBeenCalledWith(
       "run-claimed",
-      "background_worker_failed",
-      expect.stringContaining("setup exploded"),
+      {
+        errorCode: "background_worker_failed",
+        errorDetail: expect.stringContaining("setup exploded"),
+        event: CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT,
+      },
     );
-    expect(d.updateRunStatusIfRunning).toHaveBeenCalledWith(
-      "run-claimed",
-      "errored",
-    );
-    expect(d.setRunTerminalReason).toHaveBeenCalledWith(
-      "run-claimed",
-      "background_worker_failed",
-    );
-    expect(d.ensureTerminalRunEvent).toHaveBeenCalledWith(
-      "run-claimed",
-      CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT,
-    );
+  });
+
+  it("leaves a run alone when atomic finalization loses to stale reaping", async () => {
+    const d = deps("background-processing");
+    d.finalizeClaimedBackgroundRunFailure.mockResolvedValueOnce(false);
+
+    await expect(
+      finalizeClaimedAgentChatProcessRunFailure(
+        "run-reaped-first",
+        new Error("late setup failure"),
+        d,
+      ),
+    ).resolves.toBe(false);
+
+    expect(d.finalizeClaimedBackgroundRunFailure).toHaveBeenCalledTimes(1);
   });
 
   it("leaves unclaimed worker failures recoverable by foreground inline fallback", async () => {
@@ -816,10 +819,7 @@ describe("agent chat process-run failure finalization", () => {
       "route_threw",
       "pre-claim failure",
     );
-    expect(d.setRunError).not.toHaveBeenCalled();
-    expect(d.setRunTerminalReason).not.toHaveBeenCalled();
-    expect(d.updateRunStatusIfRunning).not.toHaveBeenCalled();
-    expect(d.ensureTerminalRunEvent).not.toHaveBeenCalled();
+    expect(d.finalizeClaimedBackgroundRunFailure).not.toHaveBeenCalled();
   });
 
   it("leaves the run untouched when the claim read fails transiently", async () => {
@@ -836,10 +836,7 @@ describe("agent chat process-run failure finalization", () => {
       ),
     ).resolves.toBe(false);
 
-    expect(d.setRunError).not.toHaveBeenCalled();
-    expect(d.setRunTerminalReason).not.toHaveBeenCalled();
-    expect(d.updateRunStatusIfRunning).not.toHaveBeenCalled();
-    expect(d.ensureTerminalRunEvent).not.toHaveBeenCalled();
+    expect(d.finalizeClaimedBackgroundRunFailure).not.toHaveBeenCalled();
   });
 });
 

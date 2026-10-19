@@ -841,6 +841,10 @@ export default {
       animations: "Animations",
       pathEditAmbiguous:
         "This layer has multiple Position animations, so its path cannot be edited unambiguously.",
+      pathEditPositionConflict:
+        "This layer has another Position animation, so its path can't be curved.",
+      positionStyleConflict:
+        "This layer already has a Position animation that can't be combined with another one.",
       animationStyles: {
         title: "Animations",
         createTitle: "Create new animation style",
@@ -1770,6 +1774,8 @@ export default {
       description: "Pick a route to add as a new frame, or type a path.",
       searchPlaceholder: "Search routes…",
       noRoutes: "No matching routes",
+      noDiscoveredRoutes:
+        "This app has no discovered routes. Type a path to add a screen.",
       useCustomPath: 'Add "{{path}}"',
       viewportDesktop: "Desktop",
       viewportMobile: "Mobile",
@@ -2039,8 +2045,8 @@ export default {
         title: "Rendered from a local development server",
       },
       fusion: {
-        label: "Fusion",
-        title: "Rendered from Fusion",
+        label: "Builder",
+        title: "Rendered from Builder",
       },
       inline: {
         label: "Inline",

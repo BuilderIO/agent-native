@@ -70,6 +70,10 @@ import {
   APP_STATE_ANONYMOUS_OWNER_CONTEXT_KEY,
   type AppStateAnonymousOwnerResolver,
 } from "../application-state/handlers.js";
+import {
+  routeAuditAttribution,
+  type AuditAttribution,
+} from "../audit/attribution.js";
 import { recordOrgAdminAuditEvent } from "../audit/org-admin.js";
 import { mountBrowserSessionRoutes } from "../browser-sessions/routes.js";
 import { mountDbAdminRoutes } from "../db-admin/routes.js";
@@ -942,6 +946,7 @@ export async function disconnectBuilderConnectionAtScope(
     orgId: string | null;
     role: string | null;
     scope: BuilderConnectionScope;
+    attribution: AuditAttribution;
   },
   deps: BuilderScopedDisconnectDeps = defaultScopedDisconnectDeps,
 ): Promise<
@@ -987,6 +992,7 @@ export async function disconnectBuilderConnectionAtScope(
     ownerEmail: email,
     orgId,
     scope: oauthScope,
+    attribution: input.attribution,
   });
   return {
     status: 200,
@@ -1755,6 +1761,7 @@ export function recordBuilderConnectionAudit(input: {
   ownerEmail: string;
   orgId: string | null | undefined;
   scope: "user" | "org";
+  attribution: AuditAttribution;
 }): Promise<void> {
   const org = input.scope === "org";
   return recordOrgAdminAuditEvent({
@@ -1772,6 +1779,7 @@ export function recordBuilderConnectionAudit(input: {
     orgId: input.orgId,
     personal: !org,
     args: { scope: input.scope },
+    attribution: input.attribution,
   });
 }
 
@@ -2605,6 +2613,7 @@ export async function activateBuilderAccount(
       ownerEmail,
       orgId: activationOrg?.orgId ?? null,
       scope: written.scope,
+      attribution: routeAuditAttribution(event),
     });
     return { ok: true, scope: written.scope };
   } catch (error) {
@@ -3693,6 +3702,7 @@ export function createCoreRoutesPlugin(
         "jira",
         "sentry",
         "notion",
+        "sigma",
       ] as const) {
         getH3App(nitroApp).use(
           `${P}/connections/oauth/${provider}/start`,
@@ -5037,6 +5047,7 @@ export function createCoreRoutesPlugin(
                   ownerEmail,
                   orgId: scope.orgId,
                   scope: written.scope,
+                  attribution: routeAuditAttribution(event),
                 });
               },
             },
@@ -5538,6 +5549,7 @@ export function createCoreRoutesPlugin(
             ownerEmail,
             orgId: typeof pending.orgId === "string" ? pending.orgId : null,
             scope: credentialScope,
+            attribution: routeAuditAttribution(event),
           });
           setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
           return createBuilderBrowserCallbackPage(
@@ -5614,6 +5626,7 @@ export function createCoreRoutesPlugin(
                 orgId,
                 role,
                 scope: requestedConnectionScope,
+                attribution: routeAuditAttribution(event),
               });
               if (result.status === 200) {
                 await trackBuilderLifecycle(
@@ -5695,6 +5708,7 @@ export function createCoreRoutesPlugin(
                 oauthScope,
                 legacyDeleteOptions,
               ),
+              attribution: routeAuditAttribution(event),
             });
             await trackBuilderLifecycle(
               event,

@@ -36,6 +36,9 @@ export const BLANK_AND_FOLLOW_UP_SCOPE_INSTRUCTION =
 export const SLIDE_COUNT_COMPLETION_INSTRUCTION =
   "For a requested slide count, compare the realSlideCount returned by every add-slide result (slideCount only if realSlideCount is absent) with the persisted target; blank placeholder slides do not count. Once it matches, stop all slide writes and return a completion summary. If add-slide returns errorCode target_slide_count_reached, re-read get-deck once; if the target is already satisfied, stop without retrying and finish the response. Only add more slides if the user explicitly asks to extend the deck and targetSlideCountOverride is set to the new total of real slides.";
 
+export const SLIDE_AUTHORING_OWNERSHIP_INSTRUCTION =
+  "Slides owns authoring this deck. Use Slides actions for slide content, layout, styling, and review, guided by the linked design system and reference context already hydrated here. Keep deck generation and edits in Slides; a design-heavy brief or linked design system is not a reason to hand off slide work. Call Design only for a user-requested Design-owned input or a capability only Design provides, then return to Slides for all deck authoring.";
+
 interface DesignSystemGenerationContextResult {
   agentContext?: string;
 }
@@ -845,6 +848,7 @@ export async function startDeckGeneration({
     referenceDocumentContext,
     referenceDeckContext,
     designSystemContext,
+    SLIDE_AUTHORING_OWNERSHIP_INSTRUCTION,
     referenceSourceContext,
     WEBSITE_STYLE_REFERENCE_DIRECTIVE,
     sourceDeckContext,
