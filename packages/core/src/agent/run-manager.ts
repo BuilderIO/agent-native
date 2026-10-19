@@ -136,6 +136,7 @@ async function flushRunEventsBeforeAbort(run?: ActiveRun): Promise<void> {
     await run?.flushEvents?.();
   } catch (error) {
     if (run) reportAbortFlushFailure(run, error);
+    throw error;
   }
 }
 
@@ -2994,6 +2995,7 @@ export async function abortRunDurably(
       "[run-manager] durable abort persistence failed:",
       error instanceof Error ? error.message : error,
     );
+    throw error;
   }
   return abortedInMemory;
 }
@@ -3005,7 +3007,32 @@ export async function abortRunAtSafeBoundaryDurably(
 ): Promise<boolean> {
   const run = activeRuns.get(runId);
   await flushRunEventsBeforeAbort(run);
-  const aborted = await markRunAbortedAtSafeBoundary(runId, reason);
+  let aborted: boolean;
+  try {
+    aborted = await markRunAbortedAtSafeBoundary(runId, reason);
+  } catch (error) {
+    try {
+      const state = await getRunAbortState(runId);
+      if (state.aborted && run) {
+        abortRunInMemory(runId, state.reason ?? reason);
+      }
+    } catch (stateError) {
+      captureError(stateError, {
+        route: "/_agent-native/agent-chat/runs/:id/abort",
+        aiTraceId: runId,
+        tags: {
+          source: "agent-run-manager",
+          phase: "safe-boundary-abort-state-read",
+        },
+        extra: {
+          runId,
+          reason,
+          abortError: error instanceof Error ? error.message : String(error),
+        },
+      });
+    }
+    throw error;
+  }
   if (!aborted) return false;
   if (run) abortInMemoryRun(run, reason);
   return true;
@@ -3034,7 +3061,7 @@ export async function abortTurnDurably(
   const memRun = activeRuns.get(runId);
   const ref = memRun
     ? { threadId: memRun.threadId, turnId: memRun.turnId }
-    : await getRunTurnRef(runId).catch(() => null);
+    : await getRunTurnRef(runId);
   if (!ref) return;
   try {
     await abortTurnByRefDurably(ref.threadId, ref.turnId, reason);
@@ -3045,6 +3072,7 @@ export async function abortTurnDurably(
       tags: { source: "agent-run-manager", phase: "abort-turn" },
       extra: { runId, reason, ...ref },
     });
+    throw error;
   }
 }
 

@@ -510,6 +510,7 @@ const runAgentLoopMock = vi.fn();
 const instrumentAgentLoopMock = vi.fn();
 const getObservabilityConfigMock = vi.fn();
 const abortRunMock = vi.fn();
+const abortRunDurablyMock = vi.fn();
 const getActiveRunForThreadAsyncMock = vi.fn(async () => null as any);
 const getRunMock = vi.fn();
 const subscribeToRunMock = vi.fn();
@@ -673,6 +674,7 @@ vi.mock("../agent/run-manager.js", () => ({
     };
   },
   abortRun: abortRunMock,
+  abortRunDurably: abortRunDurablyMock,
   getActiveRunForThreadAsync: getActiveRunForThreadAsyncMock,
   getRun: getRunMock,
   subscribeToRun: subscribeToRunMock,
@@ -904,6 +906,12 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
       (runId: string) => activeRunMocks.get(runId) ?? null,
     );
     abortRunMock.mockReset();
+    abortRunDurablyMock
+      .mockReset()
+      .mockImplementation(async (...args: any[]) => {
+        abortRunMock(...args);
+        return true;
+      });
     getActiveRunForThreadAsyncMock.mockReset();
     getActiveRunForThreadAsyncMock.mockResolvedValue(null);
     persistedRunEventIds.length = 0;
@@ -2857,6 +2865,31 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     expect((await queue.getAgentTeamRunDispatchState("t6"))?.status).toBe(
       "failed",
     );
+  });
+
+  it("does not report Stop successful when run abort persistence fails", async () => {
+    await seedTask("stop-abort-persistence-failure");
+    abortRunDurablyMock.mockRejectedValueOnce(
+      new Error("run abort persistence failed"),
+    );
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        stopAgentTeamBackgroundRun("run-task-stop-abort-persistence-failure"),
+      ),
+    ).rejects.toThrow("run abort persistence failed");
+
+    expect(abortRunDurablyMock).toHaveBeenCalledWith(
+      "run-task-stop-abort-persistence-failure-a0-c0",
+      "user",
+    );
+    expect(
+      (
+        await queue.getAgentTeamRunDispatchState(
+          "stop-abort-persistence-failure",
+        )
+      )?.status,
+    ).toBe("failed");
   });
 
   it("stops the durable active chunk when it is running on another instance", async () => {

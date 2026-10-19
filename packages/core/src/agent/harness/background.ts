@@ -10,7 +10,7 @@ import type {
   BackgroundAgentTranscriptEvent,
   ListBackgroundAgentRunsOptions,
 } from "../../code-agents/background-run.js";
-import { abortRun } from "../run-manager.js";
+import { abortRunDurably } from "../run-manager.js";
 import { getRunEventsSince } from "../run-store.js";
 import type { AgentChatEvent, RunEvent } from "../types.js";
 import {
@@ -115,7 +115,7 @@ export async function stopAgentHarnessBackgroundRun(
     return missingHarnessRunResult(runId);
   }
   if (session.runId) {
-    abortRun(session.runId, "user");
+    await abortRunDurably(session.runId, "user");
   }
   await stopLiveAgentHarnessSession({
     sessionId: session.id,

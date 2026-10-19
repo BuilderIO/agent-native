@@ -236,7 +236,10 @@ const mockDb: any = {
     }
     if (/INSERT INTO agent_run_events/i.test(rawSql)) {
       insertEventBehavior();
-      return { rows: [], rowsAffected: 1 };
+      return {
+        rows: /\bRETURNING\b/i.test(rawSql) ? [{ seq: args[1] }] : [],
+        rowsAffected: 1,
+      };
     }
     if (/UPDATE agent_runs SET status = 'aborted'/i.test(rawSql)) {
       return { rows: [], rowsAffected: abortRowsAffected };
@@ -832,12 +835,14 @@ describe("run store", () => {
     expect(mockCaptureError).not.toHaveBeenCalled();
   });
 
-  it("captures to Sentry when the terminal-event retry also fails", async () => {
+  it("surfaces and captures a terminal-event failure after the retry also fails", async () => {
     insertEventBehavior = () => {
       throw new Error("DB unavailable");
     };
 
-    await markRunAborted("run-retry-fail");
+    await expect(markRunAborted("run-retry-fail")).rejects.toThrow(
+      "DB unavailable",
+    );
 
     expect(mockCaptureError).toHaveBeenCalledTimes(1);
     const [err, ctx] = mockCaptureError.mock.calls[0];

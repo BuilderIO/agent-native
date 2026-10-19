@@ -3339,7 +3339,7 @@ async function updateRunAborted(
   if (!client.transaction) {
     throw new Error("Atomic run cancellation requires transaction support");
   }
-  const rowsAffected = await client.transaction(async (tx) => {
+  const abortResult = await client.transaction(async (tx) => {
     await lockExecutionLeasesForRuns(tx, [runId]);
     if (requireSafeBoundary) {
       const run = await tx.execute({
@@ -3364,7 +3364,9 @@ async function updateRunAborted(
                 LIMIT 1`,
           args: [runRef.thread_id, runRef.turn_id, runId],
         });
-        if (dispatchedStep.rows.length > 0) return 0;
+        if (dispatchedStep.rows.length > 0) {
+          return { rowsAffected: 0, appendTerminalEvent: false };
+        }
       }
     }
     const result = await tx.execute({
@@ -3376,19 +3378,33 @@ async function updateRunAborted(
         runId,
       ],
     });
-    if ((result.rowsAffected ?? 0) > 0) {
+    const rowsAffected = result.rowsAffected ?? 0;
+    if (rowsAffected > 0) {
       await revokeExecutionLeasesForRuns(tx, [runId]);
+      return { rowsAffected, appendTerminalEvent: true };
     }
-    return result.rowsAffected ?? 0;
+    const current = await tx.execute({
+      sql: `SELECT status, terminal_reason FROM agent_runs WHERE id = ?`,
+      args: [runId],
+    });
+    const currentRun = current.rows[0] as
+      | { status?: string; terminal_reason?: string | null }
+      | undefined;
+    return {
+      rowsAffected,
+      appendTerminalEvent:
+        currentRun?.status === "aborted" &&
+        currentRun.terminal_reason === `aborted:${reason ?? "user"}`,
+    };
   });
-  if ((rowsAffected ?? 0) > 0) {
+  if (abortResult.appendTerminalEvent) {
     await safeAppendTerminalRunEvent(
       runId,
       terminalEventForAbortReason(reason) as unknown as Record<string, unknown>,
       "mark-aborted",
     );
   }
-  return (rowsAffected ?? 0) > 0;
+  return abortResult.rowsAffected > 0 || abortResult.appendTerminalEvent;
 }
 
 async function lockExecutionLeasesForRuns(
@@ -3520,7 +3536,7 @@ export async function markTurnAborted(
     }
     if (runIds.length === 0) {
       const existing = await tx.execute({
-        sql: `SELECT id, terminal_reason,
+        sql: `SELECT id, status, terminal_reason,
                      EXISTS (
                        SELECT 1 FROM agent_run_events
                        WHERE agent_run_events.run_id = agent_runs.id
@@ -3541,8 +3557,25 @@ export async function markTurnAborted(
         ],
       });
       const latest = existing.rows[0] as
-        | { terminal_reason?: string | null; continuation_pending?: boolean }
+        | {
+            status?: string;
+            terminal_reason?: string | null;
+            continuation_pending?: boolean;
+          }
         | undefined;
+      const aborted = await tx.execute({
+        sql: `SELECT id FROM agent_runs
+              WHERE thread_id = ? AND COALESCE(turn_id, id) = ?
+                AND status = 'aborted'
+                AND dispatch_mode IS DISTINCT FROM 'turn-abort'
+                AND terminal_reason = ?`,
+        args: [threadId, turnId, `aborted:${reason}`],
+      });
+      runIds.push(
+        ...aborted.rows
+          .map((row) => String((row as { id?: unknown }).id ?? ""))
+          .filter(Boolean),
+      );
       if (
         latest &&
         latest.continuation_pending !== true &&
@@ -3576,7 +3609,6 @@ export async function markTurnAborted(
     });
     return "aborted" as const;
   });
-  if (outcome === "already_terminal") return outcome;
   await Promise.all(
     runIds.map((runId) =>
       safeAppendTerminalRunEvent(
@@ -4943,6 +4975,7 @@ async function safeAppendTerminalRunEvent(
           firstError instanceof Error ? firstError.message : String(firstError),
       },
     });
+    throw retryErr;
   }
 }
 
@@ -4976,8 +5009,8 @@ async function appendTerminalRunEvent(
     }
   }
   const nextSeq = last ? Number(last.seq ?? -1) + 1 : 0;
-  await client.execute({
-    sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data) VALUES (?, ?, ?, ?) ON CONFLICT (run_id, seq) DO NOTHING`,
+  const inserted = await client.execute({
+    sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data) VALUES (?, ?, ?, ?) ON CONFLICT (run_id, seq) DO NOTHING RETURNING seq`,
     args: [
       runId,
       nextSeq,
@@ -4985,4 +5018,9 @@ async function appendTerminalRunEvent(
       stripInlineBytesFromJson(JSON.stringify(event), "placeholder"),
     ],
   });
+  if (inserted.rows.length === 0) {
+    throw new Error(
+      `Run ${runId} terminal event conflicted with sequence ${nextSeq}`,
+    );
+  }
 }

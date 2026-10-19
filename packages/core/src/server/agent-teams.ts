@@ -27,6 +27,7 @@ import {
 } from "../agent/production-agent.js";
 import {
   abortRun,
+  abortRunDurably,
   getActiveRunForThreadAsync,
   getRun,
   startRun,
@@ -3302,7 +3303,7 @@ export async function stopAgentTeamBackgroundRun(
     return { ok: false, error: "Task is not running" };
   }
 
-  abortRun(
+  await abortRunDurably(
     stoppedDispatch
       ? taskRunChunkId(
           taskId,

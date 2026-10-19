@@ -89,6 +89,7 @@ vi.mock("./run-store.js", () => ({
   markRunAborted: vi.fn(() => Promise.resolve()),
   markRunAbortedAtSafeBoundary: vi.fn(() => Promise.resolve(false)),
   markTurnAborted: vi.fn(() => Promise.resolve()),
+  getRunTurnRef: vi.fn(() => Promise.resolve(null)),
   isRunAborted: vi.fn(() => Promise.resolve(false)),
   getRunAbortState: vi.fn(() => Promise.resolve({ aborted: false })),
   getRunEventsSince: vi.fn(() => Promise.resolve([])),
@@ -207,6 +208,7 @@ import {
   abortRun,
   abortRunDurably,
   abortRunAtSafeBoundaryDurably,
+  abortTurnDurably,
   abortTurnByRefDurably,
   endsAfterToolResultWithoutAssistantFinal,
   engineRequestShapeTags,
@@ -247,6 +249,7 @@ import {
 import {
   getRunAbortState,
   getRunStatus,
+  getRunTurnRef,
   insertRun,
   insertRunEvent,
   insertRunEvents,
@@ -350,6 +353,9 @@ describe("run manager soft timeout", () => {
     vi.mocked(insertRun).mockResolvedValue(undefined);
     vi.mocked(insertRunEvent).mockResolvedValue(undefined);
     vi.mocked(markRunAborted).mockClear();
+    vi.mocked(markTurnAborted).mockClear();
+    vi.mocked(getRunTurnRef).mockReset();
+    vi.mocked(getRunTurnRef).mockResolvedValue(null);
     vi.mocked(insertRunEvent).mockClear();
     vi.mocked(updateRunStatus).mockClear();
     vi.mocked(updateRunStatusIfRunning).mockReset();
@@ -1688,6 +1694,33 @@ describe("run manager soft timeout", () => {
     await run.finalized;
   });
 
+  it("signals in memory when safe-boundary abort committed before event persistence failed", async () => {
+    const run = startRun(
+      "run-safe-boundary-event-failure",
+      "thread-safe-boundary-event-failure",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    vi.mocked(markRunAbortedAtSafeBoundary).mockRejectedValueOnce(
+      new Error("terminal event write unavailable"),
+    );
+    vi.mocked(getRunAbortState).mockResolvedValueOnce({
+      aborted: true,
+      reason: "user",
+    });
+
+    await expect(
+      abortRunAtSafeBoundaryDurably(run.runId, "user"),
+    ).rejects.toThrow("terminal event write unavailable");
+    expect(run.abort.signal.aborted).toBe(true);
+    await run.finalized;
+  });
+
   it("aborts the in-process run before a turn-reference abort resolves", async () => {
     let observedAbortReason: unknown;
     const run = startRun(
@@ -1835,7 +1868,7 @@ describe("run manager soft timeout", () => {
     expect(replayed[2].suggestions[0].runId).toBe(runId);
   });
 
-  it("keeps an in-memory abort successful when durable cleanup fails", async () => {
+  it("surfaces durable cleanup failure after stopping the in-memory run", async () => {
     const persistenceError = new Error("abort persistence unavailable");
     vi.mocked(markRunAborted).mockRejectedValueOnce(persistenceError);
     const consoleError = vi
@@ -1864,7 +1897,7 @@ describe("run manager soft timeout", () => {
     try {
       await expect(
         abortRunDurably("run-durable-abort-failure", "user_stuck_retry"),
-      ).resolves.toBe(true);
+      ).rejects.toBe(persistenceError);
     } finally {
       consoleError.mockRestore();
     }
@@ -1875,6 +1908,62 @@ describe("run manager soft timeout", () => {
       "run-durable-abort-failure",
       "user_stuck_retry",
     );
+    await run.finalized;
+  });
+
+  it("does not persist an abort after the event flush fails", async () => {
+    const persistenceError = new Error("event flush unavailable");
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const run = startRun(
+      "run-abort-event-flush-failure",
+      "thread-abort-event-flush-failure",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.flushEvents = vi.fn().mockRejectedValue(persistenceError);
+
+    try {
+      await expect(
+        abortRunDurably("run-abort-event-flush-failure", "user"),
+      ).rejects.toBe(persistenceError);
+    } finally {
+      consoleError.mockRestore();
+    }
+
+    expect(markRunAborted).not.toHaveBeenCalled();
+    expect(run.status).toBe("aborted");
+    await run.finalized;
+  });
+
+  it("distinguishes a missing run from an unreadable turn reference", async () => {
+    const readError = new Error("run store unavailable");
+    vi.mocked(getRunTurnRef).mockResolvedValueOnce(null);
+    await expect(abortTurnDurably("missing-run")).resolves.toBeUndefined();
+    expect(markTurnAborted).not.toHaveBeenCalled();
+
+    vi.mocked(getRunTurnRef).mockRejectedValueOnce(readError);
+    await expect(abortTurnDurably("unreadable-run")).rejects.toBe(readError);
+    expect(markTurnAborted).not.toHaveBeenCalled();
+  });
+
+  it("surfaces durable turn-marker persistence failures", async () => {
+    const persistenceError = new Error("turn abort persistence unavailable");
+    vi.mocked(getRunTurnRef).mockResolvedValueOnce({
+      threadId: "thread-turn-abort-persistence-failure",
+      turnId: "turn-turn-abort-persistence-failure",
+    });
+    vi.mocked(markTurnAborted).mockRejectedValueOnce(persistenceError);
+
+    await expect(
+      abortTurnDurably("run-turn-abort-persistence-failure"),
+    ).rejects.toBe(persistenceError);
   });
 
   it("persists the partial turn on a no-progress recovery abort", async () => {
