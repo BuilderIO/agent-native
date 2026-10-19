@@ -2,7 +2,10 @@ import {
   CHECKPOINT_TERMINAL_EVENT_SEQ,
   getCurrentTurnRunEventsForThread,
 } from "./run-store.js";
-import { buildAssistantMessage } from "./thread-data-builder.js";
+import {
+  buildAssistantMessage,
+  foldAssistantTurn,
+} from "./thread-data-builder.js";
 import type { RunEvent } from "./types.js";
 
 interface BuildJournalAssistantMessageOptions {
@@ -44,13 +47,15 @@ export async function buildAssistantMessageFromRunJournal(input: {
   runEvents: readonly RunEvent[];
   options?: BuildJournalAssistantMessageOptions;
 }): Promise<ReturnType<typeof buildAssistantMessage>> {
-  const persisted = (
-    await getCurrentTurnRunEventsForThread(input.threadId, input.turnId)
-  ).filter(
+  const turnJournal = await getCurrentTurnRunEventsForThread(
+    input.threadId,
+    input.turnId,
+  );
+  const currentRunPersisted = turnJournal.filter(
     (event) =>
       event.runId === input.runId && event.seq < CHECKPOINT_TERMINAL_EVENT_SEQ,
   );
-  const persistedSequences = new Set(persisted.map(({ seq }) => seq));
+  const persistedSequences = new Set(currentRunPersisted.map(({ seq }) => seq));
   const missingSequences = input.runEvents
     .filter(
       ({ seq, event }) =>
@@ -61,22 +66,65 @@ export async function buildAssistantMessageFromRunJournal(input: {
     throw new RunTranscriptJournalGapError(input.runId, missingSequences);
   }
 
-  const events: RunEvent[] = persisted.map(({ seq, event }) => ({
-    seq,
-    event,
-  }));
-  for (const event of input.runEvents) {
-    if (
-      isTerminalProjectionEvent(event.event) &&
-      !persistedSequences.has(event.seq)
-    ) {
-      events.push(event);
-    }
+  const currentRunIndex = turnJournal.findIndex(
+    ({ runId }) => runId === input.runId,
+  );
+  const relevantJournal =
+    currentRunIndex === -1
+      ? []
+      : turnJournal
+          .slice(0, currentRunIndex + 1)
+          .filter(({ seq }) => seq < CHECKPOINT_TERMINAL_EVENT_SEQ);
+  const runGroups = new Map<string, RunEvent[]>();
+  for (const { runId, seq, event } of relevantJournal) {
+    const events = runGroups.get(runId) ?? [];
+    events.push({ seq, event });
+    runGroups.set(runId, events);
   }
-  events.sort((left, right) => left.seq - right.seq);
+  if (!runGroups.has(input.runId)) runGroups.set(input.runId, []);
 
-  return buildAssistantMessage(events, input.runId, {
-    ...input.options,
-    turnId: input.turnId,
-  });
+  let repo: { messages: unknown[] } = { messages: [] };
+  for (const [runId, persistedRunEvents] of runGroups) {
+    const runEvents = persistedRunEvents.sort(
+      (left, right) => left.seq - right.seq,
+    );
+    if (runId === input.runId) {
+      for (const event of input.runEvents) {
+        if (
+          isTerminalProjectionEvent(event.event) &&
+          !persistedSequences.has(event.seq)
+        ) {
+          runEvents.push(event);
+        }
+      }
+      runEvents.sort((left, right) => left.seq - right.seq);
+    }
+    const assistant = buildAssistantMessage(
+      runEvents,
+      runId,
+      runId === input.runId
+        ? { ...input.options, turnId: input.turnId }
+        : {
+            suppressInternalContinuation:
+              input.options?.suppressInternalContinuation,
+            preserveUnknownToolOutcomes:
+              input.options?.preserveUnknownToolOutcomes,
+            scope: input.options?.scope,
+            turnId: input.turnId,
+          },
+    );
+    if (!assistant) continue;
+    repo = foldAssistantTurn(repo, assistant, {
+      runId,
+      turnId: input.turnId,
+    });
+  }
+  const entry = repo.messages.at(-1);
+  const message =
+    entry && typeof entry === "object" && "message" in entry
+      ? entry.message
+      : entry;
+  return (
+    (message as ReturnType<typeof buildAssistantMessage> | undefined) ?? null
+  );
 }

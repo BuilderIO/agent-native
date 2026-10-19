@@ -3,6 +3,7 @@ import {
   updateThreadData,
   withThreadDataLock,
 } from "../chat-threads/store.js";
+import { RUN_NOT_STARTED_METADATA_KEY } from "../shared/agent-chat-run-not-started.js";
 import { readStoppedRunForThreadFold } from "./run-store.js";
 import {
   buildAssistantMessage,
@@ -131,7 +132,19 @@ export async function foldReapedRunIntoThread(
               ? isRunPrompt(last, { runId, ...run })
               : last?.role === "assistant" &&
                 last.metadata?.custom?.turnId === run.turnId;
-          if (!ownsPrompt) rejectedDisposition = "retry";
+          const unstartedTurnId =
+            last?.role === "user"
+              ? last.metadata?.custom?.submittedTurnId
+              : last?.role === "assistant"
+                ? last.metadata?.custom?.turnId
+                : undefined;
+          const isRefusedNewerTurn =
+            last?.metadata?.custom?.[RUN_NOT_STARTED_METADATA_KEY] === true &&
+            typeof unstartedTurnId === "string" &&
+            unstartedTurnId !== run.turnId;
+          if (!ownsPrompt && !isRefusedNewerTurn) {
+            rejectedDisposition = "retry";
+          }
           return ownsPrompt;
         },
       },

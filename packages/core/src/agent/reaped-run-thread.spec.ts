@@ -130,8 +130,12 @@ const {
   updateRunStatusIfRunning,
 } = await import("./run-store.js");
 const { withExecutionFence } = await import("./execution-fence.js");
-const { buildAssistantMessage, foldAssistantTurn } =
-  await import("./thread-data-builder.js");
+const {
+  buildAssistantMessage,
+  buildUserMessage,
+  foldAssistantTurn,
+  foldUnstartedTurnFailure,
+} = await import("./thread-data-builder.js");
 
 const SEND = { to: "ana@example.com", subject: "Invoice" };
 let seq = 0;
@@ -295,23 +299,49 @@ describe("a run the server reaps after its worker died", () => {
     expect(threadAtDispatch[0]).toContain('"toolName":"send-email"');
   });
 
-  it("leaves the thread alone once a later prompt was saved", async () => {
+  it("clears a projection superseded by a refused turn with no run row", async () => {
     const thread = `thread-reaped-${seq}`;
     const turn = `turn-reaped-${seq}`;
     const run = `run-reaped-${seq}`;
-    const nextPrompt = userTurn("Never mind");
-    (nextPrompt.message as any).metadata = {
-      custom: { submittedTurnId: `${turn}-later` },
-    };
-    const later = JSON.stringify({
-      messages: [userTurn("Bill Ana"), nextPrompt],
-    });
+    const laterTurn = `${turn}-later`;
+    const refused = foldUnstartedTurnFailure(
+      {
+        messages: [
+          userTurn("Bill Ana"),
+          {
+            message: buildUserMessage({
+              text: "Never mind",
+              runId: laterTurn,
+              turnId: laterTurn,
+              refusedRetry: {},
+            }),
+            parentId: null,
+          },
+        ],
+      },
+      {
+        runId: laterTurn,
+        threadId: thread,
+        turnId: laterTurn,
+        code: "missing_credentials",
+        message: "Connect an AI provider before chatting.",
+      },
+    );
+    const later = JSON.stringify(refused);
     threads.set(thread, later);
     await crashAfterSending(thread, turn, run);
 
     expect(await reapIfStale(run, -1)).toBe(true);
 
     expect(threads.get(thread)).toBe(later);
+    const [laterRun] = await pglite
+      .prepare("SELECT id FROM agent_runs WHERE id = ?")
+      .all(laterTurn);
+    expect(laterRun).toBeUndefined();
+    const [projection] = await pglite
+      .prepare("SELECT thread_projection_pending FROM agent_runs WHERE id = ?")
+      .all(run);
+    expect(projection).toEqual({ thread_projection_pending: false });
   });
 
   it("rechecks prompt ownership inside the thread-data write", async () => {

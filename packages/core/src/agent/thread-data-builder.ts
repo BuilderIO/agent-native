@@ -4510,7 +4510,11 @@ function assistantContentWeight(content: unknown): number {
   return weight;
 }
 
-function appendFoldedContent(existing: any[], incoming: any[]): any[] {
+function appendFoldedContent(
+  existing: any[],
+  incoming: any[],
+  separateRunBoundary = false,
+): any[] {
   const merged = existing.map((p) => ({ ...p }));
   for (const part of incoming) {
     if (part?.type === "tool-call" && part.result !== undefined) {
@@ -4541,10 +4545,11 @@ function appendFoldedContent(existing: any[], incoming: any[]): any[] {
       last?.type === "text" &&
       typeof last.text === "string"
     ) {
-      last.text = `${last.text}${part.text}`;
+      last.text = `${last.text}${separateRunBoundary ? "\n\n" : ""}${part.text}`;
     } else {
       merged.push({ ...part });
     }
+    separateRunBoundary = false;
   }
   return normalizeAssistantToolCallIds({
     role: "assistant",
@@ -4589,21 +4594,44 @@ export function foldAssistantTurn(
     ? assistantMsg.content
     : [];
   const existingFolded = foldedRunIdsOf(lastMsg);
+  const incomingFolded = foldedRunIdsOf(assistantMsg);
   const runAlreadyFolded =
     !!runId &&
     (existingFolded.includes(runId) || getMessageRunId(lastMsg) === runId);
   const supersededRunReplay =
     runAlreadyFolded && !!runId && getMessageRunId(lastMsg) !== runId;
+  const incomingCoversExistingRuns =
+    existingFolded.length > 0 &&
+    !!runId &&
+    incomingFolded.includes(runId) &&
+    existingFolded.every((foldedRunId) => incomingFolded.includes(foldedRunId));
 
-  const mergedContent = runAlreadyFolded
-    ? assistantContentWeight(incomingContent) >
-      assistantContentWeight(existingContent)
-      ? incomingContent
-      : existingContent
-    : appendFoldedContent(existingContent, incomingContent);
+  let mergedContent = existingContent;
+  if (!supersededRunReplay) {
+    if (incomingCoversExistingRuns) {
+      mergedContent = incomingContent;
+    } else if (runAlreadyFolded) {
+      if (
+        assistantContentWeight(incomingContent) >
+        assistantContentWeight(existingContent)
+      ) {
+        mergedContent = incomingContent;
+      }
+    } else {
+      mergedContent = appendFoldedContent(
+        existingContent,
+        incomingContent,
+        lastMsg.status?.type === "incomplete",
+      );
+    }
+  }
 
   const mergedFolded = Array.from(
-    new Set([...existingFolded, ...(runId ? [runId] : [])]),
+    new Set([
+      ...existingFolded,
+      ...(supersededRunReplay ? [] : incomingFolded),
+      ...(runId ? [runId] : []),
+    ]),
   );
 
   const existingCustom =

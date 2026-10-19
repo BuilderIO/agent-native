@@ -46,6 +46,63 @@ describe("buildAssistantMessageFromRunJournal", () => {
     expect(message?.status).toEqual({ type: "complete", reason: "stop" });
   });
 
+  it("projects unprojected events from earlier runs in the same turn", async () => {
+    vi.mocked(getCurrentTurnRunEventsForThread).mockResolvedValue([
+      {
+        runId: "run-reaped",
+        seq: 0,
+        event: {
+          type: "tool_start",
+          tool: "send-email",
+          id: "email-1",
+          input: { to: "ana@example.com" },
+        },
+      },
+      {
+        runId: "run-reaped",
+        seq: 1,
+        event: {
+          type: "tool_done",
+          tool: "send-email",
+          id: "email-1",
+          input: { to: "ana@example.com" },
+          result: "sent",
+          completedSideEffect: true,
+        },
+      },
+      {
+        runId: "run-successor",
+        seq: 0,
+        event: { type: "text", text: "Recovery finished." },
+      },
+    ]);
+
+    const message = await buildAssistantMessageFromRunJournal({
+      threadId: "thread-journal",
+      turnId: "turn-journal",
+      runId: "run-successor",
+      runEvents: [
+        { seq: 0, event: { type: "text", text: "Buffered recovery." } },
+        { seq: 1, event: { type: "done" } },
+      ],
+    });
+
+    expect(message?.content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "send-email",
+        args: { to: "ana@example.com" },
+        result: "sent",
+        completedSideEffect: true,
+      }),
+      { type: "text", text: "Recovery finished." },
+    ]);
+    expect(message?.metadata).toMatchObject({
+      runId: "run-successor",
+      custom: { foldedRunIds: ["run-reaped", "run-successor"] },
+    });
+  });
+
   it("fails loudly when a published nonterminal event is absent from the journal", async () => {
     vi.mocked(getCurrentTurnRunEventsForThread).mockResolvedValue([]);
     const runEvents: RunEvent[] = [

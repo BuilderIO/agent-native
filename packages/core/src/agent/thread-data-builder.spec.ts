@@ -2059,7 +2059,7 @@ describe("buildAssistantMessage", () => {
     expect(assistant.content).toEqual([
       {
         type: "text",
-        text: "First attempt.\n\nError: The first attempt failed.Recovery succeeded.",
+        text: "First attempt.\n\nError: The first attempt failed.\n\nRecovery succeeded.",
       },
     ]);
     expect(assistant.status).toEqual({ type: "complete", reason: "stop" });
@@ -2072,6 +2072,112 @@ describe("buildAssistantMessage", () => {
       },
     });
     expect(assistant.metadata.custom).not.toHaveProperty("runError");
+  });
+
+  it("does not let a verbose older replay replace the latest transcript", () => {
+    const earlierRun = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: { type: "text", text: "Earlier attempt. ".repeat(20) },
+        },
+        { seq: 1, event: { type: "done" } },
+      ],
+      "run-earlier-replay",
+      { turnId: "turn-older-replay" },
+    );
+    expect(earlierRun).not.toBeNull();
+
+    const latest = {
+      id: "assistant-latest-replay",
+      role: "assistant",
+      content: [{ type: "text", text: "Latest answer." }],
+      status: { type: "complete", reason: "stop" },
+      metadata: {
+        runId: "run-latest-replay",
+        custom: {
+          turnId: "turn-older-replay",
+          foldedRunIds: ["run-earlier-replay", "run-latest-replay"],
+        },
+      },
+    };
+    const repo = {
+      messages: [
+        {
+          message: {
+            id: "user-older-replay",
+            role: "user",
+            content: [{ type: "text", text: "try again" }],
+          },
+          parentId: null,
+        },
+        { message: latest, parentId: null },
+      ],
+    };
+
+    const folded = foldAssistantTurn(repo, earlierRun!, {
+      turnId: "turn-older-replay",
+      runId: "run-earlier-replay",
+    });
+
+    expect(folded.messages[1].message).toMatchObject({
+      content: [{ type: "text", text: "Latest answer." }],
+      status: { type: "complete", reason: "stop" },
+      metadata: { runId: "run-latest-replay" },
+    });
+  });
+
+  it("replaces a saved prefix with its full turn journal without duplicates", () => {
+    const earlierRun = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "First attempt." } },
+        { seq: 1, event: { type: "done" } },
+      ],
+      "run-prefix",
+      { turnId: "turn-prefix" },
+    );
+    const latestRun = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "Recovery succeeded." } },
+        { seq: 1, event: { type: "done" } },
+      ],
+      "run-prefix-successor",
+      { turnId: "turn-prefix" },
+    );
+    expect(earlierRun).not.toBeNull();
+    expect(latestRun).not.toBeNull();
+
+    const user = {
+      message: {
+        id: "user-prefix",
+        role: "user",
+        content: [{ type: "text", text: "try again" }],
+      },
+      parentId: null,
+    };
+    const savedPrefix = foldAssistantTurn({ messages: [user] }, earlierRun!, {
+      turnId: "turn-prefix",
+      runId: "run-prefix",
+    });
+    let fullTurn = foldAssistantTurn({ messages: [] }, earlierRun!, {
+      turnId: "turn-prefix",
+      runId: "run-prefix",
+    });
+    fullTurn = foldAssistantTurn(fullTurn, latestRun!, {
+      turnId: "turn-prefix",
+      runId: "run-prefix-successor",
+    });
+
+    const canonical = fullTurn.messages.at(-1).message;
+    const updated = foldAssistantTurn(savedPrefix, canonical, {
+      turnId: "turn-prefix",
+      runId: "run-prefix-successor",
+    });
+
+    expect(updated.messages.at(-1).message.content).toEqual(canonical.content);
+    expect(
+      updated.messages.at(-1).message.metadata.custom.foldedRunIds,
+    ).toEqual(["run-prefix", "run-prefix-successor"]);
   });
 
   it("keeps the latest continuation marker when an earlier run is replayed", () => {
