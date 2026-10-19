@@ -65,6 +65,11 @@ export interface WebContentResult {
   agentMetadata?: unknown[];
   content?: string;
   fullContent?: string;
+  /** Format of `fullContent`: the requested `saveContentFormat` when
+   * extraction succeeded, or `"raw"` when extraction failed and `fullContent`
+   * fell back to the original response body. Callers must not label the
+   * latter as the requested text/markdown format. */
+  fullContentFormat?: "raw" | "markdown" | "text";
   contentLength?: number;
   links?: WebContentLink[];
   matches?: WebContentMatch[];
@@ -204,12 +209,22 @@ export async function processWebContent(
         extracted?.text ||
         (extracted ? "" : options.body)
     : undefined;
+  // When extraction failed, `fullContent` is the raw response body, not the
+  // requested text/markdown. Label it `raw` so the save path preserves the
+  // original content type instead of writing raw HTML under a Markdown/text
+  // label.
+  const fullContentFormat = options.saveContentFormat
+    ? extracted
+      ? options.saveContentFormat
+      : "raw"
+    : undefined;
   const result: WebContentResult = {
     mode,
     extract,
     contentType,
     ...metadataFromExtraction(extracted),
     ...(fullContent !== undefined ? { fullContent } : {}),
+    ...(fullContentFormat !== undefined ? { fullContentFormat } : {}),
     ...(mode !== "links" && mode !== "metadata"
       ? { contentLength: baseContent.length }
       : {}),
@@ -253,6 +268,7 @@ export async function processWebContent(
       extracted: baseContent,
       search,
       fallbackSearchSource,
+      extractionFailed: htmlExtractionFailed,
     });
     Object.assign(result, matchResult);
     if (options.includeLinks) result.links = extracted?.links ?? [];
@@ -272,6 +288,7 @@ export async function processWebContent(
       extracted: baseContent,
       search,
       fallbackSearchSource,
+      extractionFailed: htmlExtractionFailed,
     });
     result.matches = matchResult.matches;
     result.totalMatches = matchResult.totalMatches;
@@ -297,6 +314,7 @@ export function formatWebContentResult(result: WebContentResult): string {
 
   if (result.mode === "matches") {
     lines.push(formatMatches(result));
+    if (result.content) lines.push("", result.content);
   } else if (result.mode === "links") {
     lines.push(formatLinks(result.links ?? []));
     if (result.content) lines.push("", result.content);
@@ -706,6 +724,7 @@ function findWebContentMatches(options: {
   extracted: string;
   search: WebContentSearchOptions | null;
   fallbackSearchSource: WebSearchSource;
+  extractionFailed?: boolean;
 }): Pick<
   WebContentResult,
   | "matches"
@@ -715,7 +734,16 @@ function findWebContentMatches(options: {
   | "searchTruncated"
 > {
   const search = options.search ?? {};
-  const sourceMode = search.source ?? options.fallbackSearchSource;
+  // When HTML extraction failed, `contentForMode` falls back to the raw body,
+  // so the "extracted" source is actually raw markup. An explicit
+  // `source: "extracted"` would silently search that markup while being
+  // labeled extracted; force raw so the reported source matches the bytes
+  // that were searched.
+  const requestedSource = search.source ?? options.fallbackSearchSource;
+  const sourceMode: WebSearchSource =
+    options.extractionFailed && search.source === "extracted"
+      ? "raw"
+      : requestedSource;
   const source = sourceMode === "raw" ? options.raw : options.extracted;
   const searchTruncated = source.length > MAX_SEARCH_SOURCE_CHARS;
   const searchable = searchTruncated
@@ -875,7 +903,10 @@ function textOrUndefined(value: string | null | undefined): string | undefined {
 
 function formatMatches(result: WebContentResult): string {
   const matches = result.matches ?? [];
-  const header = `Matches: ${matches.length}${result.totalMatches !== undefined ? ` shown of ${result.totalMatches}` : ""}${result.omittedMatches ? ` (${result.omittedMatches} omitted)` : ""}`;
+  const sourceLabel = result.searchSource
+    ? ` [source: ${result.searchSource}]`
+    : "";
+  const header = `Matches: ${matches.length}${result.totalMatches !== undefined ? ` shown of ${result.totalMatches}` : ""}${result.omittedMatches ? ` (${result.omittedMatches} omitted)` : ""}${sourceLabel}`;
   if (!matches.length) return header;
   return [
     header,

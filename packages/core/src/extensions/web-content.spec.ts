@@ -137,7 +137,8 @@ describe("processWebContent", () => {
   });
 
   it("attaches the raw body and labels searchSource raw when matches mode hits a real parser rejection", async () => {
-    const { processWebContent } = await import("./web-content.js");
+    const { processWebContent, formatWebContentResult } =
+      await import("./web-content.js");
     const body =
       "<!doctype html><html><frameset rows='80,*'>" +
       "<frame src='/top' name='topbar'><frame src='/body' name='content'></frameset></html>";
@@ -154,6 +155,86 @@ describe("processWebContent", () => {
     expect(result.content).toBe(body);
     expect(result.searchSource).toBe("raw");
     expect(result.matches?.length).toBeGreaterThan(0);
+
+    // The formatted matches output must expose both the raw-source label and
+    // the fallback body, so the agent sees the response text instead of only
+    // `Matches: N`.
+    const formatted = formatWebContentResult(result);
+    expect(formatted).toContain("[source: raw]");
+    expect(formatted).toContain("topbar");
+    expect(formatted).toContain(body);
+  });
+
+  it("forces the search source to raw when extraction failed even if the request explicitly asks for extracted", async () => {
+    vi.doMock("linkedom/worker", () => ({
+      parseHTML: () => {
+        throw new Error(
+          "Cannot destructure property 'firstElementChild' of 'documentElement' as it is null.",
+        );
+      },
+    }));
+    const { processWebContent } = await import("./web-content.js");
+    const body = "<frameset><frame name='topbar'></frameset>";
+
+    const result = await processWebContent({
+      url: "https://example.com/",
+      body,
+      contentType: "text/html",
+      responseMode: "matches",
+      extract: "none",
+      search: { query: "topbar", source: "extracted" },
+    });
+
+    // Explicit `source: "extracted"` must not silently search raw markup
+    // while labeling the result extracted; force raw on fallback.
+    expect(result.searchSource).toBe("raw");
+    expect(result.matches?.length).toBeGreaterThan(0);
+  });
+
+  it("labels the saved fullContent as raw when HTML extraction fails on the save path", async () => {
+    vi.doMock("linkedom/worker", () => ({
+      parseHTML: () => {
+        throw new Error(
+          "Cannot destructure property 'firstElementChild' of 'documentElement' as it is null.",
+        );
+      },
+    }));
+    const { processWebContent } = await import("./web-content.js");
+    const body =
+      "<!doctype html><html><frameset cols='200,*'><frame src='/nav'><frame src='/main'></frameset></html>";
+
+    const markdownResult = await processWebContent({
+      url: "https://example.com/",
+      body,
+      contentType: "text/html",
+      responseMode: "markdown",
+      saveContentFormat: "markdown",
+    });
+    expect(markdownResult.fullContent).toBe(body);
+    expect(markdownResult.fullContentFormat).toBe("raw");
+
+    const textResult = await processWebContent({
+      url: "https://example.com/",
+      body,
+      contentType: "text/html",
+      responseMode: "text",
+      saveContentFormat: "text",
+    });
+    expect(textResult.fullContent).toBe(body);
+    expect(textResult.fullContentFormat).toBe("raw");
+  });
+
+  it("labels the saved fullContent with the requested format when extraction succeeds", async () => {
+    const { processWebContent } = await import("./web-content.js");
+    const result = await processWebContent({
+      url: "https://example.com/story",
+      body: html,
+      contentType: "text/html",
+      responseMode: "markdown",
+      saveContentFormat: "markdown",
+    });
+    expect(result.fullContentFormat).toBe("markdown");
+    expect(result.fullContent).toContain("# Story title");
   });
 
   it.each(["links", "metadata"] as const)(
@@ -213,5 +294,31 @@ describe("formatWebContentResult", () => {
     });
     expect(formatted).toContain('"contentType": "text/html"');
     expect(formatted).toContain("\n\nAccess denied");
+  });
+
+  it("exposes the source label and fallback body in formatted matches output", async () => {
+    const { formatWebContentResult } = await import("./web-content.js");
+    const formatted = formatWebContentResult({
+      mode: "matches",
+      extract: "none",
+      contentType: "text/html",
+      content: "<frameset><frame name='topbar'></frameset>",
+      matches: [
+        {
+          kind: "query",
+          query: "topbar",
+          match: "topbar",
+          index: 0,
+          snippet: "topbar",
+        },
+      ],
+      totalMatches: 1,
+      omittedMatches: 0,
+      searchSource: "raw",
+      searchTruncated: false,
+    });
+    expect(formatted).toContain("Matches: 1 shown of 1 [source: raw]");
+    expect(formatted).toContain("topbar");
+    expect(formatted).toContain("<frameset>");
   });
 });

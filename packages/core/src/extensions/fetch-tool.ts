@@ -528,6 +528,7 @@ export function createFetchToolEntry(
           let searchSourceTruncated = false;
           let fileContent = body;
           let fileContentType = contentType;
+          let savedContentFormat: "raw" | "markdown" | "text" | undefined;
           const search = parseWebContentSearchOptions(args.search);
           const hasSearch = hasWebContentSearch(search);
           const includeLinks =
@@ -575,6 +576,7 @@ export function createFetchToolEntry(
                 mode: saveContentFormat,
                 content: processed.fullContent,
                 fullContent: undefined,
+                fullContentFormat: undefined,
                 matches: undefined,
                 totalMatches: undefined,
                 omittedMatches: undefined,
@@ -582,10 +584,17 @@ export function createFetchToolEntry(
                 searchTruncated: undefined,
                 truncated: false,
               });
+              // When extraction failed, `fullContent` is the raw response
+              // body; preserve the original HTML content type and label the
+              // saved format as `raw` instead of the requested text/markdown.
+              savedContentFormat =
+                processed.fullContentFormat ?? saveContentFormat;
               fileContentType =
-                saveContentFormat === "markdown"
+                savedContentFormat === "markdown"
                   ? "text/markdown"
-                  : "text/plain";
+                  : savedContentFormat === "text"
+                    ? "text/plain"
+                    : "text/html";
             }
 
             if (
@@ -632,7 +641,10 @@ export function createFetchToolEntry(
                   `Refusing to save a failed response to durable workspace file "${saveToFilePath}" (status ${response.status}). Use a scratch/... path for diagnostics.`,
                 );
               }
-              const savedFormat = saveContentFormat ?? "raw";
+              const savedFormat =
+                (saveContentFormat && savedContentFormat) ||
+                saveContentFormat ||
+                "raw";
               const meta = await writeWorkspaceFile(
                 scope,
                 saveToFilePath,
