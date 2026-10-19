@@ -26,6 +26,10 @@ import {
   isActionHiddenFromEveryAgentSurface,
 } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import {
+  describeToolResultImages,
+  type NormalizedToolResultImages,
+} from "../agent/tool-result-images.js";
 import { getAppConfig } from "../app-config/store.js";
 import {
   UnusableSchemaError,
@@ -87,15 +91,22 @@ import {
 } from "./connect-store.js";
 import { createDirectActionCall } from "./direct-action-call.js";
 import { MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
-import { HIDDEN_EMBED_URL, isEmbedStartUrl } from "./embed-redaction.js";
+import {
+  describeThrownForLog,
+  HIDDEN_EMBED_URL,
+  isEmbedStartUrl,
+} from "./embed-redaction.js";
 import {
   MCP_ACTION_APPROVAL_TTL_SECONDS,
+  type EmbedCredentialGuard,
   type McpActionApprovalState,
   type McpActionCallContext,
   canonicalJson,
   isActionVisibleForOAuthScope,
-  purgeEmbedStartUrls,
+  redactEmbedCredentials,
   sha256Base64Url,
+  UnreadableResultError,
+  type UpstreamStatus,
 } from "./execute-action-call.js";
 import type { ExternalAgentPolicy } from "./external-agent-policy.js";
 import {
@@ -1190,6 +1201,28 @@ export function mcpAppEmbedOpenLinkMeta(
   };
 }
 
+/**
+ * The `_meta` that hands an app-only tool's start URL, such as
+ * `create_embed_session`'s, to the view that called it. Hosts may show
+ * structured content to the model, so the URL travels only here.
+ */
+export function mcpAppOnlyEmbedStartMeta(
+  result: unknown,
+): Record<string, unknown> {
+  const out = metadataObject(result);
+  if (typeof out.startUrl !== "string" || !isEmbedStartUrl(out.startUrl)) {
+    return {};
+  }
+  return {
+    "agent-native/embedStart": {
+      startUrl: out.startUrl,
+      ...(typeof out.expiresAt === "number"
+        ? { expiresAt: out.expiresAt }
+        : {}),
+    },
+  };
+}
+
 export function mcpDirectoryWidgetSourceMeta(
   toolName: string,
   embedMeta: Record<string, unknown>,
@@ -1392,8 +1425,7 @@ export async function withServerMintedMcpAppEmbedStart(
     // The write grant is an upgrade over the read grant. Losing it must not
     // also lose the widget's session ticket, which the shell cannot start without.
     console.error(
-      "[mcp:directory] Could not mint the widget write grant; issuing a read-only widget session instead.",
-      writeMintError,
+      `[mcp:directory] Could not mint the widget write grant; issuing a read-only widget session instead: ${describeThrownForLog(writeMintError)}`,
     );
     const { appId, resourceUri, resourceIds, readActionArguments } =
       writeCapability.value;
@@ -2264,8 +2296,7 @@ export async function resolveMcpAppResourceSafely(
     return await resolveMcpAppResource(config, actionName, entry, requestMeta);
   } catch (error) {
     console.warn(
-      `[mcp] Skipping MCP App resource for action "${actionName}" because its metadata could not be resolved.`,
-      error,
+      `[mcp] Skipping MCP App resource for action "${actionName}" because its metadata could not be resolved: ${describeThrownForLog(error)}`,
     );
     return null;
   }
@@ -2444,37 +2475,19 @@ export function mcpAppStructuredContent(
 ): Record<string, unknown> {
   const done = (out: Record<string, unknown>) =>
     options.contracted || Object.keys(out).length > 0 ? out : { status: "ok" };
-  const purged = purgeEmbedStartUrls(
-    result,
-    undefined,
-    false,
-    options.contracted === true,
-  );
   const out: Record<string, unknown> =
-    purged && typeof purged === "object" && !Array.isArray(purged)
-      ? { ...(purged as Record<string, unknown>) }
-      : primitiveValue(purged)
-        ? { result: purged }
+    result && typeof result === "object" && !Array.isArray(result)
+      ? { ...(result as Record<string, unknown>) }
+      : primitiveValue(result)
+        ? { result }
         : {};
-  for (const key of ["embedStartUrl", "startUrl"]) {
-    const value = out[key];
-    if (typeof value === "string" && isEmbedStartUrl(value)) delete out[key];
-  }
-  if (typeof out.url === "string" && isEmbedStartUrl(out.url)) {
-    delete out.url;
-  }
-  const openLink = meta?.["agent-native/openLink"];
+  // A link whose URL the walker would hide is left out whole.
+  const openLink = redactEmbedCredentials(meta?.["agent-native/openLink"]);
   if (openLink && typeof openLink === "object" && !Array.isArray(openLink)) {
     const webUrl = (openLink as Record<string, unknown>).webUrl;
-    if (typeof webUrl === "string" && isEmbedStartUrl(webUrl)) {
-      return done(out);
-    }
-    out.openLink = openLink;
-    if (
-      typeof webUrl === "string" &&
-      (!out.url || out.url === HIDDEN_EMBED_URL)
-    ) {
-      out.url = webUrl;
+    if (typeof webUrl === "string") {
+      out.openLink = openLink;
+      if (!out.url || out.url === HIDDEN_EMBED_URL) out.url = webUrl;
     }
   }
   return done(out);
@@ -2486,8 +2499,9 @@ export function mcpAppStructuredContent(
  * derived from its own by these same steps (`deriveMcpResponseOutputSchema`),
  * so a change here must change that derivation too. Opted-in (`contracted`)
  * actions keep an empty object as `{}`, since the `{ status: "ok" }`
- * placeholder is not in their contract, and mask an embed URL field in place
- * rather than deleting a field their contract may require.
+ * placeholder is not in their contract. Their result arrives with an embed
+ * URL field masked in place (`maskUrlFields`) rather than deleted, since their
+ * contract may require the field.
  */
 export function mcpResponseStructuredContent(
   result: unknown,
@@ -2499,6 +2513,140 @@ export function mcpResponseStructuredContent(
     meta,
     options,
   );
+}
+
+/**
+ * The `_meta` keys a direct call may send an embed credential in: the start
+ * URL a widget or an app-only tool's view starts its embed session from, and
+ * the source ticket a directory widget renews that session with. Only an
+ * entry the call built as that handoff qualifies. An open link is never one:
+ * it names the page to open outside the widget, not a start URL.
+ */
+export const EMBED_HANDOFF_META_KEYS: ReadonlySet<string> = new Set([
+  "agent-native/embedStart",
+  "agent-native/widgetSource",
+]);
+
+/**
+ * A direct `tools/call` result as it leaves the server, built last from the
+ * assembled response, the call's `guard`, the `_meta` entries it built as an
+ * embed handoff, and the result's images, added here so they are checked as
+ * sent. In embed context every text block and `structuredContent` goes through
+ * the walker in that context, so a credential the call holds is hidden
+ * wherever one of them echoes it. An image, or any other block, that carries
+ * one in its URL or data is left out whole, so neither stands in for the
+ * other. In `_meta`, a handoff entry under one of `EMBED_HANDOFF_META_KEYS`
+ * passes as built, and any other entry that carries a credential is left out
+ * whole: a link with its ticket hidden would not open. A call the guard could
+ * not read in full throws `UnreadableResultError`, so none of it is shown.
+ */
+export function modelVisibleToolResponse<
+  T extends {
+    content: any[];
+    structuredContent?: Record<string, unknown>;
+    _meta?: Record<string, unknown>;
+  },
+>(
+  response: T,
+  guard: EmbedCredentialGuard,
+  handoff: Record<string, unknown> = {},
+  images: NormalizedToolResultImages = { images: [], notes: [] },
+): T {
+  if (!guard.readable) throw new UnreadableResultError();
+  const check = <V>(value: V): V =>
+    guard.embedContext ? (redactEmbedCredentials(value, guard) as V) : value;
+  const clean = (value: unknown) =>
+    JSON.stringify(check(value)) === JSON.stringify(value);
+  const dropped: string[] = [];
+  const shown = images.images.filter((image, index) => {
+    if (clean(image)) return true;
+    dropped.push(
+      `[image #${index + 1} dropped: it carried an embed credential]`,
+    );
+    return false;
+  });
+  const notes = [
+    ...describeToolResultImages(shown),
+    ...dropped,
+    ...images.notes,
+  ];
+  const [first, ...others] = response.content;
+  const content = [
+    notes.length > 0
+      ? { ...first, text: `${first.text}\n\n${notes.join("\n")}` }
+      : first,
+    ...others,
+  ].flatMap((block) =>
+    block?.type === "text" && typeof block.text === "string"
+      ? [{ ...block, text: check(block.text) }]
+      : clean(block)
+        ? [block]
+        : [],
+  );
+  content.splice(
+    1,
+    0,
+    ...shown.flatMap((image) =>
+      image.data && image.mediaType
+        ? [{ type: "image", data: image.data, mimeType: image.mediaType }]
+        : [],
+    ),
+  );
+  if (!guard.embedContext) return { ...response, content };
+  const { _meta, ...rest } = response;
+  const meta = Object.entries(_meta ?? {}).filter(
+    ([key, value]) =>
+      (EMBED_HANDOFF_META_KEYS.has(key) && handoff[key] === value) ||
+      clean({ [key]: value }),
+  );
+  return {
+    ...rest,
+    content,
+    ...(response.structuredContent
+      ? { structuredContent: check(response.structuredContent) }
+      : {}),
+    ...(meta.length > 0 ? { _meta: Object.fromEntries(meta) } : {}),
+  } as T;
+}
+
+/** How a tool's response opens, by what its upstream reported. */
+export function upstreamStatusText(
+  name: string,
+  upstream: UpstreamStatus,
+): string {
+  return upstream === "succeeded"
+    ? `${name} completed.`
+    : upstream === "failed"
+      ? `${name} failed.`
+      : `${name} ran, but whether it succeeded could not be read; check before retrying.`;
+}
+
+/**
+ * A write whose result cannot be shown, because it could not be checked or,
+ * with `error`, because building the response failed after the action ran.
+ * The write has run, so it reports success rather than invite a retry, unless
+ * its upstream reported failure or its status could not be read, and its
+ * widget still gets the embed handoff it built.
+ */
+export function withheldWriteResponse(
+  name: string,
+  handoff: Record<string, unknown>,
+  upstream: UpstreamStatus,
+  error: string | undefined,
+) {
+  const meta = Object.entries(handoff).filter(([key]) =>
+    EMBED_HANDOFF_META_KEYS.has(key),
+  );
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: `${upstreamStatusText(name, upstream)} ${error === undefined ? "Its result could not be checked for embed credentials, so it is not shown." : `Its result is not shown: ${error}`}`,
+      },
+    ],
+    ...(upstream !== "succeeded" ? { isError: true } : {}),
+    ...(meta.length > 0 ? { _meta: Object.fromEntries(meta) } : {}),
+  };
 }
 
 const MCP_TEXT_PAGING_INPUTS = [
@@ -2612,19 +2760,18 @@ export function conciseToolResultText(
   },
 ): string {
   const paging = options?.paging;
-  const purged = purgeEmbedStartUrls(result);
   // Text-only clients need the query payload: collection metadata alone can
   // consume a text cap before any row in an already-paginated result.
   const maxTextLength = options?.preserveObjectResult ? Infinity : 2000;
-  if (typeof purged === "string")
-    return truncateToolText(purged, maxTextLength, paging);
+  if (typeof result === "string")
+    return truncateToolText(result, maxTextLength, paging);
   if (options?.preserveObjectResult) {
-    const text = JSON.stringify(purged);
+    const text = JSON.stringify(result);
     return text === undefined ? `${name} completed.` : text;
   }
-  if (purged === true || purged == null) return `${name} completed.`;
-  if (purged && typeof purged === "object" && !Array.isArray(purged)) {
-    const record = purged as Record<string, unknown>;
+  if (result === true || result == null) return `${name} completed.`;
+  if (result && typeof result === "object" && !Array.isArray(result)) {
+    const record = result as Record<string, unknown>;
     const link = record.url ?? record.webUrl ?? record.urlPath ?? record.path;
     const next =
       typeof record.nextRequiredAction === "string" &&
@@ -2652,7 +2799,7 @@ export function conciseToolResultText(
     }
     if (isSuccessOnlyResult(record)) return `${name} completed.${next}`;
   }
-  const text = JSON.stringify(purged);
+  const text = JSON.stringify(result);
   return text === undefined
     ? `${name} completed.`
     : truncateToolText(text, maxTextLength, paging);

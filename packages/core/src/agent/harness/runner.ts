@@ -254,6 +254,7 @@ export function startAgentHarnessRun(
       useHostedSoftTimeoutDefault:
         opts.runOptions?.useHostedSoftTimeoutDefault ?? true,
       engineName: opts.runOptions?.engineName ?? opts.adapter.name,
+      executionLease: opts.runOptions?.executionLease ?? true,
     },
   );
 }

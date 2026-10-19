@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { isOrgMember } from "@agent-native/core/org";
 import { putPrivateBlob } from "@agent-native/core/private-blob";
 import {
   getRequestOrgId,
@@ -7,10 +8,17 @@ import {
 } from "@agent-native/core/server";
 import { accessFilter } from "@agent-native/core/sharing";
 import type { NativeResourceCaptureAdapter } from "@agent-native/creative-context/server";
-import { and, inArray } from "drizzle-orm";
+import { and, eq, inArray, or, sql } from "drizzle-orm";
 
+import {
+  BUILTIN_DASHBOARD_HIDDEN_BY,
+  builtinDashboardIdFor,
+} from "../../shared/builtin-dashboard-ids.js";
 import { getDb, schema } from "../db/index.js";
-import { getDashboard } from "./dashboards-store.js";
+import { loadBuiltinDashboard } from "./builtin-dashboards.js";
+import { openDashboard } from "./open-dashboard.js";
+
+const VERSION_READ_CONCURRENCY = 5;
 
 function syntheticPreview(config: Record<string, unknown>) {
   const panels = Array.isArray(config.panels) ? config.panels : [];
@@ -34,27 +42,123 @@ export const nativeDashboardCreativeContextAdapter: NativeResourceCaptureAdapter
     resourceType: "dashboard",
     async listResourceVersions(resourceIds) {
       if (!resourceIds.length) return [];
-      return getDb()
+      const email = getRequestUserEmail();
+      if (!email) throw new Error("no authenticated user");
+      const scope = { email, orgId: getRequestOrgId() ?? null };
+      const accessible = accessFilter(
+        schema.dashboards,
+        schema.dashboardShares,
+        { userEmail: email, orgId: scope.orgId ?? undefined },
+        "viewer",
+        { includePublic: true },
+      );
+      const rows = await getDb()
         .select({
-          resourceId: schema.dashboards.id,
-          sourceModifiedAt: schema.dashboards.updatedAt,
+          id: schema.dashboards.id,
+          updatedAt: schema.dashboards.updatedAt,
+          hiddenBy: schema.dashboards.hiddenBy,
+          orgId: schema.dashboards.orgId,
+          accessible: sql<boolean>`${accessible}`,
         })
         .from(schema.dashboards)
         .where(
           and(
-            inArray(schema.dashboards.id, [...resourceIds]),
-            accessFilter(schema.dashboards, schema.dashboardShares),
+            or(
+              accessible,
+              and(
+                eq(schema.dashboards.visibility, "org"),
+                sql`exists (
+                  select 1 from org_members as dashboard_member
+                  where dashboard_member.org_id = ${schema.dashboards.orgId}
+                    and lower(dashboard_member.email) = ${email.trim().toLowerCase()}
+                    and dashboard_member.federation_removal_pending_at is null
+                )`,
+              ),
+            ),
+            inArray(schema.dashboards.id, [...new Set(resourceIds)]),
           ),
         );
+      const memberOrgIds = new Set<string>();
+      for (const row of rows) {
+        if (!row.accessible && row.orgId) memberOrgIds.add(row.orgId);
+      }
+      const validatedOrgIds = new Set<string>();
+      const orgIds = [...memberOrgIds];
+      for (let i = 0; i < orgIds.length; i += VERSION_READ_CONCURRENCY) {
+        await Promise.all(
+          orgIds.slice(i, i + VERSION_READ_CONCURRENCY).map(async (orgId) => {
+            if (await isOrgMember(orgId, email)) validatedOrgIds.add(orgId);
+          }),
+        );
+      }
+      const savedVersions = new Map(
+        rows
+          .filter(
+            (row) =>
+              row.hiddenBy !== BUILTIN_DASHBOARD_HIDDEN_BY &&
+              (row.accessible ||
+                (row.orgId !== null && validatedOrgIds.has(row.orgId))),
+          )
+          .map((row) => [row.id, row.updatedAt]),
+      );
+      const unresolvedCustomIds = [...new Set(resourceIds)].filter(
+        (id) => !savedVersions.has(id) && builtinDashboardIdFor(id) === null,
+      );
+      for (
+        let i = 0;
+        i < unresolvedCustomIds.length;
+        i += VERSION_READ_CONCURRENCY
+      ) {
+        await Promise.all(
+          unresolvedCustomIds
+            .slice(i, i + VERSION_READ_CONCURRENCY)
+            .map(async (id) => {
+              const opened = await openDashboard(id, scope);
+              if (opened?.saved) savedVersions.set(id, opened.saved.updatedAt);
+            }),
+        );
+      }
+      const builtinIds = new Set(
+        resourceIds
+          .filter((id) => !savedVersions.has(id))
+          .map(builtinDashboardIdFor)
+          .filter((id) => id !== null),
+      );
+      const builtinVersions = new Map<string, string>();
+      for (const builtinId of builtinIds) {
+        const builtin = await loadBuiltinDashboard(builtinId, scope);
+        if (builtin) builtinVersions.set(builtinId, builtin.version);
+      }
+      return resourceIds.flatMap((resourceId) => {
+        const builtinId = builtinDashboardIdFor(resourceId);
+        const sourceModifiedAt =
+          savedVersions.get(resourceId) ??
+          (builtinId ? builtinVersions.get(builtinId) : undefined);
+        return sourceModifiedAt === undefined
+          ? []
+          : [{ resourceId, sourceModifiedAt }];
+      });
     },
     async capture(reference) {
       const email = getRequestUserEmail();
       if (!email) throw new Error("no authenticated user");
-      const dashboard = await getDashboard(reference.resourceId, {
+      const orgId = getRequestOrgId() ?? null;
+      const opened = await openDashboard(reference.resourceId, {
         email,
-        orgId: getRequestOrgId() ?? null,
+        orgId,
       });
-      if (!dashboard) throw new Error("Dashboard not found");
+      if (!opened) throw new Error("Dashboard not found");
+      const dashboard = opened.saved ?? {
+        id: reference.resourceId,
+        kind: "sql" as const,
+        title: opened.builtin.title,
+        config: opened.builtin.config,
+        updatedAt: opened.builtin.version,
+        ownerEmail: email,
+        orgId,
+        visibility: "private" as const,
+        canManage: false,
+      };
       if (
         reference.expectedUpdatedAt &&
         reference.expectedUpdatedAt !== dashboard.updatedAt

@@ -2037,8 +2037,8 @@ export default {
         title: "由本地开发服务器渲染",
       },
       fusion: {
-        label: "Fusion 远端",
-        title: "由 Fusion 渲染",
+        label: "Builder 远端",
+        title: "由 Builder 渲染",
       },
       inline: {
         label: "内嵌",

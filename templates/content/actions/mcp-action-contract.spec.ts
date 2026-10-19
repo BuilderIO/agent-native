@@ -23,6 +23,7 @@ import getContentDatabase from "./get-content-database.js";
 import { resolveContentDatabaseReadLimit } from "./get-content-database.js";
 import getDocument from "./get-document.js";
 import listComments from "./list-comments.js";
+import listContentDatabaseComments from "./list-content-database-comments.js";
 import listContentDatabases from "./list-content-databases.js";
 import listContentSpaces from "./list-content-spaces.js";
 import listContentTrash from "./list-content-trash.js";
@@ -67,6 +68,7 @@ describe("Content action-owned agent catalogs", () => {
     "edit-document": editDocument,
     "update-document": updateDocument,
     "list-comments": listComments,
+    "list-content-database-comments": listContentDatabaseComments,
     "add-comment": addComment,
     "update-comment": updateComment,
     "list-content-databases": listContentDatabases,

@@ -2136,8 +2136,8 @@ export default {
         title: "ローカル開発サーバーからレンダー",
       },
       fusion: {
-        label: "Fusion リモート",
-        title: "Fusion からレンダー",
+        label: "Builder リモート",
+        title: "Builder からレンダー",
       },
       inline: {
         label: "埋め込み",

@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-
 import { defineAction, embedApp } from "@agent-native/core";
 import { getDataProgram } from "@agent-native/core/data-programs";
 import {
@@ -11,10 +9,12 @@ import { resolveAccess } from "@agent-native/core/sharing";
 import setResourceVisibilityAction from "@agent-native/core/sharing/actions/set-resource-visibility";
 import { z } from "zod";
 
-import { getDashboard, upsertDashboard } from "../server/lib/dashboards-store";
+import {
+  loadBuiltinDashboard,
+  recordBuiltinDashboardInstall,
+} from "../server/lib/builtin-dashboards";
 import { requireAnalyticsAdminContext } from "../server/lib/db-admin-connections";
 import {
-  compileNativeV2Dashboard,
   getNativeV2DashboardManifest,
   nativeV2DashboardManifests,
   NATIVE_V2_DASHBOARD_IDS,
@@ -22,6 +22,7 @@ import {
   type NativeV2BindingKey,
   type NativeV2DashboardId,
 } from "../server/lib/native-v2-dashboards";
+import { nativeV2BuiltinDashboardId } from "../shared/builtin-dashboard-ids";
 
 const ANALYTICS_APP_ID = "analytics";
 
@@ -29,14 +30,6 @@ const bindingSchema = z.object({
   programId: z.string().min(1),
   params: z.record(z.string(), z.unknown()).optional(),
 });
-
-function orgDashboardId(
-  orgId: string,
-  templateId: NativeV2DashboardId,
-): string {
-  const suffix = createHash("sha256").update(orgId).digest("hex").slice(0, 10);
-  return `native-${templateId}-${suffix}`;
-}
 
 function parseOutputColumns(value: string | null): Set<string> {
   if (!value) return new Set();
@@ -53,17 +46,6 @@ function parseOutputColumns(value: string | null): Set<string> {
   } catch {
     return new Set();
   }
-}
-
-function templateIdFromDashboard(
-  config: Record<string, unknown>,
-): string | null {
-  const catalog = config.catalog;
-  if (!catalog || typeof catalog !== "object" || Array.isArray(catalog)) {
-    return null;
-  }
-  const templateId = (catalog as Record<string, unknown>).templateId;
-  return typeof templateId === "string" ? templateId : null;
 }
 
 async function validateAndShareBindings(
@@ -177,55 +159,22 @@ export async function ensureNativeV2Dashboards(
     admin,
   );
 
-  const installedAt = new Date().toISOString();
+  const scope = { email: admin.userEmail, orgId: admin.orgId };
   const dashboards: EnsureNativeV2DashboardsResult["dashboards"] = [];
   for (const manifest of manifests) {
-    const dashboardId = orgDashboardId(admin.orgId, manifest.id);
-    const existing = await getDashboard(dashboardId, {
-      email: admin.userEmail,
-      orgId: admin.orgId,
-    });
-    if (existing && templateIdFromDashboard(existing.config) !== manifest.id) {
-      throw new Error(
-        `Refusing to overwrite unrelated dashboard at deterministic id ${dashboardId}.`,
-      );
-    }
-
-    if (existing && !args.overwrite) {
-      dashboards.push({
-        templateId: manifest.id,
-        dashboardId,
-        status: "preserved",
-        requiredBindings: manifest.requiredBindings,
-      });
-      continue;
-    }
-
-    const config = compileNativeV2Dashboard(
-      manifest,
-      args.bindings,
-      installedAt,
-    );
-    await upsertDashboard(
-      dashboardId,
-      "sql",
-      config as unknown as Record<string, unknown>,
-      {
-        email: admin.userEmail,
-        orgId: admin.orgId,
-      },
-    );
-    if (!existing) {
-      await setResourceVisibilityAction.run({
-        resourceType: "dashboard",
-        resourceId: dashboardId,
-        visibility: "org",
+    const dashboardId = nativeV2BuiltinDashboardId(manifest.id);
+    const existing = await loadBuiltinDashboard(dashboardId, scope);
+    if (!existing || args.overwrite) {
+      await recordBuiltinDashboardInstall(scope, dashboardId, {
+        bindings: Object.fromEntries(
+          manifest.requiredBindings.map((key) => [key, args.bindings[key]]),
+        ),
       });
     }
     dashboards.push({
       templateId: manifest.id,
       dashboardId,
-      status: existing ? "updated" : "created",
+      status: !existing ? "created" : args.overwrite ? "updated" : "preserved",
       requiredBindings: manifest.requiredBindings,
     });
   }
@@ -236,8 +185,8 @@ export async function ensureNativeV2Dashboards(
 export default defineAction({
   description:
     "Provision the reusable native Analytics v2 dashboard patterns, including On Demand Billing, for the active organization from explicit Data Program bindings. " +
-    "This is an admin-only post-deploy action: it validates every program exists and exposes the manifest's required output columns, shares the bound programs with the organization, creates deterministic native-* dashboard copies, and never changes the legacy extension dashboards. " +
-    "Re-running preserves existing v2 dashboard edits unless overwrite=true.",
+    "This is an admin-only post-deploy action: it validates every program exists and exposes the manifest's required output columns, shares the bound programs with the organization, installs the read-only builtin-* dashboards for the organization, and never changes the legacy extension dashboards. " +
+    "Re-running keeps the installed bindings unless overwrite=true. To customize one, duplicate it with duplicate-dashboard.",
   schema: z.object({
     templateIds: z
       .array(z.enum(NATIVE_V2_DASHBOARD_IDS))
@@ -253,7 +202,7 @@ export default defineAction({
       .boolean()
       .optional()
       .default(false)
-      .describe("Replace an existing v2 copy only when explicitly true."),
+      .describe("Replace the installed bindings only when explicitly true."),
   }),
   mcpApp: {
     compactCatalog: true,

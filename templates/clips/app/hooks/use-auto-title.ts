@@ -807,8 +807,8 @@ async function dispatchWorkflowRequest(
 
   if (outcome.type === "rejected") {
     await retryWorkflowAction(
-      { operation: "release", ...workflowRequest, tabId },
-      "released",
+      { operation: "stop", ...workflowRequest, tabId },
+      "reconciled",
     );
     return { handled: false, accepted: false };
   }

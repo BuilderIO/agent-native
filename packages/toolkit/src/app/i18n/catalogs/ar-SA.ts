@@ -1988,6 +1988,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.agentVia": "وكيل عبر {{protocol}}",
   "settings.audit.allApps": "كل التطبيقات",
   "settings.audit.app": "التطبيق",
+  "settings.audit.approval": "الموافقة",
+  "settings.audit.approvalAgentChat": "تمت الموافقة في محادثة الوكيل",
+  "settings.audit.approvalA2AReview":
+    "تمت الموافقة في صفحة مراجعة إجراء الوكيل",
+  "settings.audit.approvalMcpClient": "قبِله عميل MCP (غير موثّق)",
   "settings.audit.changedBy": "تم التغيير بواسطة",
   "settings.audit.close": "إغلاق",
   "settings.audit.empty": "لا توجد تغييرات في هذه الفترة.",
@@ -2001,9 +2006,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.last90Days": "آخر 90 يومًا",
   "settings.audit.loadFailed": "تعذّر تحميل سجل التدقيق.",
   "settings.audit.loading": "جارٍ تحميل سجل التدقيق",
+  "settings.audit.oauthClient": "عميل OAuth",
   "settings.audit.onBehalfOf": "نيابةً عن",
   "settings.audit.range": "النطاق الزمني",
   "settings.audit.refused": "مرفوض",
+  "settings.audit.reportedClient": "العميل المُبلَّغ ذاتيًا",
   "settings.audit.result": "النتيجة",
   "settings.audit.showMore": "عرض {{count}} أخرى",
   "settings.audit.succeeded": "تم بنجاح",
@@ -3080,6 +3087,10 @@ const messages: ToolkitAgentChatTranslation = {
     "تم قطع الاتصال هنا. قد يظل الوصول نشطًا في ChatGPT.",
   "settingsModel.chatgptLocalOnly":
     "يمكن استخدام تطبيقات المصدر المفتوح ذاتيًا عند تشغيلها محليًا باستخدام loopback callback، ولا حاجة إلى تقديم طلب شراكة. تحتاج التطبيقات المستضافة على *.agent-native.com إلى موافقة المشغّل وإلى hosted callback.",
+  "settingsModel.chatgptPersonalScopeOnly":
+    "استخدم الوصول إلى خطة ChatGPT من حساب شخصي. في بيئة التطوير المحلية، اضبط access.autoCreateDefaultOrg على false قبل تسجيل الدخول.",
+  "settingsModel.chatgptScopeUnresolved":
+    "تعذر على التطبيق تأكيد نطاق حسابك. أكمل الإعداد المحلي ثم أعد تحميل الإعدادات.",
   "settingsModel.chatgptNoDirectUse":
     "أعِد الاتصال واسمح بالوصول المباشر إلى النماذج لاستخدام حساب ChatGPT هذا.",
   "settingsModel.chatgptReconnect": "إعادة الاتصال",

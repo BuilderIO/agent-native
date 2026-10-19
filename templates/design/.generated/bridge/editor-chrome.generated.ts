@@ -3834,9 +3834,17 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (selectionContainerScope && document.documentElement.contains(selectionContainerScope) && selectionContainerScope !== selectedEl && selectionContainerScope.contains(selectedEl)) {
         return null;
       }
+      if (selectionContainerScope === selectedEl && selectedEl.getAttribute("data-an-primitive") !== "frame" && selectedEl.getAttribute("data-agent-native-group") !== "true" && isAutoLayoutElement(selectedEl) && canOpenSelectionContainer(selectedEl)) {
+        return null;
+      }
       if (!hasSelectableLayerChildren(selectedEl)) return null;
       var target = selectionTargetForHit(hit, true);
       return target && target !== selectedEl && selectedEl.contains(target) ? selectedEl : null;
+    }
+    function rememberAutoLayoutContainerScopeForSelection(target) {
+      if (target && target.getAttribute("data-an-primitive") !== "frame" && target.getAttribute("data-agent-native-group") !== "true" && isAutoLayoutElement(target) && canOpenSelectionContainer(target)) {
+        selectionContainerScope = target;
+      }
     }
     function clickThroughSelectionTarget(hit, ev, repeatedMouseClick = false) {
       var isRepeatedMouseClick = Boolean(
@@ -7931,7 +7939,23 @@ export const editorChromeBridgeScript: string = `"use strict";
       var nextDoc = parser.parseFromString(html, "text/html");
       if (!nextDoc || !nextDoc.body) return;
       var persistentNodes = Array.prototype.slice.call(
-        document.querySelectorAll("[data-agent-native-edit-overlay]")
+        document.querySelectorAll(
+          [
+            "[data-agent-native-edit-overlay]",
+            "script[data-agent-native-motion-preview-bridge]",
+            "script[data-agent-native-shader-runtime]",
+            "script[data-agent-native-shader-fill-preview-bridge]",
+            "script[data-agent-native-tweak-bridge]",
+            "script[data-agent-native-zoom-bridge]",
+            "script[data-agent-native-nav-bridge]",
+            "script[data-agent-native-preview-theme-bridge]",
+            "script[data-agent-native-hit-test-bridge]",
+            "script[data-agent-native-embedded-wheel-bridge]",
+            "script[data-agent-native-editor-theme]",
+            "script[data-agent-native-editor-chrome-bridge]",
+            "script[data-agent-native-content-size-bridge]"
+          ].join(",")
+        )
       );
       var activeSelector = preferredSelector || (selectedEl ? getSelector(selectedEl) : "");
       var activeCandidates = [];
@@ -11480,6 +11504,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       selectedEl = resolvedClickTarget;
       if (selectionContainerScope && selectedEl && !selectionContainerScope.contains(selectedEl))
         selectionContainerScope = null;
+      rememberAutoLayoutContainerScopeForSelection(selectedEl);
       if (!selectedEl || isLayerInteractionBlocked(selectedEl)) {
         selectedEl = null;
         hideSelectionOverlay();
@@ -21266,6 +21291,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         selectedEl = target;
         if (selectionContainerScope && selectedEl && !selectionContainerScope.contains(selectedEl))
           selectionContainerScope = null;
+        rememberAutoLayoutContainerScopeForSelection(selectedEl);
         positionOverlay(selectionOverlay, selectedEl);
         if (!ev?.shiftKey && passiveSelectionEls.length) {
           setPassiveSelectionElements([]);

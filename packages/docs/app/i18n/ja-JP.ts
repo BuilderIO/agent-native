@@ -726,6 +726,9 @@ const jaJP = {
     waitlistUnavailable:
       "この環境ではまだ待機リストに登録できません。代わりにホストされたドキュメントサイトをお試しください。",
     launchBuilder: "Builderを起動",
+    newAppPrompt: "新しい Agent-Native アプリを作成してください。",
+    customizeTemplatePrompt:
+      "Agent-Native の {{template}} テンプレートを、私の作業に合うようにカスタマイズしてください。",
   },
   templateCard: {
     pasteIntoTerminal: "端末に貼り付けます。",

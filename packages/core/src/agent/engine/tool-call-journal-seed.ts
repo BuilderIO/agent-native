@@ -1,13 +1,20 @@
+import type { ActionChatUIConfig } from "../../action-ui.js";
 import {
   isArtifactReceipt,
   type ArtifactReceipt,
 } from "../../artifacts/detect.js";
-import { getCurrentTurnEventsForThread } from "../run-store.js";
+import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
+import {
+  getCompletedAgentExecutionSteps,
+  getCurrentTurnEventsForThread,
+} from "../run-store.js";
 import {
   classifyToolCallJournal,
+  isConsistentToolCallInputFingerprint,
+  toolCallInputFingerprint,
   type ToolCallJournal,
 } from "../tool-call-journal.js";
-import type { AgentChatEvent } from "../types.js";
+import type { AgentChatEvent, AgentFileMutationProof } from "../types.js";
 
 export interface PriorTurnToolCallSummary {
   name: string;
@@ -46,7 +53,327 @@ export type PriorTurnToolCallJournalRead =
     }
   | { status: "unreadable"; error: string };
 
+export interface PriorTurnToolCallJournalOptions {
+  /** Recover outcomes committed before a reaper successor could persist tool_done. */
+  recoverCompletedExecutionSteps?: boolean;
+}
+
 const LEDGER_READ_RETRY_MS = 250;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function durableStepChatUI(value: unknown): ActionChatUIConfig | undefined {
+  if (!isRecord(value) || typeof value.renderer !== "string") return undefined;
+  return {
+    renderer: value.renderer,
+    ...(typeof value.title === "string" ? { title: value.title } : {}),
+    ...(typeof value.description === "string"
+      ? { description: value.description }
+      : {}),
+  };
+}
+
+function durableStepMcpApp(value: unknown): AgentMcpAppPayload | undefined {
+  if (
+    !isRecord(value) ||
+    typeof value.serverId !== "string" ||
+    typeof value.toolName !== "string" ||
+    typeof value.originalToolName !== "string" ||
+    typeof value.resourceUri !== "string" ||
+    !isRecord(value.toolInput) ||
+    !isRecord(value.toolResult)
+  ) {
+    return undefined;
+  }
+  return value as unknown as AgentMcpAppPayload;
+}
+
+function durableStepFileMutation(
+  value: unknown,
+): AgentFileMutationProof | undefined {
+  if (
+    !isRecord(value) ||
+    typeof value.path !== "string" ||
+    typeof value.contentSha256 !== "string"
+  ) {
+    return undefined;
+  }
+  return { path: value.path, contentSha256: value.contentSha256 };
+}
+
+function durableStepToolDone(
+  event: Extract<AgentChatEvent, { type: "tool_start" }>,
+  row: {
+    stepId: string;
+    operationId: string;
+    toolName: string;
+    inputJson: string;
+    resultJson: string;
+  },
+): Extract<AgentChatEvent, { type: "tool_done" }> {
+  if (!event.id || event.id !== row.stepId || row.operationId !== row.stepId) {
+    throw new Error(
+      `Completed execution step ${row.stepId} does not match its ledger call id`,
+    );
+  }
+  if (event.tool !== row.toolName) {
+    throw new Error(
+      `Completed execution step ${row.stepId} does not match ledger tool ${event.tool}`,
+    );
+  }
+
+  let input: unknown;
+  let outcome: unknown;
+  try {
+    input = JSON.parse(row.inputJson);
+    outcome = JSON.parse(row.resultJson);
+  } catch (error) {
+    throw new Error(
+      `Completed execution step ${row.stepId} has unreadable stored intent or result`,
+      { cause: error },
+    );
+  }
+  if (
+    !isRecord(input) ||
+    typeof input.argumentsHash !== "string" ||
+    !/^[a-f0-9]{64}$/.test(input.argumentsHash) ||
+    !isRecord(input.input) ||
+    !isRecord(outcome) ||
+    typeof outcome.result !== "string" ||
+    typeof outcome.isError !== "boolean" ||
+    typeof outcome.completedSideEffect !== "boolean"
+  ) {
+    throw new Error(
+      `Completed execution step ${row.stepId} is missing replay identity or outcome fields`,
+    );
+  }
+  if (
+    outcome.errorCode !== undefined &&
+    typeof outcome.errorCode !== "string"
+  ) {
+    throw new Error(
+      `Completed execution step ${row.stepId} has an invalid error code`,
+    );
+  }
+
+  const artifacts = Array.isArray(outcome.artifacts)
+    ? outcome.artifacts.filter(isArtifactReceipt)
+    : [];
+  const mcpApp = durableStepMcpApp(outcome.mcpApp);
+  const chatUI = durableStepChatUI(outcome.chatUI);
+  const fileMutation = durableStepFileMutation(outcome.fileMutation);
+  return {
+    type: "tool_done",
+    tool: event.tool,
+    id: event.id,
+    input: event.input,
+    ...(event.inputFingerprint
+      ? { inputFingerprint: event.inputFingerprint }
+      : {}),
+    ...(event.inputStoredFingerprint
+      ? { inputStoredFingerprint: event.inputStoredFingerprint }
+      : {}),
+    result: outcome.result,
+    ...(outcome.isError ? { isError: true } : {}),
+    ...(typeof outcome.errorCode === "string"
+      ? { errorCode: outcome.errorCode }
+      : {}),
+    completedSideEffect: outcome.completedSideEffect,
+    argumentsHash: input.argumentsHash,
+    ...(artifacts.length > 0 ? { artifacts } : {}),
+    ...(mcpApp ? { mcpApp } : {}),
+    ...(chatUI && outcome.chatUIResult !== undefined
+      ? { chatUI, chatUIResult: outcome.chatUIResult }
+      : {}),
+    ...(fileMutation ? { fileMutation } : {}),
+  };
+}
+
+export async function overlayCompletedExecutionStepOutcomes(
+  threadId: string,
+  turnId: string,
+  events: AgentChatEvent[],
+): Promise<AgentChatEvent[]> {
+  const startsById = new Map<
+    string,
+    Array<{
+      event: Extract<AgentChatEvent, { type: "tool_start" }>;
+      index: number;
+    }>
+  >();
+  const donesById = new Map<
+    string,
+    Array<{
+      event: Extract<AgentChatEvent, { type: "tool_done" }>;
+      index: number;
+    }>
+  >();
+  events.forEach((event, index) => {
+    if (event.type === "tool_start" && event.id) {
+      const starts = startsById.get(event.id) ?? [];
+      starts.push({ event, index });
+      startsById.set(event.id, starts);
+    } else if (event.type === "tool_done" && event.id) {
+      const dones = donesById.get(event.id) ?? [];
+      dones.push({ event, index });
+      donesById.set(event.id, dones);
+    }
+  });
+  const candidateIds = [...startsById.keys()];
+  if (candidateIds.length === 0) return events;
+
+  const rows = await getCompletedAgentExecutionSteps(
+    threadId,
+    turnId,
+    candidateIds,
+  );
+  const rowsById = new Map<string, (typeof rows)[number]>();
+  const replacedIndexes = new Set<number>();
+  const replacementsAt = new Map<number, AgentChatEvent>();
+  const replacementsAfter = new Map<number, AgentChatEvent>();
+  for (const row of rows) {
+    if (!candidateIds.includes(row.stepId)) {
+      throw new Error(
+        `Completed execution step ${row.stepId} was not requested by the ledger`,
+      );
+    }
+    if (rowsById.has(row.stepId)) {
+      throw new Error(
+        `Completed execution step ${row.stepId} has ambiguous stored rows`,
+      );
+    }
+    const starts = startsById.get(row.stepId);
+    if (!starts || starts.length === 0) {
+      throw new Error(
+        `Completed execution step ${row.stepId} has no matching ledger call`,
+      );
+    }
+    const canonicalStart = starts[0]!.event;
+    const canonicalDone = durableStepToolDone(canonicalStart, row);
+    if (
+      !isConsistentToolCallInputFingerprint(
+        canonicalStart.input,
+        canonicalStart.inputFingerprint,
+        canonicalStart.inputStoredFingerprint,
+      )
+    ) {
+      throw new Error(
+        `Completed execution step ${row.stepId} has unreadable ledger call identity`,
+      );
+    }
+    const canonicalFingerprint = getToolCallEventFingerprint(canonicalStart);
+    for (const { event } of starts.slice(1)) {
+      if (
+        event.tool !== canonicalStart.tool ||
+        !isConsistentToolCallInputFingerprint(
+          event.input,
+          event.inputFingerprint,
+          event.inputStoredFingerprint,
+        ) ||
+        getToolCallEventFingerprint(event) !== canonicalFingerprint
+      ) {
+        throw new Error(
+          `Completed execution step ${row.stepId} has conflicting ledger call identities`,
+        );
+      }
+    }
+
+    const dones = donesById.get(row.stepId) ?? [];
+    for (const { event } of dones) {
+      if (
+        event.tool !== row.toolName ||
+        !isConsistentToolCallInputFingerprint(
+          event.input,
+          event.inputFingerprint,
+          event.inputStoredFingerprint,
+        )
+      ) {
+        throw new Error(
+          `Completed execution step ${row.stepId} conflicts with its tool_done identity`,
+        );
+      }
+      const doneFingerprint = getToolCallEventFingerprint(event);
+      if (
+        canonicalFingerprint !== undefined &&
+        doneFingerprint !== undefined &&
+        doneFingerprint !== canonicalFingerprint
+      ) {
+        throw new Error(
+          `Completed execution step ${row.stepId} conflicts with its tool_done input`,
+        );
+      }
+      if (
+        event.argumentsHash !== undefined &&
+        event.argumentsHash !== canonicalDone.argumentsHash
+      ) {
+        throw new Error(
+          `Completed execution step ${row.stepId} conflicts with its tool_done arguments`,
+        );
+      }
+      if (
+        event.completedSideEffect !== undefined &&
+        event.completedSideEffect !== canonicalDone.completedSideEffect
+      ) {
+        throw new Error(
+          `Completed execution step ${row.stepId} conflicts with its tool_done side-effect outcome`,
+        );
+      }
+      if (event.isError === true && canonicalDone.isError !== true) {
+        throw new Error(
+          `Completed execution step ${row.stepId} conflicts with its tool_done error outcome`,
+        );
+      }
+      if (
+        event.errorCode !== undefined &&
+        event.errorCode !== canonicalDone.errorCode
+      ) {
+        throw new Error(
+          `Completed execution step ${row.stepId} conflicts with its tool_done error code`,
+        );
+      }
+    }
+
+    rowsById.set(row.stepId, row);
+
+    for (const { index } of starts) replacedIndexes.add(index);
+    for (const { index } of dones) replacedIndexes.add(index);
+    const firstStartIndex = starts[0]!.index;
+    const lastStartIndex = starts.at(-1)!.index;
+    const lastDoneIndex = dones.at(-1)?.index ?? -1;
+    const doneIndex = Math.max(lastStartIndex, lastDoneIndex);
+    replacementsAfter.set(doneIndex, canonicalDone);
+    replacementsAt.set(firstStartIndex, canonicalStart);
+  }
+
+  const overlaid: AgentChatEvent[] = [];
+  for (let index = 0; index < events.length; index += 1) {
+    const event = events[index]!;
+    if (replacedIndexes.has(index)) {
+      const replacement = replacementsAt.get(index);
+      if (replacement) overlaid.push(replacement);
+    } else {
+      overlaid.push(event);
+    }
+    const replacementAfter = replacementsAfter.get(index);
+    if (replacementAfter?.type === "tool_done") {
+      overlaid.push(replacementAfter);
+    }
+  }
+  return overlaid;
+}
+
+function getToolCallEventFingerprint(
+  event: Extract<AgentChatEvent, { type: "tool_start" | "tool_done" }>,
+): string | undefined {
+  return (
+    event.inputFingerprint ??
+    (event.input === undefined
+      ? undefined
+      : toolCallInputFingerprint(event.input))
+  );
+}
 
 async function readCurrentTurnEventsWithRetry(
   threadId: string,
@@ -68,7 +395,15 @@ async function readCurrentTurnEventsWithRetry(
 export async function loadPriorTurnToolCallJournal(
   threadId: string | undefined,
   turnId?: string,
+  options: PriorTurnToolCallJournalOptions = {},
 ): Promise<PriorTurnToolCallJournalRead> {
+  if (options.recoverCompletedExecutionSteps && (!threadId || !turnId)) {
+    return {
+      status: "unreadable",
+      error:
+        "Reaper recovery requires a thread and turn id to read execution steps.",
+    };
+  }
   if (!threadId) {
     return {
       status: "read",
@@ -88,6 +423,21 @@ export async function loadPriorTurnToolCallJournal(
       `[tool-call-journal] per-turn ledger read failed for thread ${threadId}: ${error}`,
     );
     return { status: "unreadable", error };
+  }
+  if (options.recoverCompletedExecutionSteps) {
+    try {
+      priorEvents = await overlayCompletedExecutionStepOutcomes(
+        threadId,
+        turnId!,
+        priorEvents,
+      );
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[tool-call-journal] execution-step recovery read failed for thread ${threadId}: ${error}`,
+      );
+      return { status: "unreadable", error };
+    }
   }
   const priorToolCalls: PriorTurnToolCallSummary[] = [];
   const priorToolResults: PriorTurnToolResultSummary[] = [];

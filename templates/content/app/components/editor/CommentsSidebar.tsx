@@ -35,10 +35,12 @@ import { Link } from "react-router";
 import { toast } from "sonner";
 export { suggestionTextForDisplay } from "@shared/suggestion-text";
 
+import type { DocumentProperty } from "@shared/api";
 import {
   commentMentionsForText,
   findCommentMentions,
 } from "@shared/comment-mentions";
+import type { CommentPropertyTarget } from "@shared/comment-property-target";
 import { suggestionDiffParts } from "@shared/suggestion-diff";
 import type { SuggestionPresentationContext } from "@shared/suggestion-text";
 
@@ -91,6 +93,11 @@ import {
   renderCommentBody,
   useCommentTimestamp,
 } from "./CommentRow";
+import {
+  PropertyThreadTargetLabel,
+  propertyThreadTarget,
+  type PropertyThreadTarget,
+} from "./property-comments";
 export { getAiCommentSource } from "./CommentEntry";
 import {
   CommentAiConversation,
@@ -584,6 +591,10 @@ export type PendingCommentSelection = {
   offsetTop: number;
   anchor?: CommentTextAnchor;
   range?: { from: number; to: number };
+  /** Set when the comment is on a Property value instead of quoted text. */
+  property?: CommentPropertyTarget;
+  /** The Collection whose Property it is. */
+  databaseId?: string | null;
 };
 
 type PendingCommentDraft = PendingCommentSelection & {
@@ -683,6 +694,8 @@ interface CommentsSidebarOptions {
   replyDrafts: ReturnType<typeof useCommentReplyDrafts>;
   documentId: string;
   threads?: CommentThread[];
+  /** The Page's Properties, so a Property thread can say what changed. */
+  documentProperties?: readonly DocumentProperty[];
   isLoading?: boolean;
   scrollContainerRef?: RefObject<HTMLDivElement | null>;
   activeThreadId?: string | null;
@@ -760,6 +773,7 @@ export function CommentsSidebar({
   replyDrafts,
   documentId,
   threads = NO_THREADS,
+  documentProperties,
   isLoading = false,
   pendingComment,
   pendingTargetValid = true,
@@ -1178,10 +1192,17 @@ export function CommentsSidebar({
         clientOperationId,
         documentId,
         content: pendingText.trim(),
-        quotedText: pendingComment?.quotedText,
-        anchorPrefix: pendingComment?.anchor?.prefix,
-        anchorSuffix: pendingComment?.anchor?.suffix,
-        anchorStartOffset: pendingComment?.anchor?.startOffset,
+        ...(pendingComment.property
+          ? {
+              propertyId: pendingComment.property.propertyId,
+              databaseId: pendingComment.databaseId ?? undefined,
+            }
+          : {
+              quotedText: pendingComment.quotedText,
+              anchorPrefix: pendingComment.anchor?.prefix,
+              anchorSuffix: pendingComment.anchor?.suffix,
+              anchorStartOffset: pendingComment.anchor?.startOffset,
+            }),
         mentions: mentionsJsonFor(pendingText, pendingMentions, agent),
       });
       pendingDraft.finishSubmission(clientOperationId);
@@ -1774,6 +1795,11 @@ export function CommentsSidebar({
         onClose={onClose}
         currentUserEmail={currentUserEmail}
         quote={thread.quotedText}
+        propertyTarget={
+          thread.property
+            ? propertyThreadTarget(thread.property, documentProperties)
+            : null
+        }
         anchorUnavailable={
           threadPositionsMeasured &&
           !!thread.quotedText &&
@@ -2214,6 +2240,15 @@ export function CommentsSidebar({
               <CommentAvatar email={currentUserEmail} name={currentUserEmail} />
             </div>
             <div className="min-w-0 flex-1">
+              {displayedPendingComment.property ? (
+                <PropertyThreadTargetLabel
+                  className="mb-2"
+                  target={propertyThreadTarget(
+                    displayedPendingComment.property,
+                    documentProperties,
+                  )}
+                />
+              ) : null}
               {!pendingTargetValid && (
                 <p role="alert" className="mb-2 text-xs text-muted-foreground">
                   {t("comments.selectTextToComment")}
@@ -2269,7 +2304,7 @@ export function CommentsSidebar({
 
       {/* Open thread cards — positioned to align with their referenced text */}
       {items.map((item, index) => {
-        const { thread, top, isOrphaned } = item;
+        const { thread, top } = item;
         const restingItem = restingItemsById.get(thread.threadId);
         const marginTop = restingItem?.marginTop ?? item.marginTop;
         const translateY = top - (restingItem?.top ?? top);
@@ -2293,9 +2328,14 @@ export function CommentsSidebar({
                 0,
                 activeThreadId === thread.threadId,
               );
+        // A Property thread has no highlight to lose, so it isn't one that
+        // went missing.
+        const lostHighlight = (candidate: (typeof items)[number]) =>
+          candidate.isOrphaned &&
+          !("property" in candidate.thread && candidate.thread.property);
         const startsOrphanedSection =
-          isOrphaned &&
-          !items.slice(0, index).some((prior) => prior.isOrphaned);
+          lostHighlight(item) &&
+          !items.slice(0, index).some((prior) => lostHighlight(prior));
         return (
           <div
             key={thread.threadId}
@@ -3137,6 +3177,7 @@ function ThreadView({
   renderEntry,
   surface = "rail",
   quote,
+  propertyTarget,
   anchorUnavailable = false,
   onClose,
   popoverTitle,
@@ -3182,6 +3223,8 @@ function ThreadView({
   surface?: CommentSurface;
   /** The anchored text, shown as a quote line above the thread in the panel. */
   quote?: string | null;
+  /** The Property a thread is on, shown above it on every surface. */
+  propertyTarget?: PropertyThreadTarget | null;
   anchorUnavailable?: boolean;
   onClose?: () => void;
   popoverTitle?: string;
@@ -3438,6 +3481,12 @@ function ThreadView({
         )}
         data-comment-thread-body
       >
+        {propertyTarget ? (
+          <PropertyThreadTargetLabel
+            className="-mb-1"
+            target={propertyTarget}
+          />
+        ) : null}
         {isPanel && quote ? (
           <button
             type="button"
