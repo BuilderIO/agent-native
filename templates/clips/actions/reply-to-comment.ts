@@ -20,6 +20,7 @@ const mentionSchema = z.object({
 });
 
 export default defineAction({
+  mcpApp: { compactCatalog: true },
   description:
     "Reply to a comment on a recording, as the signed-in user, in that comment's thread. Comment IDs come from get-recording-player-data. The reply is inline Markdown without headings; organization members can be mentioned with @. Returns the new reply's id.",
   schema: z.object({
@@ -37,7 +38,6 @@ export default defineAction({
       .optional()
       .describe("Organization members mentioned in the reply"),
   }),
-  mcpApp: { compactCatalog: true },
   run: async (args) => {
     const db = getDb();
     const [parent] = await db
