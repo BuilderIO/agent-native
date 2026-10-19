@@ -40,9 +40,10 @@ import {
   type BrowserDiagnosticTimelineEvent,
 } from "../../shared/browser-diagnostics.js";
 import {
-  isLoomEmbedBackedRecording,
-  isLoomRecordingSource,
-} from "../../shared/loom.js";
+  embedFramesUnavailableReason,
+  recordingEmbedProvider,
+} from "../../shared/embed-provider.js";
+import { isLoomRecordingSource } from "../../shared/loom.js";
 import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
@@ -838,18 +839,18 @@ export function buildPublicAgentContext({
   });
   const publicPageUrl = `${requestUrl.origin}${getServerAppBasePath()}/share/${encodeURIComponent(recording.id)}`;
   const isLoomSource = isLoomRecordingSource(recording);
-  const isLoomEmbedBacked = isLoomEmbedBackedRecording(recording);
+  const embedProvider = recordingEmbedProvider(recording);
   const agentReadiness = getAgentClipReadiness(recording.status);
   const clipIsReady = agentReadiness.state === "ready";
   const appActivity = browserDiagnostics?.appActivity ?? null;
   // What the frame API can give for this clip, decided once: frames, the
   // instructions, the thumbnail and the API description all follow from it.
-  const frameMode: "unready" | "loom" | "still" | "video" = !clipIsReady
+  const frameMode: "unready" | "embed" | "still" | "video" = !clipIsReady
     ? "unready"
     : isImageRecording(recording)
       ? "still"
-      : isLoomEmbedBacked
-        ? "loom"
+      : embedProvider
+        ? "embed"
         : "video";
   // Stored names carry the extension of their type (see create-screenshot).
   const frameResponseType =
@@ -878,7 +879,7 @@ export function buildPublicAgentContext({
         : [];
   const instructions = [
     ...(agentReadiness.instruction ? [agentReadiness.instruction] : []),
-    ...(frameMode === "video" || frameMode === "loom"
+    ...(frameMode === "video" || frameMode === "embed"
       ? ["Use transcript.segments for timestamped spoken context."]
       : []),
     ...(clipIsReady
@@ -912,10 +913,8 @@ export function buildPublicAgentContext({
           "This clip is a screenshot: one still image, with no audio, transcript or timeline.",
           "To SEE it, GET apis.frame.urlTemplate with atMs=0 (returns the picture as apis.frame.responseType). Any atMs returns the same image.",
         ]
-      : frameMode === "loom"
-        ? [
-            "This clip is a legacy Loom embed import; frame extraction is not available through Clips until it is reimported as a Clips-hosted video.",
-          ]
+      : frameMode === "embed" && embedProvider
+        ? [embedFramesUnavailableReason(embedProvider)]
         : frameMode === "video"
           ? [
               "This clip is readable as both text (transcript) and images (JPEG frames) — you can hear AND see it.",
@@ -947,7 +946,7 @@ export function buildPublicAgentContext({
       title: recording.title,
       description: recording.description,
       publicPageUrl,
-      sourceProvider: isLoomSource ? "loom" : null,
+      sourceProvider: embedProvider ?? (isLoomSource ? "loom" : null),
       // A screenshot's thumbnail is the whole picture: hand out the frame
       // route, which takes this caller's own access and checks the
       // redaction hold, never the storage URL.
@@ -1195,10 +1194,9 @@ export async function loadRecordingMediaBytes(
   if (!videoUrl) {
     throw new RecordingMediaFetchError("Recording media is missing.", 404);
   }
-  if (isLoomEmbedBackedRecording(recording)) {
-    throw new Error(
-      "Frame extraction is not available for legacy Loom embed imports.",
-    );
+  const embedProvider = recordingEmbedProvider(recording);
+  if (embedProvider) {
+    throw new Error(embedFramesUnavailableReason(embedProvider));
   }
   assertFrameMediaSize(recording.videoSizeBytes);
 
@@ -1247,10 +1245,9 @@ export async function loadRecordingMediaFile(
   if (!videoUrl) {
     throw new RecordingMediaFetchError("Recording media is missing.", 404);
   }
-  if (isLoomEmbedBackedRecording(recording)) {
-    throw new Error(
-      "Frame extraction is not available for legacy Loom embed imports.",
-    );
+  const embedProvider = recordingEmbedProvider(recording);
+  if (embedProvider) {
+    throw new Error(embedFramesUnavailableReason(embedProvider));
   }
   assertFrameMediaFileSize(recording.videoSizeBytes);
 
