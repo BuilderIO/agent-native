@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockGetQuery = vi.hoisted(() => vi.fn());
 const mockSetResponseHeader = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
+const mockApplyAgentJsonHeaders = vi.hoisted(() => vi.fn());
 const mockLoadPublicAgentAccess = vi.hoisted(() => vi.fn());
 const mockLoadRecordingMediaFile = vi.hoisted(() => vi.fn());
 const mockExtractJpegFrameSheetFromFile = vi.hoisted(() => vi.fn());
@@ -38,6 +39,8 @@ vi.mock("h3", () => ({
 }));
 
 vi.mock("../../lib/public-agent-context.js", () => ({
+  applyAgentJsonHeaders: (...args: unknown[]) =>
+    mockApplyAgentJsonHeaders(...args),
   CLIPS_AGENT_ACCESS_PARAM: "agent_access",
   describeAgentAccessFailure: (failure: unknown) => failure,
   loadPublicAgentAccess: (...args: unknown[]) =>
@@ -271,6 +274,7 @@ describe("agent-frames.jpg route", () => {
       maxFrames: 36,
       nextStep: expect.stringContaining("endMs=1200"),
     });
+    expect(mockApplyAgentJsonHeaders).toHaveBeenCalledWith(event);
     expect(mockLoadRecordingMediaFile).not.toHaveBeenCalled();
   });
 
@@ -342,6 +346,7 @@ describe("agent-frames.jpg route", () => {
     const preparing = await run({ startMs: "0" });
     expect(preparing.event.status).toBe(409);
     expect(preparing.event.headers.get("retry-after")).toBe("15");
+    expect(mockApplyAgentJsonHeaders).toHaveBeenCalledWith(preparing.event);
 
     mockLoadPublicAgentAccess.mockResolvedValueOnce({
       ok: true,

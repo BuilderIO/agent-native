@@ -18,6 +18,7 @@ import {
   REDACTION_HOLD_MESSAGE,
 } from "./pending-redactions.js";
 import {
+  applyAgentJsonHeaders,
   CLIPS_AGENT_ACCESS_PARAM,
   describeAgentAccessFailure,
   loadPublicAgentAccess,
@@ -34,8 +35,10 @@ export function sendFrameJson<T>(
   headers: Record<string, string> = {},
 ): T {
   setResponseStatus(event, status);
-  setResponseHeader(event, "Content-Type", "application/json; charset=utf-8");
-  setResponseHeader(event, "X-Content-Type-Options", "nosniff");
+  // These paths end in .jpg, so an error without its own Cache-Control gets
+  // the CDN's 4-hour image default, and a client could keep a "still
+  // processing" answer after the clip is ready.
+  applyAgentJsonHeaders(event);
   for (const [name, value] of Object.entries(headers)) {
     setResponseHeader(event, name, value);
   }
