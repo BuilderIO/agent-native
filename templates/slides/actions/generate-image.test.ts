@@ -124,8 +124,31 @@ describe("generate-image CLI", () => {
       message,
     );
 
-    expect(console.error).toHaveBeenCalledWith(`Error: ${message}`);
+    expect(console.error).toHaveBeenCalledWith(
+      `Error: ${message.replace("set useBrandLibrary: true", "pass --use-brand-library true")}`,
+    );
     expect(console.log).not.toHaveBeenCalledWith("\nDone!");
+  });
+
+  it("drops empty CLI reference entries before applying the fetch limit", async () => {
+    mockGenerate.mockResolvedValue({
+      imageData: Buffer.from("image"),
+      mimeType: "image/png",
+      model: "gemini",
+      provider: "gemini",
+    });
+
+    await main([
+      "--prompt",
+      "a hero image",
+      "--reference-image-urls",
+      "https://cdn.example.com/one.png,, https://cdn.example.com/two.png,",
+    ]);
+
+    expect(mockFetchReferenceImages).toHaveBeenCalledWith(
+      ["https://cdn.example.com/one.png", "https://cdn.example.com/two.png"],
+      { timeoutMs: 8_000 },
+    );
   });
 
   it("uses SSRF-safe HTTPS fetches and only forwards image references", async () => {

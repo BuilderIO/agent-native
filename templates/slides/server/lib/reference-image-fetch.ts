@@ -1,10 +1,13 @@
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import pLimit from "p-limit";
 
+import { MAX_REFERENCE_IMAGE_INPUT_COUNT } from "../../shared/api.js";
+
+export { MAX_REFERENCE_IMAGE_INPUT_COUNT };
+
 export const MAX_REFERENCE_IMAGE_BYTES = 5 * 1024 * 1024;
 export const MAX_REFERENCE_IMAGE_TOTAL_BYTES = 10 * 1024 * 1024;
 export const MAX_REFERENCE_IMAGE_COUNT = 8;
-export const MAX_REFERENCE_IMAGE_INPUT_COUNT = 32;
 
 const SUPPORTED_REFERENCE_IMAGE_TYPES = new Set([
   "image/png",
@@ -237,16 +240,36 @@ export async function fetchReferenceImages(
     ),
   );
 
-  for (const { index, url } of aggregateSkippedUrls) {
-    attempted++;
-    const result = await fetchReferenceImage(url, { ...options, budget });
-    if (result.ok) {
-      imagesByIndex.push({ index, image: result.image });
-    } else if (result.reason.code === "aggregate_limit_exceeded") {
-      aggregateSkipped++;
-    } else {
-      failures.push({ index: index + 1, reason: result.reason });
+  let pendingRetries = aggregateSkippedUrls;
+  while (pendingRetries.length > 0) {
+    if (totalBytes >= MAX_REFERENCE_IMAGE_TOTAL_BYTES) {
+      aggregateSkipped = pendingRetries.length;
+      break;
     }
+    const bytesBeforeRetries = totalBytes;
+    const nextRetries: typeof pendingRetries = [];
+    await Promise.all(
+      pendingRetries.map(async ({ index, url }) => {
+        attempted++;
+        const result = await fetchReferenceImage(url, { ...options, budget });
+        if (result.ok) {
+          imagesByIndex.push({ index, image: result.image });
+        } else if (result.reason.code === "aggregate_limit_exceeded") {
+          nextRetries.push({ index, url });
+        } else {
+          failures.push({ index: index + 1, reason: result.reason });
+        }
+      }),
+    );
+    if (nextRetries.length === 0) break;
+    if (
+      totalBytes === bytesBeforeRetries ||
+      totalBytes >= MAX_REFERENCE_IMAGE_TOTAL_BYTES
+    ) {
+      aggregateSkipped = nextRetries.length;
+      break;
+    }
+    pendingRetries = nextRetries;
   }
 
   const images = imagesByIndex

@@ -129,7 +129,10 @@ Options:
   const count = parseInt(opts["count"] || "1", 10);
   const outputPrefix = opts["output"];
   const extraReferenceUrls = opts["reference-image-urls"]
-    ? opts["reference-image-urls"].split(",").map((u) => u.trim())
+    ? opts["reference-image-urls"]
+        .split(",")
+        .map((u) => u.trim())
+        .filter(Boolean)
     : [];
 
   let slideContent = opts["slide-content"];
@@ -222,7 +225,13 @@ Options:
   try {
     provider = await getProvider(modelChoice);
   } catch (error) {
-    if (error instanceof Error) console.error(`Error: ${error.message}`);
+    if (error instanceof Error) {
+      const message = error.message.replace(
+        "set useBrandLibrary: true",
+        "pass --use-brand-library true",
+      );
+      console.error(`Error: ${message}`);
+    }
     throw error;
   }
 

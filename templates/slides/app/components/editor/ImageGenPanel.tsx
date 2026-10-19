@@ -1,6 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
   DEFAULT_STYLE_REFERENCE_URLS,
+  MAX_REFERENCE_IMAGE_INPUT_COUNT,
   normalizeReferenceUrls,
 } from "@shared/api";
 import { IconX } from "@tabler/icons-react";
@@ -61,10 +62,21 @@ export function buildImageGenerationContext({
   );
   contextParts.push(WEBSITE_STYLE_REFERENCE_DIRECTIVE);
 
-  const styleReferenceUrls = normalizeReferenceUrls(referenceImageUrls);
+  const normalizedReferenceUrls = normalizeReferenceUrls(referenceImageUrls);
+  const styleReferenceUrls = normalizedReferenceUrls.slice(
+    0,
+    MAX_REFERENCE_IMAGE_INPUT_COUNT,
+  );
+  const omittedReferenceCount =
+    normalizedReferenceUrls.length - styleReferenceUrls.length;
   if (styleReferenceUrls.length > 0) {
     contextParts.push(
       `Call \`generate-image-api\` with referenceImageUrls set to this exact array: ${JSON.stringify(styleReferenceUrls)}.`,
+    );
+  }
+  if (omittedReferenceCount > 0) {
+    contextParts.push(
+      `The action accepts at most ${MAX_REFERENCE_IMAGE_INPUT_COUNT} reference URLs, so ${omittedReferenceCount} were omitted. Tell the user that only the first ${MAX_REFERENCE_IMAGE_INPUT_COUNT} references will be used, and ask them to narrow the references if the omitted ones matter.`,
     );
   }
 

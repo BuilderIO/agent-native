@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { MAX_REFERENCE_IMAGE_INPUT_COUNT } from "../../../shared/api.js";
 import {
   buildImageGenerationContext,
   getImageGenerationLabel,
@@ -35,6 +36,29 @@ describe("buildImageGenerationContext", () => {
     expect(context).toContain(
       "call `import-from-url` for each URL before generating",
     );
+  });
+
+  it("caps large design-system reference lists and reports omitted URLs", () => {
+    const references = Array.from(
+      { length: MAX_REFERENCE_IMAGE_INPUT_COUNT + 3 },
+      (_, index) => `https://cdn.example.com/style-${index + 1}.png`,
+    );
+    const context = buildImageGenerationContext({
+      prompt: "a warm editorial hero image",
+      referenceImageUrls: references,
+    });
+    const includedReferences = references.slice(
+      0,
+      MAX_REFERENCE_IMAGE_INPUT_COUNT,
+    );
+
+    expect(context).toContain(
+      `referenceImageUrls set to this exact array: ${JSON.stringify(includedReferences)}.`,
+    );
+    expect(context).toContain(
+      `3 were omitted. Tell the user that only the first ${MAX_REFERENCE_IMAGE_INPUT_COUNT} references will be used`,
+    );
+    expect(context).not.toContain(references[MAX_REFERENCE_IMAGE_INPUT_COUNT]);
   });
 });
 
