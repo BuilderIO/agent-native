@@ -189,6 +189,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.creditsSkipGoBack": "رجوع",
   "onboarding.creditsSkipAnyway": "تخطي على أي حال",
   "onboarding.creditsUseCustomKeys": "استخدام مفاتيحك الخاصة",
+  "onboarding.creditsActivating": "جارٍ تفعيل الأرصدة المجانية",
+  "onboarding.creditsActivatingTooltip":
+    "توفر Builder أرصدة مجانية لنماذج LLM وJev والتخزين والمزيد، لتتمكن من استخدام ميزات الذكاء الاصطناعي في هذا التطبيق دون الحاجة إلى مفاتيحك الخاصة.",
   "onboarding.creditsSkipBody":
     "إذا تخطيت، ستحتاج إلى توصيل مفاتيحك الخاصة لاستخدام الذكاء الاصطناعي والتخزين.",
   "onboarding.builderConnect": "الاتصال بـ Builder.io",

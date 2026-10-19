@@ -35,11 +35,18 @@ import {
   PopoverTrigger,
 } from "@agent-native/toolkit/ui/popover";
 import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui/tooltip";
 import { cn } from "@agent-native/toolkit/utils";
 import {
   IconArrowRight,
   IconChevronDown,
   IconChevronUp,
+  IconHelpCircle,
   IconKey,
   IconLoader2,
 } from "@tabler/icons-react";
@@ -1371,15 +1378,37 @@ export function FirstRunOnboarding({
           {accountExists
             ? t("agentChat.onboarding.builderAccountExistsTitle")
             : provisioning
-              ? t("agentChat.onboarding.builderActivating")
+              ? t("agentChat.onboarding.creditsActivating")
               : t("agentChat.onboarding.builderConnecting")}
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          {accountExists
-            ? t("agentChat.onboarding.builderAccountExistsDescription")
-            : provisioning
-              ? t("agentChat.onboarding.builderProvisioningDescription")
-              : t("agentChat.onboarding.builderConnectionDescription")}
+          {accountExists ? (
+            t("agentChat.onboarding.builderAccountExistsDescription")
+          ) : provisioning ? (
+            <>
+              {t("agentChat.onboarding.builderProvisioningDescription")}
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label={t(
+                        "agentChat.onboarding.creditsActivatingTooltip",
+                      )}
+                      className="ml-1 inline-flex size-4 items-center justify-center rounded-full align-middle text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <IconHelpCircle size={13} aria-hidden />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-xs text-xs">
+                    {t("agentChat.onboarding.creditsActivatingTooltip")}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </>
+          ) : (
+            t("agentChat.onboarding.builderConnectionDescription")
+          )}
         </p>
         {accountExists ? (
           <button

@@ -197,6 +197,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.creditsSkipGoBack": "戻る",
   "onboarding.creditsSkipAnyway": "それでもスキップ",
   "onboarding.creditsUseCustomKeys": "カスタムキーを使用",
+  "onboarding.creditsActivating": "無料クレジットを有効化しています",
+  "onboarding.creditsActivatingTooltip":
+    "Builder は、LLM、Jev、ストレージなどの無料クレジットを提供します。自分のキーがなくても、このアプリの AI 機能を使えます。",
   "onboarding.creditsSkipBody":
     "スキップする場合は、AI とストレージを使用するために独自のキーを接続する必要があります。",
   "onboarding.builderConnect": "Builder.io に接続",

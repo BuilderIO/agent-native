@@ -1080,9 +1080,7 @@ describe("FirstRunOnboarding", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    expect(document.body.textContent).toContain(
-      "Activating Builder.io free credits",
-    );
+    expect(document.body.textContent).toContain("Activating free credits");
     expect(document.body.textContent).toContain(
       "Creating your Builder.io account and activating free credits.",
     );
