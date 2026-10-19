@@ -109,4 +109,27 @@ describe("adaptAutoTextColorForCrossScreenNode", () => {
         ?.style.color,
     ).toBe("#ffffff");
   });
+
+  it("adapts legacy white text descendants while preserving explicit descendant colors", () => {
+    const content = `<!doctype html><html><body style="background:#ffffff">
+      <section data-agent-native-node-id="container" data-an-primitive="group">
+        <span data-agent-native-node-id="legacy-text" data-an-primitive="text" style="color:#ffffff">Legacy</span>
+        <span data-agent-native-node-id="explicit-text" data-an-primitive="text" style="color:#f00000">Explicit</span>
+      </section>
+    </body></html>`;
+
+    const adapted = adaptAutoTextColorForCrossScreenNode(content, "container");
+    const doc = new DOMParser().parseFromString(adapted, "text/html");
+
+    expect(
+      doc.querySelector<HTMLElement>(
+        '[data-agent-native-node-id="legacy-text"]',
+      )?.style.color,
+    ).toBe("#000000");
+    expect(
+      doc.querySelector<HTMLElement>(
+        '[data-agent-native-node-id="explicit-text"]',
+      )?.style.color,
+    ).toBe("#f00000");
+  });
 });

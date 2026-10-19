@@ -277,12 +277,7 @@ export function adaptAutoTextColorForCrossScreenNode(
         descendant.getAttribute("data-agent-native-primitive") ||
         ""
       ).toLowerCase();
-      if (
-        descendantKind === "text" &&
-        descendant.hasAttribute(BOARD_TEXT_AUTO_COLOR_MARKER)
-      ) {
-        textNodes.add(descendant);
-      }
+      if (descendantKind === "text") textNodes.add(descendant);
     }
     if (textNodes.size === 0) return content;
 
