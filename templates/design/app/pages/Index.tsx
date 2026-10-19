@@ -1021,7 +1021,12 @@ export default function Index() {
         designSystemId,
         "prompt",
       );
-      handleGenerateDesignTitle(id, prompt, title);
+      // The title action needs the saved design, and create-design is still in flight.
+      void ready.then(
+        () => handleGenerateDesignTitle(id, prompt, title),
+        // coercion-ok: a failed create reports itself, and there is no design to title.
+        () => {},
+      );
 
       if (fullAppBuildingEnabled && newDesignMode === "app") {
         try {

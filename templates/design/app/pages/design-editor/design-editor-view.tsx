@@ -7,6 +7,7 @@ import type {
   MotionAnimationStyleTrackDefinition,
 } from "@shared/motion-animation-styles";
 import type { MotionBuiltInRecipe } from "@shared/motion-built-in-recipes";
+import { motionTimelineHasIncompatiblePositionTracks } from "@shared/motion-code";
 import type { MotionEasingVariable } from "@shared/motion-easing";
 import type {
   MotionNativeStyleInstance,
@@ -402,6 +403,8 @@ export function renderDesignEditorView({
     handleMotionDurationChange,
     inspectCodeData,
     handleCreateComponent,
+    handleGoToMainComponentMenuAction,
+    selectedInstanceActionNodeId,
     handleComponentPropApplied,
     handleShaderSourceApplied,
     handleShaderSourceEdit,
@@ -1641,6 +1644,15 @@ export function renderDesignEditorView({
               toast.error(t("designEditor.motion.textSyncUnsupported"));
               return;
             }
+            if (
+              motionTimelineHasIncompatiblePositionTracks({
+                tracks: motionTracks,
+                nativeStyles: [...motionNativeStyles, ...instances],
+              })
+            ) {
+              toast.error(t("designEditor.motion.positionStyleConflict"));
+              return;
+            }
             const nextDurationMs = Math.max(
               motionDurationMs,
               ...instances.map(motionNativeStyleEndTimeMs),
@@ -1871,6 +1883,9 @@ export function renderDesignEditorView({
               kind: "resetOverrides",
             })
         : undefined,
+    onGoToMainComponent: selectedInstanceActionNodeId
+      ? handleGoToMainComponentMenuAction
+      : undefined,
     onRestoreComponent:
       canEditDesign && id && activeFile?.id
         ? (nodeId: string) =>
@@ -2005,7 +2020,8 @@ export function renderDesignEditorView({
         {!hostOwnsChrome &&
           designBottomToolbarMode === "editor" &&
           design &&
-          !questionFlowActive && (
+          !questionFlowActive &&
+          !(isMobileViewport && leftSidebarVisible && activeLeftPanel) && (
             <DesignBottomToolbar
               mode={mode}
               drawMode={drawMode}

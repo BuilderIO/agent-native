@@ -146,6 +146,11 @@ export async function assertWorkspaceConnectionAllowedUserGroups(
 }
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   description:
     "Create or update a shared workspace integration connection and its app access list.",
   chatUI: {

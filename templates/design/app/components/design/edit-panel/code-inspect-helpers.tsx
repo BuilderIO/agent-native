@@ -22,6 +22,9 @@ const VOID_HTML_TAGS = new Set([
 const INSPECT_CODE_MAX_INLINE_TAG_LENGTH = 48;
 const INSPECT_CODE_OPENING_TAG_PATTERN =
   /<[a-zA-Z][\w:-]*(?:"[^"]*"|'[^']*'|[^'"<>])*\/?>/g;
+// The editor wraps painted elements' bare text in this span; it is not authored markup.
+const EDITOR_TEXT_WRAPPER_OPENING_TAG =
+  /^<span\s+data-an-text(?:=(?:""|''))?\s*>$/i;
 const INSPECT_CODE_RAW_TEXT_TAGS = new Set([
   "script",
   "style",
@@ -177,8 +180,17 @@ function formatInspectCodeMarkup(markup: string): string {
 
     const openingTag = match[0];
     formatted.push(markup.slice(cursor, tagIndex));
-    formatted.push(formatInspectCodeOpeningTag(openingTag));
     cursor = tagIndex + openingTag.length;
+    const formattedTag = formatInspectCodeOpeningTag(openingTag);
+    if (EDITOR_TEXT_WRAPPER_OPENING_TAG.test(formattedTag)) {
+      const wrapperEnd = markup.indexOf("</span>", cursor);
+      if (wrapperEnd !== -1) {
+        formatted.push(markup.slice(cursor, wrapperEnd));
+        cursor = wrapperEnd + "</span>".length;
+        continue;
+      }
+    }
+    formatted.push(formattedTag);
 
     const tagName = tagNameFromOpeningTag(openingTag);
     if (

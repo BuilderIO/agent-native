@@ -885,6 +885,9 @@ export default {
       openDock: "动效",
       animations: "动画",
       pathEditAmbiguous: "此图层包含多个位置动画，无法明确编辑其路径。",
+      pathEditPositionConflict:
+        "此图层已有另一个位置动画，因此无法将其路径改为曲线。",
+      positionStyleConflict: "此图层已有无法与其他位置动画组合的位置动画。",
       animationStyles: {
         title: "动画",
         createTitle: "创建新的动画样式",
@@ -1783,6 +1786,7 @@ export default {
       description: "选择一个路由作为新屏幕，或输入路径。",
       searchPlaceholder: "搜索路由…",
       noRoutes: "未找到匹配的路由",
+      noDiscoveredRoutes: "此应用未发现路由。输入路径即可添加屏幕。",
       useCustomPath: "添加“{{path}}”",
       viewportDesktop: "桌面版",
       viewportMobile: "移动版",

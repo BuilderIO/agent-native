@@ -96,7 +96,6 @@ async function expectSavedBox(app: App, node: SavedNode, expected: number[]) {
   ).toEqual([]);
 }
 
-// oracle: none — verifies which shape the Shapes button keeps arming, not parity with a design reference.
 test("after choosing Ellipse in the Shapes menu, the Shapes button draws ellipses again on its next use", async ({
   app,
 }) => {

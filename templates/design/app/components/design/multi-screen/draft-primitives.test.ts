@@ -1,4 +1,8 @@
-import { createCornerNode, serializePenPath } from "@shared/pen-path";
+import {
+  createCornerNode,
+  serializePenPath,
+  translatePenPath,
+} from "@shared/pen-path";
 import { describe, expect, it } from "vitest";
 
 import { DEFAULT_SHAPE_FILL } from "../canvas-primitive-style";
@@ -6,6 +10,7 @@ import {
   createDraftPrimitive,
   createPenDraftPrimitive,
   draftPrimitiveToInsert,
+  removeScreenContentOffsetFromPenPath,
 } from "./draft-primitives";
 import type {
   DraftPrimitive,
@@ -68,6 +73,36 @@ describe("draftPrimitiveToInsert Pen paths", () => {
       { x: 60, y: 40 },
     ]);
     expect(inserted.pathData).toBe(serializePenPath(inserted.penPath!));
+  });
+
+  it("removes the selected SVG screen-content offset after frame conversion", () => {
+    const sourcePath = {
+      closed: false,
+      nodes: [
+        createCornerNode({ x: 10, y: 30 }),
+        createCornerNode({ x: 70, y: 30 }),
+      ],
+    };
+    const screenContentOffset = { x: 400, y: 300 };
+    const draft = createPenDraftPrimitive(
+      translatePenPath(
+        sourcePath,
+        screenContentOffset.x,
+        screenContentOffset.y,
+      ),
+      { id: "draft-continued-svg" },
+    );
+
+    const inserted = draftPrimitiveToInsert(draft, frame(0, 0, 800, 600));
+    const sourceCoordinates = removeScreenContentOffsetFromPenPath(
+      inserted.penPath!,
+      screenContentOffset,
+    );
+
+    expect(sourceCoordinates.nodes.map((node) => node.point)).toEqual([
+      { x: 10, y: 30 },
+      { x: 70, y: 30 },
+    ]);
   });
 });
 

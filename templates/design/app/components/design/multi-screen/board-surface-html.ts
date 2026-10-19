@@ -359,6 +359,60 @@ function stripExecutableStaticPreviewContent(html: string) {
     .replace(/\s+on[a-z][\w:-]*\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
 }
 
+/** Absolutely placed top-level board objects with px geometry, in board coordinates. */
+export function getBoardObjectRects(html: string | undefined): FrameGeometry[] {
+  if (!html || typeof DOMParser === "undefined") return [];
+  const body = new DOMParser().parseFromString(html, "text/html").body;
+  const px = (value: string) =>
+    value.endsWith("px") ? Number.parseFloat(value) : Number.NaN;
+  const rects: FrameGeometry[] = [];
+  for (const child of Array.from(body.children)) {
+    const style = (child as HTMLElement).style;
+    if (style.position !== "absolute") continue;
+    const rect = {
+      x: px(style.left),
+      y: px(style.top),
+      width: px(style.width),
+      height: px(style.height),
+    };
+    if (Object.values(rect).every(Number.isFinite)) rects.push(rect);
+  }
+  return rects;
+}
+
+/** Board objects paint above the screens they overlap without enclosing; returns those overlaps. */
+export function getBoardObjectScreenOverlaps(
+  objects: readonly FrameGeometry[],
+  screens: readonly FrameGeometry[],
+): FrameGeometry[] {
+  const overlaps: FrameGeometry[] = [];
+  for (const object of objects) {
+    for (const screen of screens) {
+      const left = Math.max(object.x, screen.x);
+      const top = Math.max(object.y, screen.y);
+      const right = Math.min(object.x + object.width, screen.x + screen.width);
+      const bottom = Math.min(
+        object.y + object.height,
+        screen.y + screen.height,
+      );
+      if (right <= left || bottom <= top) continue;
+      const enclosesScreen =
+        object.x <= screen.x &&
+        object.y <= screen.y &&
+        object.x + object.width >= screen.x + screen.width &&
+        object.y + object.height >= screen.y + screen.height;
+      if (enclosesScreen) continue;
+      overlaps.push({
+        x: left,
+        y: top,
+        width: right - left,
+        height: bottom - top,
+      });
+    }
+  }
+  return overlaps;
+}
+
 export function getBoardSurfaceStaticPreviewContent(args: {
   darkScheme?: boolean;
   html: string;

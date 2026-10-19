@@ -88,10 +88,13 @@ const guards = [
   "guard:no-blob-column-predicate",
   "guard:no-unbounded-table-reads",
   "guard:no-bare-error-in-actions",
+  "guard:no-new-legacy-mcp-hints",
+  "guard:mcp-unredacted-call-boundary",
   "guard:dead-settings-keys",
   "guard:serverless-function-payload",
   "guard:doc-budgets",
   "guard:e2e-quarantine",
+  "guard:design-e2e-regression-pins",
   "guard:e2e-harness",
 ] as const;
 

@@ -215,6 +215,8 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     new Map(),
   );
   const renderedElementInfoRevisionRef = useRef(0);
+  const [renderedElementInfoVersion, setRenderedElementInfoVersion] =
+    useState(0);
   const rehydrateRenderedElementInfoRef = useRef<(() => void) | null>(null);
   const renderedInfoRehydratePendingRef = useRef(false);
   const invalidateRenderedElementInfo = useCallback(() => {
@@ -326,6 +328,7 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
   const [motionDockMounted, setMotionDockMounted] = useState(false);
   const motionDockUnmountTimerRef = useRef<number | null>(null);
   const motionDockOpenAnimationFrameRef = useRef<number | null>(null);
+  const motionDockOpenRequestedRef = useRef(false);
   const motionAutosaveTimerRef = useRef<number | null>(null);
   const motionAutosaveFlushRef = useRef<(() => void) | null>(null);
   const clearMotionDockUnmountTimer = useCallback(() => {
@@ -351,6 +354,7 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
   }, []);
   const setMotionDockOpenAnimated = useCallback(
     (open: boolean) => {
+      motionDockOpenRequestedRef.current = open;
       clearMotionDockUnmountTimer();
       clearMotionDockOpenAnimationFrame();
       if (open) {
@@ -384,7 +388,9 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     [clearMotionDockOpenAnimationFrame, clearMotionDockUnmountTimer],
   );
   const handleMotionDockExitComplete = useCallback(() => {
-    if (motionDockOpen) return;
+    // A reopen sets motionDockOpen two frames late; an exit transition ending
+    // in between must not unmount the dock it is reopening.
+    if (motionDockOpenRequestedRef.current) return;
     clearMotionDockUnmountTimer();
     if (typeof window === "undefined") {
       setMotionDockMounted(false);
@@ -394,7 +400,7 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
       setMotionDockMounted(false);
       motionDockUnmountTimerRef.current = null;
     }, MOTION_DOCK_EXIT_SETTLE_MS);
-  }, [clearMotionDockUnmountTimer, motionDockOpen]);
+  }, [clearMotionDockUnmountTimer]);
   const [shaderFillPreview, setShaderFillPreview] = useState<{
     selector?: string;
     nodeId?: string;
@@ -800,6 +806,8 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
 
   const selectionUndoStackRef = useRef<SelectionHistoryEntry[]>([]);
   const selectionRedoStackRef = useRef<SelectionHistoryEntry[]>([]);
+  const selectionPushedAtRef = useRef(0);
+  const dragStartSelectionRef = useRef<SelectionHistoryEntry | null>(null);
   const clearRedoStacks = useCallback(() => {
     contentRedoStackRef.current = [];
     contentRedoSelectionStackRef.current = [];
@@ -826,7 +834,7 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
   const historySourceReaderRef = useRef<(screenId: string) => string>(() => {
     throw new Error("History source reader is not initialized");
   });
-  const captureCurrentSelection = (): GeometryHistorySelection => {
+  const captureCurrentSelection = useCallback((): GeometryHistorySelection => {
     recordDesignPerformance("captureCurrentSelection");
     return captureHistorySelectionFromOwners(
       {
@@ -840,7 +848,7 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
       codeLayerOwnerByNodeIdRef.current,
       (screenId) => historySourceReaderRef.current(screenId),
     );
-  };
+  }, []);
   // Runs after every history push; same-value sets right after a commit still
   // re-render the whole editor, so only real changes are published.
   const publishedUndoRedoRef = useRef({ canUndo: false, canRedo: false });
@@ -973,6 +981,23 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
           redoOrderRef.current,
           "content",
         );
+      }
+      const dragStartSelection = dragStartSelectionRef.current;
+      dragStartSelectionRef.current = null;
+      if (
+        dragStartSelection &&
+        historyOrderRef.current[historyOrderRef.current.length - 1] ===
+          "selection" &&
+        selectionUndoStackRef.current[
+          selectionUndoStackRef.current.length - 1
+        ] === dragStartSelection
+      ) {
+        // The selection a drag's pointerdown made belongs to that drag's step.
+        selectionUndoStackRef.current = selectionUndoStackRef.current.slice(
+          0,
+          -1,
+        );
+        historyOrderRef.current = historyOrderRef.current.slice(0, -1);
       }
       contentUndoStackRef.current = [
         ...contentUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
@@ -1296,6 +1321,8 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     selectedScreenStyleChangeRef,
     renderedElementInfoByLayerKeyRef,
     renderedElementInfoRevisionRef,
+    renderedElementInfoVersion,
+    setRenderedElementInfoVersion,
     rehydrateRenderedElementInfoRef,
     invalidateRenderedElementInfo,
     rehydrateRenderedInfoAfterPreview,
@@ -1372,6 +1399,8 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     redoOrderRef,
     selectionUndoStackRef,
     selectionRedoStackRef,
+    selectionPushedAtRef,
+    dragStartSelectionRef,
     clearRedoStacks,
     clearPendingHistoryDirections,
     historySourceReaderRef,

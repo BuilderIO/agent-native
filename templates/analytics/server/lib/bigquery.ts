@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "crypto";
 import { getDbExec } from "@agent-native/core/db";
 
 import { DASHBOARD_SQL_VALIDATION_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
+import type { SourceGenerationResult } from "../../shared/source-generation.js";
 import { resolveCredential } from "./credentials";
 import {
   credentialCacheScope,
@@ -62,6 +63,8 @@ export interface BigQueryTableMetadata {
   location?: string;
   numRows?: string;
   numBytes?: string;
+  /** Epoch milliseconds, as a string. */
+  lastModifiedTime?: string;
   timePartitioning?: unknown;
   clustering?: unknown;
   schema?: { fields?: BigQueryTableField[] };
@@ -218,6 +221,17 @@ export interface BigQueryTableSummary {
   labels?: Record<string, string>;
 }
 
+/** A metadata read that BigQuery answered with an error status. */
+export class BigQueryMetadataError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "BigQueryMetadataError";
+    this.status = status;
+  }
+}
+
 export async function bigQueryGet<T>(
   url: string,
   signal?: AbortSignal,
@@ -240,11 +254,9 @@ export async function bigQueryGet<T>(
     } catch {
       // coercion-ok: a non-JSON error body is reported verbatim in the error thrown below.
     }
-    if (detail) {
-      throw new Error(detail);
-    }
-    throw new Error(
-      `BigQuery metadata request failed (${res.status}): ${text}`,
+    throw new BigQueryMetadataError(
+      res.status,
+      detail || `BigQuery metadata request failed (${res.status}): ${text}`,
     );
   }
 
@@ -522,7 +534,7 @@ function getL1(
     l1Cache.delete(key);
     return null;
   }
-  return entry.result;
+  return reusableCacheHit(entry.result);
 }
 
 function setL1(key: string, result: QueryResult, fence: CacheFence): void {
@@ -671,9 +683,9 @@ async function getL2(key: string): Promise<QueryResult | null> {
     toIsoTimestamp(result.fetchedAt) ?? toIsoTimestamp(entry.created_at);
   if (fetchedAt === undefined) {
     const { fetchedAt: _unreadable, ...rest } = result;
-    return rest;
+    return reusableCacheHit(rest);
   }
-  return { ...result, fetchedAt };
+  return reusableCacheHit({ ...result, fetchedAt });
 }
 
 async function finishCacheQuery(
@@ -814,6 +826,8 @@ export interface QueryResult {
   bytesProcessed: number;
   cached?: boolean;
   truncated?: boolean;
+  partial?: boolean;
+  warnings?: Array<{ message: string; reason?: string }>;
   /**
    * When the app first received this result from BigQuery; preserved across
    * app-cache hits. Not when the warehouse computed it: a provider cache hit
@@ -822,12 +836,38 @@ export interface QueryResult {
   fetchedAt?: string;
   /** BigQuery getQueryResults `cacheHit` for the original request; absent means unknown. */
   providerCacheHit?: boolean;
+  /** Source generation read before the original request; kept on cache hits. */
+  sourceGeneration?: SourceGenerationResult;
 }
 
 export interface RunQueryOptions {
   signal?: AbortSignal;
   forceRefresh?: boolean;
   maxBytesBilled?: number;
+  /**
+   * Generation of the tables the SQL reads, resolved before the query runs.
+   * It joins the cache key, so a new generation never matches an old row, and
+   * is stored with the result as read.
+   */
+  sourceGeneration?: SourceGenerationResult;
+}
+
+/** How long a result read while its source generation was unknown is reused. */
+export const UNKNOWN_SOURCE_GENERATION_REUSE_MS = 60 * 60_000;
+
+function sourceGenerationCacheKey(result: SourceGenerationResult): string {
+  return result.status === "ok"
+    ? result.generation
+    : `unknown:${result.sources.map((source) => source.tableId).join(",")}`;
+}
+
+function reusableCacheHit(hit: QueryResult | null): QueryResult | null {
+  if (!hit || hit.sourceGeneration?.status !== "unavailable") return hit;
+  const fetchedAt = Date.parse(hit.fetchedAt ?? "");
+  return Number.isFinite(fetchedAt) &&
+    Date.now() - fetchedAt < UNKNOWN_SOURCE_GENERATION_REUSE_MS
+    ? hit
+    : null;
 }
 
 interface BigQueryField {
@@ -1159,7 +1199,14 @@ export async function runQuery(
   );
   const cacheableSql = addUtcDateCacheKey(resolvedSql);
 
-  const cacheKey = getCacheKey(cacheableSql, projectId, cacheScope);
+  const cacheKey = getCacheKey(
+    options.sourceGeneration
+      ? `${cacheableSql}
+${sourceGenerationCacheKey(options.sourceGeneration)}`
+      : cacheableSql,
+    projectId,
+    cacheScope,
+  );
   const forceRefresh = options.forceRefresh === true;
   let cacheFence: CacheFence | null = null;
   try {
@@ -1380,21 +1427,39 @@ export async function runQuery(
       schema,
       bytesProcessed,
       fetchedAt,
+      ...(options.sourceGeneration
+        ? { sourceGeneration: options.sourceGeneration }
+        : {}),
       ...(typeof data.cacheHit === "boolean"
         ? { providerCacheHit: data.cacheHit }
         : {}),
       ...(totalRows > rows.length ? { truncated: true } : {}),
+      ...(data.errors?.length
+        ? {
+            partial: true,
+            warnings: data.errors.slice(0, 20).map((warning) => ({
+              message: (
+                warning.message ?? "BigQuery returned a query warning"
+              ).slice(0, 4_000),
+              ...(warning.reason ? { reason: warning.reason } : {}),
+            })),
+          }
+        : {}),
     };
 
     if (cacheFence) {
-      const persisted = await finishCacheQuery(
-        cacheKey,
-        cacheableSql,
-        result,
-        cacheFence,
-      );
-      if (persisted) setL1(cacheKey, result, persisted);
-      else await releaseCacheQuery(cacheKey, cacheFence);
+      if (result.partial) {
+        await releaseCacheQuery(cacheKey, cacheFence);
+      } else {
+        const persisted = await finishCacheQuery(
+          cacheKey,
+          cacheableSql,
+          result,
+          cacheFence,
+        );
+        if (persisted) setL1(cacheKey, result, persisted);
+        else await releaseCacheQuery(cacheKey, cacheFence);
+      }
     }
 
     // The cached copy stays unflagged: every read of it sets `cached: true`.

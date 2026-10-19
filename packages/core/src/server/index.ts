@@ -199,6 +199,7 @@ export {
   type JevContextCredentials,
   type ResolvedOwnerApiKey,
 } from "../agent/production-agent.js";
+export { approvalKeyWithArguments } from "../agent/approval-key.js";
 export {
   isJevEnabled,
   requestJevThroughBuilder,

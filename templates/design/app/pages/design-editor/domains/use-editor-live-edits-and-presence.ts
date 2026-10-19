@@ -1199,9 +1199,7 @@ export function useEditorLiveEditsAndPresence({
   const pendingActiveFileEntry = activeFile?.id
     ? pendingLocalFileContentsSnapshot.get(activeFile.id)
     : undefined;
-  const acceptedActiveContent = pendingActiveFileEntry
-    ? pendingActiveFileEntry.baseContent
-    : acceptedActiveFile?.content;
+  const acceptedActiveContent = acceptedActiveFile?.content;
   const hasSelectedComponent = Boolean(
     selectedComponentNodeId &&
     ((selectedCodeLayerNode && isComponentInstance(selectedCodeLayerNode)) ||
@@ -1245,7 +1243,8 @@ export function useEditorLiveEditsAndPresence({
       activeCodeLayerProjection.nodes.some(matchesSelectedComponent),
     );
     if (!hasSelectedComponent || !selectedNodeIsOptimistic) return true;
-    if (pendingActiveFileEntry && !acceptedComponentProjection) return false;
+    // A pending save can still add or remove this node on the server.
+    if (pendingActiveFileEntry) return false;
     if (!acceptedComponentProjection) return true;
     return acceptedComponentProjection.nodes.some(matchesSelectedComponent);
   }, [

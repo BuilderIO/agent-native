@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
+import { withExecutionFence } from "./execution-fence.js";
 
 const pglite = await createTestPglite();
 
@@ -16,8 +17,9 @@ const rawClient: any = {
     }
     const stmt = await pglite.prepare(input.sql);
     const args = (input.args ?? []) as unknown[];
-    if (/^\s*select/i.test(input.sql)) {
-      return { rows: await stmt.all(...args), rowsAffected: 0 };
+    if (/^\s*select/i.test(input.sql) || /\breturning\b/i.test(input.sql)) {
+      const rows = await stmt.all(...args);
+      return { rows, rowsAffected: rows.length };
     }
     const info = await stmt.run(...args);
     return { rows: [] as unknown[], rowsAffected: info.changes };
@@ -45,7 +47,9 @@ vi.mock("../db/client.js", () => ({
 
 const {
   insertRun,
+  claimTurnExecutionLease,
   claimBackgroundRun,
+  insertRunEvent,
   tryClaimRunSlot,
   updateRunStatusIfRunning,
   listUnclaimedBackgroundRunIds,
@@ -54,9 +58,8 @@ const {
   getRunByThread,
   getCurrentTurnRunEventsForThread,
   reapIfStale,
+  markTurnAborted,
   setRunInFlightMarker,
-  IN_FLIGHT_RUN_STALE_GRACE_MS,
-  IN_FLIGHT_GRACE_MAX_LIVENESS_GAP_MS,
   BACKGROUND_RUN_STALE_MS,
 } = await import("./run-store.js");
 
@@ -235,7 +238,7 @@ describe("foreground self-chain — reaper coverage for the handoff window", () 
   });
 });
 
-describe("reapIfStale — in-flight grace (in_flight_since)", () => {
+describe("reapIfStale — in-flight marker and execution lease", () => {
   it("setRunInFlightMarker round-trips through real SQL: sets on true, clears on false", async () => {
     const { successor: runId, thread } = ids();
     await insertRun(runId, thread, "turn-1", {
@@ -263,7 +266,7 @@ describe("reapIfStale — in-flight grace (in_flight_since)", () => {
     expect(await readInFlightSince(runId)).toBeNull();
   });
 
-  it("does NOT reap a background run whose heartbeat lapsed past BACKGROUND_RUN_STALE_MS while in-flight work is within the bounded grace", async () => {
+  it("reaps a stale in-flight run when no execution lease is live", async () => {
     const { successor: runId, thread } = ids();
     await insertRun(runId, thread, "turn-1", {
       dispatchMode: "background",
@@ -274,26 +277,6 @@ describe("reapIfStale — in-flight grace (in_flight_since)", () => {
       Date.now() - (BACKGROUND_RUN_STALE_MS + 5_000),
     );
     await setRunInFlightMarker(runId, true);
-
-    const reaped = await reapIfStale(runId);
-
-    expect(reaped).toBe(false);
-    expect((await getRunById(runId))?.status).toBe("running");
-  });
-
-  it("DOES reap the SAME run loudly once the bounded in-flight grace is exceeded", async () => {
-    const { successor: runId, thread } = ids();
-    await insertRun(runId, thread, "turn-1", {
-      dispatchMode: "background",
-    });
-    await claimBackgroundRun(runId);
-    await setStaleLiveness(
-      runId,
-      Date.now() - (BACKGROUND_RUN_STALE_MS + 5_000),
-    );
-    await pglite
-      .prepare(`UPDATE agent_runs SET in_flight_since = ? WHERE id = ?`)
-      .run(Date.now() - (IN_FLIGHT_RUN_STALE_GRACE_MS + 5_000), runId);
 
     const reaped = await reapIfStale(runId);
 
@@ -319,29 +302,6 @@ describe("reapIfStale — in-flight grace (in_flight_since)", () => {
 
     expect(reaped).toBe(true);
     expect((await getRunById(runId))?.status).toBe("errored");
-  });
-
-  it("DOES reap a FRESH in-flight marker whose producer stopped heartbeating past IN_FLIGHT_GRACE_MAX_LIVENESS_GAP_MS", async () => {
-    const { successor: runId, thread } = ids();
-    await insertRun(runId, thread, "turn-1", {
-      dispatchMode: "background",
-    });
-    await claimBackgroundRun(runId);
-    await setRunInFlightMarker(runId, true);
-    await setStaleLiveness(
-      runId,
-      Date.now() - (IN_FLIGHT_GRACE_MAX_LIVENESS_GAP_MS + 5_000),
-    );
-    expect(await readInFlightSince(runId)).toBeGreaterThan(
-      Date.now() - IN_FLIGHT_RUN_STALE_GRACE_MS,
-    );
-
-    const reaped = await reapIfStale(runId);
-
-    expect(reaped).toBe(true);
-    const row = await getRunById(runId);
-    expect(row?.status).toBe("errored");
-    expect(row?.errorCode).toBe("stale_run");
   });
 
   it("surfaces hasInFlightWork via getRunByThread's inFlightSince for the /runs/active wire signal", async () => {
@@ -376,5 +336,101 @@ describe("reapIfStale — in-flight grace (in_flight_since)", () => {
     ]);
     expect([a, b].filter(Boolean)).toHaveLength(1);
     expect(await claimBackgroundRun(runId)).toBe(false);
+  });
+});
+
+describe("execution lease revocation by control-plane transitions", () => {
+  it("keeps a 12-minute in-flight tool alive while its execution lease is live", async () => {
+    const { successor: runId, thread } = ids();
+    const turnId = `${thread}-turn`;
+    await insertRun(runId, thread, turnId);
+    const fence = await claimTurnExecutionLease(thread, turnId, runId);
+    const markerSince = Date.now() - 12 * 60_000;
+    await setRunInFlightMarker(runId, true, markerSince);
+    await setStaleLiveness(runId, Date.now() - 2 * 60_000);
+
+    expect(await reapIfStale(runId)).toBe(false);
+    expect((await getRunById(runId))?.status).toBe("running");
+    await withExecutionFence(fence, () => setRunInFlightMarker(runId, false));
+  });
+
+  it("revokes the stale worker generation in the stale-reap transaction", async () => {
+    const { successor: runId, thread } = ids();
+    const turnId = `${thread}-turn`;
+    await insertRun(runId, thread, turnId);
+    const fence = await claimTurnExecutionLease(thread, turnId, runId);
+    await setStaleLiveness(runId, Date.now() - 60_000);
+    await pglite
+      .prepare(
+        "UPDATE agent_execution_leases SET lease_expires_at = clock_timestamp() - INTERVAL '1 second' WHERE thread_id = ? AND turn_id = ?",
+      )
+      .run(thread, turnId);
+
+    expect(await reapIfStale(runId)).toBe(true);
+    await expect(
+      withExecutionFence(fence, () => setRunInFlightMarker(runId, true)),
+    ).rejects.toMatchObject({ code: "stale_execution_fence" });
+  });
+
+  it("revokes active worker generations when a turn is cancelled", async () => {
+    const { successor: runId, thread } = ids();
+    const turnId = `${thread}-turn`;
+    await insertRun(runId, thread, turnId);
+    const fence = await claimTurnExecutionLease(thread, turnId, runId);
+
+    expect(await markTurnAborted(thread, turnId)).toBe("aborted");
+    await expect(
+      withExecutionFence(fence, () => setRunInFlightMarker(runId, true)),
+    ).rejects.toMatchObject({ code: "stale_execution_fence" });
+  });
+
+  it("cancels a legacy run whose nullable turn id falls back to its run id", async () => {
+    const { successor: runId, thread } = ids();
+    await insertRun(runId, thread, runId);
+    await pglite
+      .prepare("UPDATE agent_runs SET turn_id = NULL WHERE id = ?")
+      .run(runId);
+    const fence = await claimTurnExecutionLease(thread, runId, runId);
+
+    expect(await markTurnAborted(thread, runId)).toBe("aborted");
+    expect((await getRunById(runId))?.status).toBe("aborted");
+    await expect(
+      withExecutionFence(fence, () => setRunInFlightMarker(runId, true)),
+    ).rejects.toMatchObject({ code: "stale_execution_fence" });
+  });
+
+  it("refuses to claim a run cancelled before its worker starts", async () => {
+    const { successor: runId, thread } = ids();
+    const turnId = `${thread}-turn`;
+    await insertRun(runId, thread, turnId);
+
+    expect(await markTurnAborted(thread, turnId)).toBe("aborted");
+    await expect(
+      claimTurnExecutionLease(thread, turnId, runId),
+    ).rejects.toMatchObject({
+      code: "turn_execution_run_not_active",
+    });
+  });
+
+  it("keeps a late terminal event out of a completed turn replay", async () => {
+    const { successor: runId, thread } = ids();
+    const turnId = `${thread}-turn`;
+    await insertRun(runId, thread, turnId);
+    const fence = await claimTurnExecutionLease(thread, turnId, runId);
+
+    await withExecutionFence(fence, () =>
+      insertRunEvent(runId, 0, JSON.stringify({ type: "text", text: "saved" })),
+    );
+    await withExecutionFence(fence, () =>
+      updateRunStatusIfRunning(runId, "completed"),
+    );
+    await withExecutionFence(fence, () =>
+      insertRunEvent(runId, 1, JSON.stringify({ type: "done" })),
+    );
+
+    const replay = await getCurrentTurnRunEventsForThread(thread, turnId);
+    expect(replay.map(({ event }) => event)).toEqual([
+      { type: "text", text: "saved" },
+    ]);
   });
 });

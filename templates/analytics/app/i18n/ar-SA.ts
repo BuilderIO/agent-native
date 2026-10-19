@@ -69,6 +69,12 @@ export default {
     sigmaChooseConnectionPlaceholder: "اختر اتصالًا",
     sigmaChooseConnectionDescription: "اختر مساحة عمل Sigma لتصفح مصنفاتها.",
     sigmaNoConnection: "Sigma غير متصل",
+    sigmaApiRegion: "منطقة Sigma API",
+    sigmaOAuthConnect: "ربط حساب Sigma الشخصي",
+    sigmaOAuthAddAnother: "ربط حساب Sigma آخر",
+    sigmaOAuthCancel: "إلغاء",
+    sigmaOAuthDescription:
+      "سجّل الدخول إلى Sigma بحسابك لتصفح المصنفات التي يمكنك الوصول إليها.",
     sigmaClientId: "معرّف العميل",
     sigmaClientSecret: "سر العميل",
     sigmaBaseUrl: "عنوان URL الأساسي لواجهة API (اختياري)",
@@ -80,8 +86,7 @@ export default {
     sigmaCredentialStageFailed:
       "تعذر تخزين بيانات اعتماد Sigma المؤقتة. تحقق من إمكانية الوصول إلى Vault ثم حاول مرة أخرى.",
     sigmaCredentialsRequired: "احفظ معرّف عميل Sigma وسر العميل أولًا.",
-    sigmaBaseUrlInvalid:
-      "استخدم عنوان HTTPS لواجهة Sigma API ضمن نطاق sigmacomputing.com.",
+    sigmaBaseUrlInvalid: "اختر عنوان URL رسميًا لمنطقة Sigma API مدعومة.",
     sigmaPersistenceUnavailable:
       "لا يمكن لـ Analytics حفظ اتصال Sigma بأمان حاليًا. حاول مرة أخرى.",
     sigmaPolicyInvalid:
@@ -96,7 +101,7 @@ export default {
     sigmaDirectCredentialsUnavailable:
       "تعذرت قراءة بيانات اعتماد Sigma المحفوظة في Analytics. يمكن لمسؤول المؤسسة إعادة الاتصال عبر Dispatch أو إدخال بيانات الاعتماد مجددًا في Analytics.",
     sigmaNoConnectionDescription:
-      "أدخل بيانات الاعتماد هنا لإنشاء اتصال مخصص لـ Analytics. تظهر هنا تلقائيًا اتصالات Sigma الممنوحة لـ Analytics في Dispatch؛ ولا يمكن حفظ بيانات الاعتماد مباشرةً إلا لمسؤولي المؤسسة.",
+      "اربط حساب Sigma الشخصي أو استخدم بيانات اعتماد حفظها مسؤول المؤسسة. تظهر هنا أيضًا اتصالات Dispatch الممنوحة لـ Analytics.",
     sigmaOpenDispatch: "الاتصال عبر Dispatch",
     sigmaOpenVault: "فتح Vault",
     sigmaWorkbooksLoadFailed: "تعذر تحميل مصنفات Sigma",
@@ -625,6 +630,7 @@ export default {
     notConnected: "غير متصل",
     needsReauth: "يلزم إعادة المصادقة",
     error: "خطأ",
+    unknown: "غير معروف",
     indexNotImported: "لم يتم استيراد فهرس مُنشأ.",
     indexUnreadable: "تعذرت قراءة الفهرس المحفوظ. ارفع فهرسًا صالحًا.",
     indexReadFailed: "تعذر تحميل حالة الفهرس.",
@@ -1202,6 +1208,8 @@ export default {
     addEventToSeeResults: "أضف حدثًا وحدده لرؤية النتائج",
     queryError: "Query error: {{message}}",
     noDataReturned: "لم يتم إرجاع أية بيانات",
+    incompleteResultsWarning:
+      "قد تكون هذه النتيجة غير مكتملة. قد تؤثر الصفوف أو بيانات المصدر المفقودة في الإجماليات.",
     rowsRange: "{{start}}-{{end}} of {{total}}",
     filterBy: "تصفية حسب",
     pickPropertyToFilter: "اختر خاصية لتصفيتها",
@@ -1324,6 +1332,22 @@ export default {
     resetFilters: "إعادة تعيين عوامل التصفية",
     collapseFilters: "طي عوامل التصفية",
     expandFilters: "قم بتوسيع عوامل التصفية",
+    drilldownChartPoints: "نقاط المخطط",
+    drilldownPreviousPage: "الصفحة السابقة لنقاط المخطط",
+    drilldownNextPage: "الصفحة التالية لنقاط المخطط",
+    drilldownPageRange: "عرض {{start}}–{{end}} من إجمالي {{total}}",
+    drilldownFilterRows: "تصفية الصفوف",
+    drilldownShowSql: "عرض SQL",
+    drilldownHideSql: "إخفاء SQL",
+    drilldownDownloadCsv: "تنزيل CSV",
+    drilldownShowing: "عرض {{shown}} من {{total}} سجل",
+    drilldownCsvTruncated:
+      "تصدير غير مكتمل: عثر الاستعلام على {{total}} سجلًا، لكن تم تحميل أول {{loaded}} فقط؛ يحتوي هذا الملف على {{exported}} بعد التصفية.",
+    drilldownCountMismatch: "يعرض المخطط {{chart}}، لكن {{total}} سجل تطابقت",
+    drilldownAggregateOnly:
+      "تحتوي هذه اللوحة على صفوف مجمّعة فقط. الصفوف المطابقة للنقطة المنقور عليها مميّزة.",
+    drilldownNoRecords: "لا توجد سجلات مطابقة",
+    drilldownLoadFailed: "تعذّر تحميل السجلات",
     filterSeries: "Filter",
     chartTimeRangeOverride: "تجاوز النطاق الزمني لهذه الرسمة البيانية",
     chartTimeRangeInherit: "نطاق لوحة المعلومات",
@@ -1396,6 +1420,22 @@ export default {
     columnShowHidden: "إظهار الأعمدة المخفية",
     columnName: "اسم العمود",
     columnResize: "تغيير حجم العمود",
+    rowBreakdownBy: "التقسيم حسب",
+    rowBreakdownAll: "الكل",
+    rowBreakdownOther: "أخرى",
+    rowBreakdownOtherHint: "مجموعات أصغر، ومن يستبعدهم SQL هذه اللوحة",
+    rowBreakdownSmallGroup: "أقل من {{count}}: اقرأ النسب بحذر",
+    rowBreakdownNoValue: "(لا شيء)",
+    rowBreakdownEmpty: "لا توجد صفوف لهذا التقسيم.",
+    rowBreakdownUnavailable: "لا يحتوي SQL هذه اللوحة على تقسيم حسب {{column}}.",
+    rowBreakdownFromPanel: "من صفوف هذه اللوحة. لم تتم قراءة أي شيء.",
+    rowBreakdownFromCache: "من ذاكرة التخزين المؤقت. لم تتم قراءة أي شيء.",
+    rowBreakdownAlreadyLoaded: "تم التحميل مسبقًا. لم تتم قراءة أي شيء.",
+    rowBreakdownBytesRead: "تمت قراءة {{bytes}}",
+    rowBreakdownOverByteCap:
+      "قد يقرأ هذا التفصيل أكثر من {{gib}} غيغابايت، لذلك لم يُشغَّل. ضيّق عوامل تصفية لوحة المعلومات أو نطاقها الزمني ثم حاول مرة أخرى.",
+    rowBreakdownTruncated:
+      "تم اقتطاع النتيجة، لذلك بعض المجموعات مفقودة أو محسوبة ضمن «أخرى».",
     deleteSectionTitle: "هل تريد حذف القسم؟",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "هل تريد حذف اللوحة؟",
@@ -2121,6 +2161,8 @@ export default {
     dbtDisabled: "معطّل",
     dbtAdminOnly: "يمكن لمسؤولي المؤسسة فقط تغيير هذا الاتصال.",
     dbtReadFailed: "تعذّر تحميل اتصال dbt.",
+    dbtSeveralConnections:
+      "تم منح Analytics عدة اتصالات dbt، لذلك لا يمكن لهذه اللوحة تحرير أي منها. أزل الاتصالات الإضافية من الإعدادات ← التكاملات للاحتفاظ باتصال واحد.",
     dbtSave: "حفظ الاتصال",
     dbtChecking: "جارٍ التحقق",
     dbtSaveFailed: "تعذّر حفظ اتصال dbt.",

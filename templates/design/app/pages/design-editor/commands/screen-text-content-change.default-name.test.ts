@@ -94,6 +94,35 @@ describe("runScreenTextContentChange default text-layer naming", () => {
     );
   });
 
+  it("leaves a new text layer's name to the commit that lands its owed text", () => {
+    const content = `<body><div data-agent-native-node-id="t1" data-agent-native-layer-name="Text"></div></body>`;
+    const { args, nodeId, getContent } = buildArgs(content, true);
+    const layerName = () =>
+      buildCodeLayerProjection(getContent(), {
+        source: { kind: "design-file", fileId: SCREEN_ID },
+      }).nodes.find((node) => node.id === nodeId)!.dataAttributes[
+        "data-agent-native-layer-name"
+      ];
+
+    runScreenTextContentChange(
+      args,
+      SCREEN_ID,
+      `[data-agent-native-node-id="t1"]`,
+      "tton",
+      undefined,
+      { owedTextPending: true },
+    );
+    expect(layerName()).toBe("Text");
+
+    runScreenTextContentChange(
+      args,
+      SCREEN_ID,
+      `[data-agent-native-node-id="t1"]`,
+      "Button",
+    );
+    expect(layerName()).toBe("Button");
+  });
+
   it("does not rename an already-named board text layer on a later edit", () => {
     const content = `<body><div data-agent-native-node-id="t1" data-agent-native-layer-name="Label">Button</div></body>`;
     const { args, nodeId, getContent } = buildArgs(content, false);

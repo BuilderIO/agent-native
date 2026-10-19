@@ -243,8 +243,8 @@ export function MeetingPill() {
    */
   const sheetDragMovedRef = useRef(false);
   const activeMeetingIdRef = useRef<string | null>(null);
-  // Detached / "floating" mode — Wispr-style pill that auto-moves to the
-  // top-right when the main app loses focus, with a drag handle. Driven by
+  // Detached / "floating" mode moves the pill to the top-right when the main
+  // app loses focus, with a drag handle. Driven by
   // the `clips:pill-detached` event from Rust (toggled by JS via
   // `recording_pill_set_detached`).
   const [detached, setDetached] = useState(false);

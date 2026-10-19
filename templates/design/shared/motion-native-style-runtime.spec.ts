@@ -65,7 +65,7 @@ function expectRuntimeError(
   expect(error).toMatchObject({ code });
 }
 
-describe("native Figma Motion runtime adapter", () => {
+describe("imported Motion style runtime adapter", () => {
   it("derives default TextStagger as an editable text property track", () => {
     const style = createMotionNativeStyleInstance({
       styleKey: "TextStagger",
@@ -1488,8 +1488,8 @@ describe("native Figma Motion runtime adapter", () => {
         styleKey: "Position",
         targetNodeId: "hero",
       }),
-      sourceStyleId: "figma-position-style",
-      sourceInstanceId: "figma-position-instance",
+      sourceStyleId: "source-position-style",
+      sourceInstanceId: "source-position-instance",
       duration: 0.75,
       timelineOffset: 0.25,
       props: {
@@ -1549,8 +1549,8 @@ describe("native Figma Motion runtime adapter", () => {
       futureProperty: { keep: true },
     });
     expect(restoredStyle).toMatchObject({
-      sourceStyleId: "figma-position-style",
-      sourceInstanceId: "figma-position-instance",
+      sourceStyleId: "source-position-style",
+      sourceInstanceId: "source-position-instance",
       duration: 0.75,
       timelineOffset: 0.25,
     });

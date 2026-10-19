@@ -901,6 +901,10 @@ export default {
       animations: "الرسوم المتحركة",
       pathEditAmbiguous:
         "تحتوي هذه الطبقة على عدة حركات للموضع، لذا لا يمكن تحرير مسارها بشكل واضح.",
+      pathEditPositionConflict:
+        "تحتوي هذه الطبقة على رسوم متحركة أخرى للموضع، لذا لا يمكن جعل مسارها منحنيًا.",
+      positionStyleConflict:
+        "تحتوي هذه الطبقة بالفعل على رسوم متحركة للموضع لا يمكن دمجها مع أخرى.",
       animationStyles: {
         title: "الرسوم المتحركة",
         createTitle: "إنشاء نمط حركة جديد",
@@ -1817,6 +1821,8 @@ export default {
       description: "اختر مسارًا لإضافته كإطار جديد، أو أدخل مسارًا.",
       searchPlaceholder: "البحث في المسارات…",
       noRoutes: "لا توجد مسارات مطابقة",
+      noDiscoveredRoutes:
+        "لم يتم العثور على مسارات في هذا التطبيق. أدخل مسارًا لإضافة شاشة.",
       useCustomPath: 'إضافة "{{path}}"',
       viewportDesktop: "سطح المكتب",
       viewportMobile: "الجوال",

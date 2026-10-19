@@ -159,7 +159,6 @@ export function runModeChange(
     return;
   }
   if (routing === "enter-overview") {
-    setOverviewInteractScreenId(null);
     if (options?.targetFileId) setActiveFileId(options.targetFileId);
     enterOverviewFromZoom(next);
     return;

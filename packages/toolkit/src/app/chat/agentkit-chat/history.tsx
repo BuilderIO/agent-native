@@ -167,13 +167,15 @@ export function AgentKitDevCheckpointProvider({
     () => new Set<string>(),
   );
 
+  const shouldLoad = shouldLoadAgentKitDevCheckpoints({
+    isDevMode,
+    threadId,
+    messages: thread.messages,
+    hasActiveRuns,
+  });
+
   useEffect(() => {
-    if (
-      !isDevMode ||
-      !threadId ||
-      thread.messages.length === 0 ||
-      hasActiveRuns
-    ) {
+    if (!shouldLoad) {
       setCheckpointRunIds((current) =>
         current.size === 0 ? current : new Set<string>(),
       );
@@ -207,7 +209,7 @@ export function AgentKitDevCheckpointProvider({
     return () => {
       cancelled = true;
     };
-  }, [apiUrl, hasActiveRuns, isDevMode, thread.messages.length, threadId]);
+  }, [apiUrl, shouldLoad, thread.messages.length, threadId]);
 
   const value = useMemo<AgentKitDevCheckpointContextValue>(
     () => ({
@@ -222,6 +224,22 @@ export function AgentKitDevCheckpointProvider({
     <AgentKitDevCheckpointContext.Provider value={value}>
       {children}
     </AgentKitDevCheckpointContext.Provider>
+  );
+}
+
+export function shouldLoadAgentKitDevCheckpoints(input: {
+  isDevMode: boolean;
+  threadId: string | undefined;
+  messages: readonly AgentMessage[];
+  hasActiveRuns: boolean;
+}): boolean {
+  // A new chat shows its user message before the run creates the thread row;
+  // only a message carrying a runId proves the thread exists.
+  return Boolean(
+    input.isDevMode &&
+    input.threadId &&
+    !input.hasActiveRuns &&
+    input.messages.some((message) => messageRunId(message)),
   );
 }
 
@@ -258,9 +276,7 @@ export function AgentKitDevCheckpointRestore({
     "idle" | "confirming" | "restoring" | "error"
   >("idle");
   const [error, setError] = useState<string | null>(null);
-  const metadata = messageMetadata(message);
-  const custom = isRecord(metadata.custom) ? metadata.custom : undefined;
-  const runId = stringValue(metadata.runId ?? custom?.runId);
+  const runId = messageRunId(message);
   const offered =
     checkpoint !== null &&
     typeof window !== "undefined" &&

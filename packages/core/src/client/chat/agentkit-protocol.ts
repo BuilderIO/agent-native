@@ -3852,6 +3852,9 @@ export function createAgentKitProtocolAdapter(
         const turn = await session.startTurn({
           prompt: latestUserPrompt(input.messages),
           messages,
+          ...(input.submissionPayload
+            ? { submissionPayload: input.submissionPayload }
+            : {}),
           ...(input.queuePromotion
             ? { queuePromotion: input.queuePromotion }
             : {}),

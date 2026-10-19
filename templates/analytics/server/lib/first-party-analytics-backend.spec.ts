@@ -48,7 +48,7 @@ import {
 
 describe("first-party BigQuery execution metadata", () => {
   it.each([false, true])(
-    "preserves runQuery metadata on app cache hit %s",
+    "forwards the byte cap and preserves runQuery metadata on app cache hit %s",
     async (cached) => {
       const result = {
         rows: [{ n: 1 }],
@@ -61,14 +61,22 @@ describe("first-party BigQuery execution metadata", () => {
       };
       runQuery.mockResolvedValue(result);
       await expect(
-        queryFirstPartyAnalyticsInBigQuery("SELECT 1 AS n", [], {
-          projectId: "example-project",
-          datasetId: "analytics",
-          tableId: "example_events",
-          fullyQualified: "example-project.analytics.example_events",
-        }),
+        queryFirstPartyAnalyticsInBigQuery(
+          "SELECT 1 AS n",
+          [],
+          {
+            projectId: "example-project",
+            datasetId: "analytics",
+            tableId: "example_events",
+            fullyQualified: "example-project.analytics.example_events",
+          },
+          { maxBytesBilled: 50_000_000_000 },
+        ),
       ).resolves.toEqual(result);
       expect(runQuery).toHaveBeenCalledTimes(1);
+      expect(runQuery).toHaveBeenCalledWith(expect.any(String), {
+        maxBytesBilled: 50_000_000_000,
+      });
       expect(fetchGoogleWithRetry).not.toHaveBeenCalled();
       expect(execute).not.toHaveBeenCalled();
     },
@@ -299,6 +307,7 @@ describe("first-party BigQuery backend", () => {
       table: null,
       backfillCursor: null,
       backfillCompleted: false,
+      modelTable: null,
     });
 
     expect(getOrgSetting).toHaveBeenCalledWith(
@@ -759,6 +768,7 @@ describe("first-party BigQuery backend", () => {
       "SELECT '2026-08-01'::date AS v FROM analytics_events",
       "CAST('2026-08-01' AS DATE)",
     ],
+    ["SELECT DATE'2026-08-01' AS v FROM analytics_events", "DATE '2026-08-01'"],
     [
       "SELECT properties::jsonb ->> '$ai_model' AS v FROM analytics_events",
       `JSON_VALUE(properties, '$."$ai_model"')`,
@@ -823,6 +833,10 @@ describe("first-party BigQuery backend", () => {
     [
       "SELECT id FROM analytics_events WHERE path ILIKE '%signup%'",
       "ILIKE/SIMILAR TO",
+    ],
+    [
+      "SELECT column'value' AS d FROM analytics_events",
+      "a string literal without a preceding separator",
     ],
   ])("names the unsupported construct for %s", (sql, construct) => {
     const table = {
@@ -1245,6 +1259,31 @@ describe("first-party BigQuery backend", () => {
         table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
         backfillCursor: "evt_last",
         backfillCompleted: true,
+      }),
+    );
+  });
+
+  it("keeps the stored events model when a save does not name one", async () => {
+    const scope = { userEmail: "owner@example.com", orgId: "org_builder" };
+    getScopedSettingRecord.mockResolvedValue({
+      sink: "bigquery",
+      table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      model: { table: "builder-3b0a2.dbt_mart.fact_events" },
+    });
+
+    await expect(getFirstPartyAnalyticsBackend(scope)).resolves.toMatchObject({
+      modelTable: "builder-3b0a2.dbt_mart.fact_events",
+    });
+    await saveFirstPartyAnalyticsBackend(scope, {
+      sink: "bigquery",
+      table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+    });
+
+    expect(putScopedSettingRecord).toHaveBeenCalledWith(
+      { email: "owner@example.com", orgId: "org_builder" },
+      "first-party-analytics-backend",
+      expect.objectContaining({
+        model: { table: "builder-3b0a2.dbt_mart.fact_events" },
       }),
     );
   });

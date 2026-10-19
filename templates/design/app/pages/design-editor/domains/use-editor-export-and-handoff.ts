@@ -186,6 +186,7 @@ export function useEditorExportAndHandoff({
   const [exportPreviewScreenId, setExportPreviewScreenId] = useState<
     string | null
   >(null);
+  const exportPreviewScreenLeaseRef = useRef<symbol | null>(null);
   const [svgExporting, setSvgExporting] = useState(false);
   const [figmaSvgExporting, setFigmaSvgExporting] = useState(false);
   const pngExportingRef = useRef(false);
@@ -677,6 +678,7 @@ export function useEditorExportAndHandoff({
   );
   const markScreenForExport = useCallback(
     (screenId: string) => {
+      const lease = Symbol(`screen export: ${screenId}`);
       if (exportPreviewScreenIdRef.current !== screenId) {
         runtimeLayerSnapshotReadinessByIdRef.current[screenId] = {
           status: "loading",
@@ -686,7 +688,18 @@ export function useEditorExportAndHandoff({
         }
       }
       exportPreviewScreenIdRef.current = screenId;
+      exportPreviewScreenLeaseRef.current = lease;
       setExportPreviewScreenId(screenId);
+      return lease;
+    },
+    [setExportPreviewScreenId],
+  );
+  const releaseScreenFromExport = useCallback(
+    (lease: symbol) => {
+      if (exportPreviewScreenLeaseRef.current !== lease) return;
+      exportPreviewScreenLeaseRef.current = null;
+      exportPreviewScreenIdRef.current = null;
+      setExportPreviewScreenId(null);
     },
     [setExportPreviewScreenId],
   );
@@ -698,20 +711,27 @@ export function useEditorExportAndHandoff({
       const sourceType =
         normalizeDesignSourceType(screen?.sourceType) ?? activeCanvasSourceType;
       if (sourceType === "inline") return null;
-      markScreenForExport(screenId);
-      return await resolveSnapshotExportSource(screenId);
+      const screenLease = markScreenForExport(screenId);
+      try {
+        const snapshotSource = await resolveSnapshotExportSource(screenId);
+        if (!snapshotSource) {
+          releaseScreenFromExport(screenLease);
+          return null;
+        }
+        return { screenLease, snapshotSource };
+      } catch (error) {
+        releaseScreenFromExport(screenLease);
+        throw error;
+      }
     },
     [
       activeCanvasSourceType,
       markScreenForExport,
       overviewScreens,
+      releaseScreenFromExport,
       resolveSnapshotExportSource,
     ],
   );
-  const releaseScreenFromExport = useCallback(() => {
-    exportPreviewScreenIdRef.current = null;
-    setExportPreviewScreenId(null);
-  }, [setExportPreviewScreenId]);
 
   const resolvePngCaptureTarget = useCallback(
     async (scope: PngCaptureScope, requestedScreenId?: string) => {
@@ -770,18 +790,19 @@ export function useEditorExportAndHandoff({
             selectedElement?.sourceLayerIdentity?.screenId ??
             (selectedScreenIds.length === 1 ? selectedScreenIds[0] : null) ??
             activeFile?.id;
-          const snapshotSource = screenId
+          const preparedSnapshot = screenId
             ? await prepareSelectedScreenForExport(screenId)
             : null;
           const screen = screenId
             ? overviewScreens.find((candidate) => candidate.id === screenId)
             : undefined;
-          if (snapshotSource) {
+          if (preparedSnapshot) {
             return {
               cropSelection,
               doc: null,
               iframe,
-              snapshotSource,
+              screenLease: preparedSnapshot.screenLease,
+              snapshotSource: preparedSnapshot.snapshotSource,
               snapshotWidth: screen?.width ?? iframe.clientWidth,
               snapshotHeight: screen?.height ?? iframe.clientHeight,
             };
@@ -1014,6 +1035,7 @@ export function useEditorExportAndHandoff({
       exportCanvasFrameGeometryById,
       exportTracking,
       fallbackExportName,
+      pngExportingRef,
       overviewScreens,
       markScreenForExport,
       resolveSnapshotExportSource,
@@ -1208,10 +1230,17 @@ export function useEditorExportAndHandoff({
           : exportScreenId;
       return runDownloadSvg(
         {
+          activeCanvasSourceType,
           activePreviewFrameId,
           design,
+          requireContentSizeReport: viewMode === "overview",
           exportTracking,
+          exportScreenId,
+          exportScreenSourceType: exportScreen?.sourceType,
           fallbackExportName,
+          pngExportingRef,
+          prepareScreenForExport: markScreenForExport,
+          releaseScreenFromExport,
           selectedElement,
           setSvgExporting,
           t,
@@ -1222,12 +1251,16 @@ export function useEditorExportAndHandoff({
     },
     [
       activeBreakpointWidthState,
+      activeCanvasSourceType,
       activeOverviewScreenId,
       design?.title,
       exportTracking,
       fallbackExportName,
+      pngExportingRef,
       overviewScreens,
       overviewSelectedScreenIds,
+      markScreenForExport,
+      releaseScreenFromExport,
       selectedElement,
       t,
       triggerBlobDownload,

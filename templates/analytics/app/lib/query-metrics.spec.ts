@@ -15,7 +15,7 @@ vi.mock("./cost-tracker", async (importOriginal) => {
 });
 
 import { getTotalBytes, getUnknownScans, resetSession } from "./cost-tracker";
-import { queryMetrics } from "./query-metrics";
+import { queryMetrics, queryRunTelemetry } from "./query-metrics";
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -98,6 +98,36 @@ describe("queryMetrics cost accounting", () => {
     });
     expect(getTotalBytes()).toBe(0);
     expect(getUnknownScans()).toBe(1);
+  });
+
+  it("returns incomplete-result metadata while accounting for the query as run", async () => {
+    const warnings = [{ message: "One source shard was unavailable" }];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({
+          rows: [{ count: 2 }],
+          schema: [{ name: "count", type: "number" }],
+          totalRows: 4,
+          partial: true,
+          truncated: true,
+          warnings,
+          bytesProcessed: 4096,
+        }),
+      ),
+    );
+
+    await expect(queryMetrics("SELECT 1")).resolves.toMatchObject({
+      rows: [{ count: 2 }],
+      totalRows: 4,
+      partial: true,
+      truncated: true,
+      warnings,
+    });
+    expect(mocks.recordQueryCost).toHaveBeenCalledExactlyOnceWith({
+      status: "success",
+      bytesProcessed: 4096,
+    });
   });
 
   it.each([
@@ -193,5 +223,70 @@ describe("queryMetrics cost accounting", () => {
     });
     expect(getTotalBytes()).toBe(0);
     expect(getUnknownScans()).toBe(1);
+  });
+});
+
+describe("queryRunTelemetry", () => {
+  it("records bounded success counts", () => {
+    expect(
+      queryRunTelemetry({
+        rows: [{ count: 2 }],
+        schema: [{ name: "count", type: "number" }],
+      }),
+    ).toEqual({
+      query_status: "success",
+      row_count: 1,
+      column_count: 1,
+    });
+  });
+
+  it("records query and transport failures without the error text", () => {
+    expect(
+      queryRunTelemetry({ rows: [], error: "private provider detail" }),
+    ).toEqual({
+      query_status: "error",
+      row_count: 0,
+      column_count: 0,
+      error_category: "query_error",
+    });
+    expect(queryRunTelemetry(undefined, new Error("network detail"))).toEqual({
+      query_status: "error",
+      row_count: 0,
+      column_count: 0,
+      error_category: "query_error",
+    });
+  });
+
+  it.each([
+    { partial: true },
+    { truncated: true },
+    { warnings: [{ message: "Source warning" }] },
+  ])("does not label incomplete results as clean successes: %j", (state) => {
+    expect(
+      queryRunTelemetry({
+        rows: [{ count: 2 }],
+        schema: [{ name: "count", type: "number" }],
+        ...state,
+      }),
+    ).toEqual({
+      query_status: "partial",
+      row_count: 1,
+      column_count: 1,
+    });
+  });
+
+  it("keeps failures ahead of partial result state", () => {
+    expect(
+      queryRunTelemetry({
+        rows: [{ count: 2 }],
+        partial: true,
+        error: "query failed",
+      }),
+    ).toEqual({
+      query_status: "error",
+      row_count: 0,
+      column_count: 0,
+      error_category: "query_error",
+    });
   });
 });

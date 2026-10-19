@@ -589,7 +589,53 @@ describe("runQuery cancellation", () => {
     await expect(runQuery("SELECT 'kept' AS value")).resolves.toMatchObject({
       rows: [{ value: "kept" }],
       totalRows: 1,
+      partial: true,
+      warnings: [{ reason: "other", message: "A nonfatal query warning" }],
     });
+  });
+
+  it("does not cache partial results so a retry can fetch complete rows", async () => {
+    useCacheDatabase();
+    const fetchMock = mockQueryJobs(
+      jsonResponse({
+        jobComplete: true,
+        schema: { fields: [{ name: "value", type: "STRING" }] },
+        rows: [{ f: [{ v: "partial" }] }],
+        totalRows: "2",
+        totalBytesProcessed: "8",
+        errors: [{ reason: "other", message: "A nonfatal query warning" }],
+      }),
+      jsonResponse({
+        jobComplete: true,
+        schema: { fields: [{ name: "value", type: "STRING" }] },
+        rows: [{ f: [{ v: "complete" }] }, { f: [{ v: "second" }] }],
+        totalRows: "2",
+        totalBytesProcessed: "8",
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const sql = "SELECT value FROM partial_cache_retry_test";
+
+    await expect(runQuery(sql)).resolves.toMatchObject({
+      rows: [{ value: "partial" }],
+      totalRows: 2,
+      partial: true,
+    });
+
+    const retry = await runQuery(sql);
+    expect(retry).toMatchObject({
+      rows: [{ value: "complete" }, { value: "second" }],
+      totalRows: 2,
+    });
+    expect(retry).not.toHaveProperty("partial");
+    expect(retry).toHaveProperty("cached", false);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+
+    await expect(runQuery(sql)).resolves.toMatchObject({
+      rows: [{ value: "complete" }, { value: "second" }],
+      cached: true,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
   it("keeps fatal completed-job details for schema recovery", async () => {
@@ -1031,6 +1077,103 @@ describe("runQuery cancellation", () => {
       expect.stringContaining("/projects/test-project/jobs"),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
+  });
+
+  describe("source generations", () => {
+    const tableId = "example-project.dbt_mart.fact_events";
+    const generationAt = (modifiedAt: string) => ({
+      status: "ok" as const,
+      sources: [
+        {
+          tableId,
+          status: "ok" as const,
+          generation: String(Date.parse(modifiedAt)),
+          modifiedAt,
+          checkedAt: "2026-10-16T12:00:00.000Z",
+        },
+      ],
+      generation: `${tableId}@${Date.parse(modifiedAt)}`,
+      oldestModifiedAt: modifiedAt,
+      ageMs: 0,
+      stale: false,
+      checkedAt: "2026-10-16T12:00:00.000Z",
+    });
+    const unknownGeneration = {
+      status: "unavailable" as const,
+      sources: [
+        {
+          tableId,
+          status: "unavailable" as const,
+          reason: "lookup_failed" as const,
+          checkedAt: "2026-10-16T12:00:00.000Z",
+        },
+      ],
+      reason: "lookup_failed" as const,
+      checkedAt: "2026-10-16T12:00:00.000Z",
+    };
+    const response = (count: string) =>
+      jsonResponse({
+        jobComplete: true,
+        schema: { fields: [{ name: "events", type: "INT64" }] },
+        rows: [{ f: [{ v: count }] }],
+        totalBytesProcessed: "10",
+      });
+    const sql =
+      "SELECT COUNT(*) AS events FROM `example-project.dbt_mart.fact_events`";
+
+    it("keys cached rows by generation and keeps the generation they were read at", async () => {
+      useCacheDatabase();
+      const first = generationAt("2026-10-16T11:00:00.000Z");
+      const second = generationAt("2026-10-16T12:00:00.000Z");
+      const fetchMock = mockQueryJobs(response("10"), response("12"));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const original = await runQuery(sql, { sourceGeneration: first });
+      const repeat = await runQuery(sql, { sourceGeneration: first });
+      const rebuilt = await runQuery(sql, { sourceGeneration: second });
+
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+      expect(original.sourceGeneration).toEqual(first);
+      expect(repeat).toMatchObject({
+        cached: true,
+        rows: [{ events: 10 }],
+        sourceGeneration: first,
+        fetchedAt: original.fetchedAt,
+      });
+      expect(rebuilt).toMatchObject({
+        rows: [{ events: 12 }],
+        sourceGeneration: second,
+      });
+      expect(rebuilt.cached).not.toBe(true);
+    });
+
+    it("reuses a result read at an unknown generation for one hour only", async () => {
+      useCacheDatabase();
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-10-16T12:00:00Z"));
+      const fetchMock = mockQueryJobs(response("10"), response("11"));
+      vi.stubGlobal("fetch", fetchMock);
+
+      await runQuery(sql, { sourceGeneration: unknownGeneration });
+      vi.setSystemTime(new Date("2026-10-16T12:59:00Z"));
+      const withinHour = await runQuery(sql, {
+        sourceGeneration: unknownGeneration,
+      });
+      vi.setSystemTime(new Date("2026-10-16T13:01:00Z"));
+      const afterHour = await runQuery(sql, {
+        sourceGeneration: unknownGeneration,
+      });
+
+      expect(withinHour).toMatchObject({
+        cached: true,
+        rows: [{ events: 10 }],
+      });
+      expect(afterHour).toMatchObject({
+        rows: [{ events: 11 }],
+        sourceGeneration: unknownGeneration,
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+    });
   });
 
   it("refreshes cached current-date queries at UTC midnight", async () => {

@@ -125,6 +125,8 @@ explaining it.
 
 Do not use `app-db` as a dashboard source. For first-party events collected through `/track`, use `source: "first-party"` or the `query-agent-native-analytics` action rather than raw internal `db-query`.
 
+There is no dbt Semantic Layer panel source. For a Semantic Layer metric, answer in chat with `query-dbt-semantic-metric`; build a warehouse panel only on a table the owner names.
+
 AI-generated first-party panels are dashboard-time-bound by default. Set
 `config.timeScope` to `"dashboard"` and include the matching dashboard time
 filter in the SQL. The allowed values are:
@@ -270,6 +272,8 @@ the hidden data notes are kept. In Edit mode, people do the same from the dashbo
 header's Annotations menu, which also adds and edits key dates and sets.
 
 - Each event is `{ date: "YYYY-MM-DD", label, time?: "HH:MM", timeZone?, color? }`;
+  `color` accepts SVG-safe hex values: `#RGB`, `#RGBA`, `#RRGGBB`, or
+  `#RRGGBBAA`. Numeric x-axis timestamps use Unix epoch milliseconds.
   multiple are allowed. `date` is the calendar date in the event's own zone.
   Give `time` when the moment matters (a launch hour); `timeZone` is an IANA
   zone and needs a `time`. Without a zone, the time is UTC.
@@ -395,6 +399,9 @@ Program result behind each one, when creating a replacement or a new dashboard:
 | GTM pipeline / cross-sell        | `funnel` for ordered stages, `metric` totals, `bar` or `line` trends, and a `table` for account-level follow-up                      |
 | Win/loss analysis                | `section` groups with `metric`, `table`, `bar`, `callout`, and trend panels; use a Data Program for provider joins and evidence rows |
 
+Panel `config.description` values and a callout row's `message` support inline
+Markdown links. Use `[label](https://example.com)`; raw HTML is not rendered.
+
 Funnel panels use `config.xKey` for the stage label and `config.yKey` for a
 non-negative count or value. The renderer preserves the SQL row order, shows
 each stage's share of the first stage, and shows the change from the previous
@@ -410,6 +417,26 @@ either". Each bar then splits into those outcomes and the stage leads with the
 share who left the app there. A missing column draws the usual warning; a
 stage whose counts are not numbers or add up to more than shown draws a plain
 bar, and the panel check reports it under `funnelOutcomes`.
+
+To let people click a table row and see its numbers split by app (or another
+column) in a side panel, add `config.breakdowns: [{ column: "app", label:
+"App" }]` and put the column in the panel SQL inside `{{?breakdown}}…{{/breakdown}}`
+blocks in both the select list and the GROUP BY, e.g. `SELECT role{{?breakdown}},
+{{breakdown}}{{/breakdown}}, COUNT(*) AS people … GROUP BY role{{?breakdown}},
+{{breakdown}}{{/breakdown}}`. The column must be a real column in scope at that
+point of the SQL; when a CTE aggregates first, carry it through that CTE. A
+normal load drops the blocks, so the panel costs nothing more until someone
+opens a row; one capped breakdown query then serves every row on the same
+filters. If the panel's rows already carry the column, no block is needed and
+no query runs. For web, desktop or mobile, first-party events carry
+`properties.client_platform` (`web`, `electron`, `mobile`); label `electron`
+Desktop. Rows match their breakdown on every column that is not a number, so
+give a numeric column that names rows (a week, a year, an ID) `format: "text"`
+or `"date"` in `config.columns`; unformatted numbers count as measures. The
+first `format: "number"` column is the group size that sorts, mutes and folds
+groups, so make it a count such as people, not an average or a rate.
+Breakdowns don't work on a pivoted table (`config.pivot`). The
+open breakdown is in `view-screen` as `rowBreakdown`.
 
 When a dashboard is being migrated from an extension, create a new v2 copy,
 bind its panels to the real provider schema or Data Programs, and compare it
@@ -434,11 +461,14 @@ to Analytics.
 
 Use an existing Dispatch Sigma connection when it is granted to Analytics; the
 import flow discovers accessible connections without copying their Vault
-values. If direct setup is needed, an organization owner or admin can enter
-Sigma client credentials in the Analytics dialog. Analytics saves those values
-under Analytics-specific encrypted organization secrets and links them to an
-Analytics-only connection. Credential values must never pass through agent chat,
-action arguments, logs, source, or screenshots.
+values. Any workspace member can connect a personal Sigma account with OAuth
+from the importer and choose the account's documented API region. OAuth tokens
+and the connection stay scoped to that user. If direct setup is needed, an
+organization owner or admin can still enter Sigma client credentials in the
+Analytics dialog. Analytics saves those values under Analytics-specific
+encrypted organization secrets and links them to an Analytics-only connection.
+Credential values must never pass through agent chat, action arguments, logs,
+source, or screenshots.
 
 If Sigma adds verifiable source mapping in the future, the planned import will
 create a private snapshot in the user's personal `Sigma` folder. Other source
@@ -839,6 +869,7 @@ Hosted agent runs have a **~40s budget**. Many sequential `update-dashboard` cal
   not proof the chart renders: only `verified: true` is (with
   `noRenderAffected: true` no chart changed). On `verified: false`, follow
   `nextStep` and call `inspect-dashboard-panel` for the changed panels.
+- After any timeout, read the dashboard back with `get-sql-dashboard` before reporting success or retrying.
 
 ```bash
 # Add or edit several panels in ONE atomic call (never one call per panel)

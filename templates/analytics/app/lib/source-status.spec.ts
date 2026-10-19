@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { dbtConnectionReadiness } from "../../server/lib/dbt-connection";
 import type {
   DataSourceStatusResponse,
   WorkspaceConnectionProviderSummary,
@@ -80,7 +81,7 @@ describe("sourceHealthState", () => {
     ).toBe("connected");
   });
 
-  it("preserves configured credentials when the workspace grant is not yet active", () => {
+  it("reports a granted connection that is still checking", () => {
     expect(
       sourceHealthState(
         "amplitude",
@@ -115,11 +116,34 @@ describe("sourceHealthState", () => {
           ],
         }),
       ),
-    ).toBe("configured");
+    ).toBe("checking");
   });
 
-  it("reads granted dbt and Sigma workspace connections", () => {
-    const data = statusData({
+  it("preserves the provider-level checking state in the overview", () => {
+    expect(
+      sourceHealthState(
+        "dbt",
+        statusData({
+          providers: [
+            {
+              provider: "dbt",
+              label: "dbt Cloud",
+              configured: true,
+              connectionHealth: "checking",
+              configuredKeys: [],
+              missingRequiredKeys: [],
+              optionalKeys: [],
+            },
+          ],
+        }),
+      ),
+    ).toBe("checking");
+  });
+
+  function dbtData(
+    dbtReadiness: WorkspaceConnectionProviderSummary["dbtReadiness"],
+  ): DataSourceStatusResponse {
+    return statusData({
       workspaceConnections: {
         appId: "analytics",
         available: true,
@@ -136,13 +160,41 @@ describe("sourceHealthState", () => {
             hasGrantedWorkspaceConnection: true,
             hasActiveWorkspaceConnection: true,
             statuses: ["connected"],
+            dbtReadiness,
           },
         ],
       },
     });
+  }
 
-    expect(sourceHealthState("dbt", data)).toBe("connected");
-    expect(sourceHealthState("sigma", data)).toBe("not_connected");
+  it("reads a granted dbt connection as connected when the Semantic Layer is ready", () => {
+    expect(sourceHealthState("dbt", dbtData("ready"))).toBe("connected");
+    expect(sourceHealthState("sigma", dbtData("ready"))).toBe("not_connected");
+  });
+
+  it("does not read a granted dbt row with no saved token as connected", () => {
+    const readiness = dbtConnectionReadiness({
+      status: "connected",
+      tokenConfigured: false,
+      environmentId: "123456",
+    });
+
+    expect(readiness).toBe("token_missing");
+    expect(sourceHealthState("dbt", dbtData(readiness))).toBe("not_connected");
+  });
+
+  it("does not read a granted dbt row without an environment ID as connected", () => {
+    expect(sourceHealthState("dbt", dbtData("environment_missing"))).toBe(
+      "not_connected",
+    );
+  });
+
+  it("reports a granted dbt row without a readiness value as an error, not as connected", () => {
+    expect(sourceHealthState("dbt", dbtData(undefined))).toBe("error");
+    expect(sourceHealthState("dbt", dbtData("needs_reauth"))).toBe(
+      "needs_reauth",
+    );
+    expect(sourceHealthState("dbt", dbtData("error"))).toBe("error");
   });
 
   it("does not report connected from status labels when the Analytics grant is needed", () => {
@@ -459,7 +511,7 @@ describe("sourceHealthState", () => {
           },
         }),
       ),
-    ).toBe("error");
+    ).toBe("unknown");
     expect(
       sourceHealthState(
         "amplitude",
@@ -482,10 +534,10 @@ describe("sourceHealthState", () => {
           },
         }),
       ),
-    ).toBe("error");
+    ).toBe("unknown");
   });
 
-  it("treats an unknown provider configuration as an error", () => {
+  it("treats an unknown provider configuration as unknown", () => {
     expect(
       sourceHealthState(
         "github",
@@ -502,6 +554,6 @@ describe("sourceHealthState", () => {
           ],
         }),
       ),
-    ).toBe("error");
+    ).toBe("unknown");
   });
 });

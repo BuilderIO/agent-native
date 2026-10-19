@@ -91,6 +91,29 @@ afterEach(() => {
   scrollIntoView.mockClear();
 });
 
+describe("EditorSidebar slides header", () => {
+  it("shows the empty state and wires the header New slide button", () => {
+    const onAddSlide = vi.fn();
+    const { getByLabelText, getByText } = render(
+      <EditorSidebar
+        slides={[]}
+        activeSlideId=""
+        deckId="deck-1"
+        deckTitle="Test deck"
+        onSelectSlide={() => {}}
+        onAddSlide={onAddSlide}
+        describeSlideId={null}
+        onCloseDescribe={() => {}}
+        addSlideAgentSubmit={() => {}}
+      />,
+    );
+
+    getByText("editorSidebar.emptyTitle");
+    fireEvent.click(getByLabelText("editorSidebar.newSlide"));
+    expect(onAddSlide).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("EditorSidebar thumbnail scroll cue", () => {
   it("scrolls an opened slide thumbnail into view", () => {
     const slides: Slide[] = [

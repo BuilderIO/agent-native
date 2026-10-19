@@ -918,6 +918,10 @@ export default {
       animations: "アニメーション",
       pathEditAmbiguous:
         "このレイヤーには複数の位置アニメーションがあるため、パスを一意に編集できません。",
+      pathEditPositionConflict:
+        "このレイヤーには別の位置アニメーションがあるため、パスを曲線にできません。",
+      positionStyleConflict:
+        "このレイヤーには、他と組み合わせられない位置アニメーションがすでにあります。",
       animationStyles: {
         title: "アニメーション",
         createTitle: "新しいアニメーションスタイルを作成",
@@ -1853,6 +1857,8 @@ export default {
         "新しいフレームとして追加するルートを選ぶか、パスを入力してください。",
       searchPlaceholder: "ルートを検索…",
       noRoutes: "一致するルートがありません",
+      noDiscoveredRoutes:
+        "このアプリでルートが見つかりません。画面を追加するにはパスを入力してください。",
       useCustomPath: "「{{path}}」を追加",
       viewportDesktop: "デスクトップ",
       viewportMobile: "モバイル",

@@ -146,6 +146,7 @@ describe("release everything workflow", () => {
     const docsInputs = docsDispatch.inputs as Workflow;
     const docsJobs = docsWorkflow.jobs as Workflow;
     const verifyStableRelease = docsJobs["verify-stable-release"] as Workflow;
+    const docsSourceFreshness = docsJobs["docs-source-freshness"] as Workflow;
     const migrateDocs = docsJobs.migrate as Workflow;
     const deployDocs = docsJobs.deploy as Workflow;
     const pauseDocsBuilds = docsJobs["pause-netlify-builds"] as Workflow;
@@ -174,6 +175,11 @@ describe("release everything workflow", () => {
     assert.deepEqual(docsWorkflow.permissions, {
       contents: "read",
       "pull-requests": "read",
+    });
+    assert.deepEqual(docsWorkflow.concurrency, {
+      group: "agent-native-docs-production",
+      "cancel-in-progress": false,
+      queue: "max",
     });
     assert.match(
       String(verifyStableRelease.if),
@@ -207,15 +213,32 @@ describe("release everything workflow", () => {
       String(pauseDocsBuilds.if),
       /!cancelled\(\).*needs\.verify-stable-release\.result == 'skipped'.*needs\.verify-stable-release\.result == 'success'.*needs\.verify-stable-release\.outputs\.verified == 'false'/,
     );
+    assert.deepEqual(docsSourceFreshness.needs, ["verify-stable-release"]);
+    assert.deepEqual(pauseDocsBuilds.needs, [
+      "verify-stable-release",
+      "docs-source-freshness",
+    ]);
     assert.deepEqual(migrateDocs.needs, [
       "verify-stable-release",
+      "docs-source-freshness",
       "pause-netlify-builds",
     ]);
     assert.deepEqual(deployDocs.needs, [
       "verify-stable-release",
+      "docs-source-freshness",
       "pause-netlify-builds",
       "migrate",
     ]);
+    for (const docsJob of [pauseDocsBuilds, migrateDocs, deployDocs]) {
+      assert.match(
+        String(docsJob.if),
+        /needs\.docs-source-freshness\.result == 'success'/,
+      );
+      assert.match(
+        String(docsJob.if),
+        /needs\.docs-source-freshness\.outputs\.current == 'true'/,
+      );
+    }
     assert.match(
       String(migrateDocs.if),
       /always\(\).*needs\.verify-stable-release\.result == 'skipped'.*needs\.verify-stable-release\.result == 'success'.*needs\.verify-stable-release\.outputs\.verified == 'false'.*needs\.pause-netlify-builds\.result == 'success'/,

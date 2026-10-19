@@ -169,6 +169,10 @@ import {
   type EmbeddedCanvasPanSession,
 } from "./design-canvas/iframe-pan";
 import { buildInteractPreviewDocument } from "./design-canvas/interact-document";
+import {
+  inlineDesignStylesheets,
+  useDesignStylesheets,
+} from "./design-canvas/linked-stylesheets";
 import { withLocalRuntimes } from "./design-canvas/local-runtime";
 import { LocalNetworkAccessPrompt } from "./design-canvas/LocalNetworkAccessPrompt";
 import {
@@ -185,10 +189,13 @@ import {
   type BeginTextEditOptions,
   cancelPendingTextCapture,
   cancelPendingTextHostCommit,
+  endPendingTextSession,
   isPendingTextInterceptionOpen,
   isPendingTextRequestLive,
+  isSupersededEmptyTextCommit,
   onPendingTextCaptureCancel,
   owePendingTextCapture,
+  peekPendingTextCapture,
   queuePendingTextHostCommit,
   registerTextEditOwner,
   releasePendingTextCapture,
@@ -820,6 +827,7 @@ interface DesignCanvasProps {
       originalHtml?: string;
       routePath?: string;
       relativeOperations?: Record<string, RelativeStyleOperation>;
+      owedTextPending?: boolean;
     },
   ) => TextCommitStatus | void;
   onTextEditingStateChange?: (
@@ -1033,6 +1041,22 @@ function isCurrentLiveEditReadyMessage(
   }
 }
 
+// A re-resolved live-edit URL and the live page's route both add the frame's
+// bridge key to a URL the iframe was pinned to without it: same document.
+const FRAME_BRIDGE_KEY_PARAM = "agentNativeBridgeKey";
+
+function liveEditDocumentIdentityUrl(liveEditUrl: string): string {
+  if (!URL.canParse(liveEditUrl)) return liveEditUrl;
+  const liveEdit = new URL(liveEditUrl);
+  const targetUrl = liveEdit.searchParams.get("url");
+  if (!targetUrl || !URL.canParse(targetUrl)) return liveEditUrl;
+  const target = new URL(targetUrl);
+  if (!target.searchParams.has(FRAME_BRIDGE_KEY_PARAM)) return liveEditUrl;
+  target.searchParams.delete(FRAME_BRIDGE_KEY_PARAM);
+  liveEdit.searchParams.set("url", target.toString());
+  return liveEdit.toString();
+}
+
 function liveEditDocumentIdentityForRoute(
   liveEditUrl: string,
   routePath: string,
@@ -1048,7 +1072,10 @@ function liveEditDocumentIdentityForRoute(
     target.search = route.search;
     target.hash = route.hash;
     liveEdit.searchParams.set("url", target.toString());
-    return { status: "ready", identity: `src:${liveEdit.toString()}` };
+    return {
+      status: "ready",
+      identity: `src:${liveEditDocumentIdentityUrl(liveEdit.toString())}`,
+    };
   } catch {
     return { status: "invalid" };
   }
@@ -3513,13 +3540,14 @@ export function DesignCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [centerInteractPreview, deviceFrame, contentKey, previewWidthPx]);
 
+  const designStylesheets = useDesignStylesheets();
   const srcdoc = useMemo(() => {
     if (rawExternalPreviewUrl) return undefined;
     // Interact runs the design as authored. Its document carries the theme and
     // links bridges and none of the editor's, so entering or leaving Interact
     // loads a new document rather than asking one to stand down.
     if (interactMode) {
-      return buildInteractPreviewDocument({
+      const interactDocument = buildInteractPreviewDocument({
         content: iframeRenderContent,
         embeddedFrameBackground,
         transparentBackground,
@@ -3527,6 +3555,7 @@ export function DesignCanvas({
         contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
         fitBodyToFrame: fitRootBodyToFrame ?? !boardSurface,
       });
+      return inlineDesignStylesheets(interactDocument, designStylesheets);
     }
     const localizedContent = withLocalRuntimes(iframeRenderContent);
     const frameContent = getEmbeddedFrameDocumentContent({
@@ -3610,6 +3639,7 @@ export function DesignCanvas({
       ].join("");
       frameDocument = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${frameStyle}</head><body>${localizedContent}${bridgeToInject}</body></html>`;
     }
+    frameDocument = inlineDesignStylesheets(frameDocument, designStylesheets);
     if (isEmbeddedFrame) {
       frameDocument = appendContentSizeReporter(frameDocument);
     }
@@ -3623,6 +3653,7 @@ export function DesignCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     boardSurface,
+    designStylesheets,
     fitRootBodyToFrame,
     rawExternalPreviewUrl,
     isEmbeddedFrame,
@@ -3674,7 +3705,7 @@ export function DesignCanvas({
   const interactIdentitySuffix = interactMode ? "#interact" : "";
   const iframeDocumentIdentity =
     (externalPreviewUrl
-      ? `src:${externalPreviewUrl}${interactIdentitySuffix}`
+      ? `src:${liveEditDocumentIdentityUrl(externalPreviewUrl)}${interactIdentitySuffix}`
       : waitingForLiveEditBridge
         ? `live-edit-pending:${liveEditBridgeKey}`
         : `srcdoc:${contentKey ?? ""}:${srcdocHash}`) + reloadSuffix;
@@ -4049,7 +4080,12 @@ export function DesignCanvas({
             },
             "*",
           );
-          toast.error(t("designEditor.motion.pathEditAmbiguous"));
+          toast.error(
+            changeResult.reason === "repeated-position-path"
+              ? t("designEditor.motion.pathEditPositionConflict")
+              : t("designEditor.motion.pathEditAmbiguous"),
+            { id: `motion-path-edit-unsupported:${changeResult.reason}` },
+          );
         }
         return;
       }
@@ -4835,8 +4871,28 @@ export function DesignCanvas({
             typeof payload.sourceId === "string"
               ? payload.sourceId
               : null;
+          // A session that ended before its owed text landed is redelivered as a
+          // commit; its empty content here is not the user's, so it must not delete the node.
+          if (
+            owner &&
+            sourceId &&
+            ((!value && peekPendingTextCapture(owner, sourceId)) ||
+              isSupersededEmptyTextCommit(
+                owner,
+                sourceId,
+                value,
+                originalValue,
+              ))
+          ) {
+            return;
+          }
           // The bridge sends inactive state before this content message; consume
           // the owner token now so later screen changes cannot erase its handoff.
+          // Text typed before this session opened has not landed yet: this commit holds
+          // only the rest, so the later commit that lands it creates the box.
+          const owedTextPending = Boolean(
+            owner && sourceId && peekPendingTextCapture(owner, sourceId),
+          );
           const isPendingCreation = consumePendingTextCreation(
             pendingTextCreationNodeOwnersRef.current,
             owner,
@@ -4860,6 +4916,7 @@ export function DesignCanvas({
                   originalHtml,
                   relativeOperations,
                   routePath,
+                  owedTextPending,
                 }),
               queueHostCommit: queuePendingTextHostCommit,
               cancelHostCommit: cancelPendingTextHostCommit,
@@ -5431,6 +5488,7 @@ export function DesignCanvas({
           typeof e.data.sourceId === "string" ? e.data.sourceId : "";
         const owner = capturedOwnerRef.current;
         if (!e.data.active && owner && activatedSourceId) {
+          endPendingTextSession(owner, activatedSourceId);
           const activeTextEditIdentity = activeTextEditIdentityRef.current;
           if (
             activeTextEditIdentity?.owner === owner &&
@@ -6576,6 +6634,11 @@ export function DesignCanvas({
       }
     }
     function onPendingTextEditPointerDown() {
+      const pending = pendingTextEditRef.current;
+      const owner = capturedOwnerRef.current;
+      if (owner && pending?.buffer) {
+        returnPendingTextCapture(owner, pending.nodeId, pending.buffer);
+      }
       pendingTextEditRef.current = null;
       pendingTextEditActivationRef.current?.cancelRequest();
       pendingTextEditActivationRef.current = null;
@@ -9031,6 +9094,7 @@ function SingleScreenCreationOverlay({
   const continuationPenPathRef = useRef<{
     nodeId: string;
     path: PenPath;
+    sourceOffset: PenPoint;
   } | null>(null);
 
   const seedSelectedPenContinuation = useCallback(() => {
@@ -9065,6 +9129,7 @@ function SingleScreenCreationOverlay({
     continuationPenPathRef.current = {
       nodeId: selectedPenPathNodeId,
       path: translatePenPath(path, offset.x, offset.y),
+      sourceOffset: offset,
     };
   }, [iframeRef, selectedPenPathNodeId, tool]);
 
@@ -9144,7 +9209,11 @@ function SingleScreenCreationOverlay({
       if (continuation) {
         const updated = onUpdatePenPath?.(
           continuation.nodeId,
-          committed,
+          translatePenPath(
+            committed,
+            -continuation.sourceOffset.x,
+            -continuation.sourceOffset.y,
+          ),
           options?.preserveActiveTool === false ? "move" : undefined,
         );
         if (!updated) {
@@ -9190,7 +9259,7 @@ function SingleScreenCreationOverlay({
           typeof nodeId === "string" &&
           !committed.closed &&
           options?.continueAfterCommit
-            ? { nodeId, path: committed }
+            ? { nodeId, path: committed, sourceOffset: { x: 0, y: 0 } }
             : null;
         return;
       }
