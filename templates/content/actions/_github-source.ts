@@ -79,6 +79,7 @@ import {
   githubSourceMetadataRecord,
   readGitHubSourceState,
   rememberedSkips,
+  type GitHubSkippedFile,
   type GitHubSourceState,
 } from "./_github-source-metadata.js";
 import {
@@ -1773,7 +1774,20 @@ export async function syncGitHubSource(
       run.documentIdByPath.set(folderRelative(run, path), row.documentId);
     }
 
+    // A file skipped once it was read is skipped again while its blob is the
+    // same, so it isn't read again. It has no row to record that on.
+    const skippedBlobs = new Map(
+      state.skipped.flatMap((skip) =>
+        skip.blobSha ? [[skip.path, skip] as const] : [],
+      ),
+    );
+    const stillSkipped: GitHubSkippedFile[] = [];
     const work = planned.filter((file) => {
+      const skip = skippedBlobs.get(file.entry.path);
+      if (skip?.blobSha === file.entry.sha) {
+        stillSkipped.push(skip);
+        return false;
+      }
       const previous = file.row ? rowState(file.row) : null;
       return (
         !previous ||
@@ -1782,8 +1796,11 @@ export async function syncGitHubSource(
       );
     });
     const result = emptyResult("synced", head.sha);
-    result.unchanged = planned.length - work.length;
-    const skippedFiles = [...files.skipped];
+    result.unchanged = planned.length - work.length - stillSkipped.length;
+    const skippedFiles: GitHubSkippedFile[] = [
+      ...files.skipped,
+      ...stillSkipped,
+    ];
     let done = 0;
     for (const file of work) {
       if (Date.now() >= deadline) break;
@@ -1819,7 +1836,11 @@ export async function syncGitHubSource(
       }
       if (typeof outcome === "string") result[outcome] += 1;
       else
-        skippedFiles.push({ path: file.entry.path, reason: outcome.skipped });
+        skippedFiles.push({
+          path: file.entry.path,
+          reason: outcome.skipped,
+          blobSha: file.entry.sha,
+        });
       done += 1;
     }
     const remainingFiles = work.length - done;
@@ -1852,15 +1873,12 @@ export async function syncGitHubSource(
     // or background sync carries on at once. One that got nowhere waits its
     // turn, as a failed check does.
     const countsAsCheck = complete || (done === 0 && result.trashed === 0);
-    const skipped = rememberedSkips(
-      skippedFiles.sort((a, b) => (a.path < b.path ? -1 : 1)),
-    );
+    const skipped = rememberedSkips(skippedFiles);
     await release(
       (current) => {
-        // A commit's files don't change, so a run that carries on a push keeps
-        // the total the push started with and counts what's left. Its own
-        // list is shorter, and still holds skipped files, which have no row
-        // and are read again every run. The count never goes back.
+        // A run that carries on a push sees only the files left, so it keeps
+        // the total the push started with and counts what's left against it.
+        // The count never goes back.
         const before =
           current.pendingCommitSha === head.sha ? current.progress : null;
         const total = before?.total ?? work.length + result.trashed + gone.size;
@@ -1877,6 +1895,7 @@ export async function syncGitHubSource(
           problem: result.problem,
           files: files.markdown.length,
           skipped,
+          skippedCount: skippedFiles.length,
           imagesWaiting: result.imagesWaiting,
           ...(complete
             ? {
@@ -1987,6 +2006,7 @@ export async function createGitHubSourceLink(args: {
     progress: { done: 0, total: preview.markdownFiles },
     files: preview.markdownFiles,
     skipped: rememberedSkips(preview.skipped),
+    skippedCount: preview.skipped.length,
     problem: null,
     claim: null,
   };

@@ -1197,8 +1197,7 @@ describe("GitHub folder freshness", () => {
       linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
     );
     // A push that touches every file but leaves each page as it was, and
-    // adds one that's skipped. A skipped file has no row, so every run reads
-    // it again.
+    // adds one that's skipped.
     github.commit({
       "docs/0.md": "BINARY",
       "docs/1.md": "# One\n\n",
@@ -1221,9 +1220,11 @@ describe("GitHub folder freshness", () => {
     expect(first).toMatchObject({ state: "partial", updated: 0, unchanged: 1 });
     expect(await progress()).toEqual({ done: 2, total: 4 });
 
-    // The next run reads the skipped file again and gets one file further. No
-    // row changes, but the status line moves on, so readers hear about it.
+    // The next run has time for one read. It passes the skipped file by and
+    // reads the next one. No row changes, but the status line moves on, so
+    // readers hear about it.
     github.state.blobReads = 0;
+    github.state.hangAfterBlobReads = 1;
     changes.length = 0;
     await checkedAgo(database.id, 2 * 60_000);
     await as(() => getDatabase.run({ databaseId: database.id }));
@@ -1239,6 +1240,45 @@ describe("GitHub folder freshness", () => {
     github.state.hangAfterBlobReads = null;
     await as(() => syncGitHubSource({ sourceId: id, budgetMs: 30_000 }));
     expect(await progress()).toBeNull();
+  });
+
+  it("doesn't read a skipped file again while it's unchanged", async () => {
+    github.commit({ "docs/0.md": "BINARY", "docs/1.md": "# One\n" });
+    const database = await newCollection();
+    await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    github.commit({ "docs/0.md": "BINARY", "docs/1.md": "# One, edited\n" });
+    github.state.blobReads = 0;
+    await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(github.state.blobReads).toBe(1);
+    const status = await as(() => getSource.run({ databaseId: database.id }));
+    expect(status.source?.metadata.github).toMatchObject({
+      skippedCount: 1,
+    });
+    // The blob it keeps to pass the file by stays on the server.
+    expect(status.source?.metadata.github?.skipped).toEqual([
+      { path: expect.stringMatching(/0\.md$/), reason: "not-text" },
+    ]);
+  });
+
+  it("counts every skipped file, though it keeps only 50 of their paths", async () => {
+    github.commit({
+      "docs/1.md": "# One\n",
+      ...Object.fromEntries(
+        Array.from({ length: 55 }, (_, index) => [
+          `docs/demo-${index}.mdx`,
+          "<Demo />\n",
+        ]),
+      ),
+    });
+    const database = await newCollection();
+    await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    const status = await as(() => getSource.run({ databaseId: database.id }));
+    expect(status.source?.metadata.github?.skipped).toHaveLength(50);
+    expect(status.source?.metadata.github?.skippedCount).toBe(55);
   });
 
   it("answers a read when GitHub is too slow, then waits its turn without a problem", async () => {

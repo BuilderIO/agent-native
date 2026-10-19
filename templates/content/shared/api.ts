@@ -982,7 +982,10 @@ export interface ContentGitHubSourceStatus {
   pendingCommitSha: string | null;
   progress: { done: number; total: number } | null;
   files: number;
+  /** Up to 50 of the skipped files, with why each was skipped. */
   skipped: Array<{ path: string; reason: GitHubSourceSkipReason }>;
+  /** How many files were skipped in all. */
+  skippedCount: number;
   /** Images not shown yet because file storage isn't set up. */
   imagesWaiting: number;
   problem: {

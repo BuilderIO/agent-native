@@ -49,6 +49,7 @@ function githubSource(
         progress: null,
         files: 4,
         skipped: [],
+        skippedCount: status.skipped?.length ?? 0,
         imagesWaiting: 0,
         problem: null,
         ...status,
@@ -183,6 +184,30 @@ describe("GitHub source status line", () => {
     expect(text).toContain("Not linked");
     expect(text).toContain("demo.mdxMDX isn’t supported yet");
     expect(text).toContain("huge.mdLarger than 1 MiB");
+  });
+
+  it("counts every skipped file when the link keeps only some of their paths", async () => {
+    renderUi(
+      <GitHubSourceStatusLine
+        source={githubSource({
+          skipped: Array.from({ length: 50 }, (_, index) => ({
+            path: `demo-${index}.mdx`,
+            reason: "mdx" as const,
+          })),
+          skippedCount: 120,
+        })}
+      />,
+    );
+    const skipped = Array.from(statusLine().querySelectorAll("button")).find(
+      (candidate) => candidate.textContent === "120 files skipped",
+    );
+    if (!skipped) throw new Error("No skipped files button");
+    await click(skipped);
+    const items = Array.from(document.querySelectorAll("li")).map(
+      (item) => item.textContent,
+    );
+    expect(items).toHaveLength(51);
+    expect(items[items.length - 1]).toBe("120 files skipped");
   });
 
   it("shows how far a newer commit has come in", () => {

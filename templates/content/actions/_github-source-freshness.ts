@@ -78,7 +78,8 @@ function statusShown(metadataJson: string | undefined) {
     state?.progress?.done ?? null,
     state?.progress?.total ?? null,
     state?.problem?.code ?? null,
-    state?.skipped.length ?? 0,
+    state?.skippedCount ?? 0,
+    state?.skipped.map((file) => `${file.reason}:${file.path}`) ?? [],
     state?.imagesWaiting ?? 0,
   ]);
 }

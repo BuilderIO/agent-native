@@ -96,11 +96,16 @@ function announceSync(result: SyncGitHubFolderResponse) {
   }
 }
 
-/** "2 files skipped", which opens the list of files and why each was skipped. */
+/**
+ * "2 files skipped", which opens the list of files and why each was skipped.
+ * The link keeps up to 50 of them, so the count can be longer than the list.
+ */
 function SkippedFiles({
   files,
+  count,
 }: {
   files: ContentGitHubSourceStatus["skipped"];
+  count: number;
 }) {
   return (
     <Popover>
@@ -109,9 +114,9 @@ function SkippedFiles({
           type="button"
           className="rounded-sm underline decoration-dotted underline-offset-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
-          {files.length === 1
+          {count === 1
             ? dbText("githubSkippedFilesOne")
-            : dbText("githubSkippedFiles", { count: files.length })}
+            : dbText("githubSkippedFiles", { count })}
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-80">
@@ -128,6 +133,11 @@ function SkippedFiles({
                 </span>
               </li>
             ))}
+            {count > files.length ? (
+              <li className="text-muted-foreground">
+                {dbText("githubSkippedFiles", { count })}
+              </li>
+            ) : null}
           </ul>
         </div>
       </PopoverContent>
@@ -163,8 +173,12 @@ export function GitHubSourceStatusLine({
           time: githubRelativeTime(status.syncedAt, now),
         })
       : dbText("githubNotSyncedYet"),
-    status.skipped.length > 0 ? (
-      <SkippedFiles key="skipped" files={status.skipped} />
+    status.skippedCount > 0 ? (
+      <SkippedFiles
+        key="skipped"
+        files={status.skipped}
+        count={status.skippedCount}
+      />
     ) : null,
     status.imagesWaiting > 0 && problem?.code !== "storage_unavailable"
       ? dbText("githubImagesWaiting")
