@@ -5,9 +5,14 @@ import {
   isArtifactReceipt,
   type ArtifactReceipt,
 } from "../artifacts/detect.js";
+import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import { stripInlineBytes } from "../shared/inline-bytes.js";
 import type { EngineMessage } from "./engine/types.js";
-import type { AgentChatEvent, AgentToolInput } from "./types.js";
+import type {
+  AgentChatEvent,
+  AgentFileMutationProof,
+  AgentToolInput,
+} from "./types.js";
 
 export interface ToolCallJournalEntry {
   key: string;
@@ -20,6 +25,7 @@ export interface ToolCallJournalEntry {
   result?: string;
   /** The call failed after its side effect completed. */
   isError?: true;
+  errorCode?: string;
   /** The call recorded a completed side effect, its own or a nested call's. */
   committed?: true;
   /** Exact identity of the arguments the call ran with, defaults applied. */
@@ -27,6 +33,8 @@ export interface ToolCallJournalEntry {
   /** The call settled with an outcome it could not confirm. */
   outcomeUnknown?: true;
   artifacts?: ArtifactReceipt[];
+  fileMutation?: AgentFileMutationProof;
+  mcpApp?: AgentMcpAppPayload;
   chatUI?: Omit<ActionChatUIConfig, "when" | "projectResult">;
   chatUIResult?: unknown;
 }
@@ -177,10 +185,13 @@ export function classifyToolCallJournal(
         }
         entry.result = event.result ?? "";
         if (event.isError === true) entry.isError = true;
+        if (event.errorCode) entry.errorCode = event.errorCode;
         if (event.completedSideEffect === true) entry.committed = true;
         if (event.argumentsHash) entry.argumentsHash = event.argumentsHash;
         const artifacts = event.artifacts?.filter(isArtifactReceipt);
         if (artifacts && artifacts.length > 0) entry.artifacts = artifacts;
+        if (event.fileMutation) entry.fileMutation = event.fileMutation;
+        if (event.mcpApp) entry.mcpApp = event.mcpApp;
         if (event.chatUI && event.chatUIResult !== undefined) {
           entry.chatUI = {
             renderer: event.chatUI.renderer,
