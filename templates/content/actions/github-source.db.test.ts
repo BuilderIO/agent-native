@@ -1186,6 +1186,58 @@ describe("GitHub folder freshness", () => {
     ]);
   });
 
+  it("counts on from the last run while a push takes several, and tells readers each step", async () => {
+    github.commit({
+      "docs/1.md": "# One\n",
+      "docs/2.md": "# Two\n",
+      "docs/3.md": "# Three\n",
+    });
+    const database = await newCollection();
+    await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    // A push that touches every file but leaves each page as it was.
+    github.commit({
+      "docs/1.md": "# One\n\n",
+      "docs/2.md": "# Two\n\n",
+      "docs/3.md": "# Three\n\n",
+    });
+    const id = await sourceId(database.id);
+    const progress = async () => {
+      const [source] = await getDb()
+        .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
+        .from(schema.contentDatabaseSources)
+        .where(eq(schema.contentDatabaseSources.id, id));
+      return JSON.parse(source!.metadataJson).github?.progress;
+    };
+    github.state.blobReads = 0;
+    github.state.hangAfterBlobReads = 1;
+    const first = await as(() =>
+      syncGitHubSource({ sourceId: id, budgetMs: 1_500 }),
+    );
+    expect(first).toMatchObject({ state: "partial", updated: 0, unchanged: 1 });
+    expect(await progress()).toEqual({ done: 1, total: 3 });
+
+    // The next run does one more file. No row changes, but the status line
+    // moves on, so readers hear about it.
+    github.state.blobReads = 0;
+    changes.length = 0;
+    await checkedAgo(database.id, 2 * 60_000);
+    await as(() => getDatabase.run({ databaseId: database.id }));
+    expect(await progress()).toEqual({ done: 2, total: 3 });
+    expect(changes).toEqual([
+      expect.objectContaining({
+        key: "sync-github-folder",
+        resourceType: "document",
+        resourceId: database.documentId,
+      }),
+    ]);
+
+    github.state.hangAfterBlobReads = null;
+    await as(() => syncGitHubSource({ sourceId: id, budgetMs: 30_000 }));
+    expect(await progress()).toBeNull();
+  });
+
   it("answers a read when GitHub is too slow, then waits its turn without a problem", async () => {
     const { database } = await linkBaseFolder();
     github.commit({ ...BASE_FILES, "docs/faq.md": EDITED_FAQ });

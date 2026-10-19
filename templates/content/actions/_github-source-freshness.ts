@@ -75,6 +75,8 @@ function statusShown(metadataJson: string | undefined) {
   return JSON.stringify([
     state?.syncedCommitSha ?? null,
     state?.pendingCommitSha ?? null,
+    state?.progress?.done ?? null,
+    state?.progress?.total ?? null,
     state?.problem?.code ?? null,
     state?.skipped.length ?? 0,
     state?.imagesWaiting ?? 0,

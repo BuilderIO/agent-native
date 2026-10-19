@@ -1856,29 +1856,37 @@ export async function syncGitHubSource(
       skippedFiles.sort((a, b) => (a.path < b.path ? -1 : 1)),
     );
     await release(
-      (current) => ({
-        ...current,
-        checkedAt: now,
-        problem: result.problem,
-        files: files.markdown.length,
-        skipped,
-        imagesWaiting: result.imagesWaiting,
-        ...(complete
-          ? {
-              syncedCommitSha: head.sha,
-              syncedAt: new Date().toISOString(),
-              headEtag: head.etag,
-              pendingCommitSha: null,
-              progress: null,
-            }
-          : {
-              pendingCommitSha: head.sha,
-              progress: {
-                done: work.length - remainingFiles + result.trashed,
-                total: work.length + result.trashed + gone.size,
-              },
-            }),
-      }),
+      (current) => {
+        // Files an earlier run finished for this commit are no longer in
+        // `work`, so the count carries them on rather than restarting at zero.
+        const carried =
+          current.pendingCommitSha === head.sha
+            ? (current.progress?.done ?? 0)
+            : 0;
+        return {
+          ...current,
+          checkedAt: now,
+          problem: result.problem,
+          files: files.markdown.length,
+          skipped,
+          imagesWaiting: result.imagesWaiting,
+          ...(complete
+            ? {
+                syncedCommitSha: head.sha,
+                syncedAt: new Date().toISOString(),
+                headEtag: head.etag,
+                pendingCommitSha: null,
+                progress: null,
+              }
+            : {
+                pendingCommitSha: head.sha,
+                progress: {
+                  done: carried + done + result.trashed,
+                  total: carried + work.length + result.trashed + gone.size,
+                },
+              }),
+        };
+      },
       () => ({
         syncState: complete ? "linked" : "refreshing",
         freshness: complete ? "fresh" : "stale",
