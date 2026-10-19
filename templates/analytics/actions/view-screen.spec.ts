@@ -7,12 +7,14 @@ import { CONNECT_UNDERCOUNT } from "../shared/annotation-fixtures";
 const navigationState: { current: unknown } = { current: null };
 const urlState: { current: unknown } = { current: null };
 const selectedObjectState: { current: unknown } = { current: null };
+const rowBreakdownState: { current: unknown } = { current: null };
 
 vi.mock("@agent-native/core/application-state", () => ({
   readAppStateForCurrentTab: vi.fn(async (key: string) => {
     if (key === "navigation") return navigationState.current;
     if (key === "__url__") return urlState.current;
     if (key === "selected-object") return selectedObjectState.current;
+    if (key === "row-breakdown") return rowBreakdownState.current;
     return null;
   }),
 }));
@@ -134,6 +136,30 @@ describe("view-screen monitoring status-pages branch", () => {
     getDashboard.mockResolvedValue(null);
     userEmail = "user@example.test";
     selectedObjectState.current = null;
+    rowBreakdownState.current = null;
+  });
+
+  it("shows the row breakdown open on a dashboard, and not on Ask", async () => {
+    rowBreakdownState.current = {
+      dashboardId: "dash-1",
+      panelId: "use-by-role",
+      row: { role: "Engineer" },
+      breakdownColumn: "app",
+    };
+    setScreen(
+      { view: "adhoc", dashboardId: "dash-1" },
+      { pathname: "/dashboards/dash-1" },
+    );
+    expect((await runScreen()).rowBreakdown).toEqual(rowBreakdownState.current);
+
+    setScreen({ view: "adhoc", dashboardId: "dash-1" }, { pathname: "/ask" });
+    expect((await runScreen()).rowBreakdown).toBeUndefined();
+
+    setScreen(
+      { view: "adhoc", dashboardId: "dash-2" },
+      { pathname: "/dashboards/dash-2" },
+    );
+    expect((await runScreen()).rowBreakdown).toBeUndefined();
   });
 
   it("does not surface a stale dashboard selection on Ask", async () => {

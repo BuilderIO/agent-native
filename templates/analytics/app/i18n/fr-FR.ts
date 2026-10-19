@@ -1479,6 +1479,24 @@ export default {
     columnShowHidden: "Afficher les colonnes masquées",
     columnName: "Nom de la colonne",
     columnResize: "Redimensionner la colonne",
+    rowBreakdownBy: "Ventiler par",
+    rowBreakdownAll: "Tous",
+    rowBreakdownOther: "Autres",
+    rowBreakdownOtherHint:
+      "Groupes plus petits, et toute personne que le SQL de ce panneau exclut",
+    rowBreakdownSmallGroup: "Moins de {{count}} : lisez les taux avec prudence",
+    rowBreakdownNoValue: "(aucun)",
+    rowBreakdownEmpty: "Aucune ligne pour cette ventilation.",
+    rowBreakdownUnavailable:
+      "Le SQL de ce panneau n'a pas de ventilation par {{column}}.",
+    rowBreakdownFromPanel: "Issu des lignes de ce panneau. Rien n'a été lu.",
+    rowBreakdownFromCache: "Issu du cache. Rien n'a été lu.",
+    rowBreakdownAlreadyLoaded: "Déjà chargé. Rien n'a été lu.",
+    rowBreakdownBytesRead: "{{bytes}} lus",
+    rowBreakdownOverByteCap:
+      "Cette ventilation lirait plus de {{gib}} Gio, elle n'a donc pas été exécutée. Restreignez les filtres ou la période du tableau de bord, puis réessayez.",
+    rowBreakdownTruncated:
+      "Le résultat a été tronqué : certains groupes manquent ou sont comptés dans Autres.",
     deleteSectionTitle: "Supprimer la rubrique ?",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "Supprimer le panneau ?",
