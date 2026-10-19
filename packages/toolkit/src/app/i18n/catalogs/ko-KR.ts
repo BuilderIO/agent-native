@@ -218,7 +218,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.why":
     "임베딩은 의미 검색을 개선합니다. 임베딩 없이도 키워드 검색은 작동합니다.",
   "onboarding.capability.webSearch.label": "웹 검색",
-  "onboarding.capability.webSearch.keySummary": "Builder 관리 웹 검색",
+  "onboarding.capability.webSearch.keySummary": "웹 검색",
   "onboarding.capability.webSearch.why":
     "웹의 최신 공개 자료를 검색합니다. Builder 관리 검색은 포함된 Builder AI 크레딧을 사용하므로 별도의 검색 API 키가 필요하지 않습니다.",
   "onboarding.capability.systemOne.why":
