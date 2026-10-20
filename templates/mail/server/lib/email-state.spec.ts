@@ -49,7 +49,8 @@ vi.mock("@agent-native/core/oauth-tokens", () => ({
 vi.mock("./google-api.js", () => ({
   createOAuth2Client: vi.fn(),
   gmailGetMessage: vi.fn(),
-  gmailGetThread: vi.fn(),
+  gmailBatchGetMessages: vi.fn(),
+  gmailBatchGetThreads: vi.fn(),
   gmailModifyMessage: vi.fn(),
   gmailModifyThread: vi.fn(),
   registerGmailAccountToken: vi.fn(),
@@ -93,7 +94,8 @@ import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 
 import {
   gmailGetMessage,
-  gmailGetThread,
+  gmailBatchGetMessages,
+  gmailBatchGetThreads,
   gmailModifyMessage,
   gmailModifyThread,
   gmailTrashThread,
@@ -251,6 +253,16 @@ beforeEach(() => {
   inboxStoreMocks.findThreadIdsByMessageIds.mockResolvedValue(new Map());
   inboxStoreMocks.findAccountForThread.mockResolvedValue(null);
   inboxStoreMocks.findAccountForMessage.mockResolvedValue(null);
+  // By default the connected list is the owner's OAuth grants; managed tests
+  // override it.
+  vi.mocked(getConnectedAccountsWithErrors).mockImplementation((async (
+    owner: string,
+  ) => ({
+    accounts: (await listOAuthAccountsByOwner("google", owner)).map(
+      (account) => account.accountId,
+    ),
+    errors: [],
+  })) as any);
 });
 
 describe("archiveEmail", () => {
@@ -1156,6 +1168,15 @@ describe("markThreadRead", () => {
       mockConnected(true);
       mockTwoAccounts();
       inboxStoreMocks.findAccountForThread.mockResolvedValue(null);
+      vi.mocked(gmailBatchGetThreads).mockImplementation((async (
+        _token: string,
+        ids: string[],
+      ) =>
+        ids.map((id) => ({
+          id,
+          data: null,
+          error: "HTTP 404 not found",
+        }))) as any);
 
       await expect(
         markThreadRead({
@@ -1230,6 +1251,12 @@ describe("resolveMutationAccounts", () => {
   });
 
   describe("after the store has purged the archived row", () => {
+    const notFound = (id: string) => ({
+      id,
+      data: null,
+      error: "HTTP 404 not found",
+    });
+
     function tokensPerAccount() {
       mockTwoAccounts();
       vi.mocked(getOAuthTokens).mockImplementation((async (
@@ -1241,13 +1268,15 @@ describe("resolveMutationAccounts", () => {
       })) as any);
     }
 
-    it("finds the owning account with a minimal threads.get per account", async () => {
+    it("finds the owning account with one minimal batch read per account", async () => {
       tokensPerAccount();
-      vi.mocked(gmailGetThread).mockImplementation((async (token: string) => {
-        if (token === `token-${ACCT}`)
-          throw Object.assign(new Error("HTTP 404"), { status: 404 });
-        return { id: THREAD_ID };
-      }) as any);
+      vi.mocked(gmailBatchGetThreads).mockImplementation((async (
+        token: string,
+        ids: string[],
+      ) =>
+        ids.map((id) =>
+          token === `token-${ACCT}` ? notFound(id) : { id, data: { id } },
+        )) as any);
 
       const { resolved } = await resolveMutationAccounts(OWNER, [
         { id: "m1", threadId: THREAD_ID },
@@ -1256,32 +1285,151 @@ describe("resolveMutationAccounts", () => {
       expect(resolved).toEqual([
         { id: "m1", threadId: THREAD_ID, accountEmail: ACCT2 },
       ]);
-      expect(vi.mocked(gmailGetThread).mock.calls).toEqual([
-        [`token-${ACCT}`, THREAD_ID, "minimal"],
-        [`token-${ACCT2}`, THREAD_ID, "minimal"],
+      expect(vi.mocked(gmailBatchGetThreads).mock.calls).toEqual([
+        [`token-${ACCT}`, [THREAD_ID], "minimal"],
+        [`token-${ACCT2}`, [THREAD_ID], "minimal"],
       ]);
     });
 
-    it("finds the owning account for a bare message id with messages.get", async () => {
+    it("finds the owning account for a bare message id", async () => {
       tokensPerAccount();
-      vi.mocked(gmailGetMessage).mockImplementation((async (token: string) =>
-        token === `token-${ACCT2}` ? { id: "m1" } : { id: "other" }) as any);
+      vi.mocked(gmailBatchGetMessages).mockImplementation((async (
+        token: string,
+        ids: string[],
+      ) =>
+        ids.map((id) =>
+          token === `token-${ACCT2}` ? { id, data: { id } } : notFound(id),
+        )) as any);
 
       await expect(
         resolveMutationAccount(OWNER, undefined, { messageId: "m1" }),
       ).resolves.toBe(ACCT2);
-      expect(vi.mocked(gmailGetMessage)).toHaveBeenCalledWith(
+      expect(vi.mocked(gmailBatchGetMessages)).toHaveBeenCalledWith(
         `token-${ACCT2}`,
-        "m1",
+        ["m1"],
         "minimal",
       );
     });
 
+    it("probes a managed workspace connection too, not only OAuth accounts", async () => {
+      const MANAGED = "managed@example.com";
+      mockAccounts();
+      vi.mocked(getConnectedAccountsWithErrors).mockResolvedValue({
+        accounts: [ACCT, MANAGED],
+        errors: [],
+      });
+      vi.mocked(getOAuthTokens).mockImplementation((async (
+        _provider: string,
+        accountId: string,
+      ) =>
+        accountId === ACCT
+          ? {
+              access_token: "token-oauth",
+              expiry_date: Date.now() + 3600_000,
+            }
+          : undefined) as any);
+      vi.mocked(getClientForConnectedAccount).mockImplementation((async (
+        _owner: string,
+        account: string,
+      ) =>
+        account === MANAGED
+          ? { accessToken: "token-managed", email: MANAGED }
+          : null) as any);
+      vi.mocked(gmailBatchGetThreads).mockImplementation((async (
+        token: string,
+        ids: string[],
+      ) =>
+        ids.map((id) =>
+          token === "token-managed" ? { id, data: { id } } : notFound(id),
+        )) as any);
+
+      const { resolved } = await resolveMutationAccounts(OWNER, [
+        { id: "m1", threadId: THREAD_ID },
+      ]);
+
+      expect(resolved).toEqual([
+        { id: "m1", threadId: THREAD_ID, accountEmail: MANAGED },
+      ]);
+    });
+
+    it("never maps a thread to the sole OAuth account when a managed one also exists", async () => {
+      mockAccounts();
+      vi.mocked(getConnectedAccountsWithErrors).mockResolvedValue({
+        accounts: [ACCT, "managed@example.com"],
+        errors: [],
+      });
+      vi.mocked(gmailBatchGetThreads).mockImplementation((async (
+        _token: string,
+        ids: string[],
+      ) => ids.map(notFound)) as any);
+
+      const error = await resolveMutationAccount(OWNER, undefined, {
+        threadId: THREAD_ID,
+      }).catch((err) => err);
+
+      expect(error).toBeInstanceOf(MutationAccountNotFoundError);
+    });
+
+    it("resolves a 50-target batch with one batch read per account and leaves nothing unbounded", async () => {
+      tokensPerAccount();
+      const ids = Array.from({ length: 50 }, (_, index) => `t${index}`);
+      // The first account owns the even threads, the second the odd ones.
+      vi.mocked(gmailBatchGetThreads).mockImplementation((async (
+        token: string,
+        requested: string[],
+      ) =>
+        requested.map((id) => {
+          const even = Number(id.slice(1)) % 2 === 0;
+          const owns = token === `token-${ACCT}` ? even : !even;
+          return owns ? { id, data: { id } } : notFound(id);
+        })) as any);
+
+      const { resolved, unresolved } = await resolveMutationAccounts(
+        OWNER,
+        ids.map((id) => ({ id: `m-${id}`, threadId: id })),
+      );
+
+      expect(unresolved).toEqual([]);
+      expect(resolved.map((target) => target.accountEmail)).toEqual(
+        ids.map((_, index) => (index % 2 === 0 ? ACCT : ACCT2)),
+      );
+      // 50 ids fit one batch per account: 2 calls, never 100 serial probes.
+      expect(vi.mocked(gmailBatchGetThreads)).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(gmailBatchGetThreads).mock.calls[0][1]).toHaveLength(50);
+      expect(vi.mocked(gmailBatchGetThreads).mock.calls[1][1]).toHaveLength(25);
+    });
+
+    it("stops probing at the unit budget and returns typed limit errors for the rest", async () => {
+      tokensPerAccount();
+      const ids = Array.from({ length: 120 }, (_, index) => `t${index}`);
+      vi.mocked(gmailBatchGetThreads).mockImplementation((async (
+        _token: string,
+        requested: string[],
+      ) => requested.map(notFound)) as any);
+
+      const { unresolved } = await resolveMutationAccounts(
+        OWNER,
+        ids.map((id) => ({ id: `m-${id}`, threadId: id })),
+      );
+
+      // 3,000 units / 40 per thread = 75 reads in total across both accounts.
+      const read = vi
+        .mocked(gmailBatchGetThreads)
+        .mock.calls.reduce((sum, call) => sum + call[1].length, 0);
+      expect(read).toBeLessThanOrEqual(75);
+      expect(unresolved).toHaveLength(120);
+      expect(
+        unresolved.filter((entry) => /too many lookups/.test(entry.error))
+          .length,
+      ).toBeGreaterThanOrEqual(120 - 75);
+    });
+
     it("throws a typed not-found error when no account has the thread", async () => {
       tokensPerAccount();
-      vi.mocked(gmailGetThread).mockRejectedValue(
-        Object.assign(new Error("HTTP 404"), { status: 404 }),
-      );
+      vi.mocked(gmailBatchGetThreads).mockImplementation((async (
+        _token: string,
+        ids: string[],
+      ) => ids.map(notFound)) as any);
 
       const error = await resolveMutationAccount(OWNER, undefined, {
         threadId: THREAD_ID,
@@ -1293,9 +1441,11 @@ describe("resolveMutationAccounts", () => {
 
     it("reports a lookup failure, not not-found, when an account cannot be checked", async () => {
       tokensPerAccount();
-      vi.mocked(gmailGetThread).mockImplementation((async (token: string) => {
-        if (token === `token-${ACCT}`)
-          throw Object.assign(new Error("HTTP 404"), { status: 404 });
+      vi.mocked(gmailBatchGetThreads).mockImplementation((async (
+        token: string,
+        ids: string[],
+      ) => {
+        if (token === `token-${ACCT}`) return ids.map(notFound);
         throw Object.assign(new Error("HTTP 503"), { status: 503 });
       }) as any);
 

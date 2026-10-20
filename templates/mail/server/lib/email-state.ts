@@ -9,7 +9,8 @@ import type { EmailMessage, Label } from "@shared/types.js";
 import type { BulkMarkReadResult } from "./bulk-mark-read.js";
 import {
   gmailGetMessage,
-  gmailGetThread,
+  gmailBatchGetMessages,
+  gmailBatchGetThreads,
   gmailModifyMessage,
   gmailModifyThread,
   gmailTrashThread,
@@ -115,36 +116,171 @@ export class MutationAccountLookupError extends Error {
   }
 }
 
+/** The probe budget ran out before this target could be checked. */
+export class MutationAccountProbeLimitError extends Error {
+  readonly code = "account_lookup_limited";
+  constructor(target: string) {
+    super(
+      `Cannot determine which connected account owns thread ${target}: too many lookups in one request; retry or pass accountEmail`,
+    );
+    this.name = "MutationAccountProbeLimitError";
+  }
+}
+
+// Gmail units one account-probe round may spend: threads.get costs 40 and
+// messages.get 20 per item, and the interactive lane allows 6,000 a minute, so
+// a lookup takes at most half of it and never starves the mutation itself.
+const PROBE_UNIT_BUDGET = 3_000;
+const THREAD_PROBE_UNITS = 40;
+const MESSAGE_PROBE_UNITS = 20;
+
+type ProbeTarget = { key: string; threadId?: string; messageId?: string };
+
 // The synced store only keeps inbox rows, so a thread archived long enough ago
-// has none. With several accounts the owner is found by asking Gmail for a
-// minimal copy of the thread or message from each account until one has it.
-// Only a 404 means "not this account"; any other failure is counted as
-// unreadable so the caller never reports a lookup failure as "not found".
-async function probeAccountsForTarget(
+// has none. Cache misses are resolved together: every connected Gmail account
+// (OAuth and managed) is asked once, with the still-unresolved ids as a batch
+// of minimal reads. Only a 404 means "not this account"; any other failure
+// counts as unreadable so the caller never reports it as "not found". Targets
+// past the unit budget get a typed limit error instead of an unbounded probe.
+async function probeAccountsForTargets(
   ownerEmail: string,
   accountIds: readonly string[],
-  ctx: { threadId?: string; messageId?: string },
-): Promise<{ accountId: string | null; unreadable: number }> {
-  let unreadable = 0;
+  targets: readonly ProbeTarget[],
+): Promise<Map<string, string | Error>> {
+  const outcome = new Map<string, string | Error>();
+  const unreadable = new Map<string, number>();
+  let open = [...targets];
+  let budget = PROBE_UNIT_BUDGET;
+  let budgetExhausted = false;
+  const probedKeys = new Set<string>();
+  const targetName = (t: ProbeTarget) => t.threadId ?? t.messageId ?? t.key;
+
   for (const accountId of accountIds) {
+    if (open.length === 0) break;
+    let token: string | null = null;
     try {
-      const token = await getToken(accountId, ownerEmail);
-      if (!token) {
-        unreadable++;
-        continue;
+      token = await getToken(accountId, ownerEmail);
+    } catch {
+      token = null;
+    }
+    if (!token) {
+      for (const t of open)
+        unreadable.set(t.key, (unreadable.get(t.key) ?? 0) + 1);
+      continue;
+    }
+
+    // Take as many open targets as the remaining budget pays for.
+    const probing: ProbeTarget[] = [];
+    for (const t of open) {
+      const cost = t.threadId ? THREAD_PROBE_UNITS : MESSAGE_PROBE_UNITS;
+      if (budget < cost) break;
+      budget -= cost;
+      probing.push(t);
+    }
+    if (probing.length < open.length) budgetExhausted = true;
+    if (probing.length === 0) break;
+    for (const t of probing) probedKeys.add(t.key);
+
+    const found = new Set<string>();
+    const failed = new Set<string>();
+    const threadTargets = probing.filter((t) => t.threadId);
+    const messageTargets = probing.filter((t) => !t.threadId && t.messageId);
+    const run = async (
+      group: ProbeTarget[],
+      idOf: (t: ProbeTarget) => string,
+      fetchBatch: (
+        ids: string[],
+      ) => Promise<Array<{ id: string; data: any; error?: string }>>,
+    ) => {
+      if (group.length === 0) return;
+      const ids = [...new Set(group.map(idOf))];
+      try {
+        const parts = await fetchBatch(ids);
+        const byId = new Map(parts.map((part) => [part.id, part]));
+        for (const t of group) {
+          const part = byId.get(idOf(t));
+          if (part && !part.error && part.data?.id === idOf(t)) {
+            found.add(t.key);
+          } else if (!part || !/HTTP 404/.test(part.error ?? "")) {
+            failed.add(t.key);
+          }
+        }
+      } catch {
+        for (const t of group) failed.add(t.key);
       }
-      if (ctx.threadId) {
-        const thread = await gmailGetThread(token, ctx.threadId, "minimal");
-        if (thread?.id === ctx.threadId) return { accountId, unreadable };
-      } else if (ctx.messageId) {
-        const message = await gmailGetMessage(token, ctx.messageId, "minimal");
-        if (message?.id === ctx.messageId) return { accountId, unreadable };
+    };
+    await run(
+      threadTargets,
+      (t) => t.threadId!,
+      (ids) => gmailBatchGetThreads(token!, ids, "minimal"),
+    );
+    await run(
+      messageTargets,
+      (t) => t.messageId!,
+      (ids) => gmailBatchGetMessages(token!, ids, "minimal"),
+    );
+
+    const stillOpen: ProbeTarget[] = [];
+    for (const t of open) {
+      if (found.has(t.key)) outcome.set(t.key, accountId);
+      else {
+        if (failed.has(t.key)) {
+          unreadable.set(t.key, (unreadable.get(t.key) ?? 0) + 1);
+        }
+        stillOpen.push(t);
       }
-    } catch (error) {
-      if ((error as { status?: unknown } | null)?.status !== 404) unreadable++;
+    }
+    open = stillOpen;
+  }
+
+  for (const t of open) {
+    const count = unreadable.get(t.key) ?? 0;
+    if (count > 0) {
+      outcome.set(t.key, new MutationAccountLookupError(targetName(t), count));
+    } else if (budgetExhausted && !probedKeys.has(t.key)) {
+      outcome.set(t.key, new MutationAccountProbeLimitError(targetName(t)));
+    } else {
+      outcome.set(t.key, new MutationAccountNotFoundError(targetName(t)));
     }
   }
-  return { accountId: null, unreadable };
+  return outcome;
+}
+
+// Accounts a target can belong to: every connected Gmail account Mail knows,
+// OAuth grants and managed workspace connections alike.
+async function listCandidateAccounts(
+  ownerEmail: string,
+): Promise<{ accounts: string[]; incomplete: boolean }> {
+  const { accounts, errors } = await getConnectedAccountsWithErrors(ownerEmail);
+  if (accounts.length === 0 && errors.length > 0) {
+    throw new Error(errors.map(({ error }) => error).join("; "));
+  }
+  return { accounts, incomplete: errors.length > 0 };
+}
+
+async function resolveCacheMisses(
+  ownerEmail: string,
+  misses: readonly ProbeTarget[],
+): Promise<Map<string, string | Error>> {
+  const { accounts, incomplete } = await listCandidateAccounts(ownerEmail);
+  const outcome = new Map<string, string | Error>();
+  if (accounts.length === 1 && !incomplete) {
+    for (const t of misses) outcome.set(t.key, accounts[0]);
+    return outcome;
+  }
+  const probed = await probeAccountsForTargets(ownerEmail, accounts, misses);
+  for (const t of misses) {
+    const result = probed.get(t.key);
+    // A managed lookup that errored means the account list may be missing the
+    // owner, so a plain miss is reported as a failed lookup, not "not found".
+    outcome.set(
+      t.key,
+      result instanceof MutationAccountNotFoundError && incomplete
+        ? new MutationAccountLookupError(t.threadId ?? t.messageId ?? t.key, 1)
+        : (result ?? new MutationAccountNotFoundError(t.key)),
+    );
+  }
+  return outcome;
 }
 
 export async function resolveMutationAccount(
@@ -163,35 +299,10 @@ export async function resolveMutationAccount(
     if (found) return found;
   }
 
-  const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
-  if (accounts.length === 1) return accounts[0].accountId;
-  if (accounts.length === 0) {
-    const { accounts: connected, errors } =
-      await getConnectedAccountsWithErrors(ownerEmail);
-    if (connected.length === 1) return connected[0];
-    if (connected.length === 0 && errors.length > 0) {
-      throw new Error(errors.map(({ error }) => error).join("; "));
-    }
-  }
-
-  if (accounts.length > 1 && (ctx.threadId || ctx.messageId)) {
-    const probed = await probeAccountsForTarget(
-      ownerEmail,
-      accounts.map((account) => account.accountId),
-      ctx,
-    );
-    if (probed.accountId) return probed.accountId;
-    if (probed.unreadable > 0) {
-      throw new MutationAccountLookupError(
-        ctx.threadId ?? ctx.messageId ?? "unknown",
-        probed.unreadable,
-      );
-    }
-  }
-
-  throw new MutationAccountNotFoundError(
-    ctx.threadId ?? ctx.messageId ?? "unknown",
-  );
+  const target: ProbeTarget = { key: "target", ...ctx };
+  const result = (await resolveCacheMisses(ownerEmail, [target])).get("target");
+  if (typeof result === "string") return result;
+  throw result ?? new MutationAccountNotFoundError("unknown");
 }
 
 export async function resolveMutationAccounts<
@@ -203,20 +314,64 @@ export async function resolveMutationAccounts<
   resolved: Array<T & { accountEmail: string }>;
   unresolved: Array<{ id: string; error: string }>;
 }> {
+  // One slot per target keeps the caller's order across cache hits and probes.
+  const slots: Array<{ accountEmail: string } | { error: string } | undefined> =
+    targets.map(() => undefined);
+  const misses: ProbeTarget[] = [];
+  for (const [index, target] of targets.entries()) {
+    if (target.accountEmail) {
+      slots[index] = { accountEmail: target.accountEmail };
+      continue;
+    }
+    try {
+      const found =
+        (target.threadId
+          ? await findAccountForThread(ownerEmail, target.threadId)
+          : null) ?? (await findAccountForMessage(ownerEmail, target.id));
+      if (found) slots[index] = { accountEmail: found };
+      else {
+        misses.push({
+          key: String(index),
+          threadId: target.threadId,
+          messageId: target.id,
+        });
+      }
+    } catch (err: any) {
+      slots[index] = {
+        error: err?.message ?? "Could not resolve connected account",
+      };
+    }
+  }
+  if (misses.length > 0) {
+    let outcome: Map<string, string | Error> | null = null;
+    let failure = "";
+    try {
+      outcome = await resolveCacheMisses(ownerEmail, misses);
+    } catch (err: any) {
+      failure = err?.message ?? "Could not resolve connected account";
+    }
+    for (const miss of misses) {
+      const result = outcome?.get(miss.key);
+      slots[Number(miss.key)] =
+        typeof result === "string"
+          ? { accountEmail: result }
+          : {
+              error:
+                result?.message ??
+                (failure || "Could not resolve connected account"),
+            };
+    }
+  }
   const resolved: Array<T & { accountEmail: string }> = [];
   const unresolved: Array<{ id: string; error: string }> = [];
-  for (const target of targets) {
-    try {
-      const accountEmail = await resolveMutationAccount(
-        ownerEmail,
-        target.accountEmail,
-        { threadId: target.threadId, messageId: target.id },
-      );
-      resolved.push({ ...target, accountEmail });
-    } catch (err: any) {
+  for (const [index, target] of targets.entries()) {
+    const slot = slots[index];
+    if (slot && "accountEmail" in slot) {
+      resolved.push({ ...target, accountEmail: slot.accountEmail });
+    } else {
       unresolved.push({
         id: target.id,
-        error: err?.message ?? "Could not resolve connected account",
+        error: slot?.error ?? "Could not resolve connected account",
       });
     }
   }
