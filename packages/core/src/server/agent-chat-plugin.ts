@@ -7299,6 +7299,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               // comment (run-manager.ts) and the THREE-SITE INVARIANT comments in
               // agent-chat-plugin.ts / production-agent.ts / agent-chat-adapter.ts.
               awaitingRedispatch: run.awaitingRedispatch === true,
+              // The SQL run snapshot is authoritative even if its best-effort
+              // cleanup failed; keep that partial state distinguishable.
+              reapFailed: run.reapFailed === true,
               // True exactly when this run has an open model stream, tool
               // call, or A2A `agent_call` delegation (`in_flight_since` set — the same
               // marker `reapIfStale` reads to grant its bounded stale-reap

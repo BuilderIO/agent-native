@@ -2870,6 +2870,7 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
   dispatchMode?: string | null;
   terminalReason?: string | null;
   successorOfRunId?: string;
+  reapFailed?: boolean;
   diagStage?: string | null;
   /**
    * True exactly when this run is a `chainServerDrivenContinuation` deferral
@@ -2985,8 +2986,10 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
     const stillInsideRedispatchBound = shouldRedispatchUnclaimedBackgroundRun({
       startedAt: sqlRun.startedAt,
     });
+    let reapFailed = false;
     if (isUnclaimedBackgroundDispatch && !stillInsideRedispatchBound) {
-      const recovered = await reapUnclaimedBackgroundRun(sqlRun.id).catch(
+      const recovered = await reapUnclaimedBackgroundRun(sqlRun.id).then(
+        (value) => ({ ok: true as const, value }),
         (error) => {
           captureError(error, {
             route: "/_agent-native/agent-chat/runs/active",
@@ -2997,24 +3000,29 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
             },
             extra: { runId: sqlRun.id, threadId },
           });
-          throw error;
+          return { ok: false as const };
         },
       );
-      if (recovered) return null;
+      if (!recovered.ok) reapFailed = true;
+      else if (recovered.value) return null;
     }
-    const reaped = await reapIfStale(sqlRun.id).catch((error) => {
-      captureError(error, {
-        route: "/_agent-native/agent-chat/runs/active",
-        aiTraceId: sqlRun.id,
-        tags: {
-          source: "agent-run-manager",
-          phase: "stale-run-reap",
-        },
-        extra: { runId: sqlRun.id, threadId },
-      });
-      throw error;
-    });
-    if (reaped) return null;
+    const reaped = await reapIfStale(sqlRun.id).then(
+      (value) => ({ ok: true as const, value }),
+      (error) => {
+        captureError(error, {
+          route: "/_agent-native/agent-chat/runs/active",
+          aiTraceId: sqlRun.id,
+          tags: {
+            source: "agent-run-manager",
+            phase: "stale-run-reap",
+          },
+          extra: { runId: sqlRun.id, threadId },
+        });
+        return { ok: false as const };
+      },
+    );
+    if (!reaped.ok) reapFailed = true;
+    else if (reaped.value) return null;
     return {
       runId: sqlRun.id,
       threadId: sqlRun.threadId,
@@ -3025,6 +3033,7 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
       lastProgressAt: sqlRun.lastProgressAt,
       dispatchMode: sqlRun.dispatchMode,
       terminalReason: sqlRun.terminalReason,
+      ...(reapFailed ? { reapFailed: true } : {}),
       diagStage: sqlRun.diagStage,
       awaitingRedispatch:
         isUnclaimedBackgroundDispatch && stillInsideRedispatchBound,

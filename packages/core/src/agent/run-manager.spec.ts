@@ -5746,6 +5746,7 @@ describe("run manager soft timeout", () => {
       expect(result).toMatchObject({
         runId: "run-unclaimed-reap-failure",
         status: "running",
+        reapFailed: true,
       });
       expect(provider).toHaveBeenCalledWith(
         reapError,
