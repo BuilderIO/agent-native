@@ -98,18 +98,22 @@ function header(response: ProviderResponse, name: string): string | null {
   return null;
 }
 
-/** Settles as the request does, or fails once the caller's time runs out. */
+/**
+ * Settles as the request does, or fails once the caller's time runs out. It
+ * listens to the request either way, so one it stops waiting for can't fail
+ * unheard.
+ */
 function untilDeadline<T>(
   request: Promise<T>,
   signal: AbortSignal,
 ): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const stop = () => reject(new GitHubSourceDeadlineError());
-    if (signal.aborted) return stop();
-    signal.addEventListener("abort", stop, { once: true });
     request
       .then(resolve, reject)
       .finally(() => signal.removeEventListener("abort", stop));
+    if (signal.aborted) return stop();
+    signal.addEventListener("abort", stop, { once: true });
   });
 }
 

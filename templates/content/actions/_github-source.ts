@@ -1552,7 +1552,8 @@ async function recordStillLinked(tx: Db, row: SourceRow) {
 
 /**
  * Moves the page of a file that left the folder to Trash. Returns false when
- * a restore released the page first, so there was nothing to move.
+ * there was nothing to move: a restore released the page first, or it was
+ * already in Trash.
  */
 async function trashRow(run: SyncRun, row: SourceRow): Promise<boolean> {
   return run.db.transaction(async (tx: Db) => {
@@ -1565,6 +1566,7 @@ async function trashRow(run: SyncRun, row: SourceRow): Promise<boolean> {
       })
       .from(schema.documents)
       .where(eq(schema.documents.id, row.documentId));
+    let moved = false;
     if (document && !document.trashedAt) {
       await trashDocumentSubtree(
         tx,
@@ -1574,11 +1576,12 @@ async function trashRow(run: SyncRun, row: SourceRow): Promise<boolean> {
         undefined,
         "github",
       );
+      moved = true;
     }
     await tx
       .delete(schema.contentDatabaseSourceRows)
       .where(eq(schema.contentDatabaseSourceRows.id, row.id));
-    return true;
+    return moved;
   });
 }
 
