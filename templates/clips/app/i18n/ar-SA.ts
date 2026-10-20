@@ -1954,6 +1954,8 @@ const messages = {
     uploadFailedAtChunk:
       "Upload failed at chunk {{chunk}}/{{total}}: {{message}} (مترجم)",
     couldNotStartRecording: "Could not start recording (مترجم)",
+    streamingStorageUnavailable:
+      "إعداد التخزين الحالي لا يدعم الرفع القابل للاستئناف الذي يحتاجه Clips. أعد إعداد مزوّد متوافق، أو اطلب من مالك مساحة العمل أو المشرف القيام بذلك، ثم ابدأ تسجيلًا جديدًا.",
     couldNotStartRecorder: "Could not start recorder (مترجم)",
     openSettings: "Open settings (مترجم)",
     openedRecorderInNewTab: "Opened recorder in a new tab (مترجم)",

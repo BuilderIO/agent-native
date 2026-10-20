@@ -204,6 +204,23 @@ describe("openUploadTarget", () => {
     });
   });
 
+  it("preserves required resumable-upload failures as a distinct error", async () => {
+    const { result, dropRow } = open(async () =>
+      Response.json(
+        {
+          error: "The current storage setup cannot start the upload.",
+          errorCode: "streaming_upload_unavailable",
+        },
+        { status: 503 },
+      ),
+    );
+
+    await expect(result).rejects.toMatchObject({
+      code: "streaming_upload_unavailable",
+    });
+    expect(dropRow).toHaveBeenCalledWith("srv-1");
+  });
+
   it("does not prepare capture when upload-target creation rejects", async () => {
     const failure = new UploadTargetError("storage_setup_required");
     const resolveTarget = async (): Promise<typeof target | null> => {

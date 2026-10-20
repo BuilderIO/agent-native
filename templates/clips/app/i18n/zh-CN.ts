@@ -1870,6 +1870,8 @@ const messages = {
     uploadFailedAtChunk:
       "Upload failed at chunk {{chunk}}/{{total}}: {{message}} (已本地化)",
     couldNotStartRecording: "Could not start recording (已本地化)",
+    streamingStorageUnavailable:
+      "当前存储不支持 Clips 所需的可续传上传。请配置兼容的存储提供商，或请工作区所有者或管理员配置，然后开始新的录制。",
     couldNotStartRecorder: "Could not start recorder (已本地化)",
     openSettings: "Open settings (已本地化)",
     openedRecorderInNewTab: "Opened recorder in a new tab (已本地化)",

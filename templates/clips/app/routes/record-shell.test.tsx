@@ -94,6 +94,8 @@ describe("record route lifecycle shell", () => {
           hostedStorageUnavailable: "Hosted storage is unavailable.",
           accountMismatch:
             "The signed-in account changed. Switch back and retry.",
+          streamingStorageUnavailable:
+            "Configure storage that supports resumable uploads, then start a new recording.",
           couldNotStartRecording: "Could not start recording.",
         },
       ),
@@ -109,6 +111,8 @@ describe("record route lifecycle shell", () => {
           hostedStorageUnavailable: "Hosted storage is unavailable.",
           accountMismatch:
             "The signed-in account changed. Switch back and retry.",
+          streamingStorageUnavailable:
+            "Configure storage that supports resumable uploads, then start a new recording.",
           couldNotStartRecording: "Could not start recording.",
         },
       ),
@@ -124,10 +128,31 @@ describe("record route lifecycle shell", () => {
           hostedStorageUnavailable: "Hosted storage is unavailable.",
           accountMismatch:
             "The signed-in account changed. Switch back and retry.",
+          streamingStorageUnavailable:
+            "Configure storage that supports resumable uploads, then start a new recording.",
           couldNotStartRecording: "Could not start recording.",
         },
       ),
     ).toBe("The signed-in account changed. Switch back and retry.");
+  });
+
+  it("explains when storage does not support resumable uploads", () => {
+    expect(
+      recordingStartErrorMessage(
+        new UploadTargetError("streaming_upload_unavailable"),
+        {
+          storageStatusUnavailable: "Storage status could not be checked.",
+          hostedStorageUnavailable: "Hosted storage is unavailable.",
+          accountMismatch:
+            "The signed-in account changed. Switch back and retry.",
+          streamingStorageUnavailable:
+            "Configure storage that supports resumable uploads, then start a new recording.",
+          couldNotStartRecording: "Could not start recording.",
+        },
+      ),
+    ).toBe(
+      "Configure storage that supports resumable uploads, then start a new recording.",
+    );
   });
 
   it("does not redirect a queued upload when storage is already configured", () => {

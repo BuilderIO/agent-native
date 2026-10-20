@@ -2014,6 +2014,8 @@ const messages = {
     uploadFailedAtChunk:
       "Upload failed at chunk {{chunk}}/{{total}}: {{message}} (Lokalisiert)",
     couldNotStartRecording: "Could not start recording (Lokalisiert)",
+    streamingStorageUnavailable:
+      "Der aktuelle Speicher unterstützt den fortsetzbaren Upload für Clips nicht. Richte einen kompatiblen Anbieter ein oder bitte den Workspace-Inhaber oder Admin darum. Starte danach eine neue Aufnahme.",
     couldNotStartRecorder: "Could not start recorder (Lokalisiert)",
     openSettings: "Open settings (Lokalisiert)",
     openedRecorderInNewTab: "Opened recorder in a new tab (Lokalisiert)",

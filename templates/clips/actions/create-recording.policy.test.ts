@@ -350,14 +350,14 @@ describe("create-recording policy", () => {
       ),
     ).rejects.toMatchObject({
       actionContractError: true,
-      errorCode: "multipart_start_failed",
+      errorCode: "streaming_upload_unavailable",
       statusCode: 503,
     });
 
     expect(calls.updateSet).toHaveBeenLastCalledWith(
       expect.objectContaining({
         status: "failed",
-        failureCode: "multipart_start_failed",
+        failureCode: "streaming_upload_unavailable",
       }),
     );
     expect(calls.writeState).toHaveBeenLastCalledWith(
@@ -662,7 +662,7 @@ describe("recording_created", () => {
     const names = calls.track.mock.calls.map(([name]) => name);
     expect(names).toEqual(["recording_created", "recording_failed"]);
     expect(calls.track.mock.calls[1][1]).toMatchObject({
-      failure_code: "multipart_start_failed",
+      failure_code: "streaming_upload_unavailable",
       recording_platform: "extension",
     });
   });

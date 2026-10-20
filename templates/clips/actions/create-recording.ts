@@ -345,9 +345,9 @@ export default defineAction({
       (!streamingEnabled || !uploadProvider?.resumable)
     ) {
       await failUpload(
-        "Video storage cannot start a resumable upload with this configuration.",
+        "The current storage setup cannot start the resumable upload required by this recorder.",
         {
-          failureCode: "multipart_start_failed",
+          failureCode: "streaming_upload_unavailable",
           failureStage: "multipart_start",
         },
       );

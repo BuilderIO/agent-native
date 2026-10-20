@@ -1866,6 +1866,8 @@ const messages = {
     uploadFailed: "上傳失敗",
     uploadFailedAtChunk: "第 {{chunk}}/{{total}} 個區塊上傳失敗：{{message}}",
     couldNotStartRecording: "無法開始錄製",
+    streamingStorageUnavailable:
+      "目前的儲存空間不支援 Clips 所需的可續傳上傳。請設定相容的供應商，或請工作區擁有者或管理員協助，然後開始新的錄製。",
     couldNotStartRecorder: "無法啟動錄製工具",
     openSettings: "開啟設定",
     openedRecorderInNewTab: "已在新分頁開啟錄製工具",

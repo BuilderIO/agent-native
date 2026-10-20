@@ -2004,6 +2004,8 @@ const messages = {
     uploadFailedAtChunk:
       "Upload failed at chunk {{chunk}}/{{total}}: {{message}}",
     couldNotStartRecording: "Could not start recording",
+    streamingStorageUnavailable:
+      "El almacenamiento actual no admite la carga reanudable que necesita Clips. Configura un proveedor compatible o pide a la persona propietaria o administradora del espacio de trabajo que lo haga. Después, inicia una grabación nueva.",
     couldNotStartRecorder: "Could not start recorder",
     openSettings: "Open settings",
     openedRecorderInNewTab: "Opened recorder in a new tab",

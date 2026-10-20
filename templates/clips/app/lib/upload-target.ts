@@ -42,6 +42,7 @@ export type UploadTargetErrorCode =
   | "storage_status_unavailable"
   | "hosted_storage_unavailable"
   | "recording_owner_mismatch"
+  | "streaming_upload_unavailable"
   | "upload_target_unavailable";
 
 export class UploadTargetError extends Error {
@@ -191,6 +192,9 @@ export async function openUploadTarget(options: {
   }
   if (denialCode === "recording_owner_mismatch") {
     throw new UploadTargetError("recording_owner_mismatch");
+  }
+  if (denialCode === "streaming_upload_unavailable") {
+    throw new UploadTargetError("streaming_upload_unavailable");
   }
   if (res.status === 401 || res.status === 403) {
     throw new UploadTargetError("session_expired");
