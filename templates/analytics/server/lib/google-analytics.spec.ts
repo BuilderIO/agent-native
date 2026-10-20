@@ -11,7 +11,10 @@ vi.mock("./credentials-context", () => ({
   scopedCredentialCacheKey: (key: string) => key,
 }));
 
-import { getGoogleServiceAccountToken } from "./google-analytics";
+import {
+  getGoogleServiceAccountToken,
+  readServiceAccountIdentity,
+} from "./google-analytics";
 
 describe("getGoogleServiceAccountToken", () => {
   beforeEach(() => {
@@ -78,3 +81,39 @@ it.each([null, [], 42, "text"])(
     });
   },
 );
+
+describe("readServiceAccountIdentity", () => {
+  it.each([
+    null,
+    [],
+    42,
+    {},
+    { client_email: " " },
+    { client_email: "collector@example.test" },
+    { client_email: "collector@example.test", private_key: "   " },
+    { client_email: "collector@example.test", private_key: 42 },
+  ])(
+    "rejects the same malformed shape as token creation: %j",
+    async (value) => {
+      credential.value = JSON.stringify(value);
+      expect(await readServiceAccountIdentity()).toEqual({ status: "invalid" });
+      await expect(getGoogleServiceAccountToken()).rejects.toMatchObject({
+        errorCode: "google_credentials_unreadable",
+      });
+    },
+  );
+  it("returns only the email for a valid shape", async () => {
+    credential.value = JSON.stringify({
+      client_email: "collector@example.test",
+      private_key: "placeholder-private-key",
+    });
+    expect(await readServiceAccountIdentity()).toEqual({
+      status: "ok",
+      email: "collector@example.test",
+    });
+  });
+  it("reports a missing key", async () => {
+    credential.value = null;
+    expect(await readServiceAccountIdentity()).toEqual({ status: "missing" });
+  });
+});

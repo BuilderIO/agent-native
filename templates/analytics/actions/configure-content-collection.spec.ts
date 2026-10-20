@@ -63,13 +63,74 @@ describe("configure-content-collection", () => {
     );
   });
 
-  it("rejects invalid new drafts before changing saved configuration", () => {
-    expect(
-      configure.schema!.safeParse({
-        enabled: true,
-        searchConsoleSites: [{ siteUrl: "example.test" }],
-      }).success,
-    ).toBe(false);
+  it.each([true, undefined])(
+    "rejects invalid effective saved properties when enabled: %s",
+    async (searchConsole) => {
+      const args = configure.schema!.parse({ enabled: true, searchConsole });
+      await expect(configure.run(args, {} as any)).rejects.toThrow();
+      expect(mocks.write).not.toHaveBeenCalled();
+    },
+  );
+
+  it("allows legacy properties in a save that disables Search Console", async () => {
+    const args = configure.schema!.parse({
+      enabled: true,
+      searchConsole: false,
+      searchConsoleSites: [{ siteUrl: "legacy.example.test" }],
+    });
+    await configure.run(args, {} as any);
+    expect(mocks.write).toHaveBeenCalled();
+  });
+
+  it("validates new drafts before changing saved configuration", async () => {
+    const args = configure.schema!.parse({
+      enabled: true,
+      searchConsole: true,
+      searchConsoleSites: [{ siteUrl: "example.test" }],
+    });
+    await expect(configure.run(args, {} as any)).rejects.toThrow();
     expect(mocks.write).not.toHaveBeenCalled();
+  });
+
+  it("disables the overall job while preserving legacy Search Console settings", async () => {
+    await configure.run(configure.schema!.parse({ enabled: false }), {} as any);
+    expect(mocks.write).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        enabled: false,
+        config: expect.objectContaining({
+          searchConsole: {
+            enabled: true,
+            sites: [{ siteUrl: "legacy.example.test" }],
+          },
+        }),
+      }),
+    );
+  });
+
+  it("enables valid saved properties", async () => {
+    mocks.read.mockResolvedValue({
+      config: contentCollectionConfigSchema.parse({
+        searchConsole: {
+          enabled: false,
+          sites: [{ siteUrl: "SC-DOMAIN:Example.test" }],
+        },
+      }),
+    });
+    await configure.run(
+      configure.schema!.parse({ enabled: true, searchConsole: true }),
+      {} as any,
+    );
+    expect(mocks.write).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        config: expect.objectContaining({
+          searchConsole: {
+            enabled: true,
+            sites: [{ siteUrl: "sc-domain:example.test" }],
+          },
+        }),
+      }),
+    );
   });
 });
