@@ -3116,7 +3116,7 @@ const messages: ToolkitAgentChatTranslation = {
   "unsupportedDevice.titleDeck": "इस डेक को बड़ी स्क्रीन पर खोलें",
   "unsupportedDevice.titleDesign": "इस डिज़ाइन को बड़ी स्क्रीन पर खोलें",
   "unsupportedDevice.body":
-    "{{app}} iPad, टैबलेट और डेस्कटॉप पर चलता है। लिंक खुद को ईमेल करें और वहाँ से आगे बढ़ें।",
+    "{{app}} iPad, टैबलेट और डेस्कटॉप पर चलता है। लिंक खुद को भेजें और वहाँ से आगे बढ़ें।",
   "unsupportedDevice.email": "मुझे लिंक ईमेल करें",
   "unsupportedDevice.share": "लिंक शेयर करें",
   "unsupportedDevice.copy": "लिंक कॉपी करें",

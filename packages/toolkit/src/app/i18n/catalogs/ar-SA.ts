@@ -3323,7 +3323,7 @@ const messages: ToolkitAgentChatTranslation = {
   "unsupportedDevice.titleDeck": "افتح هذا العرض التقديمي على شاشة أكبر",
   "unsupportedDevice.titleDesign": "افتح هذا التصميم على شاشة أكبر",
   "unsupportedDevice.body":
-    "يعمل {{app}} على iPad والأجهزة اللوحية وأجهزة سطح المكتب. أرسل الرابط إلى بريدك الإلكتروني لتتابع من هناك.",
+    "يعمل {{app}} على iPad والأجهزة اللوحية وأجهزة سطح المكتب. أرسل الرابط إلى نفسك لتتابع من هناك.",
   "unsupportedDevice.email": "أرسل الرابط إلى بريدي",
   "unsupportedDevice.share": "مشاركة الرابط",
   "unsupportedDevice.copy": "نسخ الرابط",

@@ -2892,7 +2892,7 @@ const messages: ToolkitAgentChatTranslation = {
   "unsupportedDevice.titleDeck": "请在更大的屏幕上打开此演示文稿",
   "unsupportedDevice.titleDesign": "请在更大的屏幕上打开此设计",
   "unsupportedDevice.body":
-    "{{app}}支持 iPad、平板和桌面设备。把链接发到邮箱，即可在那里继续。",
+    "{{app}}支持 iPad、平板和桌面设备。把链接发给自己，即可在那里继续。",
   "unsupportedDevice.email": "把链接发到我的邮箱",
   "unsupportedDevice.share": "分享链接",
   "unsupportedDevice.copy": "复制链接",

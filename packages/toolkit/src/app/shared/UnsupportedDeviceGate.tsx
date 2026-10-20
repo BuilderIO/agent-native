@@ -61,21 +61,10 @@ function UnsupportedDeviceNotice({
   const { session } = useSession();
   const [copied, setCopied] = useState(false);
   const url = window.location.href;
-  const mailto = `mailto:${encodeURIComponent(session?.email ?? "")}?subject=${encodeURIComponent(
-    t("agentChat.unsupportedDevice.emailSubject", { app: appName }),
-  )}&body=${encodeURIComponent(url)}`;
-
+  const email = session?.email;
   const canShare = typeof navigator.share === "function";
 
-  const emailLink = () => {
-    window.location.href = mailto;
-  };
-
   const shareLink = async () => {
-    if (!canShare) {
-      setCopied(await writeClipboardText(url));
-      return;
-    }
     try {
       await navigator.share({ url, title: appName });
     } catch (error) {
@@ -85,6 +74,38 @@ function UnsupportedDeviceNotice({
       setCopied(await writeClipboardText(url));
     }
   };
+
+  // The gate runs before sign-in, so an unknown address gets no email action
+  // rather than a blank To field.
+  const actions = [
+    canShare
+      ? {
+          id: "share",
+          label: t("agentChat.unsupportedDevice.share"),
+          run: shareLink,
+        }
+      : null,
+    email
+      ? {
+          id: "email",
+          label: t("agentChat.unsupportedDevice.email"),
+          run: () => {
+            window.location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(
+              t("agentChat.unsupportedDevice.emailSubject", { app: appName }),
+            )}&body=${encodeURIComponent(url)}`;
+          },
+        }
+      : null,
+    !canShare
+      ? {
+          id: "copy",
+          label: copied
+            ? t("agentChat.unsupportedDevice.copied")
+            : t("agentChat.unsupportedDevice.copy"),
+          run: async () => setCopied(await writeClipboardText(url)),
+        }
+      : null,
+  ].filter((action) => action !== null);
 
   return (
     <main className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-8 bg-background px-8 text-center text-foreground">
@@ -105,27 +126,16 @@ function UnsupportedDeviceNotice({
         </p>
       </div>
       <div className="flex w-full max-w-xs flex-col gap-2">
-        {canShare ? (
-          <>
-            <Button size="lg" onClick={shareLink}>
-              {t("agentChat.unsupportedDevice.share")}
-            </Button>
-            <Button variant="ghost" size="lg" onClick={emailLink}>
-              {t("agentChat.unsupportedDevice.email")}
-            </Button>
-          </>
-        ) : (
-          <>
-            <Button size="lg" onClick={emailLink}>
-              {t("agentChat.unsupportedDevice.email")}
-            </Button>
-            <Button variant="ghost" size="lg" onClick={shareLink}>
-              {copied
-                ? t("agentChat.unsupportedDevice.copied")
-                : t("agentChat.unsupportedDevice.copy")}
-            </Button>
-          </>
-        )}
+        {actions.map((action, index) => (
+          <Button
+            key={action.id}
+            variant={index === 0 ? "default" : "ghost"}
+            size="lg"
+            onClick={action.run}
+          >
+            {action.label}
+          </Button>
+        ))}
       </div>
     </main>
   );

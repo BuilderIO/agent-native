@@ -3186,7 +3186,7 @@ const messages = {
   "unsupportedDevice.titleDeck": "Open this deck on a larger screen",
   "unsupportedDevice.titleDesign": "Open this design on a larger screen",
   "unsupportedDevice.body":
-    "{{app}} works on iPad, tablets, and desktops. Email yourself the link to pick it up there.",
+    "{{app}} works on iPad, tablets, and desktops. Send yourself the link to pick it up there.",
   "unsupportedDevice.email": "Email me the link",
   "unsupportedDevice.share": "Share link",
   "unsupportedDevice.copy": "Copy link",

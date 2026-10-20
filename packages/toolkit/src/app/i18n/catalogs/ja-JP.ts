@@ -3184,7 +3184,7 @@ const messages: ToolkitAgentChatTranslation = {
   "unsupportedDevice.titleDesign":
     "このデザインはより大きな画面で開いてください",
   "unsupportedDevice.body":
-    "{{app}}はiPad、タブレット、デスクトップで使えます。リンクをメールで送って、続きはそちらで。",
+    "{{app}}はiPad、タブレット、デスクトップで使えます。リンクを自分に送って、続きはそちらで。",
   "unsupportedDevice.email": "リンクをメールで送る",
   "unsupportedDevice.share": "リンクを共有",
   "unsupportedDevice.copy": "リンクをコピー",

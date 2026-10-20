@@ -3341,7 +3341,7 @@ const messages: ToolkitAgentChatTranslation = {
   "unsupportedDevice.titleDesign":
     "Dieses Design auf einem größeren Bildschirm öffnen",
   "unsupportedDevice.body":
-    "{{app}} funktioniert auf iPad, Tablets und Desktops. Schick dir den Link per E-Mail, um dort weiterzumachen.",
+    "{{app}} funktioniert auf iPad, Tablets und Desktops. Schick dir den Link, um dort weiterzumachen.",
   "unsupportedDevice.email": "Link per E-Mail senden",
   "unsupportedDevice.share": "Link teilen",
   "unsupportedDevice.copy": "Link kopieren",

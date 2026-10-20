@@ -3130,7 +3130,7 @@ const messages: ToolkitAgentChatTranslation = {
   "unsupportedDevice.titleDeck": "이 덱은 더 큰 화면에서 열어 주세요",
   "unsupportedDevice.titleDesign": "이 디자인은 더 큰 화면에서 열어 주세요",
   "unsupportedDevice.body":
-    "{{app}}은(는) iPad, 태블릿, 데스크톱에서 사용할 수 있어요. 링크를 이메일로 보내 그곳에서 이어서 작업하세요.",
+    "{{app}}은(는) iPad, 태블릿, 데스크톱에서 사용할 수 있어요. 링크를 자신에게 보내 그곳에서 이어서 작업하세요.",
   "unsupportedDevice.email": "링크를 이메일로 보내기",
   "unsupportedDevice.share": "링크 공유",
   "unsupportedDevice.copy": "링크 복사",
