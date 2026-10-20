@@ -134,7 +134,9 @@ item is in scope, add `👀` before investigation or delegation.
 During triage and replies, follow `review-latest-feedback`'s single-owner
 rule: use one owner-thread reply for a cluster and list duplicate source
 permalinks there unless a distinct question or update needs a separate reply.
-Do not send a routine second reply just to announce merge or live beta.
+When a linked beta-eligible app PR merges, send one short update in the same
+owned thread with the PR link and say it should be on beta within 24
+hours. Do not say it is live until checked.
 
 A tracked clear bug or authorized upvoted improvement receives at most one
 disposition per run. **Verified locally**, **Built - live unverified**,
@@ -149,9 +151,9 @@ Terminal dispositions: **Fixed**, **Shipped**, **Live verified**,
 concise **Skipped** reply if absent.
 **Fixed** closes the issue after a verified source fix merges; publication,
 beta, and live verification follow separately. Use **In progress** while the
-source PR is open. For that reply, link the PR and say beta should follow soon
-after merge, without an exact date. For an already merged fix, follow
-`review-latest-feedback`'s reply reference for verified publisher status.
+source PR is open. Link the PR and say beta should follow within 24 hours of
+merge when applicable. After merge, follow `review-latest-feedback`'s reply
+reference for the short post-merge update and verified publisher status.
 **In progress** is an open ownership state. Do not send an interim progress
 reply for work fixed in the same run. If work continues beyond this run, follow
 `review-latest-feedback` and post one concrete status before the next sweep.
@@ -243,10 +245,10 @@ non-repeating question only if one specific required detail still blocks it.
 5. Prepare or reuse one short current status for each report root this actor
    owns with `👀`, `✅`, or `🎫`. Record clustered source links and disposition
    in the owner thread or linked work; do not send duplicate replies:
-   - **Fixed** - name the verified fix and remaining scope, and link the PR.
-     For an open beta app PR, say it should reach beta soon after merge. If it
-     has merged, say so without claiming it is live. Do not send a routine
-     second reply solely to announce merge or live beta.
+   - **Fixed** - name the fix in plain language and link the PR. For an open
+     beta app PR, say beta should follow within 24 hours of merge. After merge,
+     send one short update with the PR link and beta timing; do not claim it is
+     live until checked.
    - **Shipped** - use for an authorized upvoted improvement after its requested
      behavior and verification check are complete.
    - **In progress** - only when work continues beyond this run; thank the
@@ -294,12 +296,12 @@ reporter reply to one short, plain-language paragraph. Start with
 `ty for the feedback -` or `thanks for the feedback -`; end with
 `this was sent from a bot.`.
 
-Say what changed, what meaningful scope remains, and the next action/owner.
-Link an external tracker ticket only if one exists. The workflow's Slack `🎫`
-reaction tracks a handoff; it does not mean an external ticket was created or
-assigned. For a beta app fix in an open PR, link it and say it
-should reach beta soon after merge; do not give an exact date or claim it is
-live. If work continues beyond this run, name the concrete action and owner.
+Say what changed in plain language. Do not explain why `👀` or `✅` is absent.
+If `🎫` is used, briefly name what still needs checking and who should handle
+it, when known. The Slack `🎫` reaction does not mean an external tracker ticket
+was created or assigned. For a beta app fix in an open PR, link it and say beta
+should follow within 24 hours of merge. If work continues beyond this run, name
+the concrete action and owner only when a reporter needs to know it.
 For a clarification, ask one direct question only when reporter input changes
 the next step. Never ask for supplied evidence or internal access gaps.
 
@@ -311,10 +313,12 @@ count as the status reply.
 
 ## Beta availability
 
-Keep merge, publisher, and live verification details in the recap. Do not send
-a routine second Slack reply solely to announce merge or that beta is live.
-Correct the stated availability if a material publisher issue changes it, or
-answer a reporter's follow-up.
+Keep merge, publisher, and live verification details in the recap. After a
+linked beta-eligible app PR merges, reply once in its owned thread with the PR
+link and say it should be on beta within 24 hours. Do not say it is live
+until checked. If the publisher fails or blocks release, do not promise that
+timing; when `🎫` is used, briefly state what still needs checking and who owns
+it. Answer direct reporter follow-ups.
 
 ## Verification
 

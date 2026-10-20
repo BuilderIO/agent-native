@@ -21,7 +21,7 @@ Four phases, in order. Phase 0 comes before any investigation, not after.
 2. **Fix** what the evidence actually proves, at the owning boundary.
 3. **Reply** with useful questions, then recap.
 
-Output is fixes. For every report root this task owns, keep one concise, current same-actor status reply after the latest human message. It names every verified `✅` scope and its evidence, every open scope, and each `🎫` action and owner (or why a mark does not apply). Add and read back root `✅` as soon as direct post-change proof verifies a scope, and root `🎫` as soon as another person or team must act. An `👀` alone never completes the status. Preserve all reaction history, and follow [`slack-reaction-replies.md`](references/slack-reaction-replies.md). Do not reply on person-assigned or `:mag:` items.
+Output is fixes. For every report root this task owns, keep one concise, current same-actor status reply after the latest human message. Write in plain, non-technical language; keep scope details and proof in the internal ledger. Never explain why `👀` or `✅` is absent. If `🎫` is used, briefly say what still needs checking and who should handle it, when known. Add and read back root reactions as soon as their proof bar passes, preserve all reaction history, and follow [`slack-reaction-replies.md`](references/slack-reaction-replies.md). Do not reply on person-assigned or `:mag:` items.
 
 ## Slack channels and ownership
 
@@ -79,9 +79,10 @@ proof. Add root `🎫` for each distinct unfinished action another human must ta
 including a requested reporter URL, access grant, evidence, or clarification.
 The mark tracks an outstanding human action, not an accepted team handoff.
 Record reporter requests in `reporterRequests[]`, separately from
-team/engineering `handoffs[]`. Enumerate each verified scope, open scope,
-reporter request, and handoff in the status reply; explain any absent mark. Keep
-marks after completion and never remove them. For a closed reporter request,
+team/engineering `handoffs[]`. Keep verified scopes, open scopes, reporter
+requests, and handoffs in the internal ledger; keep the Slack reply focused on
+the current outcome and any `🎫` follow-up. Keep marks after completion and
+never remove them. For a closed reporter request,
 preserve its request and closure evidence in the historical ticket record; see
 [`slack-reaction-replies.md`](references/slack-reaction-replies.md).
 
@@ -323,27 +324,21 @@ instruction or prompt exception.
 Thank issue reporters for opening issues and Slack reporters for sharing.
 Before posting, inspect the full thread and follow the one-reply gate in
 `address-feedback-with-replies` and the [Slack reply reference](references/slack-reaction-replies.md):
-send one concise disposition covering done, remaining, and next action/owner.
-Do not reply again to announce merge, publication, or live beta; answer direct
-reporter follow-ups. End Slack replies with `this was sent from a bot.`.
-
-Replies are one or two sentences: the change or question, its limit, and the next step. Never explain reactions, ledgers, or tickets. Never send **Open**/**pending** or a symptom recap. Ask for reporter input only when it changes the next step; never request supplied evidence or internal access. Keep hashes, branches, CI, publisher, and run details in the recap.
-
-That brevity rule is for a reporter-facing reply. Separately, every root this
-actor marks with `👀`, `✅`, or `🎫` still needs the current same-actor status
-reply required by the Slack reaction reference. One concise reply may serve both
-purposes when it answers the reporter and records the current disposition,
-verified/open scopes, owner/action, and any missing-proof reason. A Slack `🎫`
-reaction tracks a distinct unfinished human/team action; it does not mean an
-external tracker ticket was created or assigned. Never imply that it was.
-
-Keep publisher and beta checks in the internal recap after the disposition;
-they do not trigger a second reporter reply.
+send one short, plain-language status. Say what changed and what happens next.
+Never explain absent `👀` or `✅` reactions. If `🎫` is used, name the remaining
+check or action and its owner when known. Keep hashes, branches, CI, publisher
+details, and proof in the internal recap. End Slack replies with
+`this was sent from a bot.`.
 
 ### After a PR merges
 
-Track publisher state and beta verification in the internal recap. Do not send
-a routine post-merge reporter reply; answer only a direct reporter follow-up.
+Track publisher state and beta verification in the internal recap. After a
+linked beta-eligible app PR merges and the merge is confirmed in `origin/main`,
+post one short update in the same owned Slack thread. Include the PR link and
+say it should be on beta within 24 hours. Do not say it is live until
+checked. If the publisher fails or blocks the release, do not promise that
+timing; use `🎫` only when another person or team must act, and briefly state
+what still needs checking and who owns it.
 
 For a fixed behavior with a Slack `🎫` handoff, state the done behavior and
 remaining action/owner separately; don't imply the fixed scope is open. The

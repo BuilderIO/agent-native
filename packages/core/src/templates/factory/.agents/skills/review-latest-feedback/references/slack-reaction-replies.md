@@ -6,36 +6,26 @@ At sweep exit, reconcile every report root in the scoped inventory that has
 this task's `👀`, `✅`, or `🎫`, including marks left by earlier runs. Capture
 the exact Slack actor ID used by the connected tool at sweep start. A mark is
 owned by this task only when its reaction owner ID matches that actor ID. Each
-owned root needs a current disposition and a matching status reply by that same
-actor under that same parent, even when the root has only `✅` or `🎫`. A
-same-run fix gets its final reply after verification; continuing work gets a
-concrete progress reply. An earlier generic “taking a look” does not satisfy
-this update. If an existing reply already names the exact canonical disposition
-label and includes its recorded evidence verbatim, read it back and record its
-timestamp and author ID instead of duplicating it. Do not accept a vague or
-negated substring such as `Not fixed` as the `Fixed` label; reject the whole
-reply if a `Fixed` label is later contradicted by a claim that the scope remains
-not fixed, unfixed, or broken. Use `Partially fixed` while any distinct scope
-remains unfinished or a human/team handoff is still `unassigned` or `accepted`.
-A completed handoff is retained history, not an open follow-up.
-This is one current status reply per owned root, not a reply on every sweep.
-Reuse the existing same-actor reply while its disposition and evidence remain
-current; send an update when either materially changes. For a recent
-unanswered reporter question, reuse the existing same-actor question/update as
-the status reply when it states the disposition and evidence. If it does not,
-post at most one concise status update that points to the existing unanswered
-question without asking it again; then wait silently. Do not send another
-question or progress ping before the four-day rule below. When a disposition
-includes human handoffs, the status reply must name each handoff's recorded
-owner and action; include its scope when the report context does not make it
-clear.
+owned root needs a current same-actor status reply under the same parent. Reuse
+it while the disposition and next step remain current; send one short update
+when they materially change, including after a linked PR merges. Keep full
+scope, evidence, and handoff details in the internal ledger. Write Slack
+replies in plain, non-technical language. Never explain why `👀` or `✅` is
+absent. If `🎫` is used, briefly name what still needs checking and who should
+handle it, when known. For a beta-eligible app PR, after merge is confirmed in
+`origin/main`, include the PR link and say it should be on beta within
+24 hours. Do not claim it is live until checked. If the publisher fails or
+blocks release, do not promise that timing; use `🎫` only when another person or
+team must act. End with the exact bot disclosure and read the visible reply and
+root reactions back.
 
-An evidence-only addendum or a correction is not a current status. When your
-newest own reply is one of those, edit that reply into the full canonical
-disposition when possible; otherwise send one final status after the latest
-human reply. Name the verified `✅` scope or why none applies, every open scope,
-and each `🎫` action with its owner or why none applies. Keep the exact bot
-disclosure and read the visible final reply and root reactions back.
+For a recent unanswered reporter question, reuse the existing same-actor
+question/update as the status reply when it still reflects the disposition. If
+it does not, post at most one concise update that points to the question
+without asking it again; then wait silently. Do not send another question or
+progress ping before the four-day rule below. An evidence-only addendum or
+correction is not a current status; edit it into a concise disposition when
+possible, or send one status after the latest human reply.
 
 When editing an ordinary Slack reply, pass its visible body as
 `message.markdown_text` to `slack_edit_message`; `message.text` is a fallback
@@ -138,7 +128,8 @@ then immediately update and read back each applicable root reaction before
 advancing to the next report. Add `✅` as soon as any reported scope passes the
 direct post-change proof bar, including before merge; use
 **Partially fixed** for the overall disposition when another scope remains,
-and describe both scopes separately in the reply. Do not wait for an entire
+and record both scopes in the internal ledger. Keep the reply short; do not
+wait for an entire
 multi-symptom report to be resolved before checking off its verified scope.
 Keep all existing reactions after scopes close. Post the final disposition and
 read back the final reply and reactions; the status shows closure while the
@@ -161,16 +152,16 @@ with a fresh root-reaction read. Ensure one `✅` is present when any scope pass
 proof bar and one `🎫` whenever any distinct unfinished action requires another
 person or team to act, even before ownership is assigned or accepted. Keep the
 mark as history after completion; read back each changed root reaction and
-verify its owner. If either mark does
-not apply, the current reply must say why. Emoji text in a reply is not a
+verify its owner. Record why a mark is absent in the internal ledger. Never
+explain absent `👀` or `✅` in a Slack reply. Emoji text in a reply is not a
 reaction. Preserve every existing reaction. If later proof invalidates a prior
 checkmark, move that scope out of active `fixedScopes[]` and add a
 `historicalReactionMarks[]` entry with `emoji`, `scope`, `reason`, and the exact
-prior `previousStatus`; the current status and reaction decision must explain
-why the retained mark is historical. If the owner withdraws an accepted action
+prior `previousStatus`; keep the explanation in the internal ledger rather
+than the Slack reply. If the owner withdraws an accepted action
 tracked by `🎫`, also preserve the exact earlier accepted `handoff` and owner
-`withdrawalReply`, move it out of current `handoffs[]`, and explain the history
-in the current status. The checker validates these records against the captured
+`withdrawalReply`, and move it out of current `handoffs[]`. Keep that history
+in the internal ledger. The checker validates these records against the captured
 thread; never remove or clean up a reaction.
 Add `🎫` for each distinct unfinished team or engineering action that another
 person or team must perform outside this workflow, whether or not a named
@@ -217,8 +208,9 @@ Keep its original `scope`, `action`, `requestReply`, and ticket-bearing
 `resolution: "answered"` and include the exact human `closureReply` from the
 same thread. For an unanswered request,
 set `resolution: "abandoned_no_answer"` only after four days with no later human
-reply, and omit `closureReply`. The current status must identify the historical
-action and explain why its mark remains. Link an external tracker ticket only
+reply, and omit `closureReply`. The internal ledger must identify the
+historical action and explain why its mark remains; do not explain it in the
+Slack reply unless a current follow-up remains. Link an external tracker ticket only
 if one already exists; do not create or promise one without authorization. If a
 human later refuses the accepted action, preserve `🎫` as history and update
 the status with the refusal and blocker.
@@ -256,8 +248,8 @@ distinct scopes and their status clear.
 
 Compare each reported symptom with the evidence. State what is fixed and what
 is not. Use one root `✅` when at least one fixed scope is verified; it covers every
-verified scope listed in `fixedScopes[]`, which the status must name with its
-proof. Use one root `🎫` whenever at least one distinct unfinished action
+verified scope listed in `fixedScopes[]`, which the internal ledger must name
+with its proof. Use one root `🎫` whenever at least one distinct unfinished action
 requires another person to act; it covers the actions listed in `handoffs[]`
 and active requests in `reporterRequests[]`. Handoffs include unassigned
 actions and completed actions whose evidence and `status: "completed"` remain
@@ -272,16 +264,15 @@ ticket without authorization. Never imply a
 partial fix resolved the whole report.
 
 For beta app fixes, check the matching merge-triggered publisher and keep
-details in the recap. Do not post a routine second reply for merge or rollout.
-If a reporter-facing reply is otherwise due, link the merged PR and state the
-beta status in plain language. Say it is live only after checking it there. If
-publication is pending, say it should follow soon without an exact date. If
-the app or behavior cannot be checked, name that limit. If the publisher is
-missing or failed, give no ETA and name the next action and owner. Keep hashes,
-branch names, CI, workflow details, and run IDs out of reporter replies. For
-package work, distinguish the source PR from any release PR and registry proof;
-source merge alone does not establish publication. Give no ETA for a pending
-package release.
+details in the recap. After a linked beta-eligible app PR merges and is
+confirmed in `origin/main`, reply once in its owned thread with the PR link and
+say it should be on beta within 24 hours. Do not say it is live until
+checked. If the publisher fails or blocks the release, do not promise that
+timing; use `🎫` only when another person or team must act, and briefly say what
+still needs checking and who owns it. Keep hashes, branch names, CI, workflow
+details, and run IDs out of reporter replies. For package work, distinguish
+the source PR from any release PR and registry proof; source merge alone does
+not establish publication. Give no ETA for a pending package release.
 
 For every reply in each final full-thread snapshot, record a read-back of the
 workflow reactions on that reply. If the connector shows `👀`, `✅`, or `🎫`,
