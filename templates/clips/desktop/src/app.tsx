@@ -207,11 +207,13 @@ import {
   ScreenRecordingPermissionError,
 } from "./lib/recording-preflight";
 import {
+  mapRecordFirstFilesForRecovery,
   reconcileRecordingRecovery,
   recordingRecoveryKey,
   shouldShowRecordingRecoveryBanner,
   type PendingDesktopUpload,
   type PendingNativeUpload,
+  type RecordFirstFileUploadError,
   type RecoverySnapshot,
 } from "./lib/recording-recovery";
 import {
@@ -3592,7 +3594,7 @@ export function App({
   >([]);
   const [recordFirstError, setRecordFirstError] = useState<string | null>(null);
   const [recordFirstFileErrors, setRecordFirstFileErrors] = useState<
-    Record<string, { message: string; missing: boolean }>
+    Record<string, RecordFirstFileUploadError>
   >({});
   const [recordFirstUploading, setRecordFirstUploading] = useState(false);
   useEffect(() => {
@@ -4830,15 +4832,10 @@ export function App({
         ? "Start recording"
         : "Start local recording";
 
-  const localRecoveryFiles = [
-    ...recordFirstFiles,
-    ...unclaimedRecordFirstFiles,
-  ].map((file) => ({
-    path: file.path,
-    fileName: file.fileName,
-    savedAt: file.savedAt,
-    ...recordFirstFileErrors[file.path],
-  }));
+  const localRecoveryFiles = mapRecordFirstFilesForRecovery(
+    [...recordFirstFiles, ...unclaimedRecordFirstFiles],
+    recordFirstFileErrors,
+  );
   const recoveryProps: RecordingRecoveryProps = {
     uploads: pendingUploads,
     localFiles: localRecoveryFiles,

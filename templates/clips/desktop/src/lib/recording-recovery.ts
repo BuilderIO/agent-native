@@ -1,5 +1,33 @@
 import type { PendingBrowserRecordingUpload } from "./recorder";
 
+export type RecordFirstFileUploadError = {
+  message: string;
+  missing: boolean;
+};
+
+export type LocalRecoveryFile = {
+  path: string;
+  fileName: string;
+  savedAt: string;
+  error?: string;
+  missing?: boolean;
+};
+
+export function mapRecordFirstFilesForRecovery(
+  files: readonly Pick<LocalRecoveryFile, "path" | "fileName" | "savedAt">[],
+  errors: Record<string, RecordFirstFileUploadError>,
+): LocalRecoveryFile[] {
+  return files.map((file) => {
+    const failure = errors[file.path];
+    return {
+      path: file.path,
+      fileName: file.fileName,
+      savedAt: file.savedAt,
+      ...(failure ? { error: failure.message, missing: failure.missing } : {}),
+    };
+  });
+}
+
 export interface PendingNativeUpload {
   kind: "native";
   recordingId: string;

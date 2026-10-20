@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { desktopRecoveryCopy as copy } from "../i18n/en-US";
+import { mapRecordFirstFilesForRecovery } from "../lib/recording-recovery";
 import type { PendingDesktopUpload } from "../lib/recording-recovery";
 import { useRecordingRecoveryNavigation } from "../lib/recording-recovery-navigation";
 import {
@@ -192,6 +193,45 @@ describe("RecordingRecovery", () => {
     renderPage();
     act(() => buttons(copy.retry)[0]!.click());
     expect(props.onRetryLocalFiles).toHaveBeenCalledOnce();
+  });
+
+  it("maps local upload failures to diagnostics and preserves missing-file state", async () => {
+    const files = [
+      {
+        path: "/Movies/Clips/upload.webm",
+        fileName: "upload.webm",
+        savedAt: "2026-10-20T12:00:00Z",
+      },
+      {
+        path: "/Movies/Clips/missing.webm",
+        fileName: "missing.webm",
+        savedAt: "2026-10-20T12:01:00Z",
+      },
+    ];
+    props.uploads = [];
+    props.localFiles = mapRecordFirstFilesForRecovery(files, {
+      [files[0].path]: { message: "Upload disconnected", missing: false },
+      [files[1].path]: {
+        message: "It is no longer in Movies/Clips.",
+        missing: true,
+      },
+    });
+
+    renderPage();
+    expect(
+      Array.from(host.querySelectorAll('[role="status"]')).map(
+        (status) => status.textContent,
+      ),
+    ).toEqual([copy.uploadInterrupted, copy.recordingIncomplete]);
+    expect(
+      Array.from(host.querySelectorAll('[data-slot="item-media"]')).map(
+        (item) => item.getAttribute("data-recovery-tone"),
+      ),
+    ).toEqual(["warning", "error"]);
+    await openDiagnostic();
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain(
+      "Upload disconnected",
+    );
   });
 
   it.each([
