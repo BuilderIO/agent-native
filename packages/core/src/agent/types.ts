@@ -5,6 +5,7 @@ import type {
 
 import type { A2AAgentActivitySnapshot } from "../a2a/activity.js";
 import type { ActionChatUIConfig } from "../action-ui.js";
+import type { WriteReceipt } from "../action.js";
 import type { ArtifactReceipt } from "../artifacts/detect.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
@@ -435,6 +436,8 @@ export type AgentChatEvent =
       isError?: boolean;
       errorCode?: string;
       completedSideEffect?: boolean;
+      /** Compact action write evidence retained even when `result` is truncated. */
+      receipt?: WriteReceipt;
       /**
        * Exact identity of the arguments the call ran with, defaults applied. A
        * continued turn replays a committed call only for the same identity.

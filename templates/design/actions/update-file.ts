@@ -27,6 +27,7 @@ import {
   withSourceFileWriteLock,
   writeInlineSourceFile,
 } from "../server/source-workspace.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import { assertDesignHtmlEditIntegrity } from "../shared/html-integrity.js";
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
 import {
@@ -336,6 +337,10 @@ export default defineAction({
         designId: file.designId,
         updated: true,
         versionHash: write.versionHash,
+        _receipt: designOutputWriteReceipt(
+          file.designId,
+          write.changed ? 1 : 0,
+        ),
         ...checkpointField,
       };
     }
@@ -368,6 +373,7 @@ export default defineAction({
     let skippedStaleMirror = false;
     let skippedStaleOperation = false;
     let exactOperationAlreadyPersisted = false;
+    let outputChanged = false;
     let persistedVersionHash: string | undefined;
     let persistedUpdatedAt: string | undefined;
 
@@ -377,6 +383,7 @@ export default defineAction({
         for (let attempt = 0; attempt < 4; attempt += 1) {
           skippedStaleMirror = false;
           skippedStaleOperation = false;
+          outputChanged = false;
           exactOperationAlreadyPersisted = false;
           persistedUpdatedAt = undefined;
           const [persistedFile] = await tx
@@ -529,6 +536,8 @@ export default defineAction({
           const updates: Record<string, unknown> = { updatedAt: now };
           if (content !== undefined && !skipContentWrite) {
             updates.content = content;
+            outputChanged =
+              sourceContentHash(content) !== sourceContentHash(liveContent);
             persistedVersionHash = sourceContentHash(content);
             if (
               operationSource !== undefined &&
@@ -739,6 +748,7 @@ export default defineAction({
         designId: file.designId,
         updated: true,
         skippedStaleMirror: true,
+        _receipt: designOutputWriteReceipt(file.designId, 0),
         ...checkpointField,
       };
     }
@@ -749,11 +759,21 @@ export default defineAction({
         updated: true,
         ...(skippedStaleOperation ? { skippedStaleOperation: true } : {}),
         versionHash: persistedVersionHash,
+        _receipt: designOutputWriteReceipt(
+          file.designId,
+          outputChanged ? 1 : 0,
+        ),
         ...(persistedUpdatedAt ? { updatedAt: persistedUpdatedAt } : {}),
         ...checkpointField,
       };
     }
-    return { id, designId: file.designId, updated: true, ...checkpointField };
+    return {
+      id,
+      designId: file.designId,
+      updated: true,
+      _receipt: designOutputWriteReceipt(file.designId, outputChanged ? 1 : 0),
+      ...checkpointField,
+    };
   },
   changeResource: (_input, result) =>
     designChangeResource(result.designId, result),

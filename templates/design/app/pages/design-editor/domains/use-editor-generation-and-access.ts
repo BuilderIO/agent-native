@@ -267,6 +267,9 @@ export function useEditorGenerationAndAccess({
   }, [isSignedIn]);
   const [retryablePrompt, setRetryablePrompt] =
     useState<RetryablePrompt | null>(null);
+  const retryGenerationActionRef = useRef<
+    ((prompt: RetryablePrompt) => void) | null
+  >(null);
   const generationOutputReadyRef = useRef<boolean | null>(null);
   const generationOutputBaselineRef = useRef<
     Array<{ id: string; contentHash: string }> | undefined
@@ -293,10 +296,11 @@ export function useEditorGenerationAndAccess({
     engine?: string;
     effort?: PromptComposerSubmitOptions["effort"];
   } | null>(null);
-  const rememberPendingGenerationForRetry = useCallback(() => {
-    const pending = readPendingGeneration(id);
-    if (pending?.prompt) {
-      setRetryablePrompt({
+  const rememberPendingGenerationForRetry = useCallback(
+    (autoRetry = true) => {
+      const pending = readPendingGeneration(id);
+      if (!pending?.prompt) return null;
+      const retryable = {
         prompt: pending.prompt,
         files: Array.isArray(pending.files) ? pending.files : [],
         model: pending.model,
@@ -305,15 +309,17 @@ export function useEditorGenerationAndAccess({
         contextItems: pending.contextItems,
         designSystemId: pending.designSystemId,
         attempt: pending.attempt ?? 1,
+        autoRetry,
         source: pending.source,
         templateId: pending.templateId,
         outputBaselineFiles: pending.outputBaselineFiles,
         templateBaselineFiles: pending.templateBaselineFiles,
-      });
-      return true;
-    }
-    return false;
-  }, [id]);
+      } satisfies RetryablePrompt;
+      setRetryablePrompt(retryable);
+      return retryable;
+    },
+    [id],
+  );
   const markGenerationStale = useCallback(() => {
     if (generationOutputReadyRef.current === null) return;
     clearGenerationCompleteTimer();
@@ -344,13 +350,95 @@ export function useEditorGenerationAndAccess({
         setGenerationIssue(null);
         return;
       }
-      clearPendingGeneration(id);
-      setHasPendingGeneration(false);
-      setRetryablePrompt(null);
-      staleToastShownRef.current = false;
-      setGenerationIssue(null);
+      if (!id) {
+        setHasPendingGeneration(false);
+        setRetryablePrompt(null);
+        setGenerationIssue(null);
+        return;
+      }
+      const completedPending = readPendingGeneration(id, {
+        allowUntimestamped: true,
+      });
+      const completedStartedAt = completedPending?.startedAt;
+      const completedRunTabId = completedPending?.runTabId;
+      const completedRunId = completedPending?.currentRunId;
+      const completedTurnId = completedPending?.currentTurnId;
+      const outputCheck =
+        completedRunId && completedTurnId
+          ? callAction(
+              "get-design-generation-output",
+              {
+                designId: id,
+                runId: completedRunId,
+                turnId: completedTurnId,
+              },
+              { method: "GET" },
+            )
+              .then((result) =>
+                result?.status === "has_output" ||
+                result?.status === "no_output"
+                  ? result.status
+                  : ("unknown" as const),
+              )
+              .catch(() => "unknown" as const)
+          : Promise.resolve("unknown" as const);
+      void outputCheck.then((outputState) => {
+        const latestPending = readPendingGeneration(id, {
+          allowUntimestamped: true,
+        });
+        if (
+          completedPending &&
+          (!latestPending ||
+            latestPending.startedAt !== completedStartedAt ||
+            latestPending.runTabId !== completedRunTabId)
+        ) {
+          return;
+        }
+        if (pendingQuestionsVisibleRef.current) {
+          setHasPendingGeneration(false);
+          staleToastShownRef.current = false;
+          setGenerationIssue(null);
+          return;
+        }
+
+        if (outputState !== "has_output") {
+          const preservedForRetry = rememberPendingGenerationForRetry(false);
+          clearPendingGeneration(id);
+          setHasPendingGeneration(false);
+          setRetryablePrompt(preservedForRetry);
+          const issue = preservedForRetry
+            ? outputState === "no_output"
+              ? t("designEditor.generationStoppedRetry")
+              : t("designEditor.generationMayHaveStopped")
+            : t("designEditor.generationStoppedCheckAgent");
+          setGenerationIssue(issue);
+          if (preservedForRetry) {
+            toast.error(issue, {
+              action: {
+                label: t("designEditor.tryAgain"),
+                onClick: () =>
+                  retryGenerationActionRef.current?.(preservedForRetry),
+              },
+            });
+          }
+          staleToastShownRef.current = false;
+          return;
+        }
+
+        clearPendingGeneration(id);
+        setHasPendingGeneration(false);
+        setRetryablePrompt(null);
+        staleToastShownRef.current = false;
+        setGenerationIssue(null);
+      });
     }, 4000);
-  }, [clearGenerationCompleteTimer, id]);
+  }, [
+    clearGenerationCompleteTimer,
+    id,
+    rememberPendingGenerationForRetry,
+    setRetryablePrompt,
+    t,
+  ]);
   const handleGenerationStopped = useCallback(() => {
     clearGenerationCompleteTimer();
     clearAutoRetryTimer();
@@ -1518,6 +1606,9 @@ export function useEditorGenerationAndAccess({
       "manual",
     );
   }, [canEditDesign, retryablePrompt, startRetryGeneration]);
+  retryGenerationActionRef.current = (prompt) => {
+    void startRetryGeneration(prompt, (prompt.attempt ?? 1) + 1, "manual");
+  };
 
   const handleApplyReviewFeedback = useCallback(() => {
     if (

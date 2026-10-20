@@ -239,6 +239,7 @@ import {
   preparedCallArguments,
 } from "@agent-native/core/action";
 
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import action from "./delete-file.js";
 
 describe("delete-file", () => {
@@ -430,6 +431,24 @@ describe("delete-file", () => {
     expect(mocks.db.transaction).not.toHaveBeenCalled();
   });
 
+  it("receipts a scoped no-op when the Design id is provided", async () => {
+    mocks.fileSelectChain.limit.mockResolvedValue([]);
+
+    await expect(
+      action.run({ id: "missing-file", designId: "design_123" }),
+    ).resolves.toEqual({
+      id: "missing-file",
+      deleted: false,
+      alreadyMissing: true,
+      _receipt: designOutputWriteReceipt("design_123", 0),
+    });
+    expect(mocks.assertAccess).toHaveBeenCalledWith(
+      "design",
+      "design_123",
+      "editor",
+    );
+  });
+
   it("refuses a locked screen by default so the agent cannot drop template branding", async () => {
     mocks.fileSelectChain.limit.mockResolvedValue([
       {
@@ -528,7 +547,11 @@ describe("delete-file", () => {
 
     await expect(
       action.run({ id: "file-b", allowLockedLayers: true }),
-    ).resolves.toMatchObject({ id: "file-b", deleted: true });
+    ).resolves.toMatchObject({
+      id: "file-b",
+      deleted: true,
+      _receipt: designOutputWriteReceipt("design_123", 0),
+    });
   });
 
   it("does not lock org_members for an owner on an embedded org-visible design", async () => {
@@ -677,6 +700,7 @@ describe("delete-file", () => {
       id: "file-b",
       deleted: false,
       alreadyMissing: true,
+      _receipt: designOutputWriteReceipt("design_123", 0),
     });
     expect(mocks.tx.update).not.toHaveBeenCalled();
   });

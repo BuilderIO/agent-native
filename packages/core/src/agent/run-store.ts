@@ -58,6 +58,7 @@ import {
 } from "./tool-call-journal.js";
 import { CONTINUATION_REASONS, isContinuationTerminalReason } from "./types.js";
 import type { AgentChatEvent, ContinuationReason, RunEvent } from "./types.js";
+import { readWriteReceipt } from "./write-receipts.js";
 
 export const RUN_STALE_MS = 15_000;
 
@@ -4515,7 +4516,9 @@ function isReadableJournalEvent(value: unknown): value is AgentChatEvent {
             (value.approvalPause === undefined ||
               typeof value.approvalPause === "boolean") &&
             (value.outcomeUnknown === undefined ||
-              value.outcomeUnknown === true))
+              value.outcomeUnknown === true) &&
+            (value.receipt === undefined ||
+              readWriteReceipt({ _receipt: value.receipt }) !== undefined))
       );
     case "suggestions":
       return Array.isArray(value.suggestions);
@@ -4661,6 +4664,34 @@ export async function getCurrentTurnRunEventsForThread(
   knownTurnId?: string,
 ): Promise<CurrentTurnRunEvent[]> {
   return getCurrentTurnRunEvents(threadId, knownTurnId);
+}
+
+export async function getCurrentTurnRunIdsForThread(
+  threadId: string,
+  turnId: string,
+): Promise<string[]> {
+  await ensureRunTables();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT id FROM agent_runs
+          WHERE thread_id = ?
+            AND COALESCE(turn_id, id) = ?
+            AND dispatch_mode IS DISTINCT FROM 'turn-abort'
+          ORDER BY COALESCE(continuation_order, 0) ASC,
+                   started_at ASC,
+                   id ASC`,
+    args: [threadId, turnId],
+  });
+  return rows.map((row, rowIndex) => {
+    if (!isJournalObject(row) || typeof row.id !== "string" || !row.id.trim()) {
+      throw new AgentRunJournalUnreadableError(
+        threadId,
+        turnId,
+        rowIndex,
+        "invalid_row",
+      );
+    }
+    return row.id;
+  });
 }
 
 export async function getCurrentTurnEventsForThread(

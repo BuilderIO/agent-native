@@ -35,6 +35,7 @@ import {
 import { parseVisibleClipboardHtml } from "../server/lib/visible-clipboard-html.js";
 import { planFigmaPaste } from "../shared/figma-paste-plan.js";
 import { parseFigmaFileKey } from "../shared/figma-url.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 
 const NODE_STRUCTURE_DEPTH = 3;
 
@@ -314,6 +315,14 @@ export default defineAction({
         });
         return {
           ...saved,
+          ...(saved.files.length
+            ? {
+                _receipt: designOutputWriteReceipt(
+                  resolvedDesignId,
+                  saved.files.length,
+                ),
+              }
+            : {}),
           warnings: [
             ...saved.warnings,
             ...selectionWarnings,
@@ -372,6 +381,14 @@ export default defineAction({
         });
         return {
           ...saved,
+          ...(saved.files.length
+            ? {
+                _receipt: designOutputWriteReceipt(
+                  resolvedDesignId,
+                  saved.files.length,
+                ),
+              }
+            : {}),
           warnings: [...(saved.warnings ?? []), ...omissionWarnings],
           strategy: "restNodes" as const,
           figma: {
@@ -443,6 +460,14 @@ export default defineAction({
           });
           return {
             ...saved,
+            ...(saved.files.length
+              ? {
+                  _receipt: designOutputWriteReceipt(
+                    resolvedDesignId,
+                    saved.files.length,
+                  ),
+                }
+              : {}),
             warnings: [...saved.warnings, ...localResult.warnings],
             strategy: "localKiwi" as const,
             figmaApiKeyMissing,
@@ -504,6 +529,14 @@ export default defineAction({
     });
     return {
       ...saved,
+      ...(saved.files.length
+        ? {
+            _receipt: designOutputWriteReceipt(
+              resolvedDesignId,
+              saved.files.length,
+            ),
+          }
+        : {}),
       strategy: "htmlFallback" as const,
       figmaApiKeyMissing,
       matchStatus,

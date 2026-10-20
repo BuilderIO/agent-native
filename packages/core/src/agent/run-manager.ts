@@ -3131,23 +3131,42 @@ async function fetchNewerRunForSameTurn(
   memRun: ActiveRun,
 ): Promise<Awaited<ReturnType<typeof getRunByThread>> | null> {
   const latest = await getRunByThread(threadId, { includeTerminal: true });
-  const terminalAge = latest
-    ? Date.now() -
-      (latest.completedAt ?? latest.heartbeatAt ?? latest.startedAt)
-    : Infinity;
-  if (
-    latest &&
-    !isDuplicateSubmissionMarker(latest) &&
-    latest.id !== memRun.runId &&
-    latest.startedAt > memRun.startedAt &&
-    (latest.turnId ?? latest.id) === memRun.turnId &&
-    (latest.status === "running" ||
-      (RECONNECTABLE_TERMINAL_RUN_STATUSES.has(latest.status) &&
-        terminalAge <= TERMINAL_RUN_RECONNECT_WINDOW_MS))
-  ) {
-    return latest;
+  if (!latest) return null;
+
+  const isNewerReconnectableSuccessor = (run: {
+    id: string;
+    turnId?: string | null;
+    status: string;
+    startedAt: number;
+    heartbeatAt: number | null;
+    completedAt: number | null;
+    terminalReason?: string | null;
+  }) => {
+    if (
+      isDuplicateSubmissionMarker(run) ||
+      run.id === memRun.runId ||
+      run.startedAt <= memRun.startedAt ||
+      (run.turnId ?? run.id) !== memRun.turnId
+    ) {
+      return false;
+    }
+    if (run.status === "running") return true;
+    if (!RECONNECTABLE_TERMINAL_RUN_STATUSES.has(run.status)) return false;
+    const terminalAge =
+      Date.now() - (run.completedAt ?? run.heartbeatAt ?? run.startedAt);
+    return terminalAge <= TERMINAL_RUN_RECONNECT_WINDOW_MS;
+  };
+
+  if (!isDuplicateSubmissionMarker(latest)) {
+    return isNewerReconnectableSuccessor(latest) ? latest : null;
   }
-  return null;
+
+  const acceptedSuccessor = (
+    await listRunsForThread(threadId, { limit: 50 })
+  ).find(isNewerReconnectableSuccessor);
+  return acceptedSuccessor
+    ? { ...acceptedSuccessor, inFlightSince: null }
+    : null;
 }
 
 export function getRun(runId: string): ActiveRun | null {

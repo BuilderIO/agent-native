@@ -5793,6 +5793,71 @@ describe("run manager soft timeout", () => {
     expect(result?.runId).not.toBe("run-in-memory-duplicate-marker");
   });
 
+  it("finds a newer same-turn successor behind a duplicate-submission marker", async () => {
+    const turnId = "turn-successor-behind-duplicate-marker";
+    const threadId = "thread-successor-behind-duplicate-marker";
+    const run = startRun(
+      "run-successor-source",
+      threadId,
+      async () => {},
+      undefined,
+      { turnId },
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(run.status).toBe("completed");
+
+    const duplicateMarker = {
+      id: "run-duplicate-after-successor",
+      threadId,
+      turnId,
+      status: "aborted",
+      startedAt: run.startedAt + 2,
+      heartbeatAt: run.startedAt + 2,
+      completedAt: run.startedAt + 2,
+      lastProgressAt: null,
+      terminalReason: "aborted:duplicate_submission",
+    };
+    const acceptedSuccessor = {
+      id: "run-accepted-same-turn-successor",
+      threadId,
+      turnId,
+      status: "running",
+      startedAt: run.startedAt + 1,
+      heartbeatAt: Date.now(),
+      completedAt: null,
+      lastProgressAt: Date.now(),
+      terminalReason: null,
+    };
+    vi.mocked(getRunByThread)
+      .mockResolvedValueOnce({
+        id: run.runId,
+        threadId,
+        turnId,
+        status: "running",
+        startedAt: run.startedAt,
+        heartbeatAt: run.startedAt,
+        completedAt: null,
+        lastProgressAt: null,
+      })
+      .mockResolvedValueOnce(duplicateMarker);
+    vi.mocked(listRunsForThread).mockResolvedValue([
+      duplicateMarker,
+      acceptedSuccessor,
+    ]);
+
+    const result = await getActiveRunForThreadAsync(threadId);
+
+    expect(result).toMatchObject({
+      runId: acceptedSuccessor.id,
+      threadId,
+      turnId,
+      status: "running",
+      inFlight: true,
+      successorOfRunId: run.runId,
+    });
+    expect(listRunsForThread).toHaveBeenCalledWith(threadId, { limit: 50 });
+  });
+
   it("propagates run snapshot lookup failures instead of returning in-memory status", async () => {
     const run = startRun(
       "run-snapshot-lookup-error",

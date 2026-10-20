@@ -124,6 +124,7 @@ export interface RetryablePrompt {
   contextItems?: PromptComposerSubmitOptions["contextItems"];
   designSystemId?: string | null;
   attempt?: number;
+  autoRetry?: boolean;
   source?: string;
   templateId?: string;
   outputBaselineFiles?: Array<{ id: string; contentHash: string }>;

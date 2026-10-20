@@ -256,6 +256,7 @@ vi.mock("../server/db/index.js", () => {
 import { hasCollabState, applyText } from "@agent-native/core/collab";
 import { assertAccess } from "@agent-native/core/sharing";
 
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import {
   sourceContentHash,
   sourceContentPatch,
@@ -348,6 +349,7 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
       id: FILE_ID,
       designId: "design_1",
       updated: true,
+      _receipt: designOutputWriteReceipt(DESIGN_ID, 1),
     });
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(next);
     expect(await hasCollabState(FILE_ID)).toBe(true);
@@ -407,6 +409,7 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
       id: FILE_ID,
       designId: DESIGN_ID,
       updated: true,
+      _receipt: designOutputWriteReceipt(DESIGN_ID, 1),
     });
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(next);
     expect(await hasCollabState(FILE_ID)).toBe(true);
@@ -501,6 +504,7 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
       designId: "design_1",
       updated: true,
       skippedStaleMirror: true,
+      _receipt: designOutputWriteReceipt(DESIGN_ID, 0),
     });
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(sqlContentBefore);
     expect(designFilesStore.rows.get(FILE_ID)!.content).not.toContain(
@@ -546,6 +550,7 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
       id: FILE_ID,
       designId: "design_1",
       updated: true,
+      _receipt: designOutputWriteReceipt(DESIGN_ID, 1),
     });
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(next);
     const liveText = getOrCreateDoc(FILE_ID).getText("content").toString();
@@ -571,6 +576,7 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
       designId: "design_1",
       updated: true,
       skippedStaleMirror: true,
+      _receipt: designOutputWriteReceipt(DESIGN_ID, 0),
     });
     expect(designFilesStore.rows.get(FILE_ID)!.filename).toBe("renamed.html");
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(sqlContentBefore);
@@ -586,6 +592,7 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
       id: FILE_ID,
       designId: "design_1",
       updated: true,
+      _receipt: designOutputWriteReceipt(DESIGN_ID, 0),
     });
     expect(designFilesStore.rows.get(FILE_ID)!.filename).toBe(
       "renamed-only.html",
@@ -626,6 +633,7 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
       id: FILE_ID,
       designId: "design_1",
       updated: true,
+      _receipt: designOutputWriteReceipt(DESIGN_ID, 0),
     });
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(next);
   });
@@ -653,6 +661,7 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
       designId: "design_1",
       updated: true,
       skippedStaleMirror: true,
+      _receipt: designOutputWriteReceipt(DESIGN_ID, 0),
     });
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(sqlContentBefore);
   });
@@ -688,6 +697,7 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
       id: FILE_ID,
       designId: "design_1",
       updated: true,
+      _receipt: designOutputWriteReceipt(DESIGN_ID, 1),
     });
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(editTwo);
 
@@ -716,6 +726,7 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
       designId: "design_1",
       updated: true,
       skippedStaleMirror: true,
+      _receipt: designOutputWriteReceipt(DESIGN_ID, 0),
     });
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(sqlContentBefore);
     const liveText = getOrCreateDoc(FILE_ID).getText("content").toString();
@@ -745,6 +756,7 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
       id: FILE_ID,
       designId: "design_1",
       updated: true,
+      _receipt: designOutputWriteReceipt(DESIGN_ID, 1),
     });
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(callerContent);
 

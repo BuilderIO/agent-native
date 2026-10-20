@@ -4,6 +4,180 @@ import { expect, test } from "./rails";
 
 const PENDING_GENERATION_STALE_MS = 30 * 60_000;
 
+test("completed generation without output stays retryable", async ({
+  app,
+  page,
+}) => {
+  app.allowFailure(
+    /error toast Generation stopped before creating files/,
+    "a completed generation with no output should offer retry feedback",
+  );
+  const designId = await app.seed(
+    "<!doctype html><html><body><main>Existing design</main></body></html>",
+    { title: "completed-generation-without-output" },
+  );
+  app.allowFailure(
+    new RegExp(
+      `unexpected page load: .*/design/${designId} loaded without the test navigating`,
+    ),
+    "manual retry resumes in the current design",
+  );
+  await page.goto(appPath(`/design/${designId}`), {
+    waitUntil: "domcontentloaded",
+  });
+  await expect(
+    page.locator('[data-design-top-bar] [data-design-mode="edit"]'),
+  ).toHaveAttribute("aria-pressed", "true", { timeout: 30_000 });
+  const pendingKey = `design.pending-generation.${designId}`;
+  let runTabId: string | null = null;
+  await expect
+    .poll(
+      async () => {
+        runTabId = await page.evaluate((id) => {
+          const browserTabId = sessionStorage.getItem(
+            "agent-native:browser-tab-id",
+          );
+          if (!browserTabId) return null;
+          return localStorage.getItem(
+            `agent-chat-active-thread:design:scope:design:${id}:tab:${browserTabId}`,
+          );
+        }, designId);
+        return Boolean(runTabId);
+      },
+      { timeout: 20_000 },
+    )
+    .toBe(true);
+  if (!runTabId) throw new Error("Design editor did not persist a chat thread");
+
+  let completedRunObserved = false;
+  let outputStatusRequested = false;
+  let manualRetryRequested = false;
+  let retriedThreadId: string | null = null;
+  const activeRunRoute = /\/_agent-native\/agent-chat\/runs\/active(?:\?|$)/;
+  await page.route(activeRunRoute, async (route) => {
+    const threadId = new URL(route.request().url()).searchParams.get(
+      "threadId",
+    );
+    if (threadId === runTabId) {
+      completedRunObserved = true;
+      await route.fulfill({
+        json: {
+          active: false,
+          status: "completed",
+          runId: "e2e-completed-without-output",
+          turnId: "e2e-completed-without-output-turn",
+        },
+      });
+      return;
+    }
+    if (manualRetryRequested && threadId) {
+      retriedThreadId = threadId;
+      await route.fulfill({
+        json: {
+          active: true,
+          status: "running",
+          runId: "e2e-manual-retry-run",
+          turnId: "e2e-manual-retry-turn",
+        },
+      });
+      return;
+    }
+    await route.continue();
+  });
+  const outputStatusRoute =
+    /\/_agent-native\/actions\/get-design-generation-output(?:\?|$)/;
+  await page.route(outputStatusRoute, async (route) => {
+    outputStatusRequested = true;
+    await route.fulfill({ json: { status: "no_output" } });
+  });
+  await page.evaluate(
+    ({ key, runTabId }) => {
+      const now = Date.now();
+      sessionStorage.setItem(
+        key,
+        JSON.stringify({
+          prompt: "Create a settings page",
+          createdAt: now,
+          startedAt: now,
+          runTabId,
+          currentRunId: "e2e-completed-without-output",
+          currentTurnId: "e2e-completed-without-output-turn",
+          previousRunBaselineVerified: true,
+          outputBaselineFiles: [],
+        }),
+      );
+    },
+    {
+      key: pendingKey,
+      runTabId,
+    },
+  );
+
+  await page.addInitScript(() => {
+    const state = window as Window & { __chatRunningListenerCount?: number };
+    const addEventListener = window.addEventListener;
+    Object.defineProperty(window, "addEventListener", {
+      configurable: true,
+      value: new Proxy(addEventListener, {
+        apply(target, thisArg, args) {
+          if (args[0] === "agentNative.chatRunning") {
+            state.__chatRunningListenerCount =
+              (state.__chatRunningListenerCount ?? 0) + 1;
+          }
+          return Reflect.apply(target, thisArg, args);
+        },
+      }),
+    });
+  });
+  await page.reload();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as Window & { __chatRunningListenerCount?: number })
+            .__chatRunningListenerCount ?? 0,
+      ),
+    )
+    .toBeGreaterThan(0);
+  await page.evaluate(
+    ({ tabId, runId, turnId }) => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: true, tabId, runId, turnId },
+        }),
+      );
+    },
+    {
+      tabId: runTabId,
+      runId: "e2e-completed-without-output",
+      turnId: "e2e-completed-without-output-turn",
+    },
+  );
+
+  await expect.poll(() => completedRunObserved, { timeout: 20_000 }).toBe(true);
+  await expect
+    .poll(() => outputStatusRequested, { timeout: 20_000 })
+    .toBe(true);
+  const notifications = page.getByRole("region", {
+    name: "Notifications alt+T",
+  });
+  await expect(notifications).toContainText(
+    "Generation stopped before creating files. Try again",
+  );
+  const retryToast = notifications.getByRole("button", { name: "Try again" });
+  await expect(retryToast).toBeVisible();
+  await expect
+    .poll(() => page.evaluate((key) => sessionStorage.getItem(key), pendingKey))
+    .toBeNull();
+
+  manualRetryRequested = true;
+  await retryToast.click();
+  await expect.poll(() => retriedThreadId, { timeout: 20_000 }).not.toBeNull();
+  expect(retriedThreadId).not.toBe(runTabId);
+  await page.unroute(activeRunRoute);
+  await page.unroute(outputStatusRoute);
+});
+
 test("restored stale generation with existing output keeps its stale warning", async ({
   app,
   page,
@@ -220,6 +394,12 @@ test("failed generation after changed template output keeps its retry path", asy
   const designId = await app.seed(initialHtml, {
     title: "failed-generation-with-output",
   });
+  app.allowFailure(
+    new RegExp(
+      `unexpected page load: .*/design/${designId}(?:\\?.*)? loaded without the test navigating`,
+    ),
+    "retrying a failed generation continues in the current design",
+  );
   await app.open(designId);
   const record = await app.savedRecord(designId);
   const file = record.files.find(

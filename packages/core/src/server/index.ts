@@ -205,7 +205,14 @@ export {
   requestJevThroughBuilder,
   type JevResponse,
 } from "../agent/jev-tool-prefetch.js";
-export { getRunStatus, getRunTurnRef } from "../agent/run-store.js";
+export {
+  getCurrentTurnRunEventsForThread,
+  getCurrentTurnRunIdsForThread,
+  getRunStatus,
+  getRunTurnRef,
+  type CurrentTurnRunEvent,
+} from "../agent/run-store.js";
+export { callerHasThreadAccess } from "../agent/run-ownership.js";
 export { getActiveRunForThreadAsync } from "../agent/run-manager.js";
 export {
   mountRealtimeVoiceRoutes,
