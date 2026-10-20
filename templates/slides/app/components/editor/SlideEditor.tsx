@@ -3493,7 +3493,7 @@ export default function SlideEditor({
           NOTES_ACTION_PROMPTS[action],
           ``,
           `Slide id: \`${slide.id}\``,
-          `Call \`view-screen\` first and read this slide's current notes. Write the result with \`patch-deck\` using a \`patch-slide\` op that sets only \`fields.notes\`. Do not change the slide's content.`,
+          `Work only on this slide id, whichever slide is on screen now. Read its content and current notes with \`get-deck\` (\`slideId\` above, \`compact: "false"\`); \`view-screen\` does not return note text. Write the result with \`patch-deck\` using a \`patch-slide\` op for the same slide id that sets only \`fields.notes\`. Do not change the slide's content.`,
         ].join("\n"),
         submit: true,
         chatTarget: "local",
