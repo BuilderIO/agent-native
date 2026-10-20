@@ -2191,7 +2191,9 @@ export function createAgentKitProtocolAdapter(
       });
       touchRun(existingRun);
       ensurePump(existingRun);
-      return runId;
+      // A runtime alias resolves to the run that owns it, which may use a
+      // different protocol id; the caller must address that run.
+      return existingRun.runId;
     }
     pruneRetainedRuns(run.lastAccessedAtMs);
     indexRun(run, turn.runId);
