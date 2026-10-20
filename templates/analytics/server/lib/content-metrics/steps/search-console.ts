@@ -85,7 +85,6 @@ export const searchConsoleStep: ContentStep = {
     );
     const newPages = new Map<string, ContentItemInput>();
     const snapshots = new Map<string, ContentSnapshotInput>();
-    let lastReturnedOverall: string | null = null;
 
     for (const site of sites) {
       const rows = await querySearchAnalytics({
@@ -160,12 +159,6 @@ export const searchConsoleStep: ContentStep = {
         ]);
         if (!snapshots.has(key)) snapshots.set(key, snapshot);
       }
-      if (
-        lastReturnedDate &&
-        (!lastReturnedOverall || lastReturnedDate > lastReturnedOverall)
-      ) {
-        lastReturnedOverall = lastReturnedDate;
-      }
     }
 
     return {
@@ -174,7 +167,9 @@ export const searchConsoleStep: ContentStep = {
       outcome: {
         rowCount: snapshots.size,
         windowStart: window.startDate,
-        windowEnd: lastReturnedOverall,
+        // Query coverage advances even when no rows exist. Data dates remain
+        // on the snapshots, and omitted values still have no snapshot.
+        windowEnd: window.endDate,
       },
     };
   },

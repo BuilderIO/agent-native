@@ -72,6 +72,7 @@ describe("Analytics database plugin boot contract", () => {
   });
 
   it("runs schema setup for the scheduled production rollup invocation", async () => {
+    state.background.mockReturnValue(true);
     globalThis.__AGENT_NATIVE_ANALYTICS_ROLLUP_BACKFILL_SCHEDULED_RUNTIME__ = true;
     const register = (await import("./db")).default;
 
@@ -91,6 +92,16 @@ describe("Analytics database plugin boot contract", () => {
     await register({});
     expect(state.migrationPlugin).toHaveBeenCalledTimes(1);
     expect(state.withMigrationExecutionRuntime).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not initialize the database in ordinary background workers", async () => {
+    state.background.mockReturnValue(true);
+    state.isProductionServerlessRuntime.mockReturnValue(false);
+    const register = (await import("./db")).default;
+    await register({});
+    expect(state.migrationPlugin).not.toHaveBeenCalled();
+    expect(state.ensureAdditiveColumns).not.toHaveBeenCalled();
+    expect(state.getDbExec).not.toHaveBeenCalled();
   });
 
   it("keeps the migration path available to an explicitly long-lived runtime", async () => {
