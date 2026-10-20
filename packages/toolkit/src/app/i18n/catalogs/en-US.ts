@@ -998,7 +998,25 @@ const messages = {
   "mcpIntegrations.catalog.hubspot.useCase":
     "CRM, contacts, companies, deals, tickets, customer analytics",
   "mcpIntegrations.catalog.hubspot.setupNote":
-    "When a workspace-managed HubSpot MCP Auth App is configured, any member can connect a personal HubSpot account with OAuth and PKCE. Otherwise, create the app in the HubSpot Developer Platform before connecting; the existing HubSpot OAuth connector remains available to app actions.",
+    "Each person connects their own HubSpot account after a workspace owner configures the HubSpot MCP Auth App.",
+  "mcpIntegrations.hubspot.setupTitle": "Set up HubSpot MCP",
+  "mcpIntegrations.hubspot.dialogDescription":
+    "A workspace owner configures HubSpot MCP once. Each member then connects their own account.",
+  "mcpIntegrations.hubspot.workspaceSetupStatus": "Workspace setup required",
+  "mcpIntegrations.hubspot.setupChecking": "Checking workspace setup…",
+  "mcpIntegrations.hubspot.setupUnavailable": "Setup status unavailable",
+  "mcpIntegrations.hubspot.setupUnavailableDescription":
+    "Couldn't check the workspace OAuth settings. Try again.",
+  "mcpIntegrations.hubspot.ownerSetupDescription":
+    "Create a HubSpot MCP Auth App, then add its client ID and secret in Agent-Native settings → API keys.",
+  "mcpIntegrations.hubspot.memberSetupDescription":
+    "Ask a workspace owner to create a HubSpot MCP Auth App and add its client ID and secret in Agent-Native settings → API keys. You can connect your own HubSpot account after setup.",
+  "mcpIntegrations.hubspot.noWorkspaceDescription":
+    "Join a workspace before connecting HubSpot MCP.",
+  "mcpIntegrations.hubspot.configureWorkspaceCredentials":
+    "Add workspace credentials",
+  "mcpIntegrations.hubspot.refreshSetupStatus": "Check again",
+  "mcpIntegrations.hubspot.retrySetupStatus": "Retry",
   "mcpIntegrations.catalog.pylon.description":
     "Search and update Pylon support data.",
   "mcpIntegrations.catalog.pylon.useCase":
