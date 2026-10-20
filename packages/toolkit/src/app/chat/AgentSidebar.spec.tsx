@@ -22,6 +22,7 @@ const mockHostedHarness = vi.hoisted(() => ({
   configured: false,
   enabled: false,
 }));
+const mockAgentNativeDesktop = vi.hoisted(() => ({ enabled: false }));
 
 const mockPanel = vi.hoisted(() => {
   let resolveImport!: () => void;
@@ -123,6 +124,19 @@ vi.mock("@agent-native/core/client/app-config", () => ({
     harness: mockHostedHarness.configured ? {} : undefined,
   }),
 }));
+vi.mock(
+  "@agent-native/core/client/auth/auth-page-helpers",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("@agent-native/core/client/auth/auth-page-helpers")
+      >();
+    return {
+      ...actual,
+      isAgentNativeDesktop: () => mockAgentNativeDesktop.enabled,
+    };
+  },
+);
 vi.mock("@agent-native/core/client/host", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@agent-native/core/client/host")>();
@@ -266,6 +280,7 @@ beforeEach(() => {
   window.history.replaceState({}, "", "/");
   mockHostedHarness.configured = false;
   mockHostedHarness.enabled = false;
+  mockAgentNativeDesktop.enabled = false;
   window.sessionStorage.clear();
   const values = new Map<string, string>();
   vi.stubGlobal("localStorage", {
@@ -2271,6 +2286,7 @@ describe("AgentSidebar panel", () => {
   });
 
   it("defaults hosted-harness chat to the right and respects a closed preference", async () => {
+    mockAgentNativeDesktop.enabled = true;
     mockHostedHarness.configured = true;
     mockHostedHarness.enabled = true;
     renderSidebar(false);
@@ -2294,6 +2310,7 @@ describe("AgentSidebar panel", () => {
   });
 
   it("respects an explicit position in hosted-harness UI", async () => {
+    mockAgentNativeDesktop.enabled = true;
     mockHostedHarness.configured = true;
     mockHostedHarness.enabled = true;
     renderSidebar(false, "left");
@@ -2309,6 +2326,7 @@ describe("AgentSidebar panel", () => {
   });
 
   it("respects a saved closed state when hosted harness would otherwise open", async () => {
+    mockAgentNativeDesktop.enabled = true;
     mockHostedHarness.configured = true;
     mockHostedHarness.enabled = true;
     localStorage.setItem("agent-native-sidebar-open", "false");
@@ -2319,6 +2337,20 @@ describe("AgentSidebar panel", () => {
     expect(
       container?.querySelector("[data-agent-sidebar-main-state='closed']"),
     ).toBeTruthy();
+  });
+
+  it("does not render hosted-harness UI in a browser", async () => {
+    mockHostedHarness.configured = true;
+    mockHostedHarness.enabled = true;
+    renderSidebar(false);
+
+    await act(async () => {});
+
+    const sidebar = container?.querySelector(".agent-sidebar-shell");
+    expect(sidebar).toBeTruthy();
+    expect(
+      sidebar?.getAttribute("data-agent-native-hosted-harness-ui"),
+    ).toBeNull();
   });
 
   it("keeps URL synchronization mounted while the panel is closed", () => {
