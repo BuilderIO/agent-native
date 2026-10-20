@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import { Minimatch } from "minimatch";
+import { GLOBSTAR, Minimatch } from "minimatch";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 // pnpm-workspace.yaml helpers: text-preserving edits shared by `create` and
@@ -11,6 +11,59 @@ const IGNORED_PROJECT_DIRS = {
   pnpm: ["node_modules", "bower_components"],
   npm: ["node_modules"],
 };
+
+function pnpmGlobMatches(
+  glob: Minimatch,
+  value: string,
+  partial = false,
+): boolean {
+  const pathParts = value.split("/");
+  const hasHiddenSegment = pathParts.some((part) => part.startsWith("."));
+  if (
+    !hasHiddenSegment ||
+    !glob.set.some((pattern) =>
+      pattern.some(
+        (part) =>
+          typeof part !== "string" &&
+          part !== GLOBSTAR &&
+          part._glob?.includes("!(") === true,
+      ),
+    )
+  ) {
+    return glob.match(value, partial);
+  }
+
+  // pnpm lets a negated extglob match dot names, while `**/` still skips them.
+  return glob.set.some((pattern) => {
+    const file = glob.slashSplit(value);
+    for (let index = 0; index < pattern.length - 1; index += 1) {
+      const preceding = pattern[index];
+      const following = pattern[index + 1];
+      if (
+        preceding === GLOBSTAR &&
+        typeof following !== "string" &&
+        following !== GLOBSTAR &&
+        following._glob?.includes("!(") &&
+        (partial
+          ? file.length === index + 1
+          : file.length === pattern.length - 1) &&
+        file[index]?.startsWith(".")
+      ) {
+        return false;
+      }
+    }
+    return glob.matchOne(
+      file,
+      pattern.map((part) => {
+        if (typeof part === "string" || part === GLOBSTAR) return part;
+        if (!part._glob?.includes("!(")) return part;
+        const source = part.source.replace(/\)\(\?!\\\.\)/, ")");
+        return source === part.source ? part : new RegExp(source, part.flags);
+      }),
+      partial,
+    );
+  });
+}
 
 /**
  * Matches directories (relative to the workspace root, `/`-separated) against
@@ -54,6 +107,10 @@ export function workspaceMemberMatcher(
     .map((pattern) => pattern.glob);
   const ignored = (dir: string) =>
     dir.split("/").some((part) => IGNORED_PROJECT_DIRS[rules].includes(part));
+  const matches = (glob: Minimatch, value: string, partial = false) =>
+    rules === "pnpm"
+      ? pnpmGlobMatches(glob, value, partial)
+      : glob.match(value, partial);
   return {
     bases: Array.from(
       new Set(
@@ -78,12 +135,12 @@ export function workspaceMemberMatcher(
       }
       return (
         !ignored(dir) &&
-        included.some((glob) => glob.match(manifest)) &&
-        !excluded.some((glob) => glob.match(manifest))
+        included.some((glob) => matches(glob, manifest)) &&
+        !excluded.some((glob) => matches(glob, manifest))
       );
     },
     mayContain: (dir) =>
-      !ignored(dir) && included.some((glob) => glob.match(dir, true)),
+      !ignored(dir) && included.some((glob) => matches(glob, dir, true)),
   };
 }
 

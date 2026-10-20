@@ -1594,7 +1594,12 @@ describe("runUpgrade", () => {
       [
         "a negated extglob",
         'packages:\n  - "apps/!(internal)"\n',
-        ["apps/linked", "apps/web"],
+        ["apps/.cache", "apps/.hidden", "apps/linked", "apps/web"],
+      ],
+      [
+        "a negated extglob after a globstar",
+        'packages:\n  - "apps/**/!(internal)"\n',
+        ["apps/linked", "apps/web", "apps/web/.nested", "apps/web/nested"],
       ],
       [
         "a root-level negated extglob",
@@ -1619,6 +1624,8 @@ describe("runUpgrade", () => {
         const dirs = [
           "apps/web",
           "apps/web/nested",
+          "apps/web/.nested",
+          "apps/.hidden",
           "apps/internal",
           "apps/.cache",
           "apps/node_modules/dep",
