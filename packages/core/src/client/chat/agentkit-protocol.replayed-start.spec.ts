@@ -16,14 +16,28 @@ async function* neverEnds(): AsyncGenerator<never> {
   await new Promise<void>(() => {});
 }
 
-async function* replayedEvents(
+function replayedEvents(
   onDrained: () => void,
-): AsyncGenerator<{ type: string }> {
-  try {
-    yield { type: "message.delta" };
-  } finally {
-    onDrained();
-  }
+): AsyncIterable<{ type: string }> {
+  return {
+    [Symbol.asyncIterator]() {
+      let yielded = false;
+      return {
+        async next() {
+          if (yielded) return { done: true as const, value: undefined };
+          yielded = true;
+          return {
+            done: false as const,
+            value: { type: "message.delta" },
+          };
+        },
+        async return() {
+          onDrained();
+          return { done: true as const, value: undefined };
+        },
+      };
+    },
+  };
 }
 
 function runtimeWith(startTurn: () => Promise<unknown>): AgentChatRuntime {

@@ -2188,21 +2188,27 @@ export function createAgentKitProtocolAdapter(
       ? findRun(threadId, runId)
       : undefined;
     if (existingRun) {
-      await closeDiscardedTurnEvents(turn);
+      const isRuntimeAlias = existingRun.runId !== runId;
       if (
-        existingRun.runId === runId &&
+        isRuntimeAlias &&
         (existingRun.turn.id === undefined || existingRun.turn.id !== turn.id)
       ) {
+        await closeDiscardedTurnEvents(turn);
         throw new Error(`Duplicate AgentKit run id: ${runId}`);
       }
+      await closeDiscardedTurnEvents(turn);
       touchRun(existingRun);
       ensurePump(existingRun);
-      // A runtime alias resolves to the run that owns it, which may use a
-      // different protocol id; the caller must address that run.
+      // An alias is weaker than the protocol ID and is safe to reuse only for
+      // the turn that established it.
       return existingRun.runId;
     }
     pruneRetainedRuns(run.lastAccessedAtMs);
-    const indexedRun = indexRun(run, turn.runId, true);
+    const indexedRun = indexRun(
+      run,
+      turn.runId,
+      start.attachReplayedRun === true,
+    );
     if (indexedRun !== run) {
       await closeDiscardedTurnEvents(turn);
       return indexedRun.runId;
