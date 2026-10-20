@@ -1,6 +1,6 @@
 import { iconValueSchema } from "@agent-native/core/icons";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -28,6 +28,7 @@ import {
 } from "../shared/database-item-layout.js";
 import { contentDatabaseFilterOperatorsForType } from "../shared/database-query.js";
 import {
+  isEmptyPropertyValue,
   normalizePropertyVisibility,
   parsePropertyOptions,
   type DocumentPropertyType,
@@ -376,16 +377,67 @@ function viewOrderedDefinitions(
   );
 }
 
+/**
+ * "Hide when empty" properties that no row fills. The default rows leave
+ * them out, so a first layout built for an agent does too. Blocks fields keep
+ * their text elsewhere and aren't checked.
+ */
+async function unfilledHideWhenEmptyIds(
+  tx: ReturnType<typeof getDb>,
+  databaseId: string,
+  definitions: readonly PropertyDefinitionRow[],
+): Promise<Set<string>> {
+  const ids = definitions
+    .filter(
+      (definition) =>
+        definition.visibility === "hide_when_empty" &&
+        definition.type !== "blocks",
+    )
+    .map((definition) => definition.id);
+  if (ids.length === 0) return new Set();
+  const values = await tx
+    .select({
+      propertyId: schema.documentPropertyValues.propertyId,
+      valueJson: schema.documentPropertyValues.valueJson,
+    })
+    .from(schema.documentPropertyValues)
+    .innerJoin(
+      schema.contentDatabaseItems,
+      eq(
+        schema.contentDatabaseItems.documentId,
+        schema.documentPropertyValues.documentId,
+      ),
+    )
+    .where(
+      and(
+        eq(schema.contentDatabaseItems.databaseId, databaseId),
+        inArray(schema.documentPropertyValues.propertyId, ids),
+      ),
+    );
+  const filled = new Set<string>();
+  for (const { propertyId, valueJson } of values) {
+    try {
+      if (!isEmptyPropertyValue(JSON.parse(valueJson))) filled.add(propertyId);
+    } catch {
+      // An unreadable value shows as empty.
+    }
+  }
+  return new Set(ids.filter((id) => !filled.has(id)));
+}
+
 /** The default rows' properties: the view's visible properties in its order. */
 function defaultListRowProperties(
   view: ContentDatabaseView,
   definitions: readonly PropertyDefinitionRow[],
+  unfilledIds: ReadonlySet<string>,
 ) {
   const hidden = new Set(view.hiddenPropertyIds ?? []);
   return itemLayoutProperties(
     viewOrderedDefinitions(view, definitions).filter(
       (definition) =>
-        definition.visibility !== "always_hide" && !hidden.has(definition.id),
+        definition.visibility !== "always_hide" &&
+        !hidden.has(definition.id) &&
+        !unfilledIds.has(definition.id),
     ),
   );
 }
@@ -398,6 +450,7 @@ function nextListItemLayout(
   patch: z.infer<typeof updateViewPatchSchema>,
   view: ContentDatabaseView,
   definitions: readonly PropertyDefinitionRow[],
+  unfilledIds: ReadonlySet<string>,
 ): ContentDatabaseItemLayout | null | undefined {
   const { itemLayout, itemLayoutPreset } = patch;
   if (itemLayout === undefined && itemLayoutPreset === undefined) {
@@ -440,7 +493,7 @@ function nextListItemLayout(
     );
   }
   base ??= startingContentDatabaseItemLayout(
-    defaultListRowProperties(view, definitions),
+    defaultListRowProperties(view, definitions, unfilledIds),
   );
   for (const slot of ["line3", "trailing"] as const) {
     const ids = itemLayout[slot];
@@ -641,10 +694,23 @@ export async function runUpdateContentDatabaseView(
             );
           }
           const { itemLayoutPreset: _preset, ...rest } = input.patch;
+          // Only a first layout started from the default rows needs to
+          // know which "hide when empty" properties are blank.
+          const startsFromDefaultRows =
+            !existing.itemLayout &&
+            !input.patch.itemLayoutPreset &&
+            !!input.patch.itemLayout;
           const itemLayout = nextListItemLayout(
             input.patch,
             existing,
             context.definitions,
+            startsFromDefaultRows
+              ? await unfilledHideWhenEmptyIds(
+                  tx,
+                  context.database.id,
+                  context.definitions,
+                )
+              : new Set(),
           );
           patch = itemLayout === undefined ? rest : { ...rest, itemLayout };
         } else if (existing.type === "table") {

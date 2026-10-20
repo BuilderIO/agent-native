@@ -743,5 +743,43 @@ describe("ordinary property and table-view setup", () => {
       kind: "checkbox",
       propertyId: shipped.value.id,
     });
+
+    // A "hide when empty" property no row fills isn't in the default rows,
+    // so an agent's first layout leaves it out too.
+    const notes = await asOwner(async () =>
+      configureProperty.run({
+        operation: "create",
+        target,
+        expectedSchemaRevision: (await revisions()).expectedSchemaRevision,
+        idempotencyKey: "create-Notes",
+        definition: { name: "Notes", type: "text" },
+      }),
+    );
+    await asOwner(async () =>
+      configureProperty.run({
+        operation: "update",
+        target,
+        expectedSchemaRevision: (await revisions()).expectedSchemaRevision,
+        idempotencyKey: "notes-hide-when-empty",
+        propertyId: notes.value.id,
+        patch: { visibility: "hide_when_empty" },
+      }),
+    );
+    await legacySave((view) => ({
+      ...view,
+      propertyOrderIds: [
+        notes.value.id,
+        ...(view.propertyOrderIds as string[]),
+      ],
+    }));
+    await update("reset-before-unfilled", "ideas", { itemLayout: null });
+    const withoutUnfilled = await update("start-without-unfilled", "ideas", {
+      itemLayout: { titleWeight: "bold" },
+    });
+    // Due was deleted above and Pitch is always hidden.
+    expect(withoutUnfilled.value.itemLayout?.trailing).toEqual([
+      shipped.value.id,
+      propertyIds.Done,
+    ]);
   });
 });

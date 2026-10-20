@@ -90,6 +90,22 @@ function line2Text(property: DocumentProperty) {
     : value.trim();
 }
 
+/** The fields a slot shows, which can be set but blank on a given row. */
+function slotFieldNames(
+  resolved: ResolvedContentDatabaseItemLayout<DocumentProperty>,
+  slot: ContentDatabaseItemLayoutSlot,
+) {
+  const fields =
+    slot === "line2"
+      ? resolved.line2.property
+        ? [resolved.line2.property]
+        : []
+      : slot === "line3" || slot === "trailing"
+        ? resolved[slot]
+        : [];
+  return fields.map((property) => property.definition.name);
+}
+
 function SlotZone({
   slot,
   row,
@@ -108,21 +124,41 @@ function SlotZone({
   if (!row.editing) return empty ? null : <>{children}</>;
   if (empty && !showPlaceholder) return null;
   const label = listItemLayoutSlotLabel(slot);
+  const fields = slotFieldNames(row.resolved, slot);
+  const unset = empty && fields.length === 0;
+  const action = dbText(unset ? "listRowsAddSlot" : "listRowsChangeSlot", {
+    slot: label,
+  });
   return (
     <Popover>
       <PopoverTrigger asChild>
         <button
           type="button"
-          aria-label={dbText(empty ? "listRowsAddSlot" : "listRowsChangeSlot", {
-            slot: label,
-          })}
+          aria-label={unset ? action : undefined}
           className={cn(
             "rounded-md border border-dashed border-database-blue/50 text-left transition-colors hover:border-database-blue hover:bg-database-blue/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:border-database-blue data-[state=open]:bg-database-blue/10",
             empty ? "px-2 py-0.5 text-xs text-database-blue/80" : "px-1 py-0.5",
             className,
           )}
         >
-          {empty ? `+ ${label}` : children}
+          {unset ? (
+            `+ ${label}`
+          ) : (
+            <>
+              {/* Screen readers hear the action, then what the slot shows. */}
+              <span className="sr-only">{action}: </span>
+              {empty ? (
+                <>
+                  {label}
+                  <span className="ml-1 text-muted-foreground">
+                    {fields.join(", ")}
+                  </span>
+                </>
+              ) : (
+                children
+              )}
+            </>
+          )}
         </button>
       </PopoverTrigger>
       <PopoverContent align="start">
@@ -221,16 +257,19 @@ export function DatabaseLayoutListRow({
     const option = (leadingProperty.definition.options.options ?? []).find(
       (candidate) => candidate.id === leadingProperty.value,
     );
+    const statusName = option?.name ?? dbText("listRowsNoStatus");
     const dot = (
       <span
-        title={option?.name ?? dbText("listRowsNoStatus")}
+        title={statusName}
         className={cn(
           "block size-3.5 shrink-0 rounded-full border-2",
           option
             ? STATUS_DOT_CLASSES[option.color]
             : "border-dashed border-muted-foreground/60",
         )}
-      />
+      >
+        <span className="sr-only">{statusName}</span>
+      </span>
     );
     leading = interactive ? (
       <span className="flex w-6 justify-center">
