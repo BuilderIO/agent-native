@@ -108,61 +108,20 @@ export default {
     sigmaRetryConnection: "تحقق من الاتصال وحاول مرة أخرى.",
     sigmaRetry: "إعادة المحاولة",
     sigmaNoWorkbooks: "لا توجد مصنفات Sigma متاحة.",
-    sigmaWorkbook: "المصنف",
-    sigmaChooseWorkbook: "اختر مصنفًا",
-    sigmaStatusNotImported: "لم يتم الاستيراد",
-    sigmaStatusImporting: "جارٍ الاستيراد",
-    sigmaStatusImported: "تم الاستيراد",
-    sigmaStatusFailed: "فشل الاستيراد",
+    sigmaSearchWorkbooks: "ابحث في المصنفات…",
+    sigmaNoMatchingWorkbooks: "لا توجد مصنفات مطابقة",
+    sigmaNoMatchingWorkbooksLoadMore:
+      "لم يتم تحميل مصنفات مطابقة بعد. حمّل مزيدًا من المصنفات للبحث في الباقي.",
+    sigmaOpenMigratedDashboard:
+      "افتح لوحة المعلومات المستوردة في علامة تبويب جديدة",
+    sigmaOwnedBy: "المالك",
+    sigmaMigratingTooltip: "يجري ترحيله بواسطة {{name}}",
+    sigmaMigrate: "ترحيل",
+    sigmaMigrateComingSoon: "قريبًا",
     sigmaArchived: "مؤرشف",
-    sigmaPreviewTitle: "محتويات المصنف",
-    sigmaPreviewFailed: "تعذرت معاينة هذا المصنف",
-    sigmaRetryPreview: "حاول مرة أخرى لتحميل معاينة المصنف.",
-    sigmaImportableCount: "{{count}} قابل للاستيراد",
-    sigmaUnsupportedCount: "{{count}} غير مدعوم",
-    sigmaImportable: "قابل للاستيراد",
-    sigmaUnsupported: "غير مدعوم",
-    sigmaNoElements: "لم يتم العثور على عناصر في المصنف.",
-    sigmaPreviewOnly:
-      "المعاينة فقط حاليًا: لا تكشف Sigma عن تعيين لمشروع BigQuery يمكن لـ Analytics التحقق منه، لذا يظل الاستيراد معطّلًا حتى يتوفر هذا التعيين.",
-    sigmaPreviewTruncated: "يتم عرض {{shown}} من {{total}} عنصرًا.",
-    sigmaImportWorkbook: "استيراد المصنف",
-    sigmaImporting: "جارٍ استيراد المصنف…",
-    sigmaImportInProgress: "هناك عملية استيراد لهذا المصنف قيد التنفيذ بالفعل.",
-    sigmaMigrationFailed: "تعذر استيراد هذا المصنف. حاول مرة أخرى.",
-    sigmaMigrationResultInvalid:
-      "كانت استجابة الاستيراد غير مكتملة. أعد تحميل قائمة المصنفات للتحقق من حالتها.",
-    sigmaImportComplete: "تم إنشاء لوحة المعلومات",
-    sigmaImportSummary:
-      "تم استيراد {{imported}} عنصرًا، مع الاحتفاظ بـ {{unsupported}} عنصرًا غير مدعوم كتنبيهات للمراجعة.",
-    sigmaAlreadyImported: "تم استيراد هذا المصنف من قبل.",
-    sigmaImportedNoDashboard:
-      "تم استيراد لوحة المعلومات، لكن لا يمكن فتحها من هذا الحساب.",
-    sigmaReviewRequiredCount: "{{count}} بحاجة إلى مراجعة",
-    sigmaBetaRepresentationWarning:
-      "قد يعرض هذا الاستيراد التجريبي بعض التصورات بطريقة مختلفة عن Sigma.",
-    sigmaReasonUnsupportedElement: "نوع هذا العنصر غير مدعوم للاستيراد.",
-    sigmaReasonUnsupportedSource: "يستخدم هذا العنصر مصدرًا غير مدعوم للاستيراد.",
-    sigmaReasonSourceMappingRequired:
-      "لا تعرض Sigma ربطًا بمشروع BigQuery يمكن لـ Analytics التحقق منه، لذلك لا يمكن استيراد SQL هذا بعد.",
-    sigmaReasonSourceUnavailable:
-      "لم تسمح Sigma بالوصول إلى اتصال المصدر هذا. تحقق من أذوناته.",
-    sigmaReasonQueryUnavailable:
-      "لم تُرجع Sigma استعلامًا قابلًا للاستيراد لهذا العنصر.",
-    sigmaReasonUnsafeSql: "لا يمكن استيراد نمط هذا الاستعلام بأمان.",
-    sigmaReasonVisualizationReview:
-      "يمكن استيراد البيانات، لكن تحقّق من التصور بعد الاستيراد.",
-    sigmaRetryOwnerOnly: "يمكن لمن بدأ هذا الاستيراد وحده إعادة المحاولة.",
-    sigmaImportedByTeammate: "استورده أحد الزملاء",
-    sigmaFlaggedCount: "{{count}} معلّم للمراجعة",
     sigmaMoreWorkbooksFailed: "تعذّر تحميل مزيد من المصنفات",
     sigmaLoadingMore: "جارٍ تحميل المصنفات…",
     sigmaLoadMore: "تحميل مزيد من المصنفات",
-    sigmaOpenDashboard: "فتح لوحة المعلومات",
-    sigmaReviewWithAgent: "مراجعة مع الوكيل",
-    sigmaReviewContext: "لوحة معلومات مستوردة من Sigma",
-    sigmaReviewPrompt:
-      "راجع لوحة معلومات Sigma المستوردة {{name}}. تحقق من اللوحات المستوردة والعناصر غير المدعومة، ثم اقترح أي تصحيحات.",
   },
   sidebar: {
     collapseSidebar: "طي الشريط الجانبي",

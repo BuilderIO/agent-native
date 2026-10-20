@@ -491,8 +491,9 @@ visualizations outside these contracts may remain Custom Blocks.
 
 ## Sigma workbook import
 
-The dashboard menu opens the Sigma import flow, where users can browse and
-preview workbooks. Imports remain disabled for elements whose source project
+The dashboard menu opens the Sigma import flow: a searchable table of every
+workbook the user can see in Sigma, with the owner of each migrated one and a
+Migrate button on the rest. Imports remain disabled for elements whose source project
 Analytics cannot verify: Sigma's connection API reports provider type and
 metadata but does not expose a BigQuery project identifier. Do not call
 `migrate-sigma-workbook` for an unverified source or treat an Analytics
@@ -512,6 +513,16 @@ Analytics dialog. Analytics saves those values under Analytics-specific
 encrypted organization secrets and links them to an Analytics-only connection.
 Credential values must never pass through agent chat, action arguments, logs,
 source, or screenshots.
+
+Each Sigma workbook migrates to at most one Analytics dashboard per
+organization. `list-sigma-workbooks` reads migration status only for workbooks
+the caller's Sigma connection returns, so status follows Sigma access. For a
+migrated workbook it returns the dashboard id, link, and owner email and
+display name to every org member, and the title and `canOpen: true` only when the caller can open
+the dashboard. Point users at that dashboard, or its owner for access, instead
+of importing again. Anyone whose Sigma login can open a workbook may retry its
+failed import or take over an import stuck for ten minutes; only the person who
+migrated a workbook may re-import it.
 
 If Sigma adds verifiable source mapping in the future, the planned import will
 create a private snapshot in the user's personal `Sigma` folder. Other source

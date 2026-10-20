@@ -8,6 +8,7 @@ const clientMocks = vi.hoisted(() => ({
   canManageOrg: true,
   hasConnectionError: true,
   requestedConnectionId: null as string | null,
+  requestedActions: [] as string[],
   listResult: {
     connected: true,
     connectionId: "analytics-sigma-direct",
@@ -20,7 +21,7 @@ const clientMocks = vi.hoisted(() => ({
       },
     ],
     requiresConnectionSelection: false,
-    workbooks: [],
+    workbooks: [] as Array<Record<string, unknown>>,
   },
   saveConnection: vi.fn(async () => ({
     connectionId: "analytics-sigma-direct",
@@ -32,6 +33,7 @@ const clientMocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: (action: string, args?: { connectionId?: string }) => {
+    clientMocks.requestedActions.push(action);
     if (action === "list-sigma-workbooks") {
       clientMocks.requestedConnectionId = args?.connectionId ?? null;
     }
@@ -71,10 +73,11 @@ vi.mock("@agent-native/core/client/hooks", () => ({
     isPending: false,
     mutateAsync: clientMocks.saveConnection,
   }),
+  useAvatarUrl: () => null,
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (key: string) =>
+  useT: () => (key: string, params?: Record<string, unknown>) =>
     ({
       "dashboardOverview.sigmaCleanupPending":
         "Temporary Sigma setup credentials remain until cleanup succeeds.",
@@ -89,19 +92,11 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "dashboardOverview.sigmaOAuthDescription":
         "Sign in to Sigma with your account to browse the workbooks you can access.",
       "dashboardOverview.sigmaApiRegion": "Sigma API region",
-    })[key] ?? key,
+    })[key] ?? (params ? `${key}(${Object.values(params).join(", ")})` : key),
 }));
 
 vi.mock("@agent-native/core/client/org", () => ({
   useOrgRole: () => ({ canManageOrg: clientMocks.canManageOrg }),
-}));
-
-vi.mock("@agent-native/toolkit/app/chat", () => ({
-  useSendToAgentChat: () => ({
-    send: vi.fn(),
-    isGenerating: false,
-    codeRequiredDialog: null,
-  }),
 }));
 
 vi.mock("@agent-native/toolkit/app/org/workspace-app-links", () => ({
@@ -120,7 +115,43 @@ vi.mock("@tabler/icons-react", () => ({
   IconCheck: () => <span aria-hidden="true" />,
   IconExternalLink: () => <span aria-hidden="true" />,
   IconLoader2: () => <span aria-hidden="true" />,
-  IconSparkles: () => <span aria-hidden="true" />,
+  IconSearch: () => <span aria-hidden="true" />,
+}));
+
+vi.mock("@/components/ui/avatar", () => ({
+  Avatar: ({ children }: { children: ReactNode }) => <span>{children}</span>,
+  AvatarFallback: ({ children }: { children: ReactNode }) => (
+    <span data-avatar-initials="">{children}</span>
+  ),
+  AvatarImage: () => null,
+}));
+
+vi.mock("@/components/ui/table", () => ({
+  Table: ({ children }: { children: ReactNode }) => <table>{children}</table>,
+  TableBody: ({ children }: { children: ReactNode }) => (
+    <tbody>{children}</tbody>
+  ),
+  TableRow: ({
+    children,
+    ...props
+  }: React.HTMLAttributes<HTMLTableRowElement>) => (
+    <tr {...props}>{children}</tr>
+  ),
+  TableCell: ({
+    children,
+    ...props
+  }: React.TdHTMLAttributes<HTMLTableCellElement>) => (
+    <td {...props}>{children}</td>
+  ),
+}));
+
+vi.mock("@/components/ui/tooltip", () => ({
+  TooltipProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
+  Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
+  TooltipTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
+  TooltipContent: ({ children }: { children: ReactNode }) => (
+    <span role="tooltip">{children}</span>
+  ),
 }));
 
 vi.mock("@/components/ui/badge", () => ({
@@ -143,9 +174,6 @@ vi.mock("@/components/ui/dialog", () => ({
   Dialog: ({ open, children }: { open: boolean; children: ReactNode }) =>
     open ? <div role="dialog">{children}</div> : null,
   DialogContent: ({ children }: { children: ReactNode }) => (
-    <div>{children}</div>
-  ),
-  DialogFooter: ({ children }: { children: ReactNode }) => (
     <div>{children}</div>
   ),
   DialogHeader: ({ children }: { children: ReactNode }) => (
@@ -198,6 +226,7 @@ describe("SigmaMigrationDialog", () => {
     vi.clearAllMocks();
     clientMocks.canManageOrg = true;
     clientMocks.hasConnectionError = true;
+    clientMocks.requestedActions = [];
     clientMocks.listResult = {
       connected: true,
       connectionId: "analytics-sigma-direct",
@@ -351,5 +380,233 @@ describe("SigmaMigrationDialog", () => {
       "Temporary Sigma setup credentials remain until cleanup succeeds.",
     );
     expect(cleanupAlert?.textContent?.toLowerCase()).not.toContain("connected");
+  });
+
+  describe("workbook table", () => {
+    const workbooks = [
+      {
+        id: "workbook-new",
+        canStartImport: true,
+        name: "Pipeline Review",
+        path: "Builder/Sales",
+        status: "not_started",
+      },
+      {
+        id: "workbook-imported",
+        canStartImport: false,
+        name: "ARR Changes - FY 2027 New",
+        path: "Builder/Finance",
+        status: "migrated",
+        dashboardId: "sigma-arr-changes-fy-2027-new",
+        dashboardUrl: "/analytics/adhoc/dashboard",
+        canOpen: false,
+        migratedOwnerEmail: "joe@example.com",
+        migratedOwnerName: "Joe Cosby",
+        migratedByTeammate: true,
+      },
+      {
+        id: "workbook-running",
+        canStartImport: false,
+        name: "Revenue Funnel Actuals",
+        status: "migrating",
+        migratingByEmail: "bob@example.com",
+        migratingByName: null,
+      },
+      {
+        id: "workbook-mine-running",
+        canStartImport: false,
+        name: "Churn",
+        status: "migrating",
+        migratingByEmail: "alice@example.com",
+      },
+      {
+        id: "workbook-mine-stalled",
+        canStartImport: true,
+        name: "Bookings",
+        status: "migrating",
+        migratingByEmail: "alice@example.com",
+        canRetryStaleClaim: true,
+      },
+      {
+        id: "workbook-teammate-deleted",
+        canStartImport: false,
+        name: "Renewals",
+        status: "migrated",
+        migratedOwnerEmail: "bob@example.com",
+        migratedByTeammate: true,
+      },
+      {
+        id: "workbook-teammate-failed",
+        canStartImport: true,
+        name: "Expansion",
+        status: "failed",
+      },
+      {
+        id: "workbook-teammate-stalled",
+        canStartImport: true,
+        name: "Forecast",
+        status: "migrating",
+        migratingByEmail: "bob@example.com",
+        canRetryStaleClaim: true,
+      },
+      {
+        id: "workbook-teammate-failed-reimport",
+        name: "Pipeline Forecast",
+        status: "failed",
+        canStartImport: false,
+      },
+    ];
+
+    beforeEach(() => {
+      clientMocks.hasConnectionError = false;
+      clientMocks.listResult = { ...clientMocks.listResult, workbooks };
+    });
+
+    function row(workbookId: string) {
+      const element = container.querySelector(
+        `tr[data-workbook-id="${workbookId}"]`,
+      );
+      expect(element).not.toBeNull();
+      return element as HTMLElement;
+    }
+
+    function rowIds() {
+      return [...container.querySelectorAll("tr[data-workbook-id]")].map(
+        (element) => element.getAttribute("data-workbook-id"),
+      );
+    }
+
+    it("lists every workbook without a preview or folder paths", async () => {
+      await renderDialog();
+
+      expect(rowIds()).toEqual(workbooks.map((workbook) => workbook.id));
+      expect(container.textContent).not.toContain("Builder/");
+      expect(clientMocks.requestedActions).not.toContain(
+        "inspect-sigma-workbook",
+      );
+    });
+
+    it("filters the table by workbook name as you type", async () => {
+      await renderDialog();
+      const search = container.querySelector(
+        'input[type="search"]',
+      ) as HTMLInputElement;
+      expect(search).not.toBeNull();
+
+      await act(async () => {
+        const setValue = Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          "value",
+        )?.set;
+        setValue?.call(search, "arr");
+        search.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+
+      expect(rowIds()).toEqual(["workbook-imported"]);
+    });
+
+    it("links an imported workbook to its dashboard in a new tab, owned by its owner", async () => {
+      await renderDialog();
+      const imported = row("workbook-imported");
+
+      const link = imported.querySelector("a");
+      expect(link?.getAttribute("href")).toBe(
+        "/dashboards/sigma-arr-changes-fy-2027-new",
+      );
+      expect(link?.getAttribute("target")).toBe("_blank");
+      expect(link?.getAttribute("rel")).toBe("noopener");
+      expect(imported.getAttribute("data-state")).toBe("taken");
+      expect(imported.textContent).toContain("dashboardOverview.sigmaOwnedBy");
+      expect(
+        imported.querySelector("[data-avatar-initials]")?.textContent,
+      ).toBe("JC");
+      expect(imported.querySelector('[role="tooltip"]')?.textContent).toBe(
+        "Joe Cosby · joe@example.com",
+      );
+      expect(imported.querySelector("button")).toBeNull();
+    });
+
+    it("offers Migrate on a workbook nobody has imported, disabled for now", async () => {
+      await renderDialog();
+      const fresh = row("workbook-new");
+
+      const button = fresh.querySelector("button");
+      expect(button?.textContent).toBe("dashboardOverview.sigmaMigrate");
+      expect(button?.disabled).toBe(true);
+      expect(fresh.querySelector('[role="tooltip"]')?.textContent).toBe(
+        "dashboardOverview.sigmaMigrateComingSoon",
+      );
+      expect(fresh.querySelector("a")).toBeNull();
+    });
+
+    it("shows who is importing a workbook right now, by email when there is no name", async () => {
+      await renderDialog();
+      const running = row("workbook-running");
+
+      expect(running.getAttribute("data-state")).toBe("taken");
+      expect(running.querySelector("a")).toBeNull();
+      expect(running.querySelector("button")).toBeNull();
+      expect(running.querySelector('[role="tooltip"]')?.textContent).toBe(
+        "dashboardOverview.sigmaMigratingTooltip(bob@example.com)",
+      );
+      // Screen readers get the same text without opening the tooltip.
+      expect(
+        running.querySelector('[role="img"]')?.getAttribute("aria-label"),
+      ).toBe("dashboardOverview.sigmaMigratingTooltip(bob@example.com)");
+    });
+
+    it("shows the user's own running import as in progress, not Migrate", async () => {
+      await renderDialog();
+      const mine = row("workbook-mine-running");
+
+      expect(mine.getAttribute("data-state")).toBe("taken");
+      expect(mine.querySelector("button")).toBeNull();
+      expect(mine.querySelector('[role="tooltip"]')?.textContent).toBe(
+        "dashboardOverview.sigmaMigratingTooltip(alice@example.com)",
+      );
+    });
+
+    it("offers Migrate again on the user's own stalled import", async () => {
+      await renderDialog();
+      const stalled = row("workbook-mine-stalled");
+
+      expect(stalled.getAttribute("data-state")).toBeNull();
+      expect(stalled.querySelector("button")?.textContent).toBe(
+        "dashboardOverview.sigmaMigrate",
+      );
+    });
+
+    it("names the owner of a teammate's import whose dashboard is gone, without a link", async () => {
+      await renderDialog();
+      const deleted = row("workbook-teammate-deleted");
+
+      expect(deleted.getAttribute("data-state")).toBe("taken");
+      expect(deleted.querySelector("a")).toBeNull();
+      expect(deleted.querySelector("button")).toBeNull();
+      expect(deleted.textContent).toContain("dashboardOverview.sigmaOwnedBy");
+    });
+
+    it("does not offer Migrate on a teammate's failed re-import", async () => {
+      await renderDialog();
+      const reimport = row("workbook-teammate-failed-reimport");
+
+      expect(reimport.getAttribute("data-state")).toBe("taken");
+      expect(reimport.querySelector("button")).toBeNull();
+    });
+
+    it("offers Migrate on a teammate's failed or stalled import", async () => {
+      await renderDialog();
+
+      for (const id of [
+        "workbook-teammate-failed",
+        "workbook-teammate-stalled",
+      ]) {
+        const retryable = row(id);
+        expect(retryable.getAttribute("data-state")).toBeNull();
+        expect(retryable.querySelector("button")?.textContent).toBe(
+          "dashboardOverview.sigmaMigrate",
+        );
+      }
+    });
   });
 });
