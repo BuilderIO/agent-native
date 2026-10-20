@@ -16,6 +16,121 @@ const deckEditorSource = readFileSync(
 afterEach(() => vi.useRealTimers());
 
 describe("generation deck refresh", () => {
+  it("cancels a pending retry and releases its timer and abort listener", async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const removeListener = vi.spyOn(controller.signal, "removeEventListener");
+    const refreshOpenDeck = vi.fn().mockResolvedValue(null);
+    const result = refreshDeckForGenerationOutcome(
+      refreshOpenDeck,
+      "deck-1",
+      () => 1000,
+      controller.signal,
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(vi.getTimerCount()).toBe(1);
+
+    controller.abort();
+
+    await expect(result).resolves.toEqual({
+      status: "cancelled",
+      endedAt: 1000,
+    });
+    expect(vi.getTimerCount()).toBe(0);
+    expect(removeListener).toHaveBeenCalledWith("abort", expect.any(Function));
+    await vi.advanceTimersByTimeAsync(250);
+    expect(refreshOpenDeck).toHaveBeenCalledTimes(1);
+    removeListener.mockRestore();
+  });
+
+  it("does not start an already cancelled refresh", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const refreshOpenDeck = vi.fn();
+
+    await expect(
+      refreshDeckForGenerationOutcome(
+        refreshOpenDeck,
+        "deck-1",
+        () => 1000,
+        controller.signal,
+      ),
+    ).resolves.toEqual({ status: "cancelled", endedAt: 1000 });
+    expect(refreshOpenDeck).not.toHaveBeenCalled();
+  });
+
+  it("discards a late read after cancellation without starting a retry", async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    let finishRefresh!: (value: null) => void;
+    const refreshOpenDeck = vi.fn(
+      () =>
+        new Promise<null>((resolve) => {
+          finishRefresh = resolve;
+        }),
+    );
+    const result = refreshDeckForGenerationOutcome(
+      refreshOpenDeck,
+      "deck-1",
+      () => 1000,
+      controller.signal,
+    );
+    controller.abort();
+    finishRefresh(null);
+
+    await expect(result).resolves.toEqual({
+      status: "cancelled",
+      endedAt: 1000,
+    });
+    expect(vi.getTimerCount()).toBe(0);
+    expect(refreshOpenDeck).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves a genuine refresh rejection even if the owner also aborts", async () => {
+    const controller = new AbortController();
+    const refreshOpenDeck = vi
+      .fn()
+      .mockRejectedValue(new Error("refresh failed"));
+    const result = refreshDeckForGenerationOutcome(
+      refreshOpenDeck,
+      "deck-1",
+      () => 1000,
+      controller.signal,
+    );
+    controller.abort();
+
+    await expect(result).resolves.toEqual({ status: "failed", endedAt: 1000 });
+  });
+
+  it("releases the abort listener after a visible retry succeeds", async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const removeListener = vi.spyOn(controller.signal, "removeEventListener");
+    const deck = { id: "deck-1" };
+    const refreshOpenDeck = vi
+      .fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(deck);
+    const result = refreshDeckForGenerationOutcome(
+      refreshOpenDeck,
+      "deck-1",
+      () => 1000,
+      controller.signal,
+    );
+    await vi.advanceTimersByTimeAsync(250);
+
+    await expect(result).resolves.toEqual({
+      status: "ready",
+      deck,
+      endedAt: 1000,
+    });
+    expect(vi.getTimerCount()).toBe(0);
+    expect(removeListener).toHaveBeenCalledWith("abort", expect.any(Function));
+    controller.abort();
+    expect(refreshOpenDeck).toHaveBeenCalledTimes(2);
+    removeListener.mockRestore();
+  });
+
   it("retries a null refresh and returns the refreshed deck", async () => {
     vi.useFakeTimers();
     const deck = { id: "deck-1" } as unknown as Deck;
