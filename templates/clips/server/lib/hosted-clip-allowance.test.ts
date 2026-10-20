@@ -326,6 +326,56 @@ describe("hosted clip allowance", () => {
     });
   });
 
+  it("releases only old hosted reservations that have no recording row", async () => {
+    await reserve({ recordingId: "orphaned-reservation" });
+    await reserve({ recordingId: "live-reservation" });
+    await client.query(
+      `INSERT INTO recordings (id, status, storage_mode, owner_email) VALUES ($1, 'uploading', 'hosted', 'owner@example.com')`,
+      ["live-reservation"],
+    );
+
+    await expect(
+      allowance.releaseOrphanedHostedClipAllowance({
+        recordingId: "orphaned-reservation",
+        userId: "user-1",
+        createdBefore: NOW,
+        now: NOW,
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      allowance.releaseOrphanedHostedClipAllowance({
+        recordingId: "live-reservation",
+        userId: "user-1",
+        createdBefore: new Date(NOW.getTime() + 1),
+        now: NOW,
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      allowance.releaseOrphanedHostedClipAllowance({
+        recordingId: "orphaned-reservation",
+        userId: "user-1",
+        createdBefore: new Date(NOW.getTime() + 1),
+        now: NOW,
+      }),
+    ).resolves.toBe(true);
+
+    const { rows } = await client.query(
+      `SELECT recording_id, status, quota_bytes FROM clips_hosted_clip_allowances ORDER BY recording_id`,
+    );
+    expect(rows).toEqual([
+      {
+        recording_id: "live-reservation",
+        status: "reserved",
+        quota_bytes: 100,
+      },
+      {
+        recording_id: "orphaned-reservation",
+        status: "released",
+        quota_bytes: 0,
+      },
+    ]);
+  });
+
   it("reacquires the same released grant for an explicit retry without spending a second daily grant", async () => {
     const capped = policy({
       perIdentityClipLimit: 1,

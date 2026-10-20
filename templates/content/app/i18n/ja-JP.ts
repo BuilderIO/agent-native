@@ -1005,6 +1005,10 @@ const comments = {
   accepted: "承認済み",
   rejected: "却下済み",
   noFilteredComments: "一致するコメントはありません。",
+  tabFilter: "タブ",
+  allTabs: "すべてのタブ",
+  fieldRemoved: "{{name}}（削除済み）",
+  pageBody: "ページ本文",
 };
 
 const reviewDiscussions = {
@@ -1420,6 +1424,7 @@ const overrides = {
     addBlockField: "フィールドを追加",
     blockFieldChanged: "前回の表示以降に変更されました",
     blockFieldTabs: "フィールド",
+    blockFieldOpenComments_other: "未解決のコメント {{count}} 件",
     blockFieldMenu: "{{name}} のオプション",
     blockFieldMenuScope: "このコレクションのすべての行で共通",
     blockFieldName: "フィールド名",
