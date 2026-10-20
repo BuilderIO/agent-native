@@ -1,4 +1,5 @@
 import {
+  callAction,
   callActionWithRetry,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
@@ -9,7 +10,10 @@ import type {
   ListInboxThreadsInput,
   ListInboxThreadsResult,
 } from "@shared/inbox-threads";
-import { INBOX_SYNC_POLL_MS } from "@shared/inbox-threads";
+import {
+  effectiveInboxPageLimit,
+  INBOX_SYNC_POLL_MS,
+} from "@shared/inbox-threads";
 import {
   skipToken,
   useQuery,
@@ -42,12 +46,6 @@ export function inboxThreadsQueryKey(input: ListInboxThreadsInput) {
 
 const SYNCING_POLL_MS = INBOX_SYNC_POLL_MS.pending;
 const IDLE_POLL_MS = 20_000;
-// Set by a manual refresh; the next sync poll then skips the server's poll
-// window. It expires quickly and is consumed by the first poll that runs, so a
-// refresh made outside the inbox (where no poller is mounted) cannot force a
-// sync when the user returns later.
-const FORCE_INBOX_SYNC_WINDOW_MS = 5_000;
-let forceInboxSyncUntil = 0;
 const INBOX_THREADS_STALE_TIME_MS = Infinity;
 const INBOX_THREADS_REQUEST_TIMEOUT_MS = 15_000;
 
@@ -310,9 +308,12 @@ function fetchInboxThreads(
   queryKey: QueryKey,
 ): Promise<InboxQueryResult> {
   const clientSnapshotId = ++nextInboxSnapshotId;
+  // Ask for no rows past the server's offset cap, the same clamp the action applies.
+  const offset = input.offset ?? 0;
+  const limit = effectiveInboxPageLimit(offset, input.limit ?? INBOX_PAGE_SIZE);
   return callActionWithRetry<ListInboxThreadsResult>(
     "list-inbox-threads",
-    input,
+    { ...input, offset, limit },
     {
       method: "GET",
       signal,
@@ -407,7 +408,7 @@ export function useInboxSyncPoller(
   const qc = useQueryClient();
   const syncMutation = useActionMutation<
     InboxSyncResult,
-    { accountEmails?: string[]; force?: boolean },
+    { accountEmails?: string[] },
     "sync-inbox"
   >("sync-inbox", {
     method: "POST",
@@ -419,8 +420,6 @@ export function useInboxSyncPoller(
     queryFn: async ({ queryKey }) => {
       const previous = qc.getQueryData<InboxSyncResult>(queryKey);
       const now = Date.now();
-      const force = Date.now() < forceInboxSyncUntil;
-      forceInboxSyncUntil = 0;
       const scopedEmails = accountEmails?.map((email) => email.toLowerCase());
       const scopedEmailSet = new Set(scopedEmails);
       const hasAccountScope = scopedEmailSet.size > 0;
@@ -455,10 +454,7 @@ export function useInboxSyncPoller(
           ? eligibleEmails
           : scopedEmails
         : undefined;
-      const request = {
-        ...(requestedEmails ? { accountEmails: requestedEmails } : {}),
-        ...(force ? { force: true } : {}),
-      };
+      const request = requestedEmails ? { accountEmails: requestedEmails } : {};
       const result = await syncMutation.mutateAsync(request);
       const receivedAt = Date.now();
       const returnedByEmail = new Set(
@@ -589,10 +585,24 @@ export function invalidateInboxThreads(qc: QueryClient) {
   ]).then(() => undefined);
 }
 
-/** Manual refresh and agent refresh: sync every account now, not on its poll window. */
-export function refreshInboxNow(qc: QueryClient) {
-  forceInboxSyncUntil = Date.now() + FORCE_INBOX_SYNC_WINDOW_MS;
-  return invalidateInboxThreads(qc);
+/**
+ * Manual refresh, from any view: one explicit sync of every account from Gmail,
+ * then the reads are refreshed. No poller is mounted outside the inbox, so the
+ * sync is sent here directly. A failed sync is reported by the sync read that
+ * the invalidation refetches, which carries the account's error and retry state.
+ */
+export async function refreshInboxNow(
+  qc: QueryClient,
+): Promise<{ synced: true } | { synced: false; error: unknown }> {
+  let outcome: { synced: true } | { synced: false; error: unknown };
+  try {
+    await callAction<InboxSyncResult>("sync-inbox", { force: true });
+    outcome = { synced: true };
+  } catch (error) {
+    outcome = { synced: false, error };
+  }
+  await invalidateInboxThreads(qc);
+  return outcome;
 }
 
 export function snapshotInboxThreads(qc: QueryClient) {

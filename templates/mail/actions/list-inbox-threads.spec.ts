@@ -579,6 +579,27 @@ describe("list-inbox-threads action", () => {
     expect(firstPage.hasMore).toBe(true);
   });
 
+  it("clamps a page that would run past the cap to the rows below it", async () => {
+    mocks.readInboxThreads.mockResolvedValue(
+      Array.from({ length: 2_100 }, (_, index) =>
+        row({
+          threadId: `t${index}`,
+          latestMessageId: `m${index}`,
+          latestDate: 1_000_000 - index,
+        }),
+      ),
+    );
+
+    const result = await action.run(
+      { tab: "__inbox_all__", limit: 200, offset: 1_999 } as any,
+      undefined as any,
+    );
+
+    expect(result.items.map((item) => item.threadId)).toEqual(["t1999"]);
+    expect(result.reachedCap).toBe(true);
+    expect(result.hasMore).toBe(false);
+  });
+
   it("counts an AI-important Gmail label as Important through the account label map", async () => {
     mocks.readCachedLabels.mockResolvedValue({
       labels: [],

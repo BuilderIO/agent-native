@@ -5,15 +5,16 @@ import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import { act, createElement, type PropsWithChildren } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { callActionWithRetry, mutateSyncAction, useActionMutation } = vi.hoisted(
-  () => ({
+const { callAction, callActionWithRetry, mutateSyncAction, useActionMutation } =
+  vi.hoisted(() => ({
+    callAction: vi.fn(),
     callActionWithRetry: vi.fn(),
     mutateSyncAction: vi.fn(),
     useActionMutation: vi.fn(() => ({ mutateAsync: mutateSyncAction })),
-  }),
-);
+  }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
+  callAction,
   callActionWithRetry,
   useActionMutation,
 }));
@@ -90,56 +91,62 @@ describe("inboxSyncRefetchInterval cadence", () => {
 });
 
 describe("manual refresh and push wake-ups", () => {
-  it("forces one sync after a manual refresh and then returns to the normal cadence", async () => {
+  it("refreshes Gmail from the Sent view with one forced sync, with no poller mounted", async () => {
+    callAction.mockResolvedValue({ accounts: [] });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    await refreshInboxNow(queryClient);
+
+    expect(callAction).toHaveBeenCalledTimes(1);
+    expect(callAction).toHaveBeenCalledWith("sync-inbox", { force: true });
+    expect(mutateSyncAction).not.toHaveBeenCalled();
+    queryClient.clear();
+  });
+
+  it("leaves no forced sync behind for the inbox poll that runs later", async () => {
+    callAction.mockResolvedValue({ accounts: [] });
     mutateSyncAction.mockResolvedValue({ accounts: [] });
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
     const wrapper = ({ children }: PropsWithChildren) =>
       createElement(QueryClientProvider, { client: queryClient }, children);
+
+    await refreshInboxNow(queryClient);
     const hook = renderHook(() => useInboxSyncPoller(["first@example.com"]), {
       wrapper,
     });
     await waitFor(() => expect(mutateSyncAction).toHaveBeenCalledTimes(1));
-    expect(mutateSyncAction.mock.calls[0][0]).not.toHaveProperty("force");
 
-    mutateSyncAction.mockClear();
-    void refreshInboxNow(queryClient);
-    await waitFor(() => expect(mutateSyncAction).toHaveBeenCalledTimes(1));
-    expect(mutateSyncAction.mock.calls[0][0]).toMatchObject({ force: true });
-
-    mutateSyncAction.mockClear();
-    void invalidateInboxThreads(queryClient);
-    await waitFor(() => expect(mutateSyncAction).toHaveBeenCalledTimes(1));
     expect(mutateSyncAction.mock.calls[0][0]).not.toHaveProperty("force");
+    expect(callAction).toHaveBeenCalledTimes(1);
 
     hook.unmount();
     queryClient.clear();
   });
 
-  it("does not carry a manual refresh made outside the inbox into a later sync", async () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+  it("still refreshes the reads when the explicit sync fails", async () => {
+    callAction.mockRejectedValue(new Error("Gmail is unavailable"));
     mutateSyncAction.mockResolvedValue({ accounts: [] });
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
     const wrapper = ({ children }: PropsWithChildren) =>
       createElement(QueryClientProvider, { client: queryClient }, children);
-
-    // No poller is mounted on a non-inbox view, so the refresh is not consumed.
-    refreshInboxNow(queryClient);
-    vi.setSystemTime(new Date("2026-01-01T00:01:00Z"));
-
     const hook = renderHook(() => useInboxSyncPoller(["first@example.com"]), {
       wrapper,
     });
     await waitFor(() => expect(mutateSyncAction).toHaveBeenCalledTimes(1));
-    expect(mutateSyncAction.mock.calls[0][0]).not.toHaveProperty("force");
+
+    await expect(refreshInboxNow(queryClient)).resolves.toMatchObject({
+      synced: false,
+    });
+    await waitFor(() => expect(mutateSyncAction).toHaveBeenCalledTimes(2));
 
     hook.unmount();
     queryClient.clear();
-    vi.useRealTimers();
   });
 
   it("syncs right away when a list read reports a pending push", async () => {
@@ -176,6 +183,7 @@ describe("manual refresh and push wake-ups", () => {
 
 afterEach(() => {
   cleanup();
+  callAction.mockReset();
   callActionWithRetry.mockReset();
   mutateSyncAction.mockReset();
   useActionMutation.mockClear();
@@ -547,6 +555,31 @@ describe("useInboxThreads tab previews", () => {
     await waitFor(() => expect(mutateSyncAction).toHaveBeenCalledWith({}));
 
     hook.unmount();
+    queryClient.clear();
+  });
+});
+
+describe("list page clamp at the offset cap", () => {
+  it("asks for no rows past the cap", async () => {
+    callActionWithRetry.mockResolvedValue(response());
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const wrapper = ({ children }: PropsWithChildren) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+    const listHook = renderHook(
+      () => useInboxThreads({ tab: "important", offset: 1_999, limit: 200 }),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(listHook.result.current.data).toBeDefined());
+    expect(callActionWithRetry).toHaveBeenCalledWith(
+      "list-inbox-threads",
+      expect.objectContaining({ offset: 1_999, limit: 1 }),
+      expect.anything(),
+    );
+
+    listHook.unmount();
     queryClient.clear();
   });
 });

@@ -6,7 +6,7 @@ import { syncInbox } from "../server/lib/inbox-sync.js";
 
 export default defineAction({
   description:
-    "Advance one bounded Gmail inbox sync step for each selected connected account, or all connected accounts when omitted. Returns each account's sync status, whether rows changed, the observed and acknowledged push generations, and any exact quota retry delay. Call again while an account is initial, has a pending push, or has backfill pending; each call commits progress synchronously.",
+    "Advance one bounded Gmail inbox sync step for each selected connected account, or all connected accounts when omitted. An account synced within its freshness window returns its cached state without calling Gmail; pass force: true to pull from Gmail now. Returns each account's sync status, whether rows changed, the observed and acknowledged push generations, and any exact quota retry delay. Call again while an account is initial, has a pending push, or has backfill pending; each call commits progress synchronously.",
   schema: z.object({
     accountEmails: z
       .array(z.string().email())

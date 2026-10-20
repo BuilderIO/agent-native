@@ -34,6 +34,7 @@ import { gmailReadState } from "../shared/gmail-freshness.js";
 import {
   ALL_TAB_ID,
   ALL_TAB_PARAM,
+  effectiveInboxPageLimit,
   INBOX_MAX_PAGE_OFFSET,
   type InboxSyncAccountStatus,
   type InboxTab,
@@ -299,7 +300,7 @@ export default defineAction({
 
     const page = {
       tab: args.tab,
-      limit: args.limit,
+      limit: effectiveInboxPageLimit(args.offset, args.limit),
       offset: args.offset,
       unreadOnly: args.unreadOnly,
     };

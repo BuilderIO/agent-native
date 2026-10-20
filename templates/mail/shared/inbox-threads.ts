@@ -51,6 +51,11 @@ export function isReadableInboxPageOffset(offset: number): boolean {
   );
 }
 
+/** The rows a page actually returns: its end is clamped to the cap. */
+export function effectiveInboxPageLimit(offset: number, limit: number): number {
+  return Math.min(limit, INBOX_MAX_PAGE_OFFSET - offset);
+}
+
 /**
  * Sync poll cadence, shared by the server freshness gate and the client
  * poller so a steady account syncs at most once per interval.
