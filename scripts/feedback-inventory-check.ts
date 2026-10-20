@@ -1128,8 +1128,11 @@ function replyNamesHandoffAction(text: string, action: string): boolean {
 
 function publicActionSummaryMatchesAction(
   action: string,
-  publicActionSummary: string,
+  publicActionSummary: unknown,
 ): boolean {
+  if (typeof publicActionSummary !== "string" || !publicActionSummary.trim()) {
+    return false;
+  }
   const normalizedAction = normalizeReplyPhrase(action);
   const normalizedSummary = normalizeReplyPhrase(publicActionSummary);
   return (
@@ -1137,6 +1140,14 @@ function publicActionSummaryMatchesAction(
     (normalizedAction === normalizedSummary ||
       normalizedAction.startsWith(`${normalizedSummary} `))
   );
+}
+
+function publicActionSummaryForReply(
+  action: string,
+  publicActionSummary: unknown,
+): string {
+  if (publicActionSummary === undefined) return action;
+  return typeof publicActionSummary === "string" ? publicActionSummary : "";
 }
 
 function replyNamesHandoffOwner(text: string, handoff: Handoff): boolean {
@@ -1526,6 +1537,24 @@ function validateHistoricalReactionMarks(
         `${label}: prior status must match the captured full-thread read`,
       );
     }
+    if (
+      !replyNamesHandoffAction(previous.text, mark.scope) &&
+      !replyNamesHandoffAction(previous.evidence, mark.scope)
+    ) {
+      throw new Error(
+        `${label}: historical mark prior status/evidence must include its recorded scope`,
+      );
+    }
+    if (
+      mark.emoji === "white_check_mark" &&
+      !["Fixed", "Partially fixed", "Verified locally"].includes(
+        previous.disposition,
+      )
+    ) {
+      throw new Error(
+        `${label}: historical ✅ needs a prior verified disposition`,
+      );
+    }
     const reactionDecision =
       mark.emoji === "white_check_mark"
         ? parent.reactionDecision?.checkmark
@@ -1595,6 +1624,17 @@ function validateHistoricalReactionMarks(
       ) {
         throw new Error(
           `${label}: historical reporter request must tie its exact action to the captured request`,
+        );
+      }
+      if (
+        !replyNamesHandoffAction(previous.text, closedReporterRequest.action) &&
+        !replyNamesHandoffAction(
+          previous.evidence,
+          closedReporterRequest.action,
+        )
+      ) {
+        throw new Error(
+          `${label}: historical reporter action must match its prior status/evidence`,
         );
       }
 
@@ -1681,6 +1721,14 @@ function validateHistoricalReactionMarks(
     ) {
       throw new Error(
         `${label}: a historical 🎫 needs the original accepted handoff and its withdrawal`,
+      );
+    }
+    if (
+      !replyNamesHandoffAction(previous.text, handoff.action) &&
+      !replyNamesHandoffAction(previous.evidence, handoff.action)
+    ) {
+      throw new Error(
+        `${label}: historical handoff action must match its prior status/evidence`,
       );
     }
     const acceptance = handoff.acceptanceReply;
@@ -1823,6 +1871,12 @@ function validateStatusReactionLanguage(
       `${parentName}: latest status reply must include the exact bot disclosure`,
     );
   }
+  if (
+    pendingActionSummary !== undefined &&
+    typeof pendingActionSummary !== "string"
+  ) {
+    throw new Error(`${parentName}: pendingActionSummary must be a string`);
+  }
   const activeHandoffs = handoffs.filter(
     (handoff) => handoff.status !== "completed",
   );
@@ -1838,7 +1892,10 @@ function validateStatusReactionLanguage(
       (handoff) =>
         !replyNamesHandoffAction(
           summary,
-          handoff.publicActionSummary ?? handoff.action,
+          publicActionSummaryForReply(
+            handoff.action,
+            handoff.publicActionSummary,
+          ),
         ) ||
         (handoff.publicActionSummary !== undefined &&
           !publicActionSummaryMatchesAction(
@@ -1852,7 +1909,10 @@ function validateStatusReactionLanguage(
       (request) =>
         !replyNamesHandoffAction(
           summary,
-          request.publicActionSummary ?? request.action,
+          publicActionSummaryForReply(
+            request.action,
+            request.publicActionSummary,
+          ),
         ) ||
         (request.publicActionSummary !== undefined &&
           !publicActionSummaryMatchesAction(
@@ -11404,40 +11464,86 @@ if (args[0] === "--self-test" && args.length === 1) {
       ],
       "Please send the link",
     );
-    let mismatchedReporterSummaryError: unknown;
-    try {
-      validateStatusReactionLanguage(
-        "self-test reporter request",
-        "Clarification needed: Please review the launch notes. this was sent from a bot.",
-        [],
-        [
-          {
-            scope: "reproduce the reported flow",
-            action: "send the link to check the flow",
-            publicActionSummary: "review the launch notes",
-            requestReply: {
-              ts: "11.500000",
-              threadParentTs: "10.000000",
-              actorId: "USWEEPER",
-              text: "Please send the link to check the flow.",
+    const expectStatusLanguageFailure = (
+      name: string,
+      callback: () => void,
+      diagnostic: string,
+    ): void => {
+      let failure: unknown;
+      try {
+        callback();
+      } catch (error) {
+        failure = error;
+      }
+      if (
+        !(failure instanceof Error) ||
+        !failure.message.includes(diagnostic)
+      ) {
+        throw new Error(
+          `Feedback inventory checker self-test failed: ${name} expected diagnostic "${diagnostic}"; received "${failure instanceof Error ? failure.message : String(failure)}".`,
+        );
+      }
+    };
+    expectStatusLanguageFailure(
+      "reporter public summary cannot misrepresent its action",
+      () =>
+        validateStatusReactionLanguage(
+          "self-test reporter request",
+          "Clarification needed: Please review the launch notes. this was sent from a bot.",
+          [],
+          [
+            {
+              scope: "reproduce the reported flow",
+              action: "send the link to check the flow",
+              publicActionSummary: "review the launch notes",
+              requestReply: {
+                ts: "11.500000",
+                threadParentTs: "10.000000",
+                actorId: "USWEEPER",
+                text: "Please send the link to check the flow.",
+              },
             },
-          },
-        ],
-        "Please review the launch notes",
-      );
-    } catch (error) {
-      mismatchedReporterSummaryError = error;
-    }
-    if (
-      !(mismatchedReporterSummaryError instanceof Error) ||
-      !mismatchedReporterSummaryError.message.includes(
-        "active 🎫 summary must include every pending action and known owner",
-      )
-    ) {
-      throw new Error(
-        "Feedback inventory checker self-test failed: reporter public summary did not have to match its recorded action.",
-      );
-    }
+          ],
+          "Please review the launch notes",
+        ),
+      "active 🎫 summary must include every pending action and known owner",
+    );
+    expectStatusLanguageFailure(
+      "malformed pending summary has a field diagnostic",
+      () =>
+        validateStatusReactionLanguage(
+          "self-test reporter request",
+          "Clarification needed. this was sent from a bot.",
+          [],
+          [],
+          42 as unknown as string,
+        ),
+      "pendingActionSummary must be a string",
+    );
+    expectStatusLanguageFailure(
+      "malformed public summary does not throw a TypeError",
+      () =>
+        validateStatusReactionLanguage(
+          "self-test reporter request",
+          "Clarification needed: Please send the link. this was sent from a bot.",
+          [],
+          [
+            {
+              scope: "reproduce the reported flow",
+              action: "send the link to check the flow",
+              publicActionSummary: 42 as unknown as string,
+              requestReply: {
+                ts: "11.500000",
+                threadParentTs: "10.000000",
+                actorId: "USWEEPER",
+                text: "Please send the link to check the flow.",
+              },
+            },
+          ],
+          "Please send the link",
+        ),
+      "active 🎫 summary must include every pending action and known owner",
+    );
     validateTestInventory(
       withHandoffReply(
         "Partially fixed: The first route works. Alex Rivera will choose the remaining behavior. this was sent from a bot.",
@@ -11555,7 +11661,8 @@ if (args[0] === "--self-test" && args.length === 1) {
             ...rootTen.statusReply!,
             ts: "10.500000",
             threadParentTs: "10.000000",
-            text: "Fixed: The route worked. this was sent from a bot.",
+            evidence: "focused test passed for the initial route screen",
+            text: "Fixed: The initial route screen works. this was sent from a bot.",
           },
         },
       ],
@@ -11569,7 +11676,12 @@ if (args[0] === "--self-test" && args.length === 1) {
         (parent) => parent.ts === "10.000000",
       )!;
     const originalHandoff = ticketHistoryParent.handoffs![0]!;
-    const originalTicketStatus = ticketHistoryParent.statusReply!;
+    const originalTicketStatus: StatusReply = {
+      ...ticketHistoryParent.statusReply!,
+      evidence:
+        "Alex Rivera will choose the remaining behavior for the remaining design choice",
+      text: "In progress: Alex Rivera will choose the remaining behavior for the remaining design choice. this was sent from a bot.",
+    };
     const withdrawalReply = {
       ts: "12.500000",
       threadParentTs: "10.000000",
@@ -11687,6 +11799,35 @@ if (args[0] === "--self-test" && args.length === 1) {
         }
       }
     };
+    const historicalCheckWithoutScope = structuredClone(
+      historicalCheckInventory,
+    );
+    historicalCheckWithoutScope.channels[0]!.pages[0]!.parents =
+      historicalCheckWithoutScope.channels[0]!.pages[0]!.parents.map((parent) =>
+        parent.ts === "10.000000"
+          ? {
+              ...parent,
+              historicalReactionMarks: parent.historicalReactionMarks?.map(
+                (mark) =>
+                  mark.emoji === "white_check_mark"
+                    ? {
+                        ...mark,
+                        previousStatus: {
+                          ...mark.previousStatus,
+                          evidence: "focused test passed",
+                          text: "Fixed: The route worked. this was sent from a bot.",
+                        },
+                      }
+                    : mark,
+              ),
+            }
+          : parent,
+      );
+    expectHistoricalMarkFailure(
+      "historical checkmark without prior scope evidence",
+      historicalCheckWithoutScope,
+      "historical mark prior status/evidence must include its recorded scope",
+    );
     expectHistoricalMarkFailure(
       "historical ticket withdrawal needs the assigned owner's reply",
       {
