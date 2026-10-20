@@ -80,7 +80,12 @@ async function latestRunsBySource(sourceIds: string[]) {
     })
     .from(schema.brainSources)
     .leftJoinLateral(latestRun, sql`true`)
-    .where(inArray(schema.brainSources.id, sourceIds));
+    .where(
+      and(
+        accessFilter(schema.brainSources, schema.brainSourceShares),
+        inArray(schema.brainSources.id, sourceIds),
+      ),
+    );
   const latestRuns = new Map<
     string,
     {
