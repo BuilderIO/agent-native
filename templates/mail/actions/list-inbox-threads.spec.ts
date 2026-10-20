@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   resolveWorkspaceConnectionForApp: vi.fn(),
   readSettings: vi.fn(),
   readInboxThreads: vi.fn(),
+  readInboxTabWindows: vi.fn(),
   readCachedLabels: vi.fn(),
   readSyncAccounts: vi.fn(),
   readInboxPushGeneration: vi.fn(),
@@ -51,6 +52,11 @@ vi.mock("../server/lib/mail-settings.js", () => ({
 
 vi.mock("../server/lib/inbox-store.js", () => ({
   readInboxThreads: mocks.readInboxThreads,
+  readInboxTabWindows: mocks.readInboxTabWindows,
+  aiImportantLabelIds: (labelMap?: Map<string, string>) =>
+    [...(labelMap?.entries() ?? [])]
+      .filter(([, name]) => name === "agent-native-important")
+      .map(([id]) => id),
   readCachedLabels: mocks.readCachedLabels,
   readSyncAccounts: mocks.readSyncAccounts,
   readInboxPushGeneration: mocks.readInboxPushGeneration,
@@ -78,6 +84,21 @@ vi.mock("../server/lib/inbox-store.js", () => ({
 }));
 
 import action from "./list-inbox-threads";
+
+// The SQL windows are verified against the in-memory partition in
+// server/lib/inbox-store.tab-windows-pglite.spec.ts. Here the same partition
+// stands in for the store so the action's assembly is tested on the same rows.
+mocks.readInboxTabWindows.mockImplementation(async (params: any) => {
+  const { inboxRowToItem } = await import("../server/lib/inbox-store.js");
+  const { inMemoryTabWindows } =
+    await import("../server/lib/inbox-tab-windows.fake.js");
+  const rows = await mocks.readInboxThreads(params.ownerEmail, {
+    accountEmails: params.accountEmails,
+  });
+  return inMemoryTabWindows(rows, params, (row) =>
+    inboxRowToItem(row, undefined),
+  );
+});
 
 const OWNER = "owner@example.com";
 
@@ -530,6 +551,103 @@ describe("list-inbox-threads action", () => {
       result.tabs.find((tab) => tab.id === "__inbox_all__")?.totalIsLowerBound,
     ).toBeUndefined();
   });
+
+  it("reports the offset cap as reachedCap with no next page", async () => {
+    mocks.readInboxThreads.mockResolvedValue(
+      Array.from({ length: 2_100 }, (_, index) =>
+        row({
+          threadId: `t${index}`,
+          latestMessageId: `m${index}`,
+          latestDate: 1_000_000 - index,
+        }),
+      ),
+    );
+
+    const atCap = await action.run(
+      { tab: "__inbox_all__", limit: 50, offset: 1_950 } as any,
+      undefined as any,
+    );
+    expect(atCap.items).toHaveLength(50);
+    expect(atCap.reachedCap).toBe(true);
+    expect(atCap.hasMore).toBe(false);
+
+    const firstPage = await action.run(
+      { tab: "__inbox_all__", limit: 50, offset: 0 } as any,
+      undefined as any,
+    );
+    expect(firstPage.reachedCap).toBe(false);
+    expect(firstPage.hasMore).toBe(true);
+  });
+
+  it("clamps a page that would run past the cap to the rows below it", async () => {
+    mocks.readInboxThreads.mockResolvedValue(
+      Array.from({ length: 2_100 }, (_, index) =>
+        row({
+          threadId: `t${index}`,
+          latestMessageId: `m${index}`,
+          latestDate: 1_000_000 - index,
+        }),
+      ),
+    );
+
+    const result = await action.run(
+      { tab: "__inbox_all__", limit: 200, offset: 1_999 } as any,
+      undefined as any,
+    );
+
+    expect(result.items.map((item) => item.threadId)).toEqual(["t1999"]);
+    expect(result.reachedCap).toBe(true);
+    expect(result.hasMore).toBe(false);
+  });
+
+  it("counts an AI-important Gmail label as Important through the account label map", async () => {
+    mocks.readCachedLabels.mockResolvedValue({
+      labels: [],
+      labelMapByAccount: new Map([
+        [OWNER, new Map([["Label_ai", "agent-native-important"]])],
+      ]),
+    });
+    mocks.readInboxThreads.mockResolvedValue([
+      row({
+        threadId: "ai-auto",
+        latestMessageId: "m-ai-auto",
+        latestDate: 3000,
+        labelIds: ["Label_ai"],
+        isAutomated: true,
+      }),
+      row({
+        threadId: "plain",
+        latestMessageId: "m-plain",
+        latestDate: 2000,
+        labelIds: [],
+      }),
+      row({
+        threadId: "auto",
+        latestMessageId: "m-auto",
+        latestDate: 1000,
+        labelIds: [],
+        isAutomated: true,
+      }),
+    ]);
+
+    const result = await action.run(
+      { tab: "important", limit: 50, offset: 0 } as any,
+      undefined as any,
+    );
+
+    const windowsInput = mocks.readInboxTabWindows.mock.calls.at(-1)?.[0];
+    expect(windowsInput.aiLabelIdsByAccount.get(OWNER)).toEqual(["Label_ai"]);
+    expect(result.activeTabId).toBe("important");
+    expect(result.tabs.find((t) => t.id === "important")).toMatchObject({
+      total: 2,
+      unread: 2,
+    });
+    expect(result.tabs.find((t) => t.id === "other")?.total).toBe(1);
+    expect(result.items.map((item) => item.threadId)).toEqual([
+      "ai-auto",
+      "plain",
+    ]);
+  });
 });
 
 describe("list-inbox-threads action — local mode (no connected Google account)", () => {
@@ -767,5 +885,23 @@ describe("list-inbox-threads action — managed workspace grant (no per-user OAu
     expect(result.accounts.map((account) => account.accountEmail)).toEqual([
       "managed@example.com",
     ]);
+  });
+
+  it("rejects a pagination offset past the deepest readable page", async () => {
+    const { INBOX_MAX_PAGE_OFFSET } = await import("@shared/inbox-threads.js");
+    const schema = (action as any).schema;
+    // A page must start below the cap: the one starting at it is not readable.
+    expect(
+      schema.safeParse({ limit: 50, offset: INBOX_MAX_PAGE_OFFSET - 1 })
+        .success,
+    ).toBe(true);
+    expect(
+      schema.safeParse({ limit: 50, offset: INBOX_MAX_PAGE_OFFSET }).success,
+    ).toBe(false);
+    expect(
+      schema.safeParse({ limit: 50, offset: INBOX_MAX_PAGE_OFFSET + 1 })
+        .success,
+    ).toBe(false);
+    expect(schema.safeParse({ limit: 50, offset: 1e9 }).success).toBe(false);
   });
 });

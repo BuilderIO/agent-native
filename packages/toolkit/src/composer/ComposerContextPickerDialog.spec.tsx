@@ -9,6 +9,8 @@ import {
   ComposerContextMenu,
   type ComposerContextPickerConfig,
 } from "./ComposerContextMenu.js";
+import { ComposerContextPickerDialog } from "./ComposerContextPickerDialog.js";
+import { ComposerRuntimeAdaptersProvider } from "./runtime-adapters.js";
 
 let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
@@ -24,6 +26,7 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -84,6 +87,25 @@ async function render(
             ]}
           />
         </form>
+      </TooltipProvider>,
+    ),
+  );
+}
+async function renderPickerDialog(
+  config: ComposerContextPickerConfig,
+  onClose: () => void = () => {},
+) {
+  await act(async () =>
+    root.render(
+      <TooltipProvider>
+        <ComposerRuntimeAdaptersProvider adapters={{ translate: (key) => key }}>
+          <ComposerContextPickerDialog
+            config={config}
+            title="Pick a presentation"
+            onClose={onClose}
+            onRestoreFocus={() => {}}
+          />
+        </ComposerRuntimeAdaptersProvider>
       </TooltipProvider>,
     ),
   );
@@ -162,6 +184,213 @@ function deferred<T>() {
 }
 
 describe("shared context URL dialog", () => {
+  it("supports gallery previews with immediate single selection", async () => {
+    const onSelect = vi.fn().mockResolvedValue(undefined);
+    const onClose = vi.fn();
+    const config = {
+      presentation: {
+        type: "dialog" as const,
+        mode: "single" as const,
+        layout: "gallery" as const,
+      },
+      searchPlaceholder: "Search presentations",
+      items: [
+        {
+          id: "campaign",
+          title: "Campaign launch",
+          preview: (
+            <img src="https://example.com/campaign.png" alt="Campaign slide" />
+          ),
+        },
+        {
+          id: "quarterly",
+          title: "Quarterly review",
+          preview: (
+            <img
+              src="https://example.com/quarterly.png"
+              alt="Quarterly slide"
+            />
+          ),
+        },
+      ],
+      onSelect,
+    } satisfies ComposerContextPickerConfig;
+
+    await renderPickerDialog(config, onClose);
+    expect(
+      dialog()!.querySelectorAll(".agent-template-library-card"),
+    ).toHaveLength(2);
+    expect(dialog()!.querySelectorAll("img")).toHaveLength(2);
+
+    await type("Campaign", 'input[type="search"]');
+    expect(
+      dialog()!.querySelectorAll(".agent-template-library-card"),
+    ).toHaveLength(1);
+    const card = dialog()!.querySelector<HTMLElement>("[aria-pressed]")!;
+    await act(async () => card.click());
+    await tick();
+
+    expect(onSelect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "campaign",
+        title: "Campaign launch",
+        disabled: false,
+        preview: expect.anything(),
+      }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("debounces remote gallery searches and disables stale results", async () => {
+    const nextResults = deferred<{
+      items: Array<{ id: string; title: string }>;
+      hasMore: boolean;
+    }>();
+    const load = vi.fn(({ search }: { search: string }) =>
+      search
+        ? nextResults.promise
+        : Promise.resolve({
+            items: [{ id: "old", title: "Old result" }],
+            hasMore: false,
+          }),
+    );
+    const onSelect = vi.fn();
+    const config = {
+      presentation: {
+        type: "dialog" as const,
+        mode: "single" as const,
+        layout: "gallery" as const,
+      },
+      searchPlaceholder: "Search decks",
+      load,
+      onSelect,
+    } satisfies ComposerContextPickerConfig;
+
+    await renderPickerDialog(config);
+    await tick();
+    expect(load).toHaveBeenCalledTimes(1);
+
+    const primaryCard = () =>
+      dialog()!.querySelector<HTMLElement>(".agent-template-library-primary")!;
+    expect(primaryCard().getAttribute("aria-disabled")).toBeNull();
+
+    vi.useFakeTimers();
+    await type("re", 'input[type="search"]');
+    expect(primaryCard().getAttribute("aria-disabled")).toBe("true");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    await type("replacement", 'input[type="search"]');
+    expect(primaryCard().getAttribute("aria-disabled")).toBe("true");
+    await act(async () => primaryCard().click());
+    expect(onSelect).not.toHaveBeenCalled();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    expect(load).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(load.mock.calls[1][0].search).toBe("replacement");
+
+    await act(async () =>
+      nextResults.resolve({
+        items: [{ id: "new", title: "Replacement result" }],
+        hasMore: false,
+      }),
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(primaryCard().getAttribute("aria-disabled")).toBeNull();
+    expect(primaryCard().textContent).toContain("Replacement result");
+  });
+
+  it("retries a failed remote gallery load", async () => {
+    const load = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Decks are unavailable"))
+      .mockResolvedValueOnce({
+        items: [{ id: "deck", title: "Campaign deck" }],
+        hasMore: false,
+      });
+    const config = {
+      presentation: {
+        type: "dialog" as const,
+        mode: "single" as const,
+        layout: "gallery" as const,
+      },
+      searchPlaceholder: "Search decks",
+      load,
+      onSelect: vi.fn(),
+    } satisfies ComposerContextPickerConfig;
+
+    await renderPickerDialog(config);
+    await tick();
+
+    expect(dialog()!.querySelector('[role="alert"]')?.textContent).toContain(
+      "Decks are unavailable",
+    );
+    expect(
+      Array.from(dialog()!.querySelectorAll("button")).filter(
+        (button) => button.textContent === "agentChat.common.retry",
+      ),
+    ).toHaveLength(1);
+    await click("agentChat.common.retry");
+
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(dialog()!.textContent).toContain("Campaign deck");
+  });
+
+  it("preserves pagination cursors when a search returns to the current query", async () => {
+    const load = vi.fn(({ page }: { page: number }) =>
+      Promise.resolve({
+        items: [{ id: `deck-${page}`, title: `Deck ${page}` }],
+        hasMore: page < 3,
+        nextCursor: page < 3 ? `cursor-${page + 1}` : undefined,
+      }),
+    );
+    const config = {
+      presentation: {
+        type: "dialog" as const,
+        mode: "single" as const,
+        layout: "gallery" as const,
+      },
+      searchPlaceholder: "Search decks",
+      load,
+      onSelect: vi.fn(),
+    } satisfies ComposerContextPickerConfig;
+
+    await renderPickerDialog(config);
+    await tick();
+    await click("agentChat.composer.contextNext");
+    await click("agentChat.composer.contextNext");
+    expect(load.mock.calls[2][0]).toMatchObject({
+      page: 3,
+      cursor: "cursor-3",
+    });
+
+    vi.useFakeTimers();
+    await type("temporary", 'input[type="search"]');
+    await type("", 'input[type="search"]');
+    expect(button("agentChat.composer.contextPrevious").disabled).toBe(true);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+    expect(load).toHaveBeenCalledTimes(3);
+
+    vi.useRealTimers();
+    await click("agentChat.composer.contextPrevious");
+    expect(load.mock.calls[3][0]).toMatchObject({
+      page: 2,
+      cursor: "cursor-2",
+    });
+  });
+
   it("shows distinct preview cards for duplicate titles and retains selections through search", async () => {
     const onAttach = vi.fn().mockResolvedValue(undefined);
     const items = [

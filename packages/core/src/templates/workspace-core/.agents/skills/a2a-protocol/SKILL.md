@@ -14,19 +14,19 @@ metadata:
 ## Rule
 
 Agents call other agents over A2A, a JSON-RPC protocol for discovery and
-delegation. Use it when work belongs to a different agent entirely — not the
-local agent chat.
+delegation. Use it only when the user explicitly asks to involve a peer, or
+the requested outcome requires data, credentials, or a capability owned by
+that peer and unavailable through the local app's actions. The local app's
+actions are the default; a peer's availability or ability to enrich a result
+is not enough. When a peer supplies input, keep authoring and editing artifacts
+native to the local app here.
 
-**No workarounds when A2A feels flaky.** The strong default is `ask_app` (or
-`call-agent`) working reliably, full stop — not apps reaching around it. Do
-not have app A generate and execute raw SQL against app B's database, and do
-not expose B's internal tools directly to A as a substitute for delegation.
-The receiving agent has context, skills, and guardrails the caller doesn't;
-bypassing it to work around a flaky A2A call reintroduces exactly the bugs A2A
-exists to prevent, and makes the real reliability problem invisible instead of
-fixing it. If A2A delegation is unreliable, fix A2A — file it as a bug in the
-delegation path (timeout handling, retries, typed terminal states), don't
-route around it app by app.
+When a handoff qualifies under the rule above, preserve the peer boundary: do
+not have app A generate and execute raw SQL against app B's database, or expose
+B's internal tools directly to A as a substitute for delegation. The receiving
+agent has context, skills, and guardrails the caller doesn't. If a justified
+A2A call is unreliable, fix the delegation path (timeouts, retries, or typed
+terminal states) instead of bypassing it app by app.
 
 Connecting app A to an Agent-Native app B is two independent things, and both
 must be true:

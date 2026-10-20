@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import type { EmailMessage } from "@shared/types";
+import { QueryClient } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const THREAD_CACHE_STORAGE_KEY = "mail.threadCache.v1";
@@ -156,5 +157,116 @@ describe("thread cache privacy", () => {
     ]);
     threadCache.setThreadCacheAccountScope("account-b");
     expect(threadCache.getCachedThread("shared-thread")).toBeUndefined();
+  });
+
+  it("does not restore account-less threads after the mailbox scope changes", async () => {
+    const threadCache = await import("./thread-cache");
+    const queryClient = new QueryClient();
+    threadCache.bindThreadCacheQueryClient(queryClient);
+    threadCache.setThreadCacheSessionScope("session-a");
+    threadCache.setThreadCacheAccountScope("mailboxes-a");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          ({
+            ok: true,
+            headers: new Headers({
+              "X-Agent-Native-Browser-Persist": "allow",
+            }),
+            json: async () => [
+              { id: "message-a", body: "mailbox a body" } as EmailMessage,
+            ],
+          }) as Response,
+      ),
+    );
+
+    expect(await threadCache.ensureThread("shared-thread")).toEqual([
+      { id: "message-a", body: "mailbox a body" },
+    ]);
+    expect(threadCache.getCachedThread("shared-thread")).toEqual([
+      { id: "message-a", body: "mailbox a body" },
+    ]);
+
+    threadCache.setThreadCacheAccountScope("mailboxes-b");
+
+    expect(threadCache.getCachedThread("shared-thread")).toBeUndefined();
+    expect(
+      queryClient
+        .getQueryCache()
+        .findAll({ queryKey: ["action", "mail-thread-messages"] }),
+    ).toHaveLength(1);
+    queryClient.clear();
+  });
+
+  it("invalidates persisted account-scoped threads after restart", async () => {
+    const threadCache = await import("./thread-cache");
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(
+      [
+        "action",
+        "mail-thread-messages",
+        "session-a",
+        "mailboxes-a",
+        JSON.stringify([null, "first@example.test", "shared-thread"]),
+      ],
+      [{ id: "message-a", body: "stale mailbox body" } as EmailMessage],
+    );
+    threadCache.bindThreadCacheQueryClient(queryClient);
+    threadCache.setThreadCacheSessionScope("session-a");
+    threadCache.setThreadCacheAccountScope("mailboxes-b");
+
+    threadCache.invalidateCachedThread("shared-thread");
+
+    expect(
+      queryClient
+        .getQueryCache()
+        .findAll({ queryKey: ["action", "mail-thread-messages"] }),
+    ).toHaveLength(0);
+    queryClient.clear();
+  });
+});
+
+describe("thread prefetch during a cooldown", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    for (const key of THREAD_CACHE_GLOBALS) {
+      delete (globalThis as unknown as Record<string, unknown>)[key];
+    }
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("holds back speculative warms during a rate-limit cooldown but still opens a thread", async () => {
+    const threadCache = await import("./thread-cache");
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+        headers: new Headers(),
+        json: async () => ({ error: "Rate limited" }),
+      })
+      .mockResolvedValue({
+        ok: true,
+        json: async () => [{ id: "opened-message", body: "body" }],
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      threadCache.ensureThread("rate-limited-thread", "a@example.test"),
+    ).rejects.toThrow();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    threadCache.warmThreads([
+      { id: "hovered-thread", accountEmail: "a@example.test" },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await threadCache.ensureThread("opened-thread", "a@example.test");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

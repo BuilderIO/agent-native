@@ -134,8 +134,18 @@ test("built-in template preserves its dimensions and locks and can be saved agai
   const savedTitle = `E2E saved social template ${Date.now()}`;
 
   try {
-    await page.goto(appPath("/templates"), { waitUntil: "domcontentloaded" });
+    const templatesURL = appPath("/templates");
+    await page.goto(templatesURL, { waitUntil: "domcontentloaded" });
     await page.waitForLoadState("load");
+    if (new URL(page.url()).searchParams.has("__an_vite_dev_recovery")) {
+      await page.goto(templatesURL, { waitUntil: "domcontentloaded" });
+      await page.waitForLoadState("load");
+    }
+    const templateButton = page.getByRole("button", {
+      name: "Event story — vertical",
+      exact: true,
+    });
+    await expect(templateButton).toBeVisible({ timeout: 30_000 });
 
     const createResponse = page.waitForResponse(
       (response) =>
@@ -144,9 +154,7 @@ test("built-in template preserves its dimensions and locks and can be saved agai
           .includes("/_agent-native/actions/create-design-from-template") &&
         response.request().method() === "POST",
     );
-    await page
-      .getByRole("button", { name: "Event story — vertical", exact: true })
-      .click();
+    await templateButton.click();
     const createResponseResult = await createResponse;
     expect(createResponseResult.ok()).toBe(true);
     expect(createResponseResult.request().postDataJSON()).toMatchObject({

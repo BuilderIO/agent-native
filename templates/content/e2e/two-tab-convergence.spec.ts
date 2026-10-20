@@ -57,6 +57,12 @@ interface Scenario {
   notes: Record<string, unknown>;
   /** Noise the scenario causes on purpose, from `noiseFailures`. */
   expectedNoise: string[];
+  /**
+   * Set when a separate `@known-loss` test owns this scenario's text check, so
+   * a known race can't fail the behavior this test requires. The record still
+   * counts the text.
+   */
+  textCheckedElsewhere?: boolean;
 }
 
 async function runScenario(
@@ -78,26 +84,63 @@ async function runScenario(
     notes: {},
     expectedNoise: [],
   };
-  await body(scenario);
-  const working = [...tabs.tabs.values()];
-  const integrity = await observeIntegrity(tabs, reader, id, scenario.markers);
-  const record: ScenarioRecord = {
-    scenario: name,
-    tags: testInfo.tags,
-    notes: scenario.notes,
-    build: BUILD,
-    authoredEdits:
-      scenario.markers.all.length + scenario.markers.removed.length,
-    markers: scenario.markers.all.length,
-    durationMs: Date.now() - started,
-    integrity,
-    tabs: [...tabs.tabs.values(), tabs.detached],
-  };
-  writeScenarioRecord(testInfo, record);
-  await testInfo.attach("convergence", {
-    body: JSON.stringify(record, null, 2),
-    contentType: "application/json",
-  });
+  const { working, record } = await (async () => {
+    try {
+      await body(scenario);
+      const working = [...tabs.tabs.values()];
+      const integrity = await observeIntegrity(
+        tabs,
+        reader,
+        id,
+        scenario.markers,
+      );
+      const record: ScenarioRecord = {
+        scenario: name,
+        tags: testInfo.tags,
+        notes: scenario.notes,
+        build: BUILD,
+        authoredEdits:
+          scenario.markers.all.length + scenario.markers.removed.length,
+        markers: scenario.markers.all.length,
+        durationMs: Date.now() - started,
+        integrity,
+        tabs: [...tabs.tabs.values(), tabs.detached],
+      };
+      writeScenarioRecord(testInfo, record);
+      await testInfo.attach("convergence", {
+        body: JSON.stringify(record, null, 2),
+        contentType: "application/json",
+      });
+      return { working, record };
+    } catch (error) {
+      try {
+        await testInfo.attach("convergence-partial", {
+          body: JSON.stringify(
+            {
+              captureState: "incomplete",
+              scenario: name,
+              build: BUILD,
+              durationMs: Date.now() - started,
+              authoredEdits:
+                scenario.markers.all.length + scenario.markers.removed.length,
+              markers: scenario.markers.all.length,
+              failureName: error instanceof Error ? error.name : typeof error,
+              diagnostics: tabs.diagnosticSnapshot(),
+            },
+            null,
+            2,
+          ),
+          contentType: "application/json",
+        });
+      } catch (attachmentError) {
+        throw new AggregateError(
+          [error, attachmentError],
+          "Convergence scenario failed and partial diagnostics could not be attached",
+        );
+      }
+      throw error;
+    }
+  })();
   // The lane fails if it did not run under the conditions it reports.
   const latency = Number(scenario.notes.saveLatencyMs ?? 0);
   for (const tab of working) {
@@ -124,10 +167,11 @@ async function runScenario(
       working.some((tab) => tab.saveDurationsMs.length),
       "no save was timed under the latency",
     ).toBe(true);
-  expect(
-    integrityFailures(record),
-    "lost, duplicated or deleted-then-back text",
-  ).toEqual([]);
+  if (!scenario.textCheckedElsewhere)
+    expect(
+      integrityFailures(record),
+      "lost, duplicated or deleted-then-back text",
+    ).toEqual([]);
   const noise = noiseFailures(record.tabs);
   for (const expected of scenario.expectedNoise) {
     const at = noise.indexOf(expected);
@@ -150,6 +194,28 @@ async function openPair(s: Scenario, latencyMs = SAVE_LATENCY_MS) {
   gates.second.setLatency(latencyMs);
   s.notes.saveLatencyMs = latencyMs;
   return { first, second, gates };
+}
+
+async function openDuringPeerSave(s: Scenario) {
+  const { first, gates } = await openPair(s, 0);
+  await s.tabs.showOnly(first);
+  gates.first.holdArrivals();
+  await typeAtParagraphEnd(first, "Alpha paragraph", ` ${s.markers.next("A")}`);
+  await gates.first.waitForHeld();
+
+  const fresh = await s.tabs.open("C", s.id);
+  await expectEditorReady(fresh);
+  expect(
+    s.tabs.record(fresh).saveRequests,
+    "C sent A's pending edit as a save of its own",
+  ).toBe(0);
+
+  await s.tabs.showOnly(first);
+  gates.first.pass();
+  await gates.first.release();
+  await s.tabs.waitForSaveAnswers(first, 1);
+  await s.tabs.quiet();
+  expect(s.tabs.record(fresh).saveRequests).toBe(0);
 }
 
 async function alternate(s: Scenario) {
@@ -261,6 +327,86 @@ test.describe("two tabs editing one page at beta cadence", () => {
       );
       s.notes.heldSaves = gates.first.heldCount;
     });
+  });
+
+  test("a tab opened while another tab's save is on its way sends no save", async ({
+    context,
+  }, testInfo) => {
+    await runScenario("open-during-peer-save", testInfo, context, async (s) => {
+      s.textCheckedElsewhere = true;
+      await openDuringPeerSave(s);
+    });
+  });
+
+  // C can apply the older stored body over the live copy as it opens, deleting
+  // A's word, and two tabs then put it back. The fix to how a tab joins a
+  // populated live copy (useCollabReconcile) drops this tag.
+  test(
+    "a tab opened while another tab's save is on its way keeps that tab's word once",
+    KNOWN_LOSS,
+    async ({ context }, testInfo) => {
+      await runScenario(
+        "open-during-peer-save-text",
+        testInfo,
+        context,
+        openDuringPeerSave,
+      );
+    },
+  );
+
+  test("a tab opened after a save met another tab's edit sends no save", async ({
+    context,
+  }, testInfo) => {
+    await runScenario(
+      "open-after-in-flight-race",
+      testInfo,
+      context,
+      async (s) => {
+        const { first, second, gates } = await openPair(s, 0);
+        await s.tabs.showOnly(first);
+        gates.first.holdAnswers();
+        await typeAtParagraphEnd(
+          first,
+          "Alpha paragraph",
+          ` ${s.markers.next("A")}`,
+        );
+        await gates.first.waitForHeld();
+
+        await s.tabs.showOnly(second);
+        const fromSecond = s.markers.next("B");
+        await typeAtParagraphEnd(second, "Charlie paragraph", ` ${fromSecond}`);
+        await s.tabs.waitForSaveAnswers(second, 1);
+        await s.tabs.showOnly(first);
+        await s.tabs.waitForText(first, fromSecond);
+
+        // Hidden, A leaves the converged save to B, so only the answer to A's
+        // own save can settle the edit A journaled.
+        await s.tabs.showOnly(second);
+        gates.first.pass();
+        await gates.first.release();
+        await s.tabs.waitForSaveAnswers(first, 1);
+        await expect
+          .poll(
+            () =>
+              first.evaluate(() =>
+                Object.keys(localStorage).filter((key) =>
+                  key.startsWith("content-page-draft-journal-v1:"),
+                ),
+              ),
+            { message: "A's acknowledged edit is still journaled" },
+          )
+          .toEqual([]);
+        await first.close({ runBeforeUnload: true });
+
+        const fresh = await s.tabs.open("C", s.id);
+        await expectEditorReady(fresh);
+        await s.tabs.quiet();
+        expect(
+          s.tabs.record(fresh).saveRequests,
+          "C replayed the edit A had saved",
+        ).toBe(0);
+      },
+    );
   });
 
   test(

@@ -162,8 +162,14 @@ export function useEventMarkerAxisPadding(
 ): { left: number; right: number } {
   const first = rows[0]?.[xKey];
   const last = rows[rows.length - 1]?.[xKey];
-  const left = groups.some((group) => group.x === first) ? MARKER_REACH : 0;
-  const right = groups.some((group) => group.x === last) ? MARKER_REACH : 0;
+  const left =
+    first != null && groups.some((group) => group.x === String(first))
+      ? MARKER_REACH
+      : 0;
+  const right =
+    last != null && groups.some((group) => group.x === String(last))
+      ? MARKER_REACH
+      : 0;
   return useMemo(() => ({ left, right }), [left, right]);
 }
 
@@ -177,7 +183,7 @@ export function renderEventMarkers(
     return (
       <ReferenceLine
         key={`event-${group.x}`}
-        x={group.x}
+        x={group.xValue}
         yAxisId={yAxisId}
         stroke={color}
         strokeOpacity={0.35}

@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
@@ -7,6 +9,9 @@ import type { Message } from "./types.js";
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 
 const dbExec: DbExec = {
+  get transaction() {
+    return pglite.transaction;
+  },
   async execute(sql) {
     const rawSql = typeof sql === "string" ? sql : sql.sql;
     const args = typeof sql === "string" ? [] : sql.args || [];
@@ -32,6 +37,26 @@ type Store = typeof import("./task-store.js");
 
 async function loadStore(): Promise<Store> {
   return import("./task-store.js");
+}
+
+async function withTaskExecutionFence<T>(
+  taskId: string,
+  work: () => Promise<T>,
+): Promise<T> {
+  const { a2aTaskLeaseThreadId } = await loadStore();
+  const { claimTaskExecutionLease, releaseTurnExecutionLease } =
+    await import("../agent/run-store.js");
+  const { withExecutionFence } = await import("../agent/execution-fence.js");
+  const fence = await claimTaskExecutionLease(
+    a2aTaskLeaseThreadId(taskId),
+    taskId,
+    `a2a-approval-test:${randomUUID()}`,
+  );
+  try {
+    return await withExecutionFence(fence, work);
+  } finally {
+    await releaseTurnExecutionLease(fence).catch(() => {});
+  }
 }
 
 describe("task-store lifecycle (real pglite)", () => {
@@ -538,14 +563,18 @@ describe("task-store lifecycle (real pglite)", () => {
       expect(
         await claimA2AApproval(approval.id, "owner@example.com", "wrong-org"),
       ).toBeNull();
-      expect(
-        await claimA2AApproval(approval.id, "owner@example.com", "org-1"),
-      ).toMatchObject({ status: "processing", approvalKey: "private-key" });
-      expect(
-        await claimA2AApproval(approval.id, "owner@example.com", "org-1"),
-      ).toBeNull();
+      await withTaskExecutionFence(task.id, async () => {
+        expect(
+          await claimA2AApproval(approval.id, "owner@example.com", "org-1"),
+        ).toMatchObject({ status: "processing", approvalKey: "private-key" });
+      });
 
-      await settleA2AApproval(approval.id, "completed", "Email sent");
+      await withTaskExecutionFence(task.id, async () => {
+        expect(
+          await claimA2AApproval(approval.id, "owner@example.com", "org-1"),
+        ).toMatchObject({ status: "processing", approvalKey: "private-key" });
+        await settleA2AApproval(approval.id, "completed", "Email sent");
+      });
       expect(await getTask(task.id)).toMatchObject({
         status: {
           state: "completed",
@@ -584,13 +613,14 @@ describe("task-store lifecycle (real pglite)", () => {
         task.id,
         makeMessage("Approval required", "agent"),
       );
-      await claimA2AApproval(approval.id, "owner@example.com");
-
-      await settleA2AApproval(
-        approval.id,
-        "completed",
-        "data:image/png;base64,iVBORw0KGgo=",
-      );
+      await withTaskExecutionFence(task.id, async () => {
+        await claimA2AApproval(approval.id, "owner@example.com");
+        await settleA2AApproval(
+          approval.id,
+          "completed",
+          "data:image/png;base64,iVBORw0KGgo=",
+        );
+      });
 
       const failureText =
         "The approved action result could not be safely stored. Verify its outcome before retrying.";
@@ -611,6 +641,70 @@ describe("task-store lifecycle (real pglite)", () => {
         args: [task.id],
       });
       expect(JSON.stringify(rows)).not.toContain("data:image");
+    });
+
+    it("rejects stale approval settlement and reclaims processing work under a new lease", async () => {
+      const {
+        a2aTaskLeaseThreadId,
+        claimA2AApproval,
+        claimA2ATaskForProcessing,
+        createA2AApproval,
+        createTask,
+        pauseProcessingA2ATask,
+        settleA2AApproval,
+      } = await loadStore();
+      const { claimTaskExecutionLease, releaseTurnExecutionLease } =
+        await import("../agent/run-store.js");
+      const { withExecutionFence } =
+        await import("../agent/execution-fence.js");
+      const task = await createTask(
+        makeMessage("send it"),
+        undefined,
+        undefined,
+        "owner@example.com",
+      );
+      await claimA2ATaskForProcessing(task.id);
+      const approval = await createA2AApproval({
+        taskId: task.id,
+        ownerEmail: "owner@example.com",
+        tool: "send-email",
+        toolInput: { to: "recipient@example.com" },
+        approvalKey: "private-key",
+        callId: "call-1",
+      });
+      await pauseProcessingA2ATask(
+        task.id,
+        makeMessage("Approval required", "agent"),
+      );
+
+      const threadId = a2aTaskLeaseThreadId(task.id);
+      const staleFence = await claimTaskExecutionLease(
+        threadId,
+        task.id,
+        "a2a-approval:first-attempt",
+      );
+      await withExecutionFence(staleFence, () =>
+        claimA2AApproval(approval.id, "owner@example.com"),
+      );
+      await releaseTurnExecutionLease(staleFence);
+      const currentFence = await claimTaskExecutionLease(
+        threadId,
+        task.id,
+        "a2a-approval:recovery",
+      );
+
+      await expect(
+        withExecutionFence(staleFence, () =>
+          settleA2AApproval(approval.id, "completed", "Email sent"),
+        ),
+      ).rejects.toMatchObject({ code: "stale_execution_fence" });
+      await withExecutionFence(currentFence, async () => {
+        await expect(
+          claimA2AApproval(approval.id, "owner@example.com"),
+        ).resolves.toMatchObject({ status: "processing" });
+        await settleA2AApproval(approval.id, "completed", "Email sent");
+      });
+      await releaseTurnExecutionLease(currentFence);
     });
 
     it("refuses an expired approval", async () => {
@@ -634,6 +728,42 @@ describe("task-store lifecycle (real pglite)", () => {
       expect(
         await claimA2AApproval(approval.id, "owner@example.com"),
       ).toBeNull();
+    });
+
+    it("does not create an approval from a replaced worker generation", async () => {
+      const { createA2AApproval, createTask, a2aTaskLeaseThreadId } =
+        await loadStore();
+      const { claimTaskExecutionLease, releaseTurnExecutionLease } =
+        await import("../agent/run-store.js");
+      const { withExecutionFence } =
+        await import("../agent/execution-fence.js");
+      const task = await createTask(makeMessage("send it"));
+      const threadId = a2aTaskLeaseThreadId(task.id);
+      const oldFence = await claimTaskExecutionLease(
+        threadId,
+        task.id,
+        "a2a:first-worker",
+      );
+      await releaseTurnExecutionLease(oldFence);
+      await claimTaskExecutionLease(threadId, task.id, "a2a:replacement");
+
+      await expect(
+        withExecutionFence(oldFence, () =>
+          createA2AApproval({
+            taskId: task.id,
+            ownerEmail: "owner@example.com",
+            tool: "send-email",
+            toolInput: {},
+            approvalKey: "private-key",
+            callId: "call-1",
+          }),
+        ),
+      ).rejects.toMatchObject({ code: "stale_execution_fence" });
+      const { rows } = await dbExec.execute({
+        sql: `SELECT id FROM a2a_approvals WHERE task_id = ?`,
+        args: [task.id],
+      });
+      expect(rows).toEqual([]);
     });
 
     it("refuses approval after the linked task is canceled", async () => {
@@ -666,9 +796,11 @@ describe("task-store lifecycle (real pglite)", () => {
       );
       await updateTask(task.id, { state: "canceled" });
 
-      expect(
-        await claimA2AApproval(approval.id, "owner@example.com"),
-      ).toBeNull();
+      await withTaskExecutionFence(task.id, async () => {
+        expect(
+          await claimA2AApproval(approval.id, "owner@example.com"),
+        ).toBeNull();
+      });
     });
   });
 
@@ -848,6 +980,43 @@ describe("task-store lifecycle (real pglite)", () => {
       });
     });
 
+    it("revokes the worker generation when a live-heartbeat task exceeds its lifetime", async () => {
+      const {
+        createTask,
+        claimA2ATaskForProcessing,
+        failStuckA2ATask,
+        touchProcessingA2ATask,
+        a2aTaskLeaseThreadId,
+      } = await loadStore();
+      const { claimTaskExecutionLease, renewTaskExecutionLease } =
+        await import("../agent/run-store.js");
+      const { withExecutionFence } =
+        await import("../agent/execution-fence.js");
+      const task = await createTask(makeMessage("go"));
+      await claimA2ATaskForProcessing(task.id);
+      const fence = await claimTaskExecutionLease(
+        a2aTaskLeaseThreadId(task.id),
+        task.id,
+        "a2a:expired-worker",
+      );
+      await withExecutionFence(fence, () => touchProcessingA2ATask(task.id));
+
+      expect(
+        await failStuckA2ATask(
+          task.id,
+          Date.now() - 60_000,
+          "exceeded max run time",
+          Date.now() + 60_000,
+        ),
+      ).toBe(true);
+      await expect(renewTaskExecutionLease(fence)).rejects.toMatchObject({
+        code: "stale_execution_fence",
+      });
+      await expect(
+        withExecutionFence(fence, () => touchProcessingA2ATask(task.id)),
+      ).rejects.toMatchObject({ code: "stale_execution_fence" });
+    });
+
     it("does NOT fail when neither updated_at nor created_at cutoff is met", async () => {
       const { createTask, claimA2ATaskForProcessing, failStuckA2ATask } =
         await loadStore();
@@ -861,6 +1030,64 @@ describe("task-store lifecycle (real pglite)", () => {
         Date.now() - 60_000, // created_at (just now) is after this too
       );
       expect(ok).toBe(false);
+    });
+  });
+
+  describe("cancelA2ATask", () => {
+    it("revokes the active worker generation with the cancellation", async () => {
+      const {
+        cancelA2ATask,
+        claimA2ATaskForProcessing,
+        createTask,
+        a2aTaskLeaseThreadId,
+      } = await loadStore();
+      const {
+        beginAgentExecutionStep,
+        claimTaskExecutionLease,
+        claimTurnExecutionLease,
+        insertRun,
+        renewTaskExecutionLease,
+      } = await import("../agent/run-store.js");
+      const { withExecutionFence } =
+        await import("../agent/execution-fence.js");
+      const task = await createTask(makeMessage("go"));
+      await claimA2ATaskForProcessing(task.id);
+      const taskFence = await claimTaskExecutionLease(
+        a2aTaskLeaseThreadId(task.id),
+        task.id,
+        "a2a:canceled-worker",
+      );
+      await insertRun(task.id, task.id, task.id);
+      const runFence = await claimTurnExecutionLease(task.id, task.id, task.id);
+      const step = {
+        ...runFence,
+        stepId: "before-cancel",
+        operationId: "test:canceled-task",
+        toolName: "canceled-task",
+        inputJson: "{}",
+        replayPolicy: "never" as const,
+      };
+
+      await expect(
+        withExecutionFence(taskFence, () =>
+          withExecutionFence(runFence, () => beginAgentExecutionStep(step)),
+        ),
+      ).resolves.toEqual({ status: "execute", wasDispatched: false });
+
+      await expect(cancelA2ATask(task.id)).resolves.toMatchObject({
+        id: task.id,
+        status: { state: "canceled" },
+      });
+      await expect(renewTaskExecutionLease(taskFence)).rejects.toMatchObject({
+        code: "stale_execution_fence",
+      });
+      await expect(
+        withExecutionFence(taskFence, () =>
+          withExecutionFence(runFence, () =>
+            beginAgentExecutionStep({ ...step, stepId: "after-cancel" }),
+          ),
+        ),
+      ).rejects.toMatchObject({ code: "stale_execution_fence" });
     });
   });
 

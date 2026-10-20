@@ -78,6 +78,7 @@ export {
   markDefaultPluginProvided,
   type H3AppShim,
 } from "./framework-request-handler.js";
+export { directHttpActionApprovalRefusal } from "./action-approval.js";
 export { runWithRequestContext } from "./request-context.js";
 export { isSameOriginRequest } from "./request-origin.js";
 export {

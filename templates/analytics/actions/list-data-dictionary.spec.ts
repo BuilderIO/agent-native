@@ -26,7 +26,12 @@ const mocks = vi.hoisted(() => ({
           : null,
     }),
   ),
-  semanticScopeCompatibility: vi.fn(() => 0),
+  semanticScopeCompatibility: vi.fn(
+    (_candidateScope: string, _requestedScope: string) => 0,
+  ),
+  semanticScopeForDictionaryEntry: vi.fn((entry: Record<string, unknown>) =>
+    typeof entry.semanticScope === "string" ? entry.semanticScope : "",
+  ),
   semanticScopeForSearch: vi.fn(() => ""),
 }));
 
@@ -53,6 +58,7 @@ vi.mock("../server/lib/analytics-term-matcher.js", () => ({
   matchSearchFields: mocks.matchSearchFields,
   paginateSearchResults: mocks.paginateSearchResults,
   semanticScopeCompatibility: mocks.semanticScopeCompatibility,
+  semanticScopeForDictionaryEntry: mocks.semanticScopeForDictionaryEntry,
   semanticScopeForSearch: mocks.semanticScopeForSearch,
 }));
 
@@ -79,6 +85,12 @@ describe("list-data-dictionary", () => {
     mocks.sourceIndexDictionaryEntries.mockReturnValue([
       { id: "index-generated", metric: "Generated index entry" },
     ]);
+    mocks.semanticScopeCompatibility.mockReturnValue(0);
+    mocks.semanticScopeForDictionaryEntry.mockImplementation(
+      (entry: Record<string, unknown>) =>
+        typeof entry.semanticScope === "string" ? entry.semanticScope : "",
+    );
+    mocks.semanticScopeForSearch.mockReturnValue("");
   });
 
   it("includes generated index entries in unfiltered, bounded pages", async () => {
@@ -102,6 +114,44 @@ describe("list-data-dictionary", () => {
     );
     expect(result.sourceIndexStatus).toBe("available");
     expect(result.nextPage).toBe("2");
+  });
+
+  it("returns a normalized activity scope for a misclassified active-user metric", async () => {
+    const entry = {
+      id: "synthetic-active-users-weekly",
+      metric: "Active Users (Weekly)",
+      definition:
+        "Distinct active_user_id values per week; activity includes page views and AI chat.",
+      table: "synthetic_active_users",
+      columnsUsed: "active_user_id, root_org_id, event_date, event_type",
+      semanticScope: "analytics_user",
+    };
+    mocks.listOrgSettings.mockResolvedValue({ activeUsers: entry });
+    mocks.listSettingsByPrefix.mockResolvedValue([]);
+    mocks.sourceIndexDictionaryEntries.mockReturnValue([]);
+    mocks.matchSearchFields.mockReturnValue({
+      score: 10,
+      matchedTerms: ["weekly", "active", "user", "organization"],
+    });
+    mocks.semanticScopeForSearch.mockReturnValue("product_activity");
+    mocks.semanticScopeForDictionaryEntry.mockReturnValue("product_activity");
+    mocks.semanticScopeCompatibility.mockImplementation(
+      (candidate: string, requested: string) =>
+        candidate === requested ? 2 : 0,
+    );
+
+    const result = await action.run(
+      { search: "weekly active users by organization", limit: 10 },
+      {} as never,
+    );
+
+    expect(mocks.semanticScopeForDictionaryEntry).toHaveBeenCalledWith(entry);
+    expect(result.results).toMatchObject([
+      {
+        id: "synthetic-active-users-weekly",
+        semanticScope: "product_activity",
+      },
+    ]);
   });
 
   it("keeps saved entries browsable and reports an unreadable source index", async () => {

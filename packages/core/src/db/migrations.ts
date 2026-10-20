@@ -114,7 +114,7 @@ function isMissingRelationError(err: unknown): boolean {
   );
 }
 
-function splitSqlStatements(sql: string): string[] {
+export function splitSqlStatements(sql: string): string[] {
   const out: string[] = [];
   let buf = "";
   let i = 0;

@@ -1,6 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   ResponsiveContainer,
   LineChart,
@@ -14,6 +14,7 @@ import {
   Legend,
 } from "recharts";
 
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -83,8 +84,13 @@ export function ExplorerChart({
     );
   }
 
+  const incomplete = Boolean(
+    result?.partial || result?.truncated || result?.warnings?.length,
+  );
+  let chart: ReactNode;
+
   if (error) {
-    return (
+    chart = (
       <Card>
         <CardContent className="p-6">
           <div className="text-destructive text-sm">
@@ -93,27 +99,41 @@ export function ExplorerChart({
         </CardContent>
       </Card>
     );
-  }
-
-  if (rows.length === 0) {
-    return (
+  } else if (rows.length === 0) {
+    chart = (
       <Card>
         <CardContent className="flex items-center justify-center h-64 text-muted-foreground text-sm">
           {t("explorer.noDataReturned")}
         </CardContent>
       </Card>
     );
+  } else {
+    switch (config.chartType) {
+      case "metric":
+        chart = <MetricView rows={rows} config={config} />;
+        break;
+      case "table":
+        chart = <TableView rows={rows} />;
+        break;
+      case "line":
+      case "bar":
+        chart = <TimeSeriesView rows={rows} config={config} />;
+        break;
+    }
   }
 
-  switch (config.chartType) {
-    case "metric":
-      return <MetricView rows={rows} config={config} />;
-    case "table":
-      return <TableView rows={rows} />;
-    case "line":
-    case "bar":
-      return <TimeSeriesView rows={rows} config={config} />;
-  }
+  return (
+    <>
+      {incomplete && (
+        <Alert role="status">
+          <AlertDescription>
+            {t("explorer.incompleteResultsWarning")}
+          </AlertDescription>
+        </Alert>
+      )}
+      {chart}
+    </>
+  );
 }
 
 function MetricView({

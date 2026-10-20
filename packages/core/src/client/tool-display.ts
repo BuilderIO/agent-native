@@ -1,8 +1,39 @@
+function builderAppToolLabels(
+  labels: Record<string, string>,
+): Record<string, string> {
+  const withFormerNames: Record<string, string> = { ...labels };
+  for (const [name, label] of Object.entries(labels)) {
+    withFormerNames[name.replace("builder", "fusion")] = label;
+  }
+  return withFormerNames;
+}
+
 const TOOL_DISPLAY_NAMES: Record<string, string> = {
   "delete-file": "remove screen",
   "get-design-snapshot": "get screen snapshot",
   "edit-design": "edit screen",
+  // Design's Builder app tools. The "fusion" names are from before the
+  // rename and still appear in saved chats.
+  ...builderAppToolLabels({
+    "send-builder-message": "ask Builder",
+    "apply-builder-edits": "apply edits with Builder",
+    "list-builder-edits": "list Builder edits",
+    "queue-builder-edit": "queue an edit for Builder",
+    "create-builder-app": "create app",
+    "add-builder-screens": "add app screens",
+    "sync-builder-app": "sync app",
+    "push-builder-app": "push app",
+    "deploy-builder-app": "deploy app",
+    "get-builder-deploy-status": "check deploy status",
+  }),
 };
+
+/** A tool's display name, when it has one other than its humanized id. */
+export function toolDisplayName(
+  toolName: string | undefined,
+): string | undefined {
+  return TOOL_DISPLAY_NAMES[(toolName ?? "").trim()];
+}
 
 export function humanizeToolName(toolName: string | undefined): string {
   const raw = (toolName ?? "").trim();

@@ -1,0 +1,71 @@
+---
+title: "Chat em um workspace com múltiplos apps"
+description: "Como o Chat se conecta ao Dispatch e a outros aplicativos, e como o agente dele encontra os aplicativos de um workspace e pede que façam trabalho."
+---
+
+# Chat em um workspace com múltiplos apps
+
+O Chat é um aplicativo entre muitos em um workspace
+[Dispatch](/docs/template-dispatch). Esta página cobre o que isso significa
+na prática: como a conexão funciona e como o agente do Chat pode alcançar os
+outros aplicativos ao redor. Veja [Chat](/docs/template-chat) para a visão
+geral.
+
+## Como o Chat se conecta ao Dispatch
+
+Se isso é automático depende de como o Chat e o Dispatch foram configurados
+juntos, não de se um deles está hospedado ou em execução local.
+
+### Mesmo workspace: automático
+
+Se o Chat e o Dispatch foram gerados ou adicionados juntos em um único
+workspace Agent-Native (via `create` ou `add-app`) e implantados como uma
+única unidade, eles já compartilham um `.env`, um `A2A_SECRET` e um registro
+de workspace. A descoberta e as chamadas A2A autenticadas simplesmente
+funcionam, sem nada para configurar, esteja esse workspace em execução na
+sua máquina ou em produção.
+
+### Implantações separadas: um passo manual
+
+Se o Chat e o Dispatch são dois projetos Agent-Native criados de forma
+independente, eles não compartilham um segredo e ainda não podem se chamar.
+Conectá-los exige um passo manual em cada lado: adicionar um recurso
+`remote-agents/<id>.json` com um segredo compartilhado, a partir de
+Configurações → Agente → Subagentes (Conectar agente), ou
+Dispatch → Agentes → Adicionar agente externo. Veja [Protocolo
+A2A](/docs/a2a-protocol) para o passo a passo completo.
+
+Para verificar em qual situação você está, pergunte ao agente de qualquer um
+dos aplicativos "quais aplicativos você consegue ver?" Se o Chat estiver
+ausente da resposta do Dispatch, você está no segundo caso.
+
+## Estratégias de integração
+
+**Pedindo ajuda a outros aplicativos.** O agente do Chat pode consultar quais
+aplicativos estão no workspace e o que cada um consegue fazer. Em seguida,
+ele pode pedir a um deles que execute uma action específica e usar a resposta
+na conversa. Por exemplo, em um workspace com o Calendário, você poderia
+perguntar ao Chat "o que tenho na agenda amanhã?" e o agente entrega essa
+pergunta ao Calendário em vez de adivinhar. O Chat não precisa guardar a
+conexão do Calendário com o Google. O Calendário já a tem.
+
+**Chat como porta de entrada.** Como o agente de cada aplicativo é acessível
+da mesma forma, uma conversa no Chat é um lugar natural para iniciar um
+trabalho que vive em outros aplicativos. Você descreve o que quer em um só
+lugar, e o agente decide qual aplicativo deve cuidar disso. O Chat funciona
+bem aqui porque não tem um domínio próprio para atrapalhar.
+
+**Permanecendo desacoplado.** O Chat nunca precisa das credenciais de outro
+aplicativo, e nenhum outro aplicativo precisa das do Chat. Cada aplicativo
+mantém suas próprias conexões e seus próprios dados. O Chat apenas repassa uma
+solicitação e recebe uma resposta.
+
+## Próximos passos
+
+- [**Chat**](/docs/template-chat) — a visão geral
+- [**Funcionalidades**](/docs/template-chat-features) — conversas, a action de exemplo, equipes e páginas de administração
+- [**Conversar com o Agent**](/docs/template-chat-agent) — o que o agente consegue ver e prompts para experimentar
+- [**Guia do desenvolvedor**](/docs/template-chat-developers) — início rápido, actions, a rota de chat e como adicionar sua primeira funcionalidade
+- [**Dispatch**](/docs/template-dispatch) — o plano de controle do workspace sobre o qual esses padrões funcionam
+- [**Protocolo A2A**](/docs/a2a-protocol) — como os aplicativos se descobrem, se autenticam e se chamam entre si
+- [**Workspaces multi-app**](/docs/multi-app-workspace) — o padrão geral de compor aplicativos próprios em vez de aninhá-los

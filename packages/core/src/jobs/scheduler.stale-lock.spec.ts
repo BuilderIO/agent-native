@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { ActiveRun, RunChunkControl } from "../agent/run-manager.js";
 import * as runStore from "../agent/run-store.js";
 import { getThread } from "../chat-threads/store.js";
 import {
@@ -12,6 +13,16 @@ import * as runHistory from "./run-history.js";
 import * as schedulerHealth from "./scheduler-health.js";
 import { recordAutomationSchedulerHealth } from "./scheduler-health.js";
 import { processRecurringJobs, runJobNow } from "./scheduler.js";
+
+function createRunChunkControl(signal: AbortSignal): RunChunkControl {
+  return {
+    turnSignal: signal,
+    chunkSignal: signal,
+    chunkBoundaryReason: () => null,
+    beginChunk: () => signal,
+    flushEvents: async () => {},
+  };
+}
 
 const resourceListAllOwnersMock = vi.hoisted(() => vi.fn());
 const resourcePutMock = vi.hoisted(() => vi.fn());
@@ -62,7 +73,7 @@ vi.mock("../chat-threads/store.js", () => ({
     threadData: "{}",
     messageCount: 0,
   })),
-  updateThreadData: vi.fn(async () => {}),
+  updateThreadData: vi.fn(async () => true),
   withThreadDataLock: async (_id: string, fn: () => Promise<unknown>) => fn(),
 }));
 
@@ -178,11 +189,12 @@ function interruptedScheduledJob(runCount = 1) {
     ]),
     vi
       .spyOn(runStore, "getCurrentTurnRunEventsForThread")
-      .mockImplementation(async (...args) =>
-        (await runStore.getCurrentTurnEventsForThread(...args)).map(
+      .mockImplementation(async (...args) => [
+        ...(await runStore.getCurrentTurnEventsForThread(...args)).map(
           (event, seq) => ({ runId: history.runId, seq, event }),
         ),
-      ),
+        ...startedRunJournal(),
+      ]),
     vi
       .spyOn(runStore, "tryClaimRunSlot")
       .mockImplementation(async (_threadId, _runId, _maxStaleMs, options) => {
@@ -203,6 +215,19 @@ const recoveryDeps = {
   engine: testEngine,
   model: "test-model",
 };
+
+function startedRunJournal() {
+  const startedRun = startRunMock.mock.results.at(-1)?.value as
+    | Pick<ActiveRun, "runId" | "events">
+    | undefined;
+  return (
+    startedRun?.events.map(({ event, seq }) => ({
+      runId: startedRun.runId,
+      seq,
+      event,
+    })) ?? []
+  );
+}
 
 describe("stale automation run-lock recovery across trigger types", () => {
   it("settles a disabled scheduled firing without starting its successor", async () => {
@@ -237,6 +262,7 @@ describe("stale automation run-lock recovery across trigger types", () => {
   });
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(runStore, "getCompletedAgentExecutionSteps").mockResolvedValue([]);
     dbExecuteMock.mockResolvedValue({ rows: [{ "1": 1 }], rowsAffected: 1 });
     getDbExecMock.mockReturnValue({
       execute: dbExecuteMock,
@@ -287,6 +313,7 @@ describe("stale automation run-lock recovery across trigger types", () => {
         runFn: (
           send: (event: unknown) => void,
           signal: AbortSignal,
+          control: RunChunkControl,
         ) => Promise<void>,
         onComplete?: (run: { status: string }) => void | Promise<void>,
       ) => {
@@ -298,18 +325,25 @@ describe("stale automation run-lock recovery across trigger types", () => {
           abort,
           events: [] as { event: unknown; seq: number }[],
         };
-        void Promise.resolve().then(async () => {
+        const finalized = Promise.resolve().then(async () => {
           try {
-            await runFn((event) => {
-              activeRun.events.push({ event, seq: activeRun.events.length });
-            }, abort.signal);
+            await runFn(
+              (event) => {
+                activeRun.events.push({
+                  event,
+                  seq: activeRun.events.length,
+                });
+              },
+              abort.signal,
+              createRunChunkControl(abort.signal),
+            );
             activeRun.status = "completed";
           } catch {
             activeRun.status = "errored";
           }
           await onComplete?.(activeRun);
         });
-        return activeRun;
+        return { ...activeRun, finalized };
       },
     );
     recordUsageMock.mockResolvedValue(undefined);
@@ -1888,13 +1922,16 @@ describe("stale automation run-lock recovery across trigger types", () => {
       vi
         .spyOn(runStore, "getCurrentTurnEventsForThread")
         .mockResolvedValue(emailEvents),
-      vi.spyOn(runStore, "getCurrentTurnRunEventsForThread").mockResolvedValue(
-        emailEvents.map((event, seq) => ({
-          runId: "job-killed",
-          seq,
-          event,
-        })),
-      ),
+      vi
+        .spyOn(runStore, "getCurrentTurnRunEventsForThread")
+        .mockImplementation(async () => [
+          ...emailEvents.map((event, seq) => ({
+            runId: "job-killed",
+            seq,
+            event,
+          })),
+          ...startedRunJournal(),
+        ]),
       vi
         .spyOn(runStore, "tryClaimRunSlot")
         .mockResolvedValue({ claimed: true, activeRunId: null }),

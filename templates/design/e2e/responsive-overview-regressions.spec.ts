@@ -162,10 +162,13 @@ async function designFileIds(
 }
 
 function breakpointRules(html: string) {
-  const block =
-    /<style data-agent-native-breakpoints>([\s\S]*?)<\/style>/.exec(
-      html,
-    )?.[1] ?? "";
+  const block = [
+    ...html.matchAll(
+      /<style data-agent-native-breakpoint(?:s|-range="[^"]*")>([\s\S]*?)<\/style>/g,
+    ),
+  ]
+    .map(([, css]) => css)
+    .join("\n");
   return [
     ...block.matchAll(
       /@media ([^{]+?)\s*\{\s*([^{]+?)\s*\{\s*([^}]*?)\s*\}\s*\}/g,
@@ -214,8 +217,7 @@ async function renderedOffset(
   };
 }
 
-// fixme: product bug: Canvas and saved file disagree: the saved file holds only the max-width 767px rule and the base inline left:40px, but the Desktop and
-test.fixme("responsive frame previews preserve content fit and scope selection", async ({
+test("responsive frame previews preserve content fit and scope selection", async ({
   app,
   page,
   request,
@@ -292,14 +294,13 @@ test.fixme("responsive frame previews preserve content fit and scope selection",
   await app.settled();
   expect(
     breakpointRules(await designFileContent(request, designId, fileId!)),
-  ).toEqual([["(max-width: 767px)", "hero", "left: 137px;"]]);
+  ).toEqual([["(max-width: 767px)", "hero", "left: 137px !important;"]]);
   await expect
     .poll(() => heroXByFrame(page, fileId!))
     .toEqual({ desktop: 40, tablet: 40, mobile: 137 });
 });
 
-// fixme: product bug: The 'This breakpoint only' edit saves @media (max-width: 1279px) hero left:155px, which ignores the scope and covers Mobile too (masked
-test.fixme("after a Mobile edit, a 'This breakpoint only' X edit at Tablet adds exactly one tablet-range rule and moves only the Tablet frame", async ({
+test("after a Mobile edit, a 'This breakpoint only' X edit at Tablet adds exactly one tablet-range rule and moves only the Tablet frame", async ({
   app,
   page,
   request,
@@ -352,7 +353,7 @@ test.fixme("after a Mobile edit, a 'This breakpoint only' X edit at Tablet adds 
   await app.settled();
   expect(
     breakpointRules(await designFileContent(request, designId, fileId!)),
-  ).toEqual([["(max-width: 767px)", "hero", "left: 137px;"]]);
+  ).toEqual([["(max-width: 767px)", "hero", "left: 137px !important;"]]);
 
   const tabletHero = page
     .locator(`iframe[data-screen-iframe-id="${fileId}::bp-768"]`)
@@ -397,8 +398,12 @@ test.fixme("after a Mobile edit, a 'This breakpoint only' X edit at Tablet adds 
   expect(
     breakpointRules(await designFileContent(request, designId, fileId!)),
   ).toEqual([
-    ["(max-width: 767px)", "hero", "left: 137px;"],
-    ["(min-width: 768px) and (max-width: 1279px)", "hero", "left: 155px;"],
+    ["(max-width: 767px)", "hero", "left: 137px !important;"],
+    [
+      "(min-width: 768px) and (max-width: 1279px)",
+      "hero",
+      "left: 155px !important;",
+    ],
   ]);
   await expect
     .poll(() => heroXByFrame(page, fileId!))
@@ -589,8 +594,7 @@ test("screen deletion explicitly includes and removes responsive variants", asyn
   expect(Object.keys(data.canvasFrames ?? {})).toEqual([fileIds[1]]);
 });
 
-// fixme: intermittent: Passed in its worker run and in a solo re-run, failed once in the full confirmation run (2 of 3).
-test.fixme("generated variation groups reserve non-overlapping breakpoint rows, and custom screen positions survive a reopen", async ({
+test("generated variation groups reserve non-overlapping breakpoint rows, and custom screen positions survive a reopen", async ({
   app,
   page,
   request,
@@ -774,8 +778,7 @@ test("adding a breakpoint reflows screen rows before their previews overlap", as
   await expect.poll(overlappingPairs).toEqual([]);
 });
 
-// fixme: product bug: After Cmd+D the selected 'Screen 4 copy' card sits at page x 1341–2006, entirely under the right inspector (visible canvas ends at 1259)
-test.fixme("overview screen creation and duplicate undo/redo keep screens selected and visible", async ({
+test("overview screen creation and duplicate undo/redo keep screens selected and visible", async ({
   app,
   page,
   request,

@@ -13,6 +13,7 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 
 import { dumpSchemaSql } from "../packages/core/src/db/schema-catalog.js";
+import { assertIsolatedPglite, useIsolatedPglite } from "./isolated-pglite.js";
 
 function arg(name: string, fallback?: string): string {
   const index = process.argv.indexOf(`--${name}`);
@@ -24,10 +25,25 @@ function arg(name: string, fallback?: string): string {
 const core = path.resolve(arg("core", "packages/core/src"));
 const out = path.resolve(arg("out"));
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "release-schema-"));
-process.env.DATABASE_URL = `pglite:${dataDir}`;
+const databaseUrl = useIsolatedPglite(dataDir);
 
 const load = (rel: string) => import(pathToFileURL(path.join(core, rel)).href);
-const { closeDbExec, getDbExec } = await load("db/client.ts");
+const client = await load("db/client.ts");
+const { closeDbExec, getDbExec } = client;
+// An older core may predate some of these resolvers; check the ones it has.
+assertIsolatedPglite(
+  databaseUrl,
+  Object.fromEntries(
+    [
+      "getDatabaseUrl",
+      "getRuntimeDatabaseUrl",
+      "getLocalDatabaseUrl",
+      "getMigrationDatabaseUrl",
+    ]
+      .filter((name) => typeof client[name] === "function")
+      .map((name) => [name, () => client[name]()]),
+  ),
+);
 const { withMigrationRuntime } = await load("db/migration-runtime.ts");
 const { runFrameworkReleaseMigrations } = await load(
   "server/release-migrations.ts",

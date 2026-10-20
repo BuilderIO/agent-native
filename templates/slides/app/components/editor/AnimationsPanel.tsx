@@ -27,7 +27,10 @@ import { nanoid } from "nanoid";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { getRenderedSlideSource } from "@/components/deck/SlideRenderer";
-import { setBuildState } from "@/components/presentation/slide-build-steps";
+import {
+  buildClickCount,
+  setBuildState,
+} from "@/components/presentation/slide-build-steps";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -37,46 +40,43 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type {
+  AnimationTrigger,
   AnimationType,
   Slide,
   SlideAnimation,
 } from "@/context/DeckContext";
 import {
   animationElementKey,
+  NO_ANIMATION_TARGETS,
   getElementPreview,
-  getSlideAnimationTargetKey,
+  getSlideAnimationTargetKeys,
   getSlideAnimationTargetPreview,
   resolveRevealSteps,
+  revealOutcomeClicks,
+  revealStepClicks,
   revealStepsOf,
   storedOrdinalAtPath,
   type RevealUnresolvedReason,
   type SelectedAnimationTarget,
 } from "@/lib/slide-animation-elements";
+import {
+  introducedUnresolvedReason,
+  REVEAL_REASON_LABEL_KEY,
+} from "@/lib/slide-animation-quick-pick";
 
 // How long each reveal stays on screen in Play before the next one starts.
 const PREVIEW_STEP_MS = 450;
-
-const REASON_LABEL_KEY: Record<RevealUnresolvedReason, string> = {
-  "stale-path": "animations.issueStalePath",
-  "missing-element": "animations.issueMissingElement",
-  "duplicate-after-expansion": "animations.issueDuplicate",
-};
-
-// Same rule as server/lib/validate-slide-animations.ts: a reveal keeps its identity
-// while its id and target stay the same.
-function revealIdentity(animation: SlideAnimation): string {
-  return JSON.stringify([
-    animation.id,
-    animation.elementIndex,
-    animation.elementPath ?? null,
-  ]);
-}
 
 const ANIM_TYPES: { value: AnimationType; labelKey: string }[] = [
   { value: "appear", labelKey: "animations.appear" },
   { value: "fade", labelKey: "animations.fade" },
   { value: "slide-up", labelKey: "animations.slideUp" },
   { value: "zoom", labelKey: "animations.zoom" },
+];
+
+const ANIM_TRIGGERS: { value: AnimationTrigger; labelKey: string }[] = [
+  { value: "on-click", labelKey: "animations.onClick" },
+  { value: "with-previous", labelKey: "animations.withPrevious" },
 ];
 
 interface SortableItemProps {
@@ -88,7 +88,10 @@ interface SortableItemProps {
   /** The paragraphs a "By paragraph" reveal steps through, in order. */
   paragraphs: string[];
   stepNumber: number;
+  /** The first reveal has nothing to play with, so it always waits for a click. */
+  isFirst: boolean;
   onChangeType: (id: string, type: AnimationType) => void;
+  onChangeTrigger: (id: string, trigger: AnimationTrigger) => void;
   onChangeByParagraph: (id: string, byParagraph: boolean) => void;
   onRemove: (id: string) => void;
   onToggleExpanded: (id: string) => void;
@@ -101,12 +104,15 @@ function SortableAnimationItem({
   issue,
   paragraphs,
   stepNumber,
+  isFirst,
   onChangeType,
+  onChangeTrigger,
   onChangeByParagraph,
   onRemove,
   onToggleExpanded,
 }: SortableItemProps) {
   const t = useT();
+  const trigger = isFirst ? "on-click" : (anim.trigger ?? "on-click");
   const {
     attributes,
     listeners,
@@ -142,7 +148,7 @@ function SortableAnimationItem({
           )}
         </button>
         <span className="w-4 shrink-0 text-xs text-muted-foreground/60">
-          {stepNumber}
+          {trigger === "with-previous" ? "" : stepNumber}
         </span>
         <button
           type="button"
@@ -159,7 +165,10 @@ function SortableAnimationItem({
                 "animations.appear",
             )}
             <span className="text-muted-foreground">
-              {` (${t("animations.onClick")})`}
+              {` (${t(
+                ANIM_TRIGGERS.find((option) => option.value === trigger)
+                  ?.labelKey ?? "animations.onClick",
+              )})`}
             </span>
           </span>
           <span className="block truncate text-xs text-muted-foreground">
@@ -170,7 +179,7 @@ function SortableAnimationItem({
           </span>
           {issue && (
             <span className="block text-xs text-destructive">
-              {t(REASON_LABEL_KEY[issue])}
+              {t(REVEAL_REASON_LABEL_KEY[issue])}
             </span>
           )}
         </button>
@@ -216,9 +225,30 @@ function SortableAnimationItem({
             </SelectContent>
           </Select>
 
-          {/* The Trigger dropdown is hidden. It offered only "On click", and
-              "After previous" and "With previous" are not implemented or
-              measured against Google Slides yet, so the control had no effect. */}
+          <Select
+            value={trigger}
+            onValueChange={(value) =>
+              onChangeTrigger(anim.id, value as AnimationTrigger)
+            }
+          >
+            <SelectTrigger
+              className="h-12 w-full rounded-lg border-border bg-background px-3 text-base"
+              aria-label={t("animations.trigger")}
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {ANIM_TRIGGERS.map((trigger) => (
+                <SelectItem
+                  key={trigger.value}
+                  value={trigger.value}
+                  disabled={isFirst && trigger.value === "with-previous"}
+                >
+                  {t(trigger.labelKey)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
           <label className="flex items-center gap-3 px-0.5 py-2 text-base text-foreground">
             <input
@@ -249,14 +279,14 @@ function SortableAnimationItem({
 
 interface AnimationsPanelProps {
   slide: Slide;
-  selectedTarget?: SelectedAnimationTarget | null;
+  selectedTargets?: SelectedAnimationTarget[];
   onUpdateSlide: (updates: Partial<Omit<Slide, "id">>) => void;
   onClose: () => void;
 }
 
 export function AnimationsPanel({
   slide,
-  selectedTarget = null,
+  selectedTargets = NO_ANIMATION_TARGETS,
   onUpdateSlide,
   onClose,
 }: AnimationsPanelProps) {
@@ -317,24 +347,37 @@ export function AnimationsPanel({
     return paragraphs;
   }, [animations, outcomes]);
 
-  const selectedTargetKey = selectedTarget
-    ? animationElementKey(selectedTarget.elementPath)
-    : null;
-  const selectedAnimation = useMemo(
-    () =>
-      selectedTargetKey
-        ? (animations.find(
-            (animation) =>
-              getSlideAnimationTargetKey(slide.content, animation) ===
-              selectedTargetKey,
-          ) ?? null)
-        : null,
-    [animations, selectedTargetKey, slide.content],
+  // The same clicks playback runs, so a with-previous reveal shows its
+  // neighbor's number.
+  const clickNumberByIndex = useMemo(
+    () => revealOutcomeClicks(outcomes),
+    [outcomes],
   );
 
+  // Which selected objects already have an animation. Adding covers the rest.
+  const animationKeys = useMemo(
+    () => getSlideAnimationTargetKeys(slide.content, animations),
+    [animations, slide.content],
+  );
+  const newTargets = useMemo(() => {
+    const animated = new Set(animationKeys);
+    return selectedTargets.filter(
+      (target) => !animated.has(animationElementKey(target.elementPath)),
+    );
+  }, [animationKeys, selectedTargets]);
+  const firstSelectedAnimationId = useMemo(() => {
+    const selected = new Set(
+      selectedTargets.map((target) => animationElementKey(target.elementPath)),
+    );
+    const index = animationKeys.findIndex((key) => key && selected.has(key));
+    return animations[index]?.id ?? null;
+  }, [animationKeys, animations, selectedTargets]);
+
   useEffect(() => {
-    if (selectedAnimation) setExpandedAnimationId(selectedAnimation.id);
-  }, [selectedAnimation]);
+    if (firstSelectedAnimationId) {
+      setExpandedAnimationId(firstSelectedAnimationId);
+    }
+  }, [firstSelectedAnimationId]);
 
   // A list is refused only when it introduces a reveal that does not resolve. A
   // reveal the stored list already had unresolved may stay or leave, so a partial
@@ -342,19 +385,7 @@ export function AnimationsPanel({
   // goes through.
   const commitAnimations = useCallback(
     (next: SlideAnimation[]): boolean => {
-      const alreadyUnresolved = new Set(
-        outcomes.flatMap((outcome, index) =>
-          outcome.ok ? [] : [revealIdentity(animations[index]!)],
-        ),
-      );
-      const [failed] = resolveRevealSteps(storedRoot, next).flatMap(
-        (outcome, index) => {
-          if (outcome.ok) return [];
-          return alreadyUnresolved.has(revealIdentity(next[index]!))
-            ? []
-            : [outcome.reason];
-        },
-      );
+      const failed = introducedUnresolvedReason(storedRoot, animations, next);
       if (failed) {
         setRefusedChange(failed);
         return false;
@@ -364,7 +395,7 @@ export function AnimationsPanel({
       onUpdateSlide({ animations: next });
       return true;
     },
-    [animations, onUpdateSlide, outcomes, storedRoot],
+    [animations, onUpdateSlide, storedRoot],
   );
 
   const handleDragEnd = useCallback(
@@ -383,18 +414,20 @@ export function AnimationsPanel({
     [animations, commitAnimations],
   );
 
-  const addAnimation = useCallback(() => {
-    if (!selectedTarget || selectedAnimation) return;
-    const animation: SlideAnimation = {
+  // The first new object waits for a click; the rest play with it.
+  const addAnimations = useCallback(() => {
+    if (newTargets.length === 0) return;
+    const added: SlideAnimation[] = newTargets.map((target, index) => ({
       id: nanoid(6),
-      elementIndex: selectedTarget.elementIndex,
-      elementPath: selectedTarget.elementPath,
+      elementIndex: target.elementIndex,
+      elementPath: target.elementPath,
+      ...(index > 0 ? { trigger: "with-previous" as const } : {}),
       type: "appear",
-    };
-    if (commitAnimations([...animations, animation])) {
-      setExpandedAnimationId(animation.id);
+    }));
+    if (commitAnimations([...animations, ...added])) {
+      setExpandedAnimationId(added[0]!.id);
     }
-  }, [animations, commitAnimations, selectedAnimation, selectedTarget]);
+  }, [animations, commitAnimations, newTargets]);
 
   const removeAnimation = useCallback(
     (id: string) => {
@@ -409,6 +442,17 @@ export function AnimationsPanel({
       commitAnimations(
         animations.map((animation) =>
           animation.id === id ? { ...animation, type } : animation,
+        ),
+      );
+    },
+    [animations, commitAnimations],
+  );
+
+  const changeTrigger = useCallback(
+    (id: string, trigger: AnimationTrigger) => {
+      commitAnimations(
+        animations.map((animation) =>
+          animation.id === id ? { ...animation, trigger } : animation,
         ),
       );
     },
@@ -482,7 +526,12 @@ export function AnimationsPanel({
       return;
     }
     const targets = elements as Element[];
-    const reveals = steps.map((step) => step.animation);
+    const clicks = revealStepClicks(steps);
+    const reveals = steps.map((step, index) => ({
+      ...step.animation,
+      click: clicks[index]!,
+    }));
+    const clickCount = buildClickCount(reveals);
 
     const rect = slideBox.getBoundingClientRect();
     const overlay = document.createElement("div");
@@ -503,12 +552,12 @@ export function AnimationsPanel({
       if (event.key === "Escape") stop();
     }
     function revealNext() {
-      if (shown < targets.length) {
+      if (shown < clickCount) {
         setBuildState(targets, reveals, shown + 1, shown);
         shown += 1;
       }
       timer = setTimeout(
-        shown < targets.length ? revealNext : stop,
+        shown < clickCount ? revealNext : stop,
         PREVIEW_STEP_MS,
       );
     }
@@ -522,9 +571,10 @@ export function AnimationsPanel({
 
   useEffect(() => stopPreview, [stopPreview]);
 
-  const addButtonLabel = selectedTarget
-    ? t("animations.addTransition")
-    : t("animations.selectObject");
+  const addButtonLabel =
+    selectedTargets.length > 0
+      ? t("animations.addTransition")
+      : t("animations.selectObject");
 
   return (
     <div className="flex h-full w-72 min-w-0 flex-col bg-background">
@@ -548,8 +598,8 @@ export function AnimationsPanel({
             type="button"
             variant="outline"
             className="h-10 w-full justify-start gap-2"
-            disabled={!selectedTarget || Boolean(selectedAnimation)}
-            onClick={addAnimation}
+            disabled={newTargets.length === 0}
+            onClick={addAnimations}
           >
             <IconPlus className="size-4 text-primary" />
             {addButtonLabel}
@@ -578,8 +628,10 @@ export function AnimationsPanel({
                   preview={previewByAnimationId[animation.id] ?? ""}
                   issue={issueByAnimationId[animation.id] ?? null}
                   paragraphs={paragraphsByAnimationId[animation.id] ?? []}
-                  stepNumber={index + 1}
+                  stepNumber={clickNumberByIndex[index] || index + 1}
+                  isFirst={index === 0}
                   onChangeType={changeType}
+                  onChangeTrigger={changeTrigger}
                   onChangeByParagraph={changeByParagraph}
                   onRemove={removeAnimation}
                   onToggleExpanded={(id) =>
@@ -597,13 +649,14 @@ export function AnimationsPanel({
       <div className="shrink-0 space-y-2 border-t border-border p-4">
         {refusedChange ? (
           <p role="alert" className="text-sm text-destructive">
-            {t(REASON_LABEL_KEY[refusedChange])}{" "}
+            {t(REVEAL_REASON_LABEL_KEY[refusedChange])}{" "}
             {t("animations.changeNotApplied")}
           </p>
         ) : (
           shownPlayReason && (
             <p role="alert" className="text-sm text-destructive">
-              {t(REASON_LABEL_KEY[shownPlayReason])} {t("animations.blocked")}
+              {t(REVEAL_REASON_LABEL_KEY[shownPlayReason])}{" "}
+              {t("animations.blocked")}
             </p>
           )
         )}

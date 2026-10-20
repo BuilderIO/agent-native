@@ -101,6 +101,7 @@ const messages = {
       pr_observed: "PR observado",
       auto_approved: "Aprobado automáticamente",
       merged: "Fusionado",
+      resolved: "Resuelto",
     },
     inboxColumnAutomation: "Automatización",
     inboxRouting: {
@@ -277,6 +278,11 @@ const messages = {
     inboxTitle: "Bandeja de observaciones",
     inboxTab: "Bandeja",
     inboxBackToList: "Volver a la bandeja",
+    inboxRowActions: "Acciones de {{title}}",
+    inboxMarkResolved: "Marcar como resuelto",
+    inboxSendBackToAutomation: "Devolver a la automatización",
+    inboxOutcomeUpdated: "Estado actualizado",
+    inboxOutcomeFailed: "No se pudo actualizar el estado",
     inboxDescription:
       "Evidencia que entra en la fábrica antes del trabajo autónomo.",
     selectObservation:
