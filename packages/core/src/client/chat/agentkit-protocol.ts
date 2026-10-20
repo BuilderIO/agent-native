@@ -2100,7 +2100,10 @@ export function createAgentKitProtocolAdapter(
       listeners: new Set(),
     };
     const indexedRun = indexRun(run, turn.runId ?? input.runId, true);
-    if (indexedRun !== run) return indexedRun;
+    if (indexedRun !== run) {
+      await closeDiscardedTurnEvents(turn);
+      return indexedRun;
+    }
     if (restoreRead) run.initialAuthorityRead = restoreRead;
     if (state && "pendingConnectionRequestId" in state) {
       run.restoredPendingConnectionRequestId = state.pendingConnectionRequestId;

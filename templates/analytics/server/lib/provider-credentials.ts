@@ -353,13 +353,20 @@ async function resolveWorkspaceOAuthProviderCredential(
   }
   const contextOrgId = options.ctx.orgId?.trim();
   const connectionOrgId = resolvedConnection.connection.orgId?.trim();
+  const connectionScope =
+    resolvedConnection.connection.config.workspaceConnectionScope;
+  // Older connections encode organization scope in their unrestricted ACLs.
+  const legacyOrganizationScope =
+    connectionScope === undefined &&
+    (resolvedConnection.connection.allowedUsers?.length ?? 0) === 0 &&
+    (resolvedConnection.connection.allowedUserGroups?.length ?? 0) === 0 &&
+    (resolvedConnection.connection.allowedApps?.length ?? 0) === 0;
   if (
     options.ctx.credentialScope === "org" &&
     (!contextOrgId ||
       !connectionOrgId ||
       connectionOrgId !== contextOrgId ||
-      resolvedConnection.connection.config.workspaceConnectionScope !==
-        "organization")
+      (connectionScope !== "organization" && !legacyOrganizationScope))
   ) {
     return null;
   }

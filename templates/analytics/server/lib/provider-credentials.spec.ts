@@ -565,6 +565,91 @@ describe("analytics provider credentials", () => {
     });
   });
 
+  it("allows a legacy all-organization OAuth connection from its ACLs", async () => {
+    mocks.workspaceConnectionResult = {
+      available: true,
+      connection: {
+        id: "github-legacy-org-connection",
+        ownerEmail: "owner@example.test",
+        orgId: "org-1",
+        label: "Organization GitHub",
+        allowedApps: [],
+        allowedUsers: [],
+        allowedUserGroups: [],
+        config: { credentialMode: "oauth" },
+      },
+      appAccess: { available: true, mode: "all-apps" },
+      reason: "Available.",
+    };
+    mocks.oauthResult = { accessToken: "org-oauth-token" };
+
+    await expect(
+      resolveAnalyticsProviderCredential({
+        provider: "github",
+        keys: ["GITHUB_TOKEN"],
+        ctx: {
+          userEmail: "owner@example.test",
+          orgId: "org-1",
+          credentialScope: "org",
+        },
+      }),
+    ).resolves.toMatchObject({
+      value: "org-oauth-token",
+      source: "workspace_connection",
+      scope: "org",
+      scopeId: "org-1",
+      connectionId: "github-legacy-org-connection",
+    });
+  });
+
+  it.each([
+    {
+      label: "user ACLs",
+      allowedApps: [],
+      allowedUsers: ["owner@example.test"],
+      allowedUserGroups: [],
+    },
+    {
+      label: "user-group ACLs",
+      allowedApps: [],
+      allowedUsers: [],
+      allowedUserGroups: ["analytics-team"],
+    },
+    {
+      label: "app ACLs",
+      allowedApps: ["analytics"],
+      allowedUsers: [],
+      allowedUserGroups: [],
+    },
+  ])("does not infer legacy organization scope from $label", async (acl) => {
+    mocks.workspaceConnectionResult = {
+      available: true,
+      connection: {
+        id: "github-legacy-scoped-connection",
+        ownerEmail: "owner@example.test",
+        orgId: "org-1",
+        ...acl,
+        config: { credentialMode: "oauth" },
+      },
+      appAccess: { available: true, mode: "explicit-grant" },
+      reason: "Available.",
+    };
+    mocks.oauthResult = { accessToken: "scoped-oauth-token" };
+
+    await expect(
+      resolveAnalyticsProviderCredential({
+        provider: "github",
+        keys: ["GITHUB_TOKEN"],
+        ctx: {
+          userEmail: "owner@example.test",
+          orgId: "org-1",
+          credentialScope: "org",
+        },
+      }),
+    ).resolves.toBeNull();
+    expect(mocks.oauthCalls).toEqual([]);
+  });
+
   it("does not promote a caller-owned OAuth connection to org scope", async () => {
     mocks.workspaceConnectionResult = {
       available: true,

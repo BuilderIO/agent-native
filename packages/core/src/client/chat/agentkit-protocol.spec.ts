@@ -4105,6 +4105,73 @@ describe("createAgentKitProtocolAdapter", () => {
     await transport.dispose();
   });
 
+  it("closes duplicate event streams when concurrent restores race", async () => {
+    let releaseResumes!: () => void;
+    const resumeGate = new Promise<void>((resolve) => {
+      releaseResumes = resolve;
+    });
+    let reportBothResumes!: () => void;
+    const bothResumes = new Promise<void>((resolve) => {
+      reportBothResumes = resolve;
+    });
+    let resumeCount = 0;
+    const turnClosed = [vi.fn(), vi.fn()];
+    const iteratorClosed = [
+      vi.fn(async () => ({ done: true as const, value: undefined })),
+      vi.fn(async () => ({ done: true as const, value: undefined })),
+    ];
+    const runtime = createRuntime(
+      async function* (): AsyncIterable<AgentChatRuntimeEvent> {},
+      {
+        capabilities: {
+          messages: { streaming: true, history: true, attachments: true },
+          resumableRuns: true,
+        },
+        async resume({ sessionId, runId }) {
+          const index = resumeCount++;
+          if (resumeCount === 2) reportBothResumes();
+          await resumeGate;
+          return {
+            id: "restored-turn",
+            sessionId,
+            runId,
+            events: {
+              [Symbol.asyncIterator]: () => ({
+                next: () =>
+                  new Promise<IteratorResult<AgentChatRuntimeEvent>>(() => {}),
+                return: iteratorClosed[index],
+              }),
+            },
+            closeEvents: turnClosed[index],
+          };
+        },
+      },
+    );
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const first = transport
+      .subscribeToRun({ threadId: "thread-1", runId: "restored-run" })
+      [Symbol.asyncIterator]();
+    const second = transport
+      .subscribeToRun({ threadId: "thread-1", runId: "restored-run" })
+      [Symbol.asyncIterator]();
+    const firstEvent = first.next();
+    const secondEvent = second.next();
+
+    await bothResumes;
+    releaseResumes();
+    await Promise.all([firstEvent, secondEvent]);
+
+    expect(
+      turnClosed.filter((close) => close.mock.calls.length > 0),
+    ).toHaveLength(1);
+    expect(
+      iteratorClosed.filter((close) => close.mock.calls.length > 0),
+    ).toHaveLength(1);
+    await first.return?.();
+    await second.return?.();
+    await transport.dispose();
+  });
+
   it("omits a missing runtime turn id from restored run metadata", async () => {
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
       yield { type: "done", reason: "complete" };
