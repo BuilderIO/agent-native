@@ -31,7 +31,7 @@ const LOOPBACK_INSTANCE_HEADER = "x-agent-native-loopback-instance";
 const GLOBAL_SETUP_BUDGET_MS = 11 * 60_000;
 const SEED_BUDGET_MS = 2 * 60_000;
 const HOME_WARMUP_BUDGET_MS = 5 * 60_000;
-const HOME_COMPOSER_RECOVERY_PROBE_MS = 30_000;
+const HOME_RECOVERY_DETECTION_BUDGET_MS = 30_000;
 const EDITOR_WARMUP_BUDGET_MS = 3 * 60_000;
 
 async function withDeadline<T>(
@@ -467,6 +467,10 @@ export default async function globalSetup(config: FullConfig) {
       Date.now() + HOME_WARMUP_BUDGET_MS,
       globalSetupDeadline - EDITOR_WARMUP_BUDGET_MS,
     );
+    const homeRecoveryDetectionDeadline = Math.min(
+      homeDeadline,
+      Date.now() + HOME_RECOVERY_DETECTION_BUDGET_MS,
+    );
 
     const warmupPage = await context.newPage();
     try {
@@ -476,11 +480,17 @@ export default async function globalSetup(config: FullConfig) {
       try {
         await warmupPage.goto(homeURL, {
           waitUntil: "domcontentloaded",
-          timeout: timeoutBefore(homeDeadline, HOME_WARMUP_BUDGET_MS),
+          timeout: timeoutBefore(
+            homeRecoveryDetectionDeadline,
+            HOME_RECOVERY_DETECTION_BUDGET_MS,
+          ),
         });
         await homeComposer.waitFor({
           state: "visible",
-          timeout: timeoutBefore(homeDeadline, HOME_COMPOSER_RECOVERY_PROBE_MS),
+          timeout: timeoutBefore(
+            homeRecoveryDetectionDeadline,
+            HOME_RECOVERY_DETECTION_BUDGET_MS,
+          ),
         });
         homeComposerWarmed = true;
       } catch (error) {

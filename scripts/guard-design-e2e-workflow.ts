@@ -131,7 +131,6 @@ assert.equal(
   prExportStep?.if,
   "matrix.shard != 'runtime-budget' && github.event_name == 'pull_request'",
 );
-assert.equal(prExportStep?.["timeout-minutes"], 37);
 assert.equal(
   prExportStep?.env?.E2E_RUN_ID,
   "design-e2e-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}-exports",
@@ -147,7 +146,6 @@ assert.equal(
   prMarqueeStep?.if,
   "matrix.shard != 'runtime-budget' && github.event_name == 'pull_request'",
 );
-assert.equal(prMarqueeStep?.["timeout-minutes"], 37);
 assert.equal(
   prMarqueeStep?.env?.E2E_RUN_ID,
   "design-e2e-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}-marquee",
@@ -163,11 +161,16 @@ const loopbackStep = steps.find(
   (step) => step.name === "Run chat attachment and sizing loopback E2E",
 );
 const loopbackTimeout = loopbackStep?.["timeout-minutes"];
+const prE2eTimeout =
+  Number(prExportStep?.["timeout-minutes"]) +
+  Number(prMarqueeStep?.["timeout-minutes"]);
 assert.ok(
   typeof jobTimeout === "number" &&
     typeof loopbackTimeout === "number" &&
-    jobTimeout - 37 - 37 - loopbackTimeout >= 10,
-  "leave at least 10 minutes beyond both independently budgeted PR runs and loopback E2E",
+    Number.isFinite(prE2eTimeout) &&
+    prE2eTimeout > 0 &&
+    jobTimeout - prE2eTimeout - loopbackTimeout >= 10,
+  "leave at least 10 minutes beyond the parsed PR E2E runs and loopback E2E",
 );
 const retryArtifactIndex = steps.findIndex(
   (step) => step.name === "Detect retried test failures",

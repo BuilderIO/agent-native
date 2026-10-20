@@ -1432,26 +1432,32 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     designGlobalSetup,
-    /^const HOME_COMPOSER_RECOVERY_PROBE_MS = 30_000;$/m,
-    "the first composer wait must leave a bounded Vite recovery window",
+    /^const HOME_RECOVERY_DETECTION_BUDGET_MS = 30_000;$/m,
+    "initial home navigation and readiness detection must leave a bounded Vite recovery window",
   );
   assert.deepEqual(
     [
       ...designGlobalSetup.matchAll(
-        /homeComposer\.waitFor\(\{\s*state: "visible",\s*timeout: timeoutBefore\(homeDeadline, ([^)]+)\)/g,
+        /homeComposer\.waitFor\(\{\s*state: "visible",\s*timeout: timeoutBefore\(\s*(homeRecoveryDetectionDeadline|homeDeadline),\s*([A-Z_]+),?\s*\)/g,
       ),
-    ].map(([, budget]) => budget),
-    ["HOME_COMPOSER_RECOVERY_PROBE_MS", "HOME_WARMUP_BUDGET_MS"],
+    ].map(([, deadline, budget]) => [deadline, budget]),
+    [
+      ["homeRecoveryDetectionDeadline", "HOME_RECOVERY_DETECTION_BUDGET_MS"],
+      ["homeDeadline", "HOME_WARMUP_BUDGET_MS"],
+    ],
     "the first composer probe must leave the remaining home budget for recovery",
   );
   assert.deepEqual(
     [
       ...designGlobalSetup.matchAll(
-        /warmupPage\.goto\(homeURL,\s*\{\s*waitUntil: "domcontentloaded",\s*timeout: timeoutBefore\(homeDeadline, ([^)]+)\)/g,
+        /warmupPage\.goto\(homeURL,\s*\{\s*waitUntil: "domcontentloaded",\s*timeout: timeoutBefore\(\s*(homeRecoveryDetectionDeadline|homeDeadline),\s*([A-Z_]+),?\s*\)/g,
       ),
-    ].map(([, budget]) => budget),
-    ["HOME_WARMUP_BUDGET_MS", "HOME_WARMUP_BUDGET_MS"],
-    "both home route loads must use the remaining home budget",
+    ].map(([, deadline, budget]) => [deadline, budget]),
+    [
+      ["homeRecoveryDetectionDeadline", "HOME_RECOVERY_DETECTION_BUDGET_MS"],
+      ["homeDeadline", "HOME_WARMUP_BUDGET_MS"],
+    ],
+    "initial home navigation must leave the remaining home budget for recovery",
   );
   assert.match(
     changedSpecRegressions,
