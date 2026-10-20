@@ -62,9 +62,11 @@ function useSignIn(onDone: () => void) {
   return useCallback((provider: string) => {
     stopWatching.current?.();
     const url = (returnPath: string) =>
+      // App scope limits the connection to Factory's app list. A user-scoped
+      // connection has no app list, so every app in the workspace could use it.
       workspaceProviderOAuthUrl(provider, {
         appId: APP_NAME,
-        scope: "user",
+        scope: "app",
         returnPath,
       });
     const popup = openOAuthPopup({ features: POPUP_FEATURES });
