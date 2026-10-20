@@ -942,6 +942,11 @@ describe("SuggestionHighlight", () => {
           "suggestion-block-widget",
         );
         expect(list.textContent).not.toContain("- ");
+        // It stays a list item; its content is the button.
+        expect(list.children[1]!.hasAttribute("role")).toBe(false);
+        expect(list.children[1]!.firstElementChild?.getAttribute("role")).toBe(
+          "button",
+        );
       } finally {
         view.destroy();
       }

@@ -133,11 +133,13 @@ function appendSuggestionText(
 
 // While the reader can type, a click on suggested text that isn't in the
 // document places the caret where the widget sits instead of focusing it.
+// `control` takes the button role when the widget itself has a role to keep.
 function identifyWidget(
   widget: HTMLElement,
   spec: SuggestionHighlightSpec,
   label: string,
   position = spec.from,
+  control = widget,
 ) {
   widget.setAttribute("data-suggestion-id", spec.suggestionId);
   widget.setAttribute("data-suggestion-widget", "true");
@@ -145,9 +147,9 @@ function identifyWidget(
     widget.setAttribute("data-suggestion-edit-boundary", "true");
     widget.setAttribute("data-suggestion-position", String(position));
   } else {
-    widget.setAttribute("role", "button");
-    widget.setAttribute("tabindex", "0");
-    widget.setAttribute("aria-label", label);
+    control.setAttribute("role", "button");
+    control.setAttribute("tabindex", "0");
+    control.setAttribute("aria-label", label);
   }
 }
 
@@ -363,7 +365,6 @@ function lineWidget(
     const quote = /^\t*> /.test(text);
     const widget = document.createElement(inList ? "li" : "div");
     widget.className = classes(`${className} suggestion-block-widget`, active);
-    identifyWidget(widget, spec, label);
     const block = document.createElement(
       heading ? `h${heading[1]!.length}` : "p",
     );
@@ -392,6 +393,9 @@ function lineWidget(
       content.append(item);
     }
     widget.append(content);
+    // An item in a list stays a list item to assistive tech; its content is
+    // the button.
+    identifyWidget(widget, spec, label, undefined, inList ? content : widget);
     return widget;
   };
 }
