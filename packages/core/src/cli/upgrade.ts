@@ -683,6 +683,21 @@ function findNearestPnpmWorkspaceFile(projectRoot: string): string | null {
   }
 }
 
+function isAgentNativeDependency(name: string, spec: string): boolean {
+  if (isAgentNativePackageName(name)) return true;
+  if (!spec.startsWith("npm:")) return false;
+
+  const aliasedPackage = spec.slice("npm:".length);
+  const versionSeparator = aliasedPackage.startsWith("@")
+    ? aliasedPackage.indexOf("@", aliasedPackage.indexOf("/") + 1)
+    : aliasedPackage.indexOf("@");
+  const packageName =
+    versionSeparator === -1
+      ? aliasedPackage
+      : aliasedPackage.slice(0, versionSeparator);
+  return isAgentNativePackageName(packageName);
+}
+
 // Only a project that installs @agent-native/* packages needs the exclusion;
 // any other pnpm workspace keeps its release-age gate as configured.
 function dependsOnAgentNative(project: UpgradeProject): boolean {
@@ -691,14 +706,16 @@ function dependsOnAgentNative(project: UpgradeProject): boolean {
     if (!read.ok) return false;
     if (
       PINNABLE_SECTIONS.some((section) =>
-        Object.keys(read.value[section] ?? {}).some(isAgentNativePackageName),
+        Object.entries(read.value[section] ?? {}).some(([name, spec]) =>
+          isAgentNativeDependency(name, spec),
+        ),
       )
     ) {
       return true;
     }
-    return Object.keys(read.value.peerDependencies ?? {}).some(
-      (name) =>
-        isAgentNativePackageName(name) &&
+    return Object.entries(read.value.peerDependencies ?? {}).some(
+      ([name, spec]) =>
+        isAgentNativeDependency(name, spec) &&
         read.value.peerDependenciesMeta?.[name]?.optional !== true,
     );
   });

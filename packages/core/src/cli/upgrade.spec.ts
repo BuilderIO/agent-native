@@ -1776,6 +1776,67 @@ describe("runUpgrade", () => {
       ).toContain('  - "@agent-native/*"');
     });
 
+    it("adds the exclude for an npm alias to an Agent-Native dependency", async () => {
+      const root = makeTempProject({
+        kind: "workspace",
+        rootPkg: {
+          name: "old-workspace",
+          private: true,
+          dependencies: { core: "npm:@agent-native/core@^0.209.0" },
+        },
+        workspaceYaml: olderWorkspaceYaml,
+      });
+      const { io, out } = captureIo();
+
+      expect(await runUpgrade(["--cwd", root, ...skipArgs], io)).toBe(0);
+
+      expect(out.join("\n")).toContain("[ok] release-age");
+      expect(
+        fs.readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf-8"),
+      ).toContain('  - "@agent-native/*"');
+    });
+
+    it("adds the exclude for a non-optional npm alias peer", async () => {
+      const root = makeTempProject({
+        kind: "workspace",
+        rootPkg: {
+          name: "old-workspace",
+          private: true,
+          peerDependencies: { core: "npm:@agent-native/core@^0.209.0" },
+        },
+        workspaceYaml: olderWorkspaceYaml,
+      });
+      const { io, out } = captureIo();
+
+      expect(await runUpgrade(["--cwd", root, ...skipArgs], io)).toBe(0);
+
+      expect(out.join("\n")).toContain("[ok] release-age");
+      expect(
+        fs.readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf-8"),
+      ).toContain('  - "@agent-native/*"');
+    });
+
+    it("ignores an optional npm alias peer", async () => {
+      const root = makeTempProject({
+        kind: "workspace",
+        rootPkg: {
+          name: "old-workspace",
+          private: true,
+          peerDependencies: { core: "npm:@agent-native/core@^0.209.0" },
+          peerDependenciesMeta: { core: { optional: true } },
+        },
+        workspaceYaml: olderWorkspaceYaml,
+      });
+      const { io, out } = captureIo();
+
+      expect(await runUpgrade(["--cwd", root, ...skipArgs], io)).toBe(0);
+
+      expect(out.join("\n")).not.toContain("release-age");
+      expect(
+        fs.readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf-8"),
+      ).toBe(olderWorkspaceYaml);
+    });
+
     it("does not add the exclude for an optional peer-only dependency", async () => {
       const root = makeTempProject({
         kind: "workspace",
