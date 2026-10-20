@@ -79,6 +79,7 @@ type Dashboard = {
   visibility?: DashboardVisibility;
   ownerEmail?: string | null;
   folderId?: string | null;
+  builtin?: boolean;
 };
 type Folder = {
   id: string;
@@ -165,6 +166,7 @@ export default function DashboardOverview() {
           visibility: dashboard.visibility,
           ...(ownerEmail ? { ownerEmail } : {}),
           folderId: dashboard.folderId ?? null,
+          builtin: "builtin" in dashboard && dashboard.builtin === true,
         });
       }
       return validDashboards;
@@ -684,7 +686,8 @@ function DashboardRow({
     }
     return dashboard.visibility === "org" && folder.scope === "shared";
   });
-  const canOrganize = mine || dashboard.visibility === "org";
+  const canOrganize =
+    !dashboard.builtin && (mine || dashboard.visibility === "org");
 
   return (
     <div className="group flex items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/30">

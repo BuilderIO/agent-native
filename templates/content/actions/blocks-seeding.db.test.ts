@@ -2,7 +2,9 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { registerLabs } from "@agent-native/core/labs/registry";
 import { runWithRequestContext } from "@agent-native/core/server";
+import { CREATIVE_CONTEXT_LIBRARY_LAB } from "@agent-native/creative-context";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -37,6 +39,7 @@ let updateDocumentAction: typeof import("./update-document.js").default;
 let editDocumentAction: typeof import("./edit-document.js").default;
 let documentRevisionToken: typeof import("./_document-edit-mutation.js").documentRevisionToken;
 let setDocumentPropertyAction: typeof import("./set-document-property.js").default;
+let updateDatabaseItemsAction: typeof import("./update-database-items.js").default;
 let createContentDatabaseAction: typeof import("./create-content-database.js").default;
 let createContentDatabaseModule: typeof import("./create-content-database.js");
 let getContentDatabaseAction: typeof import("./get-content-database.js").default;
@@ -49,6 +52,7 @@ let deleteDocumentPropertyAction: typeof import("./delete-document-property.js")
 const OWNER = "owner@example.com";
 
 beforeAll(async () => {
+  registerLabs([CREATIVE_CONTEXT_LIBRARY_LAB]);
   process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
@@ -66,6 +70,8 @@ beforeAll(async () => {
   editDocumentAction = (await import("./edit-document.js")).default;
   ({ documentRevisionToken } = await import("./_document-edit-mutation.js"));
   setDocumentPropertyAction = (await import("./set-document-property.js"))
+    .default;
+  updateDatabaseItemsAction = (await import("./update-database-items.js"))
     .default;
   createContentDatabaseModule = await import("./create-content-database.js");
   createContentDatabaseAction = createContentDatabaseModule.default;
@@ -1351,6 +1357,180 @@ describe("cascade cleanup of block-field content on delete (finding 7)", () => {
 });
 
 describe("primary Blocks value reflects the body, never the title (finding: word count)", () => {
+  it("counts primary and additional Blocks fields through the real action", async () => {
+    const { databaseId, documentId: databaseDocumentId } =
+      await createDatabaseRow();
+    const now = new Date().toISOString();
+    await propertyUtils.seedDefaultBlocksField({
+      databaseId,
+      ownerEmail: OWNER,
+      orgId: null,
+      now,
+    });
+    const documentId = `word_count_${databaseId}`;
+    await getDb().insert(schema.documents).values({
+      id: documentId,
+      ownerEmail: OWNER,
+      parentId: databaseDocumentId,
+      title: "Poem",
+      content: "",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb()
+      .insert(schema.contentDatabaseItems)
+      .values({
+        id: `item_${documentId}`,
+        ownerEmail: OWNER,
+        databaseId,
+        documentId,
+        position: 0,
+        createdAt: now,
+        updatedAt: now,
+      });
+    const count = (await import("./get-blocks-field-word-count.js")).default;
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      const notes = await configureDocumentPropertyAction.run({
+        documentId,
+        databaseId,
+        name: "Notes",
+        type: "blocks",
+      });
+      const propertyId = notes.properties.find(
+        (property: any) => property.definition.name === "Notes",
+      )!.definition.id;
+      for (const [content, expected] of [
+        ["one two\nthree", 3],
+        ["one<br>two", 2],
+        ["```\none two\n```\nthree", 1],
+      ] as const) {
+        await propertyUtils.writePrimaryBlocksContent({
+          documentId,
+          content,
+          now,
+        });
+        await setDocumentPropertyAction.run({
+          documentId,
+          databaseId,
+          propertyId,
+          value: content,
+        });
+        await expect(count.run({ documentId })).resolves.toMatchObject({
+          primary: true,
+          wordCount: expected,
+        });
+        await expect(
+          count.run({ documentId, propertyId }),
+        ).resolves.toMatchObject({
+          propertyId,
+          primary: false,
+          wordCount: expected,
+        });
+      }
+    });
+  });
+
+  it("refuses an agent's Blocks field write without the field revision", async () => {
+    const { databaseId, documentId: databaseDocumentId } =
+      await createDatabaseRow();
+    const now = new Date().toISOString();
+    await propertyUtils.seedDefaultBlocksField({
+      databaseId,
+      ownerEmail: OWNER,
+      orgId: null,
+      now,
+    });
+    const documentId = `agent_write_${databaseId}`;
+    await getDb().insert(schema.documents).values({
+      id: documentId,
+      ownerEmail: OWNER,
+      parentId: databaseDocumentId,
+      title: "Poem",
+      content: "",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb()
+      .insert(schema.contentDatabaseItems)
+      .values({
+        id: `item_${documentId}`,
+        ownerEmail: OWNER,
+        databaseId,
+        documentId,
+        position: 0,
+        createdAt: now,
+        updatedAt: now,
+      });
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      const notes = await configureDocumentPropertyAction.run({
+        documentId,
+        databaseId,
+        name: "Notes",
+        type: "blocks",
+      });
+      const propertyId = notes.properties.find(
+        (property: any) => property.definition.name === "Notes",
+      )!.definition.id;
+      const agent = { caller: "mcp", userEmail: OWNER } as const;
+
+      for (const caller of ["mcp", "http", "cli", "automation"] as const) {
+        await expect(
+          setDocumentPropertyAction.run(
+            { documentId, databaseId, propertyId, value: "Unguarded" },
+            { caller, userEmail: OWNER },
+          ),
+        ).rejects.toMatchObject({
+          errorCode: "BLOCKS_FIELD_REVISION_REQUIRED",
+          statusCode: 400,
+        });
+      }
+      // A bulk write has no per-row revision, so it can't bypass the guard.
+      const bulk = await updateDatabaseItemsAction.run(
+        { databaseId, documentIds: [documentId], propertyId, value: "Bulk" },
+        agent,
+      );
+      expect(bulk.results).toEqual([
+        expect.objectContaining({
+          documentId,
+          success: false,
+          error: expect.stringContaining("expectedBlocksFieldRevision"),
+        }),
+      ]);
+      const [unchanged] = await getDb()
+        .select()
+        .from(schema.documentBlockFieldContents)
+        .where(eq(schema.documentBlockFieldContents.documentId, documentId));
+      expect(unchanged).toBeUndefined();
+
+      await setDocumentPropertyAction.run(
+        {
+          documentId,
+          databaseId,
+          propertyId,
+          value: "Guarded",
+          expectedBlocksFieldRevision: 0,
+        },
+        agent,
+      );
+      const [saved] = await getDb()
+        .select()
+        .from(schema.documentBlockFieldContents)
+        .where(eq(schema.documentBlockFieldContents.documentId, documentId));
+      expect(saved?.content).toBe("Guarded");
+
+      // The app's own UI is unaffected.
+      await setDocumentPropertyAction.run(
+        { documentId, databaseId, propertyId, value: "From the app" },
+        { caller: "frontend", userEmail: OWNER },
+      );
+      const [fromApp] = await getDb()
+        .select()
+        .from(schema.documentBlockFieldContents)
+        .where(eq(schema.documentBlockFieldContents.documentId, documentId));
+      expect(fromApp?.content).toBe("From the app");
+    });
+  });
+
   it("a row with a title but empty body resolves the primary Blocks value to '' (0 words / Empty)", async () => {
     const { databaseId } = await createDatabaseRow();
     const now = new Date().toISOString();
@@ -1454,6 +1634,60 @@ describe("primary Blocks value reflects the body, never the title (finding: word
     expect(primary?.value).toBe("one two three");
     expect(countWords(primary?.value)).toBe(3);
     expect(formatWordCount(primary?.value)).toBe("3 words");
+  });
+});
+
+describe("renaming a Blocks field from its tab", () => {
+  it("keeps the description, visibility and page body a name-only rename leaves out", async () => {
+    const { databaseId, documentId } = await createDatabaseRow();
+    const primaryId = await propertyUtils.seedDefaultBlocksField({
+      databaseId,
+      ownerEmail: OWNER,
+      orgId: null,
+      now: new Date().toISOString(),
+    });
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      await configureDocumentPropertyAction.run({
+        id: primaryId,
+        documentId,
+        databaseId,
+        name: "Poem",
+        type: "blocks",
+      });
+      const created = await configureDocumentPropertyAction.run({
+        documentId,
+        databaseId,
+        name: "Notes",
+        type: "blocks",
+        description: "Margin notes for this poem",
+        visibility: "hide_when_empty",
+      });
+      const id = created.properties.find(
+        (property: any) => property.definition.name === "Notes",
+      )!.definition.id;
+
+      await configureDocumentPropertyAction.run({
+        id,
+        documentId,
+        databaseId,
+        name: "Margins",
+        type: "blocks",
+      });
+    });
+
+    const definitions = await blocksDefinitions(databaseId);
+    const renamed = definitions.find(
+      (definition) => definition.name === "Margins",
+    );
+    expect(renamed).toMatchObject({
+      description: "Margin notes for this poem",
+      visibility: "hide_when_empty",
+    });
+    const body = definitions.find((definition) => definition.id === primaryId);
+    expect(body?.name).toBe("Poem");
+    expect(JSON.parse(body!.optionsJson ?? "{}")).toMatchObject({
+      blocks: { primary: true },
+    });
   });
 });
 

@@ -19,6 +19,11 @@ import {
 } from "@shared/component-model";
 import { resolveLayerNameAttribute } from "@shared/layer-name";
 import {
+  cloneNativeEffectsForNodes,
+  NativeEffectCloningError,
+} from "@shared/native-effect-cloning";
+import { parseEffectsFromHtml } from "@shared/native-effects";
+import {
   createCornerNode,
   createSmoothNode,
   getPenPathGeometry,
@@ -31,6 +36,10 @@ import {
   type PenGeometry,
   type PenPath,
 } from "@shared/pen-path";
+import {
+  resolveSourceEquivalentSelector,
+  SOURCE_EQUIVALENT_SELECTOR_PREFIX,
+} from "@shared/source-equivalent-selector";
 
 import {
   DEFAULT_LINE_STROKE,
@@ -1727,6 +1736,7 @@ export function insertClonedHtmlLayers(
     const fragment = doc.createDocumentFragment();
     const rootNodeIds: string[] = [];
     const nodeIdMap = new Map<string, string>();
+    const effectSources = new Map<string, Map<string, string>>();
     const reservedNodeIds = options.preserveIncomingNodeIds
       ? new Set([
           ...Array.from(doc.querySelectorAll("[data-agent-native-node-id]"))
@@ -1749,16 +1759,46 @@ export function insertClonedHtmlLayers(
       Array.from(doc.querySelectorAll("[id]"), (element) => element.id),
     );
     layerHtmls.forEach((layerHtml, index) => {
+      const componentContext = componentContextForLayer(
+        content,
+        options.componentLinks,
+        index,
+      );
       const prepared = prepareClonedHtmlLayer(
         doc,
         layerHtml,
         options.styleSnapshots?.[index],
         reservedNodeIds,
-        componentContextForLayer(content, options.componentLinks, index),
+        componentContext,
         false,
         takenAuthoredIds,
       );
       if (!prepared) return;
+      const sourceContent =
+        componentContext?.documents.find(
+          (document) =>
+            document.source.fileId === componentContext.sourceFileId,
+        )?.content ?? content;
+      const effectNodeIdMap = componentNodeIdMapForPreparedClone(
+        prepared.nodeIdMap,
+        componentContext,
+      );
+      if (!effectNodeIdMap) {
+        const effects = parseEffectsFromHtml(sourceContent);
+        if (effects.errors.length)
+          throw new NativeEffectCloningError(effects.errors);
+        if (effects.document?.instances.length) {
+          throw new NativeEffectCloningError([
+            "source clone identity is unavailable",
+          ]);
+        }
+      }
+      if (effectNodeIdMap) {
+        const sourceMap =
+          effectSources.get(sourceContent) ?? new Map<string, string>();
+        effectNodeIdMap.forEach((value, key) => sourceMap.set(key, value));
+        effectSources.set(sourceContent, sourceMap);
+      }
       [prepared.element, ...prepared.element.querySelectorAll("[id]")].forEach(
         (element) => takenAuthoredIds.add(element.id),
       );
@@ -1820,7 +1860,14 @@ export function insertClonedHtmlLayers(
         doc.body.appendChild(fragment);
       }
     }
-    const contentWithClones = `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+    let contentWithClones = `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+    for (const [sourceContent, effectNodeIdMap] of effectSources) {
+      contentWithClones = cloneNativeEffectsForNodes(
+        sourceContent,
+        contentWithClones,
+        effectNodeIdMap,
+      );
+    }
     return {
       content: applyDesignClipboardManagedStyles(
         contentWithClones,
@@ -1903,6 +1950,17 @@ export function planLinkedComponentStructureClone(
     allowMainComponentStructure: true,
   });
   if (!result) return null;
+  const clonedIds = new Set(result.nodeIdMap.values());
+  const effects = parseEffectsFromHtml(result.content);
+  if (
+    effects.errors.length ||
+    effects.document?.instances.some((instance) =>
+      clonedIds.has(instance.nodeId),
+    )
+  ) {
+    options.onUnsupportedStructure?.();
+    return null;
+  }
 
   const afterProjection = buildCodeLayerProjection(result.content, {
     source: options.componentLinks?.targetSource,
@@ -1995,8 +2053,18 @@ export function queryFirstSelector(
   root: ParentNode,
   selectors: Array<string | undefined>,
 ): Element | null {
+  const rootNode = root as Node;
+  const doc =
+    rootNode.nodeType === 9 ? (rootNode as Document) : rootNode.ownerDocument;
   for (const selector of selectors) {
     if (!selector) continue;
+    if (selector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)) {
+      const match = doc ? resolveSourceEquivalentSelector(doc, selector) : null;
+      if (match && (rootNode.nodeType === 9 || rootNode.contains(match))) {
+        return match;
+      }
+      continue;
+    }
     const match = queryUniqueSelector(root, selector);
     if (match) return match;
   }

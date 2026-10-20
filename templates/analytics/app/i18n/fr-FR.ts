@@ -1353,6 +1353,10 @@ export default {
     dashboardActions: "Détails et actions du tableau de bord",
     certifyForAi: "Certifier pour les requêtes IA",
     certifiedForAi: "Certifié pour les requêtes IA",
+    duplicateToCustomize: "Dupliquer pour personnaliser",
+    duplicateToCustomizeHint:
+      "Les tableaux de bord intégrés sont mis à jour à chaque version d'Analytics. Créez votre propre copie pour modifier celui-ci.",
+    duplicateFailed: "Impossible de dupliquer ce tableau de bord.",
     certificationSaved: "Tableau certifié pour les requêtes IA",
     certificationFailed: "Impossible de certifier le tableau : {{message}}",
     details: "Details",
@@ -2195,10 +2199,6 @@ export default {
     noMatches: "Aucune définition ne correspond à votre recherche.",
     searchPlaceholder: "Rechercher des définitions",
     sourceIndex: "Index des sources",
-    statusApproved: "Approuvée",
-    statusSuggested: "Suggérée",
-    statusUnreviewed: "Non vérifiée",
-    unsourced: "Sans source",
   },
   indexPanel: {
     presetDaily: "Tous les jours à 06:00",

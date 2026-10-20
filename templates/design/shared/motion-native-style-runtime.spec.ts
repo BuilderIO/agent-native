@@ -833,6 +833,165 @@ describe("imported Motion style runtime adapter", () => {
     });
   });
 
+  describe("TextStagger effects, crop, and pivot", () => {
+    const textStyle = (props: MotionNativeStyleInstance["props"] = {}) => {
+      const base = createMotionNativeStyleInstance({
+        styleKey: "TextStagger",
+        targetNodeId: "hero",
+      });
+      return { ...base, props: { ...base.props, ...props } };
+    };
+    const properties = (props?: MotionNativeStyleInstance["props"]) =>
+      motionNativeStylesToTextAnimations([textStyle(props)]).map(
+        ({ property }) => property,
+      );
+
+    it.each([
+      ["positionEnabled", "positionVisible", "translate"],
+      ["scaleEnabled", "scaleVisible", "scale"],
+      ["rotationEnabled", "rotationVisible", "rotate"],
+      ["opacityEnabled", "opacityVisible", "opacity"],
+      ["blurEnabled", "blurVisible", "filter"],
+    ] as const)(
+      "plays %s only while enabled and shown",
+      (enabledKey, visibleKey, property) => {
+        const only = {
+          positionEnabled: false,
+          scaleEnabled: false,
+          rotationEnabled: false,
+          opacityEnabled: false,
+          blurEnabled: false,
+        };
+
+        expect(properties({ ...only, [enabledKey]: true })).toEqual([property]);
+        expect(
+          properties({ ...only, [enabledKey]: true, [visibleKey]: true }),
+        ).toEqual([property]);
+        expect(
+          properties({ ...only, [enabledKey]: true, [visibleKey]: false }),
+        ).toEqual([]);
+        expect(
+          properties({ ...only, [enabledKey]: false, [visibleKey]: true }),
+        ).toEqual([]);
+      },
+    );
+
+    it("still reads the shared profile when the move effect is hidden", () => {
+      expect(
+        motionNativeTextAnimationSettings(
+          textStyle({ positionVisible: false, textDelayGrouping: "WORD" }),
+        ),
+      ).toMatchObject({ unit: "word", order: "left-to-right" });
+    });
+
+    it("crops only while the move effect is enabled and shown", () => {
+      const cropped = (props: MotionNativeStyleInstance["props"]) =>
+        motionNativeStylesToTextAnimations([
+          textStyle({ clipContent: true, opacityEnabled: true, ...props }),
+        ]).map(({ property, clipContent }) => [property, clipContent]);
+
+      expect(cropped({})).toEqual([
+        ["translate", true],
+        ["opacity", undefined],
+      ]);
+      expect(cropped({ positionVisible: false })).toEqual([
+        ["opacity", undefined],
+      ]);
+      expect(cropped({ positionEnabled: false })).toEqual([
+        ["opacity", undefined],
+      ]);
+      expect(
+        motionNativeStylesToTextAnimations([
+          textStyle({ clipContent: false }),
+        ])[0],
+      ).not.toHaveProperty("clipContent");
+    });
+
+    it("rejects a crop value that is not a boolean", () => {
+      expectRuntimeError(
+        () =>
+          motionNativeStylesToTextAnimations([
+            textStyle({ clipContent: "yes" }),
+          ]),
+        "invalid-style-props",
+      );
+    });
+
+    it("carries a non-default pivot on rotation and scale only", () => {
+      const animations = motionNativeStylesToTextAnimations([
+        textStyle({
+          rotationEnabled: true,
+          scaleEnabled: true,
+          opacityEnabled: true,
+          elementTransformOriginX: 0,
+          elementTransformOriginY: 100,
+        }),
+      ]);
+
+      expect(
+        animations.map(({ property, originX, originY }) => [
+          property,
+          originX,
+          originY,
+        ]),
+      ).toEqual([
+        ["translate", undefined, undefined],
+        ["rotate", 0, 100],
+        ["scale", 0, 100],
+        ["opacity", undefined, undefined],
+      ]);
+    });
+
+    it("leaves the default pivot out of the text source", () => {
+      const animations = motionNativeStylesToTextAnimations([
+        textStyle({ rotationEnabled: true }),
+      ]);
+
+      expect(animations[1]).not.toHaveProperty("originX");
+      expect(animations[1]).not.toHaveProperty("originY");
+    });
+
+    it.each([
+      ["elementTransformOriginX", 101],
+      ["elementTransformOriginY", -1],
+    ])("rejects pivot %s %s outside 0 to 100", (key, value) => {
+      expectRuntimeError(
+        () =>
+          motionNativeStylesToTextAnimations([
+            textStyle({ rotationEnabled: true, [key]: value }),
+          ]),
+        "invalid-style-props",
+      );
+    });
+
+    it("removes a cropped, pivoted projection from authored text tracks after a source round-trip", () => {
+      const style = textStyle({
+        clipContent: true,
+        rotationEnabled: true,
+        elementTransformOriginX: 100,
+        elementTransformOriginY: 0,
+      });
+      const projected = motionTextDocumentWithNativeStyles(null, [style]);
+      const decoded = decodeMotionTextDocument(JSON.stringify(projected));
+
+      expect(decoded.status).toBe("valid");
+      if (decoded.status !== "valid") return;
+      expect(
+        decoded.document.animations.map(({ clipContent, originX, originY }) => [
+          clipContent,
+          originX,
+          originY,
+        ]),
+      ).toEqual([
+        [true, undefined, undefined],
+        [undefined, 100, 0],
+      ]);
+      expect(
+        motionTextDocumentWithoutNativeStyles(decoded.document, [style]),
+      ).toBeNull();
+    });
+  });
+
   it("preserves fractional fixed stagger values when projecting to TextStagger", () => {
     const authored: MotionTextDocument["animations"][number] = {
       targetNodeId: "hero",
@@ -1367,7 +1526,6 @@ describe("imported Motion style runtime adapter", () => {
   );
 
   it.each([
-    ["clipContent", true],
     ["elementTransformOriginMode", "CUSTOM"],
     ["futureTextProperty", "preserve-me"],
   ])("reports unsupported TextStagger prop %s explicitly", (key, value) => {

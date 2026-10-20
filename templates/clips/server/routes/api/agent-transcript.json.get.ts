@@ -13,7 +13,7 @@ import {
   getAgentClipReadiness,
   nextAgentTranscriptStartMs,
 } from "../../../shared/agent-context.js";
-import { isLoomEmbedBackedRecording } from "../../../shared/loom.js";
+import { isEmbedBackedRecording } from "../../../shared/embed-provider.js";
 import {
   applyAgentJsonHeaders,
   CLIPS_AGENT_ACCESS_PARAM,
@@ -159,7 +159,7 @@ export default defineEventHandler(async (event: H3Event) => {
     basePath: getServerAppBasePath(),
     token: accessResult.access.apiToken,
   });
-  const isLoomEmbedBacked = isLoomEmbedBackedRecording(recording);
+  const isEmbedBacked = isEmbedBackedRecording(recording);
   const agentReadiness = getAgentClipReadiness(recording.status);
   const clipIsReady = agentReadiness.state === "ready";
   const transcriptPage = transcriptWindow
@@ -179,7 +179,7 @@ export default defineEventHandler(async (event: H3Event) => {
     apis: {
       context: { method: "GET", url: api.contextUrl },
       transcript: { method: "GET", url: api.transcriptUrl },
-      ...(!clipIsReady || isLoomEmbedBacked
+      ...(!clipIsReady || isEmbedBacked
         ? {}
         : {
             frame: {

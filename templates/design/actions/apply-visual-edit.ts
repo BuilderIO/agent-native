@@ -20,6 +20,7 @@ import {
 import {
   applyVisualEdit,
   buildCodeLayerProjection,
+  resolveCodeLayerTarget,
   type AutoLayoutEditIntent,
   type BooleanSubtractEditIntent,
   type ClassEditIntent,
@@ -30,7 +31,6 @@ import {
 } from "../shared/code-layer.js";
 import { agentSelectionDescriptor } from "../shared/collab-selection.js";
 import { linkedComponentRootForNode } from "../shared/component-links.js";
-import { componentNodeIdMatches } from "../shared/component-model.js";
 import type { TailwindBreakpointPrefix } from "../shared/design-state.js";
 import {
   planLocalJsxVisualEdit,
@@ -1232,17 +1232,10 @@ export default defineAction({
       source: file.codeLayerSource,
     });
     const nodeForTarget = (target: { nodeId?: string; selector?: string }) => {
-      const byId = target.nodeId
-        ? sourceProjection.nodes.find((candidate) =>
-            componentNodeIdMatches(candidate, target.nodeId!),
-          )
-        : undefined;
-      return (
-        byId ??
-        sourceProjection.nodes.find(
-          (candidate) => candidate.selector === target.selector,
-        )
-      );
+      const { resolution } = resolveCodeLayerTarget(file.content, target, {
+        source: file.codeLayerSource,
+      });
+      return resolution.status === "resolved" ? resolution.node : undefined;
     };
     const hasLinkedTarget =
       allApplied &&

@@ -2,7 +2,12 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 import type { DbExec } from "../db/client.js";
-import { withExecutionFence } from "./execution-fence.js";
+import {
+  currentExecutionFence,
+  withExecutionFence,
+  withExecutionLeaseRequested,
+  withFencedExecutionWrite,
+} from "./execution-fence.js";
 
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 
@@ -65,6 +70,30 @@ afterAll(async () => {
 });
 
 describe("task execution leases", () => {
+  it("allows unleased writes without an execution fence", async () => {
+    const write = vi.fn(async () => "written");
+
+    await expect(withFencedExecutionWrite(write)).resolves.toBe("written");
+    expect(write).toHaveBeenCalledOnce();
+  });
+
+  it("rejects execution-lease writes when the fence is missing", async () => {
+    const write = vi.fn(async () => "written");
+
+    await expect(
+      withExecutionLeaseRequested(() => withFencedExecutionWrite(write)),
+    ).rejects.toMatchObject({ code: "missing_execution_fence" });
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it("rejects execution-lease fence reads when the fence is missing", () => {
+    expect(() =>
+      withExecutionLeaseRequested(() => currentExecutionFence()),
+    ).toThrowError(
+      expect.objectContaining({ code: "missing_execution_fence" }),
+    );
+  });
+
   it("claims and renews without an agent_runs row, then fences stale generations", async () => {
     const threadId = "a2a-task:lease-test";
     const turnId = "lease-test";

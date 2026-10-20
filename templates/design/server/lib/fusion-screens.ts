@@ -50,8 +50,27 @@ function titleFromPath(path: string): string {
   return last.replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+/** A screen is named after its route ("home.html" shows as "Home"). */
+function screenFilename(path: string): string {
+  return `${slugForPath(path)}.html`;
+}
+
+/** Earlier screens were saved as "fusion-home.html"; they are renamed on sync. */
+function legacyScreenFilename(path: string): string {
+  return `fusion-${slugForPath(path)}.html`;
+}
+
+/**
+ * An app screen file holds only the screen's URL. A design can also have its
+ * own authored file with the same name (a user's "home.html"); sync must
+ * never adopt and overwrite that, so it gets a unique name instead.
+ */
+function isAppScreenFile(file: { content: string | null }): boolean {
+  return /^(?:https?:\/\/\S+|\/\S*)$/.test((file.content ?? "").trim());
+}
+
 function uniqueFilename(path: string, used: Set<string>): string {
-  const base = `fusion-${slugForPath(path)}.html`;
+  const base = screenFilename(path);
   const [stem, extension = "html"] = base.split(/\.(?=[^.]+$)/);
   let filename = `${stem}.${extension}`;
   let suffix = 2;
@@ -122,9 +141,24 @@ export async function upsertFusionScreens(args: {
     const url = originRelativeBase
       ? `${screenUrl.pathname}${screenUrl.search}`
       : screenUrl.toString();
-    const preferredFilename = `fusion-${slugForPath(path)}.html`;
-    let existing = existingByFilename.get(preferredFilename);
-    const filename = existing?.filename ?? uniqueFilename(path, usedFilenames);
+    const preferredFilename = screenFilename(path);
+    // By name first; then by URL, which finds a screen that had to take a
+    // suffixed name (home-2.html) because a user's file held the name.
+    let existing =
+      [preferredFilename, legacyScreenFilename(path)]
+        .map((name) => existingByFilename.get(name))
+        .find((file) => file !== undefined && isAppScreenFile(file)) ??
+      existingFiles.find(
+        (file) => isAppScreenFile(file) && (file.content ?? "").trim() === url,
+      );
+    const renameLegacy =
+      existing !== undefined &&
+      existing.filename !== preferredFilename &&
+      !usedFilenames.has(preferredFilename);
+    if (renameLegacy) usedFilenames.add(preferredFilename);
+    const filename = renameLegacy
+      ? preferredFilename
+      : (existing?.filename ?? uniqueFilename(path, usedFilenames));
     let fileId = existing?.id ?? nanoid();
     const title = titleFromPath(path);
 
@@ -145,7 +179,7 @@ export async function upsertFusionScreens(args: {
           if (!current) return false;
           await tx
             .update(schema.designFiles)
-            .set({ content: url, fileType: "html", updatedAt: now })
+            .set({ filename, content: url, fileType: "html", updatedAt: now })
             .where(eq(schema.designFiles.id, existing!.id));
           return true;
         },

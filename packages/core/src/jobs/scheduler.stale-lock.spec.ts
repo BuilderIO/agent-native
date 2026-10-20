@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { RunChunkControl } from "../agent/run-manager.js";
+import type { ActiveRun, RunChunkControl } from "../agent/run-manager.js";
 import * as runStore from "../agent/run-store.js";
 import { getThread } from "../chat-threads/store.js";
 import {
@@ -189,11 +189,12 @@ function interruptedScheduledJob(runCount = 1) {
     ]),
     vi
       .spyOn(runStore, "getCurrentTurnRunEventsForThread")
-      .mockImplementation(async (...args) =>
-        (await runStore.getCurrentTurnEventsForThread(...args)).map(
+      .mockImplementation(async (...args) => [
+        ...(await runStore.getCurrentTurnEventsForThread(...args)).map(
           (event, seq) => ({ runId: history.runId, seq, event }),
         ),
-      ),
+        ...startedRunJournal(),
+      ]),
     vi
       .spyOn(runStore, "tryClaimRunSlot")
       .mockImplementation(async (_threadId, _runId, _maxStaleMs, options) => {
@@ -214,6 +215,19 @@ const recoveryDeps = {
   engine: testEngine,
   model: "test-model",
 };
+
+function startedRunJournal() {
+  const startedRun = startRunMock.mock.results.at(-1)?.value as
+    | Pick<ActiveRun, "runId" | "events">
+    | undefined;
+  return (
+    startedRun?.events.map(({ event, seq }) => ({
+      runId: startedRun.runId,
+      seq,
+      event,
+    })) ?? []
+  );
+}
 
 describe("stale automation run-lock recovery across trigger types", () => {
   it("settles a disabled scheduled firing without starting its successor", async () => {
@@ -1908,13 +1922,16 @@ describe("stale automation run-lock recovery across trigger types", () => {
       vi
         .spyOn(runStore, "getCurrentTurnEventsForThread")
         .mockResolvedValue(emailEvents),
-      vi.spyOn(runStore, "getCurrentTurnRunEventsForThread").mockResolvedValue(
-        emailEvents.map((event, seq) => ({
-          runId: "job-killed",
-          seq,
-          event,
-        })),
-      ),
+      vi
+        .spyOn(runStore, "getCurrentTurnRunEventsForThread")
+        .mockImplementation(async () => [
+          ...emailEvents.map((event, seq) => ({
+            runId: "job-killed",
+            seq,
+            event,
+          })),
+          ...startedRunJournal(),
+        ]),
       vi
         .spyOn(runStore, "tryClaimRunSlot")
         .mockResolvedValue({ claimed: true, activeRunId: null }),

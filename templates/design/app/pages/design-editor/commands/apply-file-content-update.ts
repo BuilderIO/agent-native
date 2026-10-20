@@ -198,7 +198,8 @@ export function runApplyFileContentUpdate(
     });
   }
   const shouldRecordHistory =
-    options.recordHistory !== false && !options.updatedAt;
+    options.recordHistory === true ||
+    (options.recordHistory !== false && !options.updatedAt);
   if (
     !suppressContentHistoryRef.current &&
     shouldRecordHistory &&
@@ -244,7 +245,7 @@ export function runApplyFileContentUpdate(
       !needsIdentityMigration &&
       canWriteCollabText(overviewYdoc, overviewIsSynced, previousContent),
   });
-  if (writeLiveDoc && overviewYdoc && !previewOnly) {
+  if (writeLiveDoc && overviewYdoc && !previewOnly && !options.serverAccepted) {
     writeCollabText(
       overviewYdoc,
       overviewYdoc.getText("content"),

@@ -1080,9 +1080,7 @@ describe("FirstRunOnboarding", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    expect(document.body.textContent).toContain(
-      "Activating Builder.io free credits",
-    );
+    expect(document.body.textContent).toContain("Activating free credits");
     expect(document.body.textContent).toContain(
       "Creating your Builder.io account and activating free credits.",
     );
@@ -2927,6 +2925,10 @@ describe("FirstRunOnboarding", () => {
       mocks.useBuilderConnectFlow.mockReturnValue(flow());
       openChoice();
       expect(q("first-run-credits-offer")).toBeNull();
+      expect(
+        document.body.querySelector("[data-onboarding-loading='true']"),
+      ).toBeNull();
+      expect(q("first-run-open-key-settings")).not.toBeNull();
       expect(mocks.setOnboardingExperiment).not.toHaveBeenCalled();
     });
 
@@ -2963,18 +2965,20 @@ describe("FirstRunOnboarding", () => {
       expect(q("first-run-setup-skip")).toBeNull();
     });
 
-    it("shows the cards, a skip warning and a working skip under More info in Clips", () => {
+    it("keeps skip out of More info and confirms it from the corner in Clips", () => {
       openClipsChoice();
       click("first-run-credits-more-info");
       expect(q("first-run-open-key-settings")).not.toBeNull();
-      expect(q("first-run-credits-details")?.textContent).toContain(
+      expect(q("first-run-setup-skip")).toBeNull();
+      expect(q("first-run-credits-details")?.textContent).not.toContain(
         "If you skip, you'll need to connect your own keys to use AI and storage.",
       );
       expect(mocks.trackOnboardingEvent).not.toHaveBeenCalledWith(
         "onboarding_step_skipped",
         expect.objectContaining({ step_id: "choice" }),
       );
-      click("first-run-setup-skip");
+      click("first-run-credits-skip");
+      click("first-run-credits-skip-confirm");
       expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
         "onboarding_step_skipped",
         expect.objectContaining({ step_id: "choice" }),
@@ -2986,6 +2990,23 @@ describe("FirstRunOnboarding", () => {
       openChoice();
       click("first-run-credits-more-info");
       expect(q("first-run-setup-skip")).toBeNull();
+    });
+
+    it("asks before skipping from the credits offer and skips on confirm", () => {
+      mocks.useBuilderConnectFlow.mockReturnValue(flow());
+      openChoice();
+      click("first-run-credits-skip");
+      expect(document.body.textContent).toContain("Are you sure?");
+      mocks.trackOnboardingEvent.mockClear();
+      expect(mocks.trackOnboardingEvent).not.toHaveBeenCalledWith(
+        "onboarding_step_skipped",
+        expect.anything(),
+      );
+      click("first-run-credits-skip-confirm");
+      expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+        "onboarding_step_skipped",
+        expect.objectContaining({ step_id: "choice" }),
+      );
     });
 
     it("activates credits by provisioning an account", () => {
@@ -3035,6 +3056,23 @@ describe("FirstRunOnboarding", () => {
       expect(q("first-run-open-key-settings")).not.toBeNull();
       click("first-run-credits-more-info");
       expect(q("first-run-open-key-settings")).toBeNull();
+    });
+
+    it("opens the same More info panel from the Learn more link beside the subtitle", () => {
+      mocks.useBuilderConnectFlow.mockReturnValue(flow());
+      openChoice();
+      expect(q("first-run-credits-offer")?.textContent).toContain(
+        "Get free credits for LLMs, Jev, storage, and more for this app in one click from Builder.io.",
+      );
+      click("first-run-credits-learn-more");
+      expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+        "onboarding_more_info_opened",
+        { flow: "first_run", step_id: "choice" },
+      );
+      expect(
+        q("first-run-credits-more-info")?.getAttribute("aria-expanded"),
+      ).toBe("true");
+      expect(q("first-run-builder-create-account")).not.toBeNull();
     });
 
     it("holds a skeleton until Builder status is known", () => {

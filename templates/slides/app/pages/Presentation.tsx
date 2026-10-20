@@ -109,6 +109,7 @@ export default function Presentation() {
       startIndex={startSlide}
       aspectRatio={deck.aspectRatio}
       designSystem={designSystem}
+      windowed={searchParams.get("fullscreen") === "0"}
     />
   );
 }

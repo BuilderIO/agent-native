@@ -113,6 +113,29 @@ describe("flushOpenDocumentEditorToSql", () => {
     );
   });
 
+  it.each([undefined, "notes"])(
+    "accepts a hosted poll-live acknowledgement after twelve seconds (%s)",
+    async (propertyId) => {
+      const started = Date.now();
+      mocks.appStateGet.mockImplementation(async () => ({
+        id: "doc-1",
+        requestId: mocks.appStatePut.mock.calls[0]?.[2]?.requestId,
+        status: Date.now() - started >= 12_000 ? "success" : "pending",
+      }));
+      const result = flushOpenDocumentEditorToSql({
+        documentId: "doc-1",
+        ownerEmail: "owner@example.com",
+        ...(propertyId ? { propertyId } : {}),
+      });
+      const settled = result.then(
+        () => "saved",
+        (error: unknown) => error,
+      );
+      await vi.advanceTimersByTimeAsync(12_200);
+      await expect(settled).resolves.toBe("saved");
+    },
+  );
+
   it("waits for an occupied document flush mailbox before writing", async () => {
     mocks.appStateCompareAndSet
       .mockResolvedValueOnce(false)
@@ -144,7 +167,7 @@ describe("flushOpenDocumentEditorToSql", () => {
       id: "doc-1",
       requestId: "timed-out-request",
       status: "success",
-      ts: Date.now() - 4_001,
+      ts: Date.now() - 20_001,
     };
     mocks.appStateCompareAndSet
       .mockResolvedValueOnce(false)
@@ -191,7 +214,7 @@ describe("flushOpenDocumentEditorToSql", () => {
     const rejected = expect(flush).rejects.toThrow(
       /could not ask the open document editor/i,
     );
-    await vi.advanceTimersByTimeAsync(4_200);
+    await vi.advanceTimersByTimeAsync(20_200);
 
     await rejected;
     expect(mocks.appStateCompareAndSet).not.toHaveBeenCalledWith(
@@ -288,7 +311,7 @@ describe("flushOpenDocumentEditorToSql", () => {
       ownerEmail: "owner@example.com",
     });
     const rejected = expect(flush).rejects.toThrow(/did not finish saving/i);
-    await vi.advanceTimersByTimeAsync(4_200);
+    await vi.advanceTimersByTimeAsync(20_200);
 
     await rejected;
   });
@@ -438,8 +461,14 @@ describe("flushOpenDocumentEditorToSql", () => {
       documentId: "doc-1",
       ownerEmail: "owner@example.com",
     });
+    let settled = false;
+    void flush.then(() => {
+      settled = true;
+    });
+    // Best-effort: the short wait, not the confirmed-save deadline.
     await vi.advanceTimersByTimeAsync(4_200);
 
+    expect(settled).toBe(true);
     await expect(flush).resolves.toBeUndefined();
     expect(mocks.appStatePut).toHaveBeenCalledWith(
       "legacy-viewer-or-editor@example.com",
@@ -544,7 +573,7 @@ describe("flushOpenDocumentEditorToSql", () => {
       ownerEmail: "owner@example.com",
     });
     const rejected = expect(flush).rejects.toThrow(/did not finish saving/i);
-    await vi.advanceTimersByTimeAsync(4_200);
+    await vi.advanceTimersByTimeAsync(20_200);
 
     await rejected;
   });

@@ -315,7 +315,7 @@ describe("analytics alert evaluation", () => {
     expect(firstPartyMocks.query).toHaveBeenCalledWith(
       expect.stringContaining("JSON_VALUE(properties, '$.status') = 'errored'"),
       { userEmail: "owner@example.test", orgId: "org-1" },
-      { maxBytesBilled: 50_000_000_000 },
+      { eventsSource: "raw", maxBytesBilled: 50_000_000_000 },
     );
   });
 
@@ -479,7 +479,10 @@ describe("analytics alert evaluation", () => {
     expect(result.observedValue).toBe(1);
     expect(firstPartyMocks.query).toHaveBeenCalledTimes(2);
     for (const call of firstPartyMocks.query.mock.calls) {
-      expect(call[2]).toEqual({ maxBytesBilled: 50_000_000_000 });
+      expect(call[2]).toEqual({
+        eventsSource: "raw",
+        maxBytesBilled: 50_000_000_000,
+      });
     }
     expect(firstPartyMocks.query.mock.calls[1]?.[0]).toContain(
       "TIMESTAMP('2026-08-31T12:00:00.123456Z')",

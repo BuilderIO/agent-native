@@ -657,6 +657,7 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     width = 320,
     selected = true,
     onGeometryCommit = vi.fn(),
+    breakpointWidths: number[] = [],
   ) {
     const onGeometryChange = vi.fn();
     await act(async () => {
@@ -667,6 +668,7 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
               id: "screen-a",
               filename: "screen-a.html",
               content: "<!doctype html><html><body></body></html>",
+              breakpointWidths,
             },
           ]}
           zoom={100}
@@ -681,6 +683,7 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
             onGeometryCommit,
           }}
           onPick={() => {}}
+          breakpoints={{ onEditBreakpoint: () => {} }}
         />,
       );
     });
@@ -2523,26 +2526,15 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(onReviewPendingScreen).toHaveBeenCalledWith("screen-review");
   });
 
-  it("keeps the screen focus action inside narrow frames as a compact icon", async () => {
-    const { frame } = await renderSelectedFrame(240);
-    const fullView = frame.querySelector<HTMLElement>("[data-frame-full-view]");
-    const fullViewLabel = fullView?.querySelector("span");
-
-    expect(fullView).not.toBeNull();
-    expect(fullView!.getAttribute("data-compact")).toBe("true");
-    expect(fullView!.classList.contains("right-1")).toBe(true);
-    expect(fullView!.classList.contains("left-1/2")).toBe(false);
-    expect(fullView!.classList.contains("w-5")).toBe(true);
-    expect(fullView!.style.maxWidth).toBe("20px");
-    expect(fullViewLabel?.classList.contains("sr-only")).toBe(true);
-    expect(fullView!.getAttribute("aria-label")).toBe(
-      "multiScreenCanvas.focusScreen",
-    );
+  it("does not render focus buttons on screens or breakpoint previews", async () => {
+    const { frame } = await renderSelectedFrame(240, true, vi.fn(), [390, 768]);
+    expect(frame.querySelectorAll("[data-frame-full-view]")).toHaveLength(0);
+    expect(frame.querySelectorAll("[data-breakpoint-frame]")).toHaveLength(2);
+    expect(frame.querySelector("[data-frame-title]")).not.toBeNull();
   });
 
-  it("lets the Interact guard run before changing the picked screen", async () => {
+  it("keeps double-clicking the screen label as an edit path", async () => {
     const onEdit = vi.fn();
-    const onPick = vi.fn();
     await act(async () => {
       root.render(
         <MultiScreenCanvas
@@ -2562,20 +2554,22 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
               "screen-a": { x: 0, y: 0, width: 320, height: 640 },
             },
           }}
-          onPick={onPick}
+          onPick={() => {}}
           onEdit={onEdit}
         />,
       );
     });
 
-    const interact = container.querySelector<HTMLButtonElement>(
-      "[data-frame-full-view]",
-    );
-    expect(interact).not.toBeNull();
-    await act(async () => interact?.click());
+    const screenTitle =
+      container.querySelector<HTMLElement>("[data-frame-title]");
+    expect(screenTitle).not.toBeNull();
+    await act(async () => {
+      screenTitle?.dispatchEvent(
+        new MouseEvent("dblclick", { bubbles: true, detail: 2 }),
+      );
+    });
 
-    expect(onEdit).toHaveBeenCalledWith("screen-a");
-    expect(onPick).not.toHaveBeenCalled();
+    expect(onEdit).toHaveBeenCalled();
   });
 
   it("hides narrow breakpoint width suffixes without truncating the device label", async () => {

@@ -11,6 +11,17 @@ import {
   classifyActionCall,
   type ActionCallClassification,
 } from "./action-call-classification.js";
+import {
+  ACTION_EXECUTION_KEY,
+  actionExecutionStorage,
+  endInvocationEvidence,
+  holdInvocationEvidence,
+  runOutsideActionInvocation,
+  takeVouchedEvidence,
+  type ActionExecutionFrame,
+  type ActionExecutionRun,
+  type ActionExecutionState,
+} from "./action-frame.js";
 import { coerceGatewayStringifiedArgs } from "./action-input-coercion.js";
 import {
   buildActionMcpOutputContract,
@@ -51,16 +62,9 @@ import {
 import { assertUsableSchema } from "./json-schema/usable-schema.js";
 import { describeThrownForLog } from "./mcp/embed-redaction.js";
 import { parseServiceIdentityEmail } from "./org/service-identity.js";
-import { getAsyncLocalStorageCtor } from "./shared/optional-node-builtins.js";
 import { wrapRunWithActionTracking } from "./tracking/action-lifecycle.js";
 
-/**
- * Carries an action's execution-frame key across `{ ...entry, run }` wrappers
- * and the registry rebuilds that copy named fields (`preserveActionFlags`).
- */
-export const ACTION_EXECUTION_KEY = Symbol.for(
-  "agent-native.action.executionKey",
-);
+export { ACTION_EXECUTION_KEY };
 
 /**
  * An action's recorder for a call refused before its run, kept on its
@@ -103,7 +107,7 @@ export async function recordInvalidActionCall(
     return false;
   }
   try {
-    await record(args, ctx, error);
+    await runOutsideActionInvocation(() => record(args, ctx, error));
   } catch {
     // coercion-ok: the caller reports the validation error it already has.
   }
@@ -169,6 +173,11 @@ export interface ActionRunContext {
   runId?: string;
   turnId?: string;
   toolCallId?: string;
+  /**
+   * The approval the agent loop ran this call under, for approval gates to
+   * check. Audit rows read approval from the invocation's execution frame,
+   * so a child given this context records none.
+   */
   approvedToolCallKey?: string;
   /**
    * The client behind a `caller: "mcp"` call. `name` and `version` are its
@@ -176,8 +185,6 @@ export interface ActionRunContext {
    * credential was issued to.
    */
   mcpClient?: { name?: string; version?: string; oauthClientId?: string };
-  /** The MCP client accepted this exact call's approval elicitation. */
-  mcpClientAccepted?: true;
 }
 
 export type ActionAuthorize<TArgs> = (
@@ -1449,7 +1456,7 @@ function wrapRunWithServicePrincipalGrant(
           orgId: ctx!.orgId,
           // A missing name only passes an unrestricted grant.
           actionName: ctx!.actionName ?? "",
-          caller: ctx!.caller,
+          ownInvocation: ctx!,
         }),
       )
       .then(() => run(args, ctx));
@@ -1474,17 +1481,20 @@ function wrapRunWithAudit(
       threw = true;
     }
     try {
-      const { recordActionAudit } = await import("./audit/record.js");
+      const [{ recordActionAudit }, { auditAttribution }] = await Promise.all([
+        import("./audit/record.js"),
+        import("./audit/attribution.js"),
+      ]);
+      const call = {
+        config: auditConfig,
+        args: recorded,
+        ctx,
+        attribution: auditAttribution(ctx),
+      };
       await recordActionAudit(
         threw
-          ? { config: auditConfig, args: recorded, ctx, status: "error", error }
-          : {
-              config: auditConfig,
-              args: recorded,
-              ctx,
-              status: "success",
-              result,
-            },
+          ? { ...call, status: "error", error }
+          : { ...call, status: "success", result },
       );
     } catch {
       // Recorder failed to load/run — never affect the action.
@@ -1799,7 +1809,23 @@ function zodDefToJsonSchema(def: any): any {
   }
 
   if (type === "literal") {
-    return { type: typeof def.value, enum: [def.value] };
+    const values = Array.isArray(def.values)
+      ? def.values
+      : def.values instanceof Set
+        ? [...def.values]
+        : [def.value];
+    const jsonTypeOf = (value: unknown) =>
+      value === null ? "null" : typeof value;
+    const uniqueTypes = [...new Set(values.map(jsonTypeOf))];
+    if (uniqueTypes.length === 1) {
+      return { type: uniqueTypes[0], enum: values };
+    }
+    return {
+      anyOf: values.map((value: unknown) => ({
+        type: jsonTypeOf(value),
+        enum: [value],
+      })),
+    };
   }
 
   if (type === "array") {
@@ -2027,37 +2053,6 @@ export interface ActionExecutionOutcome {
 /** Rejected action input; execution phase determines whether effects are possible. */
 export class ActionInputValidationError extends Error {}
 
-type ActionExecutionRun = (args: any, ctx?: ActionRunContext) => Promise<any>;
-type ActionExecutionFrame = {
-  key: object;
-  run: ActionExecutionRun;
-  parent?: ActionExecutionFrame;
-  handlerEntered: boolean;
-  /** A write entered its handler in this call or in one nested in it. */
-  writeEntered: boolean;
-  /** One of those writes publishes action changes. */
-  changeEntered: boolean;
-  /** This call's classification, once validated arguments set it. */
-  writes?: boolean;
-  emitsChange?: boolean;
-  boundaryPending?: boolean;
-  /** The call's record, and the context it ran with, once validated. */
-  record?: ActionCallRecord;
-  context?: ActionRunContext;
-  nestedWriteEntered?: boolean;
-  raised?: unknown;
-  /** The dispatcher's outcome, which takes the record as it is made. */
-  outcome?: ActionExecutionOutcome;
-};
-type ActionExecutionState = {
-  frame?: ActionExecutionFrame;
-  failures: WeakMap<object, ActionExecutionFrame>;
-};
-const ActionExecutionStorage = getAsyncLocalStorageCtor();
-const actionExecutionStorage = ActionExecutionStorage
-  ? new ActionExecutionStorage<ActionExecutionState>()
-  : undefined;
-
 function wrapRunWithExecutionBoundary(
   run: ActionExecutionRun,
   key: object,
@@ -2110,7 +2105,9 @@ export async function runActionWithExecutionOutcome(
   delete outcome.record;
   delete outcome.evidence;
   delete outcome.keyed;
-  // A mutable async stack cannot safely attribute overlapping invocations.
+  const vouched = takeVouchedEvidence(outcome);
+  // A mutable async stack cannot safely attribute overlapping invocations,
+  // so without one no row records the evidence vouched for this one.
   if (!actionExecutionStorage) return run(args, ctx);
   const parent = actionExecutionStorage.getStore();
   const entryKey = entry
@@ -2129,6 +2126,7 @@ export async function runActionWithExecutionOutcome(
     boundaryPending: true,
     outcome,
   };
+  holdInvocationEvidence(frame, vouched);
   outcome.evidence = frame;
   outcome.keyed = keyed;
   // Read before the action's boundary takes it.
@@ -2172,8 +2170,11 @@ export async function runActionWithExecutionOutcome(
       throw error;
     } finally {
       // A boundary entered once the call settled is a call of its own: it
-      // cannot leave its record on this one.
+      // cannot leave its record on this one. The evidence ends here too,
+      // not when a stream or iterator the call returned is consumed: a
+      // timer, an unawaited promise or that later consumption records none.
       frame.boundaryPending = false;
+      endInvocationEvidence(frame);
     }
   });
 }
