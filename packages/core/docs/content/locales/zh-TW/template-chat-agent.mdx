@@ -1,0 +1,86 @@
+---
+title: "聊天：與 Agent 對話"
+description: "代理知道您在聊天中的哪個位置，以及依任務整理的提示。"
+---
+
+# 與 Agent 對話
+
+在聊天中，對話是您使用應用程式的主要方式。代理可以執行應用程式的 actions、查詢資料、記住您告訴它的事，並帶您前往其他頁面。本頁涵蓋代理對您的畫面知道些什麼、依任務分類的實用提示，以及它在哪些情況下會超出內建 actions 的範圍。總覽請參閱 [聊天](/docs/template-chat)。
+
+## 代理如何看到您的畫面
+
+代理永遠知道您在哪個頁面，以及開啟的是哪一場對話。這就是為什麼「take me back to Home」或「what page am I on?」不需要任何解釋就能運作。每次頁面變更發生時，應用程式都會即時告訴代理，所以代理不必猜測。
+
+聊天沒有可指向的企業資料，例如選取的活動或開啟的文件。代理所知道的其他一切，都來自您在對話中說的話。
+
+## 依任務分類的實用提示
+
+以下每個提示都會對真實的應用程式執行。這裡有一個實際範例：
+
+<Comparison>
+
+### :blue: 您的提問
+
+「Call the hello action for Alex.」
+
+### :green: 發生的事
+
+代理會以 Alex 這個名字執行範例 **hello** action。該 action 會回傳
+「Hello, Alex!」，代理會把它顯示在聊天中。應用程式中的其他一切都不會改變。
+
+</Comparison>
+
+<Cards columns={2}>
+
+### 了解應用程式能做什麼
+
+- **「What can this app do?」** 代理會列出它擁有的 actions，以及每一個的功能。
+- **「Show me the available actions.」** 概念相同，但以單純的名稱清單呈現。
+- **「Help me get started.」** 代理會建議您可以先嘗試的第一件事。
+
+### 四處瀏覽
+
+- **「Take me to Settings.」** 應用程式會為您開啟該頁面。
+- **「Open the Database page.」** 代理會開啟 `/database`，這個頁面沒有從側邊欄
+  連結。
+- **「Go back to Home.」** Get started 頁面會開啟。
+
+### 教導代理
+
+- **「Remember that I prefer short answers.」** 代理會把它儲存到自己的記憶中，
+  並在之後的聊天中使用。
+- **「From now on, always explain your reasoning before answering.」** 代理可以
+  把這個儲存為一條常設指令。
+- **「What do you remember about me?」** 代理會把它的記憶讀回給您聽。
+
+### 查看您的資料
+
+- **「What tables are in this app's database?」** 代理會讀取資料庫結構並列出
+  資料表。
+- **「How many chats do I have?」** 代理會對資料庫執行一個唯讀的問題，並在
+  聊天中回答。
+
+### 了解框架
+
+- **「How do I add a new action to this app?」** 代理會搜尋 Agent-Native 文件，
+  並說明步驟。
+- **「What's the difference between an action and a skill?」** 同樣地，根據
+  文件來回答。
+
+</Cards>
+
+<Callout tone="info">
+
+代理會讀取資料庫，但不會直接變更它。若要儲存新的資訊，它會使用 action。這能
+讓每一項變更都走與應用程式自己畫面相同的路徑。開發者可以在應用程式的設定中
+變更這一點。
+
+</Callout>
+
+## 接下來
+
+- [**聊天**](/docs/template-chat) — 總覽
+- [**功能**](/docs/template-chat-features) — 對話、範例 action、團隊和管理頁面
+- [**多應用工作區中的聊天**](/docs/template-chat-integrations) — 將聊天連接到 Dispatch 和其他應用程式
+- [**開發者指南**](/docs/template-chat-developers) — 快速入門、actions、聊天路由，以及新增您的第一項功能
+- [**情境感知**](/docs/context-awareness) — 代理如何知道您的畫面上有什麼

@@ -122,6 +122,7 @@ import {
   connectBuilderForVoiceCleanup,
   isBuilderProvisioningAvailable,
 } from "./lib/builder-connection";
+import { useCameraCutoutPreference } from "./lib/camera-cutout-preference";
 import {
   captureSetupForCamera,
   captureSetupForMode,
@@ -7011,6 +7012,7 @@ function Setup({
   const updateStatus = useUpdateStatus();
   const voiceEnabled = featureConfig?.voiceEnabled !== false;
   const voiceCleanupEnabled = featureConfig?.voiceCleanupEnabled !== false;
+  const [cameraCutout, setCameraCutout] = useCameraCutoutPreference();
   const meetingsEnabled = featureConfig?.meetingsEnabled !== false;
   const showMeetingWidgetEnabled =
     featureConfig?.showMeetingWidgetEnabled !== false;
@@ -8172,6 +8174,17 @@ function Setup({
                 onCheckedChange={setVoiceCleanupEnabled}
                 disabled={captureControlsLocked}
                 label="Voice cleanup"
+              />
+            }
+          />
+          <SettingsRow
+            label="Remove background"
+            description="Shows only you in the camera bubble"
+            control={
+              <SettingsSwitch
+                checked={cameraCutout}
+                onCheckedChange={setCameraCutout}
+                label="Remove background"
               />
             }
           />

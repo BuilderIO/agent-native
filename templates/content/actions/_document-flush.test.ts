@@ -130,7 +130,7 @@ async function settle() {
     (value) => ({ value }),
     (error) => ({ error }),
   );
-  await vi.advanceTimersByTimeAsync(4_001);
+  await vi.advanceTimersByTimeAsync(20_001);
   return result;
 }
 
@@ -202,6 +202,149 @@ describe("flushOpenDocumentEditorToSql", () => {
     expect(requests[1].prepareToken).toBe(requests[0].phaseToken);
     expect(mocks.capture).toHaveBeenCalledOnce();
     expect(store.size).toBe(0);
+  });
+
+  it.each([undefined, "notes"])(
+    "accepts identity-specific preparation after a twelve-second hosted poll (%s)",
+    async (propertyId) => {
+      if (propertyId)
+        mocks.capture.mockResolvedValue({
+          ...SQL_ROW,
+          kind: "property",
+          propertyId,
+        });
+      const started = Date.now();
+      respond = (request, target) =>
+        request.phase === "verify" ? ack(request, target) : null;
+      requestHook = (request, email) => {
+        if (request.phase === "prepare")
+          setTimeout(() => {
+            for (const target of request.targets)
+              store.set(
+                address(email, flushAckKey(request, target.clientId)),
+                ack(request, target),
+              );
+          }, 12_000);
+      };
+      const result = flushOpenDocumentEditorToSql({
+        documentId: "doc-1",
+        propertyId,
+      }).then(
+        (value) => ({ value }),
+        (error) => ({ error }),
+      );
+      await vi.advanceTimersByTimeAsync(12_200);
+      expect(await result).toHaveProperty("value.status", "flushed");
+      const requests = mocks.cas.mock.calls
+        .filter(([, key, , next]) => key === "flush-request-doc-1" && next)
+        .map((call) => call[3]);
+      expect(requests.map((request) => request.phase)).toEqual([
+        "prepare",
+        "verify",
+      ]);
+      expect(
+        requests.every((request) => request.expiresAt === started + 20_000),
+      ).toBe(true);
+      expect(mocks.capture).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("waits for a same-email identity's twelve-second verify response", async () => {
+    mocks.awareness.mockResolvedValue([editorRow(123), editorRow(456)]);
+    respond = (request, target) =>
+      request.phase === "verify" && target.clientId === 456
+        ? null
+        : ack(request, target);
+    requestHook = (request, email) => {
+      if (request.phase === "verify")
+        setTimeout(() => {
+          const target = request.targets.find(
+            (target) => target.clientId === 456,
+          )!;
+          store.set(
+            address(email, flushAckKey(request, target.clientId)),
+            ack(request, target),
+          );
+        }, 12_000);
+    };
+    const result = flushOpenDocumentEditorToSql({ documentId: "doc-1" }).then(
+      (value) => ({ value }),
+      (error) => ({ error }),
+    );
+    await vi.advanceTimersByTimeAsync(11_800);
+    expect(mocks.capture).toHaveBeenCalledOnce();
+    expect(store.size).toBeGreaterThan(0);
+    await vi.advanceTimersByTimeAsync(400);
+    expect(await result).toHaveProperty("value.editors.length", 2);
+  });
+
+  it("shares the twenty-second bound across prepare, capture, and verify", async () => {
+    respond = () => null;
+    requestHook = (request, email) => {
+      setTimeout(() => {
+        for (const target of request.targets)
+          store.set(
+            address(email, flushAckKey(request, target.clientId)),
+            ack(request, target),
+          );
+      }, 12_000);
+    };
+    const started = Date.now();
+    const result = flushOpenDocumentEditorToSql({ documentId: "doc-1" }).then(
+      (value) => ({ value }),
+      (error) => ({ error }),
+    );
+    await vi.advanceTimersByTimeAsync(20_001);
+    expect(await result).toMatchObject({
+      error: {
+        errorCode: "open_editor_flush_timeout",
+        details: { phase: "verify" },
+      },
+    });
+    expect(Date.now() - started).toBe(20_001);
+    expect(mocks.capture).toHaveBeenCalledOnce();
+  });
+
+  it("keeps an unexpired twenty-second mailbox occupied after twelve seconds", async () => {
+    const occupied = {
+      requestId: "earlier",
+      expiresAt: Date.now() + 20_000,
+      status: "success",
+    };
+    store.set(address("owner@example.com", "flush-request-doc-1"), occupied);
+    const result = flushOpenDocumentEditorToSql({ documentId: "doc-1" }).then(
+      (value) => ({ value }),
+      (error) => ({ error }),
+    );
+    await vi.advanceTimersByTimeAsync(12_200);
+    expect(mocks.cas).not.toHaveBeenCalled();
+    expect(mocks.capture).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(7_801);
+    expect(await result).toHaveProperty(
+      "error.errorCode",
+      "open_editor_flush_timeout",
+    );
+    expect(
+      store.get(address("owner@example.com", "flush-request-doc-1")),
+    ).toEqual(occupied);
+  });
+
+  it("replaces an expired mailbox by CAS and freshly confirms its own identities", async () => {
+    const occupied = {
+      requestId: "expired",
+      expiresAt: Date.now() - 1,
+      status: "success",
+    };
+    store.set(address("owner@example.com", "flush-request-doc-1"), occupied);
+    expect(await settle()).toHaveProperty("value.status", "flushed");
+    expect(mocks.cas).toHaveBeenCalledWith(
+      "owner@example.com",
+      "flush-request-doc-1",
+      occupied,
+      expect.objectContaining({ protocol: 2, phase: "prepare" }),
+      { requestSource: "agent" },
+    );
+    expect(mocks.capture).toHaveBeenCalledOnce();
   });
 
   it("times out when one required editor session remains unconfirmed", async () => {
@@ -374,10 +517,10 @@ describe("flushOpenDocumentEditorToSql", () => {
     ).toEqual(successor);
   });
 
-  it("bounds mailbox acquisition and preparation by the same four-second deadline", async () => {
+  it("bounds mailbox acquisition and preparation by the same twenty-second deadline", async () => {
     store.set(address("owner@example.com", "flush-request-doc-1"), {
       requestId: "occupied",
-      expiresAt: Date.now() + 3_000,
+      expiresAt: Date.now() + 12_000,
     });
     respond = () => null;
     const started = Date.now();
@@ -385,7 +528,7 @@ describe("flushOpenDocumentEditorToSql", () => {
       "error.errorCode",
       "open_editor_flush_timeout",
     );
-    expect(Date.now() - started).toBe(4_001);
+    expect(Date.now() - started).toBe(20_001);
     expect(mocks.capture).not.toHaveBeenCalled();
   });
 

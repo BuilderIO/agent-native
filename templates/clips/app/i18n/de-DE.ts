@@ -707,6 +707,14 @@ const messages = {
     errorOutOfOrder: "Zeile {{line}}: Diese Zeit liegt vor der vorherigen.",
     errorPastEnd: "Zeile {{line}}: Diese Zeit liegt nach dem Ende des Videos.",
   },
+  transcriptHistory: {
+    title: "Frühere Transkripte",
+    automatic: "Automatisch",
+    restore: "Wiederherstellen",
+    restored: "Transkript wiederhergestellt",
+    restoreFailed: "Transkript konnte nicht wiederhergestellt werden",
+    undo: "Rückgängig",
+  },
   thumbnailPicker: {
     failedCapture: "Frame konnte nicht erfasst werden",
     failedGif:
@@ -1420,6 +1428,15 @@ const messages = {
     playClip: "Clip abspielen",
     unsupportedFormat:
       "Dieser Browser kann dieses Video nicht abspielen. Öffne den Link in Chrome, Edge oder Firefox.",
+    youtubeLoading: "YouTube-Player wird geladen",
+    youtubeUnavailable: "Dieses YouTube-Video ist privat oder wurde entfernt.",
+    youtubeEmbedBlocked:
+      "Der Inhaber dieses Videos erlaubt keine Wiedergabe außerhalb von YouTube.",
+    youtubeInvalid: "Dieser YouTube-Link führt zu keinem abspielbaren Video.",
+    youtubePlaybackFailed: "YouTube konnte dieses Video hier nicht abspielen.",
+    youtubeApiUnavailable:
+      "Der YouTube-Player wurde nicht geladen. Prüfe deine Verbindung oder deinen Inhaltsblocker und lade die Seite neu.",
+    watchOnYouTube: "Auf YouTube ansehen",
   },
   searchBar: {
     placeholder: "Aufzeichnungen suchen…",
@@ -2007,6 +2024,8 @@ const messages = {
       "Storage needed to finish Loom import (Lokalisiert)",
     loomImported: "Loom imported (Lokalisiert)",
     couldNotImportLoom: "Dieser Loom konnte nicht importiert werden.",
+    youtubeImported: "YouTube-Video hinzugefügt",
+    couldNotImportVideo: "Dieses Video konnte nicht importiert werden.",
     recordingReadyToUpload: "Recording is ready to upload (Lokalisiert)",
     recordingSaved: "Recording saved (Lokalisiert)",
     linkCopied: "Link kopiert",
@@ -2116,7 +2135,7 @@ const messages = {
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "Importieren",
     helperText:
-      "Funktioniert hervorragend mit Loom. Du kannst auch einen Link zu einer anderen Bildschirmaufnahme oder Videodatei einfügen.",
+      "Funktioniert hervorragend mit Loom und YouTube. Du kannst auch einen Link zu einer anderen Bildschirmaufnahme oder Videodatei einfügen.",
     stageFetching: "Dein Video wird geladen…",
     stageUploading: "Rohmaterial wird hochgeladen…",
     stageTranscript: "Sprache und Bildschirminhalte agentenlesbar machen…",

@@ -30,7 +30,7 @@ export const ACTION_HEADERS = {
   "X-Agent-Native-Build-Id": "development",
 };
 
-export const EDITOR = ".notion-editor.ProseMirror";
+export const EDITOR = ".content-editor.ProseMirror";
 
 const SAVE_PATH = "/_agent-native/actions/update-document";
 const SESSION_PATH = "/_agent-native/auth/session";

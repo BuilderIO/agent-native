@@ -47,7 +47,7 @@ import type {
 
 type MotionOrigin = { x: number; y: number; z?: string };
 
-const ORIGIN_ANCHORS = [
+export const ORIGIN_ANCHORS = [
   [0, 0, "topLeft"],
   [50, 0, "topCenter"],
   [100, 0, "topRight"],

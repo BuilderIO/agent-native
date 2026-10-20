@@ -28,6 +28,7 @@ import {
   compactComposerReasoningEffortLabel,
   composerModelCostTier,
   createTiptapComposerExtensions,
+  focusComposerEditorWhenVisible,
   displayableComposerModeMessage,
   getComposerSendTooltipKey,
   getComposerSubmitIntentForEnterKey,
@@ -74,6 +75,51 @@ afterEach(() => {
 });
 
 describe("createTiptapComposerExtensions", () => {
+  it("ignores a resize queued after the hidden-shell editor is destroyed", () => {
+    let resizeObserverCallback: ResizeObserverCallback | undefined;
+    const observer = {
+      disconnect: vi.fn(),
+      observe: vi.fn(),
+      unobserve: vi.fn(),
+    };
+    class MockResizeObserver {
+      constructor(callback: ResizeObserverCallback) {
+        resizeObserverCallback = callback;
+      }
+      observe = observer.observe;
+      unobserve = observer.unobserve;
+      disconnect = observer.disconnect;
+    }
+    vi.stubGlobal("ResizeObserver", MockResizeObserver);
+
+    const shell = document.createElement("div");
+    shell.style.display = "none";
+    document.body.appendChild(shell);
+    const element = document.createElement("div");
+    shell.appendChild(element);
+    const editor = new Editor({
+      element,
+      extensions: createTiptapComposerExtensions(() => "Message agent..."),
+    });
+
+    try {
+      focusComposerEditorWhenVisible(editor);
+      expect(observer.observe).toHaveBeenCalledWith(editor.view.dom);
+      expect(resizeObserverCallback).toBeTypeOf("function");
+
+      editor.destroy();
+      shell.style.display = "block";
+
+      expect(observer.disconnect).toHaveBeenCalled();
+      expect(() =>
+        resizeObserverCallback?.([], observer as ResizeObserver),
+      ).not.toThrow();
+    } finally {
+      if (!editor.isDestroyed) editor.destroy();
+      shell.remove();
+    }
+  });
+
   it("keeps consecutive prefills in the editor through the chat recovery boundary", async () => {
     let prefill: (text: string) => void;
     function Harness() {

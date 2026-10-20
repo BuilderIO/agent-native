@@ -669,6 +669,14 @@ const messages = {
     errorOutOfOrder: "पंक्ति {{line}}: यह समय पिछले समय से पहले का है।",
     errorPastEnd: "पंक्ति {{line}}: यह समय वीडियो के समाप्त होने के बाद का है।",
   },
+  transcriptHistory: {
+    title: "पिछले प्रतिलेख",
+    automatic: "स्वचालित",
+    restore: "पुनर्स्थापित करें",
+    restored: "प्रतिलेख पुनर्स्थापित किया गया",
+    restoreFailed: "प्रतिलेख पुनर्स्थापित नहीं किया जा सका",
+    undo: "पूर्ववत करें",
+  },
   thumbnailPicker: {
     failedCapture: "फ़्रेम कैप्चर करने में विफल",
     failedGif: "GIF उत्पन्न करने में विफल - छोटी रेंज का प्रयास करें",
@@ -1358,6 +1366,15 @@ const messages = {
     playClip: "क्लिप चलाएं",
     unsupportedFormat:
       "यह ब्राउज़र यह वीडियो नहीं चला सकता। कृपया लिंक को Chrome, Edge या Firefox में खोलकर देखें।",
+    youtubeLoading: "YouTube प्लेयर लोड हो रहा है",
+    youtubeUnavailable: "यह YouTube वीडियो निजी है या हटा दिया गया है।",
+    youtubeEmbedBlocked:
+      "इस वीडियो के मालिक ने इसे YouTube के बाहर चलाने की अनुमति नहीं दी है।",
+    youtubeInvalid: "यह YouTube लिंक किसी चलाने योग्य वीडियो का नहीं है।",
+    youtubePlaybackFailed: "YouTube इस वीडियो को यहाँ नहीं चला सका।",
+    youtubeApiUnavailable:
+      "YouTube प्लेयर लोड नहीं हुआ। अपना कनेक्शन या कंटेंट ब्लॉकर जाँचें, फिर पेज रीलोड करें।",
+    watchOnYouTube: "YouTube पर देखें",
   },
   searchBar: {
     placeholder: "रिकॉर्डिंग खोजें…",
@@ -1924,6 +1941,8 @@ const messages = {
       "Storage needed to finish Loom import (स्थानीयकृत)",
     loomImported: "Loom imported (स्थानीयकृत)",
     couldNotImportLoom: "उस Loom को आयात नहीं किया जा सका।",
+    youtubeImported: "YouTube वीडियो जोड़ा गया",
+    couldNotImportVideo: "उस वीडियो को आयात नहीं किया जा सका।",
     recordingReadyToUpload: "Recording is ready to upload (स्थानीयकृत)",
     recordingSaved: "Recording saved (स्थानीयकृत)",
     linkCopied: "लिंक कॉपी हो गया",
@@ -2029,7 +2048,7 @@ const messages = {
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "आयात करें",
     helperText:
-      "यह Loom के साथ बहुत अच्छे से काम करता है। आप किसी भी अन्य स्क्रीन रिकॉर्डिंग या वीडियो फ़ाइल का लिंक भी पेस्ट कर सकते हैं।",
+      "यह Loom और YouTube के साथ बहुत अच्छे से काम करता है। आप किसी भी अन्य स्क्रीन रिकॉर्डिंग या वीडियो फ़ाइल का लिंक भी पेस्ट कर सकते हैं।",
     stageFetching: "आपका वीडियो लाया जा रहा है…",
     stageUploading: "मूल फ़ुटेज अपलोड हो रहा है…",
     stageTranscript: "बोली और स्क्रीन के दृश्य को एजेंट-पठनीय बनाया जा रहा है…",

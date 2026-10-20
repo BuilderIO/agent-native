@@ -1288,6 +1288,10 @@ export default {
     dashboardActions: "डैशबोर्ड विवरण और क्रियाएँ",
     certifyForAi: "AI क्वेरी के लिए प्रमाणित करें",
     certifiedForAi: "AI क्वेरी के लिए प्रमाणित",
+    duplicateToCustomize: "कस्टमाइज़ करने के लिए डुप्लिकेट करें",
+    duplicateToCustomizeHint:
+      "बिल्ट-इन डैशबोर्ड हर Analytics रिलीज़ के साथ अपडेट होते हैं। इसे बदलने के लिए अपनी कॉपी बनाएँ।",
+    duplicateFailed: "इस डैशबोर्ड को डुप्लिकेट नहीं किया जा सका।",
     certificationSaved: "डैशबोर्ड को AI क्वेरी के लिए प्रमाणित किया गया",
     certificationFailed: "डैशबोर्ड प्रमाणित नहीं हो सका: {{message}}",
     details: "Details",
@@ -2086,10 +2090,6 @@ export default {
     noMatches: "खोज से मेल खाने वाली कोई परिभाषा नहीं है।",
     searchPlaceholder: "परिभाषाएँ खोजें",
     sourceIndex: "स्रोत इंडेक्स",
-    statusApproved: "स्वीकृत",
-    statusSuggested: "सुझाया गया",
-    statusUnreviewed: "बिना समीक्षा",
-    unsourced: "कोई स्रोत नहीं",
   },
   indexPanel: {
     presetDaily: "रोज़ 06:00 बजे",

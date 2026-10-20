@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
-import type { Document } from "@shared/api";
+import type { Document, DocumentPropertiesResponse } from "@shared/api";
+import { legacyBlocksFieldIdentity } from "@shared/blocks-field-identity";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, createElement, type ComponentProps, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -14,6 +15,11 @@ import type { VisualEditor } from "./VisualEditor";
 
 const fixture = vi.hoisted(() => ({
   page: null as Document | null,
+  fields: null as DocumentPropertiesResponse | null,
+  visualFlush: vi.fn(),
+  onCollabEvent: null as
+    | ((event: { source: string; key: string }) => void)
+    | null,
   awareness: null as Awareness | null,
   editor: null as ComponentProps<typeof VisualEditor> | null,
   recovery: null as ReturnType<typeof useDocumentReconcileRecovery> | null,
@@ -56,15 +62,20 @@ vi.mock("@agent-native/core/client/collab", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@agent-native/core/client/collab")
   >()),
-  useCollaborativeDoc: () => ({
-    ydoc: fixture.awareness?.doc ?? null,
-    awareness: fixture.awareness,
-    isSynced: true,
-    initialization: { status: "ready" },
-    activeUsers: [],
-    requestSync: vi.fn(),
-    flushUpdates: fixture.flushUpdates,
-  }),
+  useCollaborativeDoc: (options: {
+    onEvent?: typeof fixture.onCollabEvent;
+  }) => {
+    fixture.onCollabEvent = options.onEvent ?? null;
+    return {
+      ydoc: fixture.awareness?.doc ?? null,
+      awareness: fixture.awareness,
+      isSynced: true,
+      initialization: { status: "ready" },
+      activeUsers: [],
+      requestSync: vi.fn(),
+      flushUpdates: fixture.flushUpdates,
+    };
+  },
 }));
 vi.mock("@agent-native/core/client/review", () => ({
   useResourceSuggestions: () => fixture.emptyQuery,
@@ -137,7 +148,18 @@ vi.mock("./ContentImportDialog", () => ({ ContentImportDialog: () => null }));
 vi.mock("./NotionConflictBanner", () => ({ NotionConflictBanner: () => null }));
 vi.mock("./EmojiPicker", () => ({ EmojiPicker: () => null }));
 vi.mock("./DocumentProperties", () => ({ DocumentProperties: () => null }));
-vi.mock("./DocumentBlockFields", () => ({ DocumentBlockFields: () => null }));
+vi.mock("@/hooks/use-document-properties", async (original) => ({
+  ...(await original<typeof import("@/hooks/use-document-properties")>()),
+  useDocumentProperties: () => ({
+    data: fixture.fields,
+    isError: false,
+    isRefetching: false,
+  }),
+  useConfigureDocumentProperty: () => fixture.mutation,
+  useDeleteDocumentProperty: () => fixture.mutation,
+  useReorderDocumentProperty: () => fixture.mutation,
+  useSetDocumentProperty: () => fixture.mutation,
+}));
 vi.mock("./DocumentDatabase", () => ({ DocumentDatabase: () => null }));
 vi.mock("./DocumentInfoPanel", () => ({ DocumentInfoPanel: () => null }));
 vi.mock("./LinkedLocalDocumentAgentBridge", () => ({
@@ -146,12 +168,42 @@ vi.mock("./LinkedLocalDocumentAgentBridge", () => ({
 vi.mock("./DocumentReconcileRecovery", () => ({
   DocumentReconcileRecovery: () => null,
 }));
-vi.mock("./VisualEditor", () => ({
-  VisualEditor: (props: ComponentProps<typeof VisualEditor>) => {
-    fixture.editor = props;
-    return null;
-  },
-}));
+vi.mock("./VisualEditor", async () => {
+  const React = await import("react");
+  return {
+    VisualEditor: (props: ComponentProps<typeof VisualEditor>) => {
+      const current = React.useRef(props);
+      current.current = props;
+      const draft = React.useRef(props.content);
+      const version = React.useRef({}).current;
+      if (props.onPersistenceControllerChange)
+        fixture.editor = {
+          ...props,
+          onChange: (content) => {
+            draft.current = content;
+            props.onChange(content);
+          },
+        };
+      React.useEffect(() => {
+        if (!props.onPersistenceControllerChange) return;
+        props.onPersistenceControllerChange({
+          version,
+          flushLatest: async () => {
+            fixture.visualFlush(draft.current);
+            const result = await current.current.onSaveContent!(draft.current);
+            return result !== false && result !== "failed";
+          },
+        });
+        return () => props.onPersistenceControllerChange!(null);
+      }, [props.onPersistenceControllerChange, version]);
+      return React.createElement("div", {
+        "data-visual-body": props.onPersistenceControllerChange
+          ? "primary"
+          : "additional",
+      });
+    },
+  };
+});
 vi.mock("./useDocumentReconcileRecovery", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("./useDocumentReconcileRecovery")>();
@@ -176,6 +228,8 @@ vi.mock("./useDocumentReconcileRecovery", async (importOriginal) => {
     },
   };
 });
+
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 import { createBlockFieldSaveController } from "./blockFieldSaveController";
 import {
@@ -235,6 +289,9 @@ beforeEach(() => {
         : { status: "deleted", draft: null },
     );
   fixture.editor = null;
+  fixture.fields = null;
+  fixture.visualFlush.mockReset();
+  fixture.onCollabEvent = null;
   fixture.readAppState.mockReset().mockResolvedValue(null);
   fixture.compareAppState.mockReset().mockResolvedValue(true);
   fixture.onSyncEvent = null;
@@ -270,10 +327,14 @@ function renderEditor() {
       createElement(
         MemoryRouter,
         null,
-        createElement(PageEditorSurface, {
-          documentId: fixture.page!.id,
-          host: "preview",
-        }),
+        createElement(
+          TooltipProvider,
+          null,
+          createElement(PageEditorSurface, {
+            documentId: fixture.page!.id,
+            host: "preview",
+          }),
+        ),
       ),
     ),
   );
@@ -293,7 +354,7 @@ function flushRequest(
     phaseToken: phase === "prepare" ? prepareToken : "verify-after-capture",
     prepareToken,
     ...(propertyId ? { propertyId } : {}),
-    expiresAt: Date.now() + 4000,
+    expiresAt: Date.now() + 20_000,
     targets: [
       {
         clientId: fixture.awareness!.clientID,
@@ -415,10 +476,121 @@ it("publishes a fresh per-client prepare and verify for an unchanged mounted edi
   });
 });
 
+function collectionFields() {
+  fixture.page!.databaseMembership = {
+    databaseId: "db-1",
+    databaseDocumentId: "db-page",
+    databaseTitle: "Collection",
+    position: 0,
+  };
+  fixture.fields = {
+    documentId: fixture.page!.id,
+    databaseId: "db-1",
+    canEditValues: true,
+    canManageSchema: false,
+    properties: ["content", "notes"].map((id, position) => ({
+      definition: {
+        id,
+        databaseId: "db-1",
+        name: id,
+        type: "blocks",
+        visibility: "always_show",
+        options: { blocks: { primary: id === "content" } },
+        position,
+        createdAt: fixture.page!.updatedAt,
+        updatedAt: fixture.page!.updatedAt,
+      },
+      value: id === "content" ? fixture.page!.content : "Additional body",
+      editable: true,
+      blocksField: legacyBlocksFieldIdentity({
+        documentId: fixture.page!.id,
+        propertyId: id,
+        markdown: id === "content" ? fixture.page!.content : "Additional body",
+      }),
+    })),
+  };
+}
+
+it("drains the current primary controller while another real field tab hides its panel", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  collectionFields();
+  acknowledgeCurrentSaves();
+  await act(async () => renderEditor());
+  act(() => fixture.editor!.onChange("Edited before hiding the primary tab"));
+  await act(async () => vi.advanceTimersByTimeAsync(500));
+  expect(fixture.page!.content).toBe("Edited before hiding the primary tab");
+  const primary = container.querySelector<HTMLElement>(
+    "[data-primary-block-field-panel]",
+  )!;
+  const primaryBody = primary.querySelector('[data-visual-body="primary"]');
+  act(() =>
+    container
+      .querySelector<HTMLButtonElement>(
+        '[role="tab"][data-block-field-id="notes"]',
+      )!
+      .click(),
+  );
+  expect(primary.hidden).toBe(true);
+  expect(primary.querySelector('[data-visual-body="primary"]')).toBe(
+    primaryBody,
+  );
+  await deliver(flushRequest("prepare", "hidden-primary"));
+  expect(fixture.visualFlush).toHaveBeenCalledOnce();
+  expect(publishedAcks()[0]).toHaveProperty("status", "prepared");
+  await deliver(flushRequest("verify", "hidden-primary"));
+  expect(publishedAcks()[1]).toHaveProperty("status", "verified");
+});
+
+it("refuses a primary prepare when field selection has unmounted its controller despite old clean parent state", async () => {
+  collectionFields();
+  await act(async () => renderEditor());
+  expect(fixture.awareness!.getLocalState()?.unsavedEdits).toBe(false);
+  fixture.fields = {
+    ...fixture.fields!,
+    properties: fixture.fields!.properties.filter(
+      (field) => field.definition.id === "notes",
+    ),
+  };
+  await act(async () => renderEditor());
+  expect(container.querySelector('[data-visual-body="primary"]')).toBeNull();
+  await deliver(flushRequest("prepare", "missing-primary"));
+  expect(publishedAcks()[0]).toMatchObject({
+    status: "error",
+    errorCode: "editor_flush_failed",
+  });
+  expect(fixture.visualFlush).not.toHaveBeenCalled();
+});
+
+it("invalidates verification if the primary persistence controller becomes unavailable", async () => {
+  await act(async () => renderEditor());
+  await deliver(flushRequest("prepare"));
+  expect(publishedAcks()[0]).toHaveProperty("status", "prepared");
+  act(() => fixture.editor!.onPersistenceControllerChange!(null));
+  await deliver(flushRequest("verify"));
+  expect(publishedAcks()[1]).toHaveProperty("status", "changed");
+});
+
+it("delivers the identity-specific barrier through the existing collaboration event callback", async () => {
+  await act(async () => renderEditor());
+  const request = flushRequest("prepare", "collab-delivery");
+  fixture.readAppState.mockResolvedValue(request);
+  await act(async () =>
+    fixture.onCollabEvent!({
+      source: "app-state",
+      key: `flush-request-${fixture.page!.id}`,
+    }),
+  );
+  expect(publishedAcks()[0]).toMatchObject({
+    status: "prepared",
+    phaseToken: "collab-delivery",
+  });
+});
+
 it("refuses stale success when second body and title edits arrive across a mounted save await", async () => {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   let acknowledge!: (document: Document) => void;
-  fixture.save.mockReturnValue(
+  fixture.save.mockReturnValue(new Promise<Document>(() => {}));
+  fixture.save.mockReturnValueOnce(
     new Promise<Document>((resolve) => {
       acknowledge = resolve;
     }),
@@ -488,7 +660,7 @@ it("cannot promote a held save into a prepared claim before expiry", async () =>
   await deliver(flushRequest("prepare"));
   expect(fixture.save).toHaveBeenCalledOnce();
   expect(publishedAcks()).toHaveLength(0);
-  await act(async () => vi.advanceTimersByTimeAsync(4000));
+  await act(async () => vi.advanceTimersByTimeAsync(20_000));
   expect(publishedAcks()).toHaveLength(0);
   expect(fixture.awareness!.getLocalState()?.unsavedEdits).toBe(true);
 });

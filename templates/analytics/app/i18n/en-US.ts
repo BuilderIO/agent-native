@@ -946,6 +946,10 @@ export default {
     dashboardActions: "Dashboard details and actions",
     certifyForAi: "Certify for AI queries",
     certifiedForAi: "Certified for AI queries",
+    duplicateToCustomize: "Duplicate to customize",
+    duplicateToCustomizeHint:
+      "Built-in dashboards update when Analytics ships. Make your own copy to change this one.",
+    duplicateFailed: "Couldn't duplicate this dashboard.",
     certificationSaved: "Dashboard certified for AI queries",
     certificationFailed: "Couldn't certify dashboard: {{message}}",
     details: "Details",
@@ -2110,10 +2114,6 @@ export default {
     noMatches: "No definitions match your search.",
     searchPlaceholder: "Search definitions",
     sourceIndex: "Source index",
-    statusApproved: "Approved",
-    statusSuggested: "Suggested",
-    statusUnreviewed: "Unreviewed",
-    unsourced: "No source",
   },
   indexPanel: {
     presetDaily: "Daily at 06:00",

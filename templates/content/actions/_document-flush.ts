@@ -29,7 +29,8 @@ import {
 } from "./_document-save-row.js";
 
 const FLUSH_POLL_INTERVAL_MS = 200;
-const FLUSH_TIMEOUT_MS = 4000;
+// The required-editor budget covers acquisition and both handshake phases.
+const FLUSH_TIMEOUT_MS = 20_000;
 const MAX_CAPTURE_ATTEMPTS = 3;
 
 export type OpenEditorFlushOutcome =

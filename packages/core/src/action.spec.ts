@@ -32,6 +32,7 @@ import {
   runPreparedActionCall,
   validateActionArgs,
 } from "./action.js";
+import * as publicAction from "./action.js";
 import {
   actionsToEngineTools,
   createPlanModeActionRegistry,
@@ -82,6 +83,24 @@ describe("ActionContractError", () => {
       errorCode: "SCHEMA_REVISION_CONFLICT",
       details: { expected: "before", actual: "after" },
     });
+  });
+});
+
+describe("the public action entry", () => {
+  it("exposes no frame-evidence helpers", () => {
+    for (const name of [
+      "runActionInvocation",
+      "vouchedOutcome",
+      "takeVouchedEvidence",
+      "holdInvocationEvidence",
+      "currentInvocationEvidence",
+      "runOutsideActionInvocation",
+      "actionExecutionStorage",
+    ]) {
+      expect(publicAction).not.toHaveProperty(name);
+    }
+    // No evidence parameter after `entry`.
+    expect(runActionWithExecutionOutcome).toHaveLength(5);
   });
 });
 
@@ -570,6 +589,24 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
     expect(json).toContain('"anyOf"');
   });
 
+  it("advertises the operation tags from the native Zod 4 serializer", () => {
+    const action = defineAction({
+      description: "native Zod 4 literal tags",
+      schema: z.discriminatedUnion("kind", [
+        z.object({ kind: z.literal("apply"), x: z.string() }),
+        z.object({ kind: z.literal("skip") }),
+      ]),
+      run: async () => "ok",
+    });
+    const variants = (action.tool.parameters as any).anyOf;
+
+    expect(variants).toHaveLength(2);
+    expect(variants.map((variant: any) => variant.properties.kind)).toEqual([
+      { type: "string", const: "apply" },
+      { type: "string", const: "skip" },
+    ]);
+  });
+
   it.each([
     {
       name: "a oneOf branch",
@@ -648,6 +685,56 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
     const inner = params.properties.outer.properties.inner;
     expect(inner.oneOf).toBeUndefined();
     expect(inner.anyOf).toHaveLength(3);
+  });
+
+  it("serializes Zod 4 literal values through the compatibility fallback", () => {
+    const schema = z.discriminatedUnion("kind", [
+      z.object({ kind: z.literal("apply"), x: z.string() }),
+      z.object({ kind: z.literal("skip") }),
+    ]);
+    const compatibilitySchema = {
+      _zod: schema._zod,
+      "~standard": {
+        version: 1,
+        vendor: "test",
+        validate: (value: unknown) => ({ value }),
+      },
+    };
+    const action = defineAction({
+      description: "Zod 4 compatibility schema",
+      schema: compatibilitySchema as any,
+      run: async () => "ok",
+    });
+    const variants = (action.tool.parameters as any).anyOf;
+
+    expect(variants).toHaveLength(2);
+    expect(variants.map((variant: any) => variant.properties.kind)).toEqual([
+      { type: "string", enum: ["apply"] },
+      { type: "string", enum: ["skip"] },
+    ]);
+  });
+
+  it("preserves multiple literal values of different JSON types", () => {
+    const schema = z.object({ value: z.literal(["apply", 1, null]) });
+    const compatibilitySchema = {
+      _zod: schema._zod,
+      "~standard": {
+        version: 1,
+        vendor: "test",
+        validate: (value: unknown) => ({ value }),
+      },
+    };
+    const action = defineAction({
+      description: "mixed literal values",
+      schema: compatibilitySchema as any,
+      run: async () => "ok",
+    });
+
+    expect((action.tool.parameters as any).properties.value.anyOf).toEqual([
+      { type: "string", enum: ["apply"] },
+      { type: "number", const: 1 },
+      { type: "null", const: null },
+    ]);
   });
 
   it("gives z.unknown() a typed value union so OpenAI accepts it", () => {

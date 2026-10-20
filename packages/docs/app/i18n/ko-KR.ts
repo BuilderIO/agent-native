@@ -723,6 +723,9 @@ const koKR = {
     waitlistUnavailable:
       "이 환경에서는 아직 대기자 명단에 등록할 수 없습니다. 대신 호스팅된 문서 사이트에서 시도해 보세요.",
     launchBuilder: "Builder 실행",
+    newAppPrompt: "새 Agent-Native 앱을 만들어 주세요.",
+    customizeTemplatePrompt:
+      "내 작업 방식에 맞게 Agent-Native {{template}} 템플릿을 맞춤 설정해 주세요.",
   },
   templateCard: {
     pasteIntoTerminal: "터미널에 붙여넣으세요.",
@@ -2734,7 +2737,9 @@ const koKR = {
     blueprintInstaller: "Blueprint 설치 도구",
     chat: "채팅",
     chatOverview: "개요",
-    chatFirstEdits: "첫 기능 만들기",
+    chatFeatures: "기능",
+    chatAgent: "Agent와 대화",
+    chatIntegrations: "앱 간 사용",
     chatDevelopers: "개발자 가이드",
     calendar: "캘린더",
     calendarOverview: "개요",

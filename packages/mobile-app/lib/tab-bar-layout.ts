@@ -7,7 +7,7 @@ export const TAB_BAR_ACTION_SIZE = 56;
 export const TAB_BAR_ACTION_GAP = 10;
 export const TAB_BAR_PILL_RADIUS = TAB_BAR_PILL_HEIGHT / 2;
 export const TAB_BAR_ROW_PAD = 5;
-export const TAB_BAR_BLUR_BLEED = 44;
+export const TAB_BAR_FADE_BLEED = 44;
 
 export function useTabBarLayout(): { bottom: number; contentInset: number } {
   const insets = useSafeAreaInsets();

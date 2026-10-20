@@ -66,6 +66,8 @@ vi.mock("drizzle-orm/pglite/migrator", () => ({
   migrate: (...args: unknown[]) => mockMigrate(...args),
 }));
 
+import { currentInvocationEvidence } from "../action-frame.js";
+import { runActionInvocation } from "../action-invocation.js";
 import {
   DEV_ACTION_ROUTE,
   DEV_DB_MIGRATE_ROUTE,
@@ -367,6 +369,32 @@ describe("mountDevActionForwardRoute", () => {
     expect(mockNotifyActionChange).toHaveBeenCalledWith({
       actionName: "do-thing",
     });
+  });
+
+  it("runs the action in its own frame, without the evidence of an invocation it runs inside", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const seen: unknown[] = [];
+    const handler = mountedHandler({
+      child: { run: async () => seen.push(currentInvocationEvidence()) },
+    });
+    const evidence = {
+      auditOverride: { approval: "a2a-review" as const, threadId: "task-1" },
+    };
+    const outer = {
+      run: () =>
+        handler({
+          _headers: {
+            host: "localhost:8100",
+            [DEV_ACTION_TOKEN_HEADER]: getDevActionToken(),
+            [DEV_ACTION_USER_HEADER]: "owner@example.test",
+          },
+          _body: { name: "child", input: {} },
+        }),
+    };
+
+    const response = await runActionInvocation(outer, {}, undefined, evidence);
+    expect(response.ok).toBe(true);
+    expect(seen).toEqual([undefined]);
   });
 
   it("forwards a hidden browser handoff without making it enumerable in the result", async () => {

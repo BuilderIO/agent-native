@@ -74,6 +74,14 @@ vi.mock(
       typeof import("../../server/lib/first-party-analytics.js")
     >()),
     queryFirstPartyAnalytics: providerBoundary.queryFirstPartyAnalytics,
+    // The query action calls this wrapper, and a same-module call would
+    // bypass the mock above, so route it through the same fixture.
+    queryFirstPartyAnalyticsWithBackend: async (
+      ...args: Parameters<typeof providerBoundary.queryFirstPartyAnalytics>
+    ) => ({
+      ...(await providerBoundary.queryFirstPartyAnalytics(...args)),
+      backend: "postgres",
+    }),
   }),
 );
 

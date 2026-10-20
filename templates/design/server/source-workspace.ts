@@ -319,6 +319,22 @@ export async function resolveSourceWorkspace(
   };
 }
 
+export async function loadSelectedSourceWorkspaceFile(
+  file: SourceWorkspaceFile,
+): Promise<SourceWorkspaceFile | null> {
+  const [selected] = await getDb()
+    .select({ content: schema.designFiles.content })
+    .from(schema.designFiles)
+    .where(
+      and(
+        eq(schema.designFiles.id, file.id),
+        eq(schema.designFiles.designId, file.designId),
+      ),
+    )
+    .limit(1);
+  return selected ? { ...file, content: selected.content } : null;
+}
+
 export function findSourceWorkspaceFile(
   files: SourceWorkspaceFile[],
   target: { fileId?: string; path?: string },
@@ -512,7 +528,12 @@ export async function writeInlineSourceFile(args: {
   operationSource?: string;
   operationRevision?: number;
   allowUrlBackedTransition?: boolean;
-}): Promise<{ versionHash: string; changed: boolean; updatedAt: string }> {
+}): Promise<{
+  content: string;
+  versionHash: string;
+  changed: boolean;
+  updatedAt: string;
+}> {
   return withPreparedSourceFileMutation(args.file.id, "agent", async (lease) =>
     withDesignSourceMutationTransaction(args.designId, async (tx) => {
       await assertAccess("design", args.designId, "editor");
@@ -645,6 +666,7 @@ export async function writeInlineSourceFile(args: {
         if (exactPersistedOperation) {
           await validatePreparedNoop();
           return {
+            content: current.content,
             versionHash: candidateHash,
             changed: false,
             updatedAt: currentFile.updatedAt ?? new Date().toISOString(),
@@ -693,6 +715,7 @@ export async function writeInlineSourceFile(args: {
       if (!changed && !identityOnly) {
         await validatePreparedNoop();
         return {
+          content: current.content,
           versionHash: current.versionHash,
           changed: false,
           updatedAt: currentFile.updatedAt ?? updatedAt,
@@ -864,6 +887,7 @@ export async function writeInlineSourceFile(args: {
         .where(eq(schema.designs.id, args.designId));
 
       return {
+        content: authoritativeContent,
         versionHash: sourceContentHash(authoritativeContent),
         changed: authoritativeContent !== current.content,
         updatedAt,

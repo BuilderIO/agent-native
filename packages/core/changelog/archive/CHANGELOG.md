@@ -1,3 +1,9 @@
+## 0.167.5
+
+### Patch Changes
+
+- d3210d7: Make documented `AGENT_NATIVE_CONFIG_*` environment aliases override typed and JSON public configuration defaults.
+
 ## 0.167.4
 
 ### Patch Changes
