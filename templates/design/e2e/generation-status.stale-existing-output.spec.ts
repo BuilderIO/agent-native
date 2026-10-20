@@ -178,6 +178,156 @@ test("completed generation without output stays retryable", async ({
   await page.unroute(outputStatusRoute);
 });
 
+test("unknown output verification preserves pending generation without offering retry", async ({
+  app,
+  page,
+}) => {
+  app.allowFailure(
+    /error toast Generation may have stopped before creating files/,
+    "an unreadable output check should surface uncertainty without offering retry",
+  );
+  const designId = await app.seed(
+    "<!doctype html><html><body><main>Existing design</main></body></html>",
+    { title: "completed-generation-unknown-output" },
+  );
+  await page.goto(appPath(`/design/${designId}`), {
+    waitUntil: "domcontentloaded",
+  });
+  await expect(
+    page.locator('[data-design-top-bar] [data-design-mode="edit"]'),
+  ).toHaveAttribute("aria-pressed", "true", { timeout: 30_000 });
+  const pendingKey = `design.pending-generation.${designId}`;
+  let runTabId: string | null = null;
+  await expect
+    .poll(
+      async () => {
+        runTabId = await page.evaluate((id) => {
+          const browserTabId = sessionStorage.getItem(
+            "agent-native:browser-tab-id",
+          );
+          if (!browserTabId) return null;
+          return localStorage.getItem(
+            `agent-chat-active-thread:design:scope:design:${id}:tab:${browserTabId}`,
+          );
+        }, designId);
+        return Boolean(runTabId);
+      },
+      { timeout: 20_000 },
+    )
+    .toBe(true);
+  if (!runTabId) throw new Error("Design editor did not persist a chat thread");
+
+  let completedRunObserved = false;
+  let outputStatusRequested = false;
+  const activeRunRoute = /\/_agent-native\/agent-chat\/runs\/active(?:\?|$)/;
+  await page.route(activeRunRoute, async (route) => {
+    const threadId = new URL(route.request().url()).searchParams.get(
+      "threadId",
+    );
+    if (threadId === runTabId) {
+      completedRunObserved = true;
+      await route.fulfill({
+        json: {
+          active: false,
+          status: "completed",
+          runId: "e2e-completed-unknown-output",
+          turnId: "e2e-completed-unknown-output-turn",
+        },
+      });
+      return;
+    }
+    await route.continue();
+  });
+  const outputStatusRoute =
+    /\/_agent-native\/actions\/get-design-generation-output(?:\?|$)/;
+  await page.route(outputStatusRoute, async (route) => {
+    outputStatusRequested = true;
+    await route.fulfill({ json: { status: "unknown" } });
+  });
+  const pending = {
+    prompt: "Create a settings page",
+    createdAt: Date.now(),
+    startedAt: Date.now(),
+    runTabId,
+    currentRunId: "e2e-completed-unknown-output",
+    currentTurnId: "e2e-completed-unknown-output-turn",
+    previousRunBaselineVerified: true,
+    outputBaselineFiles: [],
+  };
+  await page.evaluate(
+    ({ key, pending }) => {
+      sessionStorage.setItem(key, JSON.stringify(pending));
+    },
+    { key: pendingKey, pending },
+  );
+
+  await page.addInitScript(() => {
+    const state = window as Window & { __chatRunningListenerCount?: number };
+    const addEventListener = window.addEventListener;
+    Object.defineProperty(window, "addEventListener", {
+      configurable: true,
+      value: new Proxy(addEventListener, {
+        apply(target, thisArg, args) {
+          if (args[0] === "agentNative.chatRunning") {
+            state.__chatRunningListenerCount =
+              (state.__chatRunningListenerCount ?? 0) + 1;
+          }
+          return Reflect.apply(target, thisArg, args);
+        },
+      }),
+    });
+  });
+  await page.reload();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as Window & { __chatRunningListenerCount?: number })
+            .__chatRunningListenerCount ?? 0,
+      ),
+    )
+    .toBeGreaterThan(0);
+  await page.evaluate(
+    ({ tabId, runId, turnId }) => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: true, tabId, runId, turnId },
+        }),
+      );
+    },
+    {
+      tabId: runTabId,
+      runId: pending.currentRunId,
+      turnId: pending.currentTurnId,
+    },
+  );
+
+  await expect.poll(() => completedRunObserved, { timeout: 20_000 }).toBe(true);
+  await expect
+    .poll(() => outputStatusRequested, { timeout: 20_000 })
+    .toBe(true);
+  const notifications = page.getByRole("region", {
+    name: "Notifications alt+T",
+  });
+  await expect(notifications).toContainText(
+    "Generation may have stopped before creating files.",
+  );
+  await expect(
+    notifications.getByRole("button", { name: "Try again" }),
+  ).toHaveCount(0);
+  await expect
+    .poll(() =>
+      page.evaluate((key) => {
+        const stored = sessionStorage.getItem(key);
+        return stored ? JSON.parse(stored) : null;
+      }, pendingKey),
+    )
+    .toEqual(pending);
+
+  await page.unroute(activeRunRoute);
+  await page.unroute(outputStatusRoute);
+});
+
 test("restored stale generation with existing output keeps its stale warning", async ({
   app,
   page,

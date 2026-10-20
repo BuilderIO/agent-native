@@ -61,6 +61,7 @@ import {
   readPendingGeneration,
   resolvePendingGenerationOutputBaseline,
   resolvePreviousRunBaseline,
+  type PendingGeneration,
 } from "@/lib/pending-generation";
 import { buildShellDesign } from "@/lib/shell-design";
 import {
@@ -274,6 +275,10 @@ export function useEditorGenerationAndAccess({
   const generationOutputBaselineRef = useRef<
     Array<{ id: string; contentHash: string }> | undefined
   >(undefined);
+  const generationOutputUnknownRef = useRef<{
+    designId: string;
+    pending: PendingGeneration;
+  } | null>(null);
   const authoritativeDesignReadIdRef = useRef<string | null>(null);
   const pendingQuestionsVisibleRef = useRef(false);
   const generationCompleteTimerRef = useRef<number | null>(null);
@@ -401,15 +406,26 @@ export function useEditorGenerationAndAccess({
           return;
         }
 
+        if (outputState === "unknown") {
+          clearAutoRetryTimer();
+          generationOutputUnknownRef.current = completedPending
+            ? { designId: id, pending: completedPending }
+            : null;
+          setHasPendingGeneration(false);
+          setRetryablePrompt(null);
+          setGenerationIssue(t("designEditor.generationMayHaveStopped"));
+          toast.error(t("designEditor.generationMayHaveStoppedToast"));
+          staleToastShownRef.current = false;
+          return;
+        }
+
         if (outputState !== "has_output") {
           const preservedForRetry = rememberPendingGenerationForRetry(false);
           clearPendingGeneration(id);
           setHasPendingGeneration(false);
           setRetryablePrompt(preservedForRetry);
           const issue = preservedForRetry
-            ? outputState === "no_output"
-              ? t("designEditor.generationStoppedRetry")
-              : t("designEditor.generationMayHaveStopped")
+            ? t("designEditor.generationStoppedRetry")
             : t("designEditor.generationStoppedCheckAgent");
           setGenerationIssue(issue);
           if (preservedForRetry) {
@@ -434,6 +450,7 @@ export function useEditorGenerationAndAccess({
     }, 4000);
   }, [
     clearGenerationCompleteTimer,
+    clearAutoRetryTimer,
     id,
     rememberPendingGenerationForRetry,
     setRetryablePrompt,
@@ -668,8 +685,30 @@ export function useEditorGenerationAndAccess({
 
   const currentUserAvatarUrl = useAvatarUrl(session?.email);
 
+  const persistedPendingGeneration = readPendingGeneration(id);
+  const unknownOutputVerification = generationOutputUnknownRef.current;
+  const pendingMatchesUnknownOutputVerification = Boolean(
+    id &&
+    persistedPendingGeneration &&
+    unknownOutputVerification?.designId === id &&
+    unknownOutputVerification.pending.createdAt ===
+      persistedPendingGeneration.createdAt &&
+    unknownOutputVerification.pending.startedAt ===
+      persistedPendingGeneration.startedAt &&
+    unknownOutputVerification.pending.prompt ===
+      persistedPendingGeneration.prompt &&
+    unknownOutputVerification.pending.attempt ===
+      persistedPendingGeneration.attempt &&
+    unknownOutputVerification.pending.runTabId ===
+      persistedPendingGeneration.runTabId &&
+    unknownOutputVerification.pending.currentRunId ===
+      persistedPendingGeneration.currentRunId &&
+    unknownOutputVerification.pending.currentTurnId ===
+      persistedPendingGeneration.currentTurnId,
+  );
   const pendingGenerationActive =
-    (hasPendingGeneration || Boolean(readPendingGeneration(id))) &&
+    (hasPendingGeneration || Boolean(persistedPendingGeneration)) &&
+    !pendingMatchesUnknownOutputVerification &&
     !pendingQuestionsVisible;
 
   const {

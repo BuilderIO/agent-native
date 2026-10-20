@@ -336,6 +336,76 @@ describe("useAgentGenerating", () => {
     container.remove();
   });
 
+  it("adopts only an active run when resuming a legacy record without a baseline", async () => {
+    const onRunConfirmed = vi.fn();
+    const onStale = vi.fn();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          active: false,
+          status: "completed",
+          runId: "unrelated-terminal-run",
+          turnId: "unrelated-turn",
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          active: true,
+          status: "running",
+          runId: "restored-legacy-run",
+          turnId: "restored-legacy-turn",
+        }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <Probe
+          onComplete={vi.fn()}
+          onRunConfirmed={onRunConfirmed}
+          onStale={onStale}
+          onStopped={vi.fn()}
+        />,
+      );
+    });
+    await act(async () => {
+      latest!.track("design_tab", {
+        resumingStoredRun: true,
+        ignorePreviousRun: true,
+        previousRunBaselineVerified: false,
+      });
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+
+    expect(latest!.generating).toBe(true);
+    expect(onRunConfirmed).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+
+    expect(latest!.generating).toBe(true);
+    expect(onStale).not.toHaveBeenCalled();
+    expect(onRunConfirmed).toHaveBeenCalledWith(
+      "design_tab",
+      "restored-legacy-run",
+      "restored-legacy-turn",
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("threadId=design_tab"),
+      expect.objectContaining({ credentials: "same-origin" }),
+    );
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
   it("surfaces a retry state when restored-run status stays unreadable", async () => {
     const onComplete = vi.fn();
     const onStale = vi.fn();

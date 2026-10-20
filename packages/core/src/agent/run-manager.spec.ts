@@ -5827,6 +5827,7 @@ describe("run manager soft timeout", () => {
       completedAt: null,
       lastProgressAt: Date.now(),
       terminalReason: null,
+      inFlightSince: Date.now(),
     };
     vi.mocked(getRunByThread)
       .mockResolvedValueOnce({
@@ -5854,6 +5855,7 @@ describe("run manager soft timeout", () => {
       status: "running",
       inFlight: true,
       successorOfRunId: run.runId,
+      hasInFlightWork: true,
     });
     expect(listRunsForThread).toHaveBeenCalledWith(threadId, { limit: 50 });
   });

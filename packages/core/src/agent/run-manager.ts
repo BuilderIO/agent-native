@@ -3164,9 +3164,7 @@ async function fetchNewerRunForSameTurn(
   const acceptedSuccessor = (
     await listRunsForThread(threadId, { limit: 50 })
   ).find(isNewerReconnectableSuccessor);
-  return acceptedSuccessor
-    ? { ...acceptedSuccessor, inFlightSince: null }
-    : null;
+  return acceptedSuccessor ?? null;
 }
 
 export function getRun(runId: string): ActiveRun | null {

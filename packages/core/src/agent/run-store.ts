@@ -4323,6 +4323,7 @@ export interface AgentRunSummary {
   dispatchMode: string | null;
   terminalReason: string | null;
   diagStage: string | null;
+  inFlightSince: number | null;
 }
 
 export async function listRunsForThread(
@@ -4344,7 +4345,7 @@ export async function listRunsForThread(
       ? ` AND id IN (${batch.map(() => "?").join(", ")})`
       : "";
     return {
-      sql: `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, error_code, abort_reason, dispatch_mode, terminal_reason, diag_stage
+      sql: `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, error_code, abort_reason, dispatch_mode, terminal_reason, diag_stage, in_flight_since
             FROM agent_runs
             WHERE thread_id = ?${runIdFilter}${batch ? "" : " ORDER BY started_at DESC LIMIT ?"}`,
       args: [threadId, ...(batch ?? []), ...(batch ? [] : [limit])],
@@ -4394,6 +4395,7 @@ export async function listRunsForThread(
       dispatch_mode?: string | null;
       terminal_reason?: string | null;
       diag_stage?: string | null;
+      in_flight_since?: number | string | null;
     };
     return {
       id: row.id,
@@ -4410,6 +4412,8 @@ export async function listRunsForThread(
       dispatchMode: row.dispatch_mode ?? null,
       terminalReason: row.terminal_reason ?? null,
       diagStage: row.diag_stage ?? null,
+      inFlightSince:
+        row.in_flight_since == null ? null : Number(row.in_flight_since),
     };
   });
 }
@@ -4676,6 +4680,7 @@ export async function getCurrentTurnRunIdsForThread(
           WHERE thread_id = ?
             AND COALESCE(turn_id, id) = ?
             AND dispatch_mode IS DISTINCT FROM 'turn-abort'
+            AND (status IS DISTINCT FROM 'aborted' OR terminal_reason IS DISTINCT FROM 'aborted:duplicate_submission')
           ORDER BY COALESCE(continuation_order, 0) ASC,
                    started_at ASC,
                    id ASC`,
