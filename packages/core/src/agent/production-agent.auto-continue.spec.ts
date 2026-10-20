@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { mockEvent } from "h3";
 import { describe, expect, it, vi } from "vitest";
 
@@ -185,7 +187,7 @@ function autoContinueRequest(
       body: JSON.stringify({
         message: AUTO_CONTINUE_PROMPT,
         threadId: "thread-auto",
-        turnId: "turn-auto",
+        turnId: `turn-auto-${randomUUID()}`,
         internalContinuation: true,
         ...continued,
       }),
@@ -213,7 +215,11 @@ describe("an automatic continuation request", () => {
       engine: repeatingDelegationEngine(seen),
       actions: {},
     });
-    const event = autoContinueRequest();
+    const turnId = `turn-auto-${randomUUID()}`;
+    const event = autoContinueRequest({
+      autoContinueOfRunId: "run-stopped",
+      turnId,
+    });
 
     const result = await runWithRequestContext(
       { userEmail: "alice@example.com", orgId: "acme", run: {} },
@@ -225,7 +231,7 @@ describe("an automatic continuation request", () => {
       expect.any(String),
       undefined,
       expect.objectContaining({
-        turnId: "turn-auto",
+        turnId,
         continueOf: { runId: "run-stopped", trigger: "auto" },
       }),
     );
@@ -243,8 +249,9 @@ describe("an automatic continuation request", () => {
     mockClaimedRunSlot();
     turnLedger.mockResolvedValue(FINISHED_DELEGATION);
     const callAgent = (await createCallAgentScriptEntry())["call-agent"]!;
-    const sendAgain = vi.fn(async () => "a second remote task");
+    const sendAgain = vi.fn(async () => "idempotent remote response");
     const seen: EngineMessage[][] = [];
+    const turnId = `turn-auto-${randomUUID()}`;
     const handler = createProductionAgentHandler({
       systemPrompt: "Test",
       engine: repeatingDelegationEngine(seen),
@@ -253,11 +260,14 @@ describe("an automatic continuation request", () => {
 
     const response = await runWithRequestContext(
       { userEmail: "alice@example.com", orgId: "acme", run: {} },
-      () => handler(autoContinueRequest()),
+      () =>
+        handler(
+          autoContinueRequest({ autoContinueOfRunId: "run-stopped", turnId }),
+        ),
     );
     const stream = await new Response(response as ReadableStream).text();
 
-    expect(turnLedger).toHaveBeenCalledWith("thread-auto", "turn-auto");
+    expect(turnLedger).toHaveBeenCalledWith("thread-auto", turnId);
     const resumed = seen[0]!;
     const continuePrompt = textOf(resumed.at(-1));
     expect(resumed.at(-1)?.role).toBe("user");
@@ -267,6 +277,8 @@ describe("an automatic continuation request", () => {
     expect(continuePrompt).toContain("do NOT re-run these");
     expect(continuePrompt).toContain("call-agent");
     expect(continuePrompt).toContain("412 signups");
+    // This is a new model step, not a replay of the completed call. The real
+    // call-agent boundary keys this turn, target, and message deterministically.
     expect(
       resumed.some((message) =>
         message.content.some(
@@ -280,10 +292,10 @@ describe("an automatic continuation request", () => {
     expect(sendAgain).toHaveBeenCalledOnce();
     expect(sendAgain.mock.calls[0]?.[1]).toMatchObject({
       toolCallId: "call-again",
-      turnId: "turn-auto",
+      turnId,
     });
     expect(stream).not.toContain('"replayed":true');
-    expect(stream).toContain("a second remote task");
+    expect(stream).toContain("idempotent remote response");
     expect(stream).toContain("There were 412 signups.");
   });
 
@@ -316,14 +328,15 @@ describe("an automatic continuation request", () => {
     expect(seen).toHaveLength(0);
   });
 
-  it("continues a configured manual run in the same turn without sending it again", async () => {
+  it("runs a distinct manual delegation step with the same turn identity", async () => {
     claimRunSlot.mockReset();
     mockClaimedRunSlot();
     turnLedger.mockResolvedValue(FINISHED_DELEGATION);
     const assertAiSetupReady = vi.fn(async () => {});
     const callAgent = (await createCallAgentScriptEntry())["call-agent"]!;
-    const sendAgain = vi.fn(async () => "a second remote task");
+    const sendAgain = vi.fn(async () => "idempotent remote response");
     const seen: EngineMessage[][] = [];
+    const turnId = `turn-auto-${randomUUID()}`;
     const handler = createProductionAgentHandler({
       systemPrompt: "Test",
       engine: repeatingDelegationEngine(seen),
@@ -333,7 +346,10 @@ describe("an automatic continuation request", () => {
 
     const response = await runWithRequestContext(
       { userEmail: "alice@example.com", orgId: "acme", run: {} },
-      () => handler(autoContinueRequest({ continueOfRunId: "run-stopped" })),
+      () =>
+        handler(
+          autoContinueRequest({ continueOfRunId: "run-stopped", turnId }),
+        ),
     );
     const stream = await new Response(response as ReadableStream).text();
     turnLedger.mockReset();
@@ -344,12 +360,18 @@ describe("an automatic continuation request", () => {
       expect.any(String),
       undefined,
       expect.objectContaining({
-        turnId: "turn-auto",
+        turnId,
         continueOf: { runId: "run-stopped", trigger: "manual" },
       }),
     );
     expect(textOf(seen[0]!.at(-1))).toContain("do NOT re-run these");
-    expect(sendAgain).not.toHaveBeenCalled();
+    expect(sendAgain).toHaveBeenCalledOnce();
+    expect(sendAgain.mock.calls[0]?.[1]).toMatchObject({
+      toolCallId: "call-again",
+      turnId,
+    });
+    expect(stream).not.toContain('"replayed":true');
+    expect(stream).toContain("idempotent remote response");
     expect(stream).toContain("There were 412 signups.");
   });
 
