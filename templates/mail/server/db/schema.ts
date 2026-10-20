@@ -183,6 +183,8 @@ export const mailSyncAccounts = table(
     // Threads whose reads keep failing, held apart from the pending work so
     // status can tell "will be attempted next step" from "retrying".
     syncDegradedJson: text("sync_degraded_json"),
+    // 1 while the archive history stream has more pages than one step read.
+    archiveHistoryPending: integer("archive_history_pending"),
     status: text("status", {
       enum: ["idle", "syncing", "error", "needs_reauth"],
     })

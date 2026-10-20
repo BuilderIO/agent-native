@@ -92,6 +92,7 @@ export type SyncAccountRow = {
   archivePendingIds: string[];
   hydratePendingIds: string[];
   degraded: SyncDegraded;
+  archiveHistoryPending: boolean;
   status: "idle" | "syncing" | "error" | "needs_reauth";
   lastError: string | null;
   lastSyncedAt: number | null;
@@ -179,6 +180,7 @@ function toSyncAccountRow(
     archivePendingIds: parseJsonArray<string>(row.archivePendingIdsJson, []),
     hydratePendingIds: parseJsonArray<string>(row.hydratePendingIdsJson, []),
     degraded: parseDegraded(row.syncDegradedJson),
+    archiveHistoryPending: row.archiveHistoryPending === 1,
     status: row.status as SyncAccountRow["status"],
     lastError: row.lastError,
     lastSyncedAt: row.lastSyncedAt,
@@ -1328,6 +1330,7 @@ export type SyncAccountPatch = Partial<{
   archivePendingIds: string[] | null;
   hydratePendingIds: string[] | null;
   degraded: SyncDegraded | null;
+  archiveHistoryPending: boolean | null;
   status: SyncAccountRow["status"];
   lastError: string | null;
   lastSyncedAt: number | null;
@@ -1402,6 +1405,9 @@ export async function patchSyncAccount(
         : null;
     delete set.archivePendingIds;
   }
+  if (patch.archiveHistoryPending !== undefined) {
+    set.archiveHistoryPending = patch.archiveHistoryPending ? 1 : null;
+  }
   if (patch.degraded !== undefined) {
     set.syncDegradedJson =
       patch.degraded &&
@@ -1453,6 +1459,7 @@ export async function resetSyncAccountProgress(
       archivePendingIds: null,
       hydratePendingIds: null,
       degraded: null,
+      archiveHistoryPending: null,
       status: "idle",
       lastError: null,
       syncClaimId: null,

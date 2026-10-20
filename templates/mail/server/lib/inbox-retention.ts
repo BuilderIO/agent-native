@@ -158,6 +158,7 @@ export async function clearPair(
         archivePendingIdsJson: null,
         hydratePendingIdsJson: null,
         syncDegradedJson: null,
+        archiveHistoryPending: null,
         status: "idle",
         lastError: null,
         syncClaimId: null,

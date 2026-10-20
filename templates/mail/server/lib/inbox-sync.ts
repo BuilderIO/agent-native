@@ -20,7 +20,7 @@ import {
   parseEmailAddress,
 } from "./google-auth.js";
 import { classifyAutomated } from "./inbox-classify.js";
-import { statusFromRow } from "./inbox-status.js";
+import { mergeSyncStatuses, statusFromRow } from "./inbox-status.js";
 import {
   claimSyncAccount,
   countInboxThreads,
@@ -947,6 +947,7 @@ async function runIncrementalSyncStep(
   await patchProgress(ownerEmail, accountEmail, claimId, {
     historyId,
     archiveHistoryId,
+    archiveHistoryPending: !archiveCaughtUp,
     hydratePendingIds: hydrateQueue.filter((id) => !priorFailedHydrate.has(id)),
     archivePendingIds: verifyQueue.filter((id) => !priorFailedVerify.has(id)),
   });
@@ -1058,9 +1059,11 @@ async function runIncrementalSyncStep(
   // Verified threads that still have INBOX mail are refreshed on the next step,
   // which keeps this step inside its read budget. Untried queue entries that
   // had failed before go back to the degraded lists with the new failures.
+  // After a whole-read failure the ids just tried go behind the untried ones,
+  // so a batch that keeps failing cannot hold the front of the retry order.
   const hydrateUntried = [
-    ...(hydrateError ? hydrateNow : []),
     ...hydrateQueue.filter((id) => !hydrateNowSet.has(id)),
+    ...(hydrateError ? hydrateNow : []),
   ];
   const verifyUntried = [
     ...(verifyCooledDown ? verifyNow : []),
@@ -1113,10 +1116,11 @@ async function runIncrementalSyncStep(
       accountEmail,
       state: inboxCaughtUp && archiveCaughtUp ? "ready" : "initial",
       lastSyncedAt: syncedAt,
-      ...(row.fullSyncPageToken ||
-      row.fullSyncPhase === "reconcile" ||
-      hydratePendingIds.length > 0 ||
-      archivePendingIds.length > 0
+      // Full-sync flags come from the step that runs them; the caller adds them
+      // when this step is the only one that ran.
+      ...(hydratePendingIds.length > 0 ||
+      archivePendingIds.length > 0 ||
+      !archiveCaughtUp
         ? { backfillPending: true }
         : {}),
       // Threads that keep failing are reported as degraded, not as pending
@@ -1286,6 +1290,9 @@ export async function syncInboxAccount(
     }
 
     let syncResult: SyncStepResult;
+    // True while the status is the incremental step's alone, so it still has to
+    // carry the full-sync flags no later step reports.
+    let incrementalAlone = false;
     if (row.fullSyncPhase === "reconcile") {
       syncResult = await runIncrementalSyncStep(
         ownerEmail,
@@ -1298,7 +1305,9 @@ export async function syncInboxAccount(
           changed = true;
         },
       );
+      incrementalAlone = !syncResult.restartedFullSync;
       if (!syncResult.restartedFullSync && Date.now() < deadline) {
+        incrementalAlone = false;
         const incrementalResult = syncResult;
         const reconciliationResult = await runReconciliationStep(
           ownerEmail,
@@ -1313,13 +1322,10 @@ export async function syncInboxAccount(
         );
         syncResult = {
           ...reconciliationResult,
-          status: {
-            ...reconciliationResult.status,
-            state:
-              incrementalResult.status.state === "initial"
-                ? "initial"
-                : reconciliationResult.status.state,
-          },
+          status: mergeSyncStatuses(
+            incrementalResult.status,
+            reconciliationResult.status,
+          ),
           changed: incrementalResult.changed || reconciliationResult.changed,
         };
       }
@@ -1347,11 +1353,13 @@ export async function syncInboxAccount(
           changed = true;
         },
       );
+      incrementalAlone = !syncResult.restartedFullSync;
       if (
         !syncResult.restartedFullSync &&
         row.fullSyncPageToken != null &&
         Date.now() < deadline
       ) {
+        incrementalAlone = false;
         const incrementalResult = syncResult;
         const backfillResult = await runFullSyncStep(
           ownerEmail,
@@ -1366,19 +1374,20 @@ export async function syncInboxAccount(
         );
         syncResult = {
           ...backfillResult,
-          status: {
-            ...backfillResult.status,
-            state:
-              incrementalResult.status.state === "initial"
-                ? "initial"
-                : backfillResult.status.state,
-          },
+          status: mergeSyncStatuses(
+            incrementalResult.status,
+            backfillResult.status,
+          ),
           changed: incrementalResult.changed || backfillResult.changed,
         };
       }
     }
 
-    const accountStatus = syncResult.status;
+    const accountStatus: InboxSyncAccountStatus =
+      incrementalAlone &&
+      (row.fullSyncPageToken != null || row.fullSyncPhase === "reconcile")
+        ? { ...syncResult.status, backfillPending: true }
+        : syncResult.status;
     changed ||= syncResult.changed;
     const dbStatus: SyncAccountRow["status"] =
       accountStatus.state === "error" || accountStatus.state === "needs_reauth"

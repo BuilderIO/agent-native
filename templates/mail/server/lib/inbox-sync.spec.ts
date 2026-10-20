@@ -175,6 +175,7 @@ function baseRow(overrides: Partial<Record<string, unknown>> = {}) {
     archivePendingIds: [],
     hydratePendingIds: [],
     degraded: { hydrate: [], verify: [], kind: null },
+    archiveHistoryPending: false,
     status: "syncing",
     lastError: null,
     lastSyncedAt: null,
@@ -1430,6 +1431,26 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
     );
   }
 
+  // The archive stream serves one record per page; the second page is the last.
+  function twoPageArchive() {
+    mocks.gmailListHistory.mockImplementation(
+      async (
+        _token: string,
+        params: { labelId?: string; startHistoryId: string },
+      ) => {
+        if (params.labelId === "INBOX")
+          return { history: [], historyId: "1010" };
+        return BigInt(params.startHistoryId) < 1002n
+          ? {
+              history: [{ id: "1002", labelsRemoved: [] }],
+              historyId: "1010",
+              nextPageToken: "more",
+            }
+          : { history: [{ id: "1003", labelsRemoved: [] }], historyId: "1010" };
+      },
+    );
+  }
+
   function minimalThread(id: string, messageLabels: string[][]) {
     return {
       id,
@@ -1889,6 +1910,105 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
     // The backlog drains alongside the retries.
     expect(currentRow.hydratePendingIds.length).toBeLessThan(400 - 4 * 60);
     expect(currentRow.degraded.hydrate.sort()).toEqual(["bad1", "bad2"]);
+  });
+
+  it("rotates failed retries to the back so every degraded id gets a turn", async () => {
+    const degradedIds = Array.from({ length: 12 }, (_, index) => `d${index}`);
+    currentRow = baseRow({
+      historyId: "1000",
+      archiveHistoryId: "1000",
+      hydratePendingIds: Array.from({ length: 400 }, (_, index) => `p${index}`),
+      degraded: { hydrate: degradedIds, verify: [], kind: "http_500" },
+    });
+    mocks.gmailListHistory.mockResolvedValue({
+      history: [],
+      historyId: "1000",
+    });
+    // The first five always fail; the rest read fine once retried.
+    const alwaysFailing = new Set(degradedIds.slice(0, 5));
+    mocks.gmailBatchGetThreads.mockImplementation(
+      async (_token: string, requested: string[]) =>
+        requested.map((id) =>
+          alwaysFailing.has(id)
+            ? { id, data: null, error: "HTTP 500 backend" }
+            : {
+                id,
+                data: thread(id, { from: "a@ex.com", labelIds: ["INBOX"] }),
+              },
+        ),
+    );
+
+    const retried = new Set<string>();
+    for (let step = 0; step < 3; step++) {
+      const before = mocks.gmailBatchGetThreads.mock.calls.length;
+      await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+      for (const call of mocks.gmailBatchGetThreads.mock.calls.slice(before)) {
+        for (const id of call[1] as string[]) {
+          if (id.startsWith("d")) retried.add(id);
+        }
+      }
+    }
+
+    expect([...retried].sort()).toEqual([...degradedIds].sort());
+  });
+
+  it("keeps the incremental step's degraded and pending flags when reconciliation runs after it", async () => {
+    currentRow = baseRow({
+      historyId: "1000",
+      archiveHistoryId: "1000",
+      fullSyncPhase: "reconcile",
+      fullSyncReconcilePageToken: null,
+      fullSyncReconcilePendingIds: [],
+      fullSyncReconcilePasses: 1,
+      hydratePendingIds: Array.from({ length: 100 }, (_, index) => `p${index}`),
+    });
+    fakeRows = [{ threadId: "bad" }];
+    archiveStream(["bad"]);
+    mocks.gmailBatchGetThreads.mockImplementation(
+      async (_token: string, requested: string[], format: string) =>
+        requested.map((id) =>
+          format === "minimal"
+            ? { id, data: null, error: "HTTP 500 backend" }
+            : {
+                id,
+                data: thread(id, { from: "a@ex.com", labelIds: ["INBOX"] }),
+              },
+        ),
+    );
+
+    const result = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    // Reconciliation itself finishes clean; the incremental step's work still shows.
+    expect(currentRow.fullSyncPhase).toBeNull();
+    expect(result.degraded).toEqual({ count: 1, kind: "http_500" });
+    expect(result.backfillPending).toBe(true);
+  });
+
+  it("persists an unfinished archive stream so a reload still reports pending", async () => {
+    currentRow = baseRow({ historyId: "1000", archiveHistoryId: "1000" });
+    twoPageArchive();
+
+    const first = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    expect(first).toMatchObject({ state: "initial", backfillPending: true });
+    expect(currentRow.archiveHistoryPending).toBe(true);
+
+    // A reload while another worker holds the claim reads the stored row.
+    mocks.claimSyncAccount.mockResolvedValue(null);
+    const reloaded = await syncInboxAccount(OWNER, ACCOUNT, {
+      budgetMs: 5_000,
+    });
+    expect(reloaded).toMatchObject({ state: "initial", backfillPending: true });
+    mocks.claimSyncAccount.mockImplementation(async () => ({
+      claimId: "claim-1",
+      row: { ...currentRow, status: "syncing", syncClaimId: "claim-1" },
+    }));
+
+    // The next step drains the last page and the marker clears.
+    const done = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+    expect(currentRow.archiveHistoryPending).toBe(false);
+    expect(done.state).toBe("ready");
+    expect(done.backfillPending).toBeUndefined();
   });
 
   it("clears the degraded record once the failing thread reads again", async () => {
