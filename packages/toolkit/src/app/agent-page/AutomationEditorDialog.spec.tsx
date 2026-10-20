@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   events: [] as Array<{
     name: string;
-    description: string;
+    description?: string;
     payloadSchema: null;
     example: null;
   }>,

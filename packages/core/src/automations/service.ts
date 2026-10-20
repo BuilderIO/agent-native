@@ -857,7 +857,7 @@ export async function defineAutomation(
         ),
     },
   );
-  write.notifyAfterCommit();
+  await write.notifyAfterCommit();
   let webhookPath: string | undefined;
   if (input.triggerType === "webhook") {
     const token = createAutomationWebhookToken();
@@ -1237,7 +1237,7 @@ export async function updateAutomation(
           conflictError,
         },
       );
-      write.notifyAfterCommit();
+      await write.notifyAfterCommit();
       updated = write.value;
       replacedContent = definition.resource.content;
     } else {
@@ -1425,7 +1425,7 @@ export async function deleteAutomation(
       conflictError: deleteConflictError,
     },
   );
-  write.notifyAfterCommit();
+  await write.notifyAfterCommit();
   if (definition.meta.triggerType === "webhook") {
     await deleteAutomationWebhookToken(definition.resource, definition.meta);
   }

@@ -43,19 +43,13 @@ const client = {
   },
 };
 
-const ddlMocks = vi.hoisted(() => ({
-  ensureIndexExists: vi.fn(),
-  ensureTableExists: vi.fn(),
-}));
-
 vi.mock("../db/client.js", () => ({
   getDbExec: () => client,
 }));
 
-vi.mock("../db/ddl-guard.js", () => ddlMocks);
-
 const {
   __resetAutomationSharingStoreForTests,
+  automationSharingStore,
   deleteAutomationSharingStateWithDb,
   ensureAutomationSharingTables,
   getAutomationSharingState,
@@ -76,14 +70,6 @@ beforeEach(async () => {
       rowsAffected: result.affectedRows ?? 0,
     };
   });
-  ddlMocks.ensureIndexExists.mockReset();
-  ddlMocks.ensureTableExists.mockReset();
-  ddlMocks.ensureIndexExists.mockImplementation(
-    async (_name: string, sql: string) => client.execute(sql),
-  );
-  ddlMocks.ensureTableExists.mockImplementation(
-    async (_name: string, sql: string) => client.execute(sql),
-  );
   __resetAutomationSharingStoreForTests();
 });
 
@@ -111,14 +97,22 @@ describe("automation sharing store", () => {
     ]);
   });
 
-  it("uses guarded table and index creation on Postgres", async () => {
-    ddlMocks.ensureIndexExists.mockResolvedValue(true);
-    ddlMocks.ensureTableExists.mockResolvedValue(true);
-    await ensureAutomationSharingTables();
+  it("registers its schema in an append-only store migration", () => {
+    const [baseline] = automationSharingStore.migrations;
+    const sql = Array.isArray(baseline?.sql)
+      ? baseline.sql.join("\n")
+      : (baseline?.sql ?? "");
 
-    expect(ddlMocks.ensureTableExists).toHaveBeenCalledTimes(2);
-    expect(ddlMocks.ensureIndexExists).toHaveBeenCalledTimes(2);
-    expect(execute).not.toHaveBeenCalled();
+    expect(automationSharingStore.id).toBe("automation_sharing");
+    expect(baseline?.name).toBe("baseline");
+    expect(sql).toContain(
+      "CREATE TABLE IF NOT EXISTS automation_sharing_overlays",
+    );
+    expect(sql).toContain(
+      "CREATE TABLE IF NOT EXISTS automation_sharing_grants",
+    );
+    expect(sql).toContain("idx_automation_sharing_overlays_organization");
+    expect(sql).toContain("idx_automation_sharing_grants_user");
   });
 
   it("normalizes emails, enforces uniqueness, and replaces the complete state", async () => {

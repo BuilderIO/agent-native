@@ -18,7 +18,7 @@ The UI consumes one unified list action, renders role-derived capabilities, and 
 
 - TypeScript
 - React 19 and TanStack Query
-- Agent Native `defineAction`, action discovery, and request context
+- Agent-Native `defineAction`, action discovery, and request context
 - Core `resources` store and `getDbExec()` portable SQL abstraction
 - SQLite, Postgres, and D1-compatible additive DDL
 - Zod validation

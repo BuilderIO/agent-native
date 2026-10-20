@@ -54,7 +54,7 @@ function TriggerCard({
   disabled?: boolean;
   icon: Icon;
   title: string;
-  description: string;
+  description?: string;
   onSelect: (value: EditorTrigger) => void;
 }) {
   return (
@@ -76,9 +76,11 @@ function TriggerCard({
         <TriggerIcon className="size-4 shrink-0" />
         {title}
       </span>
-      <span className="mt-1.5 block text-xs leading-5 text-muted-foreground">
-        {description}
-      </span>
+      {description ? (
+        <span className="mt-1.5 block text-xs leading-5 text-muted-foreground">
+          {description}
+        </span>
+      ) : null}
     </button>
   );
 }

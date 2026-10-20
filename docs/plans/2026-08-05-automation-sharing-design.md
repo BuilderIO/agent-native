@@ -67,7 +67,7 @@ Organization visibility is always View. It does not inherit an organization admi
 
 ### Specific-user eligibility
 
-A specific user may be any existing Agent Native account, whether or not that account belongs to the owner's active organization.
+A specific user may be any existing Agent-Native account, whether or not that account belongs to the owner's active organization.
 
 - Search results clearly mark accounts outside the owning organization.
 - An outside-organization View grant may be saved normally.

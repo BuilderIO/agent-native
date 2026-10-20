@@ -326,9 +326,10 @@ export interface ResourceWriteOptions extends StoreWriteOptions {
   metadata?: string | Record<string, unknown> | null;
 }
 
+/** Notify listeners after commit and await asynchronous post-commit work. */
 export interface TransactionScopedResourceWrite<T> {
   value: T;
-  notifyAfterCommit: () => void;
+  notifyAfterCommit: () => void | Promise<void>;
 }
 
 export interface PreparedResourceMutation<
@@ -2012,9 +2013,9 @@ export async function resourcePutWithDb(
   };
   return {
     value: resource,
-    notifyAfterCommit: () => {
+    notifyAfterCommit: async () => {
       if (typeof existingRow?.content === "string") {
-        void noteJobFrontmatterWrite({
+        await noteJobFrontmatterWrite({
           owner,
           orgId: organizationIdFromResourceOwner(owner),
           path,
@@ -2064,7 +2065,7 @@ export async function resourcePut(
     mimeType,
     options,
   );
-  write.notifyAfterCommit();
+  await write.notifyAfterCommit();
   return write.value;
 }
 
@@ -2254,7 +2255,7 @@ async function writeResourceIfCurrent(
 }
 
 /**
- * Delete through an existing SQL transaction. The caller must invoke
+ * Delete through an existing SQL transaction. The caller must await
  * notifyAfterCommit only after that transaction commits.
  */
 export async function resourceDeleteWithDb(
@@ -2689,7 +2690,7 @@ export async function resourceDelete(id: string): Promise<boolean> {
   }
 
   const write = await resourceDeleteWithDb(getDbExec(), id);
-  write.notifyAfterCommit();
+  await write.notifyAfterCommit();
   return write.value;
 }
 

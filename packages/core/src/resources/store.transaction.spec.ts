@@ -56,7 +56,7 @@ describe("transaction-scoped resource writes", () => {
 
     expect(write.value.id).toBe("resource-1");
     expect(emitResourceChange).not.toHaveBeenCalled();
-    write.notifyAfterCommit();
+    await write.notifyAfterCommit();
     expect(emitResourceChange).toHaveBeenCalledWith(
       "resource-1",
       "jobs/example.md",
@@ -65,7 +65,7 @@ describe("transaction-scoped resource writes", () => {
     );
   });
 
-  it("prepares guarded create, update, and delete statements without notifying", () => {
+  it("prepares guarded create, update, and delete statements without notifying", async () => {
     const create = prepareResourceCreate({
       id: "resource-1",
       owner: "owner@example.com",
@@ -116,8 +116,8 @@ describe("transaction-scoped resource writes", () => {
     expect(emitResourceChange).not.toHaveBeenCalled();
     expect(emitResourceDelete).not.toHaveBeenCalled();
 
-    update.notifyAfterCommit();
-    remove.notifyAfterCommit();
+    await update.notifyAfterCommit();
+    await remove.notifyAfterCommit();
     expect(emitResourceChange).toHaveBeenCalledTimes(1);
     expect(emitResourceDelete).toHaveBeenCalledTimes(1);
   });

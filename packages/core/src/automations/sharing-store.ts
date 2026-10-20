@@ -1,5 +1,5 @@
 import { getDbExec, type DbExec, type DbExecStatement } from "../db/client.js";
-import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 
 export type AutomationSharingVisibility = "private" | "organization";
 export type AutomationSharingGrantRole = "view" | "collaborate";
@@ -75,8 +75,43 @@ export type AutomationSharingSummary =
 const OVERLAYS_TABLE = "automation_sharing_overlays";
 const GRANTS_TABLE = "automation_sharing_grants";
 const READ_BATCH_SIZE = 200;
+const ORGANIZATION_INDEX = "idx_automation_sharing_overlays_organization";
+const USER_GRANT_INDEX = "idx_automation_sharing_grants_user";
 
-let initPromise: Promise<void> | undefined;
+const CREATE_OVERLAYS_SQL = `CREATE TABLE IF NOT EXISTS ${OVERLAYS_TABLE} (
+  resource_id TEXT PRIMARY KEY,
+  visibility TEXT NOT NULL,
+  organization_id TEXT,
+  created_at BIGINT NOT NULL,
+  updated_at BIGINT NOT NULL,
+  CHECK (visibility IN ('private', 'organization'))
+)`;
+const CREATE_GRANTS_SQL = `CREATE TABLE IF NOT EXISTS ${GRANTS_TABLE} (
+  resource_id TEXT NOT NULL,
+  user_email TEXT NOT NULL,
+  role TEXT NOT NULL,
+  created_at BIGINT NOT NULL,
+  updated_at BIGINT NOT NULL,
+  PRIMARY KEY (resource_id, user_email),
+  CHECK (role IN ('view', 'collaborate'))
+)`;
+
+export const automationSharingStore = defineStore({
+  id: "automation_sharing",
+  migrations: [
+    {
+      name: "baseline",
+      sql: [
+        CREATE_OVERLAYS_SQL,
+        CREATE_GRANTS_SQL,
+        `CREATE INDEX IF NOT EXISTS ${ORGANIZATION_INDEX}
+          ON ${OVERLAYS_TABLE} (organization_id, visibility, resource_id)`,
+        `CREATE INDEX IF NOT EXISTS ${USER_GRANT_INDEX}
+          ON ${GRANTS_TABLE} (user_email, resource_id)`,
+      ],
+    },
+  ],
+});
 
 function normalizedRequired(value: string, label: string): string {
   const normalized = value.trim();
@@ -169,51 +204,8 @@ function chunks<T>(values: readonly T[], size: number): T[][] {
   return result;
 }
 
-async function ensureTables(): Promise<void> {
-  const createOverlaysSql = `
-    CREATE TABLE IF NOT EXISTS ${OVERLAYS_TABLE} (
-      resource_id TEXT PRIMARY KEY,
-      visibility TEXT NOT NULL,
-      organization_id TEXT,
-      created_at BIGINT NOT NULL,
-      updated_at BIGINT NOT NULL,
-      CHECK (visibility IN ('private', 'organization'))
-    )
-  `;
-  const createGrantsSql = `
-    CREATE TABLE IF NOT EXISTS ${GRANTS_TABLE} (
-      resource_id TEXT NOT NULL,
-      user_email TEXT NOT NULL,
-      role TEXT NOT NULL,
-      created_at BIGINT NOT NULL,
-      updated_at BIGINT NOT NULL,
-      PRIMARY KEY (resource_id, user_email),
-      CHECK (role IN ('view', 'collaborate'))
-    )
-  `;
-  const organizationIndexSql = `CREATE INDEX IF NOT EXISTS idx_automation_sharing_overlays_organization ON ${OVERLAYS_TABLE} (organization_id, visibility, resource_id)`;
-  const userGrantIndexSql = `CREATE INDEX IF NOT EXISTS idx_automation_sharing_grants_user ON ${GRANTS_TABLE} (user_email, resource_id)`;
-
-  await ensureTableExists(OVERLAYS_TABLE, createOverlaysSql);
-  await ensureTableExists(GRANTS_TABLE, createGrantsSql);
-  await ensureIndexExists(
-    "idx_automation_sharing_overlays_organization",
-    organizationIndexSql,
-  );
-  await ensureIndexExists(
-    "idx_automation_sharing_grants_user",
-    userGrantIndexSql,
-  );
-}
-
 export async function ensureAutomationSharingTables(): Promise<void> {
-  if (!initPromise) {
-    initPromise = ensureTables().catch((error) => {
-      initPromise = undefined;
-      throw error;
-    });
-  }
-  await initPromise;
+  await automationSharingStore.ready();
 }
 
 export async function loadAutomationSharingOverlays(
@@ -461,5 +453,5 @@ export async function replaceAutomationSharingState(
 }
 
 export function __resetAutomationSharingStoreForTests(): void {
-  initPromise = undefined;
+  automationSharingStore.reset();
 }

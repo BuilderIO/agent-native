@@ -340,16 +340,11 @@ async function processRecurringJobsWithLease(
       // acquired here only when they positively declare a schedule trigger.
       const isScheduleTrigger =
         meta.triggerType === undefined || meta.triggerType === "schedule";
-      if (!isScheduleTrigger) continue;
 
       // Settled before the enabled check: "Run now" on a paused job leaves it
       // `running`, and only these branches finish that run.
       if (meta.lastStatus === "running" && meta.executionHostId) {
         await reconcileRemoteJob(resource, meta, now);
-        continue;
-      }
-
-      if (!meta.enabled || !meta.schedule || !isValidCron(meta.schedule)) {
         continue;
       }
 
@@ -466,6 +461,8 @@ async function processRecurringJobsWithLease(
         continue;
       }
 
+      if (!isScheduleTrigger) continue;
+
       if (isPausedByFramework(meta)) {
         const kind = isTransientPauseProbeDue(meta, now)
           ? "probe"
@@ -479,8 +476,9 @@ async function processRecurringJobsWithLease(
         continue;
       }
 
-      if (!meta.enabled || !meta.schedule) continue;
-      if (!isValidCron(meta.schedule)) continue;
+      if (!meta.enabled || !meta.schedule || !isValidCron(meta.schedule)) {
+        continue;
+      }
 
       if (meta.nextRun) {
         const nextRunDate = new Date(meta.nextRun);
