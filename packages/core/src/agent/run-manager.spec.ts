@@ -4684,6 +4684,28 @@ describe("run manager soft timeout", () => {
     });
   });
 
+  it("returns recent aborted SQL runs with their abort reason", async () => {
+    vi.mocked(getRunByThread).mockResolvedValue({
+      id: "run-recent-aborted",
+      threadId: "thread-aborted",
+      status: "aborted",
+      startedAt: Date.now() - 1_000,
+      heartbeatAt: Date.now() - 1_000,
+      completedAt: Date.now() - 500,
+      lastProgressAt: Date.now() - 800,
+      terminalReason: "aborted:duplicate_submission",
+    });
+
+    const result = await getActiveRunForThreadAsync("thread-aborted");
+
+    expect(result).toMatchObject({
+      runId: "run-recent-aborted",
+      status: "aborted",
+      terminalReason: "aborted:duplicate_submission",
+      inFlight: false,
+    });
+  });
+
   it("surfaces a truncated SQL run on /runs/active, reported with the legacy wire status", async () => {
     vi.mocked(getRunByThread).mockResolvedValue({
       id: "run-recent-truncated",
@@ -4978,7 +5000,7 @@ describe("run manager soft timeout", () => {
       runId: "run-fix1-successor",
       status: "running",
       dispatchMode: "background",
-      awaitingRedispatch: false,
+      awaitingRedispatch: true,
     });
   });
 
@@ -5007,6 +5029,7 @@ describe("run manager soft timeout", () => {
       heartbeatAt: Date.now(),
       completedAt: Date.now(),
       lastProgressAt: Date.now(),
+      dispatchMode: "background",
       terminalReason: "done",
     });
 
@@ -5020,6 +5043,49 @@ describe("run manager soft timeout", () => {
       inFlight: false,
       successorOfRunId: "run-terminal-successor-source",
       terminalReason: "done",
+      awaitingRedispatch: false,
+    });
+    abortRun(run.runId, "test");
+  });
+
+  it("marks an unclaimed same-turn in-memory successor as awaiting redispatch", async () => {
+    const run = startRun(
+      "run-deferred-successor-source",
+      "thread-deferred-successor",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 10, turnId: "turn-deferred-successor" },
+    );
+
+    await vi.advanceTimersByTimeAsync(11);
+    expect(run.status).toBe("completed");
+
+    vi.mocked(getRunByThread).mockResolvedValue({
+      id: "run-deferred-successor-child",
+      threadId: "thread-deferred-successor",
+      turnId: "turn-deferred-successor",
+      status: "running",
+      startedAt: run.startedAt + 1_000,
+      heartbeatAt: Date.now() - 1_000,
+      completedAt: null,
+      lastProgressAt: null,
+      dispatchMode: "background",
+      terminalReason: null,
+    });
+
+    const result = await getActiveRunForThreadAsync(
+      "thread-deferred-successor",
+    );
+
+    expect(result).toMatchObject({
+      runId: "run-deferred-successor-child",
+      status: "running",
+      dispatchMode: "background",
+      awaitingRedispatch: true,
     });
     abortRun(run.runId, "test");
   });

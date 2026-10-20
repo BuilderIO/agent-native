@@ -663,6 +663,74 @@ describe("useAgentGenerating", () => {
     container.remove();
   });
 
+  it("keeps awaiting redispatch alive through the bounded handoff window", async () => {
+    const onFailed = vi.fn();
+    const onStale = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          active: false,
+          status: "running",
+          runId: "deferred-run",
+          successorOfRunId: "previous-run",
+          awaitingRedispatch: true,
+        }),
+      }),
+    );
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <Probe
+          onComplete={vi.fn()}
+          onFailed={onFailed}
+          onStale={onStale}
+          onStopped={vi.fn()}
+        />,
+      );
+    });
+    await act(async () => {
+      latest!.track("design_tab", {
+        ignorePreviousRun: true,
+        previousRunId: "previous-run",
+        previousRunBaselineVerified: false,
+      });
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: {
+            isRunning: false,
+            tabId: "design_tab",
+            reason: "start_failed",
+          },
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+
+    expect(latest!.generating).toBe(true);
+    expect(onStale).not.toHaveBeenCalled();
+    expect(onFailed).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4 * 60_000);
+    });
+
+    expect(latest!.generating).toBe(false);
+    expect(onStale).not.toHaveBeenCalled();
+    expect(onFailed).toHaveBeenCalledOnce();
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
   it("accepts awaitingRedispatch and clears its deadline when the successor runs", async () => {
     const onComplete = vi.fn();
     const onFailed = vi.fn();

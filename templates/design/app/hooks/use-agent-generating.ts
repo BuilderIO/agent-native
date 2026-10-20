@@ -146,9 +146,10 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
       waitingForContinuationRef.current = true;
       generationIdlePollCountRef.current = 0;
       if (sourceRunId) continuationSourceRunIdRef.current = sourceRunId;
+      clearGenerationTimeout();
       startHandoffTimeout(tabId);
     },
-    [startHandoffTimeout],
+    [clearGenerationTimeout, startHandoffTimeout],
   );
 
   const confirmRun = useCallback(

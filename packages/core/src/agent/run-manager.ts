@@ -2746,9 +2746,9 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
    * `agent-chat-adapter.ts`'s follow loop can tell "silently deferred,
    * server-side recovery in progress" apart from "dead" and stop counting the
    * quiet gap against its idle timeout — see the THREE-SITE INVARIANT comment
-   * below and in agent-chat-plugin.ts / production-agent.ts. Always false for
-   * an in-memory run (that isolate IS the live producer) and for any run that
-   * isn't an unclaimed background dispatch.
+   * below and in agent-chat-plugin.ts / production-agent.ts. False for a live
+   * in-memory run; the same-turn successor path can select an unclaimed SQL
+   * successor beside a stale in-memory predecessor, so it uses the same bound.
    */
   awaitingRedispatch: boolean;
   hasInFlightWork: boolean;
@@ -2775,7 +2775,12 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
           terminalReason: successor.terminalReason,
           successorOfRunId: memRun.runId,
           diagStage: successor.diagStage,
-          awaitingRedispatch: false,
+          awaitingRedispatch:
+            successor.status === "running" &&
+            successor.dispatchMode === "background" &&
+            shouldRedispatchUnclaimedBackgroundRun({
+              startedAt: successor.startedAt,
+            }),
           hasInFlightWork: successor.inFlightSince != null,
         };
       }
@@ -2875,7 +2880,8 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
     if (
       sqlRun.status === "completed" ||
       sqlRun.status === "truncated" ||
-      sqlRun.status === "errored"
+      sqlRun.status === "errored" ||
+      sqlRun.status === "aborted"
     ) {
       const referenceAt =
         sqlRun.completedAt ?? sqlRun.heartbeatAt ?? sqlRun.startedAt;
