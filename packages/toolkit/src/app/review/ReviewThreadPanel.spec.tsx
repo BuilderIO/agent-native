@@ -627,6 +627,66 @@ describe("ReviewThreadPanel sidebar layout", () => {
     ).toBe("A quick reply");
   });
 
+  async function failReplyAfter(beforeFailure: () => void) {
+    act(() => {
+      root.render(
+        <ReviewThreadPanel
+          resourceType="design"
+          resourceId="design-1"
+          showHeader={false}
+          showComposer={false}
+          canReply
+          replyPlaceholder="Reply to this thread"
+        />,
+      );
+    });
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Reply"]')
+        ?.click(),
+    );
+    const replyComposer = container.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="Reply to this thread"]',
+    );
+    setTextareaValue(replyComposer!, "A quick reply");
+    const failedReply = deferredMutation();
+    act(() =>
+      replyComposer
+        ?.closest("form")
+        ?.querySelector<HTMLButtonElement>('button[type="submit"]')
+        ?.click(),
+    );
+    beforeFailure();
+    await act(async () => {
+      failedReply.reject(new Error("offline"));
+      await failedReply.promise.catch(() => undefined);
+    });
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+    return container.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="Reply to this thread"]',
+    );
+  }
+
+  it("puts the cursor back in a failed reply when nothing else took focus", async () => {
+    const restored = await failReplyAfter(() => {});
+
+    expect(restored?.value).toBe("A quick reply");
+    expect(document.activeElement).toBe(restored);
+  });
+
+  it("leaves focus where the person moved when a failed reply comes back", async () => {
+    const elsewhere = document.createElement("input");
+    document.body.appendChild(elsewhere);
+    try {
+      const restored = await failReplyAfter(() => elsewhere.focus());
+
+      expect(restored?.value).toBe("A quick reply");
+      expect(document.activeElement).toBe(elsewhere);
+    } finally {
+      elsewhere.remove();
+    }
+  });
+
   it("restores the delete dialog when dismissal races with a failed optimistic delete", async () => {
     act(() => {
       root.render(
@@ -803,15 +863,25 @@ describe("ReviewThreadPanel sidebar layout", () => {
     expect(
       document.querySelector('textarea[aria-label="Edit comment"]'),
     ).toBeNull();
-    await act(async () => {
-      failedEdit.reject(new Error("offline"));
-      await failedEdit.promise.catch(() => undefined);
-    });
-    expect(
-      document.querySelector<HTMLTextAreaElement>(
-        'textarea[aria-label="Edit comment"]',
-      )?.value,
-    ).toBe("Ping @Alice updated");
+    // Someone who moved on while the save ran keeps their focus.
+    const elsewhere = document.createElement("input");
+    document.body.appendChild(elsewhere);
+    elsewhere.focus();
+    try {
+      await act(async () => {
+        failedEdit.reject(new Error("offline"));
+        await failedEdit.promise.catch(() => undefined);
+      });
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+      expect(
+        document.querySelector<HTMLTextAreaElement>(
+          'textarea[aria-label="Edit comment"]',
+        )?.value,
+      ).toBe("Ping @Alice updated");
+      expect(document.activeElement).toBe(elsewhere);
+    } finally {
+      elsewhere.remove();
+    }
   });
 
   it("puts the cursor in the reply box that Reply opens", async () => {

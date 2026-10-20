@@ -5755,6 +5755,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                       onCancel={closeInlineComment}
                       onSubmit={submitInlineComment}
                       lockToAgent={localPlanMode}
+                      reopened={Boolean(failedCommentDraft)}
                     />
                   )}
                 </>
@@ -8936,6 +8937,12 @@ function CreatePlanDialog({
   );
 }
 
+/** Nothing on the page holds focus, so taking it moves nobody's caret. */
+function focusIsFree() {
+  const active = document.activeElement;
+  return !active || active === document.body;
+}
+
 function focusCommentEditorAtEnd(root: HTMLElement) {
   root.focus();
   const selection = window.getSelection();
@@ -8962,7 +8969,8 @@ function CommentMentionEditor({
   focusKey?: unknown;
   placeholder: string;
   className?: string;
-  autoFocus?: boolean;
+  /** "if-free" only takes focus nobody holds, for a box reopened after a failed save. */
+  autoFocus?: boolean | "if-free";
   onChange: (draft: Pick<CommentDraft, "message" | "mentions">) => void;
   onSubmitShortcut?: () => void;
 }) {
@@ -8999,7 +9007,7 @@ function CommentMentionEditor({
     emitChange();
     // Reloading the text keeps the caret in an editor that had it.
     if (hadFocus) focusCommentEditorAtEnd(root);
-    if (!autoFocus) return;
+    if (!autoFocus || (autoFocus === "if-free" && !focusIsFree())) return;
     // An Edit menu item mounts this editor while its menu still traps focus,
     // so keep trying for a few frames until focus lands.
     let attempts = 0;
@@ -9196,6 +9204,7 @@ function InlineCommentPopover({
   onCancel,
   onSubmit,
   lockToAgent = false,
+  reopened = false,
 }: {
   anchor: PlanAnnotationAnchor;
   position: InlineCommentPosition;
@@ -9203,6 +9212,8 @@ function InlineCommentPopover({
   onCancel: () => void;
   onSubmit: (draft: CommentDraft) => Promise<void>;
   lockToAgent?: boolean;
+  /** Shown again after a failed save, when the person may have moved on. */
+  reopened?: boolean;
 }) {
   const t = useT();
   const initialMessageRef = useRef(initialDraft.message);
@@ -9283,7 +9294,7 @@ function InlineCommentPopover({
         <CommentMentionEditor
           initialMessage={initialMessageRef.current}
           placeholder={t("plansPage.comments.addPlaceholder")}
-          autoFocus
+          autoFocus={reopened ? "if-free" : true}
           // Commenting somewhere else moves this popover instead of
           // remounting it, so the draft keeps its text and gets the caret.
           focusKey={anchor}
@@ -9424,6 +9435,25 @@ function CommentDeleteButton({
   );
 }
 
+/** What a reply box shows: the editor reloads `loadedMessage` when `version` changes. */
+function loadReplyBox({
+  threadId,
+  message,
+  version,
+  takeFocus,
+}: {
+  threadId: string;
+  message: string;
+  version: number;
+  takeFocus: boolean;
+}) {
+  const draft: Pick<CommentDraft, "message" | "mentions"> = {
+    message,
+    mentions: extractCommentMentions(message),
+  };
+  return { threadId, loadedMessage: message, version, takeFocus, draft };
+}
+
 function ReplyComposer({
   author,
   isPending,
@@ -9441,54 +9471,50 @@ function ReplyComposer({
   onSubmit: (message: string) => Promise<void>;
 }) {
   const t = useT();
-  const [draft, setDraft] = useState<
-    Pick<CommentDraft, "message" | "mentions">
-  >({
-    message: "",
-    mentions: [],
-  });
-  // Unsent replies by thread, including the one on screen. The editor
-  // reloads its text from `editorContent` whenever that changes.
+  // Unsent replies by thread, including the one on screen.
   const [drafts] = useState(() => new Map<string, string>());
-  const [editorContent, setEditorContent] = useState({
-    threadId,
-    message: "",
-    version: 0,
-    // Only something the person just did (opening the thread, pressing
-    // Send) brings focus to the box.
-    takeFocus: true,
-  });
+  // The thread on screen and its draft change together, so Send always
+  // pairs them.
+  const [box, setBox] = useState(() =>
+    loadReplyBox({ threadId, message: "", version: 0, takeFocus: true }),
+  );
   const [sendingThreadIds, setSendingThreadIds] = useState<string[]>([]);
   const [failedThreadId, setFailedThreadId] = useState<string | null>(null);
 
-  if (editorContent.threadId !== threadId) {
+  if (box.threadId !== threadId) {
     // Opening another thread brings back that thread's own reply.
-    setEditorContent({
-      threadId,
-      message: drafts.get(threadId) ?? "",
-      version: editorContent.version + 1,
-      takeFocus: true,
-    });
+    setBox(
+      loadReplyBox({
+        threadId,
+        message: drafts.get(threadId) ?? "",
+        version: box.version + 1,
+        takeFocus: true,
+      }),
+    );
   }
 
-  const isSubmitting = sendingThreadIds.includes(editorContent.threadId);
+  const isSubmitting = sendingThreadIds.includes(box.threadId);
   const canSubmit =
-    commentBodyText(draft.message).length > 0 && !isSubmitting && !isPending;
+    commentBodyText(box.draft.message).length > 0 &&
+    !isSubmitting &&
+    !isPending;
   const submit = async () => {
     if (!canSubmit) return;
-    const sentThreadId = editorContent.threadId;
-    const message = draft.message;
+    const sentThreadId = box.threadId;
+    const message = box.draft.message;
     setFailedThreadId((id) => (id === sentThreadId ? null : id));
     setSendingThreadIds((ids) => [...ids, sentThreadId]);
     // Empty the box right away. The reply shows in the thread while it
     // sends, and anything typed meanwhile is a new draft.
     drafts.set(sentThreadId, "");
-    setEditorContent((content) => ({
-      ...content,
-      message: "",
-      version: content.version + 1,
-      takeFocus: true,
-    }));
+    setBox((current) =>
+      loadReplyBox({
+        threadId: current.threadId,
+        message: "",
+        version: current.version + 1,
+        takeFocus: true,
+      }),
+    );
     try {
       await onSubmit(message.trim());
     } catch {
@@ -9498,15 +9524,15 @@ function ReplyComposer({
       const restored = typedSince ? `${message} ${typedSince}` : message;
       drafts.set(sentThreadId, restored);
       setFailedThreadId(sentThreadId);
-      setEditorContent((content) =>
-        content.threadId === sentThreadId
-          ? {
-              ...content,
+      setBox((current) =>
+        current.threadId === sentThreadId
+          ? loadReplyBox({
+              threadId: sentThreadId,
               message: restored,
-              version: content.version + 1,
+              version: current.version + 1,
               takeFocus: false,
-            }
-          : content,
+            })
+          : current,
       );
     } finally {
       setSendingThreadIds((ids) => ids.filter((id) => id !== sentThreadId));
@@ -9522,13 +9548,15 @@ function ReplyComposer({
             placeholder={
               placeholder ?? t("plansPage.comments.replyPlaceholder")
             }
-            initialMessage={editorContent.message}
-            resetKey={`reply-${editorContent.version}`}
-            autoFocus={autoFocus && editorContent.takeFocus}
+            initialMessage={box.loadedMessage}
+            resetKey={`reply-${box.version}`}
+            // Only opening the thread or pressing Send pulls focus here; a
+            // reply put back after a failed send takes only free focus.
+            autoFocus={!autoFocus ? false : box.takeFocus ? true : "if-free"}
             className="min-h-10 border-0 bg-transparent px-0 py-2 shadow-none focus-visible:ring-0"
             onChange={(next) => {
-              setDraft(next);
-              drafts.set(editorContent.threadId, next.message);
+              setBox((current) => ({ ...current, draft: next }));
+              drafts.set(box.threadId, next.message);
             }}
             onSubmitShortcut={() => void submit()}
           />
@@ -9548,7 +9576,7 @@ function ReplyComposer({
           </Button>
         </div>
       </div>
-      {failedThreadId === editorContent.threadId && (
+      {failedThreadId === box.threadId && (
         <p className="ml-11 text-xs text-destructive">
           {t("plansPage.comments.sendFailed")}
         </p>

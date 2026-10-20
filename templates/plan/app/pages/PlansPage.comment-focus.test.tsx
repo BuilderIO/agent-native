@@ -73,6 +73,39 @@ describe("comment editor focus", () => {
     }
   });
 
+  function renderReopened(showEditor: boolean) {
+    act(() =>
+      root.render(
+        <>
+          <button type="button" data-outside />
+          {showEditor && (
+            <CommentMentionEditor
+              placeholder="Add a comment"
+              autoFocus="if-free"
+              onChange={() => {}}
+            />
+          )}
+        </>,
+      ),
+    );
+  }
+
+  it("takes focus when a box reopens and nobody holds it", async () => {
+    renderReopened(true);
+    await settle();
+    expect(document.activeElement).toBe(editor());
+  });
+
+  it("leaves focus where the person moved when a box reopens", async () => {
+    renderReopened(false);
+    const outside =
+      container.querySelector<HTMLButtonElement>("[data-outside]")!;
+    outside.focus();
+    renderReopened(true);
+    await settle();
+    expect(document.activeElement).toBe(outside);
+  });
+
   it("puts the caret back in a moved draft without clearing it", async () => {
     render({ x: 1 });
     await settle();
