@@ -128,6 +128,37 @@ vi.mock("../server/lib/github-source-client.js", async (importOriginal) => {
   };
 });
 
+// Lets a test fail the steps that run after a sync has written its rows.
+const afterSyncFailure = vi.hoisted(() => ({ signal: false, source: false }));
+
+vi.mock("@agent-native/core/application-state", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("@agent-native/core/application-state")
+    >();
+  return {
+    ...actual,
+    writeAppState: async (...args: Parameters<typeof actual.writeAppState>) => {
+      if (afterSyncFailure.signal) throw new Error("app state unavailable");
+      return actual.writeAppState(...args);
+    },
+  };
+});
+
+vi.mock("./_database-source-utils.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./_database-source-utils.js")>();
+  return {
+    ...actual,
+    getContentDatabaseSourceSnapshot: async (
+      ...args: Parameters<typeof actual.getContentDatabaseSourceSnapshot>
+    ) => {
+      if (afterSyncFailure.source) throw new Error("source read failed");
+      return actual.getContentDatabaseSourceSnapshot(...args);
+    },
+  };
+});
+
 vi.mock("@agent-native/core/file-upload", () => ({
   getActiveFileUploadProviderForRequest: async () =>
     github.state.noStorage ? null : { id: "test" },
@@ -566,6 +597,33 @@ describe("GitHub folder source", () => {
       before.map((row) => [row.bodyRevision, row.updatedAt]),
     );
     expect(await history(before[0]!.documentId)).toEqual(historyBefore);
+  });
+
+  it("reports a finished sync when the steps after it fail", async () => {
+    const { database } = await linkBaseFolder();
+    github.commit({
+      ...BASE_FILES,
+      "docs/faq.md": "# Frequently asked\n\nAnswers moved to the forum.\n",
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    afterSyncFailure.signal = true;
+    afterSyncFailure.source = true;
+    try {
+      const synced = await as(() =>
+        syncFolder.run({ databaseId: database.id }),
+      );
+      expect(synced.sync).toMatchObject({ state: "synced", updated: 1 });
+      expect(synced.source).toBeNull();
+      expect(warn).toHaveBeenCalledTimes(2);
+    } finally {
+      afterSyncFailure.signal = false;
+      afterSyncFailure.source = false;
+      warn.mockRestore();
+    }
+    const faq = (await liveRows(database.id)).find(
+      (row) => row.sourcePath === "docs/faq.md",
+    )!;
+    expect(faq.content).toContain("Answers moved to the forum.");
   });
 
   it("updates an edited file in place and records the change in History", async () => {
@@ -1237,6 +1295,23 @@ describe("GitHub folder source", () => {
     expect(
       (await liveRows(database.id)).map((row) => row.documentId),
     ).toContain(faq.documentId);
+  });
+
+  it("names GitHub once when a page's file link can't be built", async () => {
+    const { assertSourceAllowsPageEdit } =
+      await import("./_document-source.js");
+    expect(() =>
+      assertSourceAllowsPageEdit(
+        {
+          sourceMode: "github",
+          sourceRootPath: "not a folder",
+          sourcePath: "docs/faq.md",
+        },
+        "move",
+      ),
+    ).toThrow(
+      /^This page follows a file in GitHub, so it stays in its collection\.$/,
+    );
   });
 
   it("skips a file that isn't UTF-8 text and syncs the rest", async () => {
