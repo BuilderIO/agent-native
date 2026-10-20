@@ -1756,6 +1756,81 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
     expect(second.backfillPending).toBeUndefined();
   });
 
+  it.each([
+    ["null data", null],
+    ["a thread with no messages array", { id: "t1" }],
+    ["an empty messages array", { id: "t1", messages: [] }],
+    ["a message that is not an object", { id: "t1", messages: ["x"] }],
+    [
+      "labelIds that is not an array",
+      { id: "t1", messages: [{ id: "m1", labelIds: "INBOX" }] },
+    ],
+  ])(
+    "treats %s from verification as a failed read, not proof of archival",
+    async (_name, data) => {
+      currentRow = baseRow({ historyId: "1000" });
+      fakeRows = [{ threadId: "t1" }];
+      archiveStream(["t1"]);
+      mocks.gmailBatchGetThreads.mockResolvedValueOnce([{ id: "t1", data }]);
+
+      const result = await syncInboxAccount(OWNER, ACCOUNT, {
+        budgetMs: 5_000,
+      });
+
+      expect(mocks.tryDeleteInboxThreadRow).not.toHaveBeenCalled();
+      expect(currentRow.degraded.verify).toEqual(["t1"]);
+      expect(result.degraded).toEqual({ count: 1, kind: "malformed_response" });
+    },
+  );
+
+  it("still reads a message with no labelIds as archived", async () => {
+    currentRow = baseRow({ historyId: "1000" });
+    fakeRows = [{ threadId: "t1" }];
+    archiveStream(["t1"]);
+    mocks.gmailBatchGetThreads.mockResolvedValueOnce([
+      { id: "t1", data: { id: "t1", messages: [{ id: "m1" }] } },
+    ]);
+
+    await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    expect(mocks.tryDeleteInboxThreadRow).toHaveBeenCalledWith(
+      OWNER,
+      ACCOUNT,
+      "t1",
+      expect.any(Number),
+      {},
+    );
+  });
+
+  it("keeps the row and degrades the thread when a hydration payload is malformed", async () => {
+    currentRow = baseRow({ historyId: "1000" });
+    fakeRows = [{ threadId: "t1" }];
+    mocks.gmailListHistory.mockImplementation(
+      async (_token: string, params: { labelId?: string }) =>
+        params.labelId === "INBOX"
+          ? {
+              history: [
+                {
+                  id: "1001",
+                  messagesAdded: [{ message: { id: "m1", threadId: "t1" } }],
+                },
+              ],
+              historyId: "1001",
+            }
+          : { history: [], historyId: "1001" },
+    );
+    mocks.gmailBatchGetThreads.mockResolvedValueOnce([
+      { id: "t1", data: { id: "t1", messages: [] } },
+    ]);
+
+    const result = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    expect(mocks.tryDeleteInboxThreadRow).not.toHaveBeenCalled();
+    expect(mocks.upsertInboxThreadRows).not.toHaveBeenCalled();
+    expect(currentRow.degraded.hydrate).toEqual(["t1"]);
+    expect(result.degraded).toEqual({ count: 1, kind: "malformed_response" });
+  });
+
   it("keeps a failing candidate pending at the back and still hydrates new mail", async () => {
     currentRow = baseRow({ historyId: "1000" });
     fakeRows = [{ threadId: "bad" }, { threadId: "good" }];

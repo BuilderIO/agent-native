@@ -226,6 +226,24 @@ function messageLabels(m: any): string[] {
   return m.labelIds || [];
 }
 
+// A 2xx batch part is only evidence about a thread if it has the shape of one:
+// a messages array of message objects whose labelIds, when present, is an array
+// (Gmail omits it for an unlabeled message). A null body or a malformed thread
+// is a failed read, never proof that the thread was archived or is gone.
+function isReadableThread(data: unknown): boolean {
+  const thread = data as { messages?: unknown } | null;
+  if (!thread || typeof thread !== "object") return false;
+  const messages = thread.messages;
+  if (!Array.isArray(messages) || messages.length === 0) return false;
+  return messages.every((message) => {
+    if (!message || typeof message !== "object") return false;
+    const labelIds = (message as { labelIds?: unknown }).labelIds;
+    return labelIds === undefined || Array.isArray(labelIds);
+  });
+}
+
+const MALFORMED_RESPONSE = "malformed_response";
+
 function deriveRowFromThread(
   thread: any,
   ownerEmail: string,
@@ -347,6 +365,15 @@ async function hydrateAndApply(
           continue;
         }
         throw new Error(`Gmail thread ${part.id} fetch failed: ${part.error}`);
+      }
+      if (!isReadableThread(part.data)) {
+        if (failed) {
+          failed.set(part.id, MALFORMED_RESPONSE);
+          continue;
+        }
+        throw new Error(
+          `Gmail thread ${part.id} returned a malformed response`,
+        );
       }
       const derived = deriveRowFromThread(
         part.data,
@@ -1061,8 +1088,12 @@ async function runIncrementalSyncStep(
         }
         continue;
       }
-      const keeps = (part.data?.messages ?? []).some((message: any) =>
-        (message?.labelIds ?? []).includes("INBOX"),
+      if (!isReadableThread(part.data)) {
+        verifyFailed.set(part.id, MALFORMED_RESPONSE);
+        continue;
+      }
+      const keeps = part.data.messages.some((message: any) =>
+        (message.labelIds ?? []).includes("INBOX"),
       );
       if (keeps) stillInbox.push(part.id);
       else archivedOnly.push(part.id);
