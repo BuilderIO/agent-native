@@ -1376,6 +1376,13 @@ export default {
     viewOnly: "Você tem acesso somente visualização a este painel.",
     saveFailed: "Não foi possível salvar o painel",
     saveFailedWithMessage: "Couldn't save dashboard: {{message}}",
+    panelCostTitle: 'Custo do BigQuery de "{{title}}"',
+    panelCostOverTitle: 'Atualizar "{{title}}" é caro',
+    panelCostScheduled:
+      "~{{size}} lidos · {{perRun}} por atualização · ~{{perMonth}}/mês em relatórios por e-mail",
+    panelCostUnscheduled:
+      "~{{size}} lidos · {{perRun}} por atualização · sem relatórios por e-mail",
+    panelCostOverHint: "Um período menor ou menos colunas leem menos dados.",
     archived: 'Painel "{{name}}" arquivado',
     unhid: 'Unhid "{{name}}"',
     archiveFailed: "Não foi possível arquivar o painel",
