@@ -1534,6 +1534,127 @@ describe("ensureInboxFresh — managed workspace grant", () => {
   });
 });
 
+describe("syncInbox — steady-account short-circuit", () => {
+  const MINUTE = 60_000;
+  const HOUR = 60 * MINUTE;
+
+  function steadyRow(overrides: Partial<Record<string, unknown>> = {}) {
+    currentRow = baseRow({
+      status: "idle",
+      syncClaimId: null,
+      syncClaimedAt: null,
+      historyId: "500",
+      lastSyncedAt: Date.now(),
+      lastPushGeneration: 0,
+      lastWatchRenewedAt: null,
+      ...overrides,
+    });
+    return currentRow;
+  }
+
+  beforeEach(() => {
+    mocks.gmailListHistory.mockResolvedValue({ historyId: "600", history: [] });
+  });
+
+  it("returns an account synced inside its push window without Gmail calls", async () => {
+    steadyRow({
+      lastSyncedAt: Date.now() - 30_000,
+      lastWatchRenewedAt: Date.now() - HOUR,
+    });
+
+    const result = await syncInbox(OWNER);
+
+    expect(mocks.claimSyncAccount).not.toHaveBeenCalled();
+    expect(mocks.getClientForConnectedAccount).not.toHaveBeenCalled();
+    expect(mocks.gmailListHistory).not.toHaveBeenCalled();
+    expect(result.accounts[0]).toMatchObject({
+      state: "ready",
+      changed: false,
+      pushWatch: "active",
+    });
+  });
+
+  it("syncs an active-watch account once its 60s window has passed", async () => {
+    steadyRow({
+      lastSyncedAt: Date.now() - MINUTE - 1_000,
+      lastWatchRenewedAt: Date.now() - HOUR,
+    });
+
+    await syncInbox(OWNER);
+
+    expect(mocks.claimSyncAccount).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a fallback account inside its 20s window and syncs it after", async () => {
+    steadyRow({ lastSyncedAt: Date.now() - 10_000 });
+    await syncInbox(OWNER);
+    expect(mocks.claimSyncAccount).not.toHaveBeenCalled();
+
+    steadyRow({ lastSyncedAt: Date.now() - 25_000 });
+    await syncInbox(OWNER);
+    expect(mocks.claimSyncAccount).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not short-circuit an account whose renewed watch has lapsed", async () => {
+    steadyRow({
+      lastSyncedAt: Date.now() - 30_000,
+      lastWatchRenewedAt: Date.now() - 13 * HOUR,
+    });
+
+    const result = await syncInbox(OWNER);
+
+    expect(mocks.claimSyncAccount).toHaveBeenCalledTimes(1);
+    expect(result.accounts[0].pushWatch).toBe("fallback");
+  });
+
+  it("never short-circuits a backfill in progress", async () => {
+    steadyRow({
+      fullSyncPageToken: "page-2",
+      lastSyncedAt: Date.now() - 1_000,
+      lastWatchRenewedAt: Date.now() - HOUR,
+    });
+
+    await syncInbox(OWNER);
+
+    expect(mocks.claimSyncAccount).toHaveBeenCalledTimes(1);
+  });
+
+  it("never short-circuits a reconcile pass in progress", async () => {
+    steadyRow({
+      fullSyncPhase: "reconcile",
+      lastSyncedAt: Date.now() - 1_000,
+      lastWatchRenewedAt: Date.now() - HOUR,
+    });
+
+    await syncInbox(OWNER);
+
+    expect(mocks.claimSyncAccount).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets a pending push bypass the window", async () => {
+    steadyRow({
+      lastSyncedAt: Date.now() - 1_000,
+      lastWatchRenewedAt: Date.now() - HOUR,
+    });
+    mocks.readInboxPushGeneration.mockResolvedValue(1);
+
+    await syncInbox(OWNER);
+
+    expect(mocks.claimSyncAccount).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets a manual refresh force a sync inside the window", async () => {
+    steadyRow({
+      lastSyncedAt: Date.now() - 1_000,
+      lastWatchRenewedAt: Date.now() - HOUR,
+    });
+
+    await syncInbox(OWNER, { force: true });
+
+    expect(mocks.claimSyncAccount).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("syncInboxAccount — managed workspace grant", () => {
   it("syncs a managed-only account by resolving its client through getClientForConnectedAccount(ownerEmail, accountEmail)", async () => {
     mocks.listOAuthAccountsByOwner.mockResolvedValue([]);

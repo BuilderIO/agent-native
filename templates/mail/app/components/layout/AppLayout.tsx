@@ -116,6 +116,7 @@ import {
 import {
   INBOX_PAGE_SIZE,
   invalidateInboxThreads,
+  refreshInboxNow,
   mergeOptimisticInboxTabCounts,
   resolveInboxTabId,
   useInboxOverview,
@@ -2008,7 +2009,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   void queryClient.invalidateQueries({
                     queryKey: LABELS_QUERY_KEY,
                   });
-                  void invalidateInboxThreads(queryClient);
+                  void refreshInboxNow(queryClient);
                   window.setTimeout(() => setIsManuallyRefreshing(false), 800);
                 }}
                 disabled={inboxIsFetching}

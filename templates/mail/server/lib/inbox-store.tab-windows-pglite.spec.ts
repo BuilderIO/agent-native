@@ -1,3 +1,4 @@
+import { INBOX_MAX_PAGE_OFFSET } from "@shared/inbox-threads.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const OWNER = "owner@example.com";
@@ -20,6 +21,15 @@ function syntheticRows(count: number) {
     ["CATEGORY_PROMOTIONS"],
     ["CATEGORY_UPDATES", "Label_work"],
     [AI_LABEL_ID, "CATEGORY_PROMOTIONS"],
+    // Raw ids with no synced name: the in-memory path reads each as its own
+    // name, so these spellings of the AI label must count as AI-important.
+    ["agent_native_important"],
+    ["AGENT-NATIVE-IMPORTANT"],
+    ["Label/agent_native important"],
+    ["agent-native-important", "CATEGORY_UPDATES"],
+    // Near misses that must not count.
+    ["agent-native-importantx"],
+    ["my_agent_native_important"],
   ];
   const base = Date.UTC(2026, 0, 1);
   return Array.from({ length: count }, (_, i) => {
@@ -209,5 +219,66 @@ describe("inbox tab windows match the in-memory partition in PGlite", () => {
         }
       }
     }
+  }, 60_000);
+
+  it("keeps deep pages bounded: past-count offsets are empty and the rank cap stays under the offset limit", async () => {
+    vi.stubEnv("DATABASE_URL", "pglite:memory");
+    const [{ default: initializeMailDb }, { getDb, schema }, store, core] =
+      await Promise.all([
+        import("../plugins/db.js"),
+        import("../db/index.js"),
+        import("./inbox-store.js"),
+        import("@agent-native/core/db"),
+      ]);
+    await initializeMailDb({});
+    await getDb().insert(schema.mailInboxThreads).values(syntheticRows(60));
+
+    const exec = core.getDbExec();
+    const originalExecute = exec.execute.bind(exec);
+    const executed: Array<{ args: unknown[] }> = [];
+    exec.execute = (async (query: { sql: string; args: unknown[] }) => {
+      executed.push(query);
+      return originalExecute(query);
+    }) as typeof exec.execute;
+
+    const aiLabelIdsByAccount = new Map(ACCOUNTS.map((a) => [a, []]));
+    const tabs = [{ id: "__inbox_all__", kind: "all" }];
+    const base = {
+      ownerEmail: OWNER,
+      accountEmails: ACCOUNTS,
+      tabs,
+      aiLabelIdsByAccount,
+      pageTabId: "__inbox_all__",
+      pageUnreadOnly: false,
+      previewLimit: 50,
+    };
+
+    const deep = await store.readInboxTabWindows({
+      ...base,
+      pageOffset: INBOX_MAX_PAGE_OFFSET - 10,
+      pageLimit: 50,
+    });
+    expect(deep.page).toEqual([]);
+    const inboxRows = await store.readInboxThreads(OWNER, {
+      accountEmails: ACCOUNTS,
+    });
+    expect(deep.counts.get("__inbox_all__")?.total).toBe(inboxRows.length);
+    expect(deep.previews.get("__inbox_all__")).toHaveLength(50);
+    // The rank cap is offset + limit; at the deepest allowed page it must stay
+    // at the offset limit plus one page, not grow with the table.
+    const sent = executed.flatMap((query) =>
+      query.args.filter((arg): arg is number => typeof arg === "number"),
+    );
+    expect(sent.length).toBeGreaterThan(0);
+    expect(Math.max(...sent)).toBeLessThanOrEqual(INBOX_MAX_PAGE_OFFSET + 50);
+
+    await expect(
+      store.readInboxTabWindows({
+        ...base,
+        pageOffset: INBOX_MAX_PAGE_OFFSET + 1,
+        pageLimit: 50,
+      }),
+    ).rejects.toThrow(/exceeds/);
+    exec.execute = originalExecute as typeof exec.execute;
   }, 60_000);
 });

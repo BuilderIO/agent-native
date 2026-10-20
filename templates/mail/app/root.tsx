@@ -42,7 +42,10 @@ import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { LABELS_QUERY_KEY, markExternalEmailRefresh } from "@/hooks/use-emails";
-import { invalidateInboxThreads } from "@/hooks/use-inbox-threads";
+import {
+  invalidateInboxThreads,
+  refreshInboxNow,
+} from "@/hooks/use-inbox-threads";
 import {
   MAIL_INTEGRATION_STATUS_QUERY_KEY,
   mailIntegrationProviderFromAppStateKey,
@@ -437,7 +440,7 @@ export function createMailSyncEventHandler(qc: QueryClient) {
           queueMicrotask(() => {
             refreshSignalInvalidationScheduled = false;
             void qc.invalidateQueries({ queryKey: LABELS_QUERY_KEY });
-            void invalidateInboxThreads(qc);
+            void refreshInboxNow(qc);
           });
         }
       }

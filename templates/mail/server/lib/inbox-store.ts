@@ -2,7 +2,10 @@ import { getDbExec } from "@agent-native/core/db";
 import { AI_IMPORTANT_LABEL } from "@shared/ai-priority.js";
 import { mailLabelsInclude } from "@shared/gmail-labels.js";
 import { decodeGmailSnippet } from "@shared/gmail-snippet.js";
-import type { InboxThreadItem } from "@shared/inbox-threads.js";
+import {
+  INBOX_MAX_PAGE_OFFSET,
+  type InboxThreadItem,
+} from "@shared/inbox-threads.js";
 import type { EmailMessage, Label } from "@shared/types.js";
 import {
   and,
@@ -73,6 +76,7 @@ export type SyncAccountRow = {
   lastError: string | null;
   lastSyncedAt: number | null;
   lastPushGeneration: number;
+  lastWatchRenewedAt: number | null;
   syncClaimId: string | null;
   syncClaimedAt: number | null;
   labels: CachedGmailLabel[] | null;
@@ -155,6 +159,7 @@ function toSyncAccountRow(
     lastError: row.lastError,
     lastSyncedAt: row.lastSyncedAt,
     lastPushGeneration: row.lastPushGeneration,
+    lastWatchRenewedAt: row.lastWatchRenewedAt,
     syncClaimId: row.syncClaimId,
     syncClaimedAt: row.syncClaimedAt,
     labels: row.labelsJson
@@ -270,6 +275,11 @@ export async function readInboxTabWindows(params: {
   if (accounts.length === 0) {
     throw new Error("readInboxTabWindows needs at least one account");
   }
+  if (params.pageOffset > INBOX_MAX_PAGE_OFFSET) {
+    throw new Error(
+      `inbox page offset ${params.pageOffset} exceeds ${INBOX_MAX_PAGE_OFFSET}`,
+    );
+  }
   const pageTab = params.tabs.find((tab) => tab.id === params.pageTabId);
   if (!pageTab) throw new Error(`unknown inbox tab "${params.pageTabId}"`);
 
@@ -280,7 +290,7 @@ export async function readInboxTabWindows(params: {
   };
   const ownerParam = bind(params.ownerEmail.toLowerCase());
   const accountParams = accounts.map((account) => bind(account));
-  const aiClauses = accounts.flatMap((account) => {
+  const mappedAiClauses = accounts.flatMap((account) => {
     const ids = params.aiLabelIdsByAccount.get(account) ?? [];
     if (ids.length === 0) return [];
     const accountParam = bind(account);
@@ -291,8 +301,17 @@ export async function readInboxTabWindows(params: {
       `(t.account_email = ${accountParam} AND (${idChecks.join(" OR ")}))`,
     ];
   });
-  const aiImportant =
-    aiClauses.length > 0 ? `(${aiClauses.join(" OR ")})` : "false";
+  // `inboxRowToItem` reads a raw label id with no synced name as its own name:
+  // lowercased, `_` as a space, `-` equal to a space, and any `prefix/` before
+  // the last segment ignored. This pattern covers those spellings in one
+  // place. Mapped ids use the exact clauses above; a raw id that is mapped to
+  // another name but spelled like the AI label is not covered (Gmail ids are
+  // opaque, so this does not occur).
+  const unmappedAiClause = `t.label_ids_json ~* ${bind(
+    String.raw`"([^"]*/)?\s*agent[ _-]native[ _-]important\s*"`,
+  )}`;
+  const aiClauses = [...mappedAiClauses, unmappedAiClause];
+  const aiImportant = `(${aiClauses.join(" OR ")})`;
   const rankLimit = Math.max(
     params.previewLimit,
     params.pageOffset + params.pageLimit,

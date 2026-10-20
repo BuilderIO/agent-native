@@ -9,6 +9,7 @@ import type {
   ListInboxThreadsInput,
   ListInboxThreadsResult,
 } from "@shared/inbox-threads";
+import { INBOX_SYNC_POLL_MS } from "@shared/inbox-threads";
 import {
   skipToken,
   useQuery,
@@ -39,8 +40,11 @@ export function inboxThreadsQueryKey(input: ListInboxThreadsInput) {
   return ["action", "list-inbox-threads", input] as const;
 }
 
-const SYNCING_POLL_MS = 3_000;
+const SYNCING_POLL_MS = INBOX_SYNC_POLL_MS.pending;
 const IDLE_POLL_MS = 20_000;
+// Set by a manual refresh; the next sync poll then skips the server's poll
+// window. Consumed once so later background polls keep the cadence.
+let forceNextInboxSync = false;
 const INBOX_THREADS_STALE_TIME_MS = Infinity;
 const INBOX_THREADS_REQUEST_TIMEOUT_MS = 15_000;
 
@@ -189,7 +193,13 @@ export function inboxSyncRefetchInterval(query: {
     if (account.state === "initial" || account.pushPending) {
       return [SYNCING_POLL_MS];
     }
-    return [IDLE_POLL_MS];
+    // A steady account syncs at most once per poll window. Without an active
+    // push watch (or when it lapsed) the account keeps the short fallback poll.
+    return [
+      account.pushWatch === "active"
+        ? INBOX_SYNC_POLL_MS.pushActive
+        : INBOX_SYNC_POLL_MS.fallback,
+    ];
   });
   return intervals.length > 0 ? Math.min(...intervals) : IDLE_POLL_MS;
 }
@@ -307,6 +317,20 @@ function fetchInboxThreads(
     },
   ).then((data) => {
     const incoming = { ...data, clientSnapshotId };
+    // The list read reports a Gmail push that has not been synced yet. Sync
+    // now rather than waiting for the steady poll window.
+    if (
+      incoming.accounts.some(
+        (account) =>
+          (account as InboxSyncAccountStatus & { pushPending?: boolean })
+            .pushPending,
+      )
+    ) {
+      void qc.invalidateQueries({
+        queryKey: INBOX_SYNC_QUERY_KEY,
+        refetchType: "active",
+      });
+    }
     publishInboxOverview(qc, input.accountEmails, {
       tabs: incoming.tabs,
       syncing: incoming.syncing,
@@ -373,7 +397,7 @@ export function useInboxSyncPoller(
   const qc = useQueryClient();
   const syncMutation = useActionMutation<
     InboxSyncResult,
-    { accountEmails?: string[] },
+    { accountEmails?: string[]; force?: boolean },
     "sync-inbox"
   >("sync-inbox", {
     method: "POST",
@@ -385,6 +409,8 @@ export function useInboxSyncPoller(
     queryFn: async ({ queryKey }) => {
       const previous = qc.getQueryData<InboxSyncResult>(queryKey);
       const now = Date.now();
+      const force = forceNextInboxSync;
+      forceNextInboxSync = false;
       const scopedEmails = accountEmails?.map((email) => email.toLowerCase());
       const scopedEmailSet = new Set(scopedEmails);
       const hasAccountScope = scopedEmailSet.size > 0;
@@ -419,7 +445,10 @@ export function useInboxSyncPoller(
           ? eligibleEmails
           : scopedEmails
         : undefined;
-      const request = requestedEmails ? { accountEmails: requestedEmails } : {};
+      const request = {
+        ...(requestedEmails ? { accountEmails: requestedEmails } : {}),
+        ...(force ? { force: true } : {}),
+      };
       const result = await syncMutation.mutateAsync(request);
       const receivedAt = Date.now();
       const returnedByEmail = new Set(
@@ -544,6 +573,12 @@ export function invalidateInboxThreads(qc: QueryClient) {
     qc.invalidateQueries({ queryKey: INBOX_THREADS_QUERY_KEY }),
     qc.invalidateQueries({ queryKey: INBOX_SYNC_QUERY_KEY }),
   ]).then(() => undefined);
+}
+
+/** Manual refresh and agent refresh: sync every account now, not on its poll window. */
+export function refreshInboxNow(qc: QueryClient) {
+  forceNextInboxSync = true;
+  return invalidateInboxThreads(qc);
 }
 
 export function snapshotInboxThreads(qc: QueryClient) {

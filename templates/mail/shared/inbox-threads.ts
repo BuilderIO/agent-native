@@ -25,6 +25,34 @@ export type InboxTab = {
   totalIsLowerBound?: boolean;
 };
 
+/**
+ * `active` — a Gmail push watch was renewed recently, so new mail arrives by
+ * push and a steady account only needs an occasional sync poll.
+ * `fallback` — no watch, or its renewals lapsed; the account polls on the
+ * short cadence so it never goes stale silently.
+ */
+export type InboxPushWatch = "active" | "fallback";
+
+/**
+ * Deepest row offset the inbox list reads. Past it a page would rank every
+ * row in the tab, so the list must page by a new cursor instead. Matches the
+ * per-account cache cap.
+ */
+export const INBOX_MAX_PAGE_OFFSET = 2_000;
+
+/**
+ * Sync poll cadence, shared by the server freshness gate and the client
+ * poller so a steady account syncs at most once per interval.
+ */
+export const INBOX_SYNC_POLL_MS = {
+  /** First sync, backfill, or pending push/work: keep the fast cadence. */
+  pending: 3_000,
+  /** Steady account with an active push watch. */
+  pushActive: 60_000,
+  /** Steady account without a push watch, or with a lapsed one. */
+  fallback: 20_000,
+} as const;
+
 export type InboxSyncAccountStatus = {
   accountEmail: string;
   /**
@@ -36,6 +64,7 @@ export type InboxSyncAccountStatus = {
    */
   state: "initial" | "ready" | "error" | "needs_reauth";
   backfillPending?: boolean;
+  pushWatch?: InboxPushWatch;
   lastSyncedAt: number | null;
   error?: string;
 };

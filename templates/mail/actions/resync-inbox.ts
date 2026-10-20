@@ -24,6 +24,7 @@ export default defineAction({
     await resetInboxSync(ownerEmail, args.accountEmail);
     return syncInbox(ownerEmail, {
       accountEmails: args.accountEmail ? [args.accountEmail] : undefined,
+      force: true,
     });
   },
 });

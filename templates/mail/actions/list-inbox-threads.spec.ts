@@ -838,4 +838,17 @@ describe("list-inbox-threads action — managed workspace grant (no per-user OAu
       "managed@example.com",
     ]);
   });
+
+  it("rejects a pagination offset past the deepest readable page", async () => {
+    const { INBOX_MAX_PAGE_OFFSET } = await import("@shared/inbox-threads.js");
+    const schema = (action as any).schema;
+    expect(
+      schema.safeParse({ limit: 50, offset: INBOX_MAX_PAGE_OFFSET }).success,
+    ).toBe(true);
+    expect(
+      schema.safeParse({ limit: 50, offset: INBOX_MAX_PAGE_OFFSET + 1 })
+        .success,
+    ).toBe(false);
+    expect(schema.safeParse({ limit: 50, offset: 1e9 }).success).toBe(false);
+  });
 });

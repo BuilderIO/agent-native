@@ -14,13 +14,19 @@ export default defineAction({
       .describe(
         "Connected Gmail accounts to advance; omit to advance all connected accounts",
       ),
+    force: z
+      .boolean()
+      .optional()
+      .describe(
+        "Sync now even when the account was synced within its poll window (manual refresh)",
+      ),
   }),
   http: { method: "POST" },
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
-  run: async ({ accountEmails }) => {
+  run: async ({ accountEmails, force }) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
 
-    return syncInbox(ownerEmail, { accountEmails });
+    return syncInbox(ownerEmail, { accountEmails, force });
   },
 });

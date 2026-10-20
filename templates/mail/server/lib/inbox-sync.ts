@@ -20,6 +20,7 @@ import {
   parseEmailAddress,
 } from "./google-auth.js";
 import { classifyAutomated } from "./inbox-classify.js";
+import { pushWatchState, steadyPollMaxAgeMs } from "./inbox-push-watch.js";
 import {
   claimSyncAccount,
   countInboxThreads,
@@ -110,12 +111,14 @@ async function patchProgress(
 function statusFromRow(row: SyncAccountRow): InboxSyncAccountStatus {
   const backfillPending =
     row.fullSyncPageToken != null || row.fullSyncPhase === "reconcile";
+  const pushWatch = pushWatchState(row, Date.now());
   if (row.status === "needs_reauth" || row.status === "error") {
     return {
       accountEmail: row.accountEmail,
       state: row.status,
       lastSyncedAt: row.lastSyncedAt,
       error: row.lastError ?? undefined,
+      pushWatch,
       ...(backfillPending ? { backfillPending: true } : {}),
     };
   }
@@ -124,6 +127,7 @@ function statusFromRow(row: SyncAccountRow): InboxSyncAccountStatus {
     state:
       row.historyId == null || row.status === "syncing" ? "initial" : "ready",
     lastSyncedAt: row.lastSyncedAt,
+    pushWatch,
     ...(backfillPending ? { backfillPending: true } : {}),
   };
 }
@@ -1191,7 +1195,7 @@ export async function ensureInboxFresh(
 
 export async function syncInbox(
   ownerEmail: string,
-  opts?: { accountEmails?: string[]; budgetMs?: number },
+  opts?: { accountEmails?: string[]; budgetMs?: number; force?: boolean },
 ): Promise<SyncInboxResult> {
   const { accounts, errors: lookupErrors } =
     await getConnectedAccountsWithErrors(ownerEmail);
@@ -1213,12 +1217,16 @@ export async function syncInbox(
         ownerEmail,
         accountEmail,
       );
+      const now = Date.now();
+      // A manual refresh forces a sync; a pending push already fails the
+      // steady check, so it is never held back by the poll window.
       if (
+        !opts?.force &&
         isFreshSteadyAccount(
           row,
           pushGeneration,
-          Date.now(),
-          DEFAULT_MAX_AGE_MS,
+          now,
+          steadyPollMaxAgeMs(row, now),
         )
       ) {
         return progressFromStatus(
@@ -1227,10 +1235,11 @@ export async function syncInbox(
           row.lastPushGeneration,
         );
       }
-      return syncInboxAccount(ownerEmail, accountEmail, {
+      const synced = await syncInboxAccount(ownerEmail, accountEmail, {
         budgetMs: opts?.budgetMs ?? 1_800,
         connectedAccountEmails: accounts,
       });
+      return { ...synced, pushWatch: pushWatchState(row, now) };
     }),
   );
   const disconnected = requested

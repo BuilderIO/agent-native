@@ -25,11 +25,129 @@ import type {
 } from "@shared/inbox-threads";
 
 import {
+  invalidateInboxThreads,
   inboxSyncRefetchInterval,
   inboxSyncQueryKey,
+  refreshInboxNow,
   useInboxSyncPoller,
   useInboxThreads,
 } from "./use-inbox-threads";
+
+const steadyAccount = {
+  accountEmail: "first@example.com",
+  state: "ready" as const,
+  lastSyncedAt: 1,
+  changed: false,
+  lastPushGeneration: 0,
+  pushGeneration: 0,
+  pushPending: false,
+};
+
+function intervalFor(accounts: Array<Record<string, unknown>>) {
+  return inboxSyncRefetchInterval({
+    state: { error: null, data: { accounts: accounts as never } },
+  });
+}
+
+describe("inboxSyncRefetchInterval cadence", () => {
+  it("keeps the fast cadence during the first sync", () => {
+    expect(intervalFor([{ ...steadyAccount, state: "initial" }])).toBe(3_000);
+  });
+
+  it("keeps the fast cadence while a push is pending", () => {
+    expect(intervalFor([{ ...steadyAccount, pushPending: true }])).toBe(3_000);
+  });
+
+  it("polls a fully synced account with an active push watch once a minute", () => {
+    expect(intervalFor([{ ...steadyAccount, pushWatch: "active" }])).toBe(
+      60_000,
+    );
+  });
+
+  it("keeps the 20s fallback for a fully synced account without an active watch", () => {
+    expect(intervalFor([{ ...steadyAccount, pushWatch: "fallback" }])).toBe(
+      20_000,
+    );
+    expect(intervalFor([steadyAccount])).toBe(20_000);
+  });
+
+  it("polls at the fastest cadence of its accounts", () => {
+    expect(
+      intervalFor([
+        { ...steadyAccount, pushWatch: "active" },
+        {
+          ...steadyAccount,
+          accountEmail: "second@example.com",
+          pushWatch: "fallback",
+        },
+      ]),
+    ).toBe(20_000);
+  });
+
+  it("polls again right away after a changed sync", () => {
+    expect(intervalFor([{ ...steadyAccount, changed: true }])).toBe(1);
+  });
+});
+
+describe("manual refresh and push wake-ups", () => {
+  it("forces one sync after a manual refresh and then returns to the normal cadence", async () => {
+    mutateSyncAction.mockResolvedValue({ accounts: [] });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const wrapper = ({ children }: PropsWithChildren) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+    const hook = renderHook(() => useInboxSyncPoller(["first@example.com"]), {
+      wrapper,
+    });
+    await waitFor(() => expect(mutateSyncAction).toHaveBeenCalledTimes(1));
+    expect(mutateSyncAction.mock.calls[0][0]).not.toHaveProperty("force");
+
+    mutateSyncAction.mockClear();
+    void refreshInboxNow(queryClient);
+    await waitFor(() => expect(mutateSyncAction).toHaveBeenCalledTimes(1));
+    expect(mutateSyncAction.mock.calls[0][0]).toMatchObject({ force: true });
+
+    mutateSyncAction.mockClear();
+    void invalidateInboxThreads(queryClient);
+    await waitFor(() => expect(mutateSyncAction).toHaveBeenCalledTimes(1));
+    expect(mutateSyncAction.mock.calls[0][0]).not.toHaveProperty("force");
+
+    hook.unmount();
+    queryClient.clear();
+  });
+
+  it("syncs right away when a list read reports a pending push", async () => {
+    callActionWithRetry.mockResolvedValue({
+      ...response(),
+      accounts: [{ ...steadyAccount, pushPending: true, pushWatch: "active" }],
+    });
+    mutateSyncAction.mockResolvedValue({ accounts: [] });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const input: ListInboxThreadsInput = {
+      tab: "important",
+      accountEmails: ["first@example.com"],
+      limit: 50,
+      offset: 0,
+    };
+    const wrapper = ({ children }: PropsWithChildren) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+    const syncHook = renderHook(() => useInboxSyncPoller(input.accountEmails), {
+      wrapper,
+    });
+    await waitFor(() => expect(mutateSyncAction).toHaveBeenCalledTimes(1));
+    const listHook = renderHook(() => useInboxThreads(input), { wrapper });
+
+    await waitFor(() => expect(listHook.result.current.data).toBeDefined());
+    await waitFor(() => expect(mutateSyncAction).toHaveBeenCalledTimes(2));
+
+    syncHook.unmount();
+    listHook.unmount();
+    queryClient.clear();
+  });
+});
 
 afterEach(() => {
   cleanup();

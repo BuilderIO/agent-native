@@ -8,6 +8,7 @@ import { z } from "zod";
 import { resolvePinnedLabels } from "../app/lib/inbox-tabs.js";
 import { readGmailCooldown } from "../server/lib/gmail-quota.js";
 import { hasGmailScope } from "../server/lib/gmail-scope.js";
+import { pushWatchState } from "../server/lib/inbox-push-watch.js";
 import {
   aiImportantLabelIds,
   inboxRowToItem,
@@ -33,6 +34,7 @@ import { gmailReadState } from "../shared/gmail-freshness.js";
 import {
   ALL_TAB_ID,
   ALL_TAB_PARAM,
+  INBOX_MAX_PAGE_OFFSET,
   type InboxSyncAccountStatus,
   type InboxTab,
   type InboxTabConfig,
@@ -254,9 +256,13 @@ export default defineAction({
       .describe("Max rows to return, 1-200 (default 50)"),
     offset: z.coerce
       .number()
+      .int()
       .min(0)
+      .max(INBOX_MAX_PAGE_OFFSET)
       .default(0)
-      .describe("Row offset for pagination (default 0)"),
+      .describe(
+        `Row offset for pagination (default 0, at most ${INBOX_MAX_PAGE_OFFSET})`,
+      ),
     unreadOnly: z.coerce
       .boolean()
       .optional()
@@ -409,6 +415,7 @@ export default defineAction({
           accountEmail,
           state,
           lastSyncedAt: row?.lastSyncedAt ?? null,
+          pushWatch: row ? pushWatchState(row, Date.now()) : "fallback",
           ...(row?.lastError ? { error: row.lastError } : {}),
           ...(row?.fullSyncPageToken || row?.fullSyncPhase === "reconcile"
             ? { backfillPending: true }
