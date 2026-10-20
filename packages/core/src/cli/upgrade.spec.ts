@@ -2278,5 +2278,36 @@ describe("runUpgrade", () => {
         fs.readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf-8"),
       ).toBe(olderWorkspaceYaml);
     });
+
+    it.each([
+      ["npm", "package-lock.json"],
+      ["yarn", "yarn.lock"],
+    ])(
+      "uses a workspace-root %s lockfile when run from a member app",
+      async (manager, lockfile) => {
+        const root = makeTempProject({
+          kind: "workspace",
+          rootPkg: { name: "old-workspace", private: true },
+          workspaceYaml: olderWorkspaceYaml,
+          apps: {
+            web: {
+              name: "web",
+              dependencies: { "@agent-native/core": "latest" },
+            },
+          },
+        });
+        fs.writeFileSync(path.join(root, lockfile), "{}\n");
+        const memberDir = path.join(root, "apps", "web");
+        const { io, out } = captureIo();
+
+        expect(await runUpgrade(["--cwd", memberDir, "--dry-run"], io)).toBe(0);
+
+        expect(out.join("\n")).toContain(`${manager} install`);
+        expect(out.join("\n")).not.toContain("release-age");
+        expect(
+          fs.readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf-8"),
+        ).toBe(olderWorkspaceYaml);
+      },
+    );
   });
 });

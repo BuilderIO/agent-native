@@ -985,10 +985,34 @@ export function readCliCoreVersion(): string | null {
   }
 }
 
+function packageManagerLockfile(dir: string): "pnpm" | "npm" | "yarn" | null {
+  if (fs.existsSync(path.join(dir, "pnpm-lock.yaml"))) return "pnpm";
+  if (fs.existsSync(path.join(dir, "yarn.lock"))) return "yarn";
+  if (fs.existsSync(path.join(dir, "package-lock.json"))) return "npm";
+  return null;
+}
+
+function findNearestWorkspaceRoot(projectRoot: string): string | null {
+  let dir = projectRoot;
+  while (true) {
+    if (fs.existsSync(path.join(dir, "pnpm-workspace.yaml"))) return dir;
+    const read = readJsonFile(path.join(dir, "package.json"));
+    if (read.ok && packageWorkspacePatterns(read.value).length > 0) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
 function detectPackageManager(projectRoot: string): "pnpm" | "npm" | "yarn" {
-  if (fs.existsSync(path.join(projectRoot, "pnpm-lock.yaml"))) return "pnpm";
-  if (fs.existsSync(path.join(projectRoot, "yarn.lock"))) return "yarn";
-  if (fs.existsSync(path.join(projectRoot, "package-lock.json"))) return "npm";
+  const local = packageManagerLockfile(projectRoot);
+  if (local) return local;
+  const workspaceRoot = findNearestWorkspaceRoot(projectRoot);
+  const workspace =
+    workspaceRoot && workspaceRoot !== projectRoot
+      ? packageManagerLockfile(workspaceRoot)
+      : null;
+  if (workspace) return workspace;
   return "pnpm";
 }
 
