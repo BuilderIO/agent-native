@@ -298,24 +298,13 @@ function snapshotAdditionalContentIsRepresented(
 function snapshotRepresentsRootContent(
   root: Record<string, unknown>,
   candidate: Record<string, unknown>,
-  toolMessageIds: Set<string> | undefined,
 ): boolean {
   const rootCalls = rootToolCalls(root);
   const candidateCalls = rootToolCalls(candidate);
-  if (
-    rootCalls.every((rootCall) =>
-      candidateCalls.some((candidateCall) =>
-        sameToolCallIdentity(rootCall, candidateCall),
-      ),
-    )
-  ) {
-    return true;
-  }
-  return (
-    rootCalls.length > 0 &&
-    typeof candidate.id === "string" &&
-    toolMessageIds?.size === 1 &&
-    toolMessageIds.has(candidate.id)
+  return rootCalls.every((rootCall) =>
+    candidateCalls.some((candidateCall) =>
+      sameToolCallIdentity(rootCall, candidateCall),
+    ),
   );
 }
 
@@ -457,7 +446,7 @@ function contentMatches(
   // Matching text alone must not hide the root's durable tool-call parts.
   if (
     rootToolCalls(root).length > 0 &&
-    !snapshotRepresentsRootContent(root, candidate, toolMessageIds)
+    !snapshotRepresentsRootContent(root, candidate)
   ) {
     return false;
   }
@@ -540,9 +529,13 @@ function sharedFoldedRootMatch(
       representedToolCallMessageIds(root, toolCalls),
     );
     const rootText = text(root);
+    const snapshotText = text(snapshot);
     const duplicateTextOnly = Boolean(
       rootText &&
-      text(snapshot) === rootText &&
+      (snapshotText === rootText ||
+        (isTerminalAssistant(root) &&
+          snapshotText &&
+          rootText.startsWith(snapshotText))) &&
       snapshotAdditionalContentIsRepresented(root, snapshot),
     );
     if (!rootContentRepresented && !duplicateTextOnly) {
@@ -730,7 +723,7 @@ export function projectRootAssistantMessages(input: {
     ) {
       const matchingCandidate = exactTextMatches.find(
         (candidate) =>
-          snapshotRepresentsRootContent(root, candidate, toolMessageIds) &&
+          snapshotRepresentsRootContent(root, candidate) &&
           snapshotAdditionalContentIsRepresented(root, candidate),
       );
       if (matchingCandidate && typeof matchingCandidate.id === "string") {

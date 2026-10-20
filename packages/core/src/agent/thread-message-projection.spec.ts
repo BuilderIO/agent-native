@@ -267,7 +267,70 @@ describe("assistant root projection", () => {
 
     expect(result.representedRootMessageIds.has("root-answer")).toBe(false);
     expect(result.supersededSnapshotMessageIds.has("snapshot-answer")).toBe(
-      false,
+      true,
+    );
+  });
+
+  it("keeps a tool-bearing root when one indexed snapshot omits a call", () => {
+    const result = projectRootAssistantMessages({
+      rootMessages: [
+        {
+          id: "root-answer",
+          role: "assistant",
+          status: "complete",
+          parts: [
+            { type: "text", text: "Answer complete" },
+            {
+              type: "tool-call",
+              toolCallId: "call-1",
+              toolName: "search",
+              args: { query: "example" },
+            },
+            {
+              type: "tool-call",
+              toolCallId: "call-2",
+              toolName: "lookup",
+              args: { key: "example" },
+            },
+          ],
+          metadata: { runId: "run-one" },
+        },
+      ],
+      snapshotMessages: [
+        {
+          id: "snapshot-answer",
+          role: "assistant",
+          parts: [
+            { type: "text", text: "Answer complete" },
+            {
+              type: "tool-call",
+              toolCallId: "call-1",
+              toolName: "search",
+              args: { query: "example" },
+            },
+          ],
+          metadata: { runId: "run-one" },
+        },
+      ],
+      toolCalls: [
+        {
+          id: "call-1",
+          name: "search",
+          input: { query: "example" },
+          messageId: "snapshot-answer",
+        },
+        {
+          id: "call-2",
+          name: "lookup",
+          input: { key: "example" },
+          messageId: "snapshot-answer",
+        },
+      ],
+    });
+
+    expect(result.representedRootMessageIds.has("root-answer")).toBe(false);
+    expect(result.supersededSnapshotMessageIds.has("snapshot-answer")).toBe(
+      true,
     );
   });
 
