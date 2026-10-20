@@ -31,7 +31,6 @@ import PptxGenJS from "pptxgenjs";
 
 import { asGoogleSlidesBuildStep } from "../server/lib/deck-export-tracking";
 import {
-  createRemoteImageByteBudget,
   pptxDeckBindingPath,
   pptxExportRevisionKey,
   safeGeneratedFilename,
@@ -42,6 +41,7 @@ import exportPptx, {
   applyDeckIdentity,
   assertServerPptxExportable,
   cssGradientToDrawingMl,
+  createRemoteImageByteBudget,
   fetchImageAsBase64,
   orderImportedObjects,
   parseSlideHtml,

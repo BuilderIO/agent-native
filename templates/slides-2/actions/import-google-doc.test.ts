@@ -110,13 +110,13 @@ describe("import-google-doc failures", () => {
     );
 
     const pending = action.run({ url: DOC_ID }, { caller: "http" } as never);
-    await vi.advanceTimersByTimeAsync(20_001);
-
-    await expect(pending).rejects.toMatchObject({
+    const rejection = expect(pending).rejects.toMatchObject({
       errorCode: "google_doc_unreadable",
       statusCode: 422,
       message: expect.stringContaining("timed out"),
     });
+    await vi.advanceTimersByTimeAsync(20_001);
+    await rejection;
   });
 
   it("types a document Google refuses as a 422 that names only Google's answer", async () => {

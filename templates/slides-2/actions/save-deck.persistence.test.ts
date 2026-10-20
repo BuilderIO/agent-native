@@ -41,7 +41,16 @@ vi.mock("../server/db/index.js", () => ({
         },
       }),
     });
+    const select = () => {
+      const builder = {
+        from: () => builder,
+        where: () => builder,
+        for: async () => [],
+      };
+      return builder;
+    };
     return {
+      select,
       update,
       insert: () => ({
         values: async (fields: Record<string, unknown>) => {
@@ -50,7 +59,7 @@ vi.mock("../server/db/index.js", () => ({
         },
       }),
       transaction: async (callback: (tx: unknown) => Promise<unknown>) =>
-        callback({ update }),
+        callback({ select, update }),
     };
   },
   schema: {
