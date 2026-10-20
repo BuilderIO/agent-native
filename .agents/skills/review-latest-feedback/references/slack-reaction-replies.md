@@ -12,11 +12,13 @@ when they materially change, including after a linked PR merges. Keep full
 scope, evidence, and handoff details in the internal ledger. Write Slack
 replies in plain, non-technical language. Never explain why `👀` or `✅` is
 absent. If `🎫` is used, briefly name what still needs checking and who should
-handle it, when known. For a beta-eligible app PR, after merge is confirmed in
-`origin/main` and the matching publisher selects the affected site, include the
-PR link and say it should be on beta within 24 hours. Do not claim it is live
-until checked. If the publisher fails or blocks release, do not promise that
-timing; use `🎫` only when another person or team must act. End with the exact
+handle it, when known. For a beta-eligible app PR, wait until the matching
+run selects the affected site. Include the PR link and say it is expected on
+beta within 24 hours. This is an expectation, not a guarantee. If the site is
+current, verify it and say it is on beta. If publishing fails, is blocked, or
+misses that timing, correct the update in the same thread. Use `🎫` only when
+another person or team must act.
+Do not claim it is live until checked. End with the exact
 bot disclosure and read the visible reply and root reactions back.
 
 For a recent unanswered reporter question, reuse the existing same-actor
@@ -272,15 +274,16 @@ partial fix resolved the whole report.
 
 For beta app fixes, check the matching merge-triggered publisher and keep
 details in the recap. After a linked beta-eligible app PR merges and is
-confirmed in `origin/main`, wait for **Discover beta sites** to succeed and
-select the affected site. Then reply once in its owned thread with the PR link
-and say it should be on beta within 24 hours. If the site is already current,
-verify it and say it is on beta. Do not say it is live until checked. If the
-publisher fails or blocks release, do not promise that timing; use `🎫` only
-when another person or team must act. Keep hashes, branch names, CI, workflow
-details, and run IDs out of reporter replies. For package work, distinguish
-the source PR from any release PR and registry proof; source merge alone does
-not establish publication. Give no ETA for a pending package release.
+confirmed in `origin/main`, wait for the matching run to select the affected
+site. Then reply once in its owned thread with the PR link and say it is
+expected on beta within 24 hours. This is an expectation, not a guarantee. If
+the site is already current, verify it and say it is on beta. If publishing
+fails, is blocked, or misses that timing, correct the update in the same
+thread. Use `🎫` only when another person or team must act. Keep hashes, branch names, CI,
+workflow details, and run IDs out of reporter replies. For package work,
+distinguish the source PR from any release PR and registry proof; source merge
+alone does not establish publication. Give no ETA for a pending package
+release.
 
 For every reply in each final full-thread snapshot, record a read-back of the
 workflow reactions on that reply. If the connector shows `👀`, `✅`, or `🎫`,

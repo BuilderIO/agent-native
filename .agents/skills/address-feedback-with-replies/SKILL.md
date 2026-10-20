@@ -134,9 +134,9 @@ item is in scope, add `👀` before investigation or delegation.
 During triage and replies, follow `review-latest-feedback`'s single-owner
 rule: use one owner-thread reply for a cluster and list duplicate source
 permalinks there unless a distinct question or update needs a separate reply.
-When a linked beta-eligible app PR merges, send one short update in the same
-owned thread with the PR link and say it should be on beta within 24
-hours. Do not say it is live until checked.
+For a linked beta app PR, follow `review-latest-feedback`'s post-merge beta
+rule. Send the PR link and 24-hour expectation after the matching run selects
+the site; correct the same thread if publishing fails or misses it.
 
 A tracked clear bug or authorized upvoted improvement receives at most one
 disposition per run. **Verified locally**, **Built - live unverified**,
@@ -152,9 +152,9 @@ concise **Skipped** reply if absent.
 **Fixed** closes the issue after a verified source fix merges; publication,
 beta, and live verification follow separately. Use **In progress** while the
 source PR is open. Link the PR and say merge is pending. Give beta timing only
-after the merge reaches `origin/main` and the publisher selects the affected
-site. After merge, follow `review-latest-feedback`'s reply reference for the
-short post-merge update and verified publisher status.
+after the merge reaches `origin/main` and the matching run selects the affected
+site. Follow `review-latest-feedback`'s reply reference for the short
+post-merge update and any correction.
 **In progress** is an open ownership state. Do not send an interim progress
 reply for work fixed in the same run. If work continues beyond this run, follow
 `review-latest-feedback` and post one brief update only when the next step
@@ -247,9 +247,10 @@ non-repeating question only if one specific required detail still blocks it.
    owns with `👀`, `✅`, or `🎫`. Record clustered source links and disposition
    in the owner thread or linked work; do not send duplicate replies:
    - **Fixed** - name the fix in plain language and link the PR. For an open
-     beta app PR, say merge is pending. After merge, send one short update with
-     the PR link and beta timing only after the publisher selects the affected
-     site; do not claim it is live until checked.
+     beta app PR, say merge is pending. After merge, wait for the matching run
+     to select the site, then share the PR link. If the site is current, verify
+     it and say it is on beta. Otherwise, give the 24-hour expectation and
+     correct the same thread if the publisher fails or misses it.
    - **Shipped** - use for an authorized upvoted improvement after its requested
      behavior and verification check are complete.
    - **In progress** - only when work continues beyond this run; thank the
@@ -301,8 +302,8 @@ Say what changed in plain language. Do not explain why `👀` or `✅` is absent
 If `🎫` is used, briefly name what still needs checking and who should handle
 it, when known. The Slack `🎫` reaction does not mean an external tracker ticket
 was created or assigned. For a beta app fix in an open PR, link it and say
-merge is pending. Give beta timing only after the merge and publisher have
-selected the affected site. If work continues beyond this run, name the next
+merge is pending. Give beta timing only after the matching run selects the site.
+If work continues beyond this run, name the next
 action only when a reporter needs to know it.
 For a clarification, ask one direct question only when reporter input changes
 the next step. Never ask for supplied evidence or internal access gaps.
@@ -316,14 +317,14 @@ count as the status reply.
 ## Beta availability
 
 Keep merge, publisher, and live verification details in the recap. After a
-linked beta-eligible app PR merges and is confirmed in `origin/main`, check the
-matching beta run. Once **Discover beta sites** succeeds and selects the
-affected site, reply once in its owned thread with the PR link and say it
-should be on beta within 24 hours. If the site is already current, verify it
-and say it is on beta. Do not say it is live until checked. If the publisher
-fails or blocks release, do not promise that timing; use `🎫` only when another
-person or team must act, and briefly state the remaining check or action and
-owner when known. Answer direct reporter follow-ups.
+linked beta-eligible app PR merges and is confirmed in `origin/main`, wait for
+the matching run to select the affected site. Reply once in its owned thread
+with the PR link and say it is expected on beta within 24 hours. This is an
+expectation, not a guarantee. If the site is current, verify it and say it is
+on beta. If publishing fails, is blocked, or misses that timing, correct the
+update in the same thread. Use `🎫` only when another person or team must act.
+Do not say it is live until checked. Answer direct
+reporter follow-ups.
 
 ## Verification
 

@@ -322,15 +322,17 @@ recap. End Slack replies with
 
 ### After a PR merges
 
-Track publisher state and beta verification in the internal recap. After a
-linked beta-eligible app PR merges and the merge is confirmed in `origin/main`,
-check the matching beta run. Once **Discover beta sites** succeeds and selects
-the affected site, post one short update in the same owned Slack thread with
-the PR link and say it should be on beta within 24 hours. If the site is
-already current, verify it and say it is on beta. Do not say it is live until
-checked. If the publisher fails or blocks release, do not promise that timing;
-use `🎫` only when another person or team must act, and briefly name the
-remaining check or action and its owner when known.
+Track publisher state and beta verification in the internal recap. A beta-
+eligible app PR is one whose changed paths map to a site in the matching main
+beta run. After its merge is confirmed in `origin/main`, wait for the matching
+run's site discovery to succeed and select the affected site. Post one short
+update in the same owned Slack thread with the PR link. If the site is already
+current, verify it and say it is on beta. Otherwise, say it is expected on beta
+within 24 hours. This is an expectation, not a guarantee. Keep checking;
+if publishing fails, is blocked, or 24 hours pass without the site becoming
+current, correct the update in that thread. Use `🎫` only when another person
+or team must act. Do not say it is live until checked; keep publisher details
+in the recap.
 
 For a fixed behavior with a Slack `🎫` handoff, state the done behavior and
 remaining action/owner separately; don't imply the fixed scope is open. The

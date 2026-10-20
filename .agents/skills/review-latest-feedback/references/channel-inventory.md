@@ -280,8 +280,9 @@ place of Slack source messages.
   its canonical report. Include
   the root `threadParentTs`, reply timestamp, author ID, matching disposition,
   evidence, and read-back text. Keep exact scope, proof, and handoff details in
-  the ledger. For an active `🎫` action, add a short plain-language
-  `pendingActionSummary` to `statusReply` and include it in the reply. Every
+  the ledger. For active `🎫` actions, add a short plain-language
+  `pendingActionSummary` to `statusReply` that names every open action and its
+  known owner, and include it in the reply. Every
   distinct unfinished team action gets this actor's root `🎫`, even when no
   person has accepted it. For `status: "unassigned"`, record the responsible team/role or
   `unassigned`; omit the owner Slack ID and acceptance. If this actor asked a

@@ -1785,7 +1785,8 @@ function replyStatesDisposition(text: string, disposition: string): boolean {
 function validateStatusReactionLanguage(
   parentName: string,
   text: string,
-  hasActiveTicketAction: boolean,
+  handoffs: Handoff[],
+  reporterRequests: ReporterRequest[],
   pendingActionSummary: string | undefined,
 ): void {
   if (!text.includes("this was sent from a bot.")) {
@@ -1793,30 +1794,31 @@ function validateStatusReactionLanguage(
       `${parentName}: latest status reply must include the exact bot disclosure`,
     );
   }
-  if (!hasActiveTicketAction) return;
+  const activeHandoffs = handoffs.filter(
+    (handoff) => handoff.status !== "completed",
+  );
+  if (activeHandoffs.length === 0 && reporterRequests.length === 0) return;
 
-  const normalizedSummary = pendingActionSummary
-    ? normalizeReplyPhrase(pendingActionSummary)
-    : "";
+  const summary = pendingActionSummary ?? "";
+  const normalizedSummary = normalizeReplyPhrase(summary);
   const normalizedText = ` ${normalizeReplyPhrase(text)} `;
   if (
     !normalizedSummary ||
-    !normalizedText.includes(` ${normalizedSummary} `)
+    !normalizedText.includes(` ${normalizedSummary} `) ||
+    activeHandoffs.some(
+      (handoff) =>
+        !replyNamesHandoffAction(summary, handoff.action) ||
+        (handoff.owner.toLowerCase() !== "unassigned" &&
+          !replyNamesHandoffOwner(summary, handoff)),
+    ) ||
+    reporterRequests.some(
+      (request) => !replyNamesHandoffAction(summary, request.action),
+    )
   ) {
     throw new Error(
-      `${parentName}: active 🎫 needs a short pending action in the status reply`,
+      `${parentName}: active 🎫 summary must include every pending action and known owner`,
     );
   }
-}
-
-function hasActiveTicketAction(
-  handoffs: Handoff[],
-  reporterRequests: ReporterRequest[],
-): boolean {
-  return (
-    handoffs.some((handoff) => handoff.status !== "completed") ||
-    reporterRequests.length > 0
-  );
 }
 
 function validateHumanOwnerBlock(
@@ -2610,7 +2612,8 @@ function validateSupplementalRootAudit(
   validateStatusReactionLanguage(
     parentName,
     reply.text,
-    hasActiveTicketAction(handoffs, parent.reporterRequests ?? []),
+    handoffs,
+    parent.reporterRequests ?? [],
     reply.pendingActionSummary,
   );
   const replyTs = slackTimestamp(reply.ts, `${parentName}.statusReply.ts`);
@@ -5898,7 +5901,8 @@ function validateInventory(
           validateStatusReactionLanguage(
             parentName,
             reply.text,
-            hasActiveTicketAction(handoffs, parent.reporterRequests ?? []),
+            handoffs,
+            parent.reporterRequests ?? [],
             reply.pendingActionSummary,
           );
           if (
@@ -7801,7 +7805,7 @@ if (args[0] === "--self-test" && args.length === 1) {
   };
   const withHandoffReply = (
     text: string,
-    pendingActionSummary = "Alex is still choosing the remaining behavior",
+    pendingActionSummary = "Alex Rivera will choose the remaining behavior",
   ): Inventory => ({
     ...valid,
     channels: valid.channels.map((channel) => ({
@@ -7916,9 +7920,9 @@ if (args[0] === "--self-test" && args.length === 1) {
             ...parent.statusReply!,
             disposition: "In progress",
             evidence: "Alex Rivera will choose the remaining behavior",
-            text: "In progress: Alex is still choosing the remaining design behavior. this was sent from a bot.",
+            text: "In progress: Alex Rivera will choose the remaining behavior. this was sent from a bot.",
             pendingActionSummary:
-              "Alex is still choosing the remaining design behavior",
+              "Alex Rivera will choose the remaining behavior",
           };
           const updated: Parent = {
             ...parent,
@@ -8001,9 +8005,9 @@ if (args[0] === "--self-test" && args.length === 1) {
         ...page,
         parents: page.parents.map((parent) => {
           if (parent.ts !== "10.000000") return parent;
-          const action = "provide the URL already requested in this thread";
+          const action = "send the link to check the flow";
           const statusText =
-            "Clarification needed: Could you provide the URL already requested in this thread? We need that link to check the flow. this was sent from a bot.";
+            "Clarification needed: Please send the link to check the flow. this was sent from a bot.";
           const statusReply: StatusReply = {
             ...parent.statusReply!,
             disposition: "Clarification needed",
@@ -8011,7 +8015,8 @@ if (args[0] === "--self-test" && args.length === 1) {
             text: statusText,
             ...(hasTicket
               ? {
-                  pendingActionSummary: "We need that link to check the flow",
+                  pendingActionSummary:
+                    "Please send the link to check the flow",
                 }
               : {}),
           };
@@ -9776,9 +9781,37 @@ if (args[0] === "--self-test" && args.length === 1) {
     {
       name: "active ticket status needs a pending action summary",
       inventory: withHandoffReply(
-        "Partially fixed: The route picker works. Alex is still choosing the remaining behavior. this was sent from a bot.",
+        "Partially fixed: The route picker works. Alex Rivera will choose the remaining behavior. this was sent from a bot.",
         "",
       ),
+    },
+    {
+      name: "active ticket summary must name the recorded action",
+      inventory: withUnownedTicket({
+        statusReply: {
+          ts: "12.000000",
+          threadParentTs: "10.000000",
+          actorId: "USWEEPER",
+          disposition: "In progress",
+          evidence: "Alex Rivera will choose the remaining behavior",
+          text: "In progress: Alex Rivera will review the launch notes. this was sent from a bot.",
+          pendingActionSummary: "Alex Rivera will review the launch notes",
+        },
+      }),
+    },
+    {
+      name: "active ticket summary must name the recorded owner",
+      inventory: withUnownedTicket({
+        statusReply: {
+          ts: "12.000000",
+          threadParentTs: "10.000000",
+          actorId: "USWEEPER",
+          disposition: "In progress",
+          evidence: "Alex Rivera will choose the remaining behavior",
+          text: "In progress: Morgan Lee will choose the remaining behavior. this was sent from a bot.",
+          pendingActionSummary: "Morgan Lee will choose the remaining behavior",
+        },
+      }),
     },
     {
       name: "Verified locally scope without a checkmark",
@@ -10222,6 +10255,13 @@ if (args[0] === "--self-test" && args.length === 1) {
             },
           },
         ],
+        statusReply: {
+          ...firstPage.parents[1]!.statusReply!,
+          disposition: "In progress",
+          evidence: "Steve will choose the remaining behavior",
+          text: "In progress: Steve will choose the remaining behavior. this was sent from a bot.",
+          pendingActionSummary: "Steve will choose the remaining behavior",
+        },
       }),
     },
     {
@@ -10532,8 +10572,9 @@ if (args[0] === "--self-test" && args.length === 1) {
           actorId: "USWEEPER",
           disposition: "In progress",
           evidence: "Alex Rivera withdrew the accepted action",
-          text: "In progress: Alex Rivera withdrew the accepted action. Handoff: Alex Rivera — choose the remaining behavior. No :white_check_mark: — no scope has been verified. :ticket: is stale because Alex Rivera withdrew the action. this was sent from a bot.",
-          pendingActionSummary: "Alex Rivera withdrew the accepted action",
+          text: "In progress: Alex Rivera will choose the remaining behavior. this was sent from a bot.",
+          pendingActionSummary:
+            "Alex Rivera will choose the remaining behavior",
         },
       }),
     },
@@ -10566,8 +10607,9 @@ if (args[0] === "--self-test" && args.length === 1) {
             actorId: "USWEEPER",
             disposition: "In progress",
             evidence: "Alex Rivera's accepted action is withdrawn",
-            text: "In progress: Alex Rivera's accepted action is withdrawn. Handoff: Alex Rivera — choose the remaining behavior. No :white_check_mark: — no scope has been verified. :ticket: is stale because Alex Rivera withdrew the action. this was sent from a bot.",
-            pendingActionSummary: "Alex Rivera's accepted action is withdrawn",
+            text: "In progress: Alex Rivera will choose the remaining behavior. this was sent from a bot.",
+            pendingActionSummary:
+              "Alex Rivera will choose the remaining behavior",
           },
         });
         return {
@@ -10608,7 +10650,7 @@ if (args[0] === "--self-test" && args.length === 1) {
                         ts: "13.000000",
                         actorId: "USWEEPER",
                         kind: "sweep" as const,
-                        text: "In progress: Alex Rivera's accepted action is withdrawn. Handoff: Alex Rivera — choose the remaining behavior. No :white_check_mark: — no scope has been verified. :ticket: is stale because Alex Rivera withdrew the action. this was sent from a bot.",
+                        text: "In progress: Alex Rivera will choose the remaining behavior. this was sent from a bot.",
                         workflowReactionSummary: "none",
                         workflowReactionOwners: {},
                       },
@@ -11027,7 +11069,11 @@ if (args[0] === "--self-test" && args.length === 1) {
     "status reply evidence must match fixed-scope verification":
       "status reply evidence must include every fixed scope's recorded verification",
     "active ticket status needs a pending action summary":
-      "active 🎫 needs a short pending action in the status reply",
+      "active 🎫 summary must include every pending action and known owner",
+    "active ticket summary must name the recorded action":
+      "active 🎫 summary must include every pending action and known owner",
+    "active ticket summary must name the recorded owner":
+      "active 🎫 summary must include every pending action and known owner",
     "Verified locally scope without a checkmark":
       "a current ✅ needs verified scope evidence (or an explicitly documented historical mark), and every verified scope needs ✅",
     "checkmark without verified fixed scope":
@@ -11194,7 +11240,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
     validateTestInventory(
       withHandoffReply(
-        "Partially fixed: The first route works. Alex is still choosing the remaining behavior. this was sent from a bot.",
+        "Partially fixed: The first route works. Alex Rivera will choose the remaining behavior. this was sent from a bot.",
       ),
     );
     const caseInsensitiveVerification = JSON.parse(
@@ -12116,34 +12162,34 @@ if (args[0] === "--self-test" && args.length === 1) {
         latestRelevantHumanReply: {
           ts: "11.500000",
           actorId: "UOTHER",
-          text: "I will configure VERCEL_TOKEN.",
+          text: "I will set up the preview service.",
         },
         handoffs: [
           {
             scope: "scheduled canary credentials",
             owner: "Alex Rivera",
             ownerSlackId: "UOTHER",
-            action: "configure VERCEL_TOKEN",
+            action: "set up the preview service",
             acceptanceReply: {
               ts: "11.500000",
               threadParentTs: "10.000000",
               actorId: "UOTHER",
-              text: "I will configure VERCEL_TOKEN.",
+              text: "I will set up the preview service.",
             },
           },
         ],
         statusReply: {
           ...firstPage.parents[1]!.statusReply!,
           disposition: "Blocked on human owner",
-          evidence: "Alex Rivera must configure VERCEL_TOKEN.",
-          text: "Blocked on human owner: Alex is setting up the preview service. this was sent from a bot.",
-          pendingActionSummary: "Alex is setting up the preview service",
+          evidence: "Alex Rivera must set up the preview service.",
+          text: "Blocked on human owner: Alex Rivera will set up the preview service. this was sent from a bot.",
+          pendingActionSummary: "Alex Rivera will set up the preview service",
         },
       }),
     );
     validateTestInventory(
       withHandoffReply(
-        "Partially fixed: The route-picker works. Alex is still choosing the remaining behavior. this was sent from a bot.",
+        "Partially fixed: The route-picker works. Alex Rivera will choose the remaining behavior. this was sent from a bot.",
       ),
     );
     validateTestInventory(withReporterRequest(true));
@@ -12172,13 +12218,13 @@ if (args[0] === "--self-test" && args.length === 1) {
                         disposition: "Partially fixed",
                         evidence:
                           "the verified scope is complete; a separate handoff remains.",
-                        text: "Partially fixed: The main issue is fixed. Alex is choosing the behavior; Morgan is scheduling the rollout. this was sent from a bot.",
+                        text: "Partially fixed: The main issue is fixed. Alex Rivera will choose the remaining behavior; Morgan Lee will schedule the rollout. this was sent from a bot.",
                         pendingActionSummary:
-                          "Alex is choosing the behavior; Morgan is scheduling the rollout",
+                          "Alex Rivera will choose the remaining behavior; Morgan Lee will schedule the rollout",
                       },
                       latestOwnedReply: {
                         ...parent.latestOwnedReply!,
-                        text: "Partially fixed: The main issue is fixed. Alex is choosing the behavior; Morgan is scheduling the rollout. this was sent from a bot.",
+                        text: "Partially fixed: The main issue is fixed. Alex Rivera will choose the remaining behavior; Morgan Lee will schedule the rollout. this was sent from a bot.",
                       },
                       reactionSummary:
                         "eyes (1): USWEEPER; white_check_mark (1): USWEEPER; ticket (1): USWEEPER",
