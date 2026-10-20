@@ -306,7 +306,11 @@ const messages = {
       openProviderSettings: "Open {{provider}} Settings",
       apolloDescription: "連絡先の補強と会社データ",
       hubspotDescription: "CRM 連絡先、商談、チケット",
-      gongDescription: "最近の通話と会話インテリジェンス",
+      gongDescription: "Gongの通話履歴",
+      gongAccessCheckFailed: "Gongに接続する権限を確認できませんでした。",
+      gongKeyPlaceholder: "Gong API キー",
+      gongKeyFormatHint:
+        "アクセスキーとシークレットを access_key:secret の形式で入力してください。",
       pylonDescription: "サポート課題とアカウントデータ",
       gongCalls: "Gong 通話",
       deals: "商談",
