@@ -214,6 +214,12 @@ export const DEFAULT_COMPLETED_RUN_RETENTION_MS = 24 * 60 * 60 * 1000;
 export const DEFAULT_ERRORED_RUN_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 export const TERMINAL_RUN_RECONNECT_WINDOW_MS = 20 * 60 * 1000;
+const RECONNECTABLE_TERMINAL_RUN_STATUSES = new Set([
+  "completed",
+  "truncated",
+  "errored",
+  "aborted",
+]);
 
 export const SQL_SUBSCRIPTION_ACTIVE_POLL_MS = 125;
 
@@ -2729,6 +2735,7 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
   lastProgressAt: number | null;
   dispatchMode?: string | null;
   terminalReason?: string | null;
+  successorOfRunId?: string;
   diagStage?: string | null;
   /**
    * True exactly when this run is a `chainServerDrivenContinuation` deferral
@@ -2754,21 +2761,19 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
       memRun.status !== "running" &&
       (!sqlSnapshot || sqlSnapshot.status === "running")
     ) {
-      const successor = await fetchNewerNonTerminalRunForSameTurn(
-        threadId,
-        memRun,
-      );
+      const successor = await fetchNewerRunForSameTurn(threadId, memRun);
       if (successor) {
         return {
           runId: successor.id,
           threadId: successor.threadId,
           turnId: successor.turnId ?? successor.id,
           status: successor.status,
-          inFlight: true,
+          inFlight: successor.status === "running",
           heartbeatAt: successor.heartbeatAt ?? successor.startedAt,
           lastProgressAt: successor.lastProgressAt,
           dispatchMode: successor.dispatchMode,
           terminalReason: successor.terminalReason,
+          successorOfRunId: memRun.runId,
           diagStage: successor.diagStage,
           awaitingRedispatch: false,
           hasInFlightWork: successor.inFlightSince != null,
@@ -2909,18 +2914,24 @@ async function fetchRunThreadSnapshot(runId: string, threadId: string) {
   }
 }
 
-async function fetchNewerNonTerminalRunForSameTurn(
+async function fetchNewerRunForSameTurn(
   threadId: string,
   memRun: ActiveRun,
 ): Promise<Awaited<ReturnType<typeof getRunByThread>> | null> {
   try {
     const latest = await getRunByThread(threadId, { includeTerminal: true });
+    const terminalAge = latest
+      ? Date.now() -
+        (latest.completedAt ?? latest.heartbeatAt ?? latest.startedAt)
+      : Infinity;
     if (
       latest &&
       latest.id !== memRun.runId &&
-      latest.status === "running" &&
       latest.startedAt > memRun.startedAt &&
-      (latest.turnId ?? latest.id) === memRun.turnId
+      (latest.turnId ?? latest.id) === memRun.turnId &&
+      (latest.status === "running" ||
+        (RECONNECTABLE_TERMINAL_RUN_STATUSES.has(latest.status) &&
+          terminalAge <= TERMINAL_RUN_RECONNECT_WINDOW_MS))
     ) {
       return latest;
     }

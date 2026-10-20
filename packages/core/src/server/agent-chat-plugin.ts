@@ -7243,6 +7243,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               threadId: run.threadId,
               turnId: run.turnId,
               status: run.status,
+              ...(run.successorOfRunId
+                ? { successorOfRunId: run.successorOfRunId }
+                : {}),
               heartbeatAt: run.heartbeatAt,
               lastProgressAt: run.lastProgressAt,
               // Durable-background diagnostics: how the run was dispatched and

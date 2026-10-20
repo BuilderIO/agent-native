@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Expose the shared run-continuation reason check to client integrations.
+Expose shared continuation and abort-reason checks to client integrations, and identify same-turn terminal successors in run status.

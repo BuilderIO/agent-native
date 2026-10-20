@@ -4982,6 +4982,48 @@ describe("run manager soft timeout", () => {
     });
   });
 
+  it("returns a completed same-turn successor that finished before the status poll", async () => {
+    const run = startRun(
+      "run-terminal-successor-source",
+      "thread-terminal-successor",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 10, turnId: "turn-terminal-successor" },
+    );
+
+    await vi.advanceTimersByTimeAsync(11);
+    expect(run.status).toBe("completed");
+
+    vi.mocked(getRunByThread).mockResolvedValue({
+      id: "run-terminal-successor-child",
+      threadId: "thread-terminal-successor",
+      turnId: "turn-terminal-successor",
+      status: "completed",
+      startedAt: run.startedAt + 1_000,
+      heartbeatAt: Date.now(),
+      completedAt: Date.now(),
+      lastProgressAt: Date.now(),
+      terminalReason: "done",
+    });
+
+    const result = await getActiveRunForThreadAsync(
+      "thread-terminal-successor",
+    );
+
+    expect(result).toMatchObject({
+      runId: "run-terminal-successor-child",
+      status: "completed",
+      inFlight: false,
+      successorOfRunId: "run-terminal-successor-source",
+      terminalReason: "done",
+    });
+    abortRun(run.runId, "test");
+  });
+
   it("FIX 1: falls back to the stale in-memory terminal status when no successor exists yet", async () => {
     const run = startRun(
       "run-fix1-nosucc",

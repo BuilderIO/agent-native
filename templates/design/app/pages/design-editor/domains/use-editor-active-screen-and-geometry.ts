@@ -1248,7 +1248,6 @@ export function useEditorActiveScreenAndGeometry({
         setGenerationChatTabId,
         setGenerationIssue,
         setHasPendingGeneration,
-        trackAgentGeneration,
       }),
     [
       id,

@@ -401,11 +401,12 @@ export function useEditorGenerationAndAccess({
     (runTabId: string) => {
       const pending = readPendingGeneration(id, { allowUntimestamped: true });
       if (pending?.runTabId && pending.runTabId !== runTabId) {
-        return { runId: null, verified: false };
+        return { runId: null, verified: false, currentRunId: null };
       }
-      const runId = pending?.currentRunId ?? pending?.previousRunId ?? null;
+      const runId = pending?.previousRunId ?? null;
       return {
         runId,
+        currentRunId: pending?.currentRunId ?? null,
         verified:
           Boolean(runId) || pending?.previousRunBaselineVerified === true,
       };
@@ -638,6 +639,7 @@ export function useEditorGenerationAndAccess({
                 pending.previousRunBaselineVerified === true,
             }
           : {}),
+        currentRunId: pending.currentRunId,
       });
       if (!ignorePreviousRun) {
         scheduleStoredRunLivenessCheck(pending.runTabId);

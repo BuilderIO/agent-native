@@ -131,6 +131,23 @@ describe("runResumePendingGeneration", () => {
     expect(args.agentSubmit).not.toHaveBeenCalled();
   });
 
+  it("restores the pending tab without resetting the canonical run tracker", () => {
+    mocks.readPendingGeneration.mockReturnValue({
+      runTabId: "run-tab",
+      previousRunId: "previous-run",
+      previousRunBaselineVerified: false,
+      currentRunId: "current-run",
+      prompt: "Create a design",
+    });
+    const args = createArgs({ creativeContextLabLoading: false });
+
+    runResumePendingGeneration(args);
+
+    expect(args.setGenerationChatTabId).toHaveBeenCalledWith("run-tab");
+    expect(args.setHasPendingGeneration).toHaveBeenCalledWith(true);
+    expect(args.trackAgentGeneration).not.toHaveBeenCalled();
+  });
+
   it("keeps the pending generation and reports an unreadable Labs state", () => {
     mocks.readPendingGeneration.mockReturnValue({
       autoGenerate: true,

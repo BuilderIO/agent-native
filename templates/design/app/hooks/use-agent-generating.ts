@@ -1,5 +1,6 @@
 import {
   isContinuationTerminalReason,
+  isRequestedStopAbortReason,
   type AgentChatMessage,
 } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
@@ -9,6 +10,8 @@ import { sendToDesignAgentChat } from "@/lib/agent-chat";
 
 const GENERATION_ORPHAN_TIMEOUT_MS = 30 * 60_000;
 const GENERATION_START_TIMEOUT_MS = 60_000;
+// The server retries deferred continuations for up to five minutes.
+const GENERATION_HANDOFF_TIMEOUT_MS = 5 * 60_000;
 const GENERATION_STATUS_POLL_START_DELAY_MS = 3_000;
 const GENERATION_STATUS_POLL_INTERVAL_MS = 5_000;
 const GENERATION_STATUS_IDLE_CONFIRMATIONS = 2;
@@ -34,24 +37,30 @@ interface TrackGenerationOptions {
   ignorePreviousRun?: boolean;
   previousRunId?: string;
   previousRunBaselineVerified?: boolean;
+  currentRunId?: string;
 }
 
 interface PreviousRunBaseline {
   runId: string | null;
   verified: boolean;
+  currentRunId?: string | null;
 }
 
 export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
   const [generating, setGenerating] = useState(false);
   const activeTabIdRef = useRef<string | null>(null);
   const timeoutRef = useRef<number | null>(null);
+  const handoffTimeoutRef = useRef<number | null>(null);
   const statusPollTimeoutRef = useRef<number | null>(null);
   const statusPollGenerationRef = useRef(0);
   const generationIdlePollCountRef = useRef(0);
   const generationRunObservedRef = useRef(false);
+  const startFailedPendingRef = useRef(false);
   const waitingForContinuationRef = useRef(false);
   const requireActiveRunRef = useRef(false);
   const previousRunIdRef = useRef<string | null>(null);
+  const currentRunIdRef = useRef<string | null>(null);
+  const continuationSourceRunIdRef = useRef<string | null>(null);
   const lastObservedRunRef = useRef<{ tabId: string; runId: string } | null>(
     null,
   );
@@ -72,18 +81,29 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
     }
   }, []);
 
+  const clearHandoffTimeout = useCallback(() => {
+    if (handoffTimeoutRef.current) {
+      window.clearTimeout(handoffTimeoutRef.current);
+      handoffTimeoutRef.current = null;
+    }
+  }, []);
+
   const reset = useCallback(() => {
     statusPollGenerationRef.current += 1;
     clearGenerationTimeout();
+    clearHandoffTimeout();
     clearStatusPollTimeout();
     activeTabIdRef.current = null;
     generationIdlePollCountRef.current = 0;
     generationRunObservedRef.current = false;
+    startFailedPendingRef.current = false;
     waitingForContinuationRef.current = false;
     requireActiveRunRef.current = false;
     previousRunIdRef.current = null;
+    currentRunIdRef.current = null;
+    continuationSourceRunIdRef.current = null;
     setGenerating(false);
-  }, [clearGenerationTimeout, clearStatusPollTimeout]);
+  }, [clearGenerationTimeout, clearHandoffTimeout, clearStatusPollTimeout]);
 
   const startGenerationTimeout = useCallback(
     (tabId: string | null) => {
@@ -103,29 +123,86 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
     [clearGenerationTimeout, reset],
   );
 
+  const startHandoffTimeout = useCallback(
+    (tabId: string) => {
+      if (handoffTimeoutRef.current !== null) return;
+      handoffTimeoutRef.current = window.setTimeout(() => {
+        handoffTimeoutRef.current = null;
+        if (
+          activeTabIdRef.current !== tabId ||
+          !waitingForContinuationRef.current
+        ) {
+          return;
+        }
+        callbacksRef.current.onFailed?.(tabId);
+        reset();
+      }, GENERATION_HANDOFF_TIMEOUT_MS);
+    },
+    [reset],
+  );
+
+  const beginContinuationWait = useCallback(
+    (tabId: string, sourceRunId?: string) => {
+      waitingForContinuationRef.current = true;
+      generationIdlePollCountRef.current = 0;
+      if (sourceRunId) continuationSourceRunIdRef.current = sourceRunId;
+      startHandoffTimeout(tabId);
+    },
+    [startHandoffTimeout],
+  );
+
   const confirmRun = useCallback(
-    (tabId: string, runId?: string, active = false) => {
+    (
+      tabId: string,
+      runId?: string,
+      active = false,
+      successorOfRunId?: string,
+    ) => {
+      const hasRunId = typeof runId === "string";
+      const causallyConfirmedSuccessor =
+        typeof successorOfRunId === "string" &&
+        (successorOfRunId === previousRunIdRef.current ||
+          successorOfRunId === currentRunIdRef.current ||
+          successorOfRunId === continuationSourceRunIdRef.current);
+      const isKnownCurrentRun = hasRunId && runId === currentRunIdRef.current;
       if (
         activeTabIdRef.current !== tabId ||
         (previousRunIdRef.current !== null &&
           (!runId || runId === previousRunIdRef.current)) ||
-        (requireActiveRunRef.current && (!active || !runId))
+        (requireActiveRunRef.current &&
+          (!hasRunId ||
+            (!active && !isKnownCurrentRun && !causallyConfirmedSuccessor)))
       ) {
         return false;
       }
+      const isFirstObservedRun = !generationRunObservedRef.current;
+      const isNewRun = hasRunId && runId !== currentRunIdRef.current;
       generationRunObservedRef.current = true;
-      waitingForContinuationRef.current = false;
       requireActiveRunRef.current = false;
-      if (runId) lastObservedRunRef.current = { tabId, runId };
-      callbacksRef.current.onRunConfirmed?.(tabId, runId ?? null);
-      startGenerationTimeout(tabId);
+      if (hasRunId) {
+        currentRunIdRef.current = runId!;
+        lastObservedRunRef.current = { tabId, runId: runId! };
+      }
+      const advancesContinuation =
+        waitingForContinuationRef.current &&
+        hasRunId &&
+        runId !== continuationSourceRunIdRef.current;
+      if (advancesContinuation) {
+        waitingForContinuationRef.current = false;
+        continuationSourceRunIdRef.current = null;
+        clearHandoffTimeout();
+      }
+      if (isFirstObservedRun || isNewRun) {
+        callbacksRef.current.onRunConfirmed?.(tabId, runId ?? null);
+        startGenerationTimeout(tabId);
+      }
       return true;
     },
-    [startGenerationTimeout],
+    [clearHandoffTimeout, startGenerationTimeout],
   );
 
   const startStatusPolling = useCallback(
-    (tabId: string) => {
+    (tabId: string, initialDelayMs = GENERATION_STATUS_POLL_START_DELAY_MS) => {
       clearStatusPollTimeout();
       const generation = ++statusPollGenerationRef.current;
       generationIdlePollCountRef.current = 0;
@@ -149,6 +226,7 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
             active?: unknown;
             status?: unknown;
             runId?: unknown;
+            successorOfRunId?: unknown;
             terminalReason?: unknown;
             awaitingRedispatch?: unknown;
           };
@@ -156,6 +234,8 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
             typeof state.active !== "boolean" ||
             typeof state.status !== "string" ||
             (state.runId != null && typeof state.runId !== "string") ||
+            (state.successorOfRunId != null &&
+              typeof state.successorOfRunId !== "string") ||
             (state.terminalReason != null &&
               typeof state.terminalReason !== "string") ||
             (state.awaitingRedispatch != null &&
@@ -169,29 +249,72 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
           ) {
             return;
           }
-          const isRunning = state.active;
-          const isIdle = !state.active && state.status === "idle";
+          const isAwaitingRedispatch = state.awaitingRedispatch === true;
+          const isRunning = state.active && !isAwaitingRedispatch;
+          const isIdle =
+            !state.active && state.status === "idle" && !isAwaitingRedispatch;
           const isTerminal =
-            !state.active && TERMINAL_RUN_STATUSES.has(state.status);
-          if (!isRunning && !isIdle && !isTerminal) {
+            !state.active &&
+            TERMINAL_RUN_STATUSES.has(state.status) &&
+            !isAwaitingRedispatch;
+          if (!isRunning && !isIdle && !isTerminal && !isAwaitingRedispatch) {
             throw new Error("Agent run state was unrecognized");
           }
           if ((isRunning || isTerminal) && typeof state.runId !== "string") {
             throw new Error("Agent run state did not include a run ID");
           }
           const abortReason =
-            state.status === "aborted" &&
-            typeof state.terminalReason === "string" &&
-            state.terminalReason.startsWith("aborted:")
-              ? state.terminalReason.slice("aborted:".length)
-              : null;
+            state.status !== "aborted"
+              ? null
+              : typeof state.terminalReason === "string" &&
+                  state.terminalReason.startsWith("aborted:")
+                ? state.terminalReason.slice("aborted:".length)
+                : typeof state.terminalReason === "string" &&
+                    state.terminalReason.trim().length > 0
+                  ? state.terminalReason
+                  : null;
           const isContinuation =
-            state.awaitingRedispatch === true ||
+            isAwaitingRedispatch ||
             state.status === "truncated" ||
             (state.status === "completed" &&
               isContinuationTerminalReason(state.terminalReason)) ||
             (abortReason !== null && isContinuationTerminalReason(abortReason));
-          if (isRunning) {
+          if (startFailedPendingRef.current) {
+            const runId =
+              typeof state.runId === "string" ? state.runId : undefined;
+            const successorOfRunId =
+              typeof state.successorOfRunId === "string"
+                ? state.successorOfRunId
+                : undefined;
+            const hasDeferredTurn =
+              isAwaitingRedispatch &&
+              (generationRunObservedRef.current ||
+                (runId !== undefined && runId !== previousRunIdRef.current) ||
+                (successorOfRunId !== undefined &&
+                  (successorOfRunId === previousRunIdRef.current ||
+                    successorOfRunId === currentRunIdRef.current ||
+                    successorOfRunId === continuationSourceRunIdRef.current)));
+            const existingRunConfirmed =
+              !isAwaitingRedispatch &&
+              (isRunning || isTerminal) &&
+              confirmRun(tabId, runId, isRunning, successorOfRunId);
+            if (!hasDeferredTurn && !existingRunConfirmed) {
+              callbacksRef.current.onFailed?.(tabId);
+              reset();
+              return;
+            }
+            startFailedPendingRef.current = false;
+          }
+          if (isAwaitingRedispatch) {
+            const sourceRunId =
+              typeof state.successorOfRunId === "string"
+                ? state.successorOfRunId
+                : (currentRunIdRef.current ??
+                  previousRunIdRef.current ??
+                  undefined);
+            beginContinuationWait(tabId, sourceRunId);
+            generationIdlePollCountRef.current = 0;
+          } else if (isRunning) {
             const runId =
               typeof state.runId === "string" ? state.runId : undefined;
             confirmRun(tabId, runId, true);
@@ -199,23 +322,39 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
           } else if (isTerminal) {
             const runId =
               typeof state.runId === "string" ? state.runId : undefined;
-            const isCurrentRun = confirmRun(tabId, runId);
-            if (!isCurrentRun) {
-              if (isContinuation) waitingForContinuationRef.current = true;
+            const isCurrentRun = confirmRun(
+              tabId,
+              runId,
+              false,
+              typeof state.successorOfRunId === "string"
+                ? state.successorOfRunId
+                : undefined,
+            );
+            if (isContinuation) {
+              beginContinuationWait(tabId, runId);
+              generationIdlePollCountRef.current = 0;
+            } else if (!isCurrentRun) {
               generationIdlePollCountRef.current = 0;
             } else if (state.status === "errored") {
               callbacksRef.current.onFailed?.(tabId);
               reset();
               return;
-            } else if (isContinuation) {
-              waitingForContinuationRef.current = true;
-              generationIdlePollCountRef.current = 0;
             } else if (state.status === "aborted") {
-              callbacksRef.current.onStopped?.(tabId);
+              if (
+                abortReason === null ||
+                abortReason === "protocol-cancel" ||
+                isRequestedStopAbortReason(abortReason)
+              ) {
+                callbacksRef.current.onStopped?.(tabId);
+              } else {
+                callbacksRef.current.onFailed?.(tabId);
+              }
               reset();
               return;
             } else {
               waitingForContinuationRef.current = false;
+              continuationSourceRunIdRef.current = null;
+              clearHandoffTimeout();
               generationIdlePollCountRef.current += 1;
             }
           } else if (
@@ -247,12 +386,15 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
           );
         }
       };
-      statusPollTimeoutRef.current = window.setTimeout(
-        poll,
-        GENERATION_STATUS_POLL_START_DELAY_MS,
-      );
+      statusPollTimeoutRef.current = window.setTimeout(poll, initialDelayMs);
     },
-    [clearStatusPollTimeout, confirmRun, reset],
+    [
+      beginContinuationWait,
+      clearHandoffTimeout,
+      clearStatusPollTimeout,
+      confirmRun,
+      reset,
+    ],
   );
 
   const track = useCallback(
@@ -262,19 +404,24 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
       generationIdlePollCountRef.current = 0;
       generationRunObservedRef.current = false;
       waitingForContinuationRef.current = false;
+      startFailedPendingRef.current = false;
+      continuationSourceRunIdRef.current = null;
+      clearHandoffTimeout();
       previousRunIdRef.current = trackOptions.ignorePreviousRun
         ? (trackOptions.previousRunId ??
           (lastObservedRunRef.current?.tabId === tabId
             ? lastObservedRunRef.current.runId
             : null))
         : null;
+      currentRunIdRef.current = trackOptions.currentRunId ?? null;
       requireActiveRunRef.current =
         trackOptions.ignorePreviousRun === true &&
-        trackOptions.previousRunBaselineVerified !== true;
+        trackOptions.previousRunBaselineVerified !== true &&
+        currentRunIdRef.current === null;
       startGenerationTimeout(tabId);
       startStatusPolling(tabId);
     },
-    [startGenerationTimeout, startStatusPolling],
+    [clearHandoffTimeout, startGenerationTimeout, startStatusPolling],
   );
 
   useEffect(() => {
@@ -290,10 +437,15 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
             const baseline =
               callbacksRef.current.getPreviousRunBaseline?.(eventTabId);
             previousRunIdRef.current = baseline?.runId ?? null;
-            requireActiveRunRef.current = baseline?.verified !== true;
+            currentRunIdRef.current = baseline?.currentRunId ?? null;
+            requireActiveRunRef.current =
+              baseline?.verified !== true && currentRunIdRef.current === null;
             callbacksRef.current.onAdoptRunningTab?.(eventTabId);
             setGenerating(true);
             startGenerationTimeout(eventTabId);
+            if (typeof detail.runId === "string") {
+              confirmRun(eventTabId, detail.runId, true);
+            }
             startStatusPolling(eventTabId);
             return;
           }
@@ -309,6 +461,11 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
         if (!detail.isRunning) {
           const tabId = activeTabIdRef.current;
           if (!tabId) return;
+          if (detail.reason === "start_failed") {
+            startFailedPendingRef.current = true;
+            startStatusPolling(tabId, 0);
+            return;
+          }
           if (detail.reason === "stopped") {
             if (
               previousRunIdRef.current !== null ||
@@ -337,7 +494,11 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
         generationIdlePollCountRef.current = 0;
         setGenerating(true);
         if (tabId) {
-          startGenerationTimeout(tabId);
+          if (typeof detail.runId === "string") {
+            confirmRun(tabId, detail.runId, true);
+          } else if (!generationRunObservedRef.current) {
+            startGenerationTimeout(tabId);
+          }
           startStatusPolling(tabId);
         }
       }
@@ -350,9 +511,10 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
     return () => {
       statusPollGenerationRef.current += 1;
       clearGenerationTimeout();
+      clearHandoffTimeout();
       clearStatusPollTimeout();
     };
-  }, [clearGenerationTimeout, clearStatusPollTimeout]);
+  }, [clearGenerationTimeout, clearHandoffTimeout, clearStatusPollTimeout]);
 
   const submit = useCallback(
     (

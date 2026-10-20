@@ -57,7 +57,6 @@ export interface ResumePendingGenerationArgs {
   setGenerationChatTabId: Dispatch<SetStateAction<string | null>>;
   setGenerationIssue: Dispatch<SetStateAction<string | null>>;
   setHasPendingGeneration: Dispatch<SetStateAction<boolean>>;
-  trackAgentGeneration: (tabId: string) => void;
 }
 
 export function runResumePendingGeneration({
@@ -76,7 +75,6 @@ export function runResumePendingGeneration({
   setGenerationChatTabId,
   setGenerationIssue,
   setHasPendingGeneration,
-  trackAgentGeneration,
 }: ResumePendingGenerationArgs) {
   if (!id || !design) return;
   if (creativeContextLabLoading) return;
@@ -97,7 +95,6 @@ export function runResumePendingGeneration({
     setGenerationIssue(null);
     setHasPendingGeneration(true);
     setGenerationChatTabId(pending.runTabId);
-    trackAgentGeneration(pending.runTabId);
     return;
   }
 
