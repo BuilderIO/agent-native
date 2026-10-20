@@ -1047,15 +1047,17 @@ async function runIncrementalSyncStep(
   // wrote as archived are short-lived, so every step purges the expired ones.
   // Only new in-inbox rows can push the account past the cap, so the trim runs
   // when the inbox stream changed.
+  const archiveSkipped: string[] = [];
   await withSyncClaim(ownerEmail, accountEmail, claimId, async (tx) => {
     for (const threadId of archivedOnly) {
-      await deleteInboxThreadRow(
+      const removed = await deleteInboxThreadRow(
         ownerEmail,
         accountEmail,
         threadId,
         readStartedAt,
         tx,
       );
+      if (removed === false) archiveSkipped.push(threadId);
     }
     await purgeArchivedInboxThreadRows(
       ownerEmail,
@@ -1093,6 +1095,7 @@ async function runIncrementalSyncStep(
     hydrateNowSet.has(id) && !hydrateError && !hydrateFailed.has(id);
   const archivePendingIds = [
     ...verifyUntried.filter((id) => !priorFailedVerify.has(id)),
+    ...archiveSkipped,
     ...archiveOverlap.filter((id) => !hydrateSucceeded(id)),
   ];
   const failureKinds = [...hydrateFailed.values(), ...verifyFailed.values()];

@@ -847,17 +847,25 @@ export async function deleteInboxThreadRow(
   threadId: string,
   readStartedAt?: number,
   db: any = getDb(),
-): Promise<void> {
-  const conditions = [
-    eq(
-      schema.mailInboxThreads.id,
-      threadRowId(ownerEmail, accountEmail, threadId),
-    ),
-  ];
+): Promise<boolean> {
+  const id = threadRowId(ownerEmail, accountEmail, threadId);
+  const conditions = [eq(schema.mailInboxThreads.id, id)];
   if (readStartedAt !== undefined) {
     conditions.push(lt(schema.mailInboxThreads.updatedAt, readStartedAt));
   }
-  await db.delete(schema.mailInboxThreads).where(and(...conditions));
+  const deleted = await db
+    .delete(schema.mailInboxThreads)
+    .where(and(...conditions))
+    .returning({ id: schema.mailInboxThreads.id });
+  if (deleted.length > 0) return true;
+  // false means a row written after the read survived the guard, so the caller
+  // must keep the thread queued; an already-absent row counts as removed.
+  const remaining = await db
+    .select({ id: schema.mailInboxThreads.id })
+    .from(schema.mailInboxThreads)
+    .where(eq(schema.mailInboxThreads.id, id))
+    .limit(1);
+  return remaining.length === 0;
 }
 
 export async function markThreadsOutOfInboxBeforeSync(

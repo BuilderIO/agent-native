@@ -1636,6 +1636,61 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
     );
   });
 
+  it("keeps an archived thread queued when the guarded delete skips a concurrently updated row, then cleans it next step", async () => {
+    currentRow = baseRow({ historyId: "1000", archiveHistoryId: "1000" });
+    fakeRows = [{ threadId: "kept" }, { threadId: "gone" }];
+    const archive = [
+      {
+        id: "1002",
+        labelsRemoved: ["kept", "gone"].map((threadId) => ({
+          labelIds: ["INBOX"],
+          message: { id: `${threadId}-m1`, threadId },
+        })),
+      },
+    ];
+    mocks.gmailListHistory.mockImplementation(
+      async (
+        _token: string,
+        params: { labelId?: string; startHistoryId: string },
+      ) =>
+        params.labelId === "INBOX"
+          ? { history: [], historyId: "1002" }
+          : {
+              history: archive.filter(
+                (record) => BigInt(record.id) > BigInt(params.startHistoryId),
+              ),
+              historyId: "1002",
+            },
+    );
+    mocks.gmailBatchGetThreads.mockImplementation(
+      async (_token: string, requested: string[]) =>
+        requested.map((id) => minimalThread(id, [["CATEGORY_UPDATES"]])),
+    );
+    // A local write landed on "kept" after the Gmail read began, so the guarded
+    // delete skips it on the first step only.
+    let concurrentWrite = true;
+    mocks.deleteInboxThreadRow.mockImplementation(
+      async (_owner, _account, threadId: string) => {
+        if (threadId === "kept" && concurrentWrite) return false;
+        fakeRows = fakeRows.filter((row) => row.threadId !== threadId);
+        return true;
+      },
+    );
+
+    const first = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    expect(fakeRows).toEqual([{ threadId: "kept" }]);
+    expect(currentRow.archivePendingIds).toEqual(["kept"]);
+    expect(first.backfillPending).toBe(true);
+
+    concurrentWrite = false;
+    const second = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    expect(fakeRows).toEqual([]);
+    expect(currentRow.archivePendingIds).toEqual([]);
+    expect(second.backfillPending).toBeUndefined();
+  });
+
   it("keeps a failing candidate pending at the back and still hydrates new mail", async () => {
     currentRow = baseRow({ historyId: "1000" });
     fakeRows = [{ threadId: "bad" }, { threadId: "good" }];

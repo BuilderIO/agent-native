@@ -162,6 +162,28 @@ describe("trimInboxThreadRows (PGlite)", () => {
   });
 });
 
+describe("deleteInboxThreadRow (PGlite)", () => {
+  it("reports a row updated after the read as not removed, and an absent row as removed", async () => {
+    const owner = "o@example.com";
+    const account = "a@example.com";
+    await insertThreads([thread(owner, account, "t1", NOW, false)]);
+    await setRowTimes("t1", NOW + 1_000);
+
+    expect(await stores.deleteInboxThreadRow(owner, account, "t1", NOW)).toBe(
+      false,
+    );
+    expect(await countRows(owner, account)).toBe(1);
+
+    expect(
+      await stores.deleteInboxThreadRow(owner, account, "t1", NOW + 2_000),
+    ).toBe(true);
+    expect(await countRows(owner, account)).toBe(0);
+    expect(
+      await stores.deleteInboxThreadRow(owner, account, "t1", NOW + 2_000),
+    ).toBe(true);
+  });
+});
+
 describe("purgeArchivedInboxThreadRows (PGlite)", () => {
   it("deletes archived rows only once the grace window has passed", async () => {
     const owner = "owner@example.com";
@@ -492,6 +514,32 @@ describe("runInboxRetention (PGlite)", () => {
     expect(summary).toMatchObject({ capRowsRemoved: 30, capOwners: 1 });
     expect(await countRows(owner, account, 1)).toBe(2_000);
   });
+  it("invalidates a stale claim while trimming so the delayed worker cannot write after", async () => {
+    const owner = "delayed@example.com";
+    const account = "delayed-acct@example.com";
+    await seedAccount(owner, account, {
+      lastSyncedAt: NOW - HOUR,
+      claimedAt: NOW - 10 * 60_000,
+      inboxRows: 0,
+    });
+    await addGoogleToken(owner, account, "{}");
+    await insertThreads(
+      Array.from({ length: 2_030 }, (_, i) =>
+        thread(owner, account, `delayed-${i}`, 1_000_000 + i, true),
+      ),
+    );
+
+    const summary = await retention.runInboxRetention({
+      now: NOW,
+      resolveConnectedAccounts: noConnections,
+    });
+
+    expect(summary).toMatchObject({ capRowsRemoved: 30 });
+    await expect(
+      stores.withSyncClaim(owner, account, "live-claim", async () => "wrote"),
+    ).rejects.toThrow();
+  });
+
   it("keeps one owner's rows when their connection lookup throws and cleans the rest", async () => {
     await seedAccount("a-flaky@example.com", "flaky-acct@example.com", {
       lastSyncedAt: NOW - HOUR,

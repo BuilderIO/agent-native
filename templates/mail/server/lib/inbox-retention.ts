@@ -1,6 +1,6 @@
 import { getDbExec } from "@agent-native/core/db";
 import { listOAuthAccountsByOwner } from "@agent-native/core/oauth-tokens";
-import { and, eq, isNull, lt, or, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 import { hasGmailScope } from "./gmail-scope.js";
@@ -91,6 +91,35 @@ export async function readRetentionPage(
   }));
 }
 
+// Locks the account's sync row and takes it over for a retention write.
+// Returns false while a live sync holds the claim. A stale claim's id is
+// cleared in the same transaction, so a delayed worker still holding it fails
+// its withSyncClaim fence instead of writing after retention. Every retention
+// path that mutates an account's rows goes through here.
+async function takeOverStaleClaim(
+  tx: any,
+  syncId: string,
+  now: number,
+): Promise<boolean> {
+  const [account] = await tx
+    .select({
+      syncClaimId: schema.mailSyncAccounts.syncClaimId,
+      syncClaimedAt: schema.mailSyncAccounts.syncClaimedAt,
+    })
+    .from(schema.mailSyncAccounts)
+    .where(eq(schema.mailSyncAccounts.id, syncId))
+    .for("update")
+    .limit(1);
+  if (!account) return false;
+  if (account.syncClaimId == null) return true;
+  if ((account.syncClaimedAt ?? 0) >= now - STALE_CLAIM_MS) return false;
+  await tx
+    .update(schema.mailSyncAccounts)
+    .set({ syncClaimId: null, syncClaimedAt: null, updatedAt: now })
+    .where(eq(schema.mailSyncAccounts.id, syncId));
+  return true;
+}
+
 // Purges archived rows and applies the cap trim under the account's sync row
 // lock, the same fence a sync's writes take. Returns null when a live sync
 // holds the claim: a sync's archive or hydrate can move rows across the cap
@@ -100,22 +129,7 @@ async function trimPair(
   now: number,
 ): Promise<{ archived: number; capped: number } | null> {
   return getDb().transaction(async (tx: any) => {
-    const [account] = await tx
-      .select({
-        syncClaimId: schema.mailSyncAccounts.syncClaimId,
-        syncClaimedAt: schema.mailSyncAccounts.syncClaimedAt,
-      })
-      .from(schema.mailSyncAccounts)
-      .where(eq(schema.mailSyncAccounts.id, pair.syncId))
-      .for("update")
-      .limit(1);
-    if (!account) return null;
-    if (
-      account.syncClaimId != null &&
-      (account.syncClaimedAt ?? 0) >= now - STALE_CLAIM_MS
-    ) {
-      return null;
-    }
+    if (!(await takeOverStaleClaim(tx, pair.syncId, now))) return null;
     const archived = await purgeArchivedInboxThreadRows(
       pair.ownerEmail,
       pair.accountEmail,
@@ -142,6 +156,7 @@ export async function clearPair(
   requireInactive: boolean,
 ): Promise<number | null> {
   return getDb().transaction(async (tx: any) => {
+    if (!(await takeOverStaleClaim(tx, pair.syncId, now))) return null;
     const claimed = await tx
       .update(schema.mailSyncAccounts)
       .set({
@@ -168,10 +183,7 @@ export async function clearPair(
       .where(
         and(
           eq(schema.mailSyncAccounts.id, pair.syncId),
-          or(
-            isNull(schema.mailSyncAccounts.syncClaimId),
-            lt(schema.mailSyncAccounts.syncClaimedAt, now - STALE_CLAIM_MS),
-          ),
+          isNull(schema.mailSyncAccounts.syncClaimId),
           requireInactive
             ? sql`(SELECT MAX(COALESCE(o.last_synced_at, o.created_at))
                 FROM mail_sync_accounts o
