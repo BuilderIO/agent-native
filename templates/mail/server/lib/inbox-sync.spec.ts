@@ -174,6 +174,7 @@ function baseRow(overrides: Partial<Record<string, unknown>> = {}) {
     fullSyncListedCount: 0,
     archivePendingIds: [],
     hydratePendingIds: [],
+    degraded: { hydrate: [], verify: [], kind: null },
     status: "syncing",
     lastError: null,
     lastSyncedAt: null,
@@ -1678,9 +1679,15 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
       .filter((call) => call[2] === "metadata")
       .flatMap((call) => call[1]);
     expect(hydrated).toEqual(["new"]);
-    expect(currentRow.archivePendingIds).toEqual(["bad"]);
-    // Only a failed candidate is left, so the client is not kept in a sync loop.
+    // Failed candidates are held apart from pending work and reported as degraded.
+    expect(currentRow.archivePendingIds).toEqual([]);
+    expect(currentRow.degraded).toEqual({
+      hydrate: [],
+      verify: ["bad"],
+      kind: "http_500",
+    });
     expect(result.backfillPending).toBeUndefined();
+    expect(result.degraded).toEqual({ count: 1, kind: "http_500" });
   });
 
   it("runs the archive cleanup even when a new thread keeps failing to hydrate", async () => {
@@ -1740,13 +1747,18 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
       {},
     );
     expect(mocks.upsertInboxThreadRows).toHaveBeenCalled();
-    expect(currentRow.hydratePendingIds).toEqual(["bad"]);
-    // Only the failed thread is left, so the client is not kept in a sync loop.
+    expect(currentRow.hydratePendingIds).toEqual([]);
+    expect(currentRow.degraded.hydrate).toEqual(["bad"]);
     expect(result.backfillPending).toBeUndefined();
+    expect(result.degraded).toEqual({ count: 1, kind: "http_500" });
 
-    // Next step: the failing id is retried alone and still cannot block anything.
-    await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
-    expect(currentRow.hydratePendingIds).toEqual(["bad"]);
+    // Next step: the failing id is retried alone, stays degraded (never
+    // pending), and still cannot block anything.
+    const again = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+    expect(currentRow.hydratePendingIds).toEqual([]);
+    expect(currentRow.degraded.hydrate).toEqual(["bad"]);
+    expect(again.backfillPending).toBeUndefined();
+    expect(again.degraded?.count).toBe(1);
   });
 
   it("saves the pending lists and cleanup before rethrowing a whole-read hydrate failure", async () => {
@@ -1799,6 +1811,72 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
     );
     expect(currentRow.historyId).toBe("1002");
     expect(currentRow.hydratePendingIds).toEqual(["n"]);
+  });
+
+  it("reports a non-quota verification batch failure as degraded instead of a clean ready", async () => {
+    currentRow = baseRow({ historyId: "1000" });
+    fakeRows = [{ threadId: "t1" }];
+    archiveStream(["t1"]);
+    mocks.gmailBatchGetThreads.mockRejectedValue(
+      Object.assign(new Error("socket hang up"), { name: "FetchError" }),
+    );
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    expect(result.state).toBe("ready");
+    expect(result.degraded).toEqual({ count: 1, kind: "FetchError" });
+    expect(result.backfillPending).toBeUndefined();
+    expect(mocks.deleteInboxThreadRow).not.toHaveBeenCalled();
+    expect(currentRow.degraded.verify).toEqual(["t1"]);
+    expect(JSON.stringify(result)).not.toContain("socket hang up");
+  });
+
+  it("reports stored failures as degraded, not pending, when another worker holds the claim", async () => {
+    currentRow = baseRow({
+      historyId: "1000",
+      status: "idle",
+      hydratePendingIds: [],
+      degraded: { hydrate: ["bad"], verify: [], kind: "http_500" },
+    });
+    mocks.claimSyncAccount.mockResolvedValue(null);
+
+    const result = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    expect(result.backfillPending).toBeUndefined();
+    expect(result.degraded).toEqual({ count: 1, kind: "http_500" });
+  });
+
+  it("clears the degraded record once the failing thread reads again", async () => {
+    currentRow = baseRow({
+      historyId: "1000",
+      archiveHistoryId: "1000",
+      degraded: { hydrate: [], verify: ["t1"], kind: "http_500" },
+    });
+    fakeRows = [{ threadId: "t1" }];
+    mocks.gmailListHistory.mockResolvedValue({
+      history: [],
+      historyId: "1000",
+    });
+    mocks.gmailBatchGetThreads.mockResolvedValueOnce([
+      minimalThread("t1", [["TRASH"]]),
+    ]);
+
+    const result = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    expect(mocks.deleteInboxThreadRow).toHaveBeenCalledWith(
+      OWNER,
+      ACCOUNT,
+      "t1",
+      expect.any(Number),
+      {},
+    );
+    expect(currentRow.degraded).toEqual({
+      hydrate: [],
+      verify: [],
+      kind: "http_500",
+    });
+    expect(result.degraded).toBeUndefined();
   });
 
   it("runs hydration after a quota cooldown ends verification, leaving candidates in place", async () => {

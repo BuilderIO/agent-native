@@ -180,6 +180,9 @@ export const mailSyncAccounts = table(
     archivePendingIdsJson: text("archive_pending_ids_json"),
     // Threads from history events that still await a metadata read.
     hydratePendingIdsJson: text("hydrate_pending_ids_json"),
+    // Threads whose reads keep failing, held apart from the pending work so
+    // status can tell "will be attempted next step" from "retrying".
+    syncDegradedJson: text("sync_degraded_json"),
     status: text("status", {
       enum: ["idle", "syncing", "error", "needs_reauth"],
     })

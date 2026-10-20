@@ -54,6 +54,26 @@ export type InboxThreadRow = {
   updatedAt: number;
 };
 
+/** Thread ids whose Gmail reads keep failing, and the latest failure kind. */
+export type SyncDegraded = {
+  hydrate: string[];
+  verify: string[];
+  kind: string | null;
+};
+
+function parseDegraded(raw: string | null): SyncDegraded {
+  try {
+    const parsed = raw ? JSON.parse(raw) : null;
+    return {
+      hydrate: Array.isArray(parsed?.hydrate) ? parsed.hydrate : [],
+      verify: Array.isArray(parsed?.verify) ? parsed.verify : [],
+      kind: typeof parsed?.kind === "string" ? parsed.kind : null,
+    };
+  } catch {
+    return { hydrate: [], verify: [], kind: null };
+  }
+}
+
 export type SyncAccountRow = {
   id: string;
   ownerEmail: string;
@@ -70,6 +90,7 @@ export type SyncAccountRow = {
   fullSyncListedCount: number;
   archivePendingIds: string[];
   hydratePendingIds: string[];
+  degraded: SyncDegraded;
   status: "idle" | "syncing" | "error" | "needs_reauth";
   lastError: string | null;
   lastSyncedAt: number | null;
@@ -156,6 +177,7 @@ function toSyncAccountRow(
     fullSyncListedCount: row.fullSyncListedCount,
     archivePendingIds: parseJsonArray<string>(row.archivePendingIdsJson, []),
     hydratePendingIds: parseJsonArray<string>(row.hydratePendingIdsJson, []),
+    degraded: parseDegraded(row.syncDegradedJson),
     status: row.status as SyncAccountRow["status"],
     lastError: row.lastError,
     lastSyncedAt: row.lastSyncedAt,
@@ -1248,6 +1270,7 @@ export type SyncAccountPatch = Partial<{
   fullSyncListedCount: number;
   archivePendingIds: string[] | null;
   hydratePendingIds: string[] | null;
+  degraded: SyncDegraded | null;
   status: SyncAccountRow["status"];
   lastError: string | null;
   lastSyncedAt: number | null;
@@ -1322,6 +1345,14 @@ export async function patchSyncAccount(
         : null;
     delete set.archivePendingIds;
   }
+  if (patch.degraded !== undefined) {
+    set.syncDegradedJson =
+      patch.degraded &&
+      (patch.degraded.hydrate.length > 0 || patch.degraded.verify.length > 0)
+        ? JSON.stringify(patch.degraded)
+        : null;
+    delete set.degraded;
+  }
   if (patch.hydratePendingIds !== undefined) {
     set.hydratePendingIdsJson =
       patch.hydratePendingIds && patch.hydratePendingIds.length > 0
@@ -1364,6 +1395,7 @@ export async function resetSyncAccountProgress(
       fullSyncListedCount: 0,
       archivePendingIds: null,
       hydratePendingIds: null,
+      degraded: null,
       status: "idle",
       lastError: null,
       syncClaimId: null,

@@ -41,6 +41,7 @@ import {
   type CachedGmailLabel,
   type SyncAccountPatch,
   type SyncAccountRow,
+  type SyncDegraded,
   type ThreadUpsertInput,
 } from "./inbox-store.js";
 
@@ -130,6 +131,17 @@ function statusFromRow(row: SyncAccountRow): InboxSyncAccountStatus {
     row.fullSyncPhase === "reconcile" ||
     row.hydratePendingIds.length > 0 ||
     row.archivePendingIds.length > 0;
+  const degradedCount =
+    row.degraded.hydrate.length + row.degraded.verify.length;
+  const degraded =
+    degradedCount > 0
+      ? {
+          degraded: {
+            count: degradedCount,
+            kind: row.degraded.kind ?? "unknown",
+          },
+        }
+      : {};
   if (row.status === "needs_reauth" || row.status === "error") {
     return {
       accountEmail: row.accountEmail,
@@ -137,6 +149,7 @@ function statusFromRow(row: SyncAccountRow): InboxSyncAccountStatus {
       lastSyncedAt: row.lastSyncedAt,
       error: row.lastError ?? undefined,
       ...(backfillPending ? { backfillPending: true } : {}),
+      ...degraded,
     };
   }
   return {
@@ -145,7 +158,18 @@ function statusFromRow(row: SyncAccountRow): InboxSyncAccountStatus {
       row.historyId == null || row.status === "syncing" ? "initial" : "ready",
     lastSyncedAt: row.lastSyncedAt,
     ...(backfillPending ? { backfillPending: true } : {}),
+    ...degraded,
   };
+}
+
+// Error class only (never a message, id or address): what a degraded status
+// reports so callers can tell it apart from success.
+function failureKind(error: unknown): string {
+  if (typeof error === "string") {
+    const http = /HTTP (\d{3})/.exec(error);
+    return http ? `http_${http[1]}` : "gmail_read_failed";
+  }
+  return error instanceof Error ? error.name || "error" : "error";
 }
 
 function cachedGmailLabels(result: any): CachedGmailLabel[] {
@@ -317,9 +341,9 @@ async function hydrateAndApply(
   claimId: string,
   lane: "interactive" | "incremental" | "backfill",
   onChanged?: () => void,
-  // When given, a thread whose read fails (not a 404) is recorded here and the
-  // rest still apply, instead of the whole call throwing.
-  failed?: string[],
+  // When given, a thread whose read fails (not a 404) is recorded here with its
+  // failure kind and the rest still apply, instead of the whole call throwing.
+  failed?: Map<string, string>,
 ): Promise<void> {
   for (let i = 0; i < ids.length; i += HYDRATE_CHUNK) {
     const chunk = ids.slice(i, i + HYDRATE_CHUNK);
@@ -340,7 +364,7 @@ async function hydrateAndApply(
           continue;
         }
         if (failed) {
-          failed.push(part.id);
+          failed.set(part.id, failureKind(part.error));
           continue;
         }
         throw new Error(`Gmail thread ${part.id} fetch failed: ${part.error}`);
@@ -809,6 +833,7 @@ async function runIncrementalSyncStep(
         fullSyncListedCount: 0,
         archivePendingIds: [],
         hydratePendingIds: [],
+        degraded: { hydrate: [], verify: [], kind: null },
       };
       const restarted = await runFullSyncStep(
         ownerEmail,
@@ -881,9 +906,23 @@ async function runIncrementalSyncStep(
   // carries INBOX (a 404 means the thread is gone). A thread the inbox stream
   // returned is hydrated anyway, and a thread with no cached in-inbox row has
   // nothing to delete.
-  const hydrateQueue = [...new Set([...row.hydratePendingIds, ...threadIds])];
+  // Threads that failed before are retried every step but queue last and stay
+  // out of the pending lists, which hold only work the next step will attempt.
+  const priorFailedHydrate = new Set(row.degraded.hydrate);
+  const priorFailedVerify = new Set(row.degraded.verify);
+  const hydrateQueue = [
+    ...new Set([
+      ...row.hydratePendingIds,
+      ...threadIds,
+      ...row.degraded.hydrate,
+    ]),
+  ];
   const archiveCandidates = [
-    ...new Set([...row.archivePendingIds, ...archivedThreadIds]),
+    ...new Set([
+      ...row.archivePendingIds,
+      ...archivedThreadIds,
+      ...row.degraded.verify,
+    ]),
   ].filter((threadId) => !hydrateQueue.includes(threadId));
   const cachedCandidates = new Set<string>();
   for (let i = 0; i < archiveCandidates.length; i += CACHE_LOOKUP_CHUNK) {
@@ -918,8 +957,8 @@ async function runIncrementalSyncStep(
   await patchProgress(ownerEmail, accountEmail, claimId, {
     historyId,
     archiveHistoryId,
-    hydratePendingIds: hydrateQueue,
-    archivePendingIds: verifyQueue,
+    hydratePendingIds: hydrateQueue.filter((id) => !priorFailedHydrate.has(id)),
+    archivePendingIds: verifyQueue.filter((id) => !priorFailedVerify.has(id)),
   });
 
   const archivedOnly: string[] = [];
@@ -928,7 +967,7 @@ async function runIncrementalSyncStep(
   // and the step carries on, so one bad thread cannot block verification of
   // the rest or hydration of new mail. A quota cooldown ends verification for
   // this step and leaves the candidates where they were.
-  const verifyFailed: string[] = [];
+  const verifyFailed = new Map<string, string>();
   let verifyCooledDown = false;
   if (verifyNow.length > 0) {
     let verification: Awaited<ReturnType<typeof gmailBatchGetThreads>> = [];
@@ -944,10 +983,11 @@ async function runIncrementalSyncStep(
       if (error instanceof GmailQuotaCooldownError) {
         verifyCooledDown = true;
       } else {
+        const kind = failureKind(error);
         console.warn("[inbox-sync] archive verification batch failed", {
-          kind: error instanceof Error ? error.name : "unknown",
+          kind,
         });
-        verifyFailed.push(...verifyNow);
+        for (const id of verifyNow) verifyFailed.set(id, kind);
       }
     }
     for (const part of verification) {
@@ -958,7 +998,7 @@ async function runIncrementalSyncStep(
           console.warn("[inbox-sync] archive verification read failed", {
             error: boundedErrorMessage(part.error),
           });
-          verifyFailed.push(part.id);
+          verifyFailed.set(part.id, failureKind(part.error));
         }
         continue;
       }
@@ -973,7 +1013,7 @@ async function runIncrementalSyncStep(
   // A thread that fails to hydrate goes to the back of the queue; a failure of
   // the whole read (quota, network) is rethrown only after the archive cleanup
   // and the pending lists below are saved, so it cannot block either.
-  const hydrateFailed: string[] = [];
+  const hydrateFailed = new Map<string, string>();
   let hydrateError: unknown = null;
   if (hydrateNow.length > 0) {
     try {
@@ -1026,31 +1066,55 @@ async function runIncrementalSyncStep(
   if (archivedOnly.length > 0) onChanged?.();
 
   // Verified threads that still have INBOX mail are refreshed on the next step,
-  // which keeps this step inside its read budget.
-  const hydratePendingIds = [
-    ...new Set([
-      ...(hydrateError ? hydrateNow : []),
-      ...hydrateQueue.slice(hydrateNow.length),
-      ...stillInbox,
-      ...hydrateFailed,
-    ]),
+  // which keeps this step inside its read budget. Untried queue entries that
+  // had failed before go back to the degraded lists with the new failures.
+  const hydrateUntried = [
+    ...(hydrateError ? hydrateNow : []),
+    ...hydrateQueue.slice(hydrateNow.length),
   ];
-  const archivePendingIds = [
+  const verifyUntried = [
     ...(verifyCooledDown ? verifyNow : []),
     ...verifyQueue.slice(verifyNow.length),
-    ...verifyFailed,
   ];
+  const hydratePendingIds = [
+    ...new Set([
+      ...hydrateUntried.filter((id) => !priorFailedHydrate.has(id)),
+      ...stillInbox,
+    ]),
+  ];
+  const archivePendingIds = verifyUntried.filter(
+    (id) => !priorFailedVerify.has(id),
+  );
+  const failureKinds = [...hydrateFailed.values(), ...verifyFailed.values()];
+  const degraded: SyncDegraded = {
+    hydrate: [
+      ...new Set([
+        ...hydrateUntried.filter((id) => priorFailedHydrate.has(id)),
+        ...hydrateFailed.keys(),
+      ]),
+    ],
+    verify: [
+      ...new Set([
+        ...verifyUntried.filter((id) => priorFailedVerify.has(id)),
+        ...verifyFailed.keys(),
+      ]),
+    ],
+    kind: failureKinds[failureKinds.length - 1] ?? row.degraded.kind,
+  };
+  const degradedCount = degraded.hydrate.length + degraded.verify.length;
   const syncedAt = Date.now();
   if (hydrateError) {
     await patchProgress(ownerEmail, accountEmail, claimId, {
       hydratePendingIds,
       archivePendingIds,
+      degraded,
     });
     throw hydrateError;
   }
   await patchProgress(ownerEmail, accountEmail, claimId, {
     hydratePendingIds,
     archivePendingIds,
+    degraded,
     lastError: null,
     lastSyncedAt: syncedAt,
   });
@@ -1061,11 +1125,19 @@ async function runIncrementalSyncStep(
       lastSyncedAt: syncedAt,
       ...(row.fullSyncPageToken ||
       row.fullSyncPhase === "reconcile" ||
-      hydratePendingIds.some((id) => !hydrateFailed.includes(id)) ||
-      // Candidates that only failed this step wait for the next trigger instead
-      // of keeping the client in a tight sync loop.
-      archivePendingIds.some((id) => !verifyFailed.includes(id))
+      hydratePendingIds.length > 0 ||
+      archivePendingIds.length > 0
         ? { backfillPending: true }
+        : {}),
+      // Threads that keep failing are reported as degraded, not as pending
+      // work, so status says "pending" only for what the next step attempts.
+      ...(degradedCount > 0
+        ? {
+            degraded: {
+              count: degradedCount,
+              kind: degraded.kind ?? "unknown",
+            },
+          }
         : {}),
     },
     changed: hydrateNow.length > 0 || archivedOnly.length > 0,
