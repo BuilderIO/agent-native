@@ -103,7 +103,7 @@ describe("node-html-preview iframe bridge", () => {
         const page = await browser.newPage();
         page.on("pageerror", (error) => pageErrors.push(error.message));
         await page.setContent(`<!doctype html><html><body><main>
-          <button data-agent-native-node-id="agent-native">Agent-native</button>
+          <button data-agent-native-node-id="agent-native">Agent-Native</button>
           <button data-code-layer-id="code-layer">Code layer</button>
           <button data-layer-id="layer">Layer</button>
           <button data-builder-id="builder">Builder</button>
@@ -114,7 +114,7 @@ describe("node-html-preview iframe bridge", () => {
           content: hydratedEditorChromeBridgeScript(),
         });
         const identities = [
-          ["data-agent-native-node-id", "agent-native", "Agent-native"],
+          ["data-agent-native-node-id", "agent-native", "Agent-Native"],
           ["data-code-layer-id", "code-layer", "Code layer"],
           ["data-layer-id", "layer", "Layer"],
           ["data-builder-id", "builder", "Builder"],
