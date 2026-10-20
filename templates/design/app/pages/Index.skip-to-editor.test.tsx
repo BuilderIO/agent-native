@@ -645,6 +645,14 @@ describe("Index skip to editor", () => {
     expect(
       container.querySelector('[data-agent-suggestion-bar="true"]'),
     ).not.toBeNull();
+    const actionsRow = container.querySelector("[data-home-prompt-actions]");
+    const skipButton = container.querySelector(
+      '[data-testid="design-home-skip-prompt"]',
+    );
+    expect(
+      actionsRow?.querySelector('[data-agent-suggestion-bar="true"]'),
+    ).not.toBeNull();
+    expect(skipButton?.closest("[data-home-prompt-actions]")).toBe(actionsRow);
     expect(container.textContent).toContain("Generated dashboard");
   });
 
@@ -698,11 +706,19 @@ describe("Index skip to editor", () => {
     );
 
     expect(mocks.promptProps?.skipLabel).toBe("Skip prompt");
-    expect(mocks.promptProps?.showInlineSkip).toBe(true);
+    expect(mocks.promptProps?.showInlineSkip).toBe(false);
     expect(mocks.promptProps?.selectedDesignSystemId).toBeNull();
-    let skipPromise: Promise<void> | undefined;
+    const skipButton = container.querySelector<HTMLButtonElement>(
+      '[data-testid="design-home-skip-prompt"]',
+    );
+    const actionsRow = skipButton?.closest("[data-home-prompt-actions]");
+    expect(
+      actionsRow?.querySelector('[data-agent-suggestion-bar="true"]'),
+    ).toBeNull();
+    expect(actionsRow?.className).toContain("justify-between");
+    expect(skipButton?.className).toContain("font-normal");
     await act(async () => {
-      skipPromise = mocks.promptProps?.onSkip();
+      skipButton?.click();
       await Promise.resolve();
     });
 
@@ -720,7 +736,7 @@ describe("Index skip to editor", () => {
 
     await act(async () => {
       resolveCreate?.();
-      await skipPromise;
+      await Promise.resolve();
     });
 
     expect(mocks.navigate).toHaveBeenCalledTimes(1);
