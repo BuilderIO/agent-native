@@ -137,10 +137,11 @@ export function resolveNetlifyBuildEnvironment(
     if (variable.is_secret === true) {
       if (
         key === "ANALYTICS_DATABASE_URL" &&
+        context === "production" &&
         !inheritedEnvironment.ANALYTICS_DATABASE_URL_SECRET
       ) {
         throw new Error(
-          `Netlify secret build variable ${key} is masked and has no ANALYTICS_DATABASE_URL_SECRET offline build input.`,
+          `Netlify production Analytics build variable ${key} is masked and has no ANALYTICS_DATABASE_URL_SECRET offline build input.`,
         );
       }
       continue;

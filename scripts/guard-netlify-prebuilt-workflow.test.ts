@@ -286,7 +286,7 @@ describe("Netlify offline prebuilt build environment", () => {
     );
   });
 
-  it("omits unused masked secrets but requires the analytics build input", () => {
+  it("omits unused masked secrets and requires the production Analytics input", () => {
     const unrelatedSecret = {
       key: "STRIPE_SECRET_KEY",
       is_secret: true,
@@ -334,6 +334,28 @@ describe("Netlify offline prebuilt build environment", () => {
         ),
       /ANALYTICS_DATABASE_URL_SECRET offline build input/,
     );
+
+    const betaEnvironment = resolveNetlifyBuildEnvironment(
+      [
+        {
+          key: "ANALYTICS_DATABASE_URL",
+          is_secret: true,
+          scopes: ["builds"],
+          values: [
+            {
+              context: "branch-deploy",
+              context_parameter: "main",
+              value: "********",
+            },
+          ],
+        },
+      ],
+      "branch-deploy",
+      {},
+      "main",
+    );
+    assert.equal(betaEnvironment.ANALYTICS_DATABASE_URL, undefined);
+    assert.equal(betaEnvironment.BRANCH, "main");
 
     const environment = resolveNetlifyBuildEnvironment(
       [
