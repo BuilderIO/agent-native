@@ -2222,6 +2222,35 @@ describe("GitHub folder freshness", () => {
     ).toBeNull();
   });
 
+  it("tells every reader when a refresh changes only the status line", async () => {
+    const { database } = await linkBaseFolder();
+    const { GitHubSourceError } =
+      await import("../server/lib/github-source-client.js");
+    const refresh = () =>
+      as(() => refreshSource.run({ databaseId: database.id }));
+
+    github.state.failure = new GitHubSourceError(
+      "connection",
+      "GitHub no longer accepts the saved connection. Reconnect GitHub.",
+      401,
+    );
+    await expect(refresh()).rejects.toThrow();
+
+    // Clearing the problem changes no rows, but the status line moves on.
+    github.state.failure = null;
+    const recovered = await refresh();
+    expect(
+      refreshSource.changeResource?.({ databaseId: database.id }, recovered),
+    ).toEqual({
+      resourceType: "document",
+      resourceId: database.documentId,
+    });
+    const again = await refresh();
+    expect(
+      refreshSource.changeResource?.({ databaseId: database.id }, again),
+    ).toBeNull();
+  });
+
   it("tells every reader when a sync changes only the status line", async () => {
     const { database } = await linkBaseFolder();
     const { GitHubSourceError } =

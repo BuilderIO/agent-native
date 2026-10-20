@@ -22,6 +22,7 @@ import {
 import {
   announceGitHubSyncChange,
   githubSyncChangedRows,
+  readGitHubStatusShown,
 } from "./_github-source-freshness.js";
 import { githubSyncSummary, syncGitHubSource } from "./_github-source.js";
 import { serializeDatabase } from "./_property-utils.js";
@@ -84,6 +85,7 @@ export default defineAction({
     let githubSummary: string | null = null;
     let githubChanged = false;
     if (source.sourceType === "github") {
+      const shownBefore = await readGitHubStatusShown(source.id);
       const result = await syncGitHubSource({
         sourceId: source.id,
         budgetMs: args.fullRefresh === true ? 25_000 : 6_000,
@@ -109,7 +111,10 @@ export default defineAction({
         throw error;
       });
       githubSummary = githubSyncSummary(source.sourceName, result);
-      githubChanged = githubSyncChangedRows(result);
+      githubChanged =
+        githubSyncChangedRows(result) ||
+        (result.state !== "busy" &&
+          (await readGitHubStatusShown(source.id)) !== shownBefore);
     } else if (source.sourceType === "mock-local") {
       await resyncMockSourceSnapshot({ database, source, now });
     } else if (source.sourceType === "builder-cms") {
@@ -205,8 +210,8 @@ export default defineAction({
       ...(source.sourceType === "github" ? { githubChanged } : {}),
     };
   },
-  // A GitHub sync that changed rows changed them for everyone reading the
-  // collection, as with Sync now.
+  // A GitHub sync that changed rows or the status line changed them for
+  // everyone reading the collection, as with Sync now.
   changeResource: (_input, result) =>
     result.githubChanged
       ? documentChangeResource(result.database.documentId)
