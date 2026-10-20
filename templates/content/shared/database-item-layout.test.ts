@@ -5,6 +5,7 @@ import {
   contentDatabaseItemLayoutField,
   contentDatabaseItemLayoutPresets,
   contentDatabaseItemLayoutReferenceErrors,
+  dropDeletedContentDatabaseItemLayoutReferences,
   itemLayoutLine2Candidates,
   matchingContentDatabaseItemLayoutPreset,
   normalizeContentDatabaseItemLayout,
@@ -152,7 +153,7 @@ describe("always-hidden properties", () => {
     ).toBeNull();
   });
 
-  it("are dropped from a saved layout along with deleted properties", () => {
+  it("are pruned, like deleted properties, from what the rows show", () => {
     expect(
       pruneContentDatabaseItemLayout(
         { ...layout, leading: { kind: "status", propertyId: "deleted" } },
@@ -166,6 +167,23 @@ describe("always-hidden properties", () => {
       trailing: [],
     });
     expect(pruneContentDatabaseItemLayout(layout, all)).toEqual(layout);
+  });
+
+  it("stay saved while deleted properties are dropped", () => {
+    expect(
+      dropDeletedContentDatabaseItemLayoutReferences(
+        {
+          ...layout,
+          leading: { kind: "status", propertyId: "deleted" },
+          trailing: ["deleted", "due"],
+        },
+        withSecret,
+      ),
+    ).toEqual({
+      ...layout,
+      leading: { kind: "page_icon", propertyId: null },
+      trailing: ["due"],
+    });
   });
 });
 

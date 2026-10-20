@@ -363,6 +363,32 @@ export function pruneContentDatabaseItemLayout(
 }
 
 /**
+ * Drops slot references to properties that no longer exist. References to
+ * hidden or retyped properties stay saved, because those changes can be
+ * undone; the rows skip them meanwhile.
+ */
+export function dropDeletedContentDatabaseItemLayoutReferences(
+  layout: ContentDatabaseItemLayout,
+  properties: readonly ContentDatabaseItemLayoutPropertyLike[],
+): ContentDatabaseItemLayout {
+  const exists = new Set(properties.map((property) => property.definition.id));
+  const kept = (id: string | null) => (id && exists.has(id) ? id : null);
+  return {
+    leading:
+      layout.leading.propertyId && !kept(layout.leading.propertyId)
+        ? { kind: "page_icon", propertyId: null }
+        : layout.leading,
+    titleWeight: layout.titleWeight,
+    line2: {
+      propertyId: kept(layout.line2.propertyId),
+      lines: layout.line2.lines,
+    },
+    line3: layout.line3.filter((id) => exists.has(id)),
+    trailing: layout.trailing.filter((id) => exists.has(id)),
+  };
+}
+
+/**
  * The layout someone starts editing from on a view with no saved layout. It
  * matches the default rows: page icon, title, and the first few properties.
  */

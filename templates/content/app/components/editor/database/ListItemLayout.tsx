@@ -98,8 +98,8 @@ function PropertyChoices({
   onChange: (ids: string[]) => void;
 }) {
   // A saved slot can name a property that has since been deleted or hidden.
-  // It isn't shown, so it doesn't count toward the limit and is dropped on
-  // the next change.
+  // It isn't shown, so it doesn't count toward the limit and is dropped the
+  // next time this slot changes.
   const selectedIds = savedIds.filter((id) =>
     properties.some((property) => property.definition.id === id),
   );

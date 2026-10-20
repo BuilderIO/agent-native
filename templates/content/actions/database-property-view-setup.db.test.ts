@@ -595,8 +595,10 @@ describe("ordinary property and table-view setup", () => {
       trailing: [],
     });
 
-    // Always-hidden properties can't be put in a slot, and full saves drop
-    // them along with references to properties that no longer exist.
+    // Always-hidden properties can't be put in a slot. A slot saved before
+    // the property was hidden keeps it for when it's shown again, through
+    // full saves and unrelated agent edits; references to properties that no
+    // longer exist are dropped.
     await asOwner(async () =>
       configureProperty.run({
         operation: "update",
@@ -619,14 +621,20 @@ describe("ordinary property and table-view setup", () => {
         line3: [propertyIds.Pitch, "deleted-property"],
       },
     });
-    const showable = {
+    const kept = {
       ...checklist.value.itemLayout,
-      line2: { propertyId: null, lines: 2 },
-      line3: [],
+      line3: [propertyIds.Pitch],
     };
     await legacySave(withStaleSlots);
-    expect((await saved()).layout).toEqual(showable);
+    expect((await saved()).layout).toEqual(kept);
     await replace("replace-stale", withStaleSlots);
-    expect((await saved()).layout).toEqual(showable);
+    expect((await saved()).layout).toEqual(kept);
+    const whileHidden = await update("weight-while-hidden", "ideas", {
+      itemLayout: { titleWeight: "medium" },
+    });
+    expect(whileHidden.value.itemLayout).toEqual({
+      ...kept,
+      titleWeight: "medium",
+    });
   });
 });

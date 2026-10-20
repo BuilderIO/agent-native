@@ -24,7 +24,7 @@ import {
   runReplaceContentDatabaseViews,
   runUpdateContentDatabaseView,
   updateContentDatabaseViewAgentSchema,
-  withShowableItemLayout,
+  withExistingItemLayoutReferences,
 } from "./_database-view-setup.js";
 import {
   parseDatabaseViewConfig,
@@ -224,7 +224,7 @@ export default defineAction({
       const nextViewConfig = {
         ...viewConfig,
         views: viewConfig.views?.map((view) =>
-          withShowableItemLayout(
+          withExistingItemLayoutReferences(
             withSavedContentDatabaseItemLayout(
               withSavedTableColumnPresentation(view, currentViewConfig.views),
               currentViewConfig.views,

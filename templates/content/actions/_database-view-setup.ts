@@ -19,6 +19,7 @@ import {
   MAX_ITEM_LAYOUT_META_PROPERTIES,
   contentDatabaseItemLayoutPresets,
   contentDatabaseItemLayoutReferenceErrors,
+  dropDeletedContentDatabaseItemLayoutReferences,
   itemLayoutLeadingCandidates,
   normalizeContentDatabaseItemLayout,
   pruneContentDatabaseItemLayout,
@@ -332,18 +333,17 @@ function itemLayoutProperties(definitions: readonly PropertyDefinitionRow[]) {
 }
 
 /**
- * Drops slot references a full-view save carries that the rows can't show,
- * such as a property deleted since the client loaded.
+ * Drops slot references a full-view save carries to properties that no
+ * longer exist, such as one deleted since the client loaded.
  */
-export function withShowableItemLayout<T extends { itemLayout?: unknown }>(
-  view: T,
-  definitions: readonly PropertyDefinitionRow[],
-): T {
+export function withExistingItemLayoutReferences<
+  T extends { itemLayout?: unknown },
+>(view: T, definitions: readonly PropertyDefinitionRow[]): T {
   const layout = normalizeContentDatabaseItemLayout(view.itemLayout);
   return layout
     ? {
         ...view,
-        itemLayout: pruneContentDatabaseItemLayout(
+        itemLayout: dropDeletedContentDatabaseItemLayoutReferences(
           layout,
           itemLayoutProperties(definitions),
         ),
@@ -394,11 +394,7 @@ function nextListItemLayout(
   }
   if (itemLayout === null) return null;
   const properties = itemLayoutProperties(definitions);
-  // Only the slots this patch names are checked strictly. References saved
-  // earlier that have since gone stale are dropped rather than failing it.
-  let base = view.itemLayout
-    ? pruneContentDatabaseItemLayout(view.itemLayout, properties)
-    : null;
+  let base = view.itemLayout ?? null;
   if (itemLayoutPreset !== undefined) {
     const preset = contentDatabaseItemLayoutPresets(properties).find(
       (candidate) => candidate.id === itemLayoutPreset,
@@ -412,7 +408,11 @@ function nextListItemLayout(
     }
     base = preset.layout;
   }
-  if (!itemLayout) return base;
+  if (!itemLayout) {
+    return (
+      base && dropDeletedContentDatabaseItemLayoutReferences(base, properties)
+    );
+  }
   base ??= startingContentDatabaseItemLayout(
     defaultListRowProperties(view, definitions),
   );
@@ -420,32 +420,40 @@ function nextListItemLayout(
     const ids = itemLayout[slot];
     if (ids) uniqueReferences(ids, slot);
   }
-  const leading = itemLayout.leading
-    ? {
-        kind: itemLayout.leading.kind,
+  const leading = itemLayout.leading && {
+    kind: itemLayout.leading.kind,
+    propertyId:
+      itemLayout.leading.propertyId ??
+      itemLayoutLeadingCandidates(properties, itemLayout.leading.kind)[0]
+        ?.definition.id ??
+      null,
+  };
+  const withPatch = (from: ContentDatabaseItemLayout) =>
+    normalizeContentDatabaseItemLayout({
+      leading: leading ?? from.leading,
+      titleWeight: itemLayout.titleWeight ?? from.titleWeight,
+      line2: {
         propertyId:
-          itemLayout.leading.propertyId ??
-          itemLayoutLeadingCandidates(properties, itemLayout.leading.kind)[0]
-            ?.definition.id ??
-          null,
-      }
-    : base.leading;
-  const next = normalizeContentDatabaseItemLayout({
-    leading,
-    titleWeight: itemLayout.titleWeight ?? base.titleWeight,
-    line2: {
-      propertyId:
-        itemLayout.line2?.propertyId !== undefined
-          ? itemLayout.line2.propertyId
-          : base.line2.propertyId,
-      lines: itemLayout.line2?.lines ?? base.line2.lines,
-    },
-    line3: itemLayout.line3 ?? base.line3,
-    trailing: itemLayout.trailing ?? base.trailing,
-  })!;
-  const [error] = contentDatabaseItemLayoutReferenceErrors(next, properties);
+          itemLayout.line2?.propertyId !== undefined
+            ? itemLayout.line2.propertyId
+            : from.line2.propertyId,
+        lines: itemLayout.line2?.lines ?? from.line2.lines,
+      },
+      line3: itemLayout.line3 ?? from.line3,
+      trailing: itemLayout.trailing ?? from.trailing,
+    })!;
+  // Only the slots this patch names are checked. Saved slots that name a
+  // hidden property keep it for when it's shown again, and saved slots that
+  // name a deleted one drop it; neither fails an unrelated edit.
+  const [error] = contentDatabaseItemLayoutReferenceErrors(
+    withPatch(pruneContentDatabaseItemLayout(base, properties)),
+    properties,
+  );
   if (error) setupError("INVALID_VIEW_REFERENCE", error, 400);
-  return next;
+  return dropDeletedContentDatabaseItemLayoutReferences(
+    withPatch(base),
+    properties,
+  );
 }
 
 function parseRawConfig(value: string | null) {
@@ -729,7 +737,7 @@ export async function runReplaceContentDatabaseViews(input: {
             typeof candidate === "object" &&
             (candidate as { id?: unknown }).id === view.id,
         );
-        return withShowableItemLayout(
+        return withExistingItemLayoutReferences(
           saved && typeof saved === "object"
             ? { ...(saved as Record<string, unknown>), ...view }
             : view,
