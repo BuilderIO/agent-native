@@ -450,6 +450,25 @@ describe("slide inline image storage boundary", () => {
     );
   });
 
+  it("allows a syntax-only rewrite of an existing inline image URL", () => {
+    const previousSource = [
+      'const imageUrl = "data:image/png;base64," + "aGVsbG8=";',
+      "export default function Slide() { return <img src={imageUrl} />; }",
+    ].join("\n");
+    const nextSource = [
+      "const imageUrl = `data:image/png;base64,aGVsbG8=`;",
+      "export default function Slide() { return <img src={imageUrl} />; }",
+    ].join("\n");
+
+    expect(() =>
+      assertSlideInlineImagesPersistable(
+        { sourceTsx: previousSource },
+        { sourceTsx: nextSource },
+        "slide-syntax-only-rewrite",
+      ),
+    ).not.toThrow();
+  });
+
   it("rejects malformed Excalidraw JSON instead of skipping the storage check", () => {
     expect(() =>
       assertSlideInlineImagesPersistable(
