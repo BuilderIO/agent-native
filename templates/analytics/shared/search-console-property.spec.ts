@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   normalizeSearchConsoleProperty,
+  searchConsolePathPrefixProblem,
   searchConsolePropertyMessage,
   searchConsolePropertyProblem,
 } from "./search-console-property";
@@ -43,6 +44,22 @@ describe("searchConsolePropertyProblem", () => {
     ["https://", { kind: "unrecognized" }],
   ])("explains what's wrong with %s", (siteUrl, problem) => {
     expect(searchConsolePropertyProblem(siteUrl)).toEqual(problem);
+  });
+
+  it("normalizes mixed-case Domain properties", () => {
+    expect(normalizeSearchConsoleProperty(" SC-DOMAIN:Example.com ")).toBe(
+      "sc-domain:example.com",
+    );
+  });
+  it.each([
+    [undefined, false],
+    ["", false],
+    [" /blog/ ", false],
+    ["blog/", true],
+  ])("checks the path prefix %s", (prefix, problem) => {
+    expect(searchConsolePathPrefixProblem(prefix as string | undefined)).toBe(
+      problem,
+    );
   });
 
   it("names the property to use instead", () => {

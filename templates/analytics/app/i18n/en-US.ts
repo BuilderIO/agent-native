@@ -1328,6 +1328,7 @@ export default {
       properties: "Properties",
       siteLabel: "Property",
       pathLabel: "Path prefix",
+      pathInvalid: "Start the path prefix with /.",
       addProperty: "Add property",
       removeProperty: "Remove property",
       save: "Save",

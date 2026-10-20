@@ -32,14 +32,15 @@ import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
-import type {
-  ContentDatabaseBodyHydration,
-  ContentDatabaseItem,
-  ContentDatabaseMembership,
-  ContentDatabaseResponse,
-  ContentDatabaseTableQuery,
-  ContentSidebarViewOrder,
-  DocumentProperty,
+import {
+  CONTENT_DATABASE_FILTER_OPERATORS,
+  type ContentDatabaseBodyHydration,
+  type ContentDatabaseItem,
+  type ContentDatabaseMembership,
+  type ContentDatabaseResponse,
+  type ContentDatabaseTableQuery,
+  type ContentSidebarViewOrder,
+  type DocumentProperty,
 } from "../shared/api.js";
 import {
   applyContentDatabaseTableQuery,
@@ -147,20 +148,7 @@ export const contentDatabaseTableQuerySchema = z
         z.object({
           key: z.string(),
           label: z.string(),
-          operator: z.enum([
-            "contains",
-            "equals",
-            "does_not_equal",
-            "greater_than",
-            "less_than",
-            "before",
-            "after",
-            "between",
-            "is_checked",
-            "is_unchecked",
-            "is_empty",
-            "is_not_empty",
-          ]),
+          operator: z.enum(CONTENT_DATABASE_FILTER_OPERATORS),
           value: z.string(),
           filterGroupId: z.string().optional(),
           parentFilterGroupId: z.string().optional(),

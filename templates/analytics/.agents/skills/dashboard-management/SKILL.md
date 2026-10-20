@@ -144,7 +144,31 @@ collection stays off until a property owner adds the service account that
 `get-content-collection` returns as `serviceAccount.email`; then set its
 `searchConsoleSites` and turn it on.
 
+The `signups` step writes `signups_first_touch` per article: people who
+first landed on the article and later signed up, on the day of that first
+visit, so a window's days add up to its total. It is the only step that reads
+the warehouse. It stays `not_configured` until `configure-content-collection`
+sets its `signups` tables, `signupSource`, `signupsSince` and
+`maxBytesBilled`. Measure the cap with `estimate-content-signups-cost` (a dry
+run, free) and get the spend approved before turning the step on. Each run
+dry-runs first, stops as `cost_limited` without querying when the estimate is
+over the cap, and runs the join with that cap as BigQuery's billing limit.
+
+The catalog's "Content" dashboard (`content-view`) is the reference for these
+tables: start from its panels before writing new content SQL. Its Articles
+panel shows why a metric is missing (`failed`, `not set up`, `still
+arriving`) in a column next to the blank number; keep that pattern. The
+first-party SQL policy rejects functions outside its allow-list (for example
+`concat_ws`) and reads `CASE (` as a function call, so join a status column
+instead of a scalar subquery inside `CASE`. Its trend chart uses wide rows
+(`yKeys`), not `pivot`: a pivot fills a missing series with 0, so a day a
+source didn't report would draw as a zero instead of a gap. Content is a
+built-in: turning collection on with `configure-content-collection` lists it
+in the organization's Dashboards at `content-view` (`contentDashboardId` in the
+result). It is read-only; build on it with `duplicate-dashboard`.
+
 There is no dbt Semantic Layer panel source. For a Semantic Layer metric, answer in chat with `query-dbt-semantic-metric`; build a warehouse panel only on a table the owner names.
+
 
 AI-generated first-party panels are dashboard-time-bound by default. Set
 `config.timeScope` to `"dashboard"` and include the matching dashboard time

@@ -353,5 +353,43 @@ describe("ordinary property and table-view setup", () => {
         ? afterInvalid.configurationRevision
         : null,
     ).toBe(latest.configurationRevision);
+    if (
+      !("mutationContract" in afterInvalid) ||
+      !afterInvalid.mutationContract ||
+      !("configurationRevision" in afterInvalid)
+    ) {
+      throw new Error("Expected setup revisions after the invalid filter");
+    }
+
+    const repeated = await asOwner(() =>
+      updateView.run({
+        operation: "update",
+        target,
+        expectedSchemaRevision: afterInvalid.mutationContract!.schemaRevision,
+        expectedConfigurationRevision: afterInvalid.configurationRevision,
+        idempotencyKey: "repeated-property-filter",
+        viewId: view.value.id,
+        patch: {
+          filters: [
+            {
+              key: "name",
+              label: "Name",
+              operator: "is_not_empty",
+              value: "",
+            },
+            {
+              key: "name",
+              label: "Name",
+              operator: "does_not_equal",
+              value: "Archive",
+            },
+          ],
+        },
+      }),
+    );
+    expect(repeated.value.filters).toEqual([
+      expect.objectContaining({ key: "name", operator: "is_not_empty" }),
+      expect.objectContaining({ key: "name", operator: "does_not_equal" }),
+    ]);
   });
 });

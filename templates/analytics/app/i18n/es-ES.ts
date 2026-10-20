@@ -758,6 +758,7 @@ export default {
       properties: "Propiedades",
       siteLabel: "Propiedad",
       pathLabel: "Prefijo de ruta",
+      pathInvalid: "El prefijo de ruta debe empezar por /.",
       addProperty: "Añadir propiedad",
       removeProperty: "Quitar propiedad",
       save: "Guardar",

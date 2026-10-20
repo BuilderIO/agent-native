@@ -372,19 +372,25 @@ export interface ContentDatabaseSort {
   direction: ContentDatabaseSortDirection;
 }
 
+export const CONTENT_DATABASE_FILTER_OPERATORS = [
+  "contains",
+  "equals",
+  "does_not_equal",
+  "greater_than",
+  "less_than",
+  "greater_than_or_equal",
+  "less_than_or_equal",
+  "before",
+  "after",
+  "between",
+  "is_checked",
+  "is_unchecked",
+  "is_empty",
+  "is_not_empty",
+] as const;
+
 export type ContentDatabaseFilterOperator =
-  | "contains"
-  | "equals"
-  | "does_not_equal"
-  | "greater_than"
-  | "less_than"
-  | "before"
-  | "after"
-  | "between"
-  | "is_checked"
-  | "is_unchecked"
-  | "is_empty"
-  | "is_not_empty";
+  (typeof CONTENT_DATABASE_FILTER_OPERATORS)[number];
 
 export interface ContentDatabaseFilter {
   key: "name" | (string & {});

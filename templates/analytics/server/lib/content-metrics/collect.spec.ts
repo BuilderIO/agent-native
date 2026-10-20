@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
   listBuilderBlogArticles: vi.fn(),
   runFullReport: vi.fn(),
   querySearchAnalytics: vi.fn(),
+  dryRunQuerySchema: vi.fn(),
+  runQuery: vi.fn(),
   contexts: [] as unknown[],
 }));
 
@@ -42,15 +44,24 @@ vi.mock("../search-console.js", () => ({
   querySearchAnalytics: mocks.querySearchAnalytics,
 }));
 
+vi.mock("../bigquery.js", () => ({
+  BigQueryMaximumBytesBilledError: class extends Error {},
+  dryRunQuerySchema: mocks.dryRunQuerySchema,
+  runQuery: mocks.runQuery,
+}));
+
 import * as dbModule from "../../db/index.js";
+import { BigQueryMaximumBytesBilledError } from "../bigquery.js";
 import {
   collectContentForAllTenants,
   collectContentForCollection,
 } from "./collect.js";
+import { signupsConfigSchema, type SignupsConfig } from "./config.js";
 import {
   CONTENT_METRICS_MIGRATION_SQL,
   CONTENT_COVERAGE_CONFIG_MIGRATION_SQL,
 } from "./migration.js";
+import { buildSignupsQuery } from "./steps/signups.js";
 import {
   readContentCollection,
   writeContentCollection,
@@ -67,8 +78,11 @@ function ran<T extends { reason?: string }>(summaries: T[]): T[] {
 }
 
 function onlySteps(
-  steps: Partial<Record<"builderBlog" | "ga4" | "searchConsole", boolean>>,
+  steps: Partial<
+    Record<"builderBlog" | "ga4" | "searchConsole" | "signups", boolean>
+  >,
   sites: Array<{ siteUrl: string; pathPrefix?: string }> = [],
+  signups: Partial<SignupsConfig> = {},
 ) {
   return writeContentCollection(ORG_A, {
     enabled: true,
@@ -76,6 +90,11 @@ function onlySteps(
       builderBlog: { enabled: steps.builderBlog ?? false },
       ga4: { enabled: steps.ga4 ?? false },
       searchConsole: { enabled: steps.searchConsole ?? false, sites },
+      signups: {
+        ...signupsConfigSchema.parse({ enabled: false }),
+        ...signups,
+        enabled: steps.signups ?? false,
+      },
     },
   });
 }
@@ -118,6 +137,8 @@ describe("content collection", () => {
     mocks.listBuilderBlogArticles.mockReset();
     mocks.runFullReport.mockReset();
     mocks.querySearchAnalytics.mockReset();
+    mocks.dryRunQuerySchema.mockReset();
+    mocks.runQuery.mockReset();
     mocks.contexts.length = 0;
     for (const statement of CONTENT_METRICS_MIGRATION_SQL) {
       await client.exec(statement);
@@ -412,7 +433,7 @@ describe("content collection", () => {
 
     await onlySteps({});
     expect(await collectContentForAllTenants()).toEqual(
-      ["builder_blog", "ga4", "search_console"].map((step) =>
+      ["builder_blog", "ga4", "search_console", "signups"].map((step) =>
         expect.objectContaining({
           step,
           status: "skipped",
@@ -843,5 +864,389 @@ describe("content collection", () => {
       }),
     );
     expect(await snapshots("search_console_clicks")).toEqual([]);
+  });
+  describe("signups", () => {
+    const WAREHOUSE: Partial<SignupsConfig> = {
+      signupEventsTable: "example-project.analytics.events",
+      firstPageviewsTable: "example-project.staging.first_pageviews",
+      signupSource: "example-app",
+      signupsSince: "2026-05-18",
+    };
+
+    it("reads signups only from the window's first day, or signupsSince if later", () => {
+      const tables = {
+        signupEventsTable: "example-project.analytics.events",
+        firstPageviewsTable: "example-project.staging.first_pageviews",
+        signupSource: "example-app",
+      };
+      const now = new Date("2026-10-19T07:00:00Z");
+
+      const early = buildSignupsQuery(
+        { ...tables, signupsSince: "2026-05-18" },
+        now,
+      );
+      expect(early.startDate).toBe("2026-07-21");
+      expect(early.sql).toContain("createdDate >= TIMESTAMP('2026-07-21')");
+      expect(early.sql).not.toContain("2026-05-18");
+
+      const late = buildSignupsQuery(
+        { ...tables, signupsSince: "2026-09-01" },
+        now,
+      );
+      expect(late.sql).toContain("createdDate >= TIMESTAMP('2026-09-01')");
+    });
+
+    it("joins each signup only to visits at or before that signup", () => {
+      const { sql } = buildSignupsQuery(
+        {
+          ...WAREHOUSE,
+          signupEventsTable: "example-project.analytics.events",
+          firstPageviewsTable: "example-project.staging.first_pageviews",
+          signupSource: "example-app",
+          signupsSince: "2026-05-18",
+        },
+        new Date("2026-10-19T07:00:00Z"),
+      );
+      expect(sql).toContain("createdDate AS signup_at");
+      expect(sql).toContain("GROUP BY 1, 2, 3");
+      expect(sql).toContain(
+        "visitor_id, created_date, DATE(created_date) AS day",
+      );
+      expect(sql).toContain(
+        "s.visitor_id = v.visitor_id AND s.signup_at >= v.created_date",
+      );
+      expect(sql).toContain("COUNT(DISTINCT s.user_id) AS signups");
+      expect(sql).toContain(
+        "COUNT(DISTINCT IF(s.from_source, s.user_id, NULL)) AS source_signups",
+      );
+    });
+
+    it("matches the blog host boundary rather than a URL substring", () => {
+      const { sql } = buildSignupsQuery(
+        {
+          signupEventsTable: "example-project.analytics.events",
+          firstPageviewsTable: "example-project.staging.first_pageviews",
+          signupSource: "example-app",
+          signupsSince: "2026-05-18",
+        },
+        new Date("2026-10-19T07:00:00Z"),
+      );
+      const pattern = /REGEXP_CONTAINS\(url, r'([^']+)'\)/.exec(sql)?.[1];
+      expect(pattern).toBeDefined();
+      const matches = new RegExp(pattern!);
+      expect(matches.test("https://www.builder.io/blog/post-a1")).toBe(true);
+      expect(matches.test("http://builder.io/blog/post-a1")).toBe(true);
+      for (const url of [
+        "https://evilbuilder.io/blog/post-a1",
+        "https://builder.io.evil.test/blog/post-a1",
+        "https://evil.test/builder.io/blog/post-a1",
+        "https://evil.test/?next=https://builder.io/blog/post-a1",
+      ])
+        expect(matches.test(url)).toBe(false);
+    });
+
+    it("stays not set up, and runs no dry run, until a cap is saved", async () => {
+      await onlySteps({ builderBlog: true, signups: true }, [], WAREHOUSE);
+      feed(article("a1"));
+
+      const summaries = await collectContentForAllTenants({
+        now: new Date("2026-10-15T07:00:00Z"),
+      });
+
+      expect(ran(summaries)).toEqual([
+        expect.objectContaining({ step: "builder_blog", status: "succeeded" }),
+        expect.objectContaining({ step: "signups", status: "not_configured" }),
+      ]);
+      expect(
+        await rows(
+          "SELECT error_code FROM analytics_content_collection_runs WHERE step = 'signups'",
+        ),
+      ).toEqual([{ error_code: "signups_not_configured" }]);
+      expect(mocks.dryRunQuerySchema).not.toHaveBeenCalled();
+      expect(mocks.runQuery).not.toHaveBeenCalled();
+    });
+
+    it("stops as cost-limited when the dry run is over the cap, without running the join", async () => {
+      await onlySteps({ builderBlog: true, signups: true }, [], {
+        ...WAREHOUSE,
+        maxBytesBilled: 1_000,
+      });
+      feed(article("a1"));
+      mocks.dryRunQuerySchema.mockResolvedValueOnce({
+        error: null,
+        totalBytesProcessed: 5_000,
+      });
+
+      const summaries = await collectContentForAllTenants({
+        now: new Date("2026-10-15T07:00:00Z"),
+      });
+
+      expect(ran(summaries)[1]).toEqual(
+        expect.objectContaining({ step: "signups", status: "cost_limited" }),
+      );
+      expect(
+        await rows(
+          "SELECT error_code, error_message FROM analytics_content_collection_runs WHERE step = 'signups'",
+        ),
+      ).toEqual([
+        {
+          error_code: "signups_bytes_cap",
+          error_message:
+            "The signups join would scan 5000 bytes, over the 1000-byte cap. Nothing ran.",
+        },
+      ]);
+      expect(mocks.runQuery).not.toHaveBeenCalled();
+      expect(await snapshots("signups_first_touch")).toEqual([]);
+    });
+
+    it("records BigQuery stopping the join at the cap as cost-limited", async () => {
+      await onlySteps({ builderBlog: true, signups: true }, [], {
+        ...WAREHOUSE,
+        maxBytesBilled: 1_000,
+      });
+      feed(article("a1"));
+      mocks.dryRunQuerySchema.mockResolvedValueOnce({
+        error: null,
+        totalBytesProcessed: 900,
+      });
+      mocks.runQuery.mockRejectedValueOnce(
+        new BigQueryMaximumBytesBilledError(),
+      );
+
+      const summaries = await collectContentForAllTenants({
+        now: new Date("2026-10-15T07:00:00Z"),
+      });
+
+      expect(ran(summaries)[1]).toEqual(
+        expect.objectContaining({ step: "signups", status: "cost_limited" }),
+      );
+    });
+
+    it("writes first-touch signups per article by visit day, zero only through the warehouse's last day", async () => {
+      await onlySteps({ builderBlog: true, signups: true }, [], {
+        ...WAREHOUSE,
+        maxBytesBilled: 1_000,
+      });
+      feed(
+        article("a1", { publishDate: "2026-10-10T00:00:00.000Z" }),
+        article("a2", { publishDate: "2026-10-13T00:00:00.000Z" }),
+      );
+      mocks.dryRunQuerySchema.mockResolvedValueOnce({
+        error: null,
+        totalBytesProcessed: 900,
+      });
+      mocks.runQuery.mockResolvedValueOnce({
+        rows: [
+          {
+            data_through: "2026-10-13",
+            handle: "post-a1",
+            day: "2026-10-11",
+            signups: 2,
+            source_signups: 1,
+          },
+          {
+            data_through: "2026-10-13",
+            handle: "POST-A1",
+            day: "2026-10-13",
+            signups: 1,
+            source_signups: 0,
+          },
+          {
+            data_through: "2026-10-13",
+            handle: "retired-post",
+            day: "2026-10-12",
+            signups: 4,
+          },
+        ],
+        totalRows: 3,
+        schema: [],
+        bytesProcessed: 900,
+      });
+
+      await collectContentForAllTenants({
+        now: new Date("2026-10-15T07:00:00Z"),
+      });
+
+      const [sql, options] = mocks.runQuery.mock.calls[0] as [
+        string,
+        { maxBytesBilled: number },
+      ];
+      expect(options.maxBytesBilled).toBe(1_000);
+      expect(sql).toContain("`example-project.analytics.events`");
+      expect(sql).toContain("TIMESTAMP('2026-07-17')");
+      expect(sql).toContain("DATE '2026-10-14'");
+      expect(sql).toContain(
+        "JSON_VALUE(data, '$.signupSource') = 'example-app'",
+      );
+      expect(
+        (await snapshots("signups_first_touch_source")).map((row) => [
+          row.external_id,
+          row.metric_date,
+          row.value,
+        ]),
+      ).toEqual([
+        ["a1", "2026-10-10", 0],
+        ["a1", "2026-10-11", 1],
+        ["a1", "2026-10-12", 0],
+        ["a1", "2026-10-13", 0],
+        ["a2", "2026-10-13", 0],
+      ]);
+      expect(await snapshots("signups_first_touch")).toEqual([
+        {
+          external_id: "a1",
+          metric_date: "2026-10-10",
+          value: 0,
+          source: "signups",
+        },
+        {
+          external_id: "a1",
+          metric_date: "2026-10-11",
+          value: 2,
+          source: "signups",
+        },
+        {
+          external_id: "a1",
+          metric_date: "2026-10-12",
+          value: 0,
+          source: "signups",
+        },
+        {
+          external_id: "a1",
+          metric_date: "2026-10-13",
+          value: 1,
+          source: "signups",
+        },
+        {
+          external_id: "a2",
+          metric_date: "2026-10-13",
+          value: 0,
+          source: "signups",
+        },
+      ]);
+    });
+
+    it("matches URL-encoded warehouse handles to collected article URLs", async () => {
+      await onlySteps({ builderBlog: true, signups: true }, [], {
+        ...WAREHOUSE,
+        maxBytesBilled: 1_000,
+      });
+      feed(
+        article("a1", {
+          handle: "café",
+          publishDate: "2026-10-13T00:00:00.000Z",
+        }),
+      );
+      mocks.dryRunQuerySchema.mockResolvedValueOnce({
+        error: null,
+        totalBytesProcessed: 900,
+      });
+      mocks.runQuery.mockResolvedValueOnce({
+        rows: [
+          {
+            data_through: "2026-10-13",
+            handle: "caf%C3%A9",
+            day: "2026-10-13",
+            signups: 2,
+            source_signups: 1,
+          },
+        ],
+        totalRows: 1,
+        schema: [],
+        bytesProcessed: 900,
+      });
+      await collectContentForAllTenants({
+        now: new Date("2026-10-15T07:00:00Z"),
+      });
+      expect(await snapshots("signups_first_touch")).toEqual([
+        expect.objectContaining({
+          external_id: "a1",
+          metric_date: "2026-10-13",
+          value: 2,
+        }),
+      ]);
+      expect(await snapshots("signups_first_touch_source")).toEqual([
+        expect.objectContaining({
+          external_id: "a1",
+          metric_date: "2026-10-13",
+          value: 1,
+        }),
+      ]);
+    });
+
+    it("rewrites only the days whose signups changed when the window is recomputed", async () => {
+      await onlySteps({ builderBlog: true, signups: true }, [], {
+        ...WAREHOUSE,
+        maxBytesBilled: 1_000,
+      });
+      feed(article("a1", { publishDate: "2026-10-10T00:00:00.000Z" }));
+      mocks.dryRunQuerySchema.mockResolvedValue({
+        error: null,
+        totalBytesProcessed: 900,
+      });
+      const result = (rows: Array<Record<string, unknown>>) => ({
+        rows,
+        totalRows: rows.length,
+        schema: [],
+        bytesProcessed: 900,
+      });
+      mocks.runQuery.mockResolvedValueOnce(
+        result([
+          {
+            data_through: "2026-10-12",
+            handle: "post-a1",
+            day: "2026-10-11",
+            signups: 2,
+          },
+        ]),
+      );
+      await collectContentForAllTenants({
+        now: new Date("2026-10-15T07:00:00Z"),
+      });
+      // A later signup credits 10-12, an earlier visit day; 10-10 and 10-11 are unchanged.
+      mocks.runQuery.mockResolvedValueOnce(
+        result([
+          {
+            data_through: "2026-10-13",
+            handle: "post-a1",
+            day: "2026-10-11",
+            signups: 2,
+          },
+          {
+            data_through: "2026-10-13",
+            handle: "post-a1",
+            day: "2026-10-12",
+            signups: 1,
+          },
+        ]),
+      );
+      await collectContentForAllTenants({
+        now: new Date("2026-10-16T07:00:00Z"),
+      });
+
+      const runs = await rows(
+        "SELECT id FROM analytics_content_collection_runs WHERE step = 'signups' ORDER BY started_at",
+      );
+      expect(runs).toHaveLength(2);
+      const [first, second] = runs.map((run) => run.id);
+      expect(
+        await rows(
+          "SELECT metric_date, value, run_id FROM analytics_content_metric_snapshots WHERE metric = 'signups_first_touch' ORDER BY metric_date",
+        ),
+      ).toEqual([
+        { metric_date: "2026-10-10", value: 0, run_id: first },
+        { metric_date: "2026-10-11", value: 2, run_id: first },
+        { metric_date: "2026-10-12", value: 1, run_id: second },
+        { metric_date: "2026-10-13", value: 0, run_id: second },
+      ]);
+    });
+
+    it("parses a signups update without filling in what it leaves out", async () => {
+      const { signupsSettingsUpdateSchema } = await import("./config.js");
+      // configure-content-collection spreads this over the saved settings, so
+      // a default here would reset a saved table or cap to null.
+      expect(signupsSettingsUpdateSchema.parse({ enabled: false })).toEqual({
+        enabled: false,
+      });
+    });
   });
 });

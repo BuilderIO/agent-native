@@ -1,5 +1,7 @@
 import {
   callActionWithRetry,
+  currentActionQueryCacheBinding,
+  recordActionQueryBrowserPersist,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
 import { agentNativeApiDisabledReason } from "@agent-native/core/client/host";
@@ -243,7 +245,20 @@ export function keepInboxProgressOrder(
   return { ...incoming, items };
 }
 
-let nextInboxSnapshotId = 0;
+// Pages restored from the persisted query cache keep the ids of the page load
+// that fetched them, so ids start from the clock and any fetch in this load
+// outranks a restored page instead of losing to it.
+const PAGE_LOAD_INBOX_SNAPSHOT_ID = Date.now();
+let nextInboxSnapshotId = PAGE_LOAD_INBOX_SNAPSHOT_ID;
+
+/** A restored page paints at once but is refetched on mount; this load's pages stay fresh. */
+export function inboxThreadsStaleTime(query: {
+  state: { data?: { clientSnapshotId?: number } };
+}): number {
+  return (query.state.data?.clientSnapshotId ?? 0) > PAGE_LOAD_INBOX_SNAPSHOT_ID
+    ? INBOX_THREADS_STALE_TIME_MS
+    : 0;
+}
 
 function readInboxQueryParams(key: QueryKey): Record<string, unknown> | null {
   const params = key[2];
@@ -297,6 +312,9 @@ function fetchInboxThreads(
   queryKey: QueryKey,
 ): Promise<InboxQueryResult> {
   const clientSnapshotId = ++nextInboxSnapshotId;
+  const query = qc.getQueryCache().find({ queryKey, exact: true });
+  const cacheBinding = currentActionQueryCacheBinding();
+  let response: Response | undefined;
   return callActionWithRetry<ListInboxThreadsResult>(
     "list-inbox-threads",
     input,
@@ -304,8 +322,14 @@ function fetchInboxThreads(
       method: "GET",
       signal,
       timeoutMs: INBOX_THREADS_REQUEST_TIMEOUT_MS,
+      onResponse: (next) => {
+        response = next;
+      },
     },
   ).then((data) => {
+    if (query && !signal.aborted) {
+      recordActionQueryBrowserPersist(query, response, cacheBinding);
+    }
     const incoming = { ...data, clientSnapshotId };
     publishInboxOverview(qc, input.accountEmails, {
       tabs: incoming.tabs,
@@ -361,7 +385,7 @@ export function useInboxThreads(
     enabled: (opts?.enabled ?? true) && !agentNativeApiDisabledReason(),
     retry: false,
     refetchInterval: inboxThreadsRefetchInterval,
-    staleTime: INBOX_THREADS_STALE_TIME_MS,
+    staleTime: inboxThreadsStaleTime,
     select: (data) => applyInboxMutationOverlay(qc, data) as InboxQueryResult,
   });
 }
