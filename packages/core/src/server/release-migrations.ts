@@ -2,7 +2,6 @@ import { getAppConfig } from "../app-config/index.js";
 import { getDatabaseUrl } from "../db/client.js";
 import { withStoreMigrationLock } from "../db/store-registry.js";
 import { ensureSharingAccessIndexes } from "../sharing/indexes.js";
-import { runBetterAuthMigrations } from "./better-auth-migrations.js";
 import { recordDatabaseIdentity } from "./database-identity.js";
 import { runFrameworkSchemaEnsures } from "./release-schema.js";
 
@@ -47,18 +46,14 @@ function describeReleaseMigrationUrl(url: string): string {
 }
 
 export async function runFrameworkReleaseMigrations(
-  nitroApp: unknown,
+  _nitroApp?: unknown,
 ): Promise<void> {
   assertReleaseMigrationTargetsRemoteDatabase();
-  // One lease for the whole release: the store pass, Better Auth and every
-  // versioned list, so two deploys against one database never interleave.
+  // One lease for the whole release, so two deploys against one database
+  // never interleave.
   await withStoreMigrationLock(async () => {
-    // First: the versioned migration lists below only cover the tables that have
-    // one. Most framework tables are defined by their store's `ensureTable()`,
-    // which production serverless can never run — see `./release-schema.ts`.
     await runFrameworkSchemaEnsures();
     await recordDatabaseIdentity();
-    await runBetterAuthMigrations(nitroApp);
     // Last, so the framework's own share and owner tables exist. An app's tables
     // are indexed by the release after the one that creates them.
     await ensureSharingAccessIndexes();

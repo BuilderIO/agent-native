@@ -1,0 +1,84 @@
+slug: find-where-users-drop-off
+job_id: job-funnel-dropoff
+app: analytics
+audience: technical
+title: "Find out where new users drop off"
+subhead: "Ask Analytics where new users stop, in plain English, then watch session replays to see what happened. The agent turns your questions into SQL."
+meta_description: "Ask where new users drop off in plain English, watch session replays to see why, and hand a replay to your coding agent. Open-source Analytics from Agent-Native."
+cta_label: "Try Analytics"
+secondary_cta_label: "See how it works"
+app_cta_url: "https://analytics.agent-native.com"
+screenshot_alt: "An Analytics product overview dashboard with metric cards, a weekly active users chart, an activation funnel, and the agent chat open"
+old_way:
+  heading: "How most people do it today"
+  body: "The numbers live in one tool and the sessions in another. You see that people stop somewhere, guess at why, and go looking for a recording that matches."
+replaces:
+  - "Amplitude"
+  - "Mixpanel"
+new_way:
+  heading: "How it works in Analytics"
+  steps:
+    - "Connect your product data, like PostHog, Amplitude, Mixpanel, Google Analytics (GA4), or BigQuery, or use first-party events."
+    - "Ask where new users stop, in plain English. The agent turns your question into SQL."
+    - "Open session replays to see what people did. Each replay captures the page, masked interactions, console output, and network activity."
+todays_stack:
+  heading: "What changes for a drop-off question"
+  items:
+    - text: "**A product analytics tool, like Amplitude or Mixpanel,** has the events, but only a few people on the team know how to query it."
+    - text: "**A separate session replay tool** shows what people did, in a different place from your numbers."
+    - text: "**Sharing findings as screenshots** means they're stale by the next standup."
+  in_app: "Analytics connects to the product data you already collect, like PostHog, Amplitude, Mixpanel, or GA4. Plain-English questions, dashboards, and session replays are in one app."
+frequency: weekly
+how_often_label: "Weekly"
+roles: [product, engineering, founders]
+connects_to:
+  ["PostHog", "Amplitude", "Mixpanel", "Google Analytics (GA4)", "BigQuery"]
+next_jobs: [startup-kpi-dashboard, bug-reports-with-console-logs]
+recipes:
+  - id: ask-where
+    title: "Ask where new users stop"
+    when: "Use this when you want to know where people stop between signing up and real use."
+    steps:
+      - "Connect your product data in Analytics."
+      - "Ask in plain English, naming the step that matters in your product."
+    prompt: "Of last week's signups, how many reached [key action], and where did the rest stop?"
+    result: "You get an answer built from SQL the agent writes against your data."
+    tip: "Add it to a dashboard so you can check it every week."
+    how_often: "Weekly"
+  - id: watch-sessions
+    title: "Watch what happened"
+    when: "Use this when a step loses more people than you expected."
+    steps:
+      - "Open session replays from new users around that step."
+    result: "You see what people saw and did, with inputs masked by default."
+    how_often: "Weekly"
+  - id: hand-replay-to-agent
+    title: "Hand a replay to your coding agent"
+    when: "Use this when a replay shows a bug."
+    steps:
+      - "Click Copy for agent on the replay."
+      - "Paste the link into your coding agent."
+    result: "Your agent gets read-only, redacted diagnostics for two hours."
+    how_often: "When you find a bug"
+story: null
+faqs:
+  - q: "Which data sources can I connect?"
+    a: "Analytics lists 23 data sources, including first-party events, BigQuery, Google Analytics (GA4), Amplitude, Mixpanel, PostHog, PostgreSQL, Stripe, and HubSpot."
+  - q: "What does session replay capture?"
+    a: "The page, a masked, privacy-aware view of user interactions, console output, and network activity. Inputs are masked by default."
+  - q: "Can I share a replay with my coding agent?"
+    a: "Yes. Copy for agent creates a two-hour link that gives the agent read-only, redacted diagnostics."
+  - q: "Do I need to write SQL?"
+    a: "No. You ask in plain English, and the agent turns your question into SQL."
+  - q: "How do I make sure the agent uses the right columns?"
+    a: "Keep your metrics, tables, and SQL recipes in the data dictionary. The agent uses it to pick the right column names."
+cta_band_heading: "Find your biggest drop-off"
+cta_band_subhead: "Connect your data and ask where people stop."
+updated: 2026-10-15
+internal:
+  job: "Find where new users drop off and why"
+  recurs_when: "Weekly"
+  first_session: "Connect one source, ask one drop-off question"
+  return_signal: "Second question or a dashboard within 7 days (proposal, confirm with Alice and Michael)"
+  target_terms: "funnel analysis (US 1,200/mo, KD 0); session replay (900, KD 47); onboarding funnel (100, KD 0). The page doesn't claim a funnel feature."
+  sources: "/docs/template-analytics-connectors/, /docs/template-analytics-dashboards/, /docs/template-analytics-monitoring-and-sessions/, /docs/template-analytics/"

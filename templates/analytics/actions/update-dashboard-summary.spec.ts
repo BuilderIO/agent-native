@@ -251,6 +251,36 @@ describe("update-dashboard proof-of-done summary", () => {
     );
   });
 
+  it("rejects a full-config save that removes an all-time panel's lifetime label", async () => {
+    const storedConfig = {
+      name: "Weekly",
+      filters: [],
+      panels: [
+        {
+          ...panel("a"),
+          title: "Lifetime signups",
+          config: { timeScope: "all-time" },
+        },
+      ],
+    };
+    const nextConfig = {
+      ...storedConfig,
+      panels: [{ ...storedConfig.panels[0], title: "Signups" }],
+    };
+    mocks.getDashboard.mockResolvedValue({
+      kind: "sql",
+      config: storedConfig,
+      updatedAt: "2026-10-05T00:00:00.000Z",
+    });
+
+    await expect(
+      updateDashboard.run({ dashboardId: "weekly", config: nextConfig }),
+    ).rejects.toThrow(/description or title.*lifetime/);
+
+    expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+    expect(mocks.dryRunQuery).not.toHaveBeenCalled();
+  });
+
   it("returns panelCount + summary on a full config replace", async () => {
     const result: any = await updateDashboard.run({
       dashboardId: "weekly",

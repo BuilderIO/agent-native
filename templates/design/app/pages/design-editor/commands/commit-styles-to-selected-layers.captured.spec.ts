@@ -220,7 +220,7 @@ describe("runCommitStylesToSelectedLayers captured targets", () => {
       expect(update.content).toContain(
         "@media (min-width: 600px) and (max-width: 900px)",
       );
-      expect(update.content).toContain("color: #123456;");
+      expect(update.content).toContain("color: #123456 !important;");
     }
     expect(harness.selectedElementUpdates).toHaveLength(0);
     expect(harness.selectedElement?.sourceId).toBe("b");

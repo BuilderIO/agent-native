@@ -164,7 +164,7 @@ export interface AgentChatContextRemoveOptions extends AgentChatContextMutationO
 }
 
 const AGENT_CHAT_MESSAGE_TYPE = "agentNative.submitChat";
-const AGENT_CHAT_CONTEXT_STATE_KEY = "agent-chat-context";
+export const AGENT_CHAT_CONTEXT_STATE_KEY = "agent-chat-context";
 const AGENT_CHAT_EXEC_MODE_KEY = "agent-native-exec-mode";
 export const AGENT_CHAT_CONTEXT_CHANGED_EVENT =
   "agentNative.chatContextChanged";

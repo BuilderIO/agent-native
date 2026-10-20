@@ -355,6 +355,21 @@ export default defineAction({
         }
       }
 
+      const panels = (await readAppStateForCurrentTab("slides-panels", {
+        fallbackToGlobal: false,
+      })) as { layersOpen?: boolean; animationsOpen?: boolean } | null;
+      const openPanels = [
+        panels?.layersOpen ? "layers" : null,
+        panels?.animationsOpen ? "animations" : null,
+      ].filter(Boolean);
+      lines.push(``);
+      lines.push(`### Editor panels`);
+      lines.push(
+        panels
+          ? `openPanels: ${openPanels.join(", ") || "none"}`
+          : `openPanels: unknown`,
+      );
+
       const selection = (await readAppStateForCurrentTab("slides-selection", {
         fallbackToGlobal: false,
       })) as {
@@ -376,6 +391,14 @@ export default defineAction({
           style?: Record<string, unknown>;
         }>;
       } | null;
+      const openPanel = (await readAppStateForCurrentTab("slides-open-panel", {
+        fallbackToGlobal: false,
+      })) as { slideId?: string; panel?: string | null } | null;
+      if (openPanel?.panel && openPanel.slideId === currentSlide?.id) {
+        lines.push(``);
+        lines.push(`### Open side panel`);
+        lines.push(`openPanel: ${openPanel.panel}`);
+      }
       const selectionSlide =
         selection?.slideId &&
         (selection.deckId ? selection.deckId === rows[0].id : true)

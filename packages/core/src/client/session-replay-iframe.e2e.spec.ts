@@ -49,6 +49,12 @@ async function startHostServer(): Promise<ViteDevServer> {
   const server = await createServer({
     root: process.cwd(),
     logLevel: "silent",
+    optimizeDeps: {
+      // This page comes from middleware, so Vite cannot crawl its HTML entry.
+      entries: ["src/client/session-replay-iframe.e2e-host.tsx"],
+      // These late template imports otherwise invalidate requests mid-load.
+      include: ["@noble/hashes/sha2.js", "@noble/hashes/utils.js"],
+    },
     resolve: {
       alias: {
         "@": resolve(process.cwd(), "../../templates/design/app"),

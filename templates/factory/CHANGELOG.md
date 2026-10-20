@@ -37,6 +37,10 @@ time from the command menu (Cmd+K → "What's new").
 
 ## 2026-09-10
 
+### Added
+
+- Inbox items can now be marked resolved or sent back to automation by hand, from the row menu or the item detail view, independent of the automation pipeline.
+
 ### Improved
 
 - Slack feedback marks clear bugs with 👀 again and requires that reaction before dispatching Builder.

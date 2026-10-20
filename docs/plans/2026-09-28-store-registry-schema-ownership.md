@@ -834,21 +834,42 @@ them; marking them applied would leave fresh installs without default rows.
      the old table, exactly as before. The org and auth plugins now call
      `orgStore.ready()`. `release-migrations.ts` runs only the store pass,
      Better Auth and the sharing indexes.
-   - **2c:** Better Auth, which needs once-only handling (its v4 expires every
-     signing key).
+   - **2c, done:** Better Auth is the `better_auth` store (`after:
+     ["auth_sessions"]`), its list marked `ranAtBoot`. Its v4 expires every
+     signing key, so it is a data migration that runs at most once per
+     database: an old database imports it with the rest of the list, and a key
+     created after the first release is never expired by a later release or
+     boot. `runBetterAuthMigrations()` stays as a wrapper over the store.
+   - **Result:** step 2's exit criterion is met. `runFrameworkReleaseMigrations`
+     runs one runner (the store pass) plus database identity and the sharing
+     indexes; every framework schema change is a store migration in one
+     ledger. Old bookkeeping tables are read only to import history, and
+     hosted apps without release migrations keep using them for the
+     boot-time lists until they adopt release migrations.
 3. **Upgrade convergence test (Q9). Done in Phase 1.**
    `release-schema.upgrade.spec.ts` replays a dumped pre-registry schema and
    upgrades it; `db/schema-catalog.ts` is the dump and fingerprint code step 4
    reuses. Step 4 adds a second comparison: snapshot-fresh against
    step-by-step-fresh.
-4. **Framework snapshot.** `pnpm gen:schema-snapshot` runs the release step on
-   an empty PGlite database and writes two checked-in files: the resulting
-   schema as SQL, and the ledger rows it implies. The generator backs a
-   staleness guard, as `store-registry.generated.ts` does, so adding a
-   migration without regenerating fails CI. The runner applies the snapshot as
-   in the diagram above. *Exit:* a fresh framework release runs a handful of
-   statements instead of ~2,400 calls, and the convergence test also compares
-   snapshot-fresh against step-by-step-fresh.
+4. **Framework snapshot. Done.** `pnpm gen:schema-snapshot` runs the release
+   step step by step on an empty PGlite database and writes
+   `db/schema-snapshot.generated.ts`: the schema as an ordered list of
+   statements (function bodies contain semicolons, so it is not one script),
+   the framework tables it created, and the schema migrations it recorded.
+   When the store runner prepares the ledger on a database with no ledger and
+   none of those tables, it runs the snapshot in one transaction and records
+   the covered migrations with `source = 'snapshot'`; data migrations and
+   anything added since run step by step after it. This applies to the release
+   step and to a first local boot; hosted requests never use it, and a
+   database any older core touched upgrades step by step. The module is
+   imported only when a database is actually fresh.
+   *Measured:* a fresh release drops from 2,490 statements to 681, of which
+   589 are the snapshot's own statements in one transaction (no catalog
+   probes, no replay); the rest are data migrations, ledger and lock
+   bookkeeping and the sharing indexes. `release-schema.snapshot.spec.ts`
+   proves snapshot-fresh equals step-by-step-fresh (schema and ledger) and
+   fails when the snapshot no longer covers every schema migration the stores
+   declare, which is the "regenerate" signal.
 5. **Templates (Q7).** Generate the same snapshot for each template's own
    tables once templates declare them with `defineStore`. Generated apps
    already use managed Drizzle migrations (`db/drizzle-migrations.ts`); this

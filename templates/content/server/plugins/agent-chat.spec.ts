@@ -83,9 +83,23 @@ describe("Content agent chat plugin", () => {
         appId: "content",
         mcp: expect.objectContaining({
           externalAgents: { writes: "allowlisted" },
+          instructions: expect.stringContaining(
+            "delete-document moves pages and sub-pages to recoverable Trash",
+          ),
         }),
       }),
     );
+
+    const options = mocks.createAgentChatPlugin.mock.calls[0]?.[0] as {
+      mcp?: { instructions?: string };
+    };
+    expect(options.mcp?.instructions).toContain("list-content-trash");
+    expect(options.mcp?.instructions).toContain("restore-document");
+    expect(options.mcp?.instructions).toContain(
+      "exact trashedAt as expectedTrashedAt, and a new idempotencyKey",
+    );
+    expect(options.mcp?.instructions).toContain("returns the last saved body");
+    expect(options.mcp?.instructions).toContain("pull-document");
   });
 
   it("keeps only injected tools in the centralized starter list", async () => {

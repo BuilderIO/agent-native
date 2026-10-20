@@ -165,6 +165,9 @@ export function useEditorCanvasAndScreens({
     duplicateRecoveryRef,
     historyOrderRef,
     redoOrderRef,
+    selectionUndoStackRef,
+    selectionPushedAtRef,
+    dragStartSelectionRef,
     clearRedoStacks,
     historySourceReaderRef,
     syncUndoRedoState,
@@ -435,13 +438,12 @@ export function useEditorCanvasAndScreens({
           };
         });
       }
-      if (!options?.preserveCamera) {
-        cameraCommandNonceRef.current += 1;
-        setCameraCommand({
-          ...plan.camera,
-          nonce: cameraCommandNonceRef.current,
-        });
-      }
+      cameraCommandNonceRef.current += 1;
+      setCameraCommand({
+        ...plan.camera,
+        ...(options?.preserveCamera ? { revealOnly: true } : {}),
+        nonce: cameraCommandNonceRef.current,
+      });
     },
     [clearPendingOverviewLayerSelectionTimer, overviewScreens.length],
   );
@@ -848,6 +850,16 @@ export function useEditorCanvasAndScreens({
           return next;
         });
         return;
+      }
+      if (state.active && !activeEditorDragRef.current) {
+        // The pointerdown that starts a drag selects just before the drag reports.
+        dragStartSelectionRef.current =
+          historyOrderRef.current[historyOrderRef.current.length - 1] ===
+            "selection" && Date.now() - selectionPushedAtRef.current < 1500
+            ? (selectionUndoStackRef.current[
+                selectionUndoStackRef.current.length - 1
+              ] ?? null)
+            : null;
       }
       activeEditorDragRef.current = state.active;
       activeEditorDragScreenIdRef.current = state.active

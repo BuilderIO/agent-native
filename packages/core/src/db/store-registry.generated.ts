@@ -98,6 +98,13 @@ export const FRAMEWORK_STORES: ReadonlyArray<
       ),
   ],
   [
+    "better_auth",
+    () =>
+      import("../server/better-auth-migrations.js").then(
+        (m) => m.betterAuthStore,
+      ),
+  ],
+  [
     "browser_sessions",
     () =>
       import("../browser-sessions/store.js").then(

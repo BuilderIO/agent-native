@@ -41,12 +41,16 @@ export interface McpActionResult {
 }
 
 export function isMcpActionResult(value: unknown): value is McpActionResult {
-  return (
-    !!value &&
-    typeof value === "object" &&
-    (value as Record<string, unknown>)[MCP_ACTION_RESULT_MARKER] === true &&
-    typeof (value as Record<string, unknown>).text === "string"
-  );
+  return mcpActionResultText(value) !== undefined;
+}
+
+/** A proxied tool result's text, reading its marker and text once each. */
+export function mcpActionResultText(value: unknown): string | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  if (record[MCP_ACTION_RESULT_MARKER] !== true) return undefined;
+  const text = record.text;
+  return typeof text === "string" ? text : undefined;
 }
 
 export function toolForMcpAppPayload(

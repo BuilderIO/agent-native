@@ -111,6 +111,7 @@ export const mcpSettingsMessages: McpSettingsMessages = {
   mcpOpenConnectPage: "Abrir página completa de conexión",
   mcpIdentityError: "No se pudieron cargar los datos de conexión de esta app.",
   mcpRetry: "Reintentar",
+  mcpOAuthBackToApp: "Volver a la app",
   mcpConnect: mcpConnectMessages,
 };
 

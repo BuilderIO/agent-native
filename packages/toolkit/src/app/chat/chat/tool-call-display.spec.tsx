@@ -179,8 +179,8 @@ describe("ToolCallDisplay native renderers", () => {
     vi.unstubAllGlobals();
   });
 
-  it("waits five minutes before showing the long-running hint", () => {
-    expect(TOOL_LONG_RUNNING_HINT_DELAY_MS).toBe(5 * 60_000);
+  it("shows the long-running hint after 30 seconds", () => {
+    expect(TOOL_LONG_RUNNING_HINT_DELAY_MS).toBe(30_000);
   });
 
   it("does not reopen storage setup for a restored tool result", () => {
@@ -1467,7 +1467,15 @@ describe("ToolCallDisplay native renderers", () => {
       );
 
       act(() => {
-        vi.advanceTimersByTime(TOOL_LONG_RUNNING_HINT_DELAY_MS);
+        vi.advanceTimersByTime(TOOL_LONG_RUNNING_HINT_DELAY_MS - 1);
+      });
+
+      expect(container.textContent).not.toContain(
+        "Still working. Large updates can take a minute or two.",
+      );
+
+      act(() => {
+        vi.advanceTimersByTime(1);
       });
 
       expect(container.textContent).toContain(

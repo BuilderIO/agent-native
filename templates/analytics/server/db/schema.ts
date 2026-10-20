@@ -1,4 +1,5 @@
 import {
+  bigint,
   table,
   text,
   integer,
@@ -32,6 +33,32 @@ export const dashboards = table("dashboards", {
   githubSyncState: text("github_sync_state"),
   ...ownableColumns(),
 });
+
+/**
+ * The deploy pass that moved pre-built-in copies onto built-in dashboards
+ * records each copy it checked here, so a hidden copy can be listed and
+ * restored and no copy is decided twice.
+ */
+export const analyticsBuiltinDashboardChecks = table(
+  "analytics_builtin_dashboard_checks",
+  {
+    dashboardId: text("dashboard_id").primaryKey(),
+    builtinId: text("builtin_id").notNull(),
+    outcome: varchar("outcome", { length: 8 }).notNull(),
+    /** JSON array of reasons a copy was kept. */
+    reasons: text("reasons").notNull().default("[]"),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    rowUpdatedAt: text("row_updated_at").notNull(),
+    checkedAt: text("checked_at").notNull().default(now()),
+    restoredAt: text("restored_at"),
+  },
+  (t) => ({
+    outcomeIdx: index("analytics_builtin_dashboard_checks_outcome_idx").on(
+      t.outcome,
+    ),
+  }),
+);
 
 export const dashboardNameLocks = table("dashboard_name_locks", {
   nameKey: text("name_key").primaryKey(),
@@ -1019,5 +1046,109 @@ export const sessionReplayIngests = table(
     recordingIdx: index("session_replay_ingests_recording_idx").on(
       ingest.recordingId,
     ),
+  }),
+);
+
+// Content view: one tenant's collection settings, read by the daily job. The
+// stored owner is the identity whose credentials each step resolves.
+export const analyticsContentCollections = table(
+  "analytics_content_collections",
+  {
+    tenantKey: text("tenant_key").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    enabled: boolean("enabled").notNull().default(false),
+    config: text("config").notNull().default("{}"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+);
+
+export const analyticsContentItems = table(
+  "analytics_content_items",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    source: text("source").notNull(),
+    externalId: text("external_id").notNull(),
+    url: text("url"),
+    title: text("title"),
+    author: text("author"),
+    authors: text("authors").notNull().default("[]"),
+    publishedAt: text("published_at"),
+    relevance: text("relevance"),
+    metadata: text("metadata").notNull().default("{}"),
+    firstSeenAt: text("first_seen_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (t) => ({
+    sourceExternalUnique: uniqueIndex("analytics_content_items_key_idx").on(
+      t.tenantKey,
+      t.source,
+      t.externalId,
+    ),
+    tenantPublishedIdx: index("analytics_content_items_published_idx").on(
+      t.tenantKey,
+      t.publishedAt,
+    ),
+  }),
+);
+
+// A row exists only for a value a succeeded run collected. A missing row is
+// "not collected", never zero; the collection runs say which.
+export const analyticsContentMetricSnapshots = table(
+  "analytics_content_metric_snapshots",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    itemId: text("item_id").notNull(),
+    metricDate: text("metric_date").notNull(),
+    metric: text("metric").notNull(),
+    value: real("value").notNull(),
+    source: text("source").notNull(),
+    runId: text("run_id").notNull(),
+    collectedAt: text("collected_at").notNull(),
+  },
+  (t) => ({
+    snapshotUnique: uniqueIndex(
+      "analytics_content_metric_snapshots_key_idx",
+    ).on(t.tenantKey, t.itemId, t.metricDate, t.metric),
+    tenantDateIdx: index("analytics_content_metric_snapshots_date_idx").on(
+      t.tenantKey,
+      t.metricDate,
+    ),
+  }),
+);
+
+export const analyticsContentCollectionRuns = table(
+  "analytics_content_collection_runs",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    step: text("step").notNull(),
+    trigger: text("trigger").notNull(),
+    status: text("status").notNull(),
+    windowStart: text("window_start"),
+    windowEnd: text("window_end"),
+    configFingerprint: text("config_fingerprint"),
+    startedAt: text("started_at").notNull(),
+    finishedAt: text("finished_at"),
+    rowCount: integer("row_count"),
+    bytesProcessed: bigint("bytes_processed", { mode: "number" }),
+    bytesCap: bigint("bytes_cap", { mode: "number" }),
+    costUsd: real("cost_usd"),
+    errorCode: text("error_code"),
+    errorMessage: text("error_message"),
+  },
+  (t) => ({
+    tenantStepStartedIdx: index(
+      "analytics_content_collection_runs_step_idx",
+    ).on(t.tenantKey, t.step, t.startedAt),
   }),
 );

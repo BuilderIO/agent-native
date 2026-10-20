@@ -1,0 +1,241 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@agent-native/core/sharing", () => ({
+  assertAccess: vi.fn().mockResolvedValue({
+    role: "editor",
+    resource: {
+      id: "design_1",
+      title: "My App",
+      data: JSON.stringify({
+        fusionApp: {
+          projectId: "proj_1",
+          branchName: "sunny-meadow",
+          status: "ready",
+          createdAt: "2026-07-03T00:00:00.000Z",
+          updatedAt: "2026-07-03T00:00:00.000Z",
+        },
+      }),
+    },
+  }),
+}));
+
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestUserEmail: () => "user@example.com",
+}));
+
+const sendFusionBranchMessage = vi.fn();
+vi.mock("@agent-native/core/server", () => ({
+  sendFusionBranchMessage: (args: unknown) => sendFusionBranchMessage(args),
+  // The streamed sub-agent feed is covered in core; here it only has to
+  // hand back the reply.
+  createFusionAgentFeed: () => ({
+    onEvent: () => {},
+    finish: (result: { response?: string }) => ({
+      changedFiles: [],
+      text: result.response,
+    }),
+  }),
+}));
+
+const isFullAppBuildingEnabled = vi.fn().mockResolvedValue(true);
+vi.mock("../server/lib/full-app-lab.js", () => ({
+  isFullAppBuildingEnabled: (...args: unknown[]) =>
+    isFullAppBuildingEnabled(...args),
+}));
+
+vi.mock("nanoid", () => ({ nanoid: () => "batch_123" }));
+
+let pendingRows: Array<Record<string, unknown>> = [];
+let claimSucceeds = true;
+const updateCalls: Array<Record<string, unknown>> = [];
+
+vi.mock("../server/db/index.js", () => ({
+  getDb: () => ({
+    select: () => ({
+      from: () => ({
+        where: () => ({
+          orderBy: () => Promise.resolve(pendingRows),
+        }),
+      }),
+    }),
+    update: () => ({
+      set: (vals: Record<string, unknown>) => ({
+        where: () => {
+          updateCalls.push(vals);
+          // The claim reads back which rows it moved; every queued row here.
+          return Object.assign(Promise.resolve(), {
+            returning: () =>
+              Promise.resolve(
+                claimSucceeds ? pendingRows.map((row) => ({ id: row.id })) : [],
+              ),
+          });
+        },
+      }),
+    }),
+  }),
+  schema: {
+    designFusionEdits: {
+      id: "id",
+      designId: "designId",
+      status: "status",
+      batchId: "batchId",
+      createdAt: "createdAt",
+    },
+  },
+}));
+
+import action from "./apply-builder-edits.js";
+
+beforeEach(() => {
+  sendFusionBranchMessage.mockReset();
+  isFullAppBuildingEnabled.mockResolvedValue(true);
+  updateCalls.length = 0;
+  pendingRows = [];
+  claimSucceeds = true;
+});
+
+describe("apply-builder-edits", () => {
+  it("rejects when full app building is disabled for the action caller", async () => {
+    isFullAppBuildingEnabled.mockResolvedValueOnce(false);
+
+    await expect(
+      action.run(
+        { designId: "design_1" } as never,
+        { userEmail: "user@example.com", orgId: "org_1" } as never,
+      ),
+    ).rejects.toThrow("Full app building is not enabled");
+    expect(isFullAppBuildingEnabled).toHaveBeenCalledWith({
+      userEmail: "user@example.com",
+      orgId: "org_1",
+    });
+  });
+
+  it("returns sentCount 0 when nothing is pending", async () => {
+    const result = (await action.run({ designId: "design_1" } as never)) as {
+      sentCount: number;
+    };
+    expect(result.sentCount).toBe(0);
+    expect(sendFusionBranchMessage).not.toHaveBeenCalled();
+  });
+
+  it("batches pending edits into one numbered prompt and marks them sent once Builder finishes", async () => {
+    pendingRows = [
+      {
+        id: "e1",
+        instruction: "Make the header sticky",
+        target: JSON.stringify({ path: "/", selector: "header" }),
+      },
+      {
+        id: "e2",
+        instruction: "Use a green primary button",
+        target: null,
+      },
+    ];
+    sendFusionBranchMessage.mockResolvedValue({ sent: true, completed: true });
+
+    const result = (await action.run({ designId: "design_1" } as never)) as {
+      sentCount: number;
+      batchId: string;
+    };
+
+    expect(result.sentCount).toBe(2);
+    expect(result.batchId).toBe("batch_123");
+    expect(sendFusionBranchMessage).toHaveBeenCalledTimes(1);
+    const { prompt, projectId, branchName } = sendFusionBranchMessage.mock
+      .calls[0]![0] as Record<string, string>;
+    expect(projectId).toBe("proj_1");
+    expect(branchName).toBe("sunny-meadow");
+    expect(prompt).toContain(
+      "1. Make the header sticky (path: /, selector: header)",
+    );
+    expect(prompt).toContain("2. Use a green primary button");
+    // Claimed (in flight) before dispatch, then sent once Builder finished.
+    expect(updateCalls).toHaveLength(2);
+    expect(updateCalls[0]).toMatchObject({
+      status: "unconfirmed",
+      batchId: "batch_123",
+    });
+    expect(updateCalls[1]).toMatchObject({ status: "sent" });
+  });
+
+  it("keeps rows pending with the reason when the dispatch fails", async () => {
+    pendingRows = [{ id: "e1", instruction: "Anything", target: null }];
+    sendFusionBranchMessage.mockResolvedValue({
+      sent: false,
+      error: "container unreachable",
+    });
+
+    await expect(
+      action.run({ designId: "design_1" } as never),
+    ).rejects.toMatchObject({
+      message: "container unreachable",
+      errorCode: "fusion_edit_dispatch_failed",
+      statusCode: 502,
+    });
+    expect(updateCalls.at(-1)).toMatchObject({
+      status: "pending",
+      error: "container unreachable",
+    });
+  });
+
+  it("keeps rows pending when the run was dispatched but did not finish", async () => {
+    pendingRows = [{ id: "e1", instruction: "Anything", target: null }];
+    sendFusionBranchMessage.mockResolvedValue({ sent: true });
+
+    await expect(
+      action.run({ designId: "design_1" } as never),
+    ).rejects.toMatchObject({ errorCode: "fusion_edit_dispatch_failed" });
+    expect(updateCalls).toHaveLength(2);
+    expect(updateCalls[1]).toMatchObject({
+      status: "pending",
+      error: "Builder did not finish applying these edits",
+    });
+  });
+
+  it("holds a timed-out batch as unconfirmed instead of requeueing it", async () => {
+    pendingRows = [{ id: "e1", instruction: "Anything", target: null }];
+    sendFusionBranchMessage.mockResolvedValue({
+      sent: true,
+      unconfirmed: true,
+      error:
+        "Timed out waiting for the app agent to finish; it may still be working",
+    });
+
+    await expect(
+      action.run({ designId: "design_1" } as never),
+    ).rejects.toMatchObject({
+      errorCode: "fusion_edit_unconfirmed",
+      statusCode: 504,
+      message: expect.stringContaining("retryUnconfirmed: true"),
+    });
+    // Still held as claimed: the outcome only records why.
+    expect(updateCalls).toHaveLength(2);
+    expect(updateCalls[0]).toMatchObject({
+      status: "unconfirmed",
+      batchId: "batch_123",
+    });
+    expect(updateCalls[1]).not.toHaveProperty("status");
+  });
+
+  it("requeues unconfirmed edits only when asked to retry them", async () => {
+    pendingRows = [{ id: "e1", instruction: "Anything", target: null }];
+    sendFusionBranchMessage.mockResolvedValue({ sent: true, completed: true });
+
+    await action.run({ designId: "design_1", retryUnconfirmed: true } as never);
+
+    expect(updateCalls[0]).toMatchObject({ status: "pending" });
+    expect(updateCalls.at(-1)).toMatchObject({ status: "sent" });
+  });
+
+  it("sends nothing when another apply already claimed the edits", async () => {
+    pendingRows = [{ id: "e1", instruction: "Anything", target: null }];
+    claimSucceeds = false;
+
+    const result = (await action.run({ designId: "design_1" } as never)) as {
+      sentCount: number;
+    };
+
+    expect(result.sentCount).toBe(0);
+    expect(sendFusionBranchMessage).not.toHaveBeenCalled();
+  });
+});

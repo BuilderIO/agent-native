@@ -367,7 +367,7 @@ describe("apply-visual-edit Framer-scoped edits (maxWidthPx)", () => {
       "<style data-agent-native-breakpoints>",
     );
     expect(result.patchedContent).toContain("@media (max-width: 809px)");
-    expect(result.patchedContent).toContain("left: 137px;");
+    expect(result.patchedContent).toContain("left: 137px !important;");
     expect(result.patchedContent).not.toContain('style="left');
   });
 
@@ -426,7 +426,7 @@ describe("apply-visual-edit Framer-scoped edits (maxWidthPx)", () => {
 
     expect(result.result.status).toBe("applied");
     expect(result.patchedContent).toContain("@media (max-width: 1279px)");
-    expect(result.patchedContent).toContain("top: 24px;");
+    expect(result.patchedContent).toContain("top: 24px !important;");
   });
 });
 

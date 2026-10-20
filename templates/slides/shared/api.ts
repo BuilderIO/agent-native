@@ -11,6 +11,9 @@ export interface DemoResponse {
 }
 
 export const DEFAULT_STYLE_REFERENCE_URLS: string[] = [];
+export const MAX_REFERENCE_IMAGE_INPUT_COUNT = 32;
+export const MAX_REFERENCE_IMAGE_COUNT = 8;
+export const MAX_GEMINI_REFERENCE_IMAGE_COUNT = 4;
 
 export function normalizeReferenceUrls(
   urls: readonly string[] | null | undefined,

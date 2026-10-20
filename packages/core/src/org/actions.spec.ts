@@ -53,6 +53,7 @@ describe("requireOrgMember", () => {
     await expect(requireOrgMember(member, true)).resolves.toEqual({
       email: member.userEmail,
       orgId: member.orgId,
+      role,
     });
   });
 
@@ -65,6 +66,7 @@ describe("requireOrgMember", () => {
     ).resolves.toEqual({
       email: member.userEmail,
       orgId: member.orgId,
+      role: "member",
     });
     expect(execute.mock.calls[0][0]).toMatchObject({
       sql: expect.stringContaining("federation_removal_pending_at IS NULL"),

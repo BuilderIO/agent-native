@@ -146,7 +146,7 @@ Una función que lanza una excepción se informa como `{ unreadable: "<message>"
 
 ### `recorder.onReport()` {#on-report}
 
-`recorder.onReport()` envía informes a un destino. Acepta un listener y devuelve una función que lo elimina. El listener recibe cada informe creado con un motivo distinto de `"manual"`. Eso incluye "Informar de un problema" (`"user"`), los errores no capturados (`"error"`) y las pruebas (`"test"`).
+`recorder.onReport()` envía informes a un destino. Acepta un listener y devuelve una función que lo elimina. El listener recibe cada informe creado con un motivo distinto de `"manual"`. Eso incluye los errores no capturados (`"error"`) y las pruebas (`"test"`). Una aplicación aún puede emitir un informe con el motivo `"user"` si monta directamente el `ReportProblemDialog` exportado.
 
 ```ts
 recorder.onReport((report) => posthog.capture("problem_report", report));
@@ -211,16 +211,6 @@ Una ventana o un límite que no sea un número positivo lanza un `RangeError` en
 
 ## Destinos {#destinations}
 
-### Informar de un problema {#report-a-problem}
-
-Todas las apps tienen **Informar de un problema**. Está al final de la barra lateral, en el menú de opciones del panel del agente y en el menú de comandos (⌘K).
-
-- Pregunta si quieres adjuntar lo que hizo la app en los últimos dos minutos, y muestra una vista previa de los recuentos, los fallos y los primeros eventos. Lo pregunta siempre.
-- Cuando el usuario acepta, el informe completo se guarda como un archivo privado que solo ese usuario puede leer. El agente de la app recibe un resumen breve con una referencia al archivo.
-- El agente lee más del informe con la acción `read-problem-report`, filtrada por tipo de evento o por tiempo.
-- Cuando la página no tiene chat de agente, el botón copia el resumen y la referencia.
-- El informe necesita almacenamiento de archivos. Sin él, el diálogo indica que el informe no se adjuntó y no se envía nada.
-
 ### Sentry {#sentry}
 
 Cuando una app tiene Sentry para navegador configurado mediante Agent-Native (consulta [Informe de errores](/docs/observability#sentry)), cada evento de error de Sentry recibe:
@@ -242,7 +232,7 @@ Cuando los registros de desarrollador están activados, la extensión de Clips l
 
 ## Privacidad {#privacy}
 
-- **Se queda en el navegador.** Un informe solo sale cuando un destino lo envía: "Informar de un problema" después de que el usuario dé su consentimiento, una grabación de Clips que inició el usuario, Sentry o un listener que registró el desarrollador.
+- **Se queda en el navegador.** Un informe solo sale cuando un destino lo envía: una grabación de Clips que inició el usuario, Sentry o un listener que registró el desarrollador. Un `ReportProblemDialog` montado directamente también envía un informe, pero solo cuando lo envía el usuario.
 - **Se eliminan los secretos.** Un campo cuyo nombre parece secreto (`password`, `token`, `secret`, `apiKey`, `authorization`, `cookie`, `session`, `card`, `cvv`) aparece como `"[redacted]"`. El texto con aspecto de token dentro de cualquier valor, como JWT, tokens bearer y claves de API de proveedores, también se reemplaza por `[redacted]`. Son los mismos filtros de ocultación que core usa para los informes de errores.
 - **Los valores están acotados.** Las cadenas se recortan a 200 caracteres y cada evento a unos 2 KB. Cada recorte indica qué se eliminó. Los cuerpos de las peticiones y las respuestas nunca se registran.
 - **Olvida.** Solo conserva la ventana, hasta sus límites. Se vacía al recargar y al cerrar sesión.
