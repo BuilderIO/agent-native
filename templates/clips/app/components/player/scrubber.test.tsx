@@ -134,6 +134,57 @@ describe("Scrubber reaction markers", () => {
     expect(onSeek).toHaveBeenNthCalledWith(2, 1_000);
   });
 
+  it("suppresses timeline and marker hover previews while keeping markers seekable", () => {
+    const onSeek = vi.fn();
+    act(() =>
+      root.render(
+        <Scrubber
+          hoverPreviews={false}
+          currentMs={0}
+          durationMs={10_000}
+          onSeek={onSeek}
+          comments={[
+            {
+              id: "comment-1",
+              authorEmail: "test@example.com",
+              content: "Preview content",
+              videoTimestampMs: 1_000,
+            },
+          ]}
+          chapters={[{ startMs: 3_000, title: "Chapter preview" }]}
+          reactions={[
+            { id: "reaction-1", emoji: "👍", videoTimestampMs: 5_000 },
+          ]}
+        />,
+      ),
+    );
+    for (const marker of container.querySelectorAll<HTMLButtonElement>(
+      "button",
+    )) {
+      act(() =>
+        marker.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })),
+      );
+      expect(container.querySelector("[data-player-comment-hover]")).toBeNull();
+      act(() => marker.click());
+      act(() =>
+        marker.dispatchEvent(new MouseEvent("mouseout", { bubbles: true })),
+      );
+    }
+    expect(onSeek).toHaveBeenCalledWith(1_000);
+    expect(onSeek).toHaveBeenCalledWith(3_000);
+    expect(onSeek).toHaveBeenCalledWith(5_000);
+    act(() =>
+      container.firstElementChild!.dispatchEvent(
+        new PointerEvent("pointermove", {
+          bubbles: true,
+          pointerType: "mouse",
+          clientX: 50,
+        }),
+      ),
+    );
+    expect(container.textContent).not.toContain("0:00");
+  });
+
   it("uses the highlighted comment treatment for hover previews", () => {
     act(() => {
       root.render(

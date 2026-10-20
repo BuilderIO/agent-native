@@ -1736,7 +1736,7 @@ const messages = {
     unmuteMicrophone: "取消静音",
     uploadVideo: "Upload video (已本地化)",
     takeScreenshot: "截屏",
-    importLoom: "Import Loom (已本地化)",
+    importLoom: "导入视频",
     importing: "Importing... (已本地化)",
     import: "Import (已本地化)",
     recordNew: "新建录制",
@@ -1975,8 +1975,8 @@ const messages = {
       "此录制仍在处理中，因此 Clips 在这里保留了你的副本。请等待处理完成，或重新上传。",
   },
   importRoute: {
-    pageTitle: "导入 Loom — Clips",
-    title: "导入 Loom",
+    pageTitle: "导入视频 — Clips",
+    title: "导入视频",
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "导入",
     helperText:
