@@ -318,19 +318,17 @@ export function backfillEngineMessagesToolResults(
             (pending) => pending.executionStepId === part.executionStepId,
           )
         : [];
-      const pendingLookup =
-        stepMatches.length === 1
+      const pendingLookup = part.executionStepId
+        ? stepMatches.length === 1
           ? stepMatches[0]
-          : stepMatches.length > 1
-            ? undefined
-            : legacyPendingCandidates.length === 1 &&
-                (!part.executionStepId || fingerprintMatches.length === 1)
-              ? legacyPendingCandidates[0]
-              : fingerprintMatches.length === 1
-                ? fingerprintMatches[0]
-                : canPairIdenticalLegacyCalls
-                  ? fingerprintMatches[0]
-                  : undefined;
+          : undefined
+        : legacyPendingCandidates.length === 1
+          ? legacyPendingCandidates[0]
+          : fingerprintMatches.length === 1
+            ? fingerprintMatches[0]
+            : canPairIdenticalLegacyCalls
+              ? fingerprintMatches[0]
+              : undefined;
       if (pendingLookup) matchedPendingToolIds.add(pendingLookup.id);
       const toolName =
         typeof part.toolName === "string" && part.toolName.trim().length > 0
