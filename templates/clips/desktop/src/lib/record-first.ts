@@ -8,16 +8,18 @@ export type VideoStorageStatus =
   | "missing"
   | "unavailable";
 
-/**
- * The local mode a recording actually uses. Recording never waits on
- * storage: until storage reads as connected, a cloud recording is written to
- * Movies/Clips first and uploads once storage connects.
- */
+export function shouldPollVideoStorageStatus(
+  authenticated: boolean,
+  status: VideoStorageStatus,
+): boolean {
+  return authenticated && status !== "configured";
+}
+
+/** Storage status never enables local recording when the configured mode is off. */
 export function effectiveLocalRecordingMode(
   mode: LocalRecordingMode,
-  storageStatus: VideoStorageStatus,
 ): LocalRecordingMode {
-  return mode === "off" && storageStatus !== "configured" ? "composed" : mode;
+  return mode;
 }
 
 /** A recording saved to disk because storage was not connected yet. */
@@ -30,31 +32,6 @@ export interface RecordFirstFile extends LocalExportedFile {
    * row exists, so a handoff cut off by a crash resumes instead of repeating.
    */
   stagedRecordingId?: string;
-}
-
-/**
- * What one file of a capture holds. A separate desktop file carries the
- * screen and the take's audio but no camera; a separate camera file holds
- * only camera video.
- */
-export function recordFirstMediaFlags(
-  role: string,
-  take: { hasAudio: boolean; hasCamera: boolean },
-): { hasAudio: boolean; hasCamera: boolean } {
-  if (role === "desktop") return { hasAudio: take.hasAudio, hasCamera: false };
-  if (role === "camera") return { hasAudio: false, hasCamera: true };
-  return take;
-}
-
-/**
- * The files a stopped record-first capture leaves to upload: its composed
- * file, or every file it wrote when there is none.
- */
-export function recordFirstFilesToQueue<T extends { role: string }>(
-  files: readonly T[],
-): T[] {
-  const composed = files.find((file) => file.role === "composed");
-  return composed ? [composed] : [...files];
 }
 
 /**

@@ -25,6 +25,24 @@ export interface ReconcileRecoveryDraft {
   localTitle: string;
 }
 
+// After typing overtakes an automatic save, the next one waits for a pause,
+// as the editor's autosave does, but never longer than the cap.
+const AUTOMATIC_SAVE_IDLE_MS = 1_000;
+const AUTOMATIC_SAVE_MAX_WAIT_MS = 5_000;
+
+async function untilTypingPauses(getIdentity: () => string): Promise<void> {
+  const deadline = Date.now() + AUTOMATIC_SAVE_MAX_WAIT_MS;
+  let identity = getIdentity();
+  for (;;) {
+    const wait = Math.min(AUTOMATIC_SAVE_IDLE_MS, deadline - Date.now());
+    if (wait <= 0) return;
+    await new Promise((resolve) => setTimeout(resolve, wait));
+    const next = getIdentity();
+    if (next === identity) return;
+    identity = next;
+  }
+}
+
 interface AutomaticSave {
   generation: number;
   newerBase: ReconcileSaveBase | null;
@@ -190,7 +208,6 @@ export function useDocumentReconcileRecovery({
       const started = run.generation;
       let saveBase: ReconcileSaveBase | undefined = base;
       let draft = initialDraft;
-      let attempts = 0;
       let refused = false;
       try {
         while (generation.current === started && !current.current) {
@@ -201,8 +218,7 @@ export function useDocumentReconcileRecovery({
             draft = latestDraft();
             saveBase = run.newerBase;
             run.newerBase = null;
-            attempts = 0;
-          } else if (refused || attempts === 3) {
+          } else if (refused) {
             await retainLatest();
             // A newer merge can hand its page over while the draft is retained.
             if (run.newerBase) continue;
@@ -211,7 +227,6 @@ export function useDocumentReconcileRecovery({
             }
             return false;
           }
-          attempts += 1;
           const identity = callbacks.current.getSaveIdentity();
           const persisted = await callbacks.current.save(draft, saveBase);
           if (generation.current !== started || current.current) {
@@ -220,7 +235,11 @@ export function useDocumentReconcileRecovery({
           }
           if (persisted && callbacks.current.getSaveIdentity() === identity)
             return true;
+          // A save that landed while typing continued is not a retry: counting
+          // those turns steady typing in another tab into a conflict notice.
           refused = !persisted;
+          if (persisted)
+            await untilTypingPauses(() => callbacks.current.getSaveIdentity());
           draft = latestDraft();
           saveBase = undefined;
         }

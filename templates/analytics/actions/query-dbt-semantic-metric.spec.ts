@@ -1332,6 +1332,55 @@ describe("query-dbt-semantic-metric", () => {
     });
   });
 
+  it("returns a typed provider error instead of a 502 when dbt returns an invalid metadata page", async () => {
+    mocks.executeProviderApiRequest.mockResolvedValueOnce(
+      providerResult({
+        data: {
+          metricsPaginated: {
+            items: "not-an-array",
+            totalItems: 1,
+            totalPages: 1,
+          },
+        },
+      }),
+    );
+
+    await expect(
+      runAction({ metricName: "weekly_active_users" }),
+    ).resolves.toMatchObject({
+      status: "provider_error",
+      message: expect.stringMatching(
+        /incomplete metric metadata pagination \(items string/,
+      ),
+    });
+  });
+
+  it("returns a typed provider error instead of a 502 when dbt returns an invalid semantic manifest count", async () => {
+    mocks.executeProviderApiRequest
+      .mockResolvedValueOnce(
+        providerResult({
+          data: {
+            metricsPaginated: { items: [], totalItems: 0, totalPages: 0 },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        providerResult({
+          data: { metricsPaginated: { totalItems: "many" } },
+        }),
+      );
+
+    await expect(
+      runAction({ metricName: "weekly_active_users" }),
+    ).resolves.toMatchObject({
+      status: "provider_error",
+      message: expect.stringMatching(
+        /invalid semantic manifest count \(totalItems string\)/,
+      ),
+    });
+    expect(mocks.executeProviderApiRequest).toHaveBeenCalledTimes(2);
+  });
+
   it("paginates bounded metric results without losing rows or environment context", async () => {
     const firstPageRows = Array.from({ length: 25 }, (_, index) => [index + 1]);
     const secondPageRows = [[26], [27], [28]];

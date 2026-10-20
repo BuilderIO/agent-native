@@ -4,6 +4,7 @@ import {
   ZoomHttpError,
   downloadZoomTranscript,
   fetchZoomAccessToken,
+  getZoomMeetingRecordings,
   hasProcessingTranscript,
   listZoomAccountRecordings,
   listZoomRecordings,
@@ -47,7 +48,139 @@ function jsonResponse(body: unknown, init: ResponseInit = {}) {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+describe("Zoom timeout diagnostics", () => {
+  const requests = [
+    {
+      name: "OAuth",
+      step: "token request",
+      bodyMethod: "json" as const,
+      run: () =>
+        fetchZoomAccessToken({
+          accountId: "private-account",
+          clientId: "private-client",
+          clientSecret: "private-secret",
+        }),
+    },
+    {
+      name: "account recording list",
+      step: "recording list",
+      bodyMethod: "json" as const,
+      run: () =>
+        listZoomAccountRecordings("private-token", "2026-10-19", "2026-10-20"),
+    },
+    {
+      name: "user recording list",
+      step: "recording list",
+      bodyMethod: "json" as const,
+      run: () =>
+        listZoomRecordings(
+          "private-token",
+          "private-user",
+          "2026-10-19",
+          "2026-10-20",
+        ),
+    },
+    {
+      name: "meeting recording lookup",
+      step: "meeting recording lookup",
+      bodyMethod: "json" as const,
+      run: () => getZoomMeetingRecordings("private-token", "private-meeting"),
+    },
+    {
+      name: "transcript download",
+      step: "transcript download",
+      bodyMethod: "text" as const,
+      run: () =>
+        downloadZoomTranscript(
+          "private-token",
+          "https://zoom.us/rec/download/private-recording?access_token=private-token",
+        ),
+    },
+  ];
+
+  it.each(requests)(
+    "labels $name timeouts before headers",
+    async ({ step, run }) => {
+      vi.spyOn(performance, "now")
+        .mockReturnValueOnce(500)
+        .mockReturnValue(30_625);
+      const timeout = vi.spyOn(AbortSignal, "timeout");
+      const fetchMock = vi
+        .fn()
+        .mockRejectedValue(
+          new DOMException("private request details", "TimeoutError"),
+        );
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(run()).rejects.toMatchObject({
+        message: `Zoom ${step} timed out after 30125 ms (limit 30000 ms).`,
+      });
+      expect(timeout).toHaveBeenCalledWith(30_000);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each(requests)(
+    "labels $name timeouts while reading the response body",
+    async ({ step, bodyMethod, run }) => {
+      const controller = new AbortController();
+      vi.spyOn(AbortSignal, "timeout").mockReturnValue(controller.signal);
+      vi.spyOn(performance, "now")
+        .mockReturnValueOnce(500)
+        .mockReturnValue(30_625);
+      const response = jsonResponse({});
+      vi.spyOn(response, bodyMethod).mockImplementation(async () => {
+        controller.abort(new DOMException("request timed out", "TimeoutError"));
+        throw new DOMException("private response details", "AbortError");
+      });
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+
+      await expect(run()).rejects.toMatchObject({
+        message: `Zoom ${step} timed out after 30125 ms (limit 30000 ms).`,
+      });
+    },
+  );
+
+  it.each(requests)("preserves non-timeout $name failures", async ({ run }) => {
+    const failure = new TypeError("fetch failed");
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(failure));
+
+    await expect(run()).rejects.toBe(failure);
+  });
+
+  it("labels a timeout on a transcript redirect without exposing the CDN URL", async () => {
+    vi.spyOn(performance, "now")
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(500)
+      .mockReturnValue(30_625);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 302,
+          headers: { location: "https://cdn.example.test/private-transcript" },
+        }),
+      )
+      .mockRejectedValueOnce(
+        new DOMException("private CDN details", "TimeoutError"),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      downloadZoomTranscript(
+        "private-token",
+        "https://zoom.us/rec/download/private-recording",
+      ),
+    ).rejects.toMatchObject({
+      message:
+        "Zoom transcript download timed out after 30125 ms (limit 30000 ms).",
+    });
+    expect(fetchMock.mock.calls[1][1].headers).toEqual({});
+  });
 });
 
 describe("parseZoomVtt", () => {

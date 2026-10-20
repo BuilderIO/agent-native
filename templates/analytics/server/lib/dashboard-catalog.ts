@@ -970,6 +970,27 @@ export const dashboardCatalogEntries: DashboardCatalogEntry[] = [
     buildConfig: () => seedConfig("skills-cli-funnel"),
   },
   {
+    id: "content-view",
+    name: "Content",
+    description:
+      "Blog articles with authors, daily GA4 pageviews, and Search Console clicks and impressions from the daily content collection, with each source's last run.",
+    category: "Acquisition",
+    defaultDashboardId: "content-view",
+    dataSources: ["first-party"],
+    tags: [
+      "content",
+      "blog",
+      "articles",
+      "authors",
+      "search console",
+      "pageviews",
+      "seo",
+    ],
+    panelCount: 4,
+    version: CATALOG_VERSION,
+    buildConfig: () => seedConfig("content-view"),
+  },
+  {
     id: "google-analytics-web",
     name: "Google Analytics Website",
     description:

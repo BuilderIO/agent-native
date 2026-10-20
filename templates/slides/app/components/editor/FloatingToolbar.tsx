@@ -13,7 +13,6 @@ import {
   IconMinus,
   IconOval,
   IconPhotoVideo,
-  IconPin,
   IconPointer,
   IconResize,
   IconRobot,
@@ -55,7 +54,7 @@ export type FloatingToolbarInsertTool =
   | "shape"
   | "media";
 export type FloatingToolbarTransition = "none" | AnimationType;
-type FloatingToolbarCommentAction = "comments" | "annotate" | "pin";
+type FloatingToolbarCommentAction = "comments" | "annotate";
 export type FloatingToolbarAgentAction =
   | "inspiration"
   | "tighten-tone"
@@ -172,7 +171,6 @@ const COMMENT_ITEMS: MenuItem<FloatingToolbarCommentAction>[] = [
     labelKey: "floatingToolbar.annotate",
     icon: IconUserEdit,
   },
-  { value: "pin", labelKey: "floatingToolbar.pinComment", icon: IconPin },
 ];
 
 const ALL_TRANSITIONS = TRANSITION_ITEMS.map((item) => item.value);
@@ -348,7 +346,6 @@ export interface FloatingToolbarProps {
   onOpenTransitions?: () => void;
   onSelectTransition?: (transition: FloatingToolbarTransition) => void;
   /** True while the comments panel is open. */
-  commentsOpen?: boolean;
   /** The armed comment tool, if any. */
   commentToolValue?: FloatingToolbarCommentAction | null;
   /** Rows the viewer lacks the permission for. */
@@ -370,7 +367,6 @@ export const FloatingToolbar = memo(function FloatingToolbar({
   transitionsDisabledReason = null,
   onOpenTransitions,
   onSelectTransition,
-  commentsOpen = false,
   commentToolValue = null,
   disabledCommentActions,
   onOpenComments,
@@ -430,8 +426,8 @@ export const FloatingToolbar = memo(function FloatingToolbar({
         tooltip={t("floatingToolbar.comment")}
         menuLabel={t("floatingToolbar.commentMenu")}
         items={COMMENT_ITEMS}
-        active={commentsOpen || commentToolValue !== null}
-        value={commentToolValue ?? (commentsOpen ? "comments" : null)}
+        active={commentToolValue !== null}
+        value={commentToolValue}
         disabledValues={disabledCommentActions}
         onActivate={onOpenComments}
         onSelect={onCommentAction}

@@ -30,7 +30,6 @@ import {
   IconLoader2,
   IconAdjustments,
   IconPencilPlus,
-  IconPin,
   IconBrandGoogle,
   IconCode,
   IconCopy,
@@ -146,7 +145,6 @@ interface EditorToolbarProps {
   deckId: string;
   deckTitle: string;
   canEdit?: boolean;
-  canComment?: boolean;
   onTitleChange: (title: string) => void;
   currentSlideIndex: number;
   sidebarOpen: boolean;
@@ -172,8 +170,6 @@ interface EditorToolbarProps {
   onToggleTweaks?: () => void;
   drawMode?: boolean;
   onToggleDrawMode?: () => void;
-  pinMode?: boolean;
-  onTogglePinMode?: () => void;
   textBoxMode?: boolean;
   onToggleTextBoxMode?: () => void;
   shapeType?: SlideShapeType | null;
@@ -241,8 +237,6 @@ export default function EditorToolbar({
   onToggleTweaks,
   drawMode,
   onToggleDrawMode,
-  pinMode,
-  onTogglePinMode,
   textBoxMode,
   onToggleTextBoxMode,
   shapeType,
@@ -269,7 +263,6 @@ export default function EditorToolbar({
   onPreviousSlide,
   onNextSlide,
   canEdit = true,
-  canComment = canEdit,
 }: EditorToolbarProps) {
   const t = useT();
   // The top bar is the app's own in a widget. It drops only what the host owns
@@ -359,13 +352,12 @@ export default function EditorToolbar({
 
   const contextToolbarVisible = canEdit && Boolean(currentSlide);
   const showSlideTools =
-    (canEdit &&
-      Boolean(
-        (currentSlide && onToggleAnimations) ||
-        onToggleTweaks ||
-        onToggleDrawMode,
-      )) ||
-    (canComment && Boolean(onTogglePinMode));
+    canEdit &&
+    Boolean(
+      (currentSlide && onToggleAnimations) ||
+      onToggleTweaks ||
+      onToggleDrawMode,
+    );
   const showCommentsItem = !widgetEmbed && Boolean(onToggleComments);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const backupInputRef = useRef<HTMLInputElement>(null);
@@ -646,17 +638,6 @@ export default function EditorToolbar({
         });
       }
     }
-    if (canComment && onTogglePinMode) {
-      commands.push({
-        id: "pin-comments",
-        group: "slideTools",
-        label: t("editorToolbar.pinComments"),
-        keywords: ["comment", "pin"],
-        icon: IconPin,
-        active: pinMode,
-        run: onTogglePinMode,
-      });
-    }
 
     if (canEdit && currentSlide && onChangeSlideTransition) {
       commands.push(
@@ -767,7 +748,6 @@ export default function EditorToolbar({
     addSlideGenerating,
     animationsOpen,
     layersOpen,
-    canComment,
     canEdit,
     commentsOpen,
     currentSlide,
@@ -789,10 +769,8 @@ export default function EditorToolbar({
     onToggleLayers,
     onToggleComments,
     onToggleDrawMode,
-    onTogglePinMode,
     onToggleTextBoxMode,
     onToggleTweaks,
-    pinMode,
     setTheme,
     shapeType,
     t,
@@ -1055,20 +1033,6 @@ export default function EditorToolbar({
                       >
                         <IconPencilPlus className="size-4" />
                         {t("editorToolbar.drawOnSlide")}
-                      </DropdownMenuItem>
-                    )}
-                    {canComment && onTogglePinMode && (
-                      <DropdownMenuItem
-                        onSelect={onTogglePinMode}
-                        data-toolbar-pin-button
-                        className={
-                          pinMode
-                            ? "bg-accent text-accent-foreground"
-                            : undefined
-                        }
-                      >
-                        <IconPin className="size-4" />
-                        {t("editorToolbar.pinComments")}
                       </DropdownMenuItem>
                     )}
                   </DropdownMenuGroup>

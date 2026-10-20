@@ -321,7 +321,9 @@ export default defineAction({
   schema: z.object({
     filePath: z
       .string()
-      .describe("Uploaded PPTX path or opaque hosted upload reference"),
+      .describe(
+        "Uploaded PPTX path, hosted reference, exact current attachment name, or a generic reference such as 'the attached presentation' when exactly one compatible PPTX is attached. Format-specific references must match PPTX.",
+      ),
     deckId: z
       .string()
       .optional()
@@ -345,7 +347,9 @@ export default defineAction({
       .describe("Why the deck is being imported; used only for analytics"),
   }),
   run: async ({ filePath, deckId, title, designSystemId, purpose }, ctx) => {
-    const { data: fileBuffer } = await readUserUploadedFile(filePath, ctx);
+    const { data: fileBuffer } = await readUserUploadedFile(filePath, ctx, {
+      expectedExtensions: [".pptx"],
+    });
     const result = await importPptxBufferToDeck({
       fileBuffer,
       deckId,
