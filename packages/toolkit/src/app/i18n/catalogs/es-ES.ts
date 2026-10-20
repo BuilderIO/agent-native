@@ -714,7 +714,28 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.hubspot.useCase":
     "CRM, contactos, empresas, negocios, tickets, analítica de clientes",
   "mcpIntegrations.catalog.hubspot.setupNote":
-    "Si hay una HubSpot MCP Auth App gestionada por el espacio de trabajo, cualquier miembro puede conectar una cuenta personal de HubSpot con OAuth y PKCE. Si no, crea la app en HubSpot Developer Platform antes de conectar; el conector OAuth de HubSpot existente sigue disponible para las acciones de la app.",
+    "Cada persona conecta su propia cuenta de HubSpot después de que un propietario configure la HubSpot MCP Auth App.",
+  "mcpIntegrations.hubspot.setupTitle": "Configurar HubSpot MCP",
+  "mcpIntegrations.hubspot.dialogDescription":
+    "Un propietario configura HubSpot MCP una vez. Después, cada miembro conecta su propia cuenta.",
+  "mcpIntegrations.hubspot.workspaceSetupStatus":
+    "Se requiere configuración del espacio de trabajo",
+  "mcpIntegrations.hubspot.setupChecking":
+    "Comprobando la configuración del espacio de trabajo…",
+  "mcpIntegrations.hubspot.setupUnavailable":
+    "Estado de configuración no disponible",
+  "mcpIntegrations.hubspot.setupUnavailableDescription":
+    "No se pudo comprobar la configuración OAuth del espacio de trabajo. Inténtalo de nuevo.",
+  "mcpIntegrations.hubspot.ownerSetupDescription":
+    "Crea una HubSpot MCP Auth App y añade su ID y secreto de cliente en Agent-Native settings → API keys.",
+  "mcpIntegrations.hubspot.memberSetupDescription":
+    "Pide a un propietario que cree una HubSpot MCP Auth App y añada su ID y secreto de cliente en Agent-Native settings → API keys. Después podrás conectar tu propia cuenta de HubSpot.",
+  "mcpIntegrations.hubspot.noWorkspaceDescription":
+    "Únete a un espacio de trabajo antes de conectar HubSpot MCP.",
+  "mcpIntegrations.hubspot.configureWorkspaceCredentials":
+    "Añadir credenciales del espacio de trabajo",
+  "mcpIntegrations.hubspot.refreshSetupStatus": "Volver a comprobar",
+  "mcpIntegrations.hubspot.retrySetupStatus": "Reintentar",
   "mcpIntegrations.catalog.pylon.description":
     "Busca y actualiza datos de soporte de Pylon.",
   "mcpIntegrations.catalog.pylon.useCase":

@@ -407,11 +407,29 @@ describe("digest outcomes", () => {
     });
     assert.equal(
       ci,
-      "gh workflow run beta-e2e.yml --ref main -f apps=clips -f lane=public -f grep='it'\\''s \\(not\\) a\\.b'",
+      "gh workflow run beta-e2e.yml --ref main -f apps=clips -f lane=public -f grep='it'\\''s (not) a.b'",
     );
     assert.match(
       local,
       /^BETA_E2E_APPS=clips pnpm e2e:beta --project=public --grep /,
+    );
+  });
+
+  it("uses literal workflow grep and escaped local Playwright grep", () => {
+    const { ci, local } = reproduceCommands({
+      slot: "authed-chat",
+      app: "chat",
+      project: "chat",
+      grep: "[chat-reliability] refresh mid-run restores the complete answer",
+    });
+
+    assert.match(
+      ci,
+      /-f grep='\[chat-reliability\] refresh mid-run restores the complete answer'$/,
+    );
+    assert.match(
+      local,
+      /--grep '\\\[chat-reliability\\\] refresh mid-run restores the complete answer'$/,
     );
   });
 

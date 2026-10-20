@@ -2122,6 +2122,10 @@ export default {
       accept: "Aceptar",
       reject: "Rechazar",
       resolveFailed: "No se pudo resolver esta propuesta",
+      previewTargetUnavailable:
+        "No se encontró el elemento seleccionado, así que no se mostró esta vista previa. Selecciónalo de nuevo para volver a intentarlo.",
+      previewFailed:
+        "No se pudo mostrar esta vista previa. Selecciona el elemento de nuevo para volver a intentarlo.",
     },
     capabilities: {
       "deterministic-style-edit": "Edición segura de estilo",

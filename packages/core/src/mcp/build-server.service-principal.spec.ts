@@ -21,6 +21,13 @@ vi.mock("../audit/record.js", () => ({
   recordActionAudit: (input: any) => recordActionAuditMock(input),
 }));
 
+vi.mock("../server/better-auth-instance.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../server/better-auth-instance.js")
+  >()),
+  findBetterAuthUserIdForEmail: vi.fn(async () => undefined),
+}));
+
 const SVC = "svc-ci@service.org_1";
 const runs: string[] = [];
 let observedVerifiedServiceIdentity:

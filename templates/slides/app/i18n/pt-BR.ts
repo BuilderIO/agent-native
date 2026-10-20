@@ -277,7 +277,6 @@ const messages = {
     commentMenu: "Opções de comentário",
     comments: "Comentários",
     annotate: "Anotar",
-    pinComment: "Fixar comentário",
     agent: "Agente",
     agentMenu: "Opções do agente",
     agentUnavailable:
@@ -380,7 +379,6 @@ const messages = {
     shapeLine: "Linha",
     shapeStar: "Estrela",
     shapePolygon: "Polígono",
-    pinComments: "Fixar comentários",
     undo: "Desfazer",
     undoWithShortcut: "Desfazer ({{shortcut}})",
     redo: "Refazer",

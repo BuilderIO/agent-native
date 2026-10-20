@@ -415,12 +415,17 @@ function scopeToolSearchToAdvertised(
   };
 }
 
+// The operator's `denyActions` veto lives here with the action's own opt-out,
+// so no catalog branch, `tool-search` or `tools/call` path has to remember it.
 function withoutExternalOptOuts(
+  config: MCPConfig,
   actions: Record<string, ActionEntry>,
 ): Record<string, ActionEntry> {
+  const denyNames = externalAgentDenySet(config);
   return Object.fromEntries(
-    Object.entries(actions).filter(([, entry]) =>
-      isActionExposedToExternalAgents(entry),
+    Object.entries(actions).filter(
+      ([name, entry]) =>
+        !denyNames.has(name) && isActionExposedToExternalAgents(entry),
     ),
   );
 }
@@ -537,7 +542,10 @@ export function validateMcpDirectoryProfile(
     );
   }
 
-  const actions = withoutExternalOptOuts(withoutToolSearch(sourceActions));
+  const actions = withoutExternalOptOuts(
+    config,
+    withoutToolSearch(sourceActions),
+  );
   const reserved = new Set([
     ...COMPACT_MCP_APP_CATALOG_BUILTINS,
     "ask-agent",
@@ -593,6 +601,22 @@ export function validateMcpDirectoryProfile(
   }
 
   const profile = config.directoryProfile;
+  // Widget grants can name actions hidden from the agent surface, which the
+  // filter above never sees.
+  const denyNames = externalAgentDenySet(config);
+  const deniedWidgetAction = [
+    ...(profile?.widgetReadOnlyActions ?? []),
+    ...(profile?.widgetReadPublicActions ?? []),
+    ...(profile?.widgetReadPrivateActions ?? []),
+    ...(profile?.widgetReadAuthenticatedActions ?? []),
+    ...Object.keys(profile?.widgetReadActionArguments ?? {}),
+    ...Object.keys(profile?.widgetWriteActionArguments ?? {}),
+  ].find((name) => denyNames.has(name));
+  if (deniedWidgetAction) {
+    throw new McpDirectoryProfileValidationError(
+      `[agent-native] MCP directory widget action "${deniedWidgetAction}" is listed in externalAgents.denyActions.`,
+    );
+  }
   const widgetActionNames = names.filter((name) =>
     Boolean(actions[name]?.mcpApp?.resource),
   );
@@ -2877,8 +2901,14 @@ export async function createMCPServerForRequest(
       ? baseActions
       : mergeBuiltinTools(config, baseActions, requestMeta);
   const actions = withoutExternalOptOuts(
+    config,
     flatCatalog ? withoutToolSearch(mergedActions) : mergedActions,
   );
+  // Tools built outside the action map (`ask-agent`, `create_embed_session`)
+  // never pass through the filter above, so tools/list and tools/call refuse a
+  // denied name too. `ask-agent` runs `ask_app`, so denying either removes it.
+  const deniedToolNames = externalAgentDenySet(config);
+  if (deniedToolNames.has("ask_app")) deniedToolNames.add("ask-agent");
   const {
     isAdvertisable,
     advertisable,
@@ -2932,7 +2962,6 @@ export async function createMCPServerForRequest(
         ...declaredMcpToolNames(visibleActions),
         ...autoReadNames,
       ]);
-  const denyNames = externalAgentDenySet(config);
   const automaticConnectorPolicyActive =
     config.externalAgents?.authenticatedReads === "auto";
   const connectorCatalogActive =
@@ -2945,22 +2974,18 @@ export async function createMCPServerForRequest(
   const preserveCompactActions =
     config.connectorCatalog === undefined && !automaticConnectorPolicyActive;
   const advertisedActionsBeforeToolSearchScope = appCatalog
-    ? Object.fromEntries(
-        Object.entries(visibleActions).filter(([name]) => !denyNames.has(name)),
-      )
+    ? visibleActions
     : directoryCatalog
       ? Object.fromEntries(
           Object.entries(visibleActions).filter(
             ([name, entry]) =>
               connectorNames.has(name) &&
-              !denyNames.has(name) &&
               (!writesAreAskAppOnly || isMcpReadOnlyTool(entry)),
           ),
         )
       : connectorCatalogActive
         ? Object.fromEntries(
             Object.entries(visibleActions).filter(([name, entry]) => {
-              if (denyNames.has(name)) return false;
               if (COMPACT_MCP_APP_CATALOG_BUILTINS.has(name)) return true;
               if (
                 !connectorNames.has(name) &&
@@ -3055,14 +3080,31 @@ export async function createMCPServerForRequest(
       : {}),
   });
 
+  // A verified user's MCP token names them by email. Browser sessions also
+  // carry the Better Auth user id, and per-user gates such as Clips' hosted
+  // storage key on it, so a tool call resolves it the same way.
+  let callerAuthUserId: Promise<string | undefined> | undefined;
+  function resolveCallerAuthUserId(): Promise<string | undefined> {
+    if (!hasVerifiedMcpUserIdentity(effectiveIdentity)) {
+      return Promise.resolve(undefined);
+    }
+    const email = effectiveIdentity.userEmail;
+    callerAuthUserId ??= import("../server/better-auth-instance.js").then(
+      ({ findBetterAuthUserIdForEmail }) => findBetterAuthUserIdForEmail(email),
+    );
+    return callerAuthUserId;
+  }
+
   async function withCallerContext<T>(
     fn: () => Promise<T>,
     mcpRequestId?: string,
+    authUserId?: string,
   ): Promise<T> {
     const orgId = await orgIdPromise;
     return runWithRequestContext(
       {
         userEmail: effectiveIdentity?.userEmail,
+        ...(authUserId ? { authUserId } : {}),
         orgId,
         ...(verifiedServiceIdentity ? { verifiedServiceIdentity } : {}),
         ...(effectiveIdentity?.orgId === null
@@ -3075,6 +3117,13 @@ export async function createMCPServerForRequest(
       },
       fn,
     ) as Promise<T>;
+  }
+
+  async function withToolCallContext<T>(
+    fn: () => Promise<T>,
+    mcpRequestId?: string,
+  ): Promise<T> {
+    return withCallerContext(fn, mcpRequestId, await resolveCallerAuthUserId());
   }
 
   const actionCallContext: McpActionCallContext = {
@@ -3345,7 +3394,7 @@ export async function createMCPServerForRequest(
       }
 
       tools.sort((a, b) => compareMcpCatalogValues(a.name, b.name));
-      return { tools };
+      return { tools: tools.filter((tool) => !deniedToolNames.has(tool.name)) };
     });
     trackMcpToolsList(analyticsContext(request, ctx), {
       toolNames: result.tools.map((tool) => tool.name),
@@ -3391,8 +3440,19 @@ export async function createMCPServerForRequest(
             : requestMeta?.mcpRetryToken
               ? `stateless:${requestMeta.mcpRetryToken}`
               : undefined;
-      const result = await withCallerContext(async () => {
+      const result = await withToolCallContext(async () => {
         const { name, arguments: args } = request.params;
+
+        if (deniedToolNames.has(name)) {
+          failure = {
+            errorType: "unknown_tool",
+            errorMessage: `Unknown tool: ${name}`,
+          };
+          return {
+            content: [{ type: "text", text: `Unknown tool: ${name}` }],
+            isError: true,
+          };
+        }
 
         try {
           const { allowedActions } = await resolveServiceGrant();

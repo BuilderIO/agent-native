@@ -129,6 +129,9 @@ export default function ImportRoute() {
   const timeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   const busy = phase !== "form";
+  const requiresStorage = !isYouTubeUrl(loomUrl);
+  const storageBlocked =
+    requiresStorage && (storageQuery.isError || storageConfigured !== true);
 
   const importStages = useMemo(
     () => [
@@ -173,7 +176,7 @@ export default function ImportRoute() {
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
       const url = loomUrl.trim();
-      if (!url || busy) return;
+      if (!url || busy || storageBlocked) return;
       const failureTitle = isYouTubeUrl(url)
         ? t("recordRoute.couldNotImportVideo")
         : t("recordRoute.couldNotImportLoom");
@@ -264,6 +267,7 @@ export default function ImportRoute() {
       loomUrl,
       navigate,
       spaceIdFromUrl,
+      storageBlocked,
       t,
     ],
   );
@@ -304,120 +308,121 @@ export default function ImportRoute() {
         </p>
 
         <div className="mx-auto w-full max-w-lg">
-          {storageQuery.isError ? (
-            <StorageStatusRetry onRetry={() => void storageQuery.refetch()} />
-          ) : storageConfigured === null ? (
-            <ImportPanelSkeleton />
-          ) : storageConfigured ? (
-            <div
-              className={cn(
-                "overflow-hidden rounded-2xl border border-border bg-card shadow-lg transition-opacity duration-300",
-                phase === "leaving" && "opacity-0",
-              )}
-            >
-              {busy ? (
-                <div className="h-1 w-full overflow-hidden bg-muted">
-                  <div
-                    className="h-full bg-primary transition-[width] duration-200 ease-out"
-                    style={{ width: `${Math.min(100, progress)}%` }}
-                  />
-                </div>
-              ) : null}
-              <div className="p-6">
-                {phase === "importing" ? (
-                  <div className="flex flex-col items-center gap-2 py-8 text-center">
-                    <AgentMark className="h-6 w-6 animate-pulse text-primary" />
-                    <p
-                      key={stageIndex}
-                      className="text-base font-semibold text-foreground"
-                      style={{ animation: "clips-benefit-in 260ms ease-out" }}
-                    >
-                      {importStages[stageIndex]}
-                    </p>
-                    <p className="max-w-xs text-xs text-muted-foreground">
-                      {t("importRoute.importingSubtitle")}
-                    </p>
-                  </div>
-                ) : phase === "done" || phase === "leaving" ? (
-                  <div className="flex flex-col items-center gap-4 py-6 text-center">
-                    <div className="flex items-center gap-2 text-primary">
-                      <AgentMark className="h-6 w-6" />
-                      <p className="text-base font-semibold text-foreground">
-                        {t("importRoute.doneHeading")}
-                      </p>
-                    </div>
-                    <ul className="flex flex-col items-start gap-2 text-start">
-                      {benefits.map((benefit, index) => (
-                        <li
-                          key={benefit}
-                          className="flex items-center gap-2 text-sm font-medium text-foreground"
-                          style={{
-                            animation: "clips-benefit-in 220ms ease-out both",
-                            animationDelay: `${index * 110}ms`,
-                          }}
-                        >
-                          <IconCheck className="h-4 w-4 shrink-0 text-primary" />
-                          {benefit}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : (
-                  <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-                    <Input
-                      autoFocus
-                      value={loomUrl}
-                      onChange={(event) => {
-                        setLoomUrl(event.target.value);
-                        setLoomError(null);
-                      }}
-                      placeholder={t("importRoute.urlPlaceholder")}
-                      className="h-12 text-base"
-                      inputMode="url"
-                    />
-                    <Button
-                      type="submit"
-                      className="h-12 w-full gap-2"
-                      disabled={!loomUrl.trim()}
-                    >
-                      <IconLink className="h-4 w-4" />
-                      {t("importRoute.cta")}
-                    </Button>
-                    {loomError ? (
-                      <p className="text-xs leading-relaxed text-destructive">
-                        {loomError}
-                      </p>
-                    ) : null}
-                  </form>
-                )}
+          <div
+            className={cn(
+              "overflow-hidden rounded-2xl border border-border bg-card shadow-lg transition-opacity duration-300",
+              phase === "leaving" && "opacity-0",
+            )}
+          >
+            {busy ? (
+              <div className="h-1 w-full overflow-hidden bg-muted">
+                <div
+                  className="h-full bg-primary transition-[width] duration-200 ease-out"
+                  style={{ width: `${Math.min(100, progress)}%` }}
+                />
               </div>
-
-              {!busy ? (
-                <div className="flex items-center justify-center gap-4 border-t border-border px-6 py-4">
-                  <button
-                    type="button"
-                    onClick={() => openUploadPicker(recordHref)}
-                    className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+            ) : null}
+            <div className="p-6">
+              {phase === "importing" ? (
+                <div className="flex flex-col items-center gap-2 py-8 text-center">
+                  <AgentMark className="h-6 w-6 animate-pulse text-primary" />
+                  <p
+                    key={stageIndex}
+                    className="text-base font-semibold text-foreground"
+                    style={{ animation: "clips-benefit-in 260ms ease-out" }}
                   >
-                    <IconUpload className="h-3.5 w-3.5" />
-                    {t("preRecord.uploadVideo")}
-                  </button>
-                  <Link
-                    to={recordHref}
-                    className="text-xs font-medium text-muted-foreground hover:text-foreground"
-                  >
-                    {t("preRecord.recordNew")}
-                  </Link>
+                    {importStages[stageIndex]}
+                  </p>
+                  <p className="max-w-xs text-xs text-muted-foreground">
+                    {t("importRoute.importingSubtitle")}
+                  </p>
                 </div>
-              ) : null}
+              ) : phase === "done" || phase === "leaving" ? (
+                <div className="flex flex-col items-center gap-4 py-6 text-center">
+                  <div className="flex items-center gap-2 text-primary">
+                    <AgentMark className="h-6 w-6" />
+                    <p className="text-base font-semibold text-foreground">
+                      {t("importRoute.doneHeading")}
+                    </p>
+                  </div>
+                  <ul className="flex flex-col items-start gap-2 text-start">
+                    {benefits.map((benefit, index) => (
+                      <li
+                        key={benefit}
+                        className="flex items-center gap-2 text-sm font-medium text-foreground"
+                        style={{
+                          animation: "clips-benefit-in 220ms ease-out both",
+                          animationDelay: `${index * 110}ms`,
+                        }}
+                      >
+                        <IconCheck className="h-4 w-4 shrink-0 text-primary" />
+                        {benefit}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+                  <Input
+                    autoFocus
+                    value={loomUrl}
+                    onChange={(event) => {
+                      setLoomUrl(event.target.value);
+                      setLoomError(null);
+                    }}
+                    placeholder={t("importRoute.urlPlaceholder")}
+                    className="h-12 text-base"
+                    inputMode="url"
+                  />
+                  <Button
+                    type="submit"
+                    className="h-12 w-full gap-2"
+                    disabled={!loomUrl.trim() || storageBlocked}
+                  >
+                    <IconLink className="h-4 w-4" />
+                    {t("importRoute.cta")}
+                  </Button>
+                  {loomError ? (
+                    <p className="text-xs leading-relaxed text-destructive">
+                      {loomError}
+                    </p>
+                  ) : null}
+                </form>
+              )}
             </div>
-          ) : (
-            <StorageSetupCard
-              onConfigured={markStorageConfigured}
-              connectSource="clips_import_storage_setup_card"
-              connectFlow="import"
-            />
-          )}
+
+            {!busy ? (
+              <div className="flex items-center justify-center gap-4 border-t border-border px-6 py-4">
+                <button
+                  type="button"
+                  onClick={() => openUploadPicker(recordHref)}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+                >
+                  <IconUpload className="h-3.5 w-3.5" />
+                  {t("preRecord.uploadVideo")}
+                </button>
+                <Link
+                  to={recordHref}
+                  className="text-xs font-medium text-muted-foreground hover:text-foreground"
+                >
+                  {t("preRecord.recordNew")}
+                </Link>
+              </div>
+            ) : null}
+          </div>
+          {loomUrl.trim() && requiresStorage ? (
+            storageQuery.isError ? (
+              <StorageStatusRetry onRetry={() => void storageQuery.refetch()} />
+            ) : storageConfigured === null ? (
+              <ImportPanelSkeleton />
+            ) : !storageConfigured ? (
+              <StorageSetupCard
+                onConfigured={markStorageConfigured}
+                connectSource="clips_import_storage_setup_card"
+                connectFlow="import"
+              />
+            ) : null
+          ) : null}
         </div>
       </div>
       {uploadInput}

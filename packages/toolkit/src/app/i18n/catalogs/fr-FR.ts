@@ -720,7 +720,28 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.hubspot.useCase":
     "CRM, contacts, entreprises, transactions, tickets, analytique client",
   "mcpIntegrations.catalog.hubspot.setupNote":
-    "Lorsqu’une HubSpot MCP Auth App gérée par l’espace de travail est configurée, tout membre peut connecter un compte HubSpot personnel avec OAuth et PKCE. Sinon, créez l’app dans HubSpot Developer Platform avant de vous connecter. Le connecteur OAuth HubSpot existant reste disponible pour les actions de l’app.",
+    "Chaque personne connecte son propre compte HubSpot après la configuration de la HubSpot MCP Auth App par un propriétaire de l’espace de travail.",
+  "mcpIntegrations.hubspot.setupTitle": "Configurer HubSpot MCP",
+  "mcpIntegrations.hubspot.dialogDescription":
+    "Un propriétaire configure HubSpot MCP une seule fois. Chaque membre connecte ensuite son propre compte.",
+  "mcpIntegrations.hubspot.workspaceSetupStatus":
+    "Configuration de l’espace de travail requise",
+  "mcpIntegrations.hubspot.setupChecking":
+    "Vérification de la configuration de l’espace de travail…",
+  "mcpIntegrations.hubspot.setupUnavailable":
+    "État de la configuration indisponible",
+  "mcpIntegrations.hubspot.setupUnavailableDescription":
+    "Impossible de vérifier les paramètres OAuth de l’espace de travail. Réessayez.",
+  "mcpIntegrations.hubspot.ownerSetupDescription":
+    "Créez une HubSpot MCP Auth App, puis ajoutez son ID et son secret client dans Agent-Native settings → API keys.",
+  "mcpIntegrations.hubspot.memberSetupDescription":
+    "Demandez à un propriétaire de créer une HubSpot MCP Auth App et d’ajouter son ID et son secret client dans Agent-Native settings → API keys. Vous pourrez ensuite connecter votre propre compte HubSpot.",
+  "mcpIntegrations.hubspot.noWorkspaceDescription":
+    "Rejoignez un espace de travail avant de connecter HubSpot MCP.",
+  "mcpIntegrations.hubspot.configureWorkspaceCredentials":
+    "Ajouter les identifiants de l’espace de travail",
+  "mcpIntegrations.hubspot.refreshSetupStatus": "Vérifier à nouveau",
+  "mcpIntegrations.hubspot.retrySetupStatus": "Réessayer",
   "mcpIntegrations.catalog.pylon.description":
     "Recherchez et mettez à jour les données de support Pylon.",
   "mcpIntegrations.catalog.pylon.useCase":

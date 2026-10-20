@@ -1176,6 +1176,7 @@ const comments = {
   openPropertyComments_other: "{{count}} offene Kommentare zu {{name}}",
   openRowComments_one: "{{count}} offener Kommentar zu {{title}}",
   openRowComments_other: "{{count}} offene Kommentare zu {{title}}",
+  openRow: "Zeile öffnen",
   suggestions: "Vorschläge",
   suggestionAdd: "Hinzufügen",
   suggestionDelete: "Löschen",

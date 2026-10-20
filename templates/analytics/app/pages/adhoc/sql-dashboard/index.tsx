@@ -208,6 +208,7 @@ import {
   type FetchedDashboard,
 } from "./fetch-dashboard";
 import { interpolate, interpolateDashboardPanelSql } from "./interpolate";
+import { panelCostChange, usePanelCostNotice } from "./panel-cost-notice";
 import { serializePanelSql } from "./panel-sql";
 import { AddPanelPopover, PanelEditorDialog } from "./PanelEditorDialog";
 import { listReportablePanelIds } from "./report-panel-window";
@@ -1190,6 +1191,7 @@ function SqlDashboardPageContent({
     otherViewers: otherViewerCount(activeUsers, session?.email),
     onUndo: undoLatestSave,
   });
+  const panelCost = usePanelCostNotice(dashboardId);
 
   const updateCachedDashboardConfig = useCallback(
     (updated: SqlDashboardConfig) => {
@@ -2039,8 +2041,10 @@ function SqlDashboardPageContent({
           clampDashboardColumns(current.columns ?? DEFAULT_DASHBOARD_COLUMNS),
         ),
       }));
+      // A removed panel's cost notice would outlive it.
+      panelCost.clear(panelId);
     },
-    [persist],
+    [panelCost, persist],
   );
 
   const handleResizePanel = useCallback(
@@ -2073,6 +2077,7 @@ function SqlDashboardPageContent({
   );
   const handleSavePanel = useCallback(
     async (panel: SqlPanel, editorBaseline?: SqlPanel | null) => {
+      const cost: { change?: ReturnType<typeof panelCostChange> } = {};
       await persistThrow((current) => {
         const idx = current.panels.findIndex((p) => p.id === panel.id);
         if (editorBaseline && idx < 0) {
@@ -2086,30 +2091,43 @@ function SqlDashboardPageContent({
                 current.panels[idx],
               )
             : panel;
+        cost.change = panelCostChange(
+          idx >= 0 ? current.panels[idx] : null,
+          nextPanel,
+        );
         const nextPanels =
           idx >= 0
             ? current.panels.map((p, i) => (i === idx ? nextPanel : p))
             : [...current.panels, nextPanel];
         return { ...current, panels: nextPanels };
       });
+      if (cost.change === "notify")
+        void panelCost.notify(panel.id, panel.title);
+      // A panel turned into a section no longer costs what its notice said.
+      if (cost.change === "clear") panelCost.clear(panel.id);
     },
-    [persistThrow],
+    [panelCost, persistThrow],
   );
   const handleSaveSql = useCallback(
     async (panelId: string, sql: string) => {
+      const edit: { title?: string } = {};
       await persistThrow((current) => {
-        if (!current.panels.some((panel) => panel.id === panelId)) {
-          return current;
-        }
+        const panel = current.panels.find((p) => p.id === panelId);
+        edit.title =
+          panel && serializePanelSql(panel.sql) !== serializePanelSql(sql)
+            ? panel.title
+            : undefined;
+        if (!panel) return current;
         return {
           ...current,
-          panels: current.panels.map((panel) =>
-            panel.id === panelId ? { ...panel, sql } : panel,
+          panels: current.panels.map((p) =>
+            p.id === panelId ? { ...p, sql } : p,
           ),
         };
       });
+      if (edit.title !== undefined) void panelCost.notify(panelId, edit.title);
     },
-    [persistThrow],
+    [panelCost, persistThrow],
   );
   const handleSaveEditedPanel = useCallback(
     async (panel: SqlPanel) => {

@@ -120,6 +120,33 @@ function untilDeadline<T>(
 /** How long the provider client gives a request before it ends it itself. */
 const REQUEST_TIMEOUT_MS = 30_000;
 
+/**
+ * The reasons this client ends a request with when a caller's time runs out.
+ * The provider client ends a request at its own timeout with a plain abort,
+ * so a read can tell a caller's deadline, its own or another's on a request
+ * they shared, apart from GitHub not answering.
+ */
+const callerDeadlines = new WeakSet<object>();
+
+/**
+ * A signal for the provider client that ends when the caller's does, with a
+ * reason marked as a caller's deadline. `release` stops listening.
+ */
+function deadlineSignal(signal: AbortSignal) {
+  const controller = new AbortController();
+  const end = () => {
+    const reason = new DOMException("The caller's time ran out.", "AbortError");
+    callerDeadlines.add(reason);
+    controller.abort(reason);
+  };
+  if (signal.aborted) end();
+  else signal.addEventListener("abort", end, { once: true });
+  return {
+    signal: controller.signal,
+    release: () => signal.removeEventListener("abort", end),
+  };
+}
+
 /** How the provider client reports a request that a signal ended. */
 function endedBySignal(error: unknown): boolean {
   const cause =
@@ -131,6 +158,13 @@ function endedBySignal(error: unknown): boolean {
   );
 }
 
+/** Whether a caller's deadline ended the request, not the client's timeout. */
+function endedByCallerDeadline(error: unknown): boolean {
+  const cause =
+    error instanceof Error ? (error as { cause?: unknown }).cause : undefined;
+  return !!cause && typeof cause === "object" && callerDeadlines.has(cause);
+}
+
 async function githubGet(
   target: GitHubRepositoryTarget,
   path: string,
@@ -140,13 +174,13 @@ async function githubGet(
   // turn under GitHub's rate limits, and identical reads in flight share one
   // request, which the first caller's signal ends. So this read stops waiting
   // at its own deadline, and while it has time left, or has no deadline, asks
-  // once more when some other signal ended it, such as another caller's on a
-  // read they shared, like a link preview's read shared with a sync. If
-  // that ends too, GitHub didn't answer in time, the same as at its own
-  // deadline, rather than something wrong with the link. The client ends a
-  // request at its own timeout the same way, so a try that lasted that long
-  // isn't sent again.
+  // once more when another caller's deadline ended it, as on a link
+  // preview's read shared with a sync. If that ends too, GitHub didn't
+  // answer in time, the same as at its own deadline, rather than something
+  // wrong with the link. A request the client ended at its own timeout isn't
+  // sent again.
   const send = () => {
+    const ending = target.signal ? deadlineSignal(target.signal) : null;
     const request = executeGitHubSourceRequest({
       provider: "github",
       method: "GET",
@@ -155,17 +189,17 @@ async function githubGet(
       connectionId: target.connectionId ?? undefined,
       maxBytes: options.maxBytes,
       timeoutMs: REQUEST_TIMEOUT_MS,
-      signal: target.signal,
+      signal: ending?.signal,
     });
+    if (ending) request.then(ending.release, ending.release);
     return target.signal ? untilDeadline(request, target.signal) : request;
   };
-  const started = Date.now();
   let raw: unknown;
   try {
     raw = await send().catch((error: unknown) => {
-      const endedElsewhere =
-        endedBySignal(error) && Date.now() - started < REQUEST_TIMEOUT_MS;
-      if (!target.signal?.aborted && endedElsewhere) return send();
+      if (!target.signal?.aborted && endedByCallerDeadline(error)) {
+        return send();
+      }
       throw error;
     });
   } catch (error) {

@@ -11,6 +11,15 @@ import { type EditorView } from "@tiptap/pm/view";
 
 export const DEFAULT_DRAG_HANDLE_WRAPPER_SELECTOR = ".visual-editor-wrapper";
 
+// The block menu and drag act while focus is outside the editor. Apps that
+// skip unfocused changes nobody marked as the user's (Content's collaborative
+// save) would drop these edits without it. Not "drop": that runs paste rules.
+export const DRAG_HANDLE_UI_EVENT = "dragHandle";
+
+function markUserAction(tr: Transaction) {
+  return tr.setMeta("uiEvent", DRAG_HANDLE_UI_EVENT);
+}
+
 export interface DragHandleOptions {
   wrapperSelector: string;
   getDragTransferData?: (context: {
@@ -610,7 +619,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
           bias,
         ),
       );
-      view.dispatch(tr.scrollIntoView());
+      view.dispatch(markUserAction(tr).scrollIntoView());
       view.focus();
     };
 
@@ -623,7 +632,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
 
       try {
         tr.setSelection(NodeSelection.create(tr.doc, insertPos));
-        resolved.view.dispatch(tr.scrollIntoView());
+        resolved.view.dispatch(markUserAction(tr).scrollIntoView());
         resolved.view.focus();
       } catch {
         focusSelectionNear(resolved.view, tr, insertPos, 1);
@@ -659,7 +668,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       const paragraphNode = paragraph.createAndFill() ?? paragraph.create();
       const tr = resolved.view.state.tr.insert(insertPos, paragraphNode);
       tr.setSelection(TextSelection.create(tr.doc, insertPos + 1));
-      resolved.view.dispatch(tr.scrollIntoView());
+      resolved.view.dispatch(markUserAction(tr).scrollIntoView());
       resolved.view.focus();
     };
 
@@ -1106,7 +1115,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
                 .delete(sourceStart, sourceEnd)
                 .insert(insertPos, sourceNode);
 
-              session.view.dispatch(tr.scrollIntoView());
+              session.view.dispatch(markUserAction(tr).scrollIntoView());
               dropCommitted = true;
             } else {
               try {
@@ -1123,13 +1132,13 @@ export const DragHandle = Extension.create<DragHandleOptions>({
                   dropPos,
                   targetNode,
                 );
-                target.view.dispatch(insertTr.scrollIntoView());
+                target.view.dispatch(markUserAction(insertTr).scrollIntoView());
 
                 const deleteTr = session.view.state.tr.delete(
                   sourceStart,
                   sourceEnd,
                 );
-                session.view.dispatch(deleteTr);
+                session.view.dispatch(markUserAction(deleteTr));
                 dropCommitted = true;
               } catch {
                 // If the target schema cannot accept this node, leave the

@@ -316,7 +316,12 @@ if (workflow) {
       if?: string;
       "timeout-minutes"?: unknown;
       env?: Record<string, unknown>;
-      steps?: Array<{ name?: unknown; run?: unknown }>;
+      outputs?: Record<string, unknown>;
+      steps?: Array<{
+        name?: unknown;
+        run?: unknown;
+        env?: Record<string, unknown>;
+      }>;
       strategy?: {
         "max-parallel"?: unknown;
         matrix?: {
@@ -329,6 +334,26 @@ if (workflow) {
       jobs?: Record<string, WorkflowJob>;
     };
     const jobs = parsed.jobs ?? {};
+    const matrixStep = jobs.discover?.steps?.find(
+      (step) => step.name === "Build the host matrix",
+    );
+    const matrixScript = String(matrixStep?.run ?? "");
+    const literalGrepLanes = ["public", "fleet", "authed", "advisory"].every(
+      (job) =>
+        String(jobs[job]?.env?.BETA_E2E_GREP ?? "").replace(/\s/g, "") ===
+        "${{needs.discover.outputs.grep}}",
+    );
+    if (
+      jobs.discover?.outputs?.grep !== "${{ steps.matrix.outputs.grep }}" ||
+      matrixStep?.env?.REQUESTED_GREP !== "${{ inputs.grep }}" ||
+      !matrixScript.includes("const playwrightGrep = requestedGrep.replace(") ||
+      !matrixScript.includes("grep=${playwrightGrep}") ||
+      !literalGrepLanes
+    ) {
+      issues.push(
+        `${workflowPath} must escape grep as a literal title substring in discover and pass that result to every lane; passing raw input to Playwright interprets punctuation such as [chat-reliability] as regex syntax.`,
+      );
+    }
     const hasNeed = (job: string, dependency: string): boolean => {
       const needs = jobs[job]?.needs;
       return Array.isArray(needs)
