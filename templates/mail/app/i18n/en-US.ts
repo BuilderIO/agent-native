@@ -305,7 +305,7 @@ const messages = {
       openProviderSettings: "Open {{provider}} Settings",
       apolloDescription: "Contact enrichment & company data",
       hubspotDescription: "CRM contacts, deals & tickets",
-      gongDescription: "Recent calls & conversation intelligence",
+      gongDescription: "Ask the agent about Gong calls and deals",
       pylonDescription: "Support issues & account data",
       gongCalls: "Gong Calls",
       deals: "Deals",

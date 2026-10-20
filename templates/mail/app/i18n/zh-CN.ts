@@ -295,7 +295,7 @@ const messages = {
       openProviderSettings: "Open {{provider}} Settings",
       apolloDescription: "联系人补全和公司数据",
       hubspotDescription: "CRM 联系人、交易和工单",
-      gongDescription: "近期通话和对话智能",
+      gongDescription: "向智能体询问 Gong 通话和交易",
       pylonDescription: "支持问题和账户数据",
       gongCalls: "Gong 通话",
       deals: "交易",

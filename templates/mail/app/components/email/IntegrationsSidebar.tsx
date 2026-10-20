@@ -1,6 +1,12 @@
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  useCreateMcpServer,
+  useMcpServers,
+  type CreateMcpServerArgs,
+} from "@agent-native/core/client/resources";
 import { useSendToAgentChat } from "@agent-native/toolkit/app/chat/composer";
 import { ExtensionSlot } from "@agent-native/toolkit/app/extensions";
+import { McpIntegrationDialog } from "@agent-native/toolkit/app/resources";
 import {
   IconPlus,
   IconCheck,
@@ -8,7 +14,7 @@ import {
   IconChevronLeft,
   IconArrowUp,
 } from "@tabler/icons-react";
-import { useState, useEffect, useRef } from "react";
+import { useCallback, useState, useEffect, useRef } from "react";
 
 import {
   DropdownMenu,
@@ -36,6 +42,10 @@ import {
   usePylonContact,
   isAuthError,
 } from "@/hooks/use-integrations";
+import {
+  canManageGongConnection,
+  hasConnectedGongMcpServer,
+} from "@/lib/gong-connection";
 import type { MailIntegrationStatuses } from "@/lib/integration-status";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import { cn } from "@/lib/utils";
@@ -58,9 +68,9 @@ interface IntegrationDef {
   id: ProviderId;
   name: string;
   descriptionKey: string;
-  keyPlaceholder: string;
-  helpUrl: string;
-  helpSteps: string[];
+  keyPlaceholder?: string;
+  helpUrl?: string;
+  helpSteps?: string[];
   logo: React.ReactNode;
 }
 
@@ -131,13 +141,6 @@ const INTEGRATIONS: IntegrationDef[] = [
     id: "gong",
     name: "Gong",
     descriptionKey: "mail.integrations.gongDescription",
-    keyPlaceholder: "Gong API key or access_key:secret...",
-    helpUrl: "https://app.gong.io/company/api",
-    helpSteps: [
-      "Go to Gong > Company Settings > API",
-      "Generate API credentials",
-      "Copy the access key (or key:secret)",
-    ],
     logo: (
       <svg
         viewBox="0 0 42 42"
@@ -275,8 +278,27 @@ export function IntegrationsSidebar({
 }
 
 function IntegrationSetup({ statuses }: { statuses: MailIntegrationStatuses }) {
+  const t = useT();
   const [expanded, setExpanded] = useState(false);
   const [configuring, setConfiguring] = useState<ProviderId | null>(null);
+  const [gongDialogOpen, setGongDialogOpen] = useState(false);
+  const mcpServersQuery = useMcpServers({ defer: true });
+  const createMcpServer = useCreateMcpServer();
+  const mcpServers = mcpServersQuery.data;
+  const canManageGong =
+    mcpServersQuery.isSuccess && canManageGongConnection(mcpServers);
+  const canCreateOrgMcp = Boolean(mcpServers?.orgId && canManageGong);
+  const gongConnected =
+    mcpServersQuery.isSuccess && hasConnectedGongMcpServer(mcpServers);
+  const handleCreateMcpServer = useCallback(
+    async (args: CreateMcpServerArgs) => {
+      if (args.scope === "org" && !canCreateOrgMcp) {
+        throw new Error(t("mail.error.failedToConnect"));
+      }
+      return createMcpServer.mutateAsync(args);
+    },
+    [canCreateOrgMcp, createMcpServer, t],
+  );
 
   if (configuring) {
     const def = INTEGRATIONS.find((i) => i.id === configuring)!;
@@ -289,7 +311,7 @@ function IntegrationSetup({ statuses }: { statuses: MailIntegrationStatuses }) {
     const connectedCount = [
       statuses.apollo,
       statuses.hubspot,
-      statuses.gong,
+      statuses.gong || gongConnected,
       statuses.pylon,
     ].filter(Boolean).length;
     return (
@@ -320,19 +342,35 @@ function IntegrationSetup({ statuses }: { statuses: MailIntegrationStatuses }) {
         </button>
       </div>
       <div className="space-y-1.5">
-        {INTEGRATIONS.map((def) => {
-          const connected = statuses[def.id];
-          return (
-            <IntegrationRow
-              key={def.id}
-              def={def}
-              connected={connected}
-              onConfigure={() => setConfiguring(def.id)}
-            />
-          );
-        })}
+        {INTEGRATIONS.filter((def) => def.id !== "gong" || canManageGong).map(
+          (def) => {
+            const connected =
+              def.id === "gong" ? gongConnected : statuses[def.id];
+            return (
+              <IntegrationRow
+                key={def.id}
+                def={def}
+                connected={connected}
+                onConfigure={() => {
+                  if (def.id === "gong") setGongDialogOpen(true);
+                  else setConfiguring(def.id);
+                }}
+              />
+            );
+          },
+        )}
         <AddIntegrationButton />
       </div>
+      <McpIntegrationDialog
+        open={gongDialogOpen}
+        onOpenChange={setGongDialogOpen}
+        initialIntegrationId={gongDialogOpen ? "gong" : null}
+        defaultScope="org"
+        canCreateOrgMcp={canCreateOrgMcp}
+        hasOrg={Boolean(mcpServers?.orgId)}
+        onCreateMcpServer={handleCreateMcpServer}
+        onCreated={() => void mcpServersQuery.refetch()}
+      />
     </div>
   );
 }
@@ -475,32 +513,34 @@ function IntegrationRow({
           <div className="h-5 w-5 rounded-full bg-emerald-500/20 flex items-center justify-center">
             <IconCheck className="h-3 w-3 text-emerald-400" />
           </div>
-          <DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenuTrigger asChild>
-                  <button className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground/30 hover:text-muted-foreground transition-colors">
-                    <IconSettings className="h-3.5 w-3.5" />
-                  </button>
-                </DropdownMenuTrigger>
-              </TooltipTrigger>
-              <TooltipContent>{t("mail.toolbar.settings")}</TooltipContent>
-            </Tooltip>
-            <DropdownMenuContent align="end" className="w-36">
-              <DropdownMenuItem
-                onClick={() => onConfigure()}
-                className="text-[12px] text-foreground/70"
-              >
-                {t("mail.integrations.updateKey")}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => disconnect.mutate()}
-                className="text-[12px] text-red-400/80"
-              >
-                {t("mail.integrations.disconnect")}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {def.id !== "gong" && (
+            <DropdownMenu>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <button className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground/30 hover:text-muted-foreground transition-colors">
+                      <IconSettings className="h-3.5 w-3.5" />
+                    </button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent>{t("mail.toolbar.settings")}</TooltipContent>
+              </Tooltip>
+              <DropdownMenuContent align="end" className="w-36">
+                <DropdownMenuItem
+                  onClick={() => onConfigure()}
+                  className="text-[12px] text-foreground/70"
+                >
+                  {t("mail.integrations.updateKey")}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => disconnect.mutate()}
+                  className="text-[12px] text-red-400/80"
+                >
+                  {t("mail.integrations.disconnect")}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
       ) : (
         <button
@@ -581,7 +621,7 @@ function IntegrationKeyEntry({
           {t("mail.integrations.getApiKey")}
         </p>
         <ol className="text-[11px] text-muted-foreground/50 space-y-0.5 list-decimal ps-3 mb-1.5">
-          {def.helpSteps.map((step, i) => (
+          {def.helpSteps?.map((step, i) => (
             <li key={i}>{step}</li>
           ))}
         </ol>
@@ -1037,11 +1077,17 @@ function GongSection({ email }: { email: string }) {
 
   if (isLoading) return <SectionLoading />;
   if (!calls || calls.length === 0) {
-    if (error) {
+    if (error)
       return (
-        <IntegrationNotice email={email} error={error} providerId="gong" />
+        <div
+          className="mx-4 border-t border-border/30 px-0 py-3"
+          aria-live="polite"
+        >
+          <p className="text-[11px] text-muted-foreground/70">
+            {t("mail.error.loadTitle")}
+          </p>
+        </div>
       );
-    }
     return null;
   }
 

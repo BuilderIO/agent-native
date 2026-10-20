@@ -302,7 +302,7 @@ const messages = {
       openProviderSettings: "Open {{provider}} Settings",
       apolloDescription: "연락처 보강 및 회사 데이터",
       hubspotDescription: "CRM 연락처, 거래 및 티켓",
-      gongDescription: "최근 통화 및 대화 인텔리전스",
+      gongDescription: "Gong 통화 및 거래에 대해 에이전트에게 질문",
       pylonDescription: "지원 이슈 및 계정 데이터",
       gongCalls: "Gong 통화",
       deals: "거래",

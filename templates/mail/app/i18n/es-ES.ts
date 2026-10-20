@@ -314,7 +314,7 @@ const messages = {
       openProviderSettings: "Open {{provider}} Settings",
       apolloDescription: "Enriquecimiento de contactos y datos de empresa",
       hubspotDescription: "Contactos, negocios y tickets de CRM",
-      gongDescription: "Llamadas recientes e inteligencia conversacional",
+      gongDescription: "Pregunta al agente sobre llamadas y acuerdos de Gong",
       pylonDescription: "Incidencias de soporte y datos de cuenta",
       gongCalls: "Llamadas de Gong",
       deals: "Negocios",

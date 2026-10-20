@@ -44,26 +44,30 @@ better than guessing an address pattern.
   reading the user's own HubSpot API key configured in Settings. If no key is
   configured it returns `{ error: "HubSpot API key not configured" }` —
   surface that plainly rather than treating it as "no CRM data exists."
-- **Gong, Pylon, and Apollo are UI-only in Mail.** They have server route
-  handlers (`server/handlers/gong.ts`, `pylon.ts`, `apollo.ts`) that power the
-  CRM sidebar panel in the email view, each reading its own per-session API
-  key from `appStateGet`. None of the three is registered in Mail's
-  `MAIL_PROVIDER_API_IDS` (see `listProviderApiIdsForTemplateUse("mail")` in
-  `server/lib/provider-api.ts`, which currently resolves to `gmail`,
-  `google_calendar`, and `hubspot` only). This means:
-  - There is no agent action for Gong calls, Pylon tickets, or Apollo person
-    lookups in Mail.
+- **Gong MCP is available to the agent after connecting it from the CRM
+  sidebar.** Workspace setup is only shown to organization owners and admins;
+  Gong also requires its tech admin to register the MCP integration. Connected
+  Gong tools inherit the authorizing user's Gong permissions. Use those tools
+  when available for Gong questions.
+- Gong, Pylon, and Apollo CRM sidebar panels still use server route handlers
+  (`server/handlers/gong.ts`, `pylon.ts`, `apollo.ts`) that read their own
+  per-session API keys from `appStateGet`. None of the three is registered in
+  Mail's `MAIL_PROVIDER_API_IDS` (see
+  `listProviderApiIdsForTemplateUse("mail")` in `server/lib/provider-api.ts`,
+  which currently resolves to `gmail`, `google_calendar`, and `hubspot` only).
+  This means:
+  - There is no first-party Mail action for Gong calls, Pylon tickets, or
+    Apollo person lookups.
   - `provider-api-request` will refuse `provider: "gong"`, `"pylon"`, or
     `"apollo"` in this app even though those provider ids exist in the shared
     catalog — they're enabled for other templates (e.g. Analytics), not Mail.
-  - If the user asks the agent to pull a Gong call or Pylon ticket from Mail,
-    say plainly that integration is visible in the UI sidebar only today; do
-    not fabricate a result or imply `provider-api-request` can reach it.
-- **Provider API-key connections are Settings-UI only.** Gong, Pylon, Apollo,
-  and HubSpot keys are saved through raw `/api/*` routes from the Settings UI —
-  there are no `save-*-key` actions. The agent can read HubSpot data via
-  `get-hubspot-contact` but cannot configure any of these connections on the
-  user's behalf; ask the user to add the key in Settings.
+  - If the user asks for Gong data and no Gong MCP tools are connected, say
+    plainly that Mail has no first-party Gong action; do not imply
+    `provider-api-request` can reach it.
+- **App API-key connections are UI-only.** Gong, Pylon, Apollo, and HubSpot
+  keys are saved through `/api/*` routes; there are no `save-*-key` actions.
+  The agent can read HubSpot data via `get-hubspot-contact` but cannot
+  configure API-key connections on the user's behalf.
 - For HubSpot data outside contact lookup (deals search, ticket creation,
   property metadata), use `provider-api-catalog` / `provider-api-docs` with
   `provider: "hubspot"`, then `provider-api-request` — `get-hubspot-contact`

@@ -306,7 +306,7 @@ const messages = {
       openProviderSettings: "Open {{provider}} Settings",
       apolloDescription: "إثراء جهات الاتصال وبيانات الشركة",
       hubspotDescription: "جهات اتصال CRM والصفقات والتذاكر",
-      gongDescription: "المكالمات الحديثة وذكاء المحادثات",
+      gongDescription: "اسأل الوكيل عن مكالمات Gong والصفقات",
       pylonDescription: "مشكلات الدعم وبيانات الحساب",
       gongCalls: "مكالمات Gong",
       deals: "الصفقات",
