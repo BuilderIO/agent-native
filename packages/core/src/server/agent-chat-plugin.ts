@@ -166,6 +166,7 @@ import {
   markQueuedSubmissionSubmitted,
   queuedSubmissionBehaviorMatches,
   recordQueuedSubmissionInterruptRun,
+  renewQueuedSubmissionInterruptClaim,
   registerChatThreadsShareable,
   retryQueuedSubmissionReceipt,
   resolveRunThreadScope,
@@ -7020,8 +7021,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 runId,
                 reason,
               );
-              if (aborted && USER_STOP_ABORT_REASONS.has(reason)) {
-                await abortTurnDurably(runId, reason);
+              if (USER_STOP_ABORT_REASONS.has(reason)) {
+                const latest = aborted ? null : await getRunById(runId);
+                if (aborted || latest?.status === "aborted") {
+                  await abortTurnDurably(runId, reason);
+                }
               }
               return { ok: true, aborted };
             }
@@ -8598,6 +8602,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
 
             const finishInterrupt = async (runId: string) => {
+              if (
+                !(await renewQueuedSubmissionInterruptClaim({
+                  threadId: receipt.threadId,
+                  messageId: receipt.messageId,
+                  runId,
+                  claimId: claimId!,
+                }))
+              ) {
+                return false;
+              }
               const aborted = await abortRunAtSafeBoundaryDurably(
                 runId,
                 "user",
@@ -8612,12 +8626,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 ) {
                   return false;
                 }
-                if (latest.status === "aborted") {
-                  await abortTurnDurably(runId, "user");
-                }
-              } else {
-                await abortTurnDurably(runId, "user");
               }
+              await abortTurnDurably(runId, "user");
               if (!(await waitForStableIdle(receipt.threadId))) return false;
               const cleared = await clearQueuedSubmissionInterruptRun({
                 threadId: receipt.threadId,

@@ -12,7 +12,10 @@ import {
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./engine/credential-errors.js";
 import { EngineError } from "./engine/types.js";
-import { currentExecutionFence } from "./execution-fence.js";
+import {
+  currentExecutionFence,
+  withExecutionFence,
+} from "./execution-fence.js";
 import type { AgentChatEvent } from "./types.js";
 
 const RUN_RECORD_MISSING_ERROR_CODE = "run_record_missing";
@@ -1729,6 +1732,54 @@ describe("run manager soft timeout", () => {
       "turn-ref-abort",
       "dismissed",
     );
+  });
+
+  it("does not abort a replacement in-memory run when a stale turn abort is rejected", async () => {
+    const threadId = "thread-stale-turn-abort";
+    const turnId = "turn-stale-turn-abort";
+    const staleRun = startRun(
+      "run-stale-turn-abort",
+      threadId,
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", resolve, { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0, turnId },
+    );
+    const replacementRun = startRun(
+      "run-replacement-turn-abort",
+      threadId,
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", resolve, { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0, turnId },
+    );
+    const staleFence = {
+      threadId,
+      turnId,
+      runId: staleRun.runId,
+      generation: "1",
+    };
+    vi.mocked(markTurnAborted).mockRejectedValueOnce(
+      new Error("stale execution fence"),
+    );
+
+    await expect(
+      withExecutionFence(staleFence, () =>
+        abortTurnByRefDurably(threadId, turnId, "user"),
+      ),
+    ).rejects.toThrow("stale execution fence");
+
+    expect(staleRun.abort.signal.aborted).toBe(true);
+    expect(replacementRun.abort.signal.aborted).toBe(false);
+    await staleRun.finalized;
+    replacementRun.abort.abort("test cleanup");
+    await replacementRun.finalized;
   });
 
   it("propagates durable turn-marker failures so callers can retry", async () => {

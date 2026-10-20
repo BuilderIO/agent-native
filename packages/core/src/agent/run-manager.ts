@@ -27,7 +27,9 @@ import { getAgentEngineEntry } from "./engine/registry.js";
 import { EngineError } from "./engine/types.js";
 import type { EngineRequestShape } from "./engine/types.js";
 import {
+  currentExecutionFence,
   MissingExecutionFenceError,
+  StaleExecutionFenceError,
   withExecutionFence,
   withExecutionLeaseRequested,
   type ExecutionFence,
@@ -3016,9 +3018,17 @@ export async function abortTurnByRefDurably(
   turnId: string,
   reason: string = "user",
 ): Promise<"aborted" | "already_terminal"> {
+  const fence = currentExecutionFence();
+  if (fence && (fence.threadId !== threadId || fence.turnId !== turnId)) {
+    throw new StaleExecutionFenceError(fence);
+  }
   const runsToFlush: ActiveRun[] = [];
   for (const run of activeRuns.values()) {
-    if (run.threadId === threadId && run.turnId === turnId) {
+    if (
+      run.threadId === threadId &&
+      run.turnId === turnId &&
+      (!fence || run.runId === fence.runId)
+    ) {
       abortInMemoryRun(run, reason);
       runsToFlush.push(run);
     }

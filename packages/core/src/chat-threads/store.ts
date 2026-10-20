@@ -2247,6 +2247,25 @@ export async function recordQueuedSubmissionInterruptRun(input: {
   return mutateQueuedSubmissionInterruptRun(input, "record");
 }
 
+/** Renews a live interruption claim before its recorded run is aborted. */
+export async function renewQueuedSubmissionInterruptClaim(input: {
+  threadId: string;
+  messageId: string;
+  runId: string;
+  claimId: string;
+}): Promise<boolean> {
+  const result = await mutateThreadQueuedMessages(input.threadId, {
+    type: "renewClaim",
+    messageId: input.messageId,
+    runId: input.runId,
+    claimId: input.claimId,
+  });
+  return (
+    result?.claimLost !== true &&
+    result?.claimedMessage?.promotionClaim?.id === input.claimId
+  );
+}
+
 /** Clear a recorded interruption only after its turn abort is durable. */
 export async function clearQueuedSubmissionInterruptRun(input: {
   threadId: string;
@@ -2284,6 +2303,12 @@ export type ThreadQueuedMessageMutation =
       runId: string;
       claimId: string;
     }
+  | {
+      type: "renewClaim";
+      messageId: string;
+      runId: string;
+      claimId: string;
+    }
   | { type: "release"; messageId: string; claimId: string };
 
 export interface ThreadQueuedMessageMutationResult {
@@ -2298,6 +2323,7 @@ export interface ThreadQueuedMessageMutationResult {
   receiptUnavailable?: boolean;
   receiptConflict?: boolean;
   receiptUpdated?: boolean;
+  claimLost?: boolean;
   released?: boolean;
 }
 
@@ -2698,6 +2724,36 @@ export async function mutateThreadQueuedMessages(
               }
               break;
             }
+            case "renewClaim": {
+              const index = current.findIndex(
+                (message) => message.id === mutation.messageId,
+              );
+              const message = index >= 0 ? current[index] : undefined;
+              const now = Date.now();
+              if (
+                !message ||
+                queuedSubmissionExpired(message, now) ||
+                !receiptMutationOwnsPromotionClaim(
+                  message,
+                  mutation.claimId,
+                  now,
+                )
+              ) {
+                response = { claimLost: true };
+                break;
+              }
+              const claimedMessage = {
+                ...message,
+                promotionClaim: {
+                  id: mutation.claimId,
+                  expiresAt: now + QUEUED_MESSAGE_CLAIM_TTL_MS,
+                },
+              };
+              queuedMessages = [...current];
+              queuedMessages[index] = claimedMessage;
+              response = { claimedMessage };
+              break;
+            }
             case "release": {
               const index = current.findIndex(
                 (message) => message.id === mutation.messageId,
@@ -2737,41 +2793,61 @@ export async function mutateThreadQueuedMessages(
                 }
                 return true;
               }
-            : mutation.type === "recordInterruptRun" ||
-                mutation.type === "clearInterruptRun"
+            : mutation.type === "renewClaim"
               ? async (tx) => {
-                  const ownsClaim = receiptMutationOwnsPromotionClaim(
-                    receiptClaimMessage,
-                    mutation.claimId,
-                    Date.now(),
-                  );
-                  if (!ownsClaim) {
-                    if (result) result.claimBusy = true;
-                    return false;
-                  }
                   const receipt = await readQueuedSubmissionReceipt(
                     tx,
                     threadId,
                     mutation.messageId,
                   );
-                  return (
-                    receipt?.state === "queued" &&
-                    (!receipt.interruptRunId ||
-                      receipt.interruptRunId === mutation.runId)
-                  );
+                  if (
+                    result?.claimLost === true ||
+                    receipt?.state !== "queued" ||
+                    receipt.interruptRunId !== mutation.runId
+                  ) {
+                    if (result) {
+                      result.claimLost = true;
+                      result.claimedMessage = undefined;
+                    }
+                    return false;
+                  }
+                  return true;
                 }
-              : mutation.type === "retryReceipt" ||
-                  mutation.type === "blockReceipt"
-                ? async () => {
+              : mutation.type === "recordInterruptRun" ||
+                  mutation.type === "clearInterruptRun"
+                ? async (tx) => {
                     const ownsClaim = receiptMutationOwnsPromotionClaim(
                       receiptClaimMessage,
                       mutation.claimId,
                       Date.now(),
                     );
-                    if (!ownsClaim && result) result.claimBusy = true;
-                    return ownsClaim;
+                    if (!ownsClaim) {
+                      if (result) result.claimBusy = true;
+                      return false;
+                    }
+                    const receipt = await readQueuedSubmissionReceipt(
+                      tx,
+                      threadId,
+                      mutation.messageId,
+                    );
+                    return (
+                      receipt?.state === "queued" &&
+                      (!receipt.interruptRunId ||
+                        receipt.interruptRunId === mutation.runId)
+                    );
                   }
-                : undefined,
+                : mutation.type === "retryReceipt" ||
+                    mutation.type === "blockReceipt"
+                  ? async () => {
+                      const ownsClaim = receiptMutationOwnsPromotionClaim(
+                        receiptClaimMessage,
+                        mutation.claimId,
+                        Date.now(),
+                      );
+                      if (!ownsClaim && result) result.claimBusy = true;
+                      return ownsClaim;
+                    }
+                  : undefined,
         afterUpdate: async (tx) => {
           if (!result) return;
           if (

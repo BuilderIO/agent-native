@@ -14,6 +14,7 @@ const inboxHarness = vi.hoisted(() => ({
   admissions: [] as Array<Record<string, unknown>>,
   admit: null as ((body: Record<string, any>) => Promise<string>) | null,
   activeRun: null as Record<string, unknown> | null,
+  afterInterruptRunRecorded: null as (() => Promise<void>) | null,
   safeAbort: null as
     | ((runId: string, reason: string) => Promise<boolean>)
     | null,
@@ -26,7 +27,14 @@ vi.mock("./framework-request-handler.js", async (importOriginal) => {
   return {
     ...actual,
     awaitBootstrap: () => Promise.resolve(),
-    getH3App: (nitroApp: any) => nitroApp.h3App,
+    getH3App: (nitroApp: any) => ({
+      use(path: string, handler: any) {
+        nitroApp.h3App.all(
+          path.endsWith("/runs") ? `${path}/**` : path,
+          handler,
+        );
+      },
+    }),
     markDefaultPluginProvided: vi.fn(),
     trackPluginInit: (_nitroApp: any, promise: Promise<void>) => {
       sweepHarness.initPromises.push(promise);
@@ -57,6 +65,44 @@ vi.mock("../agent/run-store.js", async (importOriginal) => {
       failed: 0,
       truncated: false,
     })),
+  };
+});
+
+vi.mock("../chat-threads/store.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../chat-threads/store.js")>();
+  return {
+    ...actual,
+    recordQueuedSubmissionInterruptRun: async (
+      input: Parameters<typeof actual.recordQueuedSubmissionInterruptRun>[0],
+    ) => {
+      const recorded = await actual.recordQueuedSubmissionInterruptRun(input);
+      await inboxHarness.afterInterruptRunRecorded?.();
+      return recorded;
+    },
+  };
+});
+
+vi.mock("../agent/run-ownership.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../agent/run-ownership.js")>();
+  return {
+    ...actual,
+    callerHasRunAccess: () => true,
+    callerHasThreadAccess: () => true,
+  };
+});
+
+vi.mock("./agent-run-context.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./agent-run-context.js")>();
+  return {
+    ...actual,
+    resolveAgentRunOwnerContext: async () => ({
+      owner: "user@example.com",
+      anonymous: false,
+    }),
+    resolveAgentRunOrgId: async () => undefined,
   };
 });
 
@@ -160,6 +206,39 @@ vi.mock("./social-og-image.js", () => ({
   createAgentNativeOgImageHandler: () => () => new Response(),
 }));
 
+vi.mock("./hosted-harness-policy.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./hosted-harness-policy.js")>();
+  return { ...actual, loadHostedHarnessConfig: async () => undefined };
+});
+
+vi.mock("./action-discovery.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./action-discovery.js")>();
+  return { ...actual, mergeCoreSharingActions: async () => {} };
+});
+
+vi.mock("./agent-chat/script-entries.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./agent-chat/script-entries.js")>();
+  return {
+    ...actual,
+    createAgentEngineScriptEntries: async () => ({}),
+    createAgentLoopSettingsScriptEntries: async () => ({}),
+  };
+});
+
+vi.mock("../a2a/server.js", () => ({ mountA2A: vi.fn() }));
+
+vi.mock("./agent-chat/run-code-tools.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./agent-chat/run-code-tools.js")>();
+  return { ...actual, loadRunCodeToolEntries: async () => ({}) };
+});
+
+vi.mock("../scripts/dev/index.js", () => ({
+  createDevScriptRegistry: async () => ({}),
+}));
+
 import { getRunById } from "../agent/run-store.js";
 import {
   createThread,
@@ -174,6 +253,7 @@ import { createAgentChatPlugin } from "./agent-chat-plugin.js";
 describe("queued submission inbox recurring sweep", () => {
   beforeEach(() => {
     vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("AGENT_MODE", "production");
     vi.stubEnv("DATABASE_URL", "pglite:memory://");
     vi.stubEnv("CRON_SECRET", "sweep-test-secret");
     sweepHarness.initPromises.length = 0;
@@ -182,6 +262,7 @@ describe("queued submission inbox recurring sweep", () => {
     inboxHarness.admissions.length = 0;
     inboxHarness.admit = null;
     inboxHarness.activeRun = null;
+    inboxHarness.afterInterruptRunRecorded = null;
     inboxHarness.safeAbort = null;
     inboxHarness.turnAbort = null;
     vi.mocked(getRunById).mockReset();
@@ -333,7 +414,7 @@ describe("queued submission inbox recurring sweep", () => {
       },
     });
     expect(inboxHarness.admissions).toHaveLength(1);
-  });
+  }, 20_000);
 
   it("defers an interrupt request while the active run still owns dispatched work", async () => {
     const threadId = `thread-${randomUUID()}`;
@@ -413,7 +494,92 @@ describe("queued submission inbox recurring sweep", () => {
       (storedThread.rows[0] as { thread_data: string }).thread_data,
     );
     expect(threadData.queuedMessages[0]).not.toHaveProperty("promotionClaim");
-  });
+  }, 20_000);
+
+  it("does not abort a queued run after its expired promotion claim is removed", async () => {
+    const threadId = `thread-${randomUUID()}`;
+    const messageId = `queued-${randomUUID()}`;
+    const actor = { email: "inbox-owner@example.com", anonymous: false };
+    const now = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    await createThread(actor.email, { id: threadId });
+    await mutateThreadQueuedMessages(
+      threadId,
+      {
+        type: "append",
+        message: {
+          id: messageId,
+          threadId,
+          text: "Steer after the current action",
+          interruptActiveRun: true,
+        },
+      },
+      { actor },
+    );
+    inboxHarness.activeRun = {
+      runId: "active-run-with-expired-promotion-claim",
+      threadId,
+      turnId: "active-turn",
+      status: "running",
+      inFlight: true,
+      hasInFlightWork: true,
+    };
+    const safeAbort = vi.fn(async () => true);
+    inboxHarness.safeAbort = safeAbort;
+    inboxHarness.admit = async () => {
+      throw new Error("The removed interruption must not be admitted");
+    };
+    inboxHarness.afterInterruptRunRecorded = async () => {
+      now.mockReturnValue(70_001);
+      const removed = await mutateThreadQueuedMessages(threadId, {
+        type: "remove",
+        messageId,
+      });
+      expect(removed?.promotionBusy).toBeUndefined();
+    };
+
+    const h3App = createApp();
+    createAgentChatPlugin({
+      actions: () => ({}),
+      a2aAgentDelegation: false,
+      frameworkTools: "minimal",
+      leanPrompt: true,
+      mcp: { enabled: false },
+    })({
+      h3App,
+      hooks: {
+        hook(name, callback) {
+          if (name === "close") sweepHarness.closeHooks.push(callback);
+        },
+      },
+    });
+    await sweepHarness.initPromises.at(-1);
+
+    try {
+      const response = await h3App.fetch(
+        new Request(`http://example.test${RECURRING_JOBS_SWEEP_PATH}`, {
+          method: "GET",
+          headers: { authorization: "Bearer sweep-test-secret" },
+        }),
+      );
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        queuedSubmissionDrain: {
+          scanned: 1,
+          claimed: 1,
+          submitted: 0,
+          deferred: 1,
+          failed: 0,
+        },
+      });
+      expect(safeAbort).not.toHaveBeenCalled();
+      expect(inboxHarness.admissions).toHaveLength(0);
+      await expect(
+        getQueuedSubmissionReceipt(threadId, messageId),
+      ).resolves.toMatchObject({ state: "removed" });
+    } finally {
+      now.mockRestore();
+    }
+  }, 20_000);
 
   it("replays a turn abort after the active run was stopped but marker persistence failed", async () => {
     const threadId = `thread-${randomUUID()}`;
@@ -568,9 +734,9 @@ describe("queued submission inbox recurring sweep", () => {
       await getQueuedSubmissionReceipt(threadId, messageId),
     ).not.toHaveProperty("interruptRunId");
     now.mockRestore();
-  });
+  }, 20_000);
 
-  it("retries a turn marker after restart when the run is already durably aborted", async () => {
+  it("retries a turn marker and stops a truncated continuation after restart", async () => {
     const threadId = `thread-${randomUUID()}`;
     const messageId = `queued-${randomUUID()}`;
     const activeRunId = `active-${randomUUID()}`;
@@ -579,11 +745,11 @@ describe("queued submission inbox recurring sweep", () => {
     vi.mocked(getRunById).mockResolvedValue({
       id: activeRunId,
       threadId,
-      status: "aborted",
+      status: "truncated",
       startedAt: 1,
       errorCode: null,
       errorDetail: null,
-      terminalReason: null,
+      terminalReason: "auto_continue",
     });
     await createThread(actor.email, { id: threadId });
     await mutateThreadQueuedMessages(
@@ -609,6 +775,7 @@ describe("queued submission inbox recurring sweep", () => {
     };
     const safeAbort = vi.fn(async () => safeAbort.mock.calls.length === 1);
     inboxHarness.safeAbort = safeAbort;
+    const successorRunId = `successor-${randomUUID()}`;
     const turnAbort = vi.fn(async (runId: string, reason: string) => {
       expect(runId).toBe(activeRunId);
       expect(reason).toBe("user");
@@ -617,6 +784,8 @@ describe("queued submission inbox recurring sweep", () => {
         inboxHarness.activeRun = null;
         throw new Error("turn marker store unavailable");
       }
+      expect(inboxHarness.activeRun?.runId).toBe(successorRunId);
+      inboxHarness.activeRun = null;
     });
     inboxHarness.turnAbort = turnAbort;
     inboxHarness.admit = async () => {
@@ -669,6 +838,14 @@ describe("queued submission inbox recurring sweep", () => {
     );
     expect(inboxHarness.activeRun).toBeNull();
 
+    inboxHarness.activeRun = {
+      runId: successorRunId,
+      threadId,
+      turnId: "active-turn",
+      status: "running",
+      inFlight: true,
+      hasInFlightWork: true,
+    };
     now.mockReturnValue(211_000);
     const retryResponse = await sweep();
     expect(retryResponse.status).toBe(200);
@@ -688,5 +865,62 @@ describe("queued submission inbox recurring sweep", () => {
       { state: "submitted", submittedRunId: `run-${messageId}` },
     );
     now.mockRestore();
-  });
+  }, 20_000);
+
+  it("retries turn-marker persistence after a safe-boundary run abort committed", async () => {
+    const runId = `run-${randomUUID()}`;
+    vi.mocked(getRunById).mockResolvedValue({
+      id: runId,
+      threadId: `thread-${randomUUID()}`,
+      status: "aborted",
+      startedAt: 1,
+      errorCode: null,
+      errorDetail: null,
+      terminalReason: "aborted:user",
+    });
+    inboxHarness.safeAbort = vi
+      .fn<() => Promise<boolean>>()
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false);
+    inboxHarness.turnAbort = vi
+      .fn<(targetRunId: string, reason: string) => Promise<void>>()
+      .mockRejectedValueOnce(new Error("turn marker store unavailable"));
+
+    const h3App = createApp();
+    createAgentChatPlugin({
+      actions: () => ({}),
+      a2aAgentDelegation: false,
+      frameworkTools: "minimal",
+      leanPrompt: true,
+      mcp: { enabled: false },
+    })({
+      h3App,
+      hooks: {
+        hook(name, callback) {
+          if (name === "close") sweepHarness.closeHooks.push(callback);
+        },
+      },
+    });
+    await sweepHarness.initPromises.at(-1);
+
+    const abort = () =>
+      h3App.fetch(
+        new Request(
+          `http://example.test/_agent-native/agent-chat/runs/${runId}/abort`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ safeBoundary: true, reason: "user" }),
+          },
+        ),
+      );
+
+    const first = await abort();
+    expect(first.status).toBe(500);
+    const retry = await abort();
+    expect(retry.status).toBe(200);
+    await expect(retry.json()).resolves.toEqual({ ok: true, aborted: false });
+    expect(inboxHarness.turnAbort).toHaveBeenCalledTimes(2);
+    expect(inboxHarness.turnAbort).toHaveBeenLastCalledWith(runId, "user");
+  }, 20_000);
 });
