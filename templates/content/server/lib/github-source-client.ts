@@ -128,7 +128,9 @@ async function githubGet(
   // turn under GitHub's rate limits, and identical reads in flight share one
   // request, which the first caller's signal ends. So this read stops waiting
   // at its own deadline, and while it has time left, asks once more when some
-  // other signal ended it, such as another caller's on a read they shared.
+  // other signal ended it, such as another caller's on a read they shared. If
+  // that ends too, GitHub didn't answer in time, the same as at its own
+  // deadline, rather than something wrong with the link.
   const send = () => {
     const request = executeGitHubSourceRequest({
       provider: "github",
@@ -150,7 +152,9 @@ async function githubGet(
       throw error;
     });
   } catch (error) {
-    if (target.signal?.aborted) throw new GitHubSourceDeadlineError();
+    if (target.signal && (target.signal.aborted || endedBySignal(error))) {
+      throw new GitHubSourceDeadlineError();
+    }
     throw error;
   }
   const result = asRecord(raw);
