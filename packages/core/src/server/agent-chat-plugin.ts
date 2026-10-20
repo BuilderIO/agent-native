@@ -101,6 +101,7 @@ import {
   normalizeAgentActionSurfaceResolution,
   getActiveRunForThreadAsync,
   abortRunDurably,
+  abortRunAndTurnDurably,
   abortRunAtSafeBoundaryDurably,
   abortTurnByRefDurably,
   abortTurnDurably,
@@ -856,7 +857,10 @@ export async function runA2AAgentLoopWithRunManager(
     },
   );
 
-  let cancellation: Promise<boolean> = Promise.resolve(false);
+  let cancellation: Promise<
+    | { status: "fulfilled"; aborted: boolean }
+    | { status: "rejected"; error: unknown }
+  > = Promise.resolve({ status: "fulfilled", aborted: false });
   const abortFromTask = () => {
     const reason = taskSignal?.reason;
     const reasonCode =
@@ -870,7 +874,10 @@ export async function runA2AAgentLoopWithRunManager(
       run.abort.abort("execution_lease_lost");
       return;
     }
-    cancellation = abortRunDurably(runId, clientAbortReason(reason));
+    cancellation = abortRunDurably(runId, clientAbortReason(reason)).then(
+      (aborted) => ({ status: "fulfilled", aborted }),
+      (error) => ({ status: "rejected", error }),
+    );
   };
   if (taskSignal?.aborted) {
     abortFromTask();
@@ -879,8 +886,24 @@ export async function runA2AAgentLoopWithRunManager(
   }
 
   try {
-    await run.finalized;
-    await cancellation;
+    const finalization = await run.finalized.then(
+      () => ({ status: "fulfilled" as const }),
+      (error: unknown) => ({ status: "rejected" as const, error }),
+    );
+    const cancellationResult = await cancellation;
+    if (
+      finalization.status === "rejected" &&
+      cancellationResult.status === "rejected"
+    ) {
+      throw new AggregateError(
+        [finalization.error, cancellationResult.error],
+        "A2A run finalization and durable cancellation both failed",
+      );
+    }
+    if (finalization.status === "rejected") throw finalization.error;
+    if (cancellationResult.status === "rejected") {
+      throw cancellationResult.error;
+    }
   } finally {
     taskSignal?.removeEventListener("abort", abortFromTask);
   }
@@ -7017,13 +7040,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               // Empty/invalid body — keep the default user abort reason.
             }
             if (safeBoundary) {
-              const aborted = await abortRunAtSafeBoundaryDurably(
-                runId,
-                reason,
-              );
-              if (USER_STOP_ABORT_REASONS.has(reason)) {
-                const latest = aborted ? null : await getRunById(runId);
-                if (aborted || latest?.status === "aborted") {
+              const isUserStop = USER_STOP_ABORT_REASONS.has(reason);
+              const aborted = isUserStop
+                ? await abortRunAndTurnDurably(runId, reason, {
+                    safeBoundary: true,
+                  })
+                : await abortRunAtSafeBoundaryDurably(runId, reason);
+              if (isUserStop && !aborted) {
+                const latest = await getRunById(runId);
+                if (latest?.status === "aborted") {
                   await abortTurnDurably(runId, reason);
                 }
               }
@@ -7032,9 +7057,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // Recovery starts as soon as this response resolves, so wait for
             // the cross-isolate abort + terminal event to be durable. Returning
             // early lets Retry collide with the still-running row.
-            await abortRunDurably(runId, reason);
             if (USER_STOP_ABORT_REASONS.has(reason)) {
-              await abortTurnDurably(runId, reason);
+              await abortRunAndTurnDurably(runId, reason);
+            } else {
+              await abortRunDurably(runId, reason);
             }
             return { ok: true };
           }

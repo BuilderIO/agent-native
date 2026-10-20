@@ -3346,6 +3346,84 @@ describe("createAgentKitProtocolAdapter", () => {
     );
   });
 
+  it("attaches a replayed start through a runtime alias to the run that owns it", async () => {
+    async function* approvalEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "approval-request",
+        approvalId: "approval-1",
+        toolCallId: "tool-1",
+        toolName: "publish",
+        message: "Publish the release?",
+      };
+      yield { type: "done", reason: "tool-use" };
+    }
+    async function* completedEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "done", reason: "complete" };
+    }
+    const runtime = createRuntime(approvalEvents, {
+      capabilities: {
+        messages: { streaming: true },
+        tools: { events: true, approvals: true },
+      },
+    });
+    runtime.createSession = async () => ({
+      id: "thread-1",
+      runtimeId: runtime.id,
+      startTurn: vi
+        .fn()
+        .mockResolvedValueOnce({
+          id: "turn-1",
+          runId: "runtime-run-1",
+          sessionId: "thread-1",
+          events: approvalEvents(),
+        })
+        .mockResolvedValueOnce({
+          id: "turn-2",
+          runId: "runtime-run-2",
+          sessionId: "thread-1",
+          events: completedEvents(),
+        }),
+      continueTurn: async () => ({
+        id: "turn-3",
+        runId: "runtime-run-2",
+        sessionId: "thread-1",
+        events: completedEvents(),
+      }),
+    });
+
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Publish it")],
+    });
+    const stream = transport.subscribeToRun({ threadId: "thread-1", runId });
+    const iterator = stream[Symbol.asyncIterator]();
+    let approvalSeen = false;
+    while (!approvalSeen) {
+      const next = await iterator.next();
+      expect(next.done).toBe(false);
+      approvalSeen = next.value?.type === "approval.requested";
+    }
+    const resumed = await transport.resumeRun?.({
+      threadId: "thread-1",
+      runId,
+      resume: [
+        resumeEntryFromApproval({
+          approvalId: "approval-1",
+          response: approvalResponse("approve"),
+        }),
+      ],
+    });
+    expect(resumed?.runId).not.toBe("runtime-run-2");
+
+    const replay = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Publish it")],
+    });
+
+    expect(replay.runId).toBe(resumed!.runId);
+  });
+
   it("omits a missing runtime run id from initial run metadata", async () => {
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
       yield { type: "done", reason: "complete" };
@@ -3824,6 +3902,103 @@ describe("createAgentKitProtocolAdapter", () => {
     await transport.dispose();
   });
 
+  it("reuses a replayed runtime run ID for the same thread and turn", async () => {
+    let startCount = 0;
+    const discardedStreamClosed = vi.fn(async () => ({
+      done: true as const,
+      value: undefined,
+    }));
+    const discardedTurnClosed = vi.fn();
+    const discardedTurnCancelled = vi.fn(async () => ({
+      status: "cancelled" as const,
+    }));
+    const discardedEvents: AsyncIterable<AgentChatRuntimeEvent> = {
+      [Symbol.asyncIterator]: () => ({
+        next: () =>
+          new Promise<IteratorResult<AgentChatRuntimeEvent>>(() => {}),
+        return: discardedStreamClosed,
+      }),
+    };
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "done", reason: "complete" };
+    }
+    const startTurn = vi.fn(async () => {
+      startCount += 1;
+      return {
+        id: "turn-replayed",
+        runId: "runtime-run-replayed",
+        sessionId: "thread-1",
+        events: startCount === 1 ? events() : discardedEvents,
+        ...(startCount === 1
+          ? {}
+          : {
+              closeEvents: discardedTurnClosed,
+              cancel: discardedTurnCancelled,
+            }),
+      };
+    });
+    const runtime = createRuntime(events, {
+      async createSession() {
+        return {
+          id: "thread-1",
+          runtimeId: "runtime-test",
+          startTurn,
+        };
+      },
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+
+    const first = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Start")],
+    });
+    const replay = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Replay")],
+    });
+
+    expect(replay.runId).toBe(first.runId);
+    expect(startTurn).toHaveBeenCalledTimes(2);
+    expect(discardedStreamClosed).toHaveBeenCalledOnce();
+    expect(discardedTurnClosed).toHaveBeenCalledOnce();
+    expect(discardedTurnCancelled).not.toHaveBeenCalled();
+    await transport.dispose();
+  });
+
+  it("rejects a duplicate run ID for a different runtime turn", async () => {
+    let turn = 0;
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "done", reason: "complete" };
+    }
+    const runtime = createRuntime(events, {
+      async createSession() {
+        return {
+          id: "thread-1",
+          runtimeId: "runtime-test",
+          startTurn: async () => ({
+            id: `turn-${++turn}`,
+            runId: "runtime-run-duplicate",
+            sessionId: "thread-1",
+            events: events(),
+          }),
+        };
+      },
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+
+    await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Start")],
+    });
+    await expect(
+      transport.startRun({
+        threadId: "thread-1",
+        messages: [userMessage("Different turn")],
+      }),
+    ).rejects.toThrow("Duplicate AgentKit run id: runtime-run-duplicate");
+    await transport.dispose();
+  });
+
   it("reuses a queued start while restoring its runtime successor", async () => {
     let releaseTurn!: (turn: AgentChatRuntimeTurn) => void;
     const turnPromise = new Promise<AgentChatRuntimeTurn>((resolve) => {
@@ -4005,6 +4180,73 @@ describe("createAgentKitProtocolAdapter", () => {
     });
 
     await restoredIterator.return?.();
+    await transport.dispose();
+  });
+
+  it("closes duplicate event streams when concurrent restores race", async () => {
+    let releaseResumes!: () => void;
+    const resumeGate = new Promise<void>((resolve) => {
+      releaseResumes = resolve;
+    });
+    let reportBothResumes!: () => void;
+    const bothResumes = new Promise<void>((resolve) => {
+      reportBothResumes = resolve;
+    });
+    let resumeCount = 0;
+    const turnClosed = [vi.fn(), vi.fn()];
+    const iteratorClosed = [
+      vi.fn(async () => ({ done: true as const, value: undefined })),
+      vi.fn(async () => ({ done: true as const, value: undefined })),
+    ];
+    const runtime = createRuntime(
+      async function* (): AsyncIterable<AgentChatRuntimeEvent> {},
+      {
+        capabilities: {
+          messages: { streaming: true, history: true, attachments: true },
+          resumableRuns: true,
+        },
+        async resume({ sessionId, runId }) {
+          const index = resumeCount++;
+          if (resumeCount === 2) reportBothResumes();
+          await resumeGate;
+          return {
+            id: "restored-turn",
+            sessionId,
+            runId,
+            events: {
+              [Symbol.asyncIterator]: () => ({
+                next: () =>
+                  new Promise<IteratorResult<AgentChatRuntimeEvent>>(() => {}),
+                return: iteratorClosed[index],
+              }),
+            },
+            closeEvents: turnClosed[index],
+          };
+        },
+      },
+    );
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const first = transport
+      .subscribeToRun({ threadId: "thread-1", runId: "restored-run" })
+      [Symbol.asyncIterator]();
+    const second = transport
+      .subscribeToRun({ threadId: "thread-1", runId: "restored-run" })
+      [Symbol.asyncIterator]();
+    const firstEvent = first.next();
+    const secondEvent = second.next();
+
+    await bothResumes;
+    releaseResumes();
+    await Promise.all([firstEvent, secondEvent]);
+
+    expect(
+      turnClosed.filter((close) => close.mock.calls.length > 0),
+    ).toHaveLength(1);
+    expect(
+      iteratorClosed.filter((close) => close.mock.calls.length > 0),
+    ).toHaveLength(1);
+    await first.return?.();
+    await second.return?.();
     await transport.dispose();
   });
 

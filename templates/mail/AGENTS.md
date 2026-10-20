@@ -35,7 +35,7 @@ Use local framework docs, not web research: `pnpm action docs-search --query "<t
 - Resolve recipients with `find-contact`; never guess addresses. Read `get-mail-settings` before drafting and use its signature exactly; never invent one.
 - Edit active drafts through `manage-draft` or `compose-{id}`, not SQL. After backend mutations, call `refresh-list` unless the action writes `refresh-signal`.
 - Preserve per-account coverage: partial, empty, exhausted, and error are distinct. Provider actions are shortcuts; use `provider-api-catalog` / `-docs` / `-request` for exact API needs.
-- `get-hubspot-contact` is the only first-party CRM action; Gong, Pylon, and Apollo are UI-only. Aliases and provider API keys are Settings-UI only.
+- `get-hubspot-contact` is the only first-party CRM action. Connected Gong MCP tools are available to the agent after an organization owner or admin connects them and Gong completes its required registration; the legacy Gong calls, Pylon, and Apollo panels remain UI-only. Aliases and provider API keys are Settings-UI only.
 - Use `view-screen` when the active thread/message/draft is unclear; use `get-thread` for conversation content.
 
 ## Actions

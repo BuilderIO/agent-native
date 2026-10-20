@@ -45,6 +45,7 @@ import {
   runPreparedActionCall,
   boundActionCallIntent,
   preparedCallArguments,
+  preparedCallNeedsApproval,
   recordInvalidActionCall,
   type ActionAutomationContext,
   type ActionCallIntent,
@@ -299,6 +300,7 @@ import type {
   EngineImagePart,
   EngineEvent,
   EngineToolResultPart,
+  BeforeModelDispatch,
 } from "./engine/types.js";
 import { EngineError } from "./engine/types.js";
 import { currentExecutionFence } from "./execution-fence.js";
@@ -358,6 +360,7 @@ import {
   getRun,
   abortRun,
   abortRunDurably,
+  abortRunAndTurnDurably,
   abortRunAtSafeBoundaryDurably,
   abortTurnByRefDurably,
   abortTurnDurably,
@@ -6716,6 +6719,7 @@ export async function runAgentLoop(opts: {
   send: (event: AgentChatEvent) => void | Promise<void>;
   signal: AbortSignal;
   beforeWrite?: () => Promise<void>;
+  beforeModelDispatch?: BeforeModelDispatch;
   unknownWriteToolNames?: Set<string>;
   /** The request's unknown outcomes, which each of its loops feeds and holds by. */
   unknownOutcomes?: UnknownOutcomes;
@@ -7475,12 +7479,22 @@ export async function runAgentLoop(opts: {
           reasoningEffort: completingFollowUpSuggestions
             ? ("none" as const)
             : effectiveReasoningEffort,
+          beforeModelDispatch: opts.beforeModelDispatch,
+          onModelDispatchStarted: () => {
+            usage.llmCalls = (usage.llmCalls ?? 0) + 1;
+          },
           providerOptions,
         };
 
         opts.onModelSettings?.(model, effectiveReasoningEffort);
-        usage.llmCalls = (usage.llmCalls ?? 0) + 1;
         notifyModelInputObserver(opts.onModelInput, engineMessages);
+        if (signal.aborted) {
+          reportOutcome({
+            state: "canceled",
+            message: "Agent run was aborted.",
+          });
+          return usage;
+        }
         const eventStream = engine.stream(streamOpts);
         let thinkingBuffer = "";
         const toolInputNames = new Map<string, string>();
@@ -7791,6 +7805,14 @@ export async function runAgentLoop(opts: {
               !eventIteratorReturnRequested,
             );
           }
+        }
+
+        if (signal.aborted) {
+          reportOutcome({
+            state: "canceled",
+            message: "Agent run was aborted.",
+          });
+          return usage;
         }
 
         if (endedForNoProgress) {
@@ -8806,29 +8828,16 @@ export async function runAgentLoop(opts: {
           ? await opts.consumeApproval(approvalBinding())
           : requestedApproval;
       if (actionEntry.needsApproval && !wasApproved) {
-        let mustApprove = false;
-        try {
-          mustApprove =
-            typeof actionEntry.needsApproval === "function"
-              ? Boolean(
-                  await actionEntry.needsApproval(
-                    preparedCallArguments(intent),
-                    {
-                      userEmail: getRequestUserEmail(),
-                      orgId: getRequestOrgId() ?? null,
-                      appId: opts.appId,
-                      caller: opts.actionCaller ?? "tool",
-                      automation: opts.automation,
-                      networkProtocol: opts.networkProtocol,
-                      networkId: opts.networkId,
-                      networkPeer: opts.networkPeer,
-                    },
-                  ),
-                )
-              : actionEntry.needsApproval === true;
-        } catch {
-          mustApprove = true;
-        }
+        let mustApprove = await preparedCallNeedsApproval(actionEntry, intent, {
+          userEmail: getRequestUserEmail(),
+          orgId: getRequestOrgId() ?? null,
+          appId: opts.appId,
+          caller: opts.actionCaller ?? "tool",
+          automation: opts.automation,
+          networkProtocol: opts.networkProtocol,
+          networkId: opts.networkId,
+          networkPeer: opts.networkPeer,
+        });
         if (
           mustApprove &&
           actionEntry.allowPersistentApproval !== false &&
@@ -15256,6 +15265,7 @@ export {
   getRun,
   abortRun,
   abortRunDurably,
+  abortRunAndTurnDurably,
   abortRunAtSafeBoundaryDurably,
   abortTurnByRefDurably,
   abortTurnDurably,

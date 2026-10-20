@@ -1,5 +1,6 @@
 import type { InboxSyncAccountStatus } from "@shared/inbox-threads.js";
 
+import { pushWatchState } from "./inbox-push-watch.js";
 import type { SyncAccountRow } from "./inbox-store.js";
 
 // The one place a stored sync row becomes a status, so the sync step and the
@@ -13,6 +14,7 @@ export function statusFromRow(row: SyncAccountRow): InboxSyncAccountStatus {
     // work the next step will complete.
     row.archivePendingIds.some((id) => !row.degraded.hydrate.includes(id)) ||
     row.archiveHistoryPending;
+  const pushWatch = pushWatchState(row, Date.now());
   const corruptCount = Object.keys(row.corrupt).length;
   const degradedCount =
     row.degraded.hydrate.length + row.degraded.verify.length + corruptCount;
@@ -36,6 +38,7 @@ export function statusFromRow(row: SyncAccountRow): InboxSyncAccountStatus {
       state: row.status,
       lastSyncedAt: row.lastSyncedAt,
       error: row.lastError ?? undefined,
+      pushWatch,
       ...(backfillPending ? { backfillPending: true } : {}),
       ...degraded,
     };
@@ -46,13 +49,31 @@ export function statusFromRow(row: SyncAccountRow): InboxSyncAccountStatus {
     state:
       row.historyId == null ||
       row.status === "syncing" ||
+      row.historyPending ||
       row.archiveHistoryPending
         ? "initial"
         : "ready",
     lastSyncedAt: row.lastSyncedAt,
+    pushWatch,
     ...(backfillPending ? { backfillPending: true } : {}),
     ...degraded,
   };
+}
+
+/**
+ * Work the next sync step still has to do or retry. A steady account has none,
+ * so the freshness gate must not treat it as fresh while any is outstanding.
+ */
+export function hasOutstandingSyncWork(row: SyncAccountRow): boolean {
+  return (
+    row.historyPending ||
+    row.archiveHistoryPending ||
+    row.hydratePendingIds.length > 0 ||
+    row.archivePendingIds.length > 0 ||
+    row.degraded.hydrate.length > 0 ||
+    row.degraded.verify.length > 0 ||
+    Object.keys(row.corrupt).length > 0
+  );
 }
 
 const STATE_RANK: Record<InboxSyncAccountStatus["state"], number> = {

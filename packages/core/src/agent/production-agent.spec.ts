@@ -8049,7 +8049,8 @@ describe("runAgentLoop", () => {
         computerUse: false,
         parallelToolCalls: false,
       },
-      async *stream(): AsyncIterable<EngineEvent> {
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        options.onModelDispatchStarted?.();
         streamCalls += 1;
         if (streamCalls === 1) {
           yield {

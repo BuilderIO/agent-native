@@ -111,6 +111,7 @@ const {
   reapAllStaleRuns,
   cleanupOldRuns,
   failRunBeforeDispatch,
+  markRunAbortedAtSafeBoundary,
   recordRunDiagnostic,
   RUN_DIAG_STAGE,
   BACKGROUND_RUN_STALE_MS,
@@ -420,6 +421,152 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
       error_code: "dispatch_payload_missing",
       terminal_reason: "dispatch_payload_missing",
     });
+  });
+
+  it("surfaces and retries a run abort terminal-event failure", async () => {
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn);
+
+    const client = makeRawClient(true);
+    const execute = client.execute.getMockImplementation();
+    if (!execute) throw new Error("run-store test client is not configured");
+    let failedWrites = 2;
+    client.execute.mockImplementation(async (input) => {
+      if (
+        typeof input !== "string" &&
+        /INSERT INTO agent_run_events/i.test(input.sql) &&
+        failedWrites > 0
+      ) {
+        failedWrites--;
+        throw new Error("terminal event write unavailable");
+      }
+      return execute(input);
+    });
+    currentClient = client;
+
+    await expect(markRunAbortedAtSafeBoundary(runId, "user")).rejects.toThrow(
+      "terminal event write unavailable",
+    );
+    expect((await readRow(runId))?.status).toBe("aborted");
+    expect(
+      await pglite
+        .prepare("SELECT seq FROM agent_run_events WHERE run_id = ?")
+        .all(runId),
+    ).toHaveLength(0);
+
+    await expect(markRunAbortedAtSafeBoundary(runId, "user")).resolves.toBe(
+      true,
+    );
+    const events = (await pglite
+      .prepare("SELECT event_data FROM agent_run_events WHERE run_id = ?")
+      .all(runId)) as Array<{ event_data: string }>;
+    expect(events).toHaveLength(1);
+    expect(JSON.parse(events[0].event_data)).toMatchObject({
+      type: "done",
+      reason: "user",
+    });
+  });
+
+  it("retries a terminal append when a concurrent event claims its sequence", async () => {
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn);
+
+    const client = makeRawClient(true);
+    const execute = client.execute.getMockImplementation();
+    if (!execute) throw new Error("run-store test client is not configured");
+    let conflictInjected = false;
+    client.execute.mockImplementation(async (input) => {
+      if (
+        typeof input !== "string" &&
+        /INSERT INTO agent_run_events/i.test(input.sql) &&
+        /RETURNING seq/i.test(input.sql) &&
+        !conflictInjected
+      ) {
+        conflictInjected = true;
+        const [eventRunId, eventSeq] = input.args ?? [];
+        await pglite
+          .prepare(
+            `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
+             VALUES (?, ?, ?, ?)`,
+          )
+          .run(
+            String(eventRunId),
+            Number(eventSeq),
+            Date.now(),
+            JSON.stringify({ type: "tool_start", toolName: "slow_tool" }),
+          );
+      }
+      return execute(input);
+    });
+    currentClient = client;
+
+    await expect(markRunAbortedAtSafeBoundary(runId, "user")).resolves.toBe(
+      true,
+    );
+
+    const events = (await pglite
+      .prepare(
+        `SELECT seq, event_data FROM agent_run_events
+         WHERE run_id = ? ORDER BY seq`,
+      )
+      .all(runId)) as Array<{ seq: number; event_data: string }>;
+    expect(conflictInjected).toBe(true);
+    expect(events.map((row) => JSON.parse(row.event_data).type)).toEqual([
+      "tool_start",
+      "done",
+    ]);
+  });
+
+  it("surfaces and retries a turn abort terminal-event failure", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn);
+    const newerRunId = `${runId}-newer`;
+    await insertRun(newerRunId, thread, turn);
+    await pglite
+      .prepare(
+        `UPDATE agent_runs
+         SET status = 'completed', terminal_reason = 'completed',
+             completed_at = ?, started_at = ?
+         WHERE id = ?`,
+      )
+      .run(Date.now(), Date.now() + 1, newerRunId);
+
+    const client = makeRawClient(true);
+    const execute = client.execute.getMockImplementation();
+    if (!execute) throw new Error("run-store test client is not configured");
+    let failedWrites = 2;
+    client.execute.mockImplementation(async (input) => {
+      if (
+        typeof input !== "string" &&
+        /INSERT INTO agent_run_events/i.test(input.sql) &&
+        failedWrites > 0
+      ) {
+        failedWrites--;
+        throw new Error("turn terminal event write unavailable");
+      }
+      return execute(input);
+    });
+    currentClient = client;
+
+    await expect(markTurnAborted(thread, turn, "user")).rejects.toThrow(
+      "turn terminal event write unavailable",
+    );
+    expect((await readRow(runId))?.status).toBe("aborted");
+    expect(
+      await pglite
+        .prepare("SELECT seq FROM agent_run_events WHERE run_id = ?")
+        .all(runId),
+    ).toHaveLength(0);
+
+    await expect(markTurnAborted(thread, turn, "user")).resolves.toBe(
+      "already_terminal",
+    );
+    const events = (await pglite
+      .prepare("SELECT event_data FROM agent_run_events WHERE run_id = ?")
+      .all(runId)) as Array<{ event_data: string }>;
+    expect(events).toHaveLength(1);
+    expect(JSON.parse(events[0].event_data)).toMatchObject({ type: "done" });
   });
 
   it("records an early Stop as a turn marker before any real run exists", async () => {
