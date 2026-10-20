@@ -52,7 +52,9 @@ async function liveDatabase(
 }
 
 async function canReadDatabase(database: ContentDatabaseRow) {
-  return !!(await resolveAccess("document", database.documentId));
+  return !!(await resolveAccess("document", database.documentId, undefined, {
+    skipResourceBody: true,
+  }));
 }
 
 /**

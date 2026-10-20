@@ -35,6 +35,7 @@ import {
 import { useAgentPromptRun } from "@/hooks/use-agent-prompt-run";
 import { useCreateForm } from "@/hooks/use-forms";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { isFormsAskPath } from "@/lib/chat-route";
 
 const SIDEBAR_COLLAPSE_KEY = "forms.sidebar.collapsed";
 
@@ -118,7 +119,8 @@ export function Sidebar() {
       to: "/ask",
       label: t("navigation.askForms"),
       icon: IconMessageCircle,
-      active: location.pathname === "/ask" || location.pathname === "/home",
+      active:
+        isFormsAskPath(location.pathname) || location.pathname === "/home",
       onClick: navigateHomeChat,
     },
     {

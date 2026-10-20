@@ -12,6 +12,7 @@ vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
 import { QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import * as Y from "yjs";
 
 import { getPersistedContentHostSyncOptions } from "../editor-state";
 import type { ApplyFileContentUpdateArgs } from "./apply-file-content-update";
@@ -210,6 +211,51 @@ describe("shader-locked source publication", () => {
     queryClient.clear();
   });
 
+  it("does not replay a committed shader insertion into stale collaborative text", () => {
+    shaderState.inFlight = true;
+    const clientDoc = new Y.Doc();
+    clientDoc.getText("content").insert(0, PERSISTED_BASE);
+    const serverDoc = new Y.Doc();
+    Y.applyUpdate(serverDoc, Y.encodeStateAsUpdate(clientDoc));
+    const serverText = serverDoc.getText("content");
+    const insertion = PERSISTED_SHADER_SOURCE.indexOf("Shader settled");
+    serverText.delete(insertion, "Base".length);
+    serverText.insert(insertion, "Shader settled");
+    const localWriterArgs = localArgs(new QueryClient(), PERSISTED_BASE);
+    localWriterArgs.ydoc = clientDoc;
+    localWriterArgs.isSynced = true;
+    const args = fileArgs({
+      activeFileId: "active",
+      getScreenContent: () => PERSISTED_BASE,
+      queryClient: localWriterArgs.queryClient,
+      applyLocalContentUpdate: (content, options) =>
+        runApplyLocalContentUpdate(localWriterArgs, content, options),
+    });
+    const options = getPersistedContentHostSyncOptions({
+      fileId: "active",
+      activeFileId: "active",
+      shaderWriteCompletion: true,
+      updatedAt: "T2",
+      beforeContent: PERSISTED_BASE,
+    });
+    const result = runApplyFileContentUpdate(
+      args,
+      "active",
+      PERSISTED_SHADER_SOURCE,
+      options,
+    );
+    expect(result.status).toBe("accepted");
+    expect(clientDoc.getText("content").toString()).toBe(PERSISTED_BASE);
+    expect(localWriterArgs.queueFileContentSave).not.toHaveBeenCalled();
+    Y.applyUpdate(clientDoc, Y.encodeStateAsUpdate(serverDoc));
+    expect(clientDoc.getText("content").toString()).toBe(
+      PERSISTED_SHADER_SOURCE,
+    );
+    clientDoc.destroy();
+    serverDoc.destroy();
+    localWriterArgs.queryClient.clear();
+  });
+
   it("refuses generic persisted host sync while a shader write owns the file", () => {
     shaderState.inFlight = true;
     const args = fileArgs({
@@ -235,6 +281,111 @@ describe("shader-locked source publication", () => {
     );
     expect(args.applyLocalContentUpdate).not.toHaveBeenCalled();
     expect(args.recordContentHistoryEntry).not.toHaveBeenCalled();
+    args.queryClient.clear();
+  });
+});
+
+describe("already-accepted source publication", () => {
+  it("keeps successive committed shader actions as separate undo steps", () => {
+    const args = localArgs(new QueryClient(), PERSISTED_BASE);
+    const doc = new Y.Doc();
+    const text = doc.getText("content");
+    text.insert(0, PERSISTED_BASE);
+    args.ydoc = doc;
+    args.isSynced = true;
+    const undoManager = new Y.UndoManager(text);
+    args.undoManagerRef.current = undoManager;
+    const changedParam = PERSISTED_SHADER_SOURCE.replace(
+      "Shader settled",
+      "Saturation 0",
+    );
+    for (const [before, after] of [
+      [PERSISTED_BASE, PERSISTED_SHADER_SOURCE],
+      [PERSISTED_SHADER_SOURCE, changedParam],
+    ]) {
+      const result = runApplyLocalContentUpdate(
+        args,
+        after,
+        getPersistedContentHostSyncOptions({
+          fileId: "active",
+          activeFileId: "active",
+          shaderWriteCompletion: true,
+          beforeContent: before,
+          updatedAt: "T2",
+        }),
+      );
+      expect(result.status).toBe("accepted");
+      text.delete(0, text.length);
+      text.insert(0, after);
+    }
+    const changes = vi
+      .mocked(args.recordLocalContentHistoryEntry)
+      .mock.calls.map(([change]) => change);
+    expect(changes).toMatchObject([
+      {
+        before: PERSISTED_BASE,
+        after: PERSISTED_SHADER_SOURCE,
+        isCheckpoint: true,
+      },
+      {
+        before: PERSISTED_SHADER_SOURCE,
+        after: changedParam,
+        isCheckpoint: true,
+      },
+    ]);
+    expect(changes).toHaveLength(2);
+    expect(args.recordLocalContentHistoryChangeFallback).not.toHaveBeenCalled();
+    undoManager.destroy();
+    doc.destroy();
+    args.queryClient.clear();
+  });
+
+  it("publishes active accepted content without cancelling or enqueueing a save", () => {
+    const accepted = PERSISTED_BASE.replace("Base", "Accepted upload");
+    const args = localArgs(new QueryClient(), PERSISTED_BASE);
+
+    const result = runApplyLocalContentUpdate(args, accepted, {
+      serverAccepted: true,
+      historyBeforeContent: PERSISTED_BASE,
+      sourceBaseContent: PERSISTED_BASE,
+    });
+
+    expect(result).toMatchObject({ status: "accepted", content: accepted });
+    expect(args.queueFileContentSave).not.toHaveBeenCalled();
+    expect(args.cancelQueuedFileContentSave).not.toHaveBeenCalled();
+    expect(args.collabContentRef.current).toBe(accepted);
+    expect(args.latestActiveContentRef.current).toBe(accepted);
+    expect(args.recordLocalContentHistoryEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        before: PERSISTED_BASE,
+        after: accepted,
+      }),
+    );
+    args.queryClient.clear();
+  });
+
+  it("publishes accepted inactive content without starting another save", () => {
+    const accepted = PERSISTED_BASE.replace("Base", "Accepted upload");
+    const args = fileArgs({
+      activeFileId: "active",
+      getScreenContent: () => PERSISTED_BASE,
+    });
+
+    const result = runApplyFileContentUpdate(args, "screen", accepted, {
+      serverAccepted: true,
+      historyBeforeContent: PERSISTED_BASE,
+      sourceBaseContent: PERSISTED_BASE,
+    });
+
+    expect(result).toMatchObject({ status: "accepted", content: accepted });
+    expect(args.queueFileContentSave).not.toHaveBeenCalled();
+    expect(args.cancelQueuedFileContentSave).not.toHaveBeenCalled();
+    expect(args.markPendingLocalFileContent).toHaveBeenCalledWith(
+      "screen",
+      accepted,
+      "2026-09-14T00:00:00.000Z",
+      undefined,
+    );
     args.queryClient.clear();
   });
 });

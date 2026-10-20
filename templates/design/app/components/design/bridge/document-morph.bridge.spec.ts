@@ -209,6 +209,115 @@ async function withBridgedPage(
 
 describe("replace-document-content morphs instead of rebuilding the body", () => {
   it(
+    "preserves host bridge scripts when replacing the raw document",
+    { timeout: 30_000 },
+    async () => {
+      const bridgeMarkers = [
+        "data-agent-native-editor-chrome-bridge",
+        "data-agent-native-hit-test-bridge",
+        "data-agent-native-preview-theme-bridge",
+      ];
+      await withBridgedPage(BASE_BODY, async (page) => {
+        await page.evaluate((markers) => {
+          markers.forEach((marker) => {
+            const script = document.createElement(
+              "script",
+            ) as HTMLScriptElement & {
+              __documentMorphIdentity?: string;
+            };
+            script.setAttribute(marker, "");
+            script.__documentMorphIdentity = marker;
+            document.body.appendChild(script);
+          });
+        }, bridgeMarkers);
+
+        await replaceDocument(page, documentHtml(BASE_BODY));
+
+        expect(
+          await page.evaluate(
+            (markers) =>
+              markers.map((marker) => {
+                const script = document.querySelector<HTMLScriptElement>(
+                  `script[${marker}]`,
+                ) as
+                  | (HTMLScriptElement & {
+                      __documentMorphIdentity?: string;
+                    })
+                  | null;
+                return {
+                  marker,
+                  sameNode: script?.__documentMorphIdentity === marker,
+                  inEditorChromeHost: Boolean(
+                    script?.parentElement?.hasAttribute(
+                      "data-agent-native-editor-chrome-host",
+                    ),
+                  ),
+                };
+              }),
+            bridgeMarkers,
+          ),
+        ).toEqual(
+          bridgeMarkers.map((marker) => ({
+            marker,
+            sameNode: true,
+            inEditorChromeHost: true,
+          })),
+        );
+      });
+    },
+  );
+
+  it(
+    "leaves a style attribute alone when its source did not change",
+    { timeout: 30_000 },
+    async () => {
+      const styledCard = (id: string, style: string) =>
+        `<article data-agent-native-node-id="${id}" style="${style}">${id}</article>`;
+      await withBridgedPage(
+        styledCard("a", "padding:4px;color:red") +
+          styledCard("b", "color: blue"),
+        async (page) => {
+          await page.evaluate(() => {
+            const store = window as Window & { __styleWrites?: string[] };
+            store.__styleWrites = [];
+            new MutationObserver((records) => {
+              for (const record of records) {
+                store.__styleWrites!.push(
+                  (record.target as Element).getAttribute(
+                    "data-agent-native-node-id",
+                  ) ?? "",
+                );
+              }
+            }).observe(document.body, {
+              attributes: true,
+              attributeFilter: ["style"],
+              subtree: true,
+            });
+          });
+          await replaceDocument(
+            page,
+            documentHtml(
+              styledCard("a", "padding:4px;color:red") +
+                styledCard("b", "color: green"),
+            ),
+          );
+          expect(
+            await page.evaluate(
+              () =>
+                (window as Window & { __styleWrites?: string[] }).__styleWrites,
+            ),
+          ).toEqual(["b"]);
+          expect(
+            await page
+              .locator('[data-agent-native-node-id="b"]')
+              .evaluate((element) => getComputedStyle(element).color),
+          ).toBe("rgb(0, 128, 0)");
+        },
+      );
+    },
+  );
+
+  it(
     "keeps every untouched node when one element is deleted",
     { timeout: 30_000 },
     async () => {

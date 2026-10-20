@@ -37,18 +37,20 @@ import { MailTriageFirstRun, MailTriageSorting } from "./register-first-run";
 
 afterEach(() => cleanup());
 
-it("registers Mail preferences before setup and sorting after Builder setup", () => {
+it("registers Mail preferences before setup and sorting after Builder setup, both skippable", () => {
   expect(listFirstRunOnboardingExtensions()).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
         id: "mail-triage-preferences",
         placement: "before-setup",
         stepCount: 3,
+        optional: true,
       }),
       expect.objectContaining({
         id: "mail-triage-sorting",
         placement: "after-setup",
         stepCount: 1,
+        optional: true,
       }),
     ]),
   );

@@ -10,7 +10,7 @@ import {
   AppSidebarFooter,
   type AppSidebarItemDefinition,
 } from "@agent-native/toolkit/app/shared";
-import { IconComponents, IconPencil, IconTemplate } from "@tabler/icons-react";
+import { IconComponents, IconHome, IconTemplate } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router";
 
@@ -40,8 +40,8 @@ export function Sidebar() {
   const items: AppSidebarItemDefinition[] = [
     {
       to: "/home",
-      label: t("navigation.designs"),
-      icon: IconPencil,
+      label: t("navigation.home"),
+      icon: IconHome,
       active:
         location.pathname === "/home" ||
         location.pathname.startsWith("/design/") ||

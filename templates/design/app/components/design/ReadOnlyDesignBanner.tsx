@@ -31,7 +31,7 @@ export function ReadOnlyDesignBanner({
         <IconInfoCircle className="size-3.5 shrink-0" />
         <span className="min-w-0 truncate">
           {
-            "You don't have access to edit this design" /* i18n-ignore Figma-style read-only notice */
+            "You don't have access to edit this design" /* i18n-ignore read-only notice */
           }
         </span>
         {onCommentPin ? (

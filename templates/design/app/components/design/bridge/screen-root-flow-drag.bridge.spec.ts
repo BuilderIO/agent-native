@@ -97,6 +97,14 @@ describe("Settings navigation row drag targeting", () => {
   });
 });
 
+const FLOW_BODY = `<!doctype html><html><body style="margin:0;width:640px">
+  <header data-agent-native-node-id="header" style="height:40px">Header</header>
+  <section data-agent-native-node-id="row" style="width:140px;height:80px;display:flex;flex-direction:row">
+    <div data-agent-native-node-id="row-child" style="flex:none;width:80px;height:40px">Child</div>
+  </section>
+  <div data-agent-native-node-id="moving" style="position:absolute;left:360px;top:200px;width:220px;height:96px;background:#2563eb">Move</div>
+</body></html>`;
+
 describe("Screen-root auto-layout drag", () => {
   it("flow-inserts an absolute layer into the root without falling back to coordinates", async () => {
     const browser = await chromium.launch({ headless: true });
@@ -258,6 +266,60 @@ describe("Screen-root auto-layout drag", () => {
           .locator('[data-agent-native-node-id="moving"]')
           .evaluate((element) => getComputedStyle(element).position),
       ).toBe("absolute");
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("drops beside a too-small auto-layout row in a normal-flow body as a flow sibling", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 640, height: 480 },
+      });
+      const pageErrors: string[] = [];
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+      await page.setContent(FLOW_BODY);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await page.evaluate(() => {
+        (window as any).__structureMessages = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "visual-structure-change") {
+            (window as any).__structureMessages.push(event.data);
+          }
+        });
+        window.postMessage(
+          {
+            type: "select-element",
+            selector: '[data-agent-native-node-id="moving"]',
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        return overlay && getComputedStyle(overlay).display === "block";
+      });
+
+      await page.mouse.move(470, 248);
+      await page.mouse.down();
+      await page.mouse.move(480, 254, { steps: 4 });
+      await page.mouse.move(110, 70, { steps: 12 });
+      await page.mouse.up();
+
+      await page.waitForFunction(
+        () => (window as any).__structureMessages.length === 1,
+      );
+      expect(
+        await page.evaluate(() => (window as any).__structureMessages[0]),
+      ).toMatchObject({
+        anchorSelector: '[data-agent-native-node-id="row"]',
+        dropMode: "flow-insert",
+      });
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();

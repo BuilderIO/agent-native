@@ -33,7 +33,7 @@ export interface PersistFrameGeometrySaveArgs {
   journalOutboxEntry: (entry: DesignSaveOutboxEntry) => Promise<boolean>;
   pendingFrameGeometryOperationsForUnloadRef: RefObject<PendingDesignDataOperations>;
   queryClient: QueryClient;
-  warnChangesWillRetry: () => void;
+  reportSaveFailure: (error: unknown) => void;
 }
 
 export function runPersistFrameGeometrySave(
@@ -49,7 +49,7 @@ export function runPersistFrameGeometrySave(
     journalOutboxEntry,
     pendingFrameGeometryOperationsForUnloadRef,
     queryClient,
-    warnChangesWillRetry,
+    reportSaveFailure,
   }: PersistFrameGeometrySaveArgs,
   pending: {
     geometryById: CanvasFrameGeometryById;
@@ -92,7 +92,7 @@ export function runPersistFrameGeometrySave(
     if (!attempt.accepted) return false;
     void attempt.completion
       .then(() => acknowledgeOutboxEntry(entry))
-      .catch(warnChangesWillRetry);
+      .catch(reportSaveFailure);
     return true;
   }
   if (dataOperations.length === 0) return true;

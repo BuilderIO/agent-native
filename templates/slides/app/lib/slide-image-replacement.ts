@@ -2,6 +2,400 @@ import { SOURCE_STAMP_ATTR } from "./slide-source-map";
 
 const PLACEHOLDER_TARGET_PREFIX = "placeholder:";
 const MAX_PENDING_SLIDE_IMAGE_UPLOADS = 16;
+export const CROP_TRANSITION_ANIMATION_ID_PREFIX = "fmd-crop-transition:";
+export const CROP_CSS_ANIMATION_NAME_PREFIX = "fmd_crop_";
+export const CROP_TRANSITION_FRAME_NEUTRALS: Record<string, string> = {
+  opacity: "1",
+  filter: "none",
+  "backdrop-filter": "none",
+  "clip-path": "none",
+  "mask-image": "none",
+};
+
+type InlineStyleDeclaration = {
+  property: string;
+  value: string;
+  priority: string;
+};
+
+type CropTransitionInlineStyleOverride = {
+  property: string;
+  originalValue: string;
+  originalPriority: string;
+  temporaryValue: string;
+  temporaryPriority: string;
+  active: boolean;
+};
+
+// A replaced slide can inherit a live WAAPI copy and its temporary inline fallback.
+const cropTransitionInlineStyleOverrides = new WeakMap<
+  HTMLElement,
+  Map<string, CropTransitionInlineStyleOverride>
+>();
+
+function withCssTransitionsDisabled<T>(
+  element: HTMLElement,
+  update: () => T,
+): T {
+  const declarations: InlineStyleDeclaration[] = [];
+  for (const property of Array.from(
+    { length: element.style.length },
+    (_, index) => element.style.item(index),
+  )) {
+    if (!/^transition(?:-|$)/.test(property)) continue;
+    declarations.push({
+      property,
+      value: element.style.getPropertyValue(property),
+      priority: element.style.getPropertyPriority(property),
+    });
+    element.style.removeProperty(property);
+  }
+
+  element.style.setProperty("transition", "none", "important");
+  getComputedStyle(element).getPropertyValue("transition");
+  try {
+    return update();
+  } finally {
+    getComputedStyle(element).getPropertyValue("opacity");
+    element.style.removeProperty("transition");
+    for (const { property, value, priority } of declarations) {
+      element.style.setProperty(property, value, priority);
+    }
+  }
+}
+
+function writeInlineStyleDeclaration(
+  element: HTMLElement,
+  property: string,
+  value: string,
+  priority: string,
+): void {
+  if (value) element.style.setProperty(property, value, priority);
+  else element.style.removeProperty(property);
+}
+
+export function registerCropTransitionInlineStyleOverride(
+  element: HTMLElement,
+  property: string,
+  originalValue: string,
+  originalPriority: string,
+  temporaryValue: string,
+  temporaryPriority: string,
+): () => void {
+  let overrides = cropTransitionInlineStyleOverrides.get(element);
+  if (!overrides) {
+    overrides = new Map();
+    cropTransitionInlineStyleOverrides.set(element, overrides);
+  }
+
+  const previous = overrides.get(property);
+  if (previous?.active) {
+    const stillTemporary =
+      element.style.getPropertyValue(property) === previous.temporaryValue &&
+      element.style.getPropertyPriority(property) ===
+        previous.temporaryPriority;
+    if (stillTemporary) {
+      originalValue = previous.originalValue;
+      originalPriority = previous.originalPriority;
+    }
+    previous.active = false;
+  }
+  if (
+    !previous &&
+    originalValue === temporaryValue &&
+    originalPriority === temporaryPriority
+  ) {
+    return () => {};
+  }
+
+  const override: CropTransitionInlineStyleOverride = {
+    property,
+    originalValue,
+    originalPriority,
+    temporaryValue,
+    temporaryPriority,
+    active: true,
+  };
+  overrides.set(property, override);
+
+  return () => {
+    if (!override.active) return;
+    override.active = false;
+    if (overrides?.get(property) === override) overrides.delete(property);
+    if (
+      element.style.getPropertyValue(property) === temporaryValue &&
+      element.style.getPropertyPriority(property) === temporaryPriority
+    ) {
+      withCssTransitionsDisabled(element, () =>
+        writeInlineStyleDeclaration(
+          element,
+          property,
+          originalValue,
+          originalPriority,
+        ),
+      );
+    }
+  };
+}
+
+export function serializeWithRestoredCropTransitionInlineOverrides<T>(
+  element: HTMLElement,
+  serialize: () => T,
+): T {
+  const active = [
+    ...(cropTransitionInlineStyleOverrides.get(element)?.values() ?? []),
+  ].filter(
+    (override) =>
+      override.active &&
+      element.style.getPropertyValue(override.property) ===
+        override.temporaryValue &&
+      element.style.getPropertyPriority(override.property) ===
+        override.temporaryPriority,
+  );
+  if (active.length === 0) return serialize();
+  for (const override of active) {
+    writeInlineStyleDeclaration(
+      element,
+      override.property,
+      override.originalValue,
+      override.originalPriority,
+    );
+  }
+  try {
+    return serialize();
+  } finally {
+    for (const override of active) {
+      if (
+        override.active &&
+        element.style.getPropertyValue(override.property) ===
+          override.originalValue &&
+        element.style.getPropertyPriority(override.property) ===
+          override.originalPriority
+      ) {
+        writeInlineStyleDeclaration(
+          element,
+          override.property,
+          override.temporaryValue,
+          override.temporaryPriority,
+        );
+      }
+    }
+  }
+}
+
+type CropAnimationTransferBase = {
+  animation: Animation;
+  objectId: string;
+  targetKind: "frame" | "image";
+  currentTime: CSSNumberish | null;
+  playbackRate: number;
+  playState: AnimationPlayState;
+};
+
+type CropTransitionAnimationTransfer = CropAnimationTransferBase & {
+  kind: "transition";
+  animationId: string;
+  property: string;
+  keyframes: Keyframe[];
+  timing: EffectTiming;
+};
+
+type CropCssAnimationTransfer = CropAnimationTransferBase & {
+  kind: "css";
+  animationName: string;
+  occurrence: number;
+};
+
+type CropAnimationTransfer =
+  | CropTransitionAnimationTransfer
+  | CropCssAnimationTransfer;
+
+export function captureCropTransitionAnimations(
+  root: HTMLElement,
+): CropAnimationTransfer[] {
+  const transfers: CropAnimationTransfer[] = [];
+  const elements = [
+    root,
+    ...Array.from(root.querySelectorAll<HTMLElement>("*")),
+  ];
+  for (const element of elements) {
+    const cssAnimationOccurrences = new Map<string, number>();
+    const animations =
+      typeof element.getAnimations === "function"
+        ? element.getAnimations()
+        : [];
+    for (const animation of animations) {
+      const animationName =
+        "animationName" in animation &&
+        typeof animation.animationName === "string"
+          ? animation.animationName
+          : null;
+      if (
+        animationName?.startsWith(CROP_CSS_ANIMATION_NAME_PREFIX) &&
+        animation.playState !== "idle"
+      ) {
+        const occurrence = cssAnimationOccurrences.get(animationName) ?? 0;
+        cssAnimationOccurrences.set(animationName, occurrence + 1);
+        const frame = element.matches(".fmd-pptx-image")
+          ? element
+          : element.closest<HTMLElement>(
+              ".fmd-pptx-image[data-slide-object-id]",
+            );
+        const objectId = frame?.getAttribute("data-slide-object-id");
+        if (!frame || !objectId) continue;
+        transfers.push({
+          kind: "css",
+          animation,
+          animationName,
+          occurrence,
+          objectId,
+          targetKind: element === frame ? "frame" : "image",
+          currentTime: animation.currentTime,
+          playbackRate: animation.playbackRate,
+          playState: animation.playState,
+        });
+        continue;
+      }
+      if (
+        animationName !== null ||
+        !animation.id.startsWith(CROP_TRANSITION_ANIMATION_ID_PREFIX) ||
+        animation.playState === "finished" ||
+        animation.currentTime === null ||
+        !(animation.effect instanceof KeyframeEffect)
+      ) {
+        continue;
+      }
+      const frame = element.matches(".fmd-pptx-image")
+        ? element
+        : element.closest<HTMLElement>(".fmd-pptx-image[data-slide-object-id]");
+      const objectId = frame?.getAttribute("data-slide-object-id");
+      if (!frame || !objectId) continue;
+      const property = animation.id.slice(
+        CROP_TRANSITION_ANIMATION_ID_PREFIX.length,
+      );
+      if (!property) continue;
+      transfers.push({
+        kind: "transition",
+        animation,
+        animationId: animation.id,
+        objectId,
+        targetKind: element === frame ? "frame" : "image",
+        property,
+        keyframes: animation.effect.getKeyframes(),
+        timing: animation.effect.getTiming(),
+        currentTime: animation.currentTime,
+        playbackRate: animation.playbackRate,
+        playState: animation.playState,
+      });
+    }
+  }
+  return transfers;
+}
+
+export function restoreCropTransitionAnimations(
+  root: HTMLElement,
+  transfers: CropAnimationTransfer[],
+): boolean {
+  let restored = true;
+  for (const transfer of transfers) {
+    const frame = Array.from(
+      root.querySelectorAll<HTMLElement>(
+        ".fmd-pptx-image[data-slide-object-id]",
+      ),
+    ).find(
+      (candidate) =>
+        candidate.getAttribute("data-slide-object-id") === transfer.objectId,
+    );
+    const target =
+      transfer.targetKind === "frame"
+        ? frame
+        : frame?.querySelector<HTMLImageElement>("img");
+    const image =
+      transfer.targetKind === "frame"
+        ? frame?.querySelector<HTMLImageElement>("img")
+        : (target as HTMLImageElement | null | undefined);
+    if (!frame || !(target instanceof HTMLElement)) {
+      if (transfer.kind === "transition") transfer.animation.cancel();
+      continue;
+    }
+
+    if (transfer.kind === "css") {
+      void getComputedStyle(target).animationName;
+      const animation = target
+        .getAnimations()
+        .filter(
+          (candidate): candidate is CSSAnimation =>
+            "animationName" in candidate &&
+            candidate.animationName === transfer.animationName,
+        )[transfer.occurrence];
+      if (!animation) {
+        restored = false;
+        continue;
+      }
+      animation.playbackRate = transfer.playbackRate;
+      if (transfer.playState === "paused") animation.pause();
+      if (transfer.currentTime !== null)
+        animation.currentTime = transfer.currentTime;
+      if (transfer.playState === "running") animation.play();
+      else if (transfer.playState === "finished") animation.finish();
+      else if (transfer.playState === "idle") animation.cancel();
+      transfer.animation.cancel();
+      continue;
+    }
+
+    const frameNeutralValue =
+      transfer.targetKind === "frame" && image
+        ? CROP_TRANSITION_FRAME_NEUTRALS[transfer.property]
+        : undefined;
+    const styleTarget = frameNeutralValue !== undefined ? image! : target;
+    const originalValue = styleTarget.style.getPropertyValue(transfer.property);
+    const originalPriority = styleTarget.style.getPropertyPriority(
+      transfer.property,
+    );
+    const temporaryValue = frameNeutralValue ?? originalValue;
+    const temporaryPriority =
+      frameNeutralValue !== undefined
+        ? "important"
+        : originalPriority === "important"
+          ? ""
+          : originalPriority;
+    const restoreStyle = registerCropTransitionInlineStyleOverride(
+      styleTarget,
+      transfer.property,
+      originalValue,
+      originalPriority,
+      temporaryValue,
+      temporaryPriority,
+    );
+    if (originalValue || temporaryValue) {
+      withCssTransitionsDisabled(styleTarget, () => {
+        styleTarget.style.setProperty(
+          transfer.property,
+          temporaryValue,
+          temporaryPriority,
+        );
+      });
+    }
+
+    try {
+      const animation = target.animate(transfer.keyframes, transfer.timing);
+      animation.id = transfer.animationId;
+      animation.playbackRate = transfer.playbackRate;
+      animation.currentTime = transfer.currentTime;
+      if (transfer.playState === "paused") animation.pause();
+      void animation.finished.then(() => {
+        animation.cancel();
+        restoreStyle();
+      }, restoreStyle);
+    } catch {
+      restored = false;
+      restoreStyle();
+    } finally {
+      transfer.animation.cancel();
+    }
+  }
+  return restored;
+}
 
 interface ReplaceOptions {
   alt?: string;
@@ -214,16 +608,44 @@ function findImageWithSource(
   );
 }
 
-function imageStructure(doc: Document, ignoredSourceStamp?: string): string {
+function findEmptyImageCropViewport(
+  doc: Document,
+  objectId: string,
+): HTMLElement | null {
+  const frame = Array.from(
+    doc.body.querySelectorAll<HTMLElement>(
+      '.fmd-pptx-image[data-pptx-element-kind="image"][data-slide-object-id]',
+    ),
+  ).find(
+    (candidate) => candidate.getAttribute("data-slide-object-id") === objectId,
+  );
+  const viewport = frame?.querySelector<HTMLElement>(
+    ".fmd-image-crop-viewport",
+  );
+  return viewport && viewport.childElementCount === 0 ? viewport : null;
+}
+
+function imageStructure(
+  doc: Document,
+  options: {
+    ignoreImageFrameGeometry?: boolean;
+    ignoredSourceStamp?: string;
+  } = {},
+): string {
   const body = doc.body.cloneNode(true) as HTMLElement;
-  if (ignoredSourceStamp) {
+  if (options.ignoredSourceStamp) {
     const editedNode = Array.from(
       body.querySelectorAll<HTMLElement>(`[${SOURCE_STAMP_ATTR}]`),
     ).find(
       (element) =>
-        element.getAttribute(SOURCE_STAMP_ATTR) === ignoredSourceStamp,
+        element.getAttribute(SOURCE_STAMP_ATTR) === options.ignoredSourceStamp,
     );
     editedNode?.remove();
+  }
+  if (options.ignoreImageFrameGeometry) {
+    body
+      .querySelectorAll<HTMLElement>(".fmd-pptx-image")
+      .forEach(removeImageGeometryStyles);
   }
   body.querySelectorAll("img").forEach((image, index) => {
     image.replaceWith(`__slide-image-${index}__`);
@@ -263,28 +685,68 @@ const LIVE_IMAGE_GEOMETRY_STYLE_PROPERTIES = [
   "aspect-ratio",
 ] as const;
 
+function removeImageGeometryStyles(element: HTMLElement): void {
+  for (const property of LIVE_IMAGE_GEOMETRY_STYLE_PROPERTIES) {
+    element.style.removeProperty(property);
+  }
+  if (element.style.length === 0) element.removeAttribute("style");
+}
+
+function applyImageGeometryStyles(
+  liveElement: HTMLElement,
+  nextElement: HTMLElement,
+): void {
+  removeImageGeometryStyles(liveElement);
+  for (const property of LIVE_IMAGE_GEOMETRY_STYLE_PROPERTIES) {
+    const value = nextElement.style.getPropertyValue(property);
+    if (value) {
+      liveElement.style.setProperty(
+        property,
+        value,
+        nextElement.style.getPropertyPriority(property),
+      );
+    }
+  }
+}
+
+function hasSameImageGeometryStyles(
+  left: HTMLElement,
+  right: HTMLElement,
+): boolean {
+  return LIVE_IMAGE_GEOMETRY_STYLE_PROPERTIES.every(
+    (property) =>
+      left.style.getPropertyValue(property) ===
+        right.style.getPropertyValue(property) &&
+      left.style.getPropertyPriority(property) ===
+        right.style.getPropertyPriority(property),
+  );
+}
+
 function updateImageAttributesInPlace(
   liveImage: HTMLImageElement,
   nextImage: HTMLImageElement,
+  preserveLiveGeometry: boolean,
 ): void {
-  const liveGeometry = LIVE_IMAGE_GEOMETRY_STYLE_PROPERTIES.map((property) => {
-    const value = liveImage.style.getPropertyValue(property);
-    return value
-      ? {
-          priority: liveImage.style.getPropertyPriority(property),
-          property,
-          value,
-        }
-      : null;
-  }).filter(
-    (
-      declaration,
-    ): declaration is {
-      priority: string;
-      property: (typeof LIVE_IMAGE_GEOMETRY_STYLE_PROPERTIES)[number];
-      value: string;
-    } => declaration !== null,
-  );
+  const liveGeometry = preserveLiveGeometry
+    ? LIVE_IMAGE_GEOMETRY_STYLE_PROPERTIES.map((property) => {
+        const value = liveImage.style.getPropertyValue(property);
+        return value
+          ? {
+              priority: liveImage.style.getPropertyPriority(property),
+              property,
+              value,
+            }
+          : null;
+      }).filter(
+        (
+          declaration,
+        ): declaration is {
+          priority: string;
+          property: (typeof LIVE_IMAGE_GEOMETRY_STYLE_PROPERTIES)[number];
+          value: string;
+        } => declaration !== null,
+      )
+    : [];
 
   for (const attribute of Array.from(liveImage.attributes)) {
     if (
@@ -337,12 +799,55 @@ export function swapImageSourcesInPlace(
   }
 
   const nextSources = nextImages.map((image) => image.getAttribute("src"));
-  if (imageStructure(previousDoc) !== imageStructure(nextDoc)) return false;
-
+  if (
+    imageStructure(previousDoc, { ignoreImageFrameGeometry: true }) !==
+    imageStructure(nextDoc, { ignoreImageFrameGeometry: true })
+  ) {
+    return false;
+  }
   const liveImages = Array.from(root.querySelectorAll<HTMLImageElement>("img"));
   if (liveImages.length !== nextSources.length) return false;
+  const previousFrames = Array.from(
+    previousDoc.body.querySelectorAll<HTMLElement>(".fmd-pptx-image"),
+  );
+  const nextFrames = Array.from(
+    nextDoc.body.querySelectorAll<HTMLElement>(".fmd-pptx-image"),
+  );
+  const liveFrames = Array.from(
+    root.querySelectorAll<HTMLElement>(".fmd-pptx-image"),
+  );
+  if (
+    previousFrames.length !== nextFrames.length ||
+    liveFrames.length !== nextFrames.length
+  ) {
+    return false;
+  }
+  for (let index = 0; index < nextFrames.length; index += 1) {
+    const objectId = nextFrames[index]!.getAttribute("data-slide-object-id");
+    if (
+      previousFrames[index]!.getAttribute("data-slide-object-id") !==
+        objectId ||
+      liveFrames[index]!.getAttribute("data-slide-object-id") !== objectId
+    ) {
+      return false;
+    }
+  }
   liveImages.forEach((image, index) => {
-    updateImageAttributesInPlace(image, nextImages[index]);
+    const previousImage = previousImages[index]!;
+    const nextImage = nextImages[index]!;
+    const preserveLiveGeometry =
+      !image.closest(".fmd-pptx-image") &&
+      !hasSameImageGeometryStyles(image, previousImage);
+    updateImageAttributesInPlace(image, nextImage, preserveLiveGeometry);
+  });
+  previousFrames.forEach((frame, index) => {
+    const nextFrame = nextFrames[index]!;
+    const liveFrame = liveFrames[index]!;
+    // A source update can race with a live move. Restore the snapshot geometry
+    // only when the live frame still matches the snapshot being replaced.
+    if (hasSameImageGeometryStyles(liveFrame, frame)) {
+      applyImageGeometryStyles(liveFrame, nextFrame);
+    }
   });
   return true;
 }
@@ -390,14 +895,14 @@ export function updateLiveImagesUnderEdit(
     return false;
   }
   if (
-    imageStructure(previousDoc, editedSourceStamp) !==
-    imageStructure(nextDoc, editedSourceStamp)
+    imageStructure(previousDoc, { ignoredSourceStamp: editedSourceStamp }) !==
+    imageStructure(nextDoc, { ignoredSourceStamp: editedSourceStamp })
   ) {
     return false;
   }
   liveImages.forEach((image, index) => {
     const stamp = image.getAttribute(SOURCE_STAMP_ATTR);
-    updateImageAttributesInPlace(image, nextImages[index]);
+    updateImageAttributesInPlace(image, nextImages[index], true);
     if (stamp === null) image.removeAttribute(SOURCE_STAMP_ATTR);
     else image.setAttribute(SOURCE_STAMP_ATTR, stamp);
   });
@@ -1243,6 +1748,19 @@ export function applyOptimisticImagePreview(
   preview: OptimisticImagePreview,
 ): string {
   if (hasImageSource(content, preview.previewSrc)) return content;
+  if (!preview.replaceSrc && preview.objectId) {
+    const doc = parseFragment(content);
+    const viewport = findEmptyImageCropViewport(doc, preview.objectId);
+    if (viewport) {
+      const image = doc.createElement("img");
+      image.setAttribute("src", preview.previewSrc);
+      image.setAttribute("alt", cleanAlt(preview.alt));
+      image.className = "fmd-img-uploaded";
+      if (preview.style) image.setAttribute("style", preview.style);
+      viewport.appendChild(image);
+      return serializeFragment(doc);
+    }
+  }
   return preview.replaceSrc
     ? replaceImageTargetInSlideHtml(
         content,

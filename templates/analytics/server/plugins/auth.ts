@@ -1,8 +1,8 @@
 import {
-  createAuthPlugin,
   isInBackgroundFunctionRuntime,
   markDefaultPluginProvided,
 } from "@agent-native/core/server";
+import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
 
 import {
   ANALYTICS_ANALYSIS_AGENT_CONTEXT_ENDPOINT,
@@ -14,7 +14,7 @@ import {
   SESSION_REPLAY_AGENT_EVENTS_ENDPOINT,
 } from "../../shared/session-replay-agent-access.js";
 
-const authPlugin = createAuthPlugin({
+const authPlugin = createToolkitAuthPlugin({
   workspaceAppPublicPaths: ["/"],
   publicPaths: [
     // Agent-readable context links: fetched with no session cookie, so the
@@ -31,10 +31,25 @@ const authPlugin = createAuthPlugin({
     "/status",
     "/_agent-native/actions/get-public-status-page",
   ],
+  publicPathsWithQueryToken: [
+    {
+      path: "/api/session-replay/recordings/:recordingId/manifest",
+      queryParam: "agent_access",
+    },
+    {
+      path: "/api/session-replay/recordings/:recordingId/chunks/:seq",
+      queryParam: "agent_access",
+    },
+    {
+      path: "/api/session-replay/recordings/:recordingId/chunks",
+      queryParam: "agent_access",
+    },
+  ],
   publicCorsPaths: ["/track", "/api/analytics/track", "/api/analytics/replay"],
   marketing: {
     appName: "Analytics",
-    learnMoreUrl: "https://agent-native.com/apps/analytics",
+    learnMoreUrl:
+      "https://agent-native.com/apps/analytics?utm_source=app&utm_medium=product&utm_content=onboarding-learn-more",
     tagline:
       "Your AI agent queries your data sources, builds dashboards, and answers business questions alongside you.",
     features: [

@@ -56,6 +56,13 @@ const comments = {
   hideIndicators: "隱藏留言和醒目提示",
   showIndicators: "顯示留言和醒目提示",
   unanchored: "無法使用醒目提示",
+  propertyEmpty: "空白",
+  propertyRemoved: "{{name}}（已移除）",
+  propertyWas: "原為 {{value}}",
+  commentOnProperty: "留言於{{name}}",
+  openPropertyComments_other: "{{name}} 有 {{count}} 則未解決的留言",
+  openRowComments_other: "{{title}} 有 {{count}} 則未解決的留言",
+  openRow: "開啟列",
   suggestions: "建議",
   suggestionAdd: "新增",
   suggestionDelete: "刪除",
@@ -130,6 +137,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "仍在等待{{stage}}。請求：{{action}}。",
+    widgetDocumentLoadStage: "已儲存的頁面內文",
+    widgetDraftCheckStage: "頁面草稿復原",
+    widgetEditorInitStage: "富文字編輯器初始化",
     iconPickerIcons: "圖示",
     iconPickerEmoji: "表情符號",
     iconPickerRecent: "最近使用",
@@ -253,8 +264,6 @@ const overrides = {
   },
   landing: {
     previousPageUnavailable: "您先前的頁面已無法使用，因此我們開啟了歡迎頁面。",
-    requestedPageUnavailable:
-      "該頁面對你的帳戶不可用，因此我們開啟了歡迎頁面。",
     saveFailed: "無法儲存您的位置",
     workspaceWelcomeUnavailableTitle: "這裡尚未開啟任何內容",
     workspaceWelcomeUnavailableDescription:
@@ -312,6 +321,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "未選取頁面",
+    pageNoAccess: "你沒有此頁面的存取權",
+    pageMissing: "此頁面不存在",
+    pageInTrash: "此頁面在垃圾桶中",
+    pageInTrashAskOwner: "請擁有者還原它。",
+    openTrash: "開啟垃圾桶",
+    goToMyPages: "前往我的頁面",
     noPageDescription: "從側邊欄選取頁面，或建立新頁面開始。",
     documentUnavailable: "檔案不可用",
     documentUnavailableDescription:
@@ -334,6 +349,10 @@ const overrides = {
     suggestionFormattingBaselineUnsupported:
       "頁面中的某些格式無法安全地建議變更。編輯者可以先更新這些格式，然後您再重試。",
     suggestionAmendmentEmpty: "此編輯與目前頁面相同。拒絕建議即可移除。",
+    suggestionUnplaceable:
+      "此建議周圍的文字已變更，因此無法套用。它仍在待處理狀態：請拒絕它，或重新建議此修改。",
+    proposalUnplaceable:
+      "其中一則建議周圍的文字已變更，無法套用，因此所有建議均未套用。它們仍在待處理狀態：請逐則接受或拒絕。",
     suggestionAmendmentFailed: "無法儲存建議",
     suggestionAmendmentResolved:
       "此建議已在其他地方變更。你未儲存的草稿仍保留在這裡。",
@@ -425,10 +444,22 @@ const overrides = {
     pageBodySyncingDescription:
       "在頁面正文完成同步之前，編輯會暫停，以免覆寫既有內容。",
     localFileSavedHistoryNotUpdated: "本機檔案已儲存，但歷史紀錄未更新",
-    reorderField: "重新排序 {{name}}",
+    addBlockField: "新增欄位",
+    blockFieldChanged: "自你上次檢視後已變更",
+    blockFieldTabs: "欄位",
+    blockFieldMenu: "{{name}} 選項",
+    blockFieldMenuScope: "此集合中的每一列共用",
+    blockFieldName: "欄位名稱",
+    renameBlockField: "重新命名",
+    renameBlockFieldFailed: "無法重新命名欄位",
+    deleteBlockField: "刪除",
+    deleteBlockFieldFailed: "無法刪除欄位",
+    deleteBlockFieldQuestion: "要刪除「{{name}}」嗎？",
+    deleteBlockFieldDescription:
+      "這會從此集合的每一列中刪除「{{name}}」及其文字。此動作無法復原。",
+    deleteBlockFieldBodyWarning:
+      "「{{name}}」是頁面內文，因此每一列的內文也會一併刪除。",
     title: "標題",
-    toggleField: "切換 {{name}}",
-    createCollection: "建立集合",
     creatingDatabase: "正在建立內嵌集合...",
     databaseCreated: "集合已建立",
     emptyBlockPlaceholder: "按「/」使用指令",
@@ -861,6 +892,8 @@ const overrides = {
       openInClaude: "在 Claude 中開啟",
       openInClaudeCode: "在 Claude Code 中開啟",
       openInCodex: "在 Codex 中開啟",
+      connectContent: "連接 Content",
+      otherAgents: "其他代理程式",
       agentCopyAccessNote: "代理程式可以透過現有權限使用 Content MCP",
       temporaryAgentLink: "暫時性代理程式連結",
       privateLinkCanView: "只有有權限的人可以檢視",
@@ -952,6 +985,7 @@ const overrides = {
       notionPageUrlOrId: "Notion 頁面 URL 或頁面 ID",
       open: "開啟",
       openInNotion: "在概念中開啟",
+      openInAgentNative: "在 Agent-Native 中開啟",
       orgCanFindAndView: "您組織中的任何人都可以尋找和檢視",
       orgLinkCanView: "您組織中知道該連結的任何人都可以檢視",
       pageBreadcrumb: "頁面面包屑",
@@ -997,7 +1031,17 @@ const overrides = {
     addEmoji: "新增表情符號",
     mentionSomeone: "提及某人",
     mentionPeople: "成員",
+    mentionPeopleLoadFailed: "無法載入成員。",
     mentionAgents: "代理程式",
+    identityPerson: "使用者",
+    identityModel: "模型",
+    identityEffort: "推理強度",
+    identityRan: "執行時間",
+    identityNotRecorded: "未記錄",
+    identityOpenRun: "開啟執行",
+    identityRoleOwner: "擁有者",
+    identityRoleAdmin: "管理員",
+    identityRoleMember: "成員",
     commentTitle: "留言",
     suggestionTitle: "建議",
     close: "關閉",
@@ -1046,6 +1090,9 @@ const overrides = {
     aiUndo: "復原",
     aiDone: "完成",
     aiMoreChanges: "另外 {{count}} 處",
+    suggestionReplaced: "已取代",
+    suggestionWithdrawn: "已撤回",
+    suggestedChange: "建議的變更",
     aiUndoUnavailable: "已刪除的文字無法自動復原",
     aiUndoFailed: "無法復原變更",
     aiResolvedByAi: "已由 AI 解決",
@@ -1757,6 +1804,11 @@ const overrides = {
     removeLocalFilesFromSidebar: "從側邊欄移除",
     removeLocalFilesQuestion: "要從側邊欄移除本機檔案嗎？",
     failedCreatePage: "建立頁面失敗",
+    failedCreatePageDraftDescription:
+      "草稿已儲存在此瀏覽器中。你可以重試建立頁面，或捨棄草稿。",
+    discardFailedCreatePageQuestion: "捨棄待處理的建立？",
+    discardFailedCreatePageDescription:
+      "這會清除待處理的建立與未儲存的草稿。如果頁面已儲存，仍會保留在你的工作區。",
     failedDeletePage: "刪除頁面失敗",
     failedPermanentDeleteDatabase: "永久刪除集合失敗",
     failedPermanentDeletePage: "永久刪除頁面失敗",

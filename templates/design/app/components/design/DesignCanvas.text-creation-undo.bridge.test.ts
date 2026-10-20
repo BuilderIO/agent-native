@@ -5,7 +5,7 @@ import { editorChromeBridgeScript } from "../../../.generated/bridge/editor-chro
 describe("programmatic text creation undo bridge", () => {
   it("cancels the native contenteditable session and forwards undo to host history", () => {
     const guard = editorChromeBridgeScript.indexOf(
-      'programmaticTextEdit && metaOrCtrl && !ev.altKey && ev.key.toLowerCase() === "z"',
+      'programmaticTextEdit && metaOrCtrl && !ev.altKey && normalizedHotkeyChar(ev) === "z"',
     );
     const cancel = editorChromeBridgeScript.indexOf("finish(false);", guard);
     const forward = editorChromeBridgeScript.indexOf(

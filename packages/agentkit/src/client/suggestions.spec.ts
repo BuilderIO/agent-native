@@ -6,12 +6,20 @@ import type {
   AgentThreadSnapshot,
   AgentTransport,
 } from "../protocol/index.js";
-import { AgentKitClient } from "./client.js";
+import { AgentKitClient as AgentKitClientImplementation } from "./client.js";
 import {
   createAgentThreadState,
   reduceAgentEvent,
   selectAgentSuggestions,
 } from "./state.js";
+
+class AgentKitClient extends AgentKitClientImplementation {
+  constructor(
+    options: ConstructorParameters<typeof AgentKitClientImplementation>[0],
+  ) {
+    super({ ...options, aiSetupReadiness: "not-applicable" });
+  }
+}
 
 const at = "2026-09-29T00:00:00.000Z";
 const suggestion = {

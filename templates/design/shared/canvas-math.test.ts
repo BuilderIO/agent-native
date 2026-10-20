@@ -404,7 +404,7 @@ describe("canvas snap and resize math", () => {
     });
   });
 
-  describe("resizeFrameFromDelta flip-normalization (Figma-parity CV-flip)", () => {
+  describe("resizeFrameFromDelta flip normalization", () => {
     it("flips horizontally when the 'e' handle is dragged past the west edge", () => {
       const origin = { x: 100, y: 100, width: 150, height: 150 };
       const result = resizeFrameFromDelta(origin, "e", -200, 0, {
@@ -703,7 +703,7 @@ describe("computeDragSnap precedence", () => {
     expect(snap.spacingGuides).toHaveLength(1);
   });
 
-  it("drops spacing guides for a multi-frame drag, matching Figma", () => {
+  it("drops spacing guides for a multi-frame drag", () => {
     const snap = computeDragSnap(
       [
         { id: "a", geometry: { x: 205, y: 0, width: 100, height: 100 } },
@@ -911,7 +911,7 @@ describe("spacing guide rhythm chaining", () => {
   });
 });
 
-describe("computeSpacingSnap (Figma smart spacing)", () => {
+describe("computeSpacingSnap", () => {
   const row = (...xs: number[]) =>
     xs.map((x, index) => ({
       id: `s${index}`,

@@ -432,4 +432,85 @@ describe("reconcile-workflow-generation", () => {
     ).resolves.toEqual({ reconciled: false, reason: "different-run" });
     expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
   });
+  it("consumes the matching request when tracking a finished workflow", async () => {
+    const request = {
+      kind: "generate-workflow",
+      workflowKind: "email",
+      recordingId: "rec_123",
+      requestedAt,
+    };
+    mocks.readAppState
+      .mockResolvedValueOnce({
+        kind: "email",
+        status: "failed",
+        recordingId: "rec_123",
+        requestedAt,
+        tabId,
+      })
+      .mockResolvedValueOnce(request);
+
+    await expect(
+      action.run({
+        operation: "track",
+        recordingId: "rec_123",
+        requestedAt,
+        tabId,
+      }),
+    ).resolves.toEqual({
+      reconciled: false,
+      tracked: false,
+      consumed: true,
+      reason: "terminal",
+    });
+    expect(mocks.compareAndSetAppState).toHaveBeenCalledWith(
+      "clips-ai-request-rec_123",
+      request,
+      null,
+    );
+  });
+
+  it("leaves a newer request queued when tracking a finished workflow", async () => {
+    mocks.readAppState
+      .mockResolvedValueOnce({
+        kind: "email",
+        status: "ready",
+        recordingId: "rec_123",
+        requestedAt,
+      })
+      .mockResolvedValueOnce({
+        kind: "generate-workflow",
+        recordingId: "rec_123",
+        requestedAt: "2026-07-14T12:05:00.000Z",
+      });
+
+    await expect(
+      action.run({
+        operation: "track",
+        recordingId: "rec_123",
+        requestedAt,
+        tabId,
+      }),
+    ).resolves.toMatchObject({ tracked: false, consumed: true });
+    expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
+  });
+
+  it("does not consume anything for non-track operations on a finished workflow", async () => {
+    mocks.readAppState.mockResolvedValueOnce({
+      kind: "email",
+      status: "failed",
+      recordingId: "rec_123",
+      requestedAt,
+      tabId,
+    });
+
+    await expect(
+      action.run({
+        operation: "stop",
+        recordingId: "rec_123",
+        requestedAt,
+        tabId,
+      }),
+    ).resolves.toEqual({ reconciled: false, reason: "terminal" });
+    expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
+  });
 });

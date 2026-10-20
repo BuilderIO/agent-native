@@ -461,8 +461,10 @@ describe("MCP server routes", () => {
               },
             ],
           };
+          return reconfigured({ reconnected: [mergedId] });
         },
       ),
+      refreshTools: vi.fn(),
     };
     const nitroApp = createNitroApp();
     mountMcpServersRoutes(nitroApp, manager as any);
@@ -475,6 +477,7 @@ describe("MCP server routes", () => {
 
     expect(response.status).toBe(200);
     expect(manager.reconfigure).toHaveBeenCalledOnce();
+    expect(manager.refreshTools).not.toHaveBeenCalled();
     expect(response.body).toEqual({
       ok: true,
       server: {
@@ -525,7 +528,7 @@ describe("MCP server routes", () => {
         },
         tools: [],
       }),
-      reconfigure: vi.fn(async () => {}),
+      reconfigure: vi.fn(async () => reconfigured({ reconnected: [mergedId] })),
     };
     const nitroApp = createNitroApp();
     mountMcpServersRoutes(nitroApp, manager as any);
@@ -556,6 +559,125 @@ describe("MCP server routes", () => {
             "The MCP server rejected the request. Reconnect or update the required Authorization header.",
         },
       },
+    });
+  });
+
+  describe("reconnecting a connected server that held back tools", () => {
+    const mergedId = "org_acme_demo";
+    const error =
+      'Tool "broken" is unavailable: its input schema references "#/$defs/Missing", which does not resolve at /properties/item.';
+    const tool = (name: string) => ({
+      source: mergedId,
+      name: `mcp__${mergedId}__${name}`,
+      description: "",
+    });
+
+    type Status = {
+      connectedServers: string[];
+      configuredServers: string[];
+      errors: Record<string, string>;
+      tools: ReturnType<typeof tool>[];
+    };
+
+    /** Reconnects `demo`, whose tools `relist` lists again. */
+    async function reconnect(relist: (status: Status) => void) {
+      getSessionMock.mockResolvedValue({ email: "alice@example.com" });
+      getOrgContextMock.mockResolvedValue({
+        email: "alice@example.com",
+        orgId: "acme",
+        role: "member",
+      });
+      mockedSettings.all["o:acme:mcp-servers-remote"] = {
+        servers: [
+          {
+            id: "demo",
+            name: "demo",
+            url: "https://mcp.example.test/mcp",
+            createdAt: 1,
+          },
+        ],
+      };
+      const status: Status = {
+        connectedServers: [mergedId],
+        configuredServers: [mergedId],
+        errors: { [mergedId]: error },
+        tools: [tool("ping")],
+      };
+      const manager = {
+        getStatus: () => status,
+        reconfigure: vi.fn(async () => reconfigured({ unchanged: [mergedId] })),
+        refreshTools: vi.fn(async () => relist(status)),
+      };
+      const nitroApp = createNitroApp();
+      mountMcpServersRoutes(nitroApp, manager as any);
+      const response = await dispatchMountedRoute(
+        nitroApp,
+        "/_agent-native/mcp/servers/demo/reconnect?scope=org",
+        "POST",
+      );
+      expect(manager.refreshTools).toHaveBeenCalledWith(mergedId);
+      return response;
+    }
+
+    it("reports the tools it still holds back", async () => {
+      const response = await reconnect(() => {});
+
+      expect(response.status).toBe(200);
+      expect(response.body.server.status).toEqual({
+        state: "connected",
+        toolCount: 1,
+        error,
+      });
+    });
+
+    it("offers a repaired tool again", async () => {
+      const response = await reconnect((status) => {
+        status.errors = {};
+        status.tools = [tool("ping"), tool("broken")];
+      });
+
+      expect(response.status).toBe(200);
+      expect(response.body.server.status).toEqual({
+        state: "connected",
+        toolCount: 2,
+      });
+    });
+
+    it("reports a tool list that could not be fetched over a connection that stays up", async () => {
+      const response = await reconnect(() => {
+        throw new Error(
+          `MCP server ${mergedId} tools/list timed out after 5000ms`,
+        );
+      });
+
+      expect(response.status).toBe(502);
+      expect(response.body).toEqual({
+        ok: false,
+        error:
+          "Could not reach that MCP server. Check the URL and make sure it is publicly reachable from this app.",
+      });
+    });
+
+    it("answers a list refused for its authorization with the status a refused connect leaves", async () => {
+      const response = await reconnect((status) => {
+        // What the manager reports once the SDK drops the refused connection.
+        status.connectedServers = [];
+        status.errors = {
+          [mergedId]:
+            'HTTP 401: Error POSTing to endpoint: {"error":"invalid_token"}',
+        };
+        throw Object.assign(new Error("Error POSTing to endpoint"), {
+          status: 401,
+        });
+      });
+
+      expect(response.status).toBe(200);
+      expect(response.body.ok).toBe(true);
+      expect(response.body.server.status).toEqual({
+        state: "error",
+        error:
+          "The MCP server rejected the request. Reconnect or update the required Authorization header.",
+      });
     });
   });
 
@@ -716,9 +838,17 @@ describe("MCP server routes", () => {
     );
 
     expect(ok.status).toBe(200);
-    expect(manager.callTool).toHaveBeenCalledWith("mcp__apps__render", {
-      id: "1",
-    });
+    expect(manager.callTool).toHaveBeenCalledWith(
+      "mcp__apps__render",
+      { id: "1" },
+      {
+        context: {
+          caller: "frontend",
+          userEmail: "alice@example.com",
+          orgId: null,
+        },
+      },
+    );
     expect(ok.body).toEqual({ content: [{ type: "text", text: "ok" }] });
 
     const blocked = await dispatchMountedRoute(
@@ -731,6 +861,53 @@ describe("MCP server routes", () => {
     expect(blocked.body).toEqual({
       error: "serverId and same-server toolName are required",
     });
+  });
+
+  it("preserves authorization denials from MCP App tool calls", async () => {
+    getSessionMock.mockResolvedValue({ email: "alice@example.com" });
+    getOrgContextMock.mockResolvedValue({ orgId: "acme" });
+
+    const denied = new Error("Not authorized") as Error & {
+      statusCode: number;
+    };
+    denied.name = "ForbiddenError";
+    denied.statusCode = 403;
+    const nitroApp = createNitroApp();
+    const manager = {
+      hasServer: () => true,
+      getToolsForServer: () => [
+        {
+          source: "apps",
+          name: "mcp__apps__render",
+          originalName: "render",
+          description: "Render",
+          inputSchema: { type: "object" },
+          raw: { name: "render" },
+        },
+      ],
+      callTool: vi.fn(async () => {
+        throw denied;
+      }),
+      readResource: vi.fn(),
+      getStatus: () => ({
+        connectedServers: ["apps"],
+        configuredServers: ["apps"],
+        errors: {},
+        tools: [{ source: "apps", name: "mcp__apps__render" }],
+      }),
+      reconfigure: vi.fn(),
+    };
+    mountMcpServersRoutes(nitroApp, manager as any);
+
+    const response = await dispatchMountedRoute(
+      nitroApp,
+      "/_agent-native/mcp/apps/call-tool",
+      "POST",
+      { serverId: "apps", toolName: "render", arguments: {} },
+    );
+
+    expect(response.status).toBe(403);
+    expect(response.body).toEqual({ error: "Not authorized" });
   });
 
   it("requires authentication for MCP App routes outside production too", async () => {
@@ -934,6 +1111,22 @@ describe("MCP server routes", () => {
     expect(manager.readResource).not.toHaveBeenCalled();
   });
 });
+
+/** A `reconfigure` summary with every list not given empty. */
+function reconfigured(lists: {
+  added?: string[];
+  removed?: string[];
+  unchanged?: string[];
+  reconnected?: string[];
+}) {
+  return {
+    added: [],
+    removed: [],
+    unchanged: [],
+    reconnected: [],
+    ...lists,
+  };
+}
 
 function createNitroApp() {
   return {

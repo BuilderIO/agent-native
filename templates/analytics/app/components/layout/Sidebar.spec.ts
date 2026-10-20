@@ -84,6 +84,49 @@ describe("Sidebar visibility helpers", () => {
     ).toBe(false);
   });
 
+  it("keeps dashboards I own in Mine after sharing them with the org", () => {
+    const shared = {
+      visibility: "org" as const,
+      ownerEmail: "viewer@example.com",
+    };
+
+    expect(
+      matchesVisibilityFilter(shared, "private", "viewer@example.com"),
+    ).toBe(true);
+    expect(
+      matchesVisibilityFilter(shared, "shared", "viewer@example.com"),
+    ).toBe(false);
+  });
+
+  it("keeps an analysis shared with me out of Mine", () => {
+    const analysis = {
+      visibility: "private" as const,
+      ownerEmail: "owner@example.com",
+    };
+
+    expect(
+      matchesVisibilityFilter(analysis, "private", "viewer@example.com"),
+    ).toBe(false);
+  });
+
+  it("keeps installed demo dashboards out of Mine and Shared", () => {
+    const demo = {
+      visibility: "private" as const,
+      ownerEmail: "viewer@example.com",
+      demo: true,
+    };
+
+    expect(matchesVisibilityFilter(demo, "all", "viewer@example.com")).toBe(
+      true,
+    );
+    expect(matchesVisibilityFilter(demo, "private", "viewer@example.com")).toBe(
+      false,
+    );
+    expect(matchesVisibilityFilter(demo, "shared", "viewer@example.com")).toBe(
+      false,
+    );
+  });
+
   it("keeps legacy private dashboards without ownership metadata in Mine", () => {
     expect(
       matchesVisibilityFilter(

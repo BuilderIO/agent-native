@@ -41,7 +41,7 @@ const change = {
     verb: "created",
     kind: "workspace-connection",
     title: "Example workspace",
-    url: "/integrations",
+    url: "/settings/integrations",
   },
 };
 
@@ -99,5 +99,23 @@ describe("apply-workspace-connection-setup action cards", () => {
     );
 
     expect(action.chatUI?.when?.({}, result)).toBe(false);
+  });
+
+  it("leaves scopes unspecified when a setup plan omits them", async () => {
+    await action.run(
+      {
+        provider: "example",
+        status: "connected",
+        credentialRefs: [],
+        grantMode: "selected-apps",
+        selectedApps: ["mail"],
+      },
+      context,
+    );
+
+    expect(mocks.upsertRun).toHaveBeenCalledWith(
+      expect.objectContaining({ scopes: undefined }),
+      context,
+    );
   });
 });

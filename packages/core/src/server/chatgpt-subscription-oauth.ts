@@ -50,13 +50,10 @@ import {
   putUserSetting,
   deleteUserSetting,
 } from "../settings/user-settings.js";
-import {
-  getSession,
-  isLoopbackRequest,
-  redirectWithStagedCookies,
-} from "./auth.js";
+import { getSession, redirectWithStagedCookies } from "./auth.js";
 import { oauthErrorPage } from "./google-oauth.js";
-import { getRequestContext } from "./request-context.js";
+import { isDirectLoopbackRequest } from "./loopback.js";
+import { getRequestContext, getRequestRunContext } from "./request-context.js";
 
 export const CHATGPT_SUBSCRIPTION_OAUTH_PROVIDER =
   CHATGPT_SUBSCRIPTION_PROVIDER;
@@ -157,7 +154,12 @@ export interface ChatGPTSubscriptionAccountSummary {
 export interface ChatGPTSubscriptionStatus {
   supported: boolean;
   localLoopback: boolean;
-  supportReason: "requires_local_loopback" | "requires_lab" | null;
+  supportReason:
+    | "requires_local_loopback"
+    | "requires_personal_scope"
+    | "scope_unresolved"
+    | "requires_lab"
+    | null;
   connected: boolean;
   reconnectRequired: boolean;
   /** Retained for callers that used the former ChatGPT account header value. */
@@ -311,28 +313,9 @@ export function isChatGPTSubscriptionLoopbackCallbackUri(
   );
 }
 
-function exactLoopbackSocketAddress(
-  address: string | null | undefined,
-): boolean {
-  return address === "127.0.0.1" || address === "::ffff:127.0.0.1";
-}
-
 function callbackUriForEvent(event: H3Event): string | null {
   const host = getRequestHeader(event, "host");
-  const request = event.node?.req;
-  const socket = request?.socket;
-  if (
-    !host ||
-    host.trim() !== host ||
-    getRequestHeader(event, "x-forwarded-host") ||
-    getRequestHeader(event, "x-forwarded-proto") ||
-    !isLoopbackRequest(event) ||
-    !socket ||
-    ("encrypted" in socket && socket.encrypted) ||
-    !exactLoopbackSocketAddress(socket.localAddress)
-  ) {
-    return null;
-  }
+  if (!host || !isDirectLoopbackRequest(event)) return null;
   const originValue = `http://${host}`;
   if (!URL.canParse(originValue)) return null;
   const origin = new URL(originValue);
@@ -352,20 +335,48 @@ function callbackUriForEvent(event: H3Event): string | null {
     : null;
 }
 
-function currentRequestIsLocalLoopback(): boolean {
+type CurrentRequestLoopbackAccess =
+  | "local"
+  | "personal_scope_required"
+  | "scope_unresolved"
+  | "untrusted"
+  | "non_loopback";
+
+function currentRequestLoopbackAccess(): CurrentRequestLoopbackAccess {
   const context = getRequestContext();
-  if (!context?.isLoopbackRequest || !context.requestOrigin) return false;
-  if (!URL.canParse(context.requestOrigin)) return false;
+  if (!context || typeof context.isLoopbackRequest !== "boolean") {
+    return "untrusted";
+  }
+  if (!context.isLoopbackRequest) return "non_loopback";
+  if (getRequestRunContext()?.isBackgroundWorker === true) return "untrusted";
+  if (
+    !context.isDirectLoopbackRequest ||
+    !context.requestOrigin ||
+    !URL.canParse(context.requestOrigin)
+  ) {
+    return "untrusted";
+  }
   const origin = new URL(context.requestOrigin);
-  return (
-    origin.protocol === "http:" &&
-    origin.hostname === "127.0.0.1" &&
-    origin.username === "" &&
-    origin.password === "" &&
-    origin.pathname === "/" &&
-    origin.search === "" &&
-    origin.hash === ""
-  );
+  if (
+    !(
+      origin.protocol === "http:" &&
+      origin.hostname === "127.0.0.1" &&
+      origin.username === "" &&
+      origin.password === "" &&
+      origin.pathname === "/" &&
+      origin.search === "" &&
+      origin.hash === ""
+    )
+  ) {
+    return "untrusted";
+  }
+  if (context.orgId) return "personal_scope_required";
+  if (context.orgScope === "personal") return "local";
+  return "scope_unresolved";
+}
+
+function currentRequestIsLocalLoopback(): boolean {
+  return currentRequestLoopbackAccess() === "local";
 }
 
 async function stableHostId(): Promise<string> {
@@ -792,32 +803,34 @@ async function accountSummaries(
   );
 }
 
+function selectAccountSummary(
+  accounts: ChatGPTSubscriptionAccountSummary[],
+  activeAccountId: string | null,
+): ChatGPTSubscriptionAccountSummary | null {
+  return (
+    accounts.find((account) => account.id === activeAccountId) ??
+    (accounts.length === 1 ? (accounts[0] ?? null) : null)
+  );
+}
+
 async function activeAccount(
   email: string,
   accounts?: ChatGPTSubscriptionAccountSummary[],
 ): Promise<ChatGPTSubscriptionAccountSummary | null> {
   const accountRows = accounts ?? (await accountSummaries(email));
   const activeId = await readActiveAccountId(email);
-  if (!activeId) {
-    if (accountRows.length === 1) {
-      await writeActiveAccountId(email, accountRows[0]!.id);
-      return { ...accountRows[0]!, active: true };
-    }
-    return null;
-  }
-  const active = accountRows.find((account) => account.id === activeId);
-  if (!active) {
+  const selected = selectAccountSummary(accountRows, activeId);
+  if (activeId && !accountRows.some((account) => account.id === activeId)) {
     await deleteUserSetting(
       normalizedEmail(email),
       CHATGPT_SUBSCRIPTION_ACTIVE_ACCOUNT_SETTING_KEY,
     );
-    if (accountRows.length === 1) {
-      await writeActiveAccountId(email, accountRows[0]!.id);
-      return { ...accountRows[0]!, active: true };
-    }
-    return null;
   }
-  return { ...active, active: true };
+  if (!selected) return null;
+  if (selected.id !== activeId) {
+    await writeActiveAccountId(email, selected.id);
+  }
+  return { ...selected, active: true };
 }
 
 export async function hasChatGPTSubscriptionCredential(
@@ -837,9 +850,39 @@ export async function hasChatGPTSubscriptionCredential(
 export async function getChatGPTSubscriptionStatus(
   email: string,
 ): Promise<ChatGPTSubscriptionStatus> {
-  const localLoopback = currentRequestIsLocalLoopback();
-  const labEnabled = await chatGPTSubscriptionLabEnabled(email);
-  if (!labEnabled) {
+  const loopbackAccess = currentRequestLoopbackAccess();
+  const localLoopback = loopbackAccess === "local";
+  if (loopbackAccess === "personal_scope_required") {
+    return {
+      supported: false,
+      localLoopback: false,
+      supportReason: "requires_personal_scope",
+      connected: false,
+      reconnectRequired: false,
+      accountId: null,
+      activeAccountId: null,
+      activeAccount: null,
+      accounts: [],
+      legacyRegistrationCleanupAvailable: false,
+    };
+  }
+  if (loopbackAccess === "scope_unresolved") {
+    return {
+      supported: false,
+      localLoopback: false,
+      supportReason: "scope_unresolved",
+      connected: false,
+      reconnectRequired: false,
+      accountId: null,
+      activeAccountId: null,
+      activeAccount: null,
+      accounts: [],
+      legacyRegistrationCleanupAvailable: false,
+    };
+  }
+  const labEnabled =
+    localLoopback && (await chatGPTSubscriptionLabEnabled(email));
+  if (loopbackAccess === "untrusted" || (localLoopback && !labEnabled)) {
     return {
       supported: false,
       localLoopback,
@@ -851,6 +894,28 @@ export async function getChatGPTSubscriptionStatus(
       activeAccount: null,
       accounts: [],
       legacyRegistrationCleanupAvailable: false,
+    };
+  }
+  if (!localLoopback) {
+    const [accounts, legacyRegistrationCleanupAvailable] = await Promise.all([
+      accountSummaries(email),
+      hasLegacyCredential(email),
+    ]);
+    const selected = await activeAccount(email, accounts);
+    return {
+      supported: false,
+      localLoopback,
+      supportReason: "requires_local_loopback",
+      connected: false,
+      reconnectRequired: Boolean(selected?.reconnectRequired),
+      accountId: null,
+      activeAccountId: selected?.id ?? null,
+      activeAccount: selected ? { ...selected, active: true } : null,
+      accounts: accounts.map((account) => ({
+        ...account,
+        active: account.id === selected?.id,
+      })),
+      legacyRegistrationCleanupAvailable,
     };
   }
   const [accounts, legacyRegistrationCleanupAvailable] = await Promise.all([

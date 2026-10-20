@@ -138,6 +138,32 @@ describe("toolbar deck import", () => {
     expect(onImport).not.toHaveBeenCalled();
     expect(screen.queryByRole("alert")).toBeNull();
   });
+  it("announces an accessible pending status and clears it after a successful import", async () => {
+    let resolveImport!: (result: boolean) => void;
+    const onImport = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveImport = resolve;
+        }),
+    );
+    render(<Harness onImport={onImport} />);
+    expect(screen.getByRole("status").textContent).toBe("");
+    openMenu();
+    fireEvent.click(await screen.findByRole("menuitem", { name: "PPT" }));
+    selectFile(new File(["source"], "source.pptx"));
+
+    const importButton = await screen.findByRole("button", {
+      name: "Importing...",
+    });
+    expect((importButton as HTMLButtonElement).disabled).toBe(true);
+    expect(importButton.getAttribute("aria-busy")).toBe("true");
+    expect(screen.getByRole("status").textContent).toBe("Importing...");
+
+    await act(async () => resolveImport(true));
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toBe(""),
+    );
+  });
   it("opens object storage setup instead of the file picker when storage is missing", () => {
     storageStatus.configured = false;
     const click = vi

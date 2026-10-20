@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   describeAttachmentBytesVerdict,
+  normalizeImageMediaType,
   reconcileImageBytes,
   reconcilePdfBytes,
   sniffAttachmentMediaType,
@@ -14,6 +15,17 @@ import {
   PNG_BASE64,
   WEBP_BASE64,
 } from "./test-image-fixtures.js";
+
+describe("normalizeImageMediaType", () => {
+  it("canonicalizes the JPG alias for vision providers", () => {
+    expect(normalizeImageMediaType("image/jpg")).toBe("image/jpeg");
+    expect(normalizeImageMediaType("IMAGE/JPG; charset=binary")).toBe(
+      "image/jpeg",
+    );
+    expect(normalizeImageMediaType("image/png")).toBe("image/png");
+    expect(normalizeImageMediaType("image/svg+xml")).toBeNull();
+  });
+});
 
 describe("sniffAttachmentMediaType", () => {
   it("recognizes every media type a provider decodes inline", () => {

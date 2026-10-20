@@ -23,9 +23,7 @@ describe("agent chat startup", () => {
     );
     expect(source).not.toContain("new McpClientManager(");
     expect(source).not.toContain("ensureMcpInitialized");
-    expect(source).toContain(
-      "resolveAdditionalActions: ({ ownerEmail, orgId })",
-    );
+    expect(source).toContain("setMcpToolAuthorizationResolver(");
   });
 
   it("resolves MCP only from authenticated chat or a due job that requests tools", () => {
@@ -146,6 +144,10 @@ describe("agent chat startup", () => {
     );
 
     expect(sweepRoute).toContain("reapAllStaleRuns()");
+    expect(sweepRoute).toMatch(
+      /reconcileStaleAgentTeamRuns\(\s*event\s*,?\s*\)/,
+    );
+    expect(sweepRoute).toContain("staleAgentTeamRuns.failed > 0");
     expect(sweepRoute).toContain("sweepUnclaimedBackgroundRuns");
     expect(sweepRoute).toContain("reapExpired: true");
     expect(sweepRoute).toContain("jobsSkippedReason");

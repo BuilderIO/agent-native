@@ -23,7 +23,7 @@ export default function Presentation() {
   const [searchParams] = useSearchParams();
   const contextDeck = getDeck(id || "");
   const deck = contextDeck ?? fallbackDeck;
-  const { designSystem } = useDeckDesignSystem(deck?.designSystemId);
+  const { designSystem } = useDeckDesignSystem(deck?.designSystemId, deck?.id);
 
   useEffect(() => {
     if (!deck) return;
@@ -109,6 +109,7 @@ export default function Presentation() {
       startIndex={startSlide}
       aspectRatio={deck.aspectRatio}
       designSystem={designSystem}
+      windowed={searchParams.get("fullscreen") === "0"}
     />
   );
 }

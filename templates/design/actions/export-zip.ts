@@ -1,11 +1,14 @@
 import { defineAction } from "@agent-native/core/action";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { track } from "@agent-native/core/tracking";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { designDataForAccessRole } from "../server/lib/design-data-access.js";
+import {
+  trackDesignExported,
+  withDesignExportFailureTracking,
+} from "../server/lib/design-export-tracking.js";
 import {
   exportFilename,
   injectHiddenLayerExportStyle,
@@ -25,6 +28,10 @@ function safeArchivePath(filename: string, fallback: string): string {
   return normalized || fallback;
 }
 
+const trackZipExportFailures = withDesignExportFailureTracking<{ id: string }>(
+  "zip",
+);
+
 export default defineAction({
   description:
     "Export a design project as a ZIP file containing all design files and a README. " +
@@ -32,9 +39,10 @@ export default defineAction({
   schema: z.object({
     id: z.string().describe("Design ID to export"),
   }),
-  run: async ({ id }, ctx) => {
+  run: trackZipExportFailures(async ({ id }, ctx, facts) => {
     const access = await resolveAccess("design", id);
     if (!access) throw new Error(`Design not found: ${id}`);
+    facts.designId = id;
 
     const row = access.resource;
     const db = getDb();
@@ -44,6 +52,7 @@ export default defineAction({
       .from(schema.designFiles)
       .where(eq(schema.designFiles.designId, id));
     const exportFiles = files.filter((file) => !isBoardFile(file.filename));
+    facts.fileCount = exportFiles.length;
 
     const JSZip = (await import("jszip")).default;
     const zip = new JSZip();
@@ -91,16 +100,8 @@ export default defineAction({
     const filename = exportFilename(row.title, "zip");
     const saveResult = await trySaveExportFile(filename, zipBuffer);
 
-    track(
-      "design_exported",
-      {
-        app_name: "design",
-        template_name: "design",
-        output_id: id,
-        output_type: "design",
-        export_format: "zip",
-        file_count: exportFiles.length,
-      },
+    trackDesignExported(
+      { ...facts, exportFormat: "zip", status: "completed" },
       ctx,
     );
 
@@ -110,5 +111,5 @@ export default defineAction({
       ...saveResult,
       fileCount: exportFiles.length,
     };
-  },
+  }),
 });

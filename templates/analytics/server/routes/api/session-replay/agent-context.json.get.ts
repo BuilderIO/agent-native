@@ -1,7 +1,7 @@
+import { getForwardedRequestOrigin } from "@agent-native/core/server";
 import {
   defineEventHandler,
   getQuery,
-  getRequestURL,
   setResponseHeader,
   setResponseStatus,
 } from "h3";
@@ -39,7 +39,7 @@ export default defineEventHandler(async (event) => {
     return await buildSessionReplayAgentContext({
       recordingId: id,
       token,
-      origin: getRequestURL(event).origin,
+      origin: getForwardedRequestOrigin(event),
     });
   } catch (error: any) {
     setResponseStatus(event, error?.statusCode ?? 400);

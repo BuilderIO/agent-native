@@ -87,6 +87,7 @@ function CreateToolInput({ className }: { className?: string }) {
       </p>
       <PromptComposer
         autoFocus
+        requireAgentEngine
         className="text-left"
         placeholder={t("extensions.createPlaceholder")}
         draftScope="extensions:create"
@@ -240,6 +241,7 @@ export function ExtensionsListPage({
               </p>
               <PromptComposer
                 autoFocus
+                requireAgentEngine
                 placeholder={t("extensions.buildPlaceholder")}
                 draftScope="extensions:create-popover"
                 onSubmit={handleCreate}

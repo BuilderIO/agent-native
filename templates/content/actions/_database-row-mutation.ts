@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { ActionContractError, isActionContractError } from "@agent-native/core";
+import type { ActionRunContext } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import {
   accessFilter,
@@ -92,6 +93,32 @@ export const databaseMutationTargetInputSchema = z.object({
 
 export const databaseMutationAgentTargetSchema =
   databaseMutationTargetInputSchema.omit({ authorityScope: true });
+
+export function assertDatabaseWidgetWriteTarget(
+  target: Pick<
+    DatabaseMutationTargetInput,
+    "spaceId" | "databaseId" | "databaseDocumentId"
+  >,
+  actionName: "add-database-item" | "update-database-item",
+  context: ActionRunContext | undefined,
+): void {
+  if (context?.caller !== "mcp-widget-write") return;
+
+  const grant = context?.mcpDirectoryWidgetWrite;
+  if (
+    !grant ||
+    grant.appId !== "content" ||
+    !grant.actionNames.includes(actionName) ||
+    grant.resourceIds.databaseId !== target.databaseId ||
+    grant.resourceIds.spaceId !== target.spaceId ||
+    grant.resourceIds.databaseDocumentId !== target.databaseDocumentId
+  ) {
+    throw new ActionContractError(
+      "This Content widget write capability is missing or scoped to a different collection or action.",
+      { errorCode: "mcp_widget_write_scope_mismatch", statusCode: 403 },
+    );
+  }
+}
 
 export const databaseMutationEnvelopeSchema = z.object({
   target: databaseMutationTargetInputSchema,
@@ -291,22 +318,38 @@ export function systemDatabaseMutationMessage(systemRole: string) {
   }
 }
 
+/** Database state the caller already read in this request. */
+export type LoadedDatabaseSchema = {
+  database: DatabaseRow;
+  definitions: DefinitionRow[];
+  sourceManagedPropertyIds: Set<string>;
+};
+
 export async function loadContext(
   target: DatabaseMutationTargetInput,
   role: "viewer" | "editor",
   db: Db = getDb(),
   accessAlreadyResolved = false,
   includeDeleted = false,
+  loaded?: LoadedDatabaseSchema,
 ): Promise<MutationContext> {
-  const [database] = await db
-    .select()
-    .from(schema.contentDatabases)
-    .where(
-      and(
-        eq(schema.contentDatabases.id, target.databaseId),
-        includeDeleted ? undefined : isNull(schema.contentDatabases.deletedAt),
-      ),
-    );
+  const [database] = loaded
+    ? [loaded.database].filter(
+        (candidate) =>
+          candidate.id === target.databaseId &&
+          (includeDeleted || !candidate.deletedAt),
+      )
+    : await db
+        .select()
+        .from(schema.contentDatabases)
+        .where(
+          and(
+            eq(schema.contentDatabases.id, target.databaseId),
+            includeDeleted
+              ? undefined
+              : isNull(schema.contentDatabases.deletedAt),
+          ),
+        );
   if (!database) {
     throw new ActionContractError("Content database not found.", {
       errorCode: "DATABASE_NOT_FOUND",
@@ -360,6 +403,19 @@ export async function loadContext(
       { errorCode: "SYSTEM_DATABASE_UNSUPPORTED", statusCode: 400 },
     );
   }
+  if (loaded) {
+    return {
+      database,
+      databaseDocument,
+      definitions: loaded.definitions,
+      sourceManagedPropertyIds: loaded.sourceManagedPropertyIds,
+      schemaRevision: schemaRevisionFor(
+        database,
+        loaded.definitions,
+        loaded.sourceManagedPropertyIds,
+      ),
+    };
+  }
   const definitions = await db
     .select()
     .from(schema.documentPropertyDefinitions)
@@ -396,13 +452,18 @@ export async function loadContext(
 
 export async function getDatabaseMutationContract(
   target: DatabaseMutationTarget,
-  options: { accessAlreadyResolved?: boolean } = {},
+  options: {
+    accessAlreadyResolved?: boolean;
+    loaded?: LoadedDatabaseSchema;
+  } = {},
 ): Promise<ContentDatabaseMutationContract> {
   const context = await loadContext(
     target,
     "viewer",
     getDb(),
     options.accessAlreadyResolved,
+    false,
+    options.loaded,
   );
   return {
     target: {
@@ -1740,8 +1801,13 @@ interface RowPatchIssue {
   [detail: string]: unknown;
 }
 
+/** Drizzle wraps the driver's error, so the violation can sit in `cause`. */
 export function isUniqueConstraintError(error: unknown): boolean {
-  const candidate = error as { code?: unknown; message?: unknown };
+  const candidate = error as {
+    code?: unknown;
+    message?: unknown;
+    cause?: unknown;
+  };
   const code =
     typeof candidate?.code === "string"
       ? candidate.code
@@ -1752,7 +1818,10 @@ export function isUniqueConstraintError(error: unknown): boolean {
       : (JSON.stringify(candidate?.message) ?? "");
   return (
     code === "23505" ||
-    /unique constraint|primary key constraint|duplicate key/i.test(message)
+    /unique constraint|primary key constraint|duplicate key/i.test(message) ||
+    (candidate?.cause !== undefined &&
+      candidate.cause !== error &&
+      isUniqueConstraintError(candidate.cause))
   );
 }
 

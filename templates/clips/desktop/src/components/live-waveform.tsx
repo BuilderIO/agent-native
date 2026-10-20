@@ -18,6 +18,7 @@ interface LiveWaveformProps {
   level?: number | null;
   dimmed?: boolean;
   sources?: "all" | "mic";
+  runId?: number;
 }
 
 export function LiveWaveform({
@@ -28,6 +29,7 @@ export function LiveWaveform({
   level = null,
   dimmed = false,
   sources = "all",
+  runId,
 }: LiveWaveformProps) {
   const [captured, setCaptured] = useState<number | null>(null);
   const sourcesRef = useRef<MeterSourceLevels>(EMPTY_METER_SOURCES);
@@ -37,9 +39,10 @@ export function LiveWaveform({
     if (external) return;
     let stopped = false;
     let unlisten: (() => void) | null = null;
-    listen<{ level?: number; source?: MeterSource }>(
+    listen<{ level?: number; source?: MeterSource; runId?: number }>(
       "voice:audio-level",
       (event) => {
+        if (runId !== undefined && event.payload?.runId !== runId) return;
         const source: MeterSource =
           event.payload?.source === "system" ? "system" : "mic";
         if (sources === "mic" && source !== "mic") return;
@@ -65,7 +68,7 @@ export function LiveWaveform({
       stopped = true;
       unlisten?.();
     };
-  }, [external, sources]);
+  }, [external, runId, sources]);
 
   return (
     <SharedLiveWaveform

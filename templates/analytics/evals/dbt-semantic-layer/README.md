@@ -1,0 +1,42 @@
+# SYNTHETIC: dbt Semantic Layer action evals
+
+These cases use invented metric names and values. They verify the narrow
+metric-by-name action contract with a mocked workspace connection and provider
+response. They do not claim that the production Semantic Layer contains these
+metrics or values.
+
+`metric-by-name` checks that an exact metric request returns the known synthetic
+value. `grouped-metric-by-name` checks a bounded weekly breakdown by the exact
+metadata-returned organization dimension and its known synthetic row. The action
+also verifies that continuation pages preserve the metric definition and query
+specification. `job-run-refused` checks that a request to run a dbt job is
+rejected by the action schema before any provider call. The cases are exercised
+by `actions/query-dbt-semantic-metric.spec.ts`.
+
+The production smoke check is separate and read-only: one `metricsPaginated`
+metadata request against the granted dbt workspace connection. It does not
+create a MetricFlow query, start a dbt job, or write to the production app.
+
+## Routing cases
+
+`dbt-semantic-layer.eval.ts` adds two synthetic agent-routing cases for the
+metric `synthetic_active_accounts`. `dbt-semantic-layer.spec.ts` feeds canned
+transcripts to each scorer.
+
+- Owner metric: the first source query must be `query-dbt-semantic-metric`. A
+  `bigquery` or dashboard query first fails.
+- Unconnected org: `get-dbt-connection` must report `not_connected` or
+  `token_missing`, and the answer must say it reads warehouse tables and is not
+  the owner-approved Semantic Layer definition.
+
+Both cases run against the same org in one live run. Run the suite once against
+a connected org and once against an unconnected org; the unconnected case fails
+on a connected org by design.
+
+## Live routing fixture
+
+The owner-route case queries `synthetic_active_accounts`. Run it only against an organization whose dbt project defines that metric. Otherwise a correct routing attempt returns `not_found`, and the case fails because no successful metric result exists.
+
+## Run each live case against its own org state
+
+The routing case needs a connected organization with the synthetic metric. The unconnected case needs an organization with no dbt connection. Run each against its own organization. Running both against one organization fails one of them by design, because the two cases assert opposite states.

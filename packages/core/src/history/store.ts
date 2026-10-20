@@ -1,13 +1,12 @@
 import { getDbExec, isUniqueViolation } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 import type { Visibility } from "../sharing/schema.js";
 import type {
   HistoryActorKind,
   ResourceHistoryScope,
   ResourceVersion,
 } from "./types.js";
-
-let historyTableInitPromise: Promise<void> | undefined;
 
 const VERSION_INSERT_MAX_ATTEMPTS = 8;
 
@@ -34,10 +33,13 @@ export interface QueryResourceVersionsInput {
   offset?: number;
 }
 
-export async function ensureResourceVersionsTable(): Promise<void> {
-  if (!historyTableInitPromise) {
-    historyTableInitPromise = (async () => {
-      const createSql = `CREATE TABLE IF NOT EXISTS agent_resource_versions (
+export const resourceVersionsStore = defineStore({
+  id: "resource_versions",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `CREATE TABLE IF NOT EXISTS agent_resource_versions (
       id TEXT PRIMARY KEY,
       resource_type TEXT NOT NULL,
       resource_id TEXT NOT NULL,
@@ -54,16 +56,15 @@ export async function ensureResourceVersionsTable(): Promise<void> {
       snapshot_json TEXT NOT NULL,
       metadata_json TEXT
     )`;
-      const indexes = [
-        `CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_resource_versions_resource_number
+        const indexes = [
+          `CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_resource_versions_resource_number
            ON agent_resource_versions (resource_type, resource_id, version_number)`,
-        `CREATE INDEX IF NOT EXISTS idx_agent_resource_versions_owner
+          `CREATE INDEX IF NOT EXISTS idx_agent_resource_versions_owner
            ON agent_resource_versions (owner_email, created_at)`,
-        `CREATE INDEX IF NOT EXISTS idx_agent_resource_versions_org
+          `CREATE INDEX IF NOT EXISTS idx_agent_resource_versions_org
            ON agent_resource_versions (org_id, created_at)`,
-      ];
+        ];
 
-      {
         await ensureTableExists("agent_resource_versions", createSql);
         await ensureIndexExists(
           "idx_agent_resource_versions_resource_number",
@@ -74,11 +75,13 @@ export async function ensureResourceVersionsTable(): Promise<void> {
           indexes[1],
         );
         await ensureIndexExists("idx_agent_resource_versions_org", indexes[2]);
-      }
-    })();
-  }
+      },
+    },
+  ],
+});
 
-  await historyTableInitPromise;
+export function ensureResourceVersionsTable(): Promise<void> {
+  return resourceVersionsStore.ready();
 }
 
 export async function insertResourceVersion(
@@ -250,7 +253,7 @@ export async function getResourceVersionByNumber(
 }
 
 export function __resetHistoryInitForTests(): void {
-  historyTableInitPromise = undefined;
+  resourceVersionsStore.reset();
 }
 
 function listColumns(): string {

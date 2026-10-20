@@ -5,7 +5,6 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { track } from "@agent-native/core/tracking";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
@@ -16,6 +15,7 @@ import {
   redactTemplateDesignData,
   remapTemplateFileIds,
 } from "../server/lib/design-template-data.js";
+import { trackDesign } from "../server/lib/design-tracking.js";
 import { isOverviewScreenFile } from "../shared/design-files.js";
 import { countLockedLayersAcrossFiles } from "../shared/locked-layers.js";
 
@@ -131,11 +131,9 @@ export default defineAction({
       );
     });
 
-    track(
+    trackDesign(
       "template_saved",
       {
-        app_name: "design",
-        template_name: "design",
         output_id: templateId,
         output_type: "design_template",
         source_design_id: designId,

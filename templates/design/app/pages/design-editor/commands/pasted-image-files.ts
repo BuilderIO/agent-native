@@ -293,18 +293,15 @@ export interface PastedImageFilesArgs {
   zoom: number;
 }
 
-export function getOverviewCanvasCenter(container: HTMLDivElement | null): {
-  x: number;
-  y: number;
-} {
-  const fallback = { x: 120, y: 120 };
+export function clientToOverviewCanvasPoint(
+  container: HTMLDivElement | null,
+  client: { x: number; y: number },
+): { x: number; y: number } | null {
   const rect = container?.getBoundingClientRect();
   const world = container?.querySelector<HTMLElement>(
     "[data-multi-screen-canvas-world]",
   );
-  if (!rect || !world || typeof DOMMatrixReadOnly === "undefined") {
-    return fallback;
-  }
+  if (!rect || !world || typeof DOMMatrixReadOnly === "undefined") return null;
 
   const transform = getComputedStyle(world).transform;
   const matrix = new DOMMatrixReadOnly(
@@ -317,14 +314,28 @@ export function getOverviewCanvasCenter(container: HTMLDivElement | null): {
     !Number.isFinite(zoom) ||
     zoom <= 0
   ) {
-    return fallback;
+    return null;
   }
 
   return screenToCanvasPoint(
-    { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 },
+    client,
     { x: matrix.e, y: matrix.f, zoom },
     { x: rect.left, y: rect.top },
     SURFACE_PADDING,
+  );
+}
+
+export function getOverviewCanvasCenter(container: HTMLDivElement | null): {
+  x: number;
+  y: number;
+} {
+  const rect = container?.getBoundingClientRect();
+  return (
+    (rect &&
+      clientToOverviewCanvasPoint(container, {
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
+      })) || { x: 120, y: 120 }
   );
 }
 

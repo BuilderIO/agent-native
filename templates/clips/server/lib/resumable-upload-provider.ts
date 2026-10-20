@@ -9,6 +9,8 @@ import {
   canAuthorizeBuilderApiRequest,
 } from "@agent-native/core/server";
 
+import { clipsHostedFileUploadProvider } from "./s3-upload-provider.js";
+
 async function isConfiguredForRequest(
   provider: FileUploadProvider,
 ): Promise<boolean> {
@@ -24,6 +26,12 @@ async function isConfiguredForRequest(
 export async function resolveResumableUploadProvider(
   providerId: string,
 ): Promise<FileUploadProvider | null> {
+  if (providerId === clipsHostedFileUploadProvider.id) {
+    return (await isConfiguredForRequest(clipsHostedFileUploadProvider))
+      ? clipsHostedFileUploadProvider
+      : null;
+  }
+
   const active = await getActiveFileUploadProviderForRequest();
   if (active?.id === providerId && active.resumable) return active;
 

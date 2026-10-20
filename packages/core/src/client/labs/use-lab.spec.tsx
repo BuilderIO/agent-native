@@ -183,6 +183,42 @@ describe("useLabState / useLab / useLabs session gating", () => {
     expect(lab).toBe(false);
   });
 
+  it("reads a Lab state again after it failed to load", async () => {
+    sessionMocks.useSession.mockReturnValue({ status: "authenticated" });
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ error: "bad request" }), {
+            status: 400,
+            headers: { "Content-Type": "application/json" },
+          }),
+        )
+        .mockResolvedValue(
+          jsonResponse({
+            voice: { enabled: true, source: "choice", mixed: false },
+          }),
+        ),
+    );
+
+    let state: ReturnType<typeof useLabState> | undefined;
+    function Probe() {
+      state = useLabState("voice");
+      return null;
+    }
+
+    await mountProbe(Probe);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
+    expect(state?.isError).toBe(true);
+
+    await act(async () => {
+      state?.refetch();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(state).toMatchObject({ isError: false, enabled: true });
+  });
+
   it("reports isLoading while the session itself is still resolving", async () => {
     sessionMocks.useSession.mockReturnValue({ status: "loading" });
     vi.stubGlobal("fetch", vi.fn());

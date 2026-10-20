@@ -299,7 +299,7 @@ describe("RealtimeVoiceMode", () => {
     expect(document.body.textContent).toContain("Set up voice mode");
   });
 
-  it("makes Builder the primary setup action and own keys the secondary", () => {
+  it("does not launch Builder sign-in when the shared account chooser is unavailable", () => {
     const onConnectBuilder = vi.fn();
     const onUseOpenAiKey = vi.fn();
 
@@ -334,17 +334,8 @@ describe("RealtimeVoiceMode", () => {
     );
     expect(
       buttons.find((button) => button.textContent === "Use Builder.io"),
-    ).toBeDefined();
-    act(() =>
-      buttons
-        .find((button) => button.textContent === "Use Builder.io")
-        ?.click(),
-    );
-    // No consent popover is wired here, so the click signs in instead of
-    // creating an account the user never saw the terms for.
-    expect(onConnectBuilder).toHaveBeenCalledExactlyOnceWith({
-      provisionAccount: false,
-    });
+    ).toBeUndefined();
+    expect(onConnectBuilder).not.toHaveBeenCalled();
     expect(onUseOpenAiKey).not.toHaveBeenCalled();
   });
 

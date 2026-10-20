@@ -31,6 +31,7 @@ export {
   detectEngineFromUserSecrets,
   isAgentEngineSettingConfigured,
   isAgentEnginePackageInstalled,
+  isDeploymentEngineUsableForRequest,
   isStoredEngineUsable,
   isStoredEngineUsableForRequest,
   isResolvedEngineUsableForRequest,

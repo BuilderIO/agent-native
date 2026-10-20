@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@agent-native/core": "workspace:*",
+    "@agent-native/otel": "workspace:*",
     "@agent-native/scheduling": "workspace:*",
     "@agent-native/toolkit": "workspace:*",
     "@electric-sql/pglite": "^0.5.8",
@@ -34,7 +35,6 @@
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-router": "^8.1.0",
-    "vgpu": "0.3.1",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -74,9 +74,7 @@
     "@types/node": "^24.2.1",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
-    "@vgpu/wgsl": "0.3.1",
     "@vitejs/plugin-react-swc": "^4.0.0",
-    "@webgpu/types": "0.1.72",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",

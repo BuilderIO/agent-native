@@ -10,6 +10,7 @@ import {
   accessFilter,
   assertAccess,
   ForbiddenError,
+  registerHostAccessResolver,
   resolveAccess,
   resolveRegisteredAccessContext,
 } from "./access.js";
@@ -95,7 +96,11 @@ async function addOrgMember(memberOrgId: string, email: string) {
 }
 
 async function listVisible(
-  ctx: { userEmail?: string; orgId?: string },
+  ctx: {
+    userEmail?: string;
+    orgId?: string;
+    verifiedServiceIdentity?: { userEmail: string; orgId: string };
+  },
   minRole: ShareRole = "viewer",
   options: { includePublic?: boolean } = {},
 ) {
@@ -492,6 +497,13 @@ describe("shareable resource access helpers", () => {
     await insertDoc({ id: "shared-group", ownerEmail: outsiderEmail });
     await pglite
       .prepare(
+        `INSERT INTO organizations (
+           id, name, created_by, created_at, identity_authority, identity_id
+         ) VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(orgId, "QA", ownerEmail, Date.now(), "", "");
+    await pglite
+      .prepare(
         `INSERT INTO workspace_user_groups
          (id, org_id, name, member_emails_json)
          VALUES (?, ?, ?, ?)`,
@@ -518,6 +530,39 @@ describe("shareable resource access helpers", () => {
     await expect(
       listVisible({ userEmail: viewerEmail, orgId }),
     ).resolves.not.toContain("shared-group");
+  });
+
+  it("lets a host deny or grant access while the owner keeps owner", async () => {
+    await insertDoc({ id: "doc-hosted" });
+    const hostRoles = new Map<string, "editor" | null>([
+      [ownerEmail, "editor"],
+      [viewerEmail, "editor"],
+      [outsiderEmail, null],
+    ]);
+    registerHostAccessResolver(resourceType, async (_resource, ctx) =>
+      hostRoles.get(ctx.userEmail ?? ""),
+    );
+    try {
+      await runWithRequestContext({ userEmail: ownerEmail, orgId }, () =>
+        expect(
+          assertAccess(resourceType, "doc-hosted", "owner"),
+        ).resolves.toMatchObject({ role: "owner" }),
+      );
+      await runWithRequestContext({ userEmail: viewerEmail, orgId }, () =>
+        expect(
+          resolveAccess(resourceType, "doc-hosted"),
+        ).resolves.toMatchObject({ role: "editor" }),
+      );
+      await runWithRequestContext({ userEmail: outsiderEmail, orgId }, () =>
+        expect(resolveAccess(resourceType, "doc-hosted")).resolves.toBe(null),
+      );
+      hostRoles.set(ownerEmail, null);
+      await runWithRequestContext({ userEmail: ownerEmail, orgId }, () =>
+        expect(resolveAccess(resourceType, "doc-hosted")).resolves.toBe(null),
+      );
+    } finally {
+      registerHostAccessResolver(resourceType, null);
+    }
   });
 
   it("resolves read and write roles without letting visibility imply edit access", async () => {
@@ -651,6 +696,136 @@ describe("shareable resource access helpers", () => {
         assertAccess(resourceType, "doc-org-no-membership", "viewer"),
       ).rejects.toBeInstanceOf(ForbiddenError);
     });
+  });
+
+  it("grants read-only org visibility to a service identity scoped to the same request org", async () => {
+    const serviceEmail = `svc-pr-recap@service.${orgId}`;
+    await pglite
+      .prepare(
+        `INSERT INTO organizations (id, name, created_by, created_at)
+         VALUES (?, ?, ?, ?)`,
+      )
+      .run(orgId, "QA", ownerEmail, Date.now());
+    await insertDoc({
+      id: "doc-org-service-member",
+      ownerEmail: outsiderEmail,
+      visibility: "org",
+    });
+
+    await runWithRequestContext(
+      {
+        userEmail: serviceEmail,
+        orgId,
+        verifiedServiceIdentity: { userEmail: serviceEmail, orgId },
+      },
+      async () => {
+        await expect(
+          resolveAccess(resourceType, "doc-org-service-member"),
+        ).resolves.toMatchObject({ role: "viewer" });
+        await expect(
+          assertAccess(resourceType, "doc-org-service-member", "editor"),
+        ).rejects.toBeInstanceOf(ForbiddenError);
+      },
+    );
+    await expect(
+      listVisible({
+        userEmail: serviceEmail,
+        orgId,
+        verifiedServiceIdentity: { userEmail: serviceEmail, orgId },
+      }),
+    ).resolves.toEqual(["doc-org-service-member"]);
+  });
+
+  it("denies service identity access to a federated org without validated membership", async () => {
+    const serviceEmail = `svc-pr-recap@service.${orgId}`;
+    await pglite
+      .prepare(
+        `INSERT INTO organizations (
+           id, name, created_by, created_at, identity_authority, identity_id
+         ) VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        orgId,
+        "QA",
+        ownerEmail,
+        Date.now(),
+        "https://identity.example.test",
+        "org-upstream-qa",
+      );
+    await insertDoc({
+      id: "doc-org-federated-service",
+      ownerEmail: outsiderEmail,
+      visibility: "org",
+    });
+
+    await runWithRequestContext(
+      {
+        userEmail: serviceEmail,
+        orgId,
+        verifiedServiceIdentity: { userEmail: serviceEmail, orgId },
+      },
+      async () => {
+        await expect(
+          resolveAccess(resourceType, "doc-org-federated-service"),
+        ).resolves.toBe(null);
+      },
+    );
+    await expect(
+      listVisible({
+        userEmail: serviceEmail,
+        orgId,
+        verifiedServiceIdentity: { userEmail: serviceEmail, orgId },
+      }),
+    ).resolves.toEqual([]);
+  });
+
+  it("requires verified service-token provenance when the service-shaped email matches the org", async () => {
+    const serviceEmail = `svc-pr-recap@service.${orgId}`;
+    await insertDoc({
+      id: "doc-org-service-without-request-org",
+      ownerEmail: outsiderEmail,
+      visibility: "org",
+    });
+
+    await runWithRequestContext(
+      { userEmail: serviceEmail, orgId },
+      async () => {
+        await expect(
+          resolveAccess(resourceType, "doc-org-service-without-request-org"),
+        ).resolves.toBe(null);
+      },
+    );
+
+    await runWithRequestContext({ userEmail: serviceEmail }, async () => {
+      await expect(
+        resolveAccess(resourceType, "doc-org-service-without-request-org", {
+          userEmail: serviceEmail,
+          orgId,
+        }),
+      ).resolves.toBe(null);
+    });
+  });
+
+  it("denies org visibility to a service identity scoped to a different request org", async () => {
+    const serviceEmail = `svc-pr-recap@service.${otherOrgId}`;
+    await insertDoc({
+      id: "doc-org-service-cross-org",
+      ownerEmail: outsiderEmail,
+      visibility: "org",
+    });
+
+    await runWithRequestContext(
+      {
+        userEmail: serviceEmail,
+        orgId: otherOrgId,
+        verifiedServiceIdentity: { userEmail: serviceEmail, orgId: otherOrgId },
+      },
+      async () => {
+        await expect(
+          resolveAccess(resourceType, "doc-org-service-cross-org"),
+        ).resolves.toBe(null);
+      },
+    );
   });
 
   it("keeps direct user shares working in a transaction without org_members", async () => {
@@ -955,6 +1130,14 @@ describe("shareable resource access helpers", () => {
 
   it("runs share, list, visibility, and unshare actions with role checks", async () => {
     await insertDoc({ id: "doc-actions" });
+    const widgetReadContext = {
+      caller: "mcp-widget",
+      mcpDirectoryWidgetReadOnly: true,
+      mcpDirectoryWidgetResourceIds: {
+        [`${resourceType}Id`]: "doc-actions",
+        resourceType,
+      },
+    } as const;
 
     await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
       await expect(
@@ -987,6 +1170,15 @@ describe("shareable resource access helpers", () => {
         ],
       });
       await expect(
+        listResourceShares.run(
+          {
+            resourceType,
+            resourceId: "doc-actions",
+          },
+          widgetReadContext,
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+      await expect(
         setResourceVisibility.run({
           resourceType,
           resourceId: "doc-actions",
@@ -1000,6 +1192,28 @@ describe("shareable resource access helpers", () => {
           visibility: "private",
         }),
       ).rejects.toBeInstanceOf(ForbiddenError);
+    });
+
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      await expect(
+        listResourceShares.run(
+          {
+            resourceType,
+            resourceId: "doc-actions",
+          },
+          widgetReadContext,
+        ),
+      ).resolves.toMatchObject({
+        ownerEmail,
+        role: "owner",
+        shares: [
+          {
+            principalType: "user",
+            principalId: viewerEmail,
+            role: "viewer",
+          },
+        ],
+      });
     });
 
     await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {

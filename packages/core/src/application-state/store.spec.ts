@@ -102,6 +102,33 @@ describe("application-state store", () => {
     );
   });
 
+  it("rejects nested inline image bytes before SQL writes and preserves normal values", async () => {
+    const normal = { selected: { id: "card-1" }, label: "current" };
+    await appStatePut(SESSION, "safe", normal);
+    await expect(appStateGet(SESSION, "safe")).resolves.toEqual(normal);
+
+    rawClient.execute.mockClear();
+    const unsafe = {
+      nested: {
+        attachments: [
+          { type: "image", data: "data:image/png;base64,ZmFrZQ==" },
+        ],
+      },
+    };
+    await expect(appStatePut(SESSION, "unsafe", unsafe)).rejects.toThrow(
+      /stores inline/,
+    );
+    await expect(
+      appStateCompareAndSet(SESSION, "unsafe", null, unsafe),
+    ).rejects.toThrow(/stores inline/);
+    await expect(
+      appStateCompareAndSetMany(SESSION, [
+        { key: "unsafe", expectedValue: null, nextValue: unsafe },
+      ]),
+    ).rejects.toThrow(/stores inline/);
+    expect(rawClient.execute).not.toHaveBeenCalled();
+  });
+
   it("lists literal prefixes without treating underscores as LIKE wildcards", async () => {
     await appStatePut(SESSION, "compose_draft", { id: "draft" });
     await appStatePut(SESSION, "composeXdraft", { id: "not-draft" });

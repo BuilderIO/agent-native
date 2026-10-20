@@ -4,9 +4,11 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { requireFormsPermission } from "../server/lib/app-roles.js";
 import { invalidatePublicFormCache } from "../server/lib/public-form-ssr.js";
 
 export default defineAction({
+  authorize: requireFormsPermission("forms.edit", "id"),
   description:
     "Restore a soft-deleted form. The form returns to the main list with its responses intact.",
   schema: z.object({

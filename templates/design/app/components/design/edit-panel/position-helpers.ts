@@ -1,8 +1,6 @@
 import {
-  parseCssColor,
   parseCssColorExtended,
-  rgbaToCss,
-  withColorOpacity,
+  withCssColorOpacity,
 } from "@shared/color-utils";
 
 export function cssLengthNumber(
@@ -42,6 +40,21 @@ export function strokeIsVisible(
     .trim()
     .split(/\s+/)
     .some((side) => side !== "" && side !== "none" && side !== "hidden");
+}
+
+/** An Inside stroke is a border, which grows a content-box layer unless it becomes border-box. */
+export function insideStrokeBoxSizing(
+  styles: Record<string, string | undefined>,
+): Record<string, string> {
+  if (styles.boxSizing !== "content-box") return {};
+  // border-box would shrink a padded layer by its padding instead.
+  const padded = [
+    styles.paddingTop,
+    styles.paddingRight,
+    styles.paddingBottom,
+    styles.paddingLeft,
+  ].some((padding) => cssLengthNumber(padding) !== 0);
+  return padded ? {} : { boxSizing: "border-box" };
 }
 
 export function strokeHiddenByColor(color: string | undefined): boolean {
@@ -157,10 +170,8 @@ export function strokeShowPatch(
   width: string,
   styleValue: string,
 ): Record<string, string> {
-  const parsed = parseCssColor(color);
-  const restoredColor = parsed
-    ? rgbaToCss(withColorOpacity(parsed, 100))
-    : "#000000";
+  // guard:allow-raw-color — a stroke with no readable color restores to concrete black.
+  const restoredColor = withCssColorOpacity(color, 100) ?? "#000000";
   const patch: Record<string, string> = {
     [`${prefix}Color`]: restoredColor,
     [`${prefix}Width`]: width === "0px" ? "1px" : width || "1px",

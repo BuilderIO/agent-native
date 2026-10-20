@@ -1,11 +1,7 @@
-import {
-  expect,
-  test,
-  type APIRequestContext,
-  type Page,
-} from "@playwright/test";
+import { type APIRequestContext, type Page } from "@playwright/test";
 
 import { appPath, designFrame, gotoEditor } from "./helpers";
+import { expect, test, type App } from "./rails";
 
 const PRIMARY = process.platform === "darwin" ? "Meta" : "Control";
 
@@ -58,28 +54,9 @@ async function files(
   return ((await response.json()).files ?? []) as DesignFile[];
 }
 
-async function createDesign(
-  request: APIRequestContext,
-  onCreated?: (designId: string) => void,
-) {
-  const created = await action(request, "create-design", {
-    title: `Cross-screen Option drag ${Date.now()}`,
-    projectType: "prototype",
-  });
-  const id = created?.id ?? created?.data?.id;
-  if (typeof id !== "string") throw new Error("create-design returned no id");
-  onCreated?.(id);
-  await action(request, "create-file", {
-    designId: id,
-    filename: "index.html",
-    content: SOURCE_HTML,
-    fileType: "html",
-  });
-  await action(request, "create-file", {
-    designId: id,
-    filename: "destination.html",
-    content: DESTINATION_HTML,
-    fileType: "html",
+async function createDesign(app: App, request: APIRequestContext) {
+  const id = await app.seed(SOURCE_HTML, {
+    files: { "destination.html": DESTINATION_HTML },
   });
   const createdFiles = await files(request, id);
   const sourceId = createdFiles.find(
@@ -180,56 +157,197 @@ async function historyTraceCounts(page: Page) {
   };
 }
 
-async function deleteDesign(request: APIRequestContext, designId: string) {
-  await action(request, "delete-design", { id: designId });
-}
-
 test.use({ viewport: { width: 1600, height: 1000 } });
 
 test("Option-dragging a root from Screen A duplicates into nested auto layout on Screen B", async ({
+  app,
   page,
   request,
 }) => {
-  let designId: string | null = null;
-  try {
-    const design = await createDesign(request, (id) => {
-      designId = id;
-    });
-    await gotoEditor(page, design.id);
-    await page.keyboard.press("Shift+1");
-    let previousScreenPositions = "";
-    await expect
-      .poll(async () => {
-        const source = await boxFor(page, design.sourceId, "cross-source");
-        const target = await boxFor(page, design.destinationId, "nested-auto");
-        const current = JSON.stringify({
-          source: { x: source.x, y: source.y },
-          target: { x: target.x, y: target.y },
-        });
-        const settled = current === previousScreenPositions;
-        previousScreenPositions = current;
-        return settled;
-      })
-      .toBe(true);
+  const design = await createDesign(app, request);
+  await gotoEditor(page, design.id);
+  await page.keyboard.press("Shift+1");
+  let previousScreenPositions = "";
+  await expect
+    .poll(async () => {
+      const source = await boxFor(page, design.sourceId, "cross-source");
+      const target = await boxFor(page, design.destinationId, "nested-auto");
+      const current = JSON.stringify({
+        source: { x: source.x, y: source.y },
+        target: { x: target.x, y: target.y },
+      });
+      const settled = current === previousScreenPositions;
+      previousScreenPositions = current;
+      return settled;
+    })
+    .toBe(true);
 
-    const source = await boxFor(page, design.sourceId, "cross-source");
-    const target = await boxFor(page, design.destinationId, "nested-auto");
-    const sourceBefore = await content(request, design.id, "index.html");
-    const destinationBefore = await content(
-      request,
-      design.id,
-      "destination.html",
+  const source = await boxFor(page, design.sourceId, "cross-source");
+  const target = await boxFor(page, design.destinationId, "nested-auto");
+  const sourceBefore = await content(request, design.id, "index.html");
+  const destinationBefore = await content(
+    request,
+    design.id,
+    "destination.html",
+  );
+  const sourceNode = designFrame(page, design.sourceId).locator(
+    '[data-agent-native-node-id="cross-source"]',
+  );
+  const sourceBeforeGeometry = await sourceNode.evaluate((node) => {
+    const rect = node.getBoundingClientRect();
+    const style = getComputedStyle(node);
+    return {
+      parentNodeId: node.parentElement?.getAttribute(
+        "data-agent-native-node-id",
+      ),
+      x: rect.x,
+      y: rect.y,
+      width: rect.width,
+      height: rect.height,
+      background: style.backgroundColor,
+      cssWidth: style.width,
+      cssHeight: style.height,
+    };
+  });
+
+  await page.keyboard.down(PRIMARY);
+  await page.mouse.click(
+    source.x + source.width / 2,
+    source.y + source.height / 2,
+  );
+  await page.keyboard.up(PRIMARY);
+  await page.keyboard.down("Alt");
+  await page.mouse.move(
+    source.x + source.width / 2,
+    source.y + source.height / 2,
+  );
+  await page.mouse.down();
+  try {
+    await page.mouse.move(source.x + source.width / 2 + 12, source.y + 8, {
+      steps: 4,
+    });
+    await page.mouse.move(
+      target.x + target.width / 2,
+      target.y + target.height / 2,
+      { steps: 30 },
     );
-    const sourceNode = designFrame(page, design.sourceId).locator(
-      '[data-agent-native-node-id="cross-source"]',
-    );
-    const sourceBeforeGeometry = await sourceNode.evaluate((node) => {
+    await expect
+      .poll(() => page.locator("[data-cross-screen-drag-ghost]").count())
+      .toBeGreaterThan(0);
+    await expect
+      .poll(() => page.locator("[data-cross-screen-drop-guide]").count())
+      .toBeGreaterThan(0);
+    const sourceHeldGeometry = await sourceNode.evaluate((node) => {
       const rect = node.getBoundingClientRect();
-      const style = getComputedStyle(node);
       return {
         parentNodeId: node.parentElement?.getAttribute(
           "data-agent-native-node-id",
         ),
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+      };
+    });
+    expect(sourceHeldGeometry.parentNodeId).toBe(
+      sourceBeforeGeometry.parentNodeId,
+    );
+    expect(sourceHeldGeometry.x).toBeCloseTo(sourceBeforeGeometry.x, 1);
+    expect(sourceHeldGeometry.y).toBeCloseTo(sourceBeforeGeometry.y, 1);
+    expect(sourceHeldGeometry.width).toBeCloseTo(sourceBeforeGeometry.width, 1);
+    expect(sourceHeldGeometry.height).toBeCloseTo(
+      sourceBeforeGeometry.height,
+      1,
+    );
+    const heldGuide = await page
+      .locator("[data-cross-screen-drop-guide]")
+      .evaluate((node) => {
+        const rect = node.getBoundingClientRect();
+        const style = getComputedStyle(node);
+        return {
+          display: style.display,
+          left: rect.left,
+          top: rect.top,
+          width: rect.width,
+          height: rect.height,
+        };
+      });
+    const heldTarget = await designFrame(page, design.destinationId)
+      .locator('[data-agent-native-node-id="nested-auto"]')
+      .boundingBox();
+    expect(heldTarget).not.toBeNull();
+    const guideInsideTarget =
+      Math.abs(heldGuide.left - heldTarget!.x) < 4 &&
+      Math.abs(heldGuide.top - heldTarget!.y) < 4 &&
+      Math.abs(heldGuide.width - heldTarget!.width) < 4 &&
+      Math.abs(heldGuide.height - heldTarget!.height) < 4;
+    const guideIsColumnInsertionLine =
+      heldGuide.left >= heldTarget!.x - 4 &&
+      heldGuide.left + heldGuide.width <=
+        heldTarget!.x + heldTarget!.width + 4 &&
+      heldGuide.top >= heldTarget!.y - 4 &&
+      heldGuide.top + heldGuide.height <=
+        heldTarget!.y + heldTarget!.height + 4 &&
+      heldGuide.height <= 4;
+    expect(heldGuide.display).not.toBe("none");
+    expect(
+      guideInsideTarget || guideIsColumnInsertionLine,
+      `guide=${JSON.stringify(heldGuide)} target=${JSON.stringify(heldTarget)}`,
+    ).toBe(true);
+    await expect
+      .poll(() =>
+        designFrame(page, design.sourceId)
+          .locator('[data-agent-native-node-id="cross-source"]')
+          .count(),
+      )
+      .toBe(1);
+    expect(await content(request, design.id, "index.html")).toBe(sourceBefore);
+    expect(await content(request, design.id, "destination.html")).toBe(
+      destinationBefore,
+    );
+  } finally {
+    await page.mouse.up();
+    await page.keyboard.up("Alt");
+  }
+
+  let destinationAfter = "";
+  await expect
+    .poll(async () => {
+      destinationAfter = await content(request, design.id, "destination.html");
+      return layerIds(destinationAfter, "Cross-screen source").length;
+    })
+    .toBe(1);
+  const copyId = layerIds(destinationAfter, "Cross-screen source")[0]!;
+  expect(copyId).not.toBe("cross-source");
+  expect(await content(request, design.id, "index.html")).toContain(
+    'data-agent-native-node-id="cross-source"',
+  );
+  expect(
+    await designFrame(page, design.destinationId)
+      .locator(`[data-agent-native-node-id="${copyId}"]`)
+      .evaluate((node) =>
+        node.parentElement?.getAttribute("data-agent-native-node-id"),
+      ),
+  ).toBe("nested-auto");
+  const destinationOrder = await designFrame(page, design.destinationId)
+    .locator(
+      '[data-agent-native-node-id="nested-auto"] > [data-agent-native-node-id]',
+    )
+    .evaluateAll((nodes) =>
+      nodes.map((node) => node.getAttribute("data-agent-native-node-id")),
+    );
+  expect(destinationOrder).toEqual([
+    "destination-first",
+    copyId,
+    "destination-last",
+  ]);
+
+  const copyGeometry = await designFrame(page, design.destinationId)
+    .locator(`[data-agent-native-node-id="${copyId}"]`)
+    .evaluate((node) => {
+      const style = getComputedStyle(node);
+      const rect = node.getBoundingClientRect();
+      return {
         x: rect.x,
         y: rect.y,
         width: rect.width,
@@ -239,324 +357,212 @@ test("Option-dragging a root from Screen A duplicates into nested auto layout on
         cssHeight: style.height,
       };
     });
+  expect(copyGeometry).toMatchObject({
+    background: sourceBeforeGeometry.background,
+    cssWidth: sourceBeforeGeometry.cssWidth,
+    cssHeight: sourceBeforeGeometry.cssHeight,
+  });
+  await expect
+    .poll(() => selectionOverlayMatchesNode(page, design.destinationId, copyId))
+    .toBe(true);
 
-    await page.keyboard.down(PRIMARY);
-    await page.mouse.click(
-      source.x + source.width / 2,
-      source.y + source.height / 2,
-    );
-    await page.keyboard.up(PRIMARY);
-    await page.keyboard.down("Alt");
-    await page.mouse.move(
-      source.x + source.width / 2,
-      source.y + source.height / 2,
-    );
-    await page.mouse.down();
-    try {
-      await page.mouse.move(source.x + source.width / 2 + 12, source.y + 8, {
-        steps: 4,
-      });
-      await page.mouse.move(
-        target.x + target.width / 2,
-        target.y + target.height / 2,
-        { steps: 30 },
-      );
-      await expect
-        .poll(() => page.locator("[data-cross-screen-drag-ghost]").count())
-        .toBeGreaterThan(0);
-      await expect
-        .poll(() => page.locator("[data-cross-screen-drop-guide]").count())
-        .toBeGreaterThan(0);
-      const sourceHeldGeometry = await sourceNode.evaluate((node) => {
-        const rect = node.getBoundingClientRect();
-        return {
-          parentNodeId: node.parentElement?.getAttribute(
-            "data-agent-native-node-id",
-          ),
-          x: rect.x,
-          y: rect.y,
-          width: rect.width,
-          height: rect.height,
-        };
-      });
-      expect(sourceHeldGeometry.parentNodeId).toBe(
-        sourceBeforeGeometry.parentNodeId,
-      );
-      expect(sourceHeldGeometry.x).toBeCloseTo(sourceBeforeGeometry.x, 1);
-      expect(sourceHeldGeometry.y).toBeCloseTo(sourceBeforeGeometry.y, 1);
-      expect(sourceHeldGeometry.width).toBeCloseTo(
-        sourceBeforeGeometry.width,
-        1,
-      );
-      expect(sourceHeldGeometry.height).toBeCloseTo(
-        sourceBeforeGeometry.height,
-        1,
-      );
-      const heldGuide = await page
-        .locator("[data-cross-screen-drop-guide]")
-        .evaluate((node) => {
-          const rect = node.getBoundingClientRect();
-          const style = getComputedStyle(node);
-          return {
-            display: style.display,
-            left: rect.left,
-            top: rect.top,
-            width: rect.width,
-            height: rect.height,
-          };
-        });
-      const heldTarget = await designFrame(page, design.destinationId)
-        .locator('[data-agent-native-node-id="nested-auto"]')
-        .boundingBox();
-      expect(heldTarget).not.toBeNull();
-      const guideInsideTarget =
-        Math.abs(heldGuide.left - heldTarget!.x) < 4 &&
-        Math.abs(heldGuide.top - heldTarget!.y) < 4 &&
-        Math.abs(heldGuide.width - heldTarget!.width) < 4 &&
-        Math.abs(heldGuide.height - heldTarget!.height) < 4;
-      const guideIsColumnInsertionLine =
-        heldGuide.left >= heldTarget!.x - 4 &&
-        heldGuide.left + heldGuide.width <=
-          heldTarget!.x + heldTarget!.width + 4 &&
-        heldGuide.top >= heldTarget!.y - 4 &&
-        heldGuide.top + heldGuide.height <=
-          heldTarget!.y + heldTarget!.height + 4 &&
-        heldGuide.height <= 4;
-      expect(heldGuide.display).not.toBe("none");
-      expect(
-        guideInsideTarget || guideIsColumnInsertionLine,
-        `guide=${JSON.stringify(heldGuide)} target=${JSON.stringify(heldTarget)}`,
-      ).toBe(true);
-      await expect
-        .poll(() =>
-          designFrame(page, design.sourceId)
-            .locator('[data-agent-native-node-id="cross-source"]')
-            .count(),
-        )
-        .toBe(1);
-      expect(await content(request, design.id, "index.html")).toBe(
-        sourceBefore,
-      );
-      expect(await content(request, design.id, "destination.html")).toBe(
-        destinationBefore,
-      );
-    } finally {
-      await page.mouse.up();
-      await page.keyboard.up("Alt");
-    }
+  await page.keyboard.press(`${PRIMARY}+z`);
+  await expect
+    .poll(() => content(request, design.id, "destination.html"))
+    .toBe(destinationBefore);
+  await expect
+    .poll(() => content(request, design.id, "index.html"))
+    .toBe(sourceBefore);
+  await expect
+    .poll(() =>
+      selectionOverlayMatchesNode(page, design.sourceId, "cross-source"),
+    )
+    .toBe(true);
 
-    let destinationAfter = "";
-    await expect
-      .poll(async () => {
-        destinationAfter = await content(
-          request,
-          design.id,
-          "destination.html",
-        );
-        return layerIds(destinationAfter, "Cross-screen source").length;
-      })
-      .toBe(1);
-    const copyId = layerIds(destinationAfter, "Cross-screen source")[0]!;
-    expect(copyId).not.toBe("cross-source");
-    expect(await content(request, design.id, "index.html")).toContain(
-      'data-agent-native-node-id="cross-source"',
-    );
-    expect(
-      await designFrame(page, design.destinationId)
+  await page.keyboard.press(`${PRIMARY}+Shift+z`);
+  await expect
+    .poll(() => content(request, design.id, "destination.html"))
+    .toContain(`data-agent-native-node-id="${copyId}"`);
+  await expect
+    .poll(() => content(request, design.id, "index.html"))
+    .toContain('data-agent-native-node-id="cross-source"');
+  expect(await historyTraceCounts(page)).toEqual({ undo: 1, redo: 1 });
+
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(
+    page.getByRole("button", { name: "Move", exact: true }),
+  ).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect
+    .poll(() =>
+      designFrame(page, design.destinationId)
         .locator(`[data-agent-native-node-id="${copyId}"]`)
-        .evaluate((node) =>
-          node.parentElement?.getAttribute("data-agent-native-node-id"),
+        .count(),
+    )
+    .toBe(1);
+  const reloadedGeometry = await designFrame(page, design.destinationId)
+    .locator(`[data-agent-native-node-id="${copyId}"]`)
+    .evaluate((node) => {
+      const style = getComputedStyle(node);
+      const rect = node.getBoundingClientRect();
+      return {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+        background: style.backgroundColor,
+        cssWidth: style.width,
+        cssHeight: style.height,
+        parent: node.parentElement?.getAttribute("data-agent-native-node-id"),
+      };
+    });
+  expect(reloadedGeometry).toMatchObject({
+    x: copyGeometry.x,
+    y: copyGeometry.y,
+    width: copyGeometry.width,
+    height: copyGeometry.height,
+    background: copyGeometry.background,
+    cssWidth: copyGeometry.cssWidth,
+    cssHeight: copyGeometry.cssHeight,
+    parent: "nested-auto",
+  });
+  await expect
+    .poll(() =>
+      designFrame(page, design.destinationId)
+        .locator(
+          '[data-agent-native-node-id="nested-auto"] > [data-agent-native-node-id]',
+        )
+        .evaluateAll((nodes) =>
+          nodes.map((node) => node.getAttribute("data-agent-native-node-id")),
         ),
-    ).toBe("nested-auto");
-    const destinationOrder = await designFrame(page, design.destinationId)
-      .locator(
-        '[data-agent-native-node-id="nested-auto"] > [data-agent-native-node-id]',
-      )
-      .evaluateAll((nodes) =>
-        nodes.map((node) => node.getAttribute("data-agent-native-node-id")),
-      );
-    expect(destinationOrder).toEqual([
-      "destination-first",
-      copyId,
-      "destination-last",
-    ]);
-
-    const copyGeometry = await designFrame(page, design.destinationId)
-      .locator(`[data-agent-native-node-id="${copyId}"]`)
-      .evaluate((node) => {
-        const style = getComputedStyle(node);
-        const rect = node.getBoundingClientRect();
-        return {
-          x: rect.x,
-          y: rect.y,
-          width: rect.width,
-          height: rect.height,
-          background: style.backgroundColor,
-          cssWidth: style.width,
-          cssHeight: style.height,
-        };
-      });
-    expect(copyGeometry).toMatchObject({
-      background: sourceBeforeGeometry.background,
-      cssWidth: sourceBeforeGeometry.cssWidth,
-      cssHeight: sourceBeforeGeometry.cssHeight,
-    });
-    await expect
-      .poll(() =>
-        selectionOverlayMatchesNode(page, design.destinationId, copyId),
-      )
-      .toBe(true);
-
-    await page.keyboard.press(`${PRIMARY}+z`);
-    await expect
-      .poll(() => content(request, design.id, "destination.html"))
-      .toBe(destinationBefore);
-    await expect
-      .poll(() => content(request, design.id, "index.html"))
-      .toBe(sourceBefore);
-    await expect
-      .poll(() =>
-        selectionOverlayMatchesNode(page, design.sourceId, "cross-source"),
-      )
-      .toBe(true);
-
-    await page.keyboard.press(`${PRIMARY}+Shift+z`);
-    await expect
-      .poll(() => content(request, design.id, "destination.html"))
-      .toContain(`data-agent-native-node-id="${copyId}"`);
-    await expect
-      .poll(() => content(request, design.id, "index.html"))
-      .toContain('data-agent-native-node-id="cross-source"');
-    expect(await historyTraceCounts(page)).toEqual({ undo: 1, redo: 1 });
-
-    await page.reload({ waitUntil: "domcontentloaded" });
-    await expect(
-      page.getByRole("button", { name: "Move", exact: true }),
-    ).toBeVisible({
-      timeout: 30_000,
-    });
-    await expect
-      .poll(() =>
-        designFrame(page, design.destinationId)
-          .locator(`[data-agent-native-node-id="${copyId}"]`)
-          .count(),
-      )
-      .toBe(1);
-    const reloadedGeometry = await designFrame(page, design.destinationId)
-      .locator(`[data-agent-native-node-id="${copyId}"]`)
-      .evaluate((node) => {
-        const style = getComputedStyle(node);
-        const rect = node.getBoundingClientRect();
-        return {
-          x: rect.x,
-          y: rect.y,
-          width: rect.width,
-          height: rect.height,
-          background: style.backgroundColor,
-          cssWidth: style.width,
-          cssHeight: style.height,
-          parent: node.parentElement?.getAttribute("data-agent-native-node-id"),
-        };
-      });
-    expect(reloadedGeometry).toMatchObject({
-      x: copyGeometry.x,
-      y: copyGeometry.y,
-      width: copyGeometry.width,
-      height: copyGeometry.height,
-      background: copyGeometry.background,
-      cssWidth: copyGeometry.cssWidth,
-      cssHeight: copyGeometry.cssHeight,
-      parent: "nested-auto",
-    });
-    await expect
-      .poll(() =>
-        designFrame(page, design.destinationId)
-          .locator(
-            '[data-agent-native-node-id="nested-auto"] > [data-agent-native-node-id]',
-          )
-          .evaluateAll((nodes) =>
-            nodes.map((node) => node.getAttribute("data-agent-native-node-id")),
-          ),
-      )
-      .toEqual(["destination-first", copyId, "destination-last"]);
-    expect(await content(request, design.id, "index.html")).toContain(
-      'data-agent-native-node-id="cross-source"',
-    );
-  } finally {
-    if (designId) await deleteDesign(request, designId);
-  }
+    )
+    .toEqual(["destination-first", copyId, "destination-last"]);
+  expect(await content(request, design.id, "index.html")).toContain(
+    'data-agent-native-node-id="cross-source"',
+  );
 });
 
 test("late Alt after leaving the source Screen iframe creates a selected cross-screen copy", async ({
+  app,
   page,
   request,
 }) => {
-  let designId: string | null = null;
+  const design = await createDesign(app, request);
+  await gotoEditor(page, design.id);
+  await page.keyboard.press("Shift+1");
+
+  let previousScreenPositions = "";
+  await expect
+    .poll(async () => {
+      const source = await boxFor(page, design.sourceId, "cross-source");
+      const target = await boxFor(page, design.destinationId, "nested-auto");
+      const current = JSON.stringify({
+        source: { x: source.x, y: source.y },
+        target: { x: target.x, y: target.y },
+      });
+      const settled = current === previousScreenPositions;
+      previousScreenPositions = current;
+      return settled;
+    })
+    .toBe(true);
+
+  const source = await boxFor(page, design.sourceId, "cross-source");
+  const target = await boxFor(page, design.destinationId, "nested-auto");
+  const sourceIframe = page.locator(
+    `iframe[data-screen-iframe-id="${design.sourceId}"]`,
+  );
+  const destinationIframe = page.locator(
+    `iframe[data-screen-iframe-id="${design.destinationId}"]`,
+  );
+  const [sourceFrameBox, destinationFrameBox] = await Promise.all([
+    sourceIframe.boundingBox(),
+    destinationIframe.boundingBox(),
+  ]);
+  expect(sourceFrameBox).not.toBeNull();
+  expect(destinationFrameBox).not.toBeNull();
+  expect(sourceFrameBox!.x + sourceFrameBox!.width).toBeLessThan(
+    destinationFrameBox!.x,
+  );
+  const gutter = {
+    x:
+      sourceFrameBox!.x +
+      sourceFrameBox!.width +
+      (destinationFrameBox!.x - (sourceFrameBox!.x + sourceFrameBox!.width)) /
+        2,
+    y: sourceFrameBox!.y + sourceFrameBox!.height / 2,
+  };
+  const sourceStart = {
+    x: source.x + source.width / 2,
+    y: source.y + source.height / 2,
+  };
+  const targetDrop = {
+    x: target.x + target.width / 2,
+    y: target.y + target.height / 2,
+  };
+  const sourceBefore = await content(request, design.id, "index.html");
+  const destinationBefore = await content(
+    request,
+    design.id,
+    "destination.html",
+  );
+  const sourceNode = designFrame(page, design.sourceId).locator(
+    '[data-agent-native-node-id="cross-source"]',
+  );
+  const sourceBeforeGeometry = await sourceNode.evaluate((node) => {
+    const rect = node.getBoundingClientRect();
+    return {
+      parentNodeId: node.parentElement?.getAttribute(
+        "data-agent-native-node-id",
+      ),
+      x: rect.x,
+      y: rect.y,
+      width: rect.width,
+      height: rect.height,
+    };
+  });
+
+  await page.keyboard.down(PRIMARY);
+  await page.mouse.click(sourceStart.x, sourceStart.y);
+  await page.keyboard.up(PRIMARY);
+  await page.mouse.move(sourceStart.x, sourceStart.y);
+  await page.mouse.down();
   try {
-    const design = await createDesign(request, (id) => {
-      designId = id;
+    await page.mouse.move(sourceStart.x + 12, sourceStart.y + 8, {
+      steps: 4,
     });
-    await gotoEditor(page, design.id);
-    await page.keyboard.press("Shift+1");
+    await page.mouse.move(gutter.x, gutter.y, { steps: 12 });
+    const gutterHit = await page.evaluate(({ x, y }) => {
+      const hit = document.elementFromPoint(x, y);
+      return {
+        tag: hit?.tagName ?? null,
+        iframeId: hit
+          ?.closest("iframe[data-screen-iframe-id]")
+          ?.getAttribute("data-screen-iframe-id"),
+      };
+    }, gutter);
+    expect(gutterHit.iframeId).not.toBe(design.sourceId);
+    const ghost = page.locator("[data-cross-screen-drag-ghost]");
+    await expect(ghost).toBeVisible({ timeout: 5_000 });
+    const sourceFrame = designFrame(page, design.sourceId);
+    const clone = sourceFrame.locator('[data-agent-native-clone-root="true"]');
+    await expect(clone).toHaveCount(0);
+    expect(await content(request, design.id, "index.html")).toBe(sourceBefore);
+    expect(await content(request, design.id, "destination.html")).toBe(
+      destinationBefore,
+    );
 
-    let previousScreenPositions = "";
+    await page.keyboard.down("Alt");
+    await expect(clone).toHaveCount(0);
+    await page.mouse.move(targetDrop.x, targetDrop.y, { steps: 30 });
+    await expect.poll(() => clone.count(), { timeout: 5_000 }).toBe(1);
+    const cloneId = await clone.getAttribute("data-agent-native-node-id");
+    expect(cloneId).toBeTruthy();
+    expect(cloneId).not.toBe("cross-source");
     await expect
-      .poll(async () => {
-        const source = await boxFor(page, design.sourceId, "cross-source");
-        const target = await boxFor(page, design.destinationId, "nested-auto");
-        const current = JSON.stringify({
-          source: { x: source.x, y: source.y },
-          target: { x: target.x, y: target.y },
-        });
-        const settled = current === previousScreenPositions;
-        previousScreenPositions = current;
-        return settled;
-      })
-      .toBe(true);
-
-    const source = await boxFor(page, design.sourceId, "cross-source");
-    const target = await boxFor(page, design.destinationId, "nested-auto");
-    const sourceIframe = page.locator(
-      `iframe[data-screen-iframe-id="${design.sourceId}"]`,
-    );
-    const destinationIframe = page.locator(
-      `iframe[data-screen-iframe-id="${design.destinationId}"]`,
-    );
-    const [sourceFrameBox, destinationFrameBox] = await Promise.all([
-      sourceIframe.boundingBox(),
-      destinationIframe.boundingBox(),
-    ]);
-    expect(sourceFrameBox).not.toBeNull();
-    expect(destinationFrameBox).not.toBeNull();
-    expect(sourceFrameBox!.x + sourceFrameBox!.width).toBeLessThan(
-      destinationFrameBox!.x,
-    );
-    const gutter = {
-      x:
-        sourceFrameBox!.x +
-        sourceFrameBox!.width +
-        (destinationFrameBox!.x - (sourceFrameBox!.x + sourceFrameBox!.width)) /
-          2,
-      y: sourceFrameBox!.y + sourceFrameBox!.height / 2,
-    };
-    const sourceStart = {
-      x: source.x + source.width / 2,
-      y: source.y + source.height / 2,
-    };
-    const targetDrop = {
-      x: target.x + target.width / 2,
-      y: target.y + target.height / 2,
-    };
-    const sourceBefore = await content(request, design.id, "index.html");
-    const destinationBefore = await content(
-      request,
-      design.id,
-      "destination.html",
-    );
-    const sourceNode = designFrame(page, design.sourceId).locator(
-      '[data-agent-native-node-id="cross-source"]',
-    );
-    const sourceBeforeGeometry = await sourceNode.evaluate((node) => {
+      .poll(() => page.locator("[data-cross-screen-drop-guide]").count())
+      .toBeGreaterThan(0);
+    const sourceHeldGeometry = await sourceNode.evaluate((node) => {
       const rect = node.getBoundingClientRect();
       return {
         parentNodeId: node.parentElement?.getAttribute(
@@ -568,107 +574,39 @@ test("late Alt after leaving the source Screen iframe creates a selected cross-s
         height: rect.height,
       };
     });
-
-    await page.keyboard.down(PRIMARY);
-    await page.mouse.click(sourceStart.x, sourceStart.y);
-    await page.keyboard.up(PRIMARY);
-    await page.mouse.move(sourceStart.x, sourceStart.y);
-    await page.mouse.down();
-    try {
-      await page.mouse.move(sourceStart.x + 12, sourceStart.y + 8, {
-        steps: 4,
-      });
-      await page.mouse.move(gutter.x, gutter.y, { steps: 12 });
-      const gutterHit = await page.evaluate(({ x, y }) => {
-        const hit = document.elementFromPoint(x, y);
-        return {
-          tag: hit?.tagName ?? null,
-          iframeId: hit
-            ?.closest("iframe[data-screen-iframe-id]")
-            ?.getAttribute("data-screen-iframe-id"),
-        };
-      }, gutter);
-      expect(gutterHit.iframeId).not.toBe(design.sourceId);
-      const ghost = page.locator("[data-cross-screen-drag-ghost]");
-      await expect(ghost).toBeVisible({ timeout: 5_000 });
-      const sourceFrame = designFrame(page, design.sourceId);
-      const clone = sourceFrame.locator(
-        '[data-agent-native-clone-root="true"]',
-      );
-      await expect(clone).toHaveCount(0);
-      expect(await content(request, design.id, "index.html")).toBe(
-        sourceBefore,
-      );
-      expect(await content(request, design.id, "destination.html")).toBe(
-        destinationBefore,
-      );
-
-      await page.keyboard.down("Alt");
-      await expect(clone).toHaveCount(0);
-      await page.mouse.move(targetDrop.x, targetDrop.y, { steps: 30 });
-      await expect.poll(() => clone.count(), { timeout: 5_000 }).toBe(1);
-      const cloneId = await clone.getAttribute("data-agent-native-node-id");
-      expect(cloneId).toBeTruthy();
-      expect(cloneId).not.toBe("cross-source");
-      await expect
-        .poll(() => page.locator("[data-cross-screen-drop-guide]").count())
-        .toBeGreaterThan(0);
-      const sourceHeldGeometry = await sourceNode.evaluate((node) => {
-        const rect = node.getBoundingClientRect();
-        return {
-          parentNodeId: node.parentElement?.getAttribute(
-            "data-agent-native-node-id",
-          ),
-          x: rect.x,
-          y: rect.y,
-          width: rect.width,
-          height: rect.height,
-        };
-      });
-      expect(sourceHeldGeometry).toEqual(sourceBeforeGeometry);
-      expect(await content(request, design.id, "index.html")).toBe(
-        sourceBefore,
-      );
-      expect(await content(request, design.id, "destination.html")).toBe(
-        destinationBefore,
-      );
-    } finally {
-      await page.mouse.up();
-      await page.keyboard.up("Alt");
-    }
-
-    let destinationAfter = "";
-    await expect
-      .poll(async () => {
-        destinationAfter = await content(
-          request,
-          design.id,
-          "destination.html",
-        );
-        return layerIds(destinationAfter, "Cross-screen source").length;
-      })
-      .toBe(1);
-    const copyId = layerIds(destinationAfter, "Cross-screen source")[0]!;
-    expect(copyId).not.toBe("cross-source");
+    expect(sourceHeldGeometry).toEqual(sourceBeforeGeometry);
     expect(await content(request, design.id, "index.html")).toBe(sourceBefore);
-    const destinationOrder = await designFrame(page, design.destinationId)
-      .locator(
-        '[data-agent-native-node-id="nested-auto"] > [data-agent-native-node-id]',
-      )
-      .evaluateAll((nodes) =>
-        nodes.map((node) => node.getAttribute("data-agent-native-node-id")),
-      );
-    expect(destinationOrder).toEqual([
-      "destination-first",
-      copyId,
-      "destination-last",
-    ]);
-    await expect
-      .poll(() =>
-        selectionOverlayMatchesNode(page, design.destinationId, copyId),
-      )
-      .toBe(true);
+    expect(await content(request, design.id, "destination.html")).toBe(
+      destinationBefore,
+    );
   } finally {
-    if (designId) await deleteDesign(request, designId);
+    await page.mouse.up();
+    await page.keyboard.up("Alt");
   }
+
+  let destinationAfter = "";
+  await expect
+    .poll(async () => {
+      destinationAfter = await content(request, design.id, "destination.html");
+      return layerIds(destinationAfter, "Cross-screen source").length;
+    })
+    .toBe(1);
+  const copyId = layerIds(destinationAfter, "Cross-screen source")[0]!;
+  expect(copyId).not.toBe("cross-source");
+  expect(await content(request, design.id, "index.html")).toBe(sourceBefore);
+  const destinationOrder = await designFrame(page, design.destinationId)
+    .locator(
+      '[data-agent-native-node-id="nested-auto"] > [data-agent-native-node-id]',
+    )
+    .evaluateAll((nodes) =>
+      nodes.map((node) => node.getAttribute("data-agent-native-node-id")),
+    );
+  expect(destinationOrder).toEqual([
+    "destination-first",
+    copyId,
+    "destination-last",
+  ]);
+  await expect
+    .poll(() => selectionOverlayMatchesNode(page, design.destinationId, copyId))
+    .toBe(true);
 });

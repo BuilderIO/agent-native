@@ -1,5 +1,6 @@
 import { registerDataProgramsShareable } from "@agent-native/core/data-programs";
 import { createGetDb } from "@agent-native/core/db";
+import { registerIdentityColumns } from "@agent-native/core/org";
 import { registerShareableResource } from "@agent-native/core/sharing";
 
 import {
@@ -14,6 +15,48 @@ export const getDb = createGetDb(schema);
 export { schema };
 
 registerDataProgramsShareable();
+
+registerIdentityColumns([
+  {
+    table: "bi_migration_external_dashboards",
+    column: "original_migrator_email",
+    emailChange: "rekey",
+    offboard: "retain",
+    reason:
+      "The original migrator identity preserves provenance and gates remigration of an imported external dashboard.",
+  },
+  ...["analytics_key_date_sets", "analytics_key_dates"].map((table) => ({
+    table,
+    column: "owner_email",
+    emailChange: "rekey" as const,
+    offboard: "retain" as const,
+    reason:
+      "Records who added an organization's key date or set; the dates stay with the organization when that person leaves.",
+  })),
+  {
+    table: "analytics_data_notes",
+    column: "owner_email",
+    emailChange: "rekey",
+    offboard: "retain",
+    reason:
+      "Records who added an organization's data note; the note stays with the organization when that person leaves.",
+  },
+  {
+    table: "session_recordings",
+    column: "session_id",
+    emailChange: "retain",
+    offboard: "retain",
+    reason:
+      "Legacy last-known session pointer for recordings predating association history.",
+  },
+  {
+    table: "session_recording_session_associations",
+    column: "session_id",
+    emailChange: "retain",
+    offboard: "retain",
+    reason: "Observed session ids preserve replay association history.",
+  },
+]);
 
 registerShareableResource({
   type: "dashboard",

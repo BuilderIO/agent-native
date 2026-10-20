@@ -112,10 +112,11 @@ general model knowledge.
   `lanes.semantic.status` is `failed`, semantic matches are missing — say so.
   Use it as the default first search; narrow with `type: "knowledge" |
   "capture" | "source"` when you already know which record type you need.
-- Audience filtering happens before ranking. Public and organization sources
-  use the cheap organization audience; private channels and meetings use their
-  restricted audience. A multi-source answer must use the intersection of the
-  cited evidence audiences.
+- Audience filtering happens before ranking. Slack (public and invited private
+  channels) and Zoom use the organization audience; attendee-scoped meetings
+  (Granola) use their restricted audience; personal sources are additionally
+  limited to their owner and shares. A multi-source answer must use the
+  intersection of the cited evidence audiences.
 
 Follow `sourcePolicy` for how much of `search-everything`'s output an answer
 may lean on: `strict` means distilled knowledge only; `balanced` and

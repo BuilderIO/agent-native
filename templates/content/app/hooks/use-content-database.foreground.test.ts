@@ -15,7 +15,12 @@ vi.mock("@tanstack/react-query", async () => ({
   useQueryClient,
 }));
 
-import { useContentDatabase } from "./use-content-database";
+import type { ContentDatabaseTableQuery } from "@shared/api";
+
+import {
+  useContentDatabase,
+  useContentDatabasePersonalView,
+} from "./use-content-database";
 
 describe("foreground database read after cached creation", () => {
   beforeEach(() => {
@@ -88,5 +93,103 @@ describe("foreground database read after cached creation", () => {
     expect(observer.getCurrentResult().isSuccess).toBe(false);
     unsubscribe();
     client.clear();
+  });
+});
+
+describe("rows for the requested view", () => {
+  const baseData = {
+    database: { id: "database" },
+    items: [{ id: "stored-first" }],
+  };
+  const tableQuery: ContentDatabaseTableQuery = {
+    search: "",
+    filters: [],
+    sorts: [{ key: "rank", label: "Rank", direction: "asc" }],
+    filterMode: "and",
+  };
+
+  function read(
+    base: { data?: unknown; isError?: boolean },
+    page: { data?: unknown; isError?: boolean },
+  ) {
+    useQueryClient.mockReturnValue(new QueryClient());
+    useActionQuery.mockImplementation((name: string) =>
+      name === "get-content-database"
+        ? { isError: false, ...base }
+        : { isError: false, ...page },
+    );
+    let result: ReturnType<typeof useContentDatabase> | undefined;
+    function Probe() {
+      result = useContentDatabase("database-page", 100, tableQuery);
+      return null;
+    }
+    renderToStaticMarkup(createElement(Probe));
+    return result!;
+  }
+
+  it("reports a failed sorted read as failed, not as the base rows", () => {
+    const result = read({ data: baseData }, { isError: true });
+    expect(result.itemsSettled).toBe(true);
+    expect(result.itemsFailed).toBe(true);
+  });
+
+  it("reports a failed base read as failed, not as an empty view", () => {
+    const result = read({ isError: true }, { data: undefined });
+    expect(result.itemsSettled).toBe(true);
+    expect(result.itemsFailed).toBe(true);
+  });
+
+  it("draws the sorted rows once they land", () => {
+    const result = read(
+      { data: baseData },
+      { data: { items: [{ id: "rank-first" }] } },
+    );
+    expect(result.itemsFailed).toBe(false);
+    expect(result.data?.items).toEqual([{ id: "rank-first" }]);
+  });
+});
+
+describe("database editor boot reads", () => {
+  beforeEach(() => {
+    useActionQuery.mockReset();
+    useActionQuery.mockReturnValue({ data: undefined });
+    useQueryClient.mockReturnValue(new QueryClient());
+  });
+
+  it("requests the scoped database, items, and personal view for /page/:id", () => {
+    const tableQuery: ContentDatabaseTableQuery = {
+      search: "launch",
+      filters: [],
+      sorts: [],
+      filterMode: "and",
+    };
+
+    function Probe() {
+      useContentDatabase("document-7", 50, tableQuery);
+      useContentDatabasePersonalView("database-7");
+      return null;
+    }
+
+    renderToStaticMarkup(createElement(Probe));
+
+    expect(useActionQuery.mock.calls).toEqual(
+      expect.arrayContaining([
+        [
+          "get-content-database",
+          { documentId: "document-7", limit: 50 },
+          expect.any(Object),
+        ],
+        [
+          "query-content-database-items",
+          { documentId: "document-7", limit: 50, tableQuery },
+          expect.any(Object),
+        ],
+        [
+          "get-content-database-personal-view",
+          { databaseId: "database-7" },
+          expect.any(Object),
+        ],
+      ]),
+    );
   });
 });

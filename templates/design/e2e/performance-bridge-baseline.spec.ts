@@ -1,26 +1,15 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import path from "node:path";
+import type { Page } from "@playwright/test";
 
-import {
-  expect,
-  test,
-  type APIRequestContext,
-  type Page,
-} from "@playwright/test";
+import { appPath } from "./helpers";
+import { expect, test, type App } from "./rails";
 
-import { e2eBaseURL } from "./base-url";
-import {
-  bridgeMessages,
-  gotoEditor,
-  installBridge,
-  inspectorInputCount,
-} from "./helpers";
-
-const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
-const EVIDENCE_DIR = path.resolve(
-  import.meta.dirname,
-  "../../../.tmp/interaction-parity/closeout-20260916/performance",
-);
+type CollectionRequestProbe = {
+  frameId: string;
+  correlationId: string;
+  deep: boolean;
+  includePortableStyleSnapshot: boolean;
+  hasAtPoint: boolean;
+};
 
 type MarqueeProfilerReceipt = {
   elapsedMs: number | null;
@@ -33,22 +22,8 @@ type MarqueeProfilerReceipt = {
   finalSelectionAt: number | null;
   host: Record<string, number>;
   bridge: Record<string, number>;
+  collectionRequests: CollectionRequestProbe[];
 };
-
-async function action(
-  request: APIRequestContext,
-  name: string,
-  input: Record<string, unknown>,
-) {
-  const response = await request.post(
-    `${BASE_URL}/_agent-native/actions/${name}`,
-    { data: input },
-  );
-  if (!response.ok()) {
-    throw new Error(`${name}: ${response.status()} ${await response.text()}`);
-  }
-  return response.json();
-}
 
 function fixtureHtml(screenIndex: number, cardCount = 160): string {
   const cards = Array.from({ length: cardCount }, (_, index) => {
@@ -58,221 +33,96 @@ function fixtureHtml(screenIndex: number, cardCount = 160): string {
   return `<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;background:#f8fafc;font-family:system-ui}main{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;padding:32px;min-height:1200px}</style></head><body><main data-agent-native-node-id="main-${screenIndex}">${cards}</main></body></html>`;
 }
 
-async function createFixture(request: APIRequestContext) {
-  const created = await action(request, "create-design", {
-    title: `Performance bridge baseline ${Date.now()}`,
-    projectType: "prototype",
+/** Home (160 nested cards, about 800 nodes) beside a 12-card screen. */
+async function seedLargeScreens(app: App) {
+  const designId = await app.seed(fixtureHtml(0, 160), {
+    files: { "screen-2.html": fixtureHtml(1, 12) },
   });
-  const designId = created.id ?? created.data?.id ?? created.design?.id;
-  if (!designId) throw new Error("create-design returned no id");
-
-  const fileIds: string[] = [];
-  for (let index = 0; index < 2; index += 1) {
-    const file = await action(request, "create-file", {
-      designId,
-      filename: index === 0 ? "index.html" : `screen-${index + 1}.html`,
-      content: fixtureHtml(index, index === 0 ? 160 : 12),
-      fileType: "html",
-    });
-    const fileId = file.id ?? file.data?.id;
-    if (!fileId) throw new Error("create-file returned no id");
-    fileIds.push(fileId);
-  }
-
-  await action(request, "update-design", {
-    id: designId,
-    dataOperations: [
-      {
-        op: "set",
-        path: ["breakpointSet"],
-        value: {
-          id: "perf-breakpoints",
-          breakpoints: [
-            { id: "mobile", label: "Mobile", widthPx: 390 },
-            { id: "tablet", label: "Tablet", widthPx: 768 },
-          ],
-        },
+  const { files } = await app.savedRecord(designId);
+  const fileIds = ["index.html", "screen-2.html"].map(
+    (filename) => files.find((file) => file.filename === filename)!.id,
+  );
+  const response = await app.page.request.post(
+    appPath("/_agent-native/actions/update-design"),
+    {
+      data: {
+        id: designId,
+        dataOperations: [
+          ...fileIds.flatMap((fileId, index) => [
+            {
+              op: "set",
+              path: ["screenMetadata", fileId],
+              value: { sourceType: "inline", width: 1280, height: 1250 },
+            },
+            {
+              op: "set",
+              path: ["canvasFrames", fileId],
+              value: {
+                x: index * 1376,
+                y: 0,
+                width: 1280,
+                height: 1250,
+                z: index,
+              },
+            },
+          ]),
+        ],
       },
-      ...fileIds.flatMap((fileId, index) => [
-        {
-          op: "set",
-          path: ["screenMetadata", fileId],
-          value: { sourceType: "inline", width: 1280, height: 1250 },
-        },
-        {
-          op: "set",
-          path: ["canvasFrames", fileId],
-          value: {
-            x: index * 1376,
-            y: 0,
-            width: 1280,
-            height: 1250,
-            z: index,
-          },
-        },
-      ]),
-    ],
-  });
+    },
+  );
+  expect(response.ok(), `update-design ${response.status()}`).toBe(true);
   return { designId, fileIds };
 }
 
-type RectsSample = {
-  deep: boolean;
-  elapsedMs: number;
-  count: number;
-  payloadBytes: number;
-  sampleKeys: string[];
-  timedOut?: boolean;
-};
-
-function summarize(samples: RectsSample[]) {
-  const values = samples
-    .map((sample) => sample.elapsedMs)
-    .sort((a, b) => a - b);
-  const total = values.reduce((sum, value) => sum + value, 0);
-  return {
-    count: values.length,
-    minMs: values[0] ?? null,
-    maxMs: values[values.length - 1] ?? null,
-    meanMs: values.length > 0 ? total / values.length : null,
-    medianMs: values.length > 0 ? values[Math.floor(values.length / 2)] : null,
-    spreadMs:
-      values.length > 0 ? values[values.length - 1]! - values[0]! : null,
-  };
-}
-
-async function collectRects(
-  page: Page,
-  iframeIndex: number,
-  deep: boolean,
-): Promise<RectsSample> {
-  return page.evaluate(
-    async ({ deep: requestedDeep, iframeIndex: requestedIndex }) => {
-      const iframe = document.querySelectorAll<HTMLIFrameElement>(
-        "iframe[data-design-preview-iframe]",
-      )[requestedIndex];
-      const contentWindow = iframe?.contentWindow;
-      if (!contentWindow) {
-        throw new Error(`missing preview iframe ${requestedIndex}`);
-      }
-      const correlationId = `perf-${Date.now()}-${Math.random()}`;
-      const started = performance.now();
-      return new Promise<RectsSample>((resolve) => {
-        const timer = window.setTimeout(() => {
-          window.removeEventListener("message", listener);
-          resolve({
-            deep: requestedDeep,
-            elapsedMs: performance.now() - started,
-            count: 0,
-            payloadBytes: 0,
-            sampleKeys: [],
-            timedOut: true,
-          });
-        }, 10_000);
-        const listener = (event: MessageEvent) => {
-          if (
-            event.source !== contentWindow ||
-            event.data?.type !== "agent-native:selectable-rects-result" ||
-            event.data?.correlationId !== correlationId
-          ) {
-            return;
-          }
-          window.clearTimeout(timer);
-          window.removeEventListener("message", listener);
-          const payload = Array.isArray(event.data.payload)
-            ? event.data.payload
-            : [];
-          resolve({
-            deep: requestedDeep,
-            elapsedMs: performance.now() - started,
-            count: payload.length,
-            payloadBytes: JSON.stringify(payload).length,
-            sampleKeys:
-              payload.length > 0 && payload[0] && typeof payload[0] === "object"
-                ? Object.keys(payload[0]).sort()
-                : [],
-          });
-        };
-        window.addEventListener("message", listener);
-        contentWindow.postMessage(
-          {
-            type: "agent-native:collect-selectable-rects",
-            correlationId,
-            deep: requestedDeep,
-          },
-          "*",
-        );
-      });
-    },
-    { deep, iframeIndex },
-  );
-}
-
-async function installLongTaskObserver(page: Page) {
-  await page.evaluate(() => {
-    const win = window as typeof window & {
-      __perfLongTasks?: Array<{ startTime: number; duration: number }>;
-      __perfLongTaskObserver?: PerformanceObserver;
-    };
-    win.__perfLongTasks = [];
-    try {
-      const observer = new PerformanceObserver((list) => {
-        win.__perfLongTasks?.push(
-          ...list.getEntries().map((entry) => ({
-            startTime: entry.startTime,
-            duration: entry.duration,
-          })),
-        );
-      });
-      observer.observe({ type: "longtask", buffered: true });
-      win.__perfLongTaskObserver = observer;
-    } catch {
-      win.__perfLongTaskObserver = undefined;
-    }
-  });
-}
-
-async function readLongTasks(page: Page) {
-  return page.evaluate(() => {
-    const win = window as typeof window & {
-      __perfLongTasks?: Array<{ startTime: number; duration: number }>;
-      __perfLongTaskObserver?: PerformanceObserver;
-    };
-    win.__perfLongTaskObserver?.disconnect();
-    return win.__perfLongTasks ?? [];
-  });
-}
-
-async function installReactCommitProbe(page: Page): Promise<void> {
+async function installCollectionRequestRecorder(page: Page): Promise<void> {
   await page.addInitScript(() => {
-    const win = window as typeof window & {
-      __REACT_DEVTOOLS_GLOBAL_HOOK__?: {
-        renderers?: Map<number, unknown>;
-        supportsFiber?: boolean;
-        inject?: (renderer: unknown) => number;
-        onScheduleFiberRoot?: (...args: unknown[]) => unknown;
-        onCommitFiberRoot?: (...args: unknown[]) => unknown;
-        onCommitFiberUnmount?: (...args: unknown[]) => unknown;
-      };
-      __designPerformanceProbe?: Record<string, number>;
+    type Request = {
+      frameId: string;
+      correlationId: string;
+      deep: boolean;
+      includePortableStyleSnapshot: boolean;
+      hasAtPoint: boolean;
     };
-    const hook = win.__REACT_DEVTOOLS_GLOBAL_HOOK__ ?? {
-      renderers: new Map<number, unknown>(),
-      inject: (() => {
-        let nextId = 0;
-        return () => nextId++;
-      })(),
-      onScheduleFiberRoot: () => {},
-      onCommitFiberUnmount: () => {},
+    type RequestWindow = typeof window & {
+      __marqueeCollectionRequests?: Request[];
     };
-    const originalOnCommit = hook.onCommitFiberRoot;
-    hook.onCommitFiberRoot = (...args: unknown[]) => {
-      const probe = win.__designPerformanceProbe;
-      if (probe) probe.reactCommits = (probe.reactCommits ?? 0) + 1;
-      return originalOnCommit?.apply(hook, args);
-    };
-    hook.supportsFiber = true;
-    win.__REACT_DEVTOOLS_GLOBAL_HOOK__ = hook;
+    if (window === window.top) {
+      (window as RequestWindow).__marqueeCollectionRequests = [];
+      return;
+    }
+
+    window.addEventListener(
+      "message",
+      (event) => {
+        const data = event.data as {
+          type?: string;
+          correlationId?: unknown;
+          deep?: unknown;
+          includePortableStyleSnapshot?: unknown;
+          atPoint?: unknown;
+        } | null;
+        if (
+          event.source !== window.parent ||
+          data?.type !== "agent-native:collect-selectable-rects"
+        ) {
+          return;
+        }
+        const parent = window.parent as RequestWindow;
+        parent.__marqueeCollectionRequests?.push({
+          frameId:
+            (window.frameElement as HTMLIFrameElement | null)?.getAttribute(
+              "data-screen-iframe-id",
+            ) ?? "unknown-frame",
+          correlationId:
+            typeof data.correlationId === "string" ? data.correlationId : "",
+          deep: data.deep === true,
+          includePortableStyleSnapshot:
+            data.includePortableStyleSnapshot !== false,
+          hasAtPoint: data.atPoint !== undefined && data.atPoint !== null,
+        });
+      },
+      true,
+    );
   });
 }
 
@@ -283,6 +133,7 @@ async function installMarqueeProfiler(
   await page.evaluate((targetFileId) => {
     const win = window as typeof window & {
       __designPerformanceProbe?: Record<string, number>;
+      __marqueeCollectionRequests?: CollectionRequestProbe[];
       __marqueePerformance?: {
         startedAt: number;
         firstMessageAt: number | null;
@@ -295,6 +146,7 @@ async function installMarqueeProfiler(
       };
     };
     win.__designPerformanceProbe = Object.create(null);
+    win.__marqueeCollectionRequests = [];
     const startedAt = performance.now();
     win.__marqueePerformance = {
       startedAt,
@@ -467,7 +319,7 @@ async function performProfiledMarquee(
   page: Page,
   fileId: string,
   secondaryFileId: string,
-): Promise<void> {
+) {
   const frame = page
     .locator(`iframe[data-screen-iframe-id="${fileId}"]`)
     .contentFrame();
@@ -476,7 +328,7 @@ async function performProfiledMarquee(
     .locator(`iframe[data-screen-iframe-id="${secondaryFileId}"]`)
     .contentFrame();
   const secondLastCard = secondFrame.locator(
-    '[data-agent-native-node-id="card-1-3"]',
+    '[data-agent-native-node-id="card-1-11"]',
   );
   const firstBox = await firstCard.boundingBox();
   const secondLastBox = await secondLastCard.boundingBox();
@@ -486,10 +338,8 @@ async function performProfiledMarquee(
   if (!firstBox || !secondLastBox)
     throw new Error("marquee fixture cards are hidden");
   if (!iframeBox) throw new Error("marquee fixture iframe is hidden");
-  const startPoint = {
-    x: Math.max(8, iframeBox.x - 32),
-    y: Math.max(8, iframeBox.y - 96),
-  };
+  // Empty canvas left of Home, away from its corner rotate zone, title label and the top bar.
+  const startPoint = { x: iframeBox.x - 60, y: iframeBox.y + 4 };
   const modifier = process.platform === "darwin" ? "Meta" : "Control";
   await page.keyboard.down(modifier);
   try {
@@ -498,20 +348,22 @@ async function performProfiledMarquee(
     await page.mouse.move(
       secondLastBox.x + secondLastBox.width + 12,
       secondLastBox.y + secondLastBox.height + 12,
-      { steps: 8 },
+      { steps: 2 },
     );
     await page.mouse.up();
   } finally {
     await page.keyboard.up(modifier);
   }
+  return { firstBox, secondLastBox, iframeBox, startPoint };
 }
 
 async function readMarqueeProfiler(
   page: Page,
 ): Promise<MarqueeProfilerReceipt> {
-  const host = await page.evaluate(() => {
+  const hostSnapshot = await page.evaluate(() => {
     const win = window as typeof window & {
       __designPerformanceProbe?: Record<string, number>;
+      __marqueeCollectionRequests?: CollectionRequestProbe[];
       __marqueePerformance?: {
         startedAt: number;
         firstMessageAt: number | null;
@@ -550,8 +402,10 @@ async function readMarqueeProfiler(
       firstBridgeMessageAt: marquee?.firstMessageAt ?? null,
       finalSelectionAt,
       host: probe,
+      collectionRequests: win.__marqueeCollectionRequests ?? [],
     };
   });
+  const { collectionRequests, ...host } = hostSnapshot;
   const bridge = {
     domScans: 0,
     computedStyleReads: 0,
@@ -584,250 +438,34 @@ async function readMarqueeProfiler(
     bridge.subtreeQueries += sample.subtreeQueries;
     bridge.layoutReads += sample.layoutReads;
   }
-  return { ...host, bridge };
-}
-
-async function selectFixtureNode(page: Page, fileId: string, nodeId: string) {
-  await installBridge(page);
-  const frame = page
-    .locator(`iframe[data-screen-iframe-id="${fileId}"]`)
-    .contentFrame();
-  const target = frame.locator(`[data-agent-native-node-id="${nodeId}"]`);
-  await expect(target).toBeVisible({ timeout: 15_000 });
-  const box = await target.boundingBox();
-  if (!box) throw new Error(`no bounding box for ${nodeId}`);
-  const expected = await target.evaluate((node) => ({
-    tagName: node.tagName.toLowerCase(),
-    sourceId: node.getAttribute("data-agent-native-node-id"),
-    textContent: (node.textContent ?? "").replace(/\s+/g, " ").trim(),
-  }));
-  await page.evaluate(() => ((window as any).__bridge = []));
-  const modifier = process.platform === "darwin" ? "Meta" : "Control";
-  await page.keyboard.down(modifier);
-  try {
-    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-  } finally {
-    await page.keyboard.up(modifier);
-  }
-  const selectionHandle = await page.waitForFunction(
-    () =>
-      [...((window as any).__bridge ?? [])]
-        .reverse()
-        .find((message: any) => message.type === "element-select") ?? null,
-    undefined,
-    { timeout: 15_000 },
-  );
-  const selection = await selectionHandle.jsonValue();
-  const payload = selection?.payload ?? selection;
-  expect(payload?.sourceId).toBe(expected.sourceId);
-  expect(payload?.tagName).toBe(expected.tagName);
-  expect(
-    String(payload?.textContent ?? "")
-      .replace(/\s+/g, " ")
-      .trim(),
-  ).toBe(expected.textContent);
-  return { payload, selectionMode: "pointer" as const };
-}
-
-async function replayFixtureNode(page: Page, fileId: string, nodeId: string) {
-  await page.evaluate(() => ((window as any).__bridge = []));
-  await page.evaluate(
-    ({ fileId: targetFileId, nodeId: targetNodeId }) => {
-      const iframe = document.querySelector<HTMLIFrameElement>(
-        `iframe[data-screen-iframe-id="${targetFileId}"]`,
-      );
-      iframe?.contentWindow?.postMessage(
-        {
-          type: "select-element",
-          selector: `[data-agent-native-node-id="${targetNodeId}"]`,
-        },
-        "*",
-      );
-    },
-    { fileId, nodeId },
-  );
-  const selectionHandle = await page.waitForFunction(
-    ({ sourceId }) =>
-      [...((window as any).__bridge ?? [])]
-        .reverse()
-        .find(
-          (message: any) =>
-            message.type === "element-select" &&
-            (message.payload ?? message).sourceId === sourceId,
-        ) ?? null,
-    { sourceId: nodeId },
-    { timeout: 15_000 },
-  );
-  const selection = await selectionHandle.jsonValue();
-  const payload = selection?.payload ?? selection;
-  expect(payload?.sourceId).toBe(nodeId);
-  return payload;
+  return { ...host, bridge, collectionRequests };
 }
 
 test.use({ viewport: { width: 1500, height: 1000 } });
 
-test("collect selectable rects baseline on nested responsive screens", async ({
+// The budget: a deep marquee over a large screen costs one full-DOM scan per screen it crosses, plus one
+// style-snapshot pass per screen whose layers end up selected, however many pointer moves the drag has.
+test("a Cmd-marquee across a large screen and a small one scans each crossed screen once and commits the selection once", async ({
+  app,
   page,
-  request,
 }) => {
-  const fixture = await createFixture(request);
-  await installReactCommitProbe(page);
-  await gotoEditor(page, fixture.designId);
-  const primaryIframe = page.locator(
-    `iframe[data-screen-iframe-id="${fixture.fileIds[0]}"]`,
-  );
-  await expect(primaryIframe).toBeVisible({ timeout: 30_000 });
-  const primaryFrame = primaryIframe.contentFrame();
-  await expect(
-    primaryFrame.locator('[data-agent-native-edit-overlay="shield"]'),
-  ).toBeAttached({ timeout: 30_000 });
-  await expect(page.locator("[data-screen-shell]").first()).toBeVisible();
-  await installLongTaskObserver(page);
-
-  const iframeCount = await page
-    .locator("iframe[data-design-preview-iframe]")
-    .count();
-  if (iframeCount === 0) throw new Error("no design preview iframe mounted");
-  await mkdir(EVIDENCE_DIR, { recursive: true });
-  const fixtureStats = await primaryFrame.locator("body").evaluate((body) => {
-    let maxDepth = 0;
-    let elementCount = 0;
-    const walker = document.createTreeWalker(body, NodeFilter.SHOW_ELEMENT);
-    let current: Node | null = walker.currentNode;
-    while (current) {
-      elementCount += 1;
-      let depth = 0;
-      for (let node = current.parentNode; node; node = node.parentNode) {
-        depth += 1;
-      }
-      maxDepth = Math.max(maxDepth, depth);
-      current = walker.nextNode();
-    }
-    return { elementCount, maxDepth };
-  });
-
-  await page.context().tracing.start({ screenshots: false, snapshots: false });
-  const bridgeSamples: RectsSample[] = [];
-  await collectRects(page, 0, true);
-  for (const deep of [false, true]) {
-    for (let repeat = 0; repeat < 3; repeat += 1) {
-      bridgeSamples.push(await collectRects(page, 0, deep));
-    }
+  const fixture = await seedLargeScreens(app);
+  await installCollectionRequestRecorder(page);
+  await app.open(fixture.designId);
+  for (const fileId of fixture.fileIds) {
+    await expect(
+      page
+        .locator(`iframe[data-screen-iframe-id="${fileId}"]`)
+        .contentFrame()
+        .locator('[data-agent-native-edit-overlay="shield"]'),
+    ).toBeAttached({ timeout: 30_000 });
   }
+  await app.zoomToFit();
+  await expect.poll(() => app.selectedLayers()).toStrictEqual([]);
+  const savedBefore = await app.savedRecord(fixture.designId);
 
-  await primaryFrame.locator("body").evaluate((body) => {
-    const probe = document.createElement("div");
-    probe.className = "perf-hover-probe";
-    probe.textContent = "Hover probe";
-    probe.style.cssText =
-      "position:absolute;left:16px;top:16px;width:40px;height:40px;background:#f97316;";
-    body.appendChild(probe);
-  });
-  const hoverProbe = primaryFrame.locator(".perf-hover-probe");
-  const hoverProbeBox = await hoverProbe.boundingBox();
-  if (!hoverProbeBox) throw new Error("hover probe has no bounding box");
-  await page.mouse.move(
-    hoverProbeBox.x + hoverProbeBox.width / 2,
-    hoverProbeBox.y + hoverProbeBox.height / 2,
-  );
-  await page.waitForTimeout(100);
-  const hoverPendingNodeId = await hoverProbe.getAttribute(
-    "data-an-pending-node-id",
-  );
-  expect(hoverPendingNodeId).toBeNull();
-
-  const card = page.locator("[data-screen-card]").first();
-  const cardBox = await card.boundingBox();
-  const gesture = cardBox
-    ? await page.evaluate(
-        ({ x, y }) => {
-          const started = performance.now();
-          return { started, x, y };
-        },
-        { x: cardBox.x + 4, y: cardBox.y + 4 },
-      )
-    : null;
-  let overviewBridgeEvents: Array<{
-    type: string;
-    t: number;
-    count?: number;
-  }> = [];
-  if (gesture) {
-    await page.evaluate(() => {
-      const win = window as typeof window & {
-        __perfOverviewBridgeEvents?: Array<{
-          type: string;
-          t: number;
-          count?: number;
-        }>;
-      };
-      win.__perfOverviewBridgeEvents = [];
-      window.addEventListener("message", (event) => {
-        const type = event.data?.type;
-        if (
-          type !== "agent-native:selectable-rects-result" &&
-          type !== "element-select"
-        ) {
-          return;
-        }
-        win.__perfOverviewBridgeEvents?.push({
-          type,
-          t: performance.now(),
-          count: Array.isArray(event.data?.payload)
-            ? event.data.payload.length
-            : undefined,
-        });
-      });
-    });
-    await page.mouse.dblclick(gesture.x, gesture.y, { delay: 40 });
-    await page.waitForTimeout(750);
-    overviewBridgeEvents = await page.evaluate(
-      () =>
-        (
-          window as typeof window & {
-            __perfOverviewBridgeEvents?: typeof overviewBridgeEvents;
-          }
-        ).__perfOverviewBridgeEvents ?? [],
-    );
-  }
-
-  const selectionBeforeRows = await page
-    .locator('[aria-selected="true"]')
-    .evaluateAll((rows) => rows.map((row) => row.textContent?.trim() ?? ""));
-  const selectedSelection = await selectFixtureNode(
-    page,
-    fixture.fileIds[0],
-    "card-0-0",
-  );
-  const selectedPayload = selectedSelection.payload;
-  const inspectorInputs = await inspectorInputCount(page);
-  await page.waitForTimeout(300);
-  const firstSelectionRows = await page
-    .locator('[aria-selected="true"]')
-    .evaluateAll((rows) => rows.map((row) => row.textContent?.trim() ?? ""));
-  const protocolPayload = await replayFixtureNode(
-    page,
-    fixture.fileIds[0],
-    "card-badge-0-0",
-  );
-  await page.waitForTimeout(500);
-  const secondSelectionRows = await page
-    .locator('[aria-selected="true"]')
-    .evaluateAll((rows) => rows.map((row) => row.textContent?.trim() ?? ""));
-  await page.keyboard.press(
-    process.platform === "darwin" ? "Meta+z" : "Control+z",
-  );
-  await page.waitForTimeout(300);
-  const undoSelectionRows = await page
-    .locator('[aria-selected="true"]')
-    .evaluateAll((rows) => rows.map((row) => row.textContent?.trim() ?? ""));
-  expect(undoSelectionRows).toEqual(selectionBeforeRows);
-
-  const marqueeSelectionBeforeRows = await page
-    .locator('[aria-selected="true"]')
-    .evaluateAll((rows) => rows.map((row) => row.textContent?.trim() ?? ""));
-  await installMarqueeProfiler(page, fixture.fileIds[1]);
-  await performProfiledMarquee(page, fixture.fileIds[0], fixture.fileIds[1]);
+  await installMarqueeProfiler(page, fixture.fileIds[1]!);
+  await performProfiledMarquee(page, fixture.fileIds[0]!, fixture.fileIds[1]!);
   await expect
     .poll(
       () =>
@@ -842,123 +480,68 @@ test("collect selectable rects baseline on nested responsive screens", async ({
       { timeout: 30_000 },
     )
     .toBe(1);
-  await expect
-    .poll(
-      () =>
-        page.evaluate(
-          () =>
-            (
-              window as typeof window & {
-                __marqueePerformance?: { bridgeReplyCount?: number };
-              }
-            ).__marqueePerformance?.bridgeReplyCount ?? 0,
-        ),
-      { timeout: 30_000 },
-    )
-    .toBeGreaterThanOrEqual(2);
-  await page.waitForTimeout(500);
-  const marqueeSelectionAfterRows = await page
-    .locator('[aria-selected="true"]')
-    .evaluateAll((rows) => rows.map((row) => row.textContent?.trim() ?? ""));
-  const marqueeProfiler = await readMarqueeProfiler(page);
-  expect(marqueeProfiler.bridgeMessageCount).toBeGreaterThan(0);
-  expect(marqueeProfiler.bridgeReplyCount).toBeGreaterThanOrEqual(2);
-  expect(marqueeProfiler.bridgeReplyCountAtMouseup).toBeLessThan(2);
-  expect(marqueeProfiler.finalSelectionChangeCount).toBe(1);
-  expect(marqueeProfiler.elapsedMs).toBeGreaterThan(0);
-  expect(marqueeProfiler.finalSelectionAt).toBe(marqueeProfiler.elapsedMs);
-  expect(marqueeProfiler.finalSelectionIds.length).toBeGreaterThanOrEqual(60);
-  expect(marqueeProfiler.host.marqueeSelectionChange).toBeGreaterThan(1);
-  expect(marqueeProfiler.host.marqueeFinalSelectionChange).toBe(1);
-  expect(marqueeProfiler.host.captureCurrentSelection).toBeLessThanOrEqual(2);
-  expect(marqueeProfiler.host.buildCodeLayerProjection).toBeLessThanOrEqual(4);
-  expect(marqueeProfiler.host.reactCommits).toBeGreaterThan(0);
-  expect(marqueeProfiler.bridge.domScans).toBe(2);
-  expect(marqueeProfiler.bridge.subtreeQueries).toBe(0);
-  expect(marqueeProfiler.bridge.subtreeNodes).toBe(0);
-  expect(marqueeSelectionAfterRows).not.toEqual(marqueeSelectionBeforeRows);
-  expect(marqueeSelectionAfterRows).toEqual(
-    expect.arrayContaining([
-      "Card 1",
-      "Ready",
-      "Nested auto-layout content for performance profiling.",
+  const profiler = await readMarqueeProfiler(page);
+
+  // Screen 2's replies are held until mouseup, so the final selection must have waited for them.
+  expect(profiler.bridgeReplyCountAtMouseup).toBeLessThan(2);
+  expect(profiler.bridgeReplyCount).toBeGreaterThanOrEqual(2);
+  expect(profiler.finalSelectionChangeCount).toBe(1);
+  expect(
+    profiler.finalSelectionIds.length,
+    "precondition: the marquee selected the cards it crossed",
+  ).toBeGreaterThanOrEqual(24);
+  const compareFrameIds = (left: string, right: string) =>
+    left < right ? -1 : left > right ? 1 : 0;
+  expect(
+    profiler.collectionRequests
+      .map((request) => ({
+        frameId: request.frameId,
+        styles: request.includePortableStyleSnapshot,
+        deep: request.deep,
+        atPoint: request.hasAtPoint,
+      }))
+      .sort(
+        (a, b) =>
+          compareFrameIds(a.frameId, b.frameId) ||
+          Number(a.styles) - Number(b.styles),
+      ),
+  ).toStrictEqual(
+    [...fixture.fileIds].sort(compareFrameIds).flatMap((frameId) => [
+      { frameId, styles: false, deep: true, atPoint: false },
+      { frameId, styles: true, deep: true, atPoint: false },
     ]),
   );
-  await page.keyboard.press(
-    process.platform === "darwin" ? "Meta+z" : "Control+z",
-  );
-  await expect
-    .poll(async () =>
-      page
-        .locator('[aria-selected="true"]')
-        .evaluateAll((rows) =>
-          rows.map((row) => row.textContent?.trim() ?? ""),
-        ),
-    )
-    .toEqual(marqueeSelectionBeforeRows);
+  expect(profiler.bridge.domScans).toBe(4);
+  expect(profiler.host.captureCurrentSelection).toBeLessThanOrEqual(2);
+  expect(profiler.host.buildCodeLayerProjection).toBeLessThanOrEqual(4);
+  await app.settled();
+  expect(await app.savedRecord(fixture.designId)).toStrictEqual(savedBefore);
 
-  const longTasks = await readLongTasks(page);
-  await page.context().tracing.stop({
-    path: path.join(EVIDENCE_DIR, "bridge-baseline-trace.zip"),
-  });
-  await writeFile(
-    path.join(EVIDENCE_DIR, "bridge-after.json"),
-    JSON.stringify(
-      {
-        designId: fixture.designId,
-        fileIds: fixture.fileIds,
-        iframeCount,
-        fixtureStats,
-        bridgeSamples,
-        bridgeSummary: {
-          shallow: summarize(bridgeSamples.filter((sample) => !sample.deep)),
-          deep: summarize(bridgeSamples.filter((sample) => sample.deep)),
-        },
-        overviewGesture: gesture,
-        overviewBridgeEvents,
-        selectionSmoke: {
-          tagName: selectedPayload.tagName,
-          selectionMode: selectedSelection.selectionMode,
-          protocolPayload: {
-            sourceId: protocolPayload.sourceId,
-            computedStyleKeys: Object.keys(protocolPayload.computedStyles ?? {})
-              .length,
-            hasPortableStyleSnapshot: Boolean(
-              protocolPayload.portableStyleSnapshot,
-            ),
-          },
-          hoverPendingNodeId,
-          sourceId: selectedPayload.sourceId,
-          computedStyleKeys: Object.keys(selectedPayload.computedStyles ?? {})
-            .length,
-          hasPortableStyleSnapshot: Boolean(
-            selectedPayload.portableStyleSnapshot,
-          ),
-          inspectorInputs,
-          selectionBeforeRows,
-          firstSelectionRows,
-          secondSelectionRows,
-          undoSelectionRows,
-          bridgeMessageTypes: (await bridgeMessages(page)).map(
-            (message) => message.type,
-          ),
-        },
-        marqueeProfiler: {
-          ...marqueeProfiler,
-          selectionBeforeRows: marqueeSelectionBeforeRows,
-          selectionAfterRows: marqueeSelectionAfterRows,
-          undoSelectionRows: await page
-            .locator('[aria-selected="true"]')
-            .evaluateAll((rows) =>
-              rows.map((row) => row.textContent?.trim() ?? ""),
-            ),
-        },
-        longTasks,
-        capturedAt: new Date().toISOString(),
-      },
-      null,
-      2,
-    ),
-  );
-  expect(bridgeSamples.every((sample) => !sample.timedOut)).toBe(true);
+  // The Layers tree is a flat list of rows with aria-level, so ancestry is read from row order.
+  const selectedUnderSelectedAncestor = await page
+    .getByRole("tree", { name: "Layers" })
+    .evaluate((tree) => {
+      const ancestors: Array<{ level: number; selected: boolean }> = [];
+      const nested: string[] = [];
+      for (const row of tree.querySelectorAll('[role="treeitem"]')) {
+        const level = Number(row.getAttribute("aria-level"));
+        const selected = row.getAttribute("aria-selected") === "true";
+        while (
+          ancestors.length &&
+          ancestors[ancestors.length - 1]!.level >= level
+        )
+          ancestors.pop();
+        if (selected && ancestors.some((ancestor) => ancestor.selected)) {
+          nested.push(
+            `${level}:${(row.textContent ?? "").trim().slice(0, 40)}`,
+          );
+        }
+        ancestors.push({ level, selected });
+      }
+      return nested;
+    });
+  expect(
+    selectedUnderSelectedAncestor,
+    "a marquee never selects a layer together with one of its ancestors",
+  ).toStrictEqual([]);
 });

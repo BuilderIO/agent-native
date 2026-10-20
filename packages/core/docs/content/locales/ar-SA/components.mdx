@@ -18,7 +18,7 @@ import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
 import { AgentConversation } from "@agent-native/toolkit/app/chat/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
 import { SharedRichEditor } from "@agent-native/toolkit/editor";
-import { ResourcesPanel } from "@agent-native/core/client/resources";
+import { ResourcesPanel } from "@agent-native/toolkit/app/resources";
 ```
 
 تجنب استيراد مكونات UI من حزمة `@agent-native/core` العارية. استخدم
@@ -615,7 +615,7 @@ const collab = useCollaborativeDoc({
 لا تحتاج اللوحة الكاملة إلى أي دعائم:
 
 ```tsx
-import { ResourcesPanel } from "@agent-native/core/client/resources";
+import { ResourcesPanel } from "@agent-native/toolkit/app/resources";
 
 <ResourcesPanel />;
 ```
@@ -627,6 +627,8 @@ import { useState } from "react";
 import {
   ResourceEditor,
   ResourceTree,
+} from "@agent-native/toolkit/app/resources";
+import {
   useResource,
   useResourceTree,
   useUpdateResource,
@@ -665,16 +667,16 @@ function WorkspaceResources() {
 
 ## UI عامة أخرى {#other-ui}
 
-| المساحة         | APIs                                                       | مسار الاستيراد                            |
-| --------------- | ---------------------------------------------------------- | ----------------------------------------- |
-| المشاركة        | `<ShareButton>`, `<ShareDialog>`                           | `@agent-native/core/client/sharing`       |
-| Sharing UI      | `<VisibilityBadge>`                                        | `@agent-native/toolkit/sharing`           |
-| الإشعارات       | `<NotificationsBell>`                                      | `@agent-native/core/client/notifications` |
-| التقدم          | `<RunsTray>`، خطافات التقدم وأنواعها                       | `@agent-native/core/client/progress`      |
-| التأهيل         | `useOnboarding()`، خطافات لوحة التثبيت                     | `@agent-native/core/client/onboarding`    |
-| قابلية الملاحظة | `<ObservabilityDashboard>`, `<ThumbsFeedback>`             | `@agent-native/toolkit/app/observability` |
-| الموارد         | `<ResourcesPanel>`، `<ResourceTree>`، ربط الموارد          | `@agent-native/core/client/resources`     |
-| محرر غني        | `<SharedRichEditor>`، أوامر الشرطة المائلة، ربط عقدة الحظر | `@agent-native/toolkit/editor`            |
+| المساحة         | APIs                                                       | مسار الاستيراد                                                              |
+| --------------- | ---------------------------------------------------------- | --------------------------------------------------------------------------- |
+| المشاركة        | `<ShareButton>`, `<ShareDialog>`                           | `@agent-native/toolkit/app/sharing`                                         |
+| Sharing UI      | `<VisibilityBadge>`                                        | `@agent-native/toolkit/sharing`                                             |
+| الإشعارات       | `<NotificationsBell>`                                      | `@agent-native/toolkit/app/notifications`                                   |
+| سجل التشغيل     | `<RunsTray>`، أنواع التشغيل ووظائف سجل التشغيل على الخادم  | `@agent-native/toolkit/app/progress + @agent-native/core/progress`          |
+| التأهيل         | `useOnboarding()`، خطافات لوحة التثبيت                     | `@agent-native/core/client/onboarding`                                      |
+| قابلية الملاحظة | `<ObservabilityDashboard>`, `<ThumbsFeedback>`             | `@agent-native/toolkit/app/observability`                                   |
+| الموارد         | `<ResourcesPanel>`، `<ResourceTree>`، ربط الموارد          | `@agent-native/toolkit/app/resources + @agent-native/core/client/resources` |
+| محرر غني        | `<SharedRichEditor>`، أوامر الشرطة المائلة، ربط عقدة الحظر | `@agent-native/toolkit/editor`                                              |
 
 ## إكمال النص لمرة واحدة {#one-off-text-completion}
 

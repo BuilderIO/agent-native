@@ -1,5 +1,6 @@
 import { appApiPath } from "@agent-native/core/client/api-path";
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
+import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
 import type {
   CreateNotionPageRequest,
   Document,
@@ -96,12 +97,16 @@ export function documentSyncStatusQueryKey(documentId: string) {
   ] as const;
 }
 
+// In an MCP App widget the query stays idle: `data` is undefined, not a
+// disconnected workspace, and the scoped session could not call it anyway.
 export function useNotionConnection() {
+  const inWidget = useIsMcpAppWidgetEmbed();
   return useActionQuery<NotionConnectionStatus>(
     "connect-notion-status",
     undefined,
     {
       staleTime: 30_000,
+      enabled: !inWidget,
     },
   );
 }

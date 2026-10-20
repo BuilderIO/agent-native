@@ -5,25 +5,57 @@ import {
   PopoverTrigger,
 } from "@agent-native/toolkit/ui/popover";
 import { IconAlertCircle, IconLoader2, IconPlus } from "@tabler/icons-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import type { DesktopCreateAppResult } from "../../../shared/ipc-channels.js";
+import DesktopAiSetupCard from "./DesktopAiSetupCard.js";
+
+type DesktopAiReadiness = "unknown" | "configured" | "missing" | "unavailable";
 
 export interface CreateAppPromptPopoverProps {
   onCreated: (result: DesktopCreateAppResult) => void;
+  onOpenSettings?: (tab?: string) => void;
 }
 
 export default function CreateAppPromptPopover({
   onCreated,
+  onOpenSettings,
 }: CreateAppPromptPopoverProps) {
   const [open, setOpen] = useState(false);
   const [appsRoot, setAppsRoot] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [aiReadiness, setAiReadiness] = useState<DesktopAiReadiness>("unknown");
+
+  const refreshAiReadiness = useCallback(async () => {
+    const api = window.electronAPI?.codeAgents;
+    if (!api) {
+      setAiReadiness("unavailable");
+      return "unavailable" as const;
+    }
+    try {
+      const host = await api.getHostMetadata();
+      const readiness =
+        host.status !== "ok" || host.llmProvider?.configured === undefined
+          ? "unavailable"
+          : host.llmProvider.configured
+            ? "configured"
+            : "missing";
+      setAiReadiness(readiness);
+      return readiness;
+    } catch {
+      setAiReadiness("unavailable");
+      return "unavailable" as const;
+    }
+  }, []);
 
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
+    setAiReadiness("unknown");
+    void refreshAiReadiness().then((readiness) => {
+      if (!cancelled) setAiReadiness(readiness);
+    });
     void window.electronAPI?.appConfig
       ?.getCreationSettings()
       .then((settings) => {
@@ -35,7 +67,14 @@ export default function CreateAppPromptPopover({
     return () => {
       cancelled = true;
     };
-  }, [open]);
+  }, [open, refreshAiReadiness]);
+
+  const verifyAiReadiness = useCallback(async () => {
+    return (await refreshAiReadiness()) === "configured";
+  }, [refreshAiReadiness]);
+
+  const setupRequired =
+    aiReadiness === "missing" || aiReadiness === "unavailable";
 
   async function submit(rawPrompt: string) {
     const trimmed = rawPrompt.trim();
@@ -90,9 +129,19 @@ export default function CreateAppPromptPopover({
               your workspace.
             </p>
           </div>
+          {setupRequired ? (
+            <DesktopAiSetupCard
+              onOpenSettings={() => {
+                setOpen(false);
+                onOpenSettings?.("providers");
+              }}
+              statusUnavailable={aiReadiness === "unavailable"}
+            />
+          ) : null}
           <PromptComposer
             autoFocus
-            disabled={submitting}
+            disabled={submitting || setupRequired}
+            onBeforeSubmit={verifyAiReadiness}
             placeholder="What should your app help with?"
             draftScope="desktop:chat-first:create-app"
             preserveDraftOnSubmit

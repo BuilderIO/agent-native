@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   body: { source: "clay" } as { source?: string },
   ctx: { userEmail: "user@example.test", orgId: "org-example" },
   executeProviderApiRequest: vi.fn(),
+  runQuery: vi.fn(),
   assertCredentialCanReachEndpoint: vi.fn(),
   resolveCredential: vi.fn(),
   resolveCredentialDetailed: vi.fn(),
@@ -28,6 +29,7 @@ vi.mock("../../lib/credentials", () => ({
 vi.mock("../../lib/provider-api", () => ({
   executeProviderApiRequest: mocks.executeProviderApiRequest,
 }));
+vi.mock("../../lib/bigquery", () => ({ runQuery: mocks.runQuery }));
 
 vi.mock("../../lib/provider-credentials", () => ({
   CLAY_ANALYTICS_CREDENTIAL_KEYS: ["CLAY_PUBLIC_API_KEY"],
@@ -45,6 +47,7 @@ describe("test-connection", () => {
   beforeEach(() => {
     mocks.body = { source: "clay" };
     mocks.executeProviderApiRequest.mockReset();
+    mocks.runQuery.mockReset();
     mocks.assertCredentialCanReachEndpoint.mockReset();
     mocks.resolveCredential.mockReset();
     mocks.resolveCredentialDetailed.mockReset();
@@ -79,6 +82,24 @@ describe("test-connection", () => {
       error: "Missing Clay Public API key",
     });
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("tests BigQuery with a personal OAuth connection and project ID", async () => {
+    mocks.body = { source: "bigquery" };
+    mocks.resolveCredential.mockImplementation(async (key: string) =>
+      key === "BIGQUERY_PROJECT_ID" ? "example-project" : null,
+    );
+    mocks.resolveAnalyticsProviderCredential.mockResolvedValue({
+      value: "google-oauth-token",
+    });
+
+    await expect(handler({} as never)).resolves.toEqual({ ok: true });
+    expect(mocks.resolveAnalyticsProviderCredential).toHaveBeenCalledWith({
+      provider: "bigquery",
+      keys: [],
+      ctx: mocks.ctx,
+    });
+    expect(mocks.runQuery).toHaveBeenCalledWith("SELECT 1 AS test");
   });
 
   it("tests HubSpot with the shared OAuth-or-legacy credential resolver", async () => {

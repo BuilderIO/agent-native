@@ -186,6 +186,8 @@ export interface RunOutcomeReport {
   readonly outcome: RunOutcome;
   /** The legacy code that named this outcome one incident at a time. */
   readonly code?: string;
+  /** The server's message for a failed run. Never sent as it is. */
+  readonly message?: string;
   readonly retryable?: boolean;
   readonly terminalSource: RunTerminalSource;
   /**
@@ -216,8 +218,13 @@ export type ServerRunState =
       readonly startedAt?: number;
       readonly dispatchMode?: string;
       readonly terminalReason?: string | null;
+      /** Present only when the caller requested a durable connection check. */
+      readonly pendingConnectionRequestId?: string | null;
     }
-  | { readonly status: "missing" };
+  | {
+      readonly status: "missing";
+      readonly pendingConnectionRequestId?: null;
+    };
 
 export type RunAuthorityRead =
   | { readonly kind: "read"; readonly state: ServerRunState }

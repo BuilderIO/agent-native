@@ -13,7 +13,10 @@ import {
   cloneCanvasFrameGeometry,
   getCanvasFrameGeometry,
 } from "@/pages/design-editor/design-data-geometry-utils";
-import type { AlignableRect } from "@/pages/design-editor/layout-operations";
+import type {
+  AlignableRect,
+  NodePositionPatch,
+} from "@/pages/design-editor/layout-operations";
 import { computeTidyPositions } from "@/pages/design-editor/layout-operations";
 import type { DesignFile } from "@/pages/design-editor/types";
 
@@ -24,7 +27,7 @@ export interface TidyUpArgs {
   canEditDesign: boolean;
   commitNodePositions: (
     baseContent: string,
-    positions: ReadonlyMap<string, { x: number; y: number }>,
+    positions: ReadonlyMap<string, NodePositionPatch>,
     source?: CodeLayerSource,
   ) => boolean;
   designDataJsonRef: RefObject<Record<string, unknown>>;

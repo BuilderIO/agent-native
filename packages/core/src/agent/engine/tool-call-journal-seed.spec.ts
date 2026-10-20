@@ -61,6 +61,32 @@ describe("seedRepeatedToolCallCountsFromJournal", () => {
     );
   });
 
+  it("resets other repeat counts after a write that failed once its changes saved", () => {
+    const calls: PriorTurnToolCallSequenceEntry[] = [
+      { event: "start", name: "check", input: { deckId: "deck-1" } },
+      {
+        event: "done",
+        name: "check",
+        input: { deckId: "deck-1" },
+        result: "overflow",
+        isError: false,
+        matchedStart: true,
+      },
+      { event: "start", name: "edit", input: { slide: 1 } },
+      {
+        event: "done",
+        name: "edit",
+        input: { slide: 1 },
+        result: "Its changes are already applied: do not retry it.",
+        isError: true,
+        completedSideEffect: true,
+        matchedStart: true,
+      },
+    ];
+
+    expect(seed(calls)).toEqual(new Map([[`edit:{"slide":1}`, 1]]));
+  });
+
   it("preserves pending parallel calls across successful-write resets", () => {
     const calls: PriorTurnToolCallSequenceEntry[] = [
       { event: "start", name: "write-a", input: { id: "a" } },
@@ -304,6 +330,33 @@ describe("seedRepeatedToolErrorCountsFromJournal", () => {
     expect(result.sameTool.get("write:same error")).toBe(2);
   });
 
+  it("counts a committed failure's error and resets the others", () => {
+    const result = seedErrors([
+      {
+        event: "done",
+        name: "read",
+        input: { id: 1 },
+        result: "same error",
+        isError: true,
+        matchedStart: false,
+      },
+      {
+        event: "done",
+        name: "write",
+        input: { id: 1 },
+        result: "do not retry",
+        isError: true,
+        completedSideEffect: true,
+        matchedStart: false,
+      },
+    ]);
+
+    expect(result.sameArguments).toEqual(
+      new Map([[`write:{"id":1}:do not retry`, 1]]),
+    );
+    expect(result.sameTool).toEqual(new Map([["write:do not retry", 1]]));
+  });
+
   it("applies replayed write boundaries without counting replayed errors", () => {
     const result = seedErrors([
       {
@@ -364,7 +417,7 @@ describe("loadedSkillPagesContext", () => {
         {
           name: "docs-search",
           input: { slug: "skill-slide-editing" },
-          content: `# Skill: slide-editing\n${"x".repeat(30_000)}`,
+          content: `# Skill: slide-editing\n${"x".repeat(50_000)}`,
           isError: false,
         },
         {
@@ -392,15 +445,111 @@ describe("loadedSkillPagesContext", () => {
           isError: false,
         },
       ],
-      new Set(["skill-slide-editing"]),
+      new Map(),
+      new Map([["skill-slide-editing", "x".repeat(50_000)]]),
     );
 
-    expect(result.length).toBeLessThanOrEqual(24_000);
+    expect(result.length).toBeLessThanOrEqual(40_000);
     expect(result).toContain("skill-slide-editing");
     expect(result).toContain("Skill page truncated");
     expect(result).not.toContain("skill-missing");
     expect(result).not.toContain("skill-failed");
     expect(result).not.toContain("creative-context");
     expect(result).not.toContain("# Docs index");
+  });
+
+  it("keeps both slides skills whole and prefers this run's reads", () => {
+    const editing = `# Skill: slide-editing\n${"e".repeat(17_100)}`;
+    const design = `# Skill: slide-design\n${"d".repeat(8_200)}`;
+    const result = loadedSkillPagesContext(
+      [
+        {
+          name: "docs-search",
+          input: { slug: "skill-slide-design" },
+          content: `${design}\nfresh`,
+          isError: false,
+        },
+      ],
+      new Map([
+        ["skill-slide-design", design],
+        ["skill-slide-editing", editing],
+      ]),
+      new Map([["skill-slide-design", "d".repeat(8_200)]]),
+    );
+
+    expect(result).toContain("earlier in this conversation");
+    expect(result).toContain(editing);
+    expect(result).toContain(`${design}\nfresh`);
+    expect(result).not.toContain("Skill page truncated");
+    expect(result.indexOf("## skill-slide-design")).toBeLessThan(
+      result.indexOf("## skill-slide-editing"),
+    );
+  });
+
+  it("skips journaled reads that no longer match the current skill body", () => {
+    const result = loadedSkillPagesContext(
+      [
+        {
+          name: "docs-search",
+          input: { slug: "skill-slide-editing" },
+          content: "# Skill: slide-editing\nOld guidance.",
+          isError: false,
+        },
+      ],
+      new Map(),
+      new Map([["skill-slide-editing", "New guidance."]]),
+    );
+
+    expect(result).toBe("");
+  });
+
+  it("skips pages still intact in the model's history", () => {
+    const page = "# Skill: slide-editing\nGuidance.";
+    const result = loadedSkillPagesContext(
+      [
+        {
+          name: "docs-search",
+          input: { slug: "skill-slide-editing" },
+          content: page,
+          isError: false,
+        },
+      ],
+      new Map([["skill-slide-design", "# Skill: slide-design\nDesign."]]),
+      new Map([["skill-slide-editing", "Guidance."]]),
+      (slug) => slug === "skill-slide-editing",
+    );
+
+    expect(result).not.toContain("## skill-slide-editing");
+    expect(result).toContain("## skill-slide-design");
+  });
+
+  it("lists skill pages dropped by the budget so they can be re-read", () => {
+    const result = loadedSkillPagesContext(
+      [],
+      new Map([
+        ["skill-old", `# Skill: old\n${"o".repeat(100)}`],
+        ["skill-big", `# Skill: big\n${"b".repeat(50_000)}`],
+        ["skill-older", `# Skill: older\n${"x".repeat(100)}`],
+      ]),
+      new Map(),
+    );
+
+    expect(result).toContain("Skill page truncated");
+    expect(result).toContain("read with docs-search if needed: skill-old]");
+    expect(result).not.toContain("## skill-old\n");
+  });
+
+  it("keeps the omitted notice within the context cap for many long slugs", () => {
+    const pages = new Map<string, string>();
+    for (let i = 0; i < 16; i++) {
+      pages.set(
+        `skill-${i}-${"s".repeat(190)}`,
+        `# Skill: s\n${"p".repeat(30_000)}`,
+      );
+    }
+    const result = loadedSkillPagesContext([], pages, new Map());
+
+    expect(result.length).toBeLessThanOrEqual(40_000);
+    expect(result).toContain("Omitted to fit loaded-skill context");
   });
 });

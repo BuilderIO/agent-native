@@ -3,70 +3,15 @@ import { IconChevronRight } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "react-router";
 
-import { comparableDocsPath } from "./docs-locale";
+import { getDocsNavSections } from "./docsNavItems";
 import {
-  getDocsNavSections,
-  type NavItem,
-  type NavSection,
-} from "./docsNavItems";
-
-const ALWAYS_OPEN_SECTION_INDEX = 0;
-
-function normalizePath(pathname: string) {
-  return pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
-}
-
-function isItemActive(itemPath: string, pathname: string) {
-  return (
-    comparableDocsPath(normalizePath(pathname)) === comparableDocsPath(itemPath)
-  );
-}
-
-function sectionContainsActive(section: NavSection, pathname: string) {
-  return section.items.some(
-    (item) =>
-      (item.to ? isItemActive(item.to, pathname) : false) ||
-      item.children?.some((child) =>
-        child.to ? isItemActive(child.to, pathname) : false,
-      ),
-  );
-}
-
-function isGroupItem(item: NavItem) {
-  return !item.to && Boolean(item.children?.length);
-}
-
-function groupClipId(item: NavItem) {
-  return `docs-sidebar-group-${item.id}`;
-}
-
-function getActiveGroupId(sections: NavSection[], pathname: string) {
-  for (const section of sections) {
-    for (const item of section.items) {
-      if (
-        isGroupItem(item) &&
-        item.children?.some((child) =>
-          child.to ? isItemActive(child.to, pathname) : false,
-        )
-      ) {
-        return item.id;
-      }
-    }
-  }
-  return null;
-}
-
-function getActiveSectionId(sections: NavSection[], pathname: string) {
-  const activeSectionIndex = sections.findIndex((section) =>
-    sectionContainsActive(section, pathname),
-  );
-
-  if (activeSectionIndex <= ALWAYS_OPEN_SECTION_INDEX) {
-    return null;
-  }
-
-  return sections[activeSectionIndex]?.id ?? null;
-}
+  ALWAYS_OPEN_SECTION_INDEX,
+  docsNavGroupClipId,
+  getActiveDocsNavGroupId,
+  getActiveDocsNavSectionId,
+  isDocsNavGroupItem,
+  isDocsNavItemActive,
+} from "./docsNavState";
 
 export default function DocsSidebar() {
   const location = useLocation();
@@ -75,15 +20,15 @@ export default function DocsSidebar() {
   const navSections = useMemo(() => getDocsNavSections(locale, t), [locale, t]);
   const navRef = useRef<HTMLElement>(null);
   const [openSectionId, setOpenSectionId] = useState<string | null>(() =>
-    getActiveSectionId(navSections, location.pathname),
+    getActiveDocsNavSectionId(navSections, location.pathname),
   );
   const [openGroupId, setOpenGroupId] = useState<string | null>(() =>
-    getActiveGroupId(navSections, location.pathname),
+    getActiveDocsNavGroupId(navSections, location.pathname),
   );
 
   useEffect(() => {
-    setOpenSectionId(getActiveSectionId(navSections, location.pathname));
-    setOpenGroupId(getActiveGroupId(navSections, location.pathname));
+    setOpenSectionId(getActiveDocsNavSectionId(navSections, location.pathname));
+    setOpenGroupId(getActiveDocsNavGroupId(navSections, location.pathname));
   }, [location.pathname, navSections]);
 
   useEffect(() => {
@@ -167,12 +112,14 @@ export default function DocsSidebar() {
               >
                 <ul className="docs-sidebar-section-items">
                   {section.items.map((item) => {
-                    const isGroup = isGroupItem(item);
+                    const isGroup = isDocsNavGroupItem(item);
                     const active = item.to
-                      ? isItemActive(item.to, location.pathname)
+                      ? isDocsNavItemActive(item.to, location.pathname)
                       : false;
                     const groupOpen = isGroup ? openGroupId === item.id : true;
-                    const clipId = isGroup ? groupClipId(item) : undefined;
+                    const clipId = isGroup
+                      ? docsNavGroupClipId(item)
+                      : undefined;
                     const childrenTabbable = isOpen && groupOpen;
                     return (
                       <li key={item.id}>
@@ -228,7 +175,10 @@ export default function DocsSidebar() {
                             <ul className="docs-sidebar-subitems">
                               {item.children.map((child) => {
                                 const childActive = child.to
-                                  ? isItemActive(child.to, location.pathname)
+                                  ? isDocsNavItemActive(
+                                      child.to,
+                                      location.pathname,
+                                    )
                                   : false;
                                 return (
                                   <li key={child.id}>

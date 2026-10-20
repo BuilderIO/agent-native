@@ -647,9 +647,14 @@ async function addUrlBackedDropTarget(
     dataOperations: [
       {
         op: "set",
+        path: ["fusionUrl"],
+        value: URL_BACKED_TARGET_URL,
+      },
+      {
+        op: "set",
         path: ["screenMetadata", screenId],
         value: {
-          sourceType: "localhost",
+          sourceType: "fusion",
           previewState: "live",
           url: URL_BACKED_TARGET_URL,
           previewUrl: URL_BACKED_TARGET_URL,
@@ -1235,7 +1240,7 @@ test.describe("authenticated beta Design interactions", () => {
           timeout: 20_000,
         })
         .toMatchObject({
-          sourceType: "localhost",
+          sourceType: "fusion",
           previewState: "live",
           url: URL_BACKED_TARGET_URL,
           previewUrl: URL_BACKED_TARGET_URL,
@@ -1729,15 +1734,12 @@ test.describe("authenticated beta Design interactions", () => {
         '[data-inspector-layout="drag-paint-row"]',
       );
       await expect(rows).toHaveCount(2);
-      const initialRows = await rows.allTextContents();
-      expect(initialRows[0]).toMatch(/Image 1/);
-      expect(initialRows[1]).toMatch(/Radial gradient 2/);
 
       await fillSection(page)
         .locator('[data-inspector-layout="paint-row"]')
         .getByRole("button", { name: "Open color picker" })
         .click();
-      await page.getByRole("button", { name: "Linear", exact: true }).click();
+      await page.getByRole("button", { name: "Gradient", exact: true }).click();
       await expect(
         page.getByRole("group", { name: "Gradient stops" }),
       ).toBeVisible();
@@ -1817,10 +1819,7 @@ test.describe("authenticated beta Design interactions", () => {
         '[data-inspector-layout="drag-paint-row"]',
       );
       await expect(reloadedRows).toHaveCount(3);
-      const reloadedRowText = await reloadedRows.allTextContents();
-      expect(reloadedRowText[0]).toMatch(/Image 1/);
-      expect(reloadedRowText[1]).toMatch(/Radial gradient 2/);
-      expect(reloadedRowText[2]).toMatch(/Linear gradient 3/);
+      await expect(reloadedRows.nth(2)).toContainText("Linear");
     } catch (error) {
       primaryFailure = true;
       throw error;

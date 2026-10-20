@@ -101,6 +101,7 @@ const messages = {
       pr_observed: "PR observado",
       auto_approved: "Aprovado automaticamente",
       merged: "Mesclado",
+      resolved: "Resolvido",
     },
     inboxColumnAutomation: "Automação",
     inboxRouting: {
@@ -275,6 +276,11 @@ const messages = {
     inboxTitle: "Caixa de entrada de observações",
     inboxTab: "Caixa de entrada",
     inboxBackToList: "Voltar à caixa de entrada",
+    inboxRowActions: "Ações de {{title}}",
+    inboxMarkResolved: "Marcar como resolvido",
+    inboxSendBackToAutomation: "Devolver para a automação",
+    inboxOutcomeUpdated: "Status atualizado",
+    inboxOutcomeFailed: "Não foi possível atualizar o status",
     inboxDescription:
       "Evidências entrando na fábrica antes do trabalho autônomo.",
     selectObservation:
@@ -460,7 +466,10 @@ const messages = {
     automationSourceSentryHint: "Erros não resolvidos.",
     automationSlackChannel: "Id do canal Slack",
     automationSlackChannelDescription:
-      "Canal que este job consulta. Começa com C.",
+      "Canal do Slack que este job lê ou usa para publicar achados agrupados. Começa com C.",
+    automationFindingsSlackChannel: "Canal Slack para achados",
+    automationFindingsSlackChannelDescription:
+      "Os achados elegíveis do GitHub e Sentry são agrupados em uma mensagem neste canal.",
     automationRepository: "Repositório GitHub",
     automationRepositoryDescription: "owner/repo que este job consulta.",
     automationSentryOrg: "Organização Sentry",

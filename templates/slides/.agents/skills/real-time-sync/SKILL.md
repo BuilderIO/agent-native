@@ -72,14 +72,9 @@ useDbSync({
 });
 ```
 
-The reason is required by the TypeScript API. `guard:realtime-opt-in` also
-requires a named private or authenticated pathname predicate, and rejects
-public/docs/SSR files and known anonymous routes. A reviewed exception must put
-this pragma on the opt-in or the line immediately above it:
-
-```ts
-// guard:allow-realtime-opt-in — short reason
-```
+The reason is required by the TypeScript API. Opt in only for a named private
+or authenticated route; public, documentation, and SSR pages should not start a
+background transport.
 
 An opted-in page only hears about an action when its change event reaches the
 current user. By default an `action` event reaches the actor alone, so a

@@ -411,3 +411,67 @@ export function renderResourceSharedEmail(
   });
   return { subject, html, text };
 }
+
+export interface RenderAccessRequestedEmailArgs {
+  recipientEmail: string;
+  requester: { name: string; email: string };
+  resource: { type: string; label: string; title: string; url: string };
+  /** The page where someone who manages access allows or declines. */
+  reviewUrl: string;
+  note?: string;
+  app: EmailTemplateApp;
+}
+
+export function renderAccessRequestedEmail(
+  args: RenderAccessRequestedEmailArgs,
+): RenderedEmailMessage {
+  const requesterName = stripCrlf(args.requester.name);
+  const resourceTitle = stripCrlf(args.resource.title);
+  const resourceLabel = args.resource.label.toLowerCase();
+  const subject = `${requesterName} is asking for access to "${resourceTitle}"`;
+  const { html, text } = renderEmail({
+    brandName: args.app.name,
+    brandLogoUrl: args.app.logoUrl,
+    preheader: subject,
+    heading: `${requesterName} is asking for access`,
+    paragraphs: [
+      `${emailStrong(requesterName)} (${emailStrong(args.requester.email)}) is asking to open this ${resourceLabel}:`,
+      ...(args.note?.trim() ? [emailQuote(args.note)] : []),
+    ],
+    resourceBlock: { name: resourceTitle },
+    cta: { label: "Review request", url: args.reviewUrl },
+    closingParagraphs: [
+      `You're getting this because you can manage access to this ${resourceLabel}.`,
+    ],
+  });
+  return { subject, html, text };
+}
+
+export interface RenderAccessGrantedEmailArgs {
+  recipientEmail: string;
+  approver: { name: string; email: string };
+  resource: { type: string; label: string; title: string; url: string };
+  role: "viewer" | "commenter" | "editor" | "admin";
+  app: EmailTemplateApp;
+}
+
+export function renderAccessGrantedEmail(
+  args: RenderAccessGrantedEmailArgs,
+): RenderedEmailMessage {
+  const approverName = stripCrlf(args.approver.name);
+  const resourceTitle = stripCrlf(args.resource.title);
+  const resourceLabel = args.resource.label.toLowerCase();
+  const subject = `You can now open "${resourceTitle}"`;
+  const { html, text } = renderEmail({
+    brandName: args.app.name,
+    brandLogoUrl: args.app.logoUrl,
+    preheader: subject,
+    heading: `${approverName} approved your request`,
+    paragraphs: [
+      `${emailStrong(approverName)} (${emailStrong(args.approver.email)}) gave you access to ${SHARE_ROLE_VERBS[args.role]} this ${resourceLabel}:`,
+    ],
+    resourceBlock: { name: resourceTitle },
+    cta: { label: "Open", url: args.resource.url },
+  });
+  return { subject, html, text };
+}

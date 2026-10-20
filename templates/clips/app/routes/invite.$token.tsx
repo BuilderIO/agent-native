@@ -1,3 +1,4 @@
+import { appPath } from "@agent-native/core/client/api-path";
 import { callAction, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
@@ -133,7 +134,7 @@ export default function InviteAcceptRoute() {
             <Button
               onClick={() => {
                 window.location.href = buildSignInReturnHref({
-                  returnTo: `/invite/${token}`,
+                  returnTo: appPath(`/invite/${token}`),
                 });
               }}
               className="bg-primary hover:bg-primary/90"

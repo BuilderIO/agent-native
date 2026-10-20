@@ -10,6 +10,29 @@ describe("creative context migrations", () => {
     expect(foundation).toContain("created_at TEXT NOT NULL");
   });
 
+  it("adds notified_at to every share table so Core share inserts succeed", () => {
+    const shareTables = new Set(
+      creativeContextMigrations
+        .flatMap(
+          (migration) =>
+            String(migration.sql).match(
+              /CREATE TABLE IF NOT EXISTS (creative_context_\w*shares)/g,
+            ) ?? [],
+        )
+        .map((statement) => statement.split(" ").pop()),
+    );
+    expect(shareTables.size).toBe(4);
+
+    const notifiedAt = creativeContextMigrations.find(
+      (migration) => migration.version === 8,
+    );
+    for (const table of shareTables) {
+      expect(String(notifiedAt?.sql)).toContain(
+        `ALTER TABLE IF EXISTS ${table} ADD COLUMN IF NOT EXISTS notified_at TEXT`,
+      );
+    }
+  });
+
   it("adds durable brand-profile promotion audit storage", () => {
     const audit = creativeContextMigrations.find(
       (migration) => migration.version === 3,

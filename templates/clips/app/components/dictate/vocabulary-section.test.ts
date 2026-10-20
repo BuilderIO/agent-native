@@ -9,20 +9,20 @@ import {
 
 describe("parseVocabularyEntries", () => {
   it("treats plain lines as preferred spellings", () => {
-    expect(parseVocabularyEntries("Agent-Native\nWispr Flow")).toEqual([
+    expect(parseVocabularyEntries("Agent-Native\nClips Desktop")).toEqual([
       { term: "Agent-Native", replacement: "Agent-Native" },
-      { term: "Wispr Flow", replacement: "Wispr Flow" },
+      { term: "Clips Desktop", replacement: "Clips Desktop" },
     ]);
   });
 
   it("accepts common correction mapping separators", () => {
     expect(
       parseVocabularyEntries(
-        "agentnative → Agent-Native\nwhisper -> Wispr\ngranola => Granola\nclips\tClips",
+        "agentnative → Agent-Native\nwhisper -> Whisper\ngranola => Granola\nclips\tClips",
       ),
     ).toEqual([
       { term: "agentnative", replacement: "Agent-Native" },
-      { term: "whisper", replacement: "Wispr" },
+      { term: "whisper", replacement: "Whisper" },
       { term: "granola", replacement: "Granola" },
       { term: "clips", replacement: "Clips" },
     ]);

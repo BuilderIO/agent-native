@@ -15,7 +15,7 @@
 
 # Agent-Native
 
-Agent-Native is an open-source TypeScript framework for building agents that pair autonomous work with a purpose-built UI. Define each capability once as an [action](https://agent-native.com/docs/actions-overview): the agent uses it as a tool, and the UI calls it from code.
+Agent-Native is an open-source TypeScript framework for building agents that pair autonomous work with a purpose-built UI. Define each capability once as an [action](https://agent-native.com/docs/actions-overview?utm_source=github&utm_medium=referral&utm_content=readme): the agent uses it as a tool, and the UI calls it from code.
 
 ## Quick start
 
@@ -23,7 +23,7 @@ Agent-Native is an open-source TypeScript framework for building agents that pai
 npx --yes @agent-native/core@latest create my-agent --standalone --template chat
 ```
 
-Follow the [getting started guide](https://agent-native.com/docs/getting-started) for a full intro to the framework.
+Follow the [getting started guide](https://agent-native.com/docs/getting-started?utm_source=github&utm_medium=referral&utm_content=readme) for a full intro to the framework.
 
 ## Why build agents with UIs?
 
@@ -33,9 +33,9 @@ Knowledge work needs that same kind of environment. A UI shows what an agent can
 
 ## How Agent-Native works
 
-- **[Shared actions](https://agent-native.com/docs/actions-overview).** The agent calls each capability as a tool, and the UI calls it from code. Both paths use the same validation, permissions, and implementation.
-- **[Shared data](https://agent-native.com/docs/server-database).** Work done by the agent appears in the UI, and work done in the UI is available to the agent.
-- **[Shared application state](https://agent-native.com/docs/context-awareness).** The agent receives relevant UI state, such as the current page, selected record, or active view.
+- **[Shared actions](https://agent-native.com/docs/actions-overview?utm_source=github&utm_medium=referral&utm_content=readme).** The agent calls each capability as a tool, and the UI calls it from code. Both paths use the same validation, permissions, and implementation.
+- **[Shared data](https://agent-native.com/docs/server-database?utm_source=github&utm_medium=referral&utm_content=readme).** Work done by the agent appears in the UI, and work done in the UI is available to the agent.
+- **[Shared application state](https://agent-native.com/docs/context-awareness?utm_source=github&utm_medium=referral&utm_content=readme).** The agent receives relevant UI state, such as the current page, selected record, or active view.
 
 The agent does not click through the UI. It works through the same action layer as the UI.
 
@@ -64,12 +64,12 @@ The agent receives `hello` as a tool. React calls the same function with `useAct
 
 ## Included
 
-- **[Agent chat](https://agent-native.com/docs/agent-surfaces):** Let people delegate work, ask questions, and review results in the same UI.
-- **[Authentication and permissions](https://agent-native.com/docs/authentication):** Control who can access and change shared work.
-- **[Skills and memory](https://agent-native.com/docs/agent-resources):** Give agents reusable expertise and persistent context.
-- **[Automations](https://agent-native.com/docs/automations):** Run agent work on schedules or events.
-- **[Agent teams](https://agent-native.com/docs/agent-teams):** Delegate work to specialist agents in the same workspace or across connected agents.
-- **[PostgreSQL backend](https://agent-native.com/docs/server-database):** Use PostgreSQL in production and PGlite for local development on any Nitro-compatible host.
+- **[Agent chat](https://agent-native.com/docs/agent-surfaces?utm_source=github&utm_medium=referral&utm_content=readme):** Let people delegate work, ask questions, and review results in the same UI.
+- **[Authentication and permissions](https://agent-native.com/docs/authentication?utm_source=github&utm_medium=referral&utm_content=readme):** Control who can access and change shared work.
+- **[Skills and memory](https://agent-native.com/docs/agent-resources?utm_source=github&utm_medium=referral&utm_content=readme):** Give agents reusable expertise and persistent context.
+- **[Automations](https://agent-native.com/docs/automations?utm_source=github&utm_medium=referral&utm_content=readme):** Run agent work on schedules or events.
+- **[Agent teams](https://agent-native.com/docs/agent-teams?utm_source=github&utm_medium=referral&utm_content=readme):** Delegate work to specialist agents in the same workspace or across connected agents.
+- **[PostgreSQL backend](https://agent-native.com/docs/server-database?utm_source=github&utm_medium=referral&utm_content=readme):** Use PostgreSQL in production and PGlite for local development on any Nitro-compatible host.
 
 ### Example: edit a running app visually
 
@@ -108,7 +108,7 @@ Start from one of these agents or use it as an example for your own.
 
 **Clips**
 
-<a href="https://agent-native.com/apps/clips/">
+<a href="https://agent-native.com/apps/clips/?utm_source=github&utm_medium=referral&utm_content=readme">
 <picture>
 <source media="(prefers-color-scheme: dark)" srcset="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4dc9c87b9a224132855e1cb68cd89f9e?format=webp&width=800">
 <img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F462fdb643d5d403a8c54540c5c3292f6?format=webp&width=800" alt="Clips app screenshot" width="100%">
@@ -126,7 +126,7 @@ Record and understand meetings, screens, and voice notes.
 
 **Design**
 
-<a href="https://agent-native.com/apps/design/">
+<a href="https://agent-native.com/apps/design/?utm_source=github&utm_medium=referral&utm_content=readme">
 <picture>
 <source media="(prefers-color-scheme: dark)" srcset="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F072f66a3e360464fb48617670ceee46f?format=webp&width=800">
 <img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc9f693f170294bde8ebc733cff368af9?format=webp&width=800" alt="Design app screenshot" width="100%">
@@ -144,7 +144,7 @@ Generate and refine interactive designs.
 
 **Slides**
 
-<a href="https://agent-native.com/apps/slides/">
+<a href="https://agent-native.com/apps/slides/?utm_source=github&utm_medium=referral&utm_content=readme">
 <picture>
 <source media="(prefers-color-scheme: dark)" srcset="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F710f5b7586cc41deaa0e6f8de658a499?format=webp&width=800">
 <img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6223a64717a04931a6f509696019f48b?format=webp&width=800" alt="Slides app screenshot" width="100%">
@@ -164,7 +164,7 @@ Create and edit on-brand presentations.
 
 **Analytics**
 
-<a href="https://agent-native.com/apps/analytics/">
+<a href="https://agent-native.com/apps/analytics/?utm_source=github&utm_medium=referral&utm_content=readme">
 <picture>
 <source media="(prefers-color-scheme: dark)" srcset="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fba632b39758d448594f7e5d2403e5d0f?format=webp&width=800">
 <img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F976ea93771b64b9e8c1b3eb12e606e07?format=webp&width=800" alt="Analytics app screenshot" width="100%">
@@ -182,7 +182,7 @@ Ask questions of your data and build dashboards.
 
 **Calendar**
 
-<a href="https://agent-native.com/apps/calendar/">
+<a href="https://agent-native.com/apps/calendar/?utm_source=github&utm_medium=referral&utm_content=readme">
 <picture>
 <source media="(prefers-color-scheme: dark)" srcset="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F91d4c18d256b49e6bca24c23ce90a4f2?format=webp&width=800">
 <img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8d9d48bb2f1d498f9601ac28c64edd4c?format=webp&width=800" alt="Calendar app screenshot" width="100%">
@@ -200,7 +200,7 @@ Find time, schedule events, and manage bookings.
 
 **Mail**
 
-<a href="https://agent-native.com/apps/mail/">
+<a href="https://agent-native.com/apps/mail/?utm_source=github&utm_medium=referral&utm_content=readme">
 <picture>
 <source media="(prefers-color-scheme: dark)" srcset="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F216aaef9859144ffa3eb9498fa1132da?format=webp&width=800">
 <img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F064aee3ec5cd44879b9c186f63a6d6f4?format=webp&width=800" alt="Mail app screenshot" width="100%">
@@ -220,7 +220,7 @@ Prioritize email, draft replies, and follow up.
 
 **Assets**
 
-<a href="https://agent-native.com/apps/assets/">
+<a href="https://agent-native.com/apps/assets/?utm_source=github&utm_medium=referral&utm_content=readme">
 <picture>
 <source media="(prefers-color-scheme: dark)" srcset="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fde445dd867744e9bac5d3e5d04c903b2?format=webp&width=800">
 <img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fac5701f0871f4edbb06fa9cdb12b166e?format=webp&width=800" alt="Assets app screenshot" width="100%">
@@ -238,7 +238,7 @@ Create and organize on-brand media.
 
 **Content**
 
-<a href="https://agent-native.com/apps/content/">
+<a href="https://agent-native.com/apps/content/?utm_source=github&utm_medium=referral&utm_content=readme">
 <picture>
 <source media="(prefers-color-scheme: dark)" srcset="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa9f30380b03b4fd1a7d2ab371ddfd798?format=webp&width=800">
 <img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F979f792c79834470a513a9d9b733dd84?format=webp&width=800" alt="Content app screenshot" width="100%">
@@ -256,7 +256,7 @@ Draft, organize, and publish content.
 
 **Plans**
 
-<a href="https://agent-native.com/apps/plan/">
+<a href="https://agent-native.com/apps/plan/?utm_source=github&utm_medium=referral&utm_content=readme">
 <picture>
 <source media="(prefers-color-scheme: dark)" srcset="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe89439e917044fc9ac9663737e35bf1f?format=webp&width=800">
 <img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F98427229c8c84c30afee56172503c294?format=webp&width=800" alt="Plans app screenshot" width="100%">
@@ -271,11 +271,11 @@ Create and review visual plans with diagrams, wireframes, and prototypes.
 </tr>
 </table>
 
-Explore the [full app gallery](https://agent-native.com/apps), or start with the [framework guide](https://agent-native.com/docs/getting-started).
+Explore the [full app gallery](https://agent-native.com/apps?utm_source=github&utm_medium=referral&utm_content=readme), or start with the [framework guide](https://agent-native.com/docs/getting-started?utm_source=github&utm_medium=referral&utm_content=readme).
 
 ## Documentation and community
 
-- Read the [documentation](https://agent-native.com/docs).
+- Read the [documentation](https://agent-native.com/docs?utm_source=github&utm_medium=referral&utm_content=readme).
 - Join [Discord](https://discord.gg/qm82StQ2NC) to ask questions, share what you're building, and get help.
 
 ## Contributing

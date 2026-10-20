@@ -8,6 +8,10 @@ const mockUpdateSet = vi.hoisted(() =>
   vi.fn(() => ({ where: mockUpdateWhere })),
 );
 const mockWriteAppState = vi.hoisted(() => vi.fn(async () => undefined));
+const mockReadAppState = vi.hoisted(() =>
+  vi.fn(async () => null as Record<string, unknown> | null),
+);
+const mockCompareAndSetManyAppState = vi.hoisted(() => vi.fn(async () => true));
 const mockCleanupTranscriptRun = vi.hoisted(() => vi.fn());
 
 const mockDb = vi.hoisted(() => ({
@@ -28,6 +32,8 @@ vi.mock("@agent-native/core", () => ({
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
+  compareAndSetManyAppState: mockCompareAndSetManyAppState,
+  readAppState: mockReadAppState,
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
 }));
 
@@ -116,6 +122,8 @@ describe("regenerate-title fallback refinement", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSelectRows.queue = [];
+    mockReadAppState.mockResolvedValue(null);
+    mockCompareAndSetManyAppState.mockResolvedValue(true);
   });
 
   it("keeps a heuristic title replaceable and queues richer metadata", async () => {
@@ -158,14 +166,25 @@ describe("regenerate-title fallback refinement", () => {
         titleSource: "context",
       }),
     );
-    expect(mockWriteAppState).toHaveBeenCalledWith(
-      "clips-ai-request-rec_1",
-      expect.objectContaining({
-        kind: "generate-metadata",
-        includeSummary: true,
-        currentTitle: "Agent Credits Cost $63",
-      }),
-    );
+    expect(mockCompareAndSetManyAppState).toHaveBeenCalledWith([
+      {
+        key: "clips-ai-request-status-rec_1",
+        expectedValue: null,
+        nextValue: expect.objectContaining({
+          kind: "generate-metadata",
+          status: "queued",
+        }),
+      },
+      {
+        key: "clips-ai-request-rec_1",
+        expectedValue: null,
+        nextValue: expect.objectContaining({
+          kind: "generate-metadata",
+          includeSummary: true,
+          currentTitle: "Agent Credits Cost $63",
+        }),
+      },
+    ]);
     expect(result).toMatchObject({
       updated: true,
       queued: true,

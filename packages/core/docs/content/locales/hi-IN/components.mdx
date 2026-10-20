@@ -18,7 +18,7 @@ import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
 import { AgentConversation } from "@agent-native/toolkit/app/chat/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
 import { SharedRichEditor } from "@agent-native/toolkit/editor";
-import { ResourcesPanel } from "@agent-native/core/client/resources";
+import { ResourcesPanel } from "@agent-native/toolkit/app/resources";
 ```
 
 निष्पक्ष `@agent-native/core` पैकेज से UI घटकों को आयात करने से बचें। उपयोग करें
@@ -614,7 +614,7 @@ const collab = useCollaborativeDoc({
 संपूर्ण पैनल को किसी प्रॉप्स की आवश्यकता नहीं है:
 
 ```tsx
-import { ResourcesPanel } from "@agent-native/core/client/resources";
+import { ResourcesPanel } from "@agent-native/toolkit/app/resources";
 
 <ResourcesPanel />;
 ```
@@ -626,6 +626,8 @@ import { useState } from "react";
 import {
   ResourceEditor,
   ResourceTree,
+} from "@agent-native/toolkit/app/resources";
+import {
   useResource,
   useResourceTree,
   useUpdateResource,
@@ -664,16 +666,16 @@ function WorkspaceResources() {
 
 ## अन्य सार्वजनिक UI {#other-ui}
 
-| क्षेत्र       | APIs                                             | आयात पथ                                   |
-| ------------- | ------------------------------------------------ | ----------------------------------------- |
-| साझा करना     | `<ShareButton>`, `<ShareDialog>`                 | `@agent-native/core/client/sharing`       |
-| Sharing UI    | `<VisibilityBadge>`                              | `@agent-native/toolkit/sharing`           |
-| सूचनाएं       | `<NotificationsBell>`                            | `@agent-native/core/client/notifications` |
-| प्रगति        | `<RunsTray>`, प्रगति हुक और प्रकार               | `@agent-native/core/client/progress`      |
-| ऑनबोर्डिंग    | `useOnboarding()`, ऑनबोर्डिंग पैनल हुक           | `@agent-native/core/client/onboarding`    |
-| अवलोकनशीलता   | `<ObservabilityDashboard>`, `<ThumbsFeedback>`   | `@agent-native/toolkit/app/observability` |
-| संसाधन        | `<ResourcesPanel>`, `<ResourceTree>`, संसाधन हुक | `@agent-native/core/client/resources`     |
-| समृद्ध संपादक | `<SharedRichEditor>`, स्लैश कमांड, ब्लॉक नोड हुक | `@agent-native/toolkit/editor`            |
+| क्षेत्र       | APIs                                               | आयात पथ                                                                     |
+| ------------- | -------------------------------------------------- | --------------------------------------------------------------------------- |
+| साझा करना     | `<ShareButton>`, `<ShareDialog>`                   | `@agent-native/toolkit/app/sharing`                                         |
+| Sharing UI    | `<VisibilityBadge>`                                | `@agent-native/toolkit/sharing`                                             |
+| सूचनाएं       | `<NotificationsBell>`                              | `@agent-native/toolkit/app/notifications`                                   |
+| रन रजिस्ट्री  | `<RunsTray>`, रन प्रकार और सर्वर रजिस्ट्री फ़ंक्शन | `@agent-native/toolkit/app/progress + @agent-native/core/progress`          |
+| ऑनबोर्डिंग    | `useOnboarding()`, ऑनबोर्डिंग पैनल हुक             | `@agent-native/core/client/onboarding`                                      |
+| अवलोकनशीलता   | `<ObservabilityDashboard>`, `<ThumbsFeedback>`     | `@agent-native/toolkit/app/observability`                                   |
+| संसाधन        | `<ResourcesPanel>`, `<ResourceTree>`, संसाधन हुक   | `@agent-native/toolkit/app/resources + @agent-native/core/client/resources` |
+| समृद्ध संपादक | `<SharedRichEditor>`, स्लैश कमांड, ब्लॉक नोड हुक   | `@agent-native/toolkit/editor`                                              |
 
 ## एकमुश्त पाठ समापन {#one-off-text-completion}
 

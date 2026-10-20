@@ -123,7 +123,7 @@ describe("buildFigmaNodeSpec — layout mapping", () => {
     );
   });
 
-  it("folds the CSS border width into Figma's padding", () => {
+  it("includes CSS border width in the generated padding", () => {
     const scene = flexRow();
     scene.border = { widthPx: 1, color: "rgb(226, 232, 240)" };
     scene.rect.width = 258;
@@ -172,7 +172,7 @@ describe("buildFigmaNodeSpec — layout mapping", () => {
     expect(root.children[0].layoutSizingVertical).toBe("FIXED");
   });
 
-  it("maps flex-grow to layoutGrow when Figma's even split reproduces the size", () => {
+  it("maps flex-grow to layoutGrow when an even split reproduces the size", () => {
     const scene = flexRow();
     scene.children![0].layout = facts({ flexGrow: 1 });
     scene.children![1].layout = facts({ flexGrow: 1 });

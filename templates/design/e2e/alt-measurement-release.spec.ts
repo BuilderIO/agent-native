@@ -1,17 +1,14 @@
-import { expect, test } from "@playwright/test";
-
-import {
-  createFixtureDesign,
-  designFrame,
-  gotoEditor,
-  selectByText,
-} from "./helpers";
+import { FIXTURE_HTML } from "./global-setup";
+import { designFrame, selectByText } from "./helpers";
+import { expect, test } from "./rails";
 
 test("Alt distance labels clear on key release and lost-focus recovery without pointer movement", async ({
+  app,
   page,
 }) => {
-  const designId = await createFixtureDesign(page, "Alt measurement release");
-  await gotoEditor(page, designId);
+  await app.open(
+    await app.seed(FIXTURE_HTML, { title: "Alt measurement release" }),
+  );
   await selectByText(page, "Alpha Button");
 
   const beta = designFrame(page).getByText("Beta Button", { exact: true });

@@ -2,8 +2,11 @@
   "name": "agent-native-visual-plans",
   "version": "1.0.0+codex.43a0c3067088",
   "description": "Create rich interactive visual plans, recaps, and repo-native visual docs with diagrams, file maps, annotated code and diffs, API/schema summaries, feedback, and HTML export.",
-  "author": { "name": "Agent-Native", "url": "https://agent-native.com" },
-  "homepage": "https://plan.agent-native.com",
+  "author": {
+    "name": "Agent-Native",
+    "url": "https://agent-native.com/?utm_source=codex-plugins&utm_medium=referral&utm_content=plugin-author"
+  },
+  "homepage": "https://plan.agent-native.com/?utm_source=codex-plugins&utm_medium=referral&utm_content=plugin-homepage",
   "license": "MIT",
   "keywords": [
     "agent-native",
@@ -21,7 +24,7 @@
     "developerName": "Agent-Native",
     "category": "Productivity",
     "capabilities": ["Interactive", "Read", "Write"],
-    "websiteURL": "https://plan.agent-native.com",
+    "websiteURL": "https://plan.agent-native.com/?utm_source=codex-plugins&utm_medium=referral&utm_content=plugin-website",
     "defaultPrompt": [
       "Open Agent-Native Plan where useful",
       "Use Agent-Native Plan for app-backed workflows",

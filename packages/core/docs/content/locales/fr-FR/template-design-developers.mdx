@@ -113,6 +113,7 @@ action <name>`.
 | `list-figma-library-assets`   | Lister les composants insérables d'une bibliothèque connectée à Figma                                                                               |
 | `insert-figma-library-asset`  | Insérer un composant Figma publié dans le design                                                                                                    |
 | `hydrate-figma-paste-images`  | Résoudre les références d'image d'un collage du presse-papiers Figma                                                                                |
+| `fill-figma-paste-image`      | Remplir une image Figma manquante après un collage avec une image importée                                                                          |
 
 ### Points de rupture et états d'écran
 
@@ -199,16 +200,16 @@ d'application complète](#full-app-building) ci-dessous.
 
 | Action                         | Ce qu'elle fait                                                                                       |
 | ------------------------------ | ----------------------------------------------------------------------------------------------------- |
-| `create-fusion-app`            | Provisionner une branche Builder Fusion et échafauder une véritable application à partir d'une invite |
-| `sync-fusion-app`              | Interroger le conteneur d'une branche fusion pour son URL d'aperçu                                    |
-| `add-fusion-screens`           | Ajouter des écrans à un design adossé à fusion                                                        |
-| `queue-fusion-edit`            | Mettre en file d'attente une modification pour l'agent de codage propre à l'application               |
-| `list-fusion-edits`            | Lister les modifications fusion en file d'attente et appliquées                                       |
-| `apply-fusion-edits`           | Distribuer les modifications en file d'attente à l'agent de codage de l'application                   |
-| `send-fusion-message`          | Envoyer un message à l'agent de codage de l'application fusion                                        |
-| `push-fusion-app`              | Pousser une branche fusion                                                                            |
-| `deploy-fusion-app`            | Déployer une branche fusion vers une véritable URL                                                    |
-| `get-fusion-deploy-status`     | Vérifier le statut d'un déploiement                                                                   |
+| `create-builder-app`           | Provisionner une branche Builder Fusion et échafauder une véritable application à partir d'une invite |
+| `sync-builder-app`             | Interroger le conteneur d'une branche fusion pour son URL d'aperçu                                    |
+| `add-builder-screens`          | Ajouter des écrans à un design adossé à fusion                                                        |
+| `queue-builder-edit`           | Mettre en file d'attente une modification pour l'agent de codage propre à l'application               |
+| `list-builder-edits`           | Lister les modifications fusion en file d'attente et appliquées                                       |
+| `apply-builder-edits`          | Distribuer les modifications en file d'attente à l'agent de codage de l'application                   |
+| `send-builder-message`         | Envoyer un message à l'agent de codage de l'application fusion                                        |
+| `push-builder-app`             | Pousser une branche fusion                                                                            |
+| `deploy-builder-app`           | Déployer une branche fusion vers une véritable URL                                                    |
+| `get-builder-deploy-status`    | Vérifier le statut d'un déploiement                                                                   |
 | `create-design-branch`         | Créer une nouvelle branche pour un design adossé à fusion                                             |
 | `get-design-branch-diff`       | Comparer une branche fusion à une version antérieure                                                  |
 | `deploy-design-preview`        | Déployer un aperçu d'un design adossé à fusion                                                        |

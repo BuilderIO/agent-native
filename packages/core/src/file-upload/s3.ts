@@ -302,7 +302,7 @@ async function deleteObject(config: S3Config, key: string): Promise<boolean> {
     headers: { ...headers, Authorization: authorization },
   });
   if (response.ok) return true;
-  if (response.status === 404) return false;
+  if (response.status === 404) return true;
   const detail = await response.text();
   throw new Error(
     `S3 DeleteObject failed (${response.status}): ${detail || response.statusText}`,

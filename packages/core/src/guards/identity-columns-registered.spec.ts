@@ -98,6 +98,15 @@ describe("scanIdentityColumnsRegistered", () => {
     expect(scanIdentityColumnsRegistered({ root }).findings).toEqual([]);
   });
 
+  it("does not treat Markdown examples as runtime identity columns", () => {
+    const root = makeRepo("");
+    fs.writeFileSync(
+      path.join(root, "packages/core/src/org/schema-guide.md"),
+      '```ts\npgTable("bookings", { owner: text("owner_email") });\n```',
+    );
+    expect(scanIdentityColumnsRegistered({ root }).findings).toEqual([]);
+  });
+
   it("scans inline store DDL outside schema and migration filenames", () => {
     const root = makeRepo("");
     fs.writeFileSync(

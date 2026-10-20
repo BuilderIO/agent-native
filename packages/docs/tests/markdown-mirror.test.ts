@@ -6,8 +6,10 @@ import {
   isMarkdownMirrorFetch,
 } from "../server/lib/markdown-mirror";
 
-function eventWithHeaders(headers: Record<string, string>): H3Event {
-  const url = "https://www.agent-native.com/docs/actions.md";
+function eventWithHeaders(
+  headers: Record<string, string>,
+  url = "https://www.agent-native.com/docs/actions.md",
+): H3Event {
   return {
     url: new URL(url),
     req: new Request(url, { headers }),
@@ -16,6 +18,7 @@ function eventWithHeaders(headers: Record<string, string>): H3Event {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
 });
 
 describe("markdown mirror recursion guard", () => {
@@ -33,19 +36,26 @@ describe("markdown mirror recursion guard", () => {
   });
 
   it("marks its own origin fetch so the nested handler stops", async () => {
+    vi.stubEnv("APP_URL", "https://docs.example.test");
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response("# Actions", {
         status: 200,
         headers: { "content-type": "text/markdown" },
       }),
     );
-    const event = eventWithHeaders({});
+    const event = eventWithHeaders(
+      { "x-forwarded-host": "attacker.example.test" },
+      "https://attacker.example.test/docs/actions.md",
+    );
 
     await expect(
       fetchMarkdownMirror("docs/actions.md", event),
     ).resolves.toEqual({ kind: "found", content: "# Actions" });
 
     const [, init] = fetchSpy.mock.calls[0] ?? [];
+    expect(String(fetchSpy.mock.calls[0]?.[0])).toBe(
+      "https://docs.example.test/docs/actions.md",
+    );
     const headers = (init?.headers ?? {}) as Record<string, string>;
     expect(headers["x-agent-native-md-mirror"]).toBe("1");
     expect(init?.signal).toBeInstanceOf(AbortSignal);

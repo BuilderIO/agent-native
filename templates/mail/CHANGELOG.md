@@ -3,6 +3,68 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-20
+
+### Improved
+
+- Connected Gong settings now open the shared integration manager.
+- Gong connection details now match the call data available in Mail.
+- Improve Gong setup with a click-to-connect flow and permission gating
+- Mail lets you retry when it cannot check your Gong access.
+- The inbox and recently opened threads now open instantly from a cache on your device, cleared when you sign out, then refresh in the background.
+
+### Fixed
+
+- Cached conversations stay with the mailbox they belong to.
+
+## 2026-10-19
+
+### Changed
+
+- Apps no longer keep server functions and databases warm by default; set `AGENT_NATIVE_ENABLE_KEEP_WARM=1` to opt in.
+
+## 2026-10-16
+
+### Improved
+
+- Search surfaces cached inbox matches sooner and uses fewer Gmail reads.
+
+## 2026-10-14
+
+### Fixed
+
+- Inbox previews show apostrophes, quotes and ampersands as text instead of HTML codes.
+- Allowing automations to send no longer lets them delete mail or change Gmail settings without approval.
+- Automations that add a Gmail label no longer wait for send approval that never arrives.
+
+## 2026-10-09
+
+### Improved
+
+- Chats open on their own shareable URL at /chat/<id>, and /chat always starts a blank chat.
+
+## 2026-10-06
+
+### Fixed
+
+- Sign-in pages show the ocean wave without a fallback flash and keep it clear of the marketing copy.
+
+## 2026-10-05
+
+### Fixed
+
+- Sign-in and signup pages now share the animated Agent-Native wave.
+
+## 2026-10-02
+
+### Improved
+
+- Builder.io setup copy now clarifies the account action and available credits.
+
+### Fixed
+
+- Pressing R on a message in the list opens the reply window even right after Mail updates, and the error screen now offers Reload.
+
 ## 2026-10-01
 
 ### Improved

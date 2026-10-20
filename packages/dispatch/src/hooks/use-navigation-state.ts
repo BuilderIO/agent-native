@@ -39,6 +39,7 @@ export interface NavigationState {
   query?: string;
   runId?: string;
   threadId?: string;
+  threadDebugItem?: string;
   agentPath?: string;
   usageScope?: "me" | "workspace" | "app";
   usageUserEmail?: string;
@@ -216,6 +217,7 @@ export function buildDispatchNavigationState(
     const query = params.get("query");
     const runId = params.get("runId");
     const selectedThreadId = params.get("threadId");
+    const item = params.get("item");
     if (mode) state.threadDebugMode = mode;
     if (sourceId) state.sourceId = sourceId;
     if (inspectSourceId) state.inspectSourceId = inspectSourceId;
@@ -225,6 +227,7 @@ export function buildDispatchNavigationState(
     if (query) state.query = query;
     if (runId) state.runId = runId;
     if (selectedThreadId) state.threadId = selectedThreadId;
+    if (item) state.threadDebugItem = item;
   }
 
   if (state.view === "metrics") {
@@ -303,6 +306,12 @@ function resolveView(
     return "extensions";
   }
   if (pathname === "/admin") return "admin";
+  if (
+    pathname === "/admin/integrations" ||
+    pathname.startsWith("/admin/integrations/")
+  ) {
+    return "integrations";
+  }
   if (pathname === "/admin/agents" || pathname.startsWith("/admin/agents/")) {
     return "connected-agents";
   }
@@ -320,7 +329,6 @@ function resolveView(
   if (pathname.startsWith("/metrics")) return "metrics";
   if (pathname.startsWith("/new-app")) return "new-app";
   if (pathname.startsWith("/vault")) return "vault";
-  if (pathname.startsWith("/integrations")) return "integrations";
   if (pathname.startsWith("/workspace")) return "workspace";
   if (pathname.startsWith("/agents")) return "agents";
   if (pathname.startsWith("/messaging")) return "messaging";

@@ -9,7 +9,7 @@ export { findWorkspaceRoot } from "./workspace-root.js";
 
 export { fail, type FailOptions } from "../action.js";
 
-export { parseArgs, camelCaseArgs } from "./parse-args.js";
+export { parseArgs, serializeCliArgs, camelCaseArgs } from "./parse-args.js";
 
 export function loadEnv(envPath?: string): void {
   const appEnv = envPath ?? path.join(process.cwd(), ".env");

@@ -97,4 +97,71 @@ describe("RegistryBlockDataProvider", () => {
       "Portable UI, Core registry",
     );
   });
+
+  it("contains a registered block renderer failure to its block", () => {
+    const registry = new BlockRegistry();
+    registry.register(
+      defineBlock({
+        type: "note",
+        schema: z.object({ body: z.string() }),
+        mdx: {
+          tag: "Note",
+          toAttrs: (data) => ({ body: data.body }),
+          fromAttrs: (attrs) => ({ body: attrs.string("body") ?? "" }),
+        },
+        Read: () => {
+          throw new Error("renderer failed");
+        },
+        placement: ["block"],
+        label: "Note",
+        description: "A note.",
+      }),
+    );
+
+    const block: TestBlock = {
+      id: "note-2",
+      type: "note",
+      data: { body: "unreadable" },
+    };
+    const value: RegistryBlockDataValue<TestBlock> = {
+      editable: false,
+      getBlock: (id) => (id === block.id ? block : undefined),
+      onBlockDataChange: vi.fn(),
+    };
+    const logError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    function Probe() {
+      const data = useRegistryBlockData<TestBlock>();
+      return (
+        data?.renderRegisteredBlock?.(block, {
+          blockType: "note",
+          editable: false,
+          selected: false,
+          shellHovered: false,
+          panelOpen: false,
+          setPanelOpen: vi.fn(),
+          onChange: vi.fn(),
+        })?.body ?? null
+      );
+    }
+
+    try {
+      act(() => {
+        root.render(
+          <BlockRegistryProvider registry={registry} ctx={{}}>
+            <RegistryBlockDataProvider value={value} interactive>
+              <Probe />
+            </RegistryBlockDataProvider>
+          </BlockRegistryProvider>,
+        );
+      });
+
+      const fallback = container.querySelector("[data-block-render-error]");
+      expect(fallback).not.toBeNull();
+      expect(fallback?.textContent).not.toContain("renderer failed");
+      expect(fallback?.hasAttribute("data-plan-interactive")).toBe(true);
+    } finally {
+      logError.mockRestore();
+    }
+  });
 });

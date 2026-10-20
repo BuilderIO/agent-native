@@ -1,9 +1,11 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   allowsMcpIntegrationPersonalScope,
   buildMcpOAuthStartUrl,
   createMcpIntegrationFormDefaults,
+  DEFAULT_MCP_INTEGRATIONS,
   filterMcpIntegrations,
   getMcpIntegrationApiFallback,
   getDefaultMcpIntegrations,
@@ -98,6 +100,10 @@ interface TestResult {
   message: string;
 }
 
+interface ManagedMcpOAuthReadiness {
+  hubspot: "configured" | "missing";
+}
+
 function parseHeaderLines(text: string): Record<string, string> | undefined {
   const out: Record<string, string> = {};
   for (const line of text.split(/\r?\n/)) {
@@ -111,6 +117,12 @@ function parseHeaderLines(text: string): Record<string, string> | undefined {
     out[key] = value;
   }
   return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function isManagedHubSpotMcpUrl(serverUrl: string): boolean {
+  return /^https:\/\/mcp\.hubspot\.com(?::443)?(?:[/?#]|$)/i.test(
+    serverUrl.trim(),
+  );
 }
 
 function requiresMcpIntegrationSetup(
@@ -197,6 +209,7 @@ export function McpIntegrationDialog({
   >(null);
   const mcpApi = useMcpServersApi();
   const mcpServersQuery = useMcpServers({ defer: true });
+  const hasMcpServerData = mcpServersQuery.data !== undefined;
   const defaultIntegrations = useMemo(
     () => integrations ?? getDefaultMcpIntegrations(),
     [integrations],
@@ -206,6 +219,39 @@ export function McpIntegrationDialog({
     [],
   );
   const showCatalog = defaultIntegrations.length > 0;
+  const hubspotOAuthReadinessQuery = useActionQuery<ManagedMcpOAuthReadiness>(
+    "get-managed-mcp-oauth-readiness" as never,
+    undefined,
+    {
+      enabled:
+        open &&
+        mcpServersQuery.isSuccess &&
+        (customIntegrationEnabled ||
+          defaultIntegrations.some(({ id }) => id === "hubspot")),
+      queryKeyScope: [mcpServersQuery.data?.orgId ?? "no-org"],
+      staleTime: 0,
+      refetchOnMount: "always",
+      retry: false,
+      batchRefetches: false,
+    },
+  );
+  const hubspotSetupStatus =
+    mcpServersQuery.isError || hubspotOAuthReadinessQuery.isError
+      ? "unavailable"
+      : !mcpServersQuery.isSuccess ||
+          hubspotOAuthReadinessQuery.isFetching ||
+          !hubspotOAuthReadinessQuery.isSuccess
+        ? "checking"
+        : hubspotOAuthReadinessQuery.data?.hubspot === "configured"
+          ? "configured"
+          : hubspotOAuthReadinessQuery.data?.hubspot === "missing"
+            ? "missing"
+            : "unavailable";
+
+  const refreshHubspotSetupStatus = () => {
+    if (mcpServersQuery.isError) void mcpServersQuery.refetch();
+    else void hubspotOAuthReadinessQuery.refetch();
+  };
 
   const connectedServers = useMemo(() => {
     const servers = [
@@ -221,20 +267,22 @@ export function McpIntegrationDialog({
   );
 
   const selectedRequiresSetup = Boolean(
-    selected && requiresMcpIntegrationSetup(selected),
+    selected &&
+    (requiresMcpIntegrationSetup(selected) ||
+      (selected.id === "hubspot" && hubspotSetupStatus !== "configured")),
   );
   const selectedApiFallback = selected
     ? getMcpIntegrationApiFallback(selected)
     : null;
 
-  const openApiFallback = (secretKey: string) => {
+  const openSecretSettings = (secretKey: string) => {
     onOpenChange(false);
     openAgentSettings(`secrets:${secretKey}`);
   };
 
   useEffect(() => {
     if (!open) return;
-    if (initialIntegrationId && !mcpServersQuery.isSuccess) return;
+    if (initialIntegrationId && !hasMcpServerData) return;
     const initialIntegration = initialIntegrationId
       ? defaultIntegrations.find(
           (integration) => integration.id === initialIntegrationId,
@@ -285,7 +333,7 @@ export function McpIntegrationDialog({
     open,
     safeDefaultScope,
     showCatalog,
-    mcpServersQuery.isSuccess,
+    hasMcpServerData,
   ]);
 
   useEffect(() => {
@@ -345,8 +393,18 @@ export function McpIntegrationDialog({
     );
     if (restricted) {
       const fallback = getMcpIntegrationApiFallback(restricted);
-      if (fallback) openApiFallback(fallback.secretKey);
+      if (fallback) openSecretSettings(fallback.secretKey);
       else openForm(restricted);
+      return;
+    }
+    if (
+      isManagedHubSpotMcpUrl(args.url) &&
+      hubspotSetupStatus !== "configured"
+    ) {
+      const hubspot =
+        defaultIntegrations.find(({ id }) => id === "hubspot") ??
+        DEFAULT_MCP_INTEGRATIONS.find(({ id }) => id === "hubspot");
+      openForm(hubspot, { scope: options?.scope });
       return;
     }
     if (!oauthReady) return;
@@ -372,15 +430,22 @@ export function McpIntegrationDialog({
         : window.location.pathname +
           window.location.search +
           window.location.hash;
-    const oauthUrl = agentNativePath(
-      buildMcpOAuthStartUrl({
-        name: args.name,
-        url: args.url,
-        description: args.description,
-        scope: options?.scope ?? scope,
-        returnUrl,
-      }),
-    );
+    let oauthUrl: string;
+    try {
+      oauthUrl = agentNativePath(
+        buildMcpOAuthStartUrl({
+          name: args.name,
+          url: args.url,
+          description: args.description,
+          scope: options?.scope ?? scope,
+          returnUrl,
+        }),
+      );
+    } catch {
+      setBusy(false);
+      setError(t("mcpIntegrations.connectionError"));
+      return;
+    }
     if (!onOAuthStart) {
       const opened = navigateToMcpOAuthStart(oauthUrl);
       setBusy(false);
@@ -536,7 +601,7 @@ export function McpIntegrationDialog({
     if (requiresMcpIntegrationSetup(integration)) {
       const apiFallback = getMcpIntegrationApiFallback(integration);
       if (apiFallback) {
-        openApiFallback(apiFallback.secretKey);
+        openSecretSettings(apiFallback.secretKey);
       } else {
         openForm(integration);
       }
@@ -637,7 +702,7 @@ export function McpIntegrationDialog({
     if (requiresMcpIntegrationSetup(integration)) {
       const apiFallback = getMcpIntegrationApiFallback(integration);
       if (apiFallback) {
-        openApiFallback(apiFallback.secretKey);
+        openSecretSettings(apiFallback.secretKey);
       } else {
         openForm(integration, { scope: "user" });
       }
@@ -777,19 +842,21 @@ export function McpIntegrationDialog({
   };
 
   const primaryAction = selectedRequiresSetup
-    ? selectedApiFallback
-      ? {
-          run: () => openApiFallback(selectedApiFallback.secretKey),
-          disabled: busy,
-          label: t("mcpIntegrations.useApiToken"),
-        }
-      : selected && isMcpIntegrationOAuthAvailable(selected)
+    ? selected?.id === "hubspot"
+      ? null
+      : selectedApiFallback
         ? {
-            run: () => connectWithOAuth(selected),
-            disabled: !oauthReady || busy,
-            label: t("mcpIntegrations.continueToConnect"),
+            run: () => openSecretSettings(selectedApiFallback.secretKey),
+            disabled: busy,
+            label: t("mcpIntegrations.useApiToken"),
           }
-        : null
+        : selected && isMcpIntegrationOAuthAvailable(selected)
+          ? {
+              run: () => connectWithOAuth(selected),
+              disabled: !oauthReady || busy,
+              label: t("mcpIntegrations.continueToConnect"),
+            }
+          : null
     : selected?.authMode === "oauth" ||
         (!selected && customAuthMode === "oauth")
       ? {
@@ -956,6 +1023,13 @@ export function McpIntegrationDialog({
                       isMcpIntegrationUrl(integration, server.url),
                     );
                     const setupOnly = requiresMcpIntegrationSetup(integration);
+                    const isHubSpot = integration.id === "hubspot";
+                    const hubSpotSetupRequired =
+                      isHubSpot && hubspotSetupStatus === "missing";
+                    const hubSpotSetupUnavailable =
+                      isHubSpot && hubspotSetupStatus === "unavailable";
+                    const hubSpotSetupChecking =
+                      isHubSpot && hubspotSetupStatus === "checking";
                     const apiFallback =
                       getMcpIntegrationApiFallback(integration);
                     return {
@@ -973,21 +1047,41 @@ export function McpIntegrationDialog({
                       ),
                       status: connected
                         ? t("mcpIntegrations.connected")
-                        : setupOnly
-                          ? t("mcpIntegrations.status.setupRequired")
-                          : undefined,
+                        : hubSpotSetupRequired
+                          ? t("mcpIntegrations.hubspot.workspaceSetupStatus")
+                          : hubSpotSetupUnavailable
+                            ? t("mcpIntegrations.hubspot.setupUnavailable")
+                            : hubSpotSetupChecking
+                              ? t("mcpIntegrations.hubspot.setupChecking")
+                              : setupOnly
+                                ? t("mcpIntegrations.status.setupRequired")
+                                : undefined,
                       statusClassName: connected
                         ? "text-emerald-600 dark:text-emerald-400"
                         : "text-muted-foreground",
                       actionLabel: connected
                         ? "Manage"
-                        : setupOnly && apiFallback
-                          ? t("mcpIntegrations.useApiToken")
-                          : setupOnly
-                            ? t("mcpIntegrations.viewSetup")
-                            : t("mcpIntegrations.connect"),
-                      disabled: connected || busy || !mcpServersQuery.isSuccess,
+                        : hubSpotSetupUnavailable
+                          ? t("mcpIntegrations.hubspot.retrySetupStatus")
+                          : hubSpotSetupChecking
+                            ? t("mcpIntegrations.hubspot.setupChecking")
+                            : hubSpotSetupRequired
+                              ? t("mcpIntegrations.viewSetup")
+                              : setupOnly && apiFallback
+                                ? t("mcpIntegrations.useApiToken")
+                                : setupOnly
+                                  ? t("mcpIntegrations.viewSetup")
+                                  : t("mcpIntegrations.connect"),
+                      disabled:
+                        connected ||
+                        busy ||
+                        !mcpServersQuery.isSuccess ||
+                        hubSpotSetupChecking,
                       onAction: () => {
+                        if (hubSpotSetupUnavailable) {
+                          refreshHubspotSetupStatus();
+                          return;
+                        }
                         if (connected) {
                           openForm(integration);
                           return;
@@ -1032,9 +1126,11 @@ export function McpIntegrationDialog({
               <DialogTitle>
                 {selected
                   ? selectedRequiresSetup
-                    ? t("mcpIntegrations.setupTitle", {
-                        name: selected.name,
-                      })
+                    ? selected.id === "hubspot"
+                      ? t("mcpIntegrations.hubspot.setupTitle")
+                      : t("mcpIntegrations.setupTitle", {
+                          name: selected.name,
+                        })
                     : t("mcpIntegrations.configureTitle", {
                         name: selected.name,
                       })
@@ -1043,7 +1139,9 @@ export function McpIntegrationDialog({
               <DialogDescription>
                 {selected
                   ? selectedRequiresSetup
-                    ? t("mcpIntegrations.providerSetupFormDescription")
+                    ? selected.id === "hubspot"
+                      ? t("mcpIntegrations.hubspot.dialogDescription")
+                      : t("mcpIntegrations.providerSetupFormDescription")
                     : selected.authMode === "none"
                       ? t("mcpIntegrations.presetNoAuthDescription")
                       : t("mcpIntegrations.presetAuthDescription")
@@ -1070,59 +1168,148 @@ export function McpIntegrationDialog({
                       {t(selected.setupNoteKey)}
                     </p>
                   ) : null}
-                  {selectedRequiresSetup && selected && (
-                    <div
-                      className={cn(
-                        "mx-auto grid w-full max-w-xl gap-4",
-                        presentation === "takeover" ? "py-8" : "py-1",
-                      )}
-                    >
-                      {presentation === "takeover" ? (
-                        <div>
-                          <p className="text-base font-semibold tracking-[-0.02em] text-foreground">
-                            {t("mcpIntegrations.providerSetupRequired")}
+                  {selectedRequiresSetup && selected ? (
+                    selected.id === "hubspot" ? (
+                      <div
+                        className={cn(
+                          "mx-auto grid w-full max-w-xl gap-4",
+                          presentation === "takeover" ? "py-8" : "py-1",
+                        )}
+                      >
+                        {hubspotSetupStatus === "checking" ? (
+                          <p
+                            role="status"
+                            className="flex items-center gap-2 text-sm text-muted-foreground"
+                          >
+                            <Spinner aria-hidden="true" />
+                            {t("mcpIntegrations.hubspot.setupChecking")}
                           </p>
-                          <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                            {t("mcpIntegrations.providerSetupDescription", {
-                              name: selected.name,
-                            })}
-                          </p>
-                        </div>
-                      ) : null}
-                      {selected.setupNoteKey ? (
-                        <p className="text-sm leading-6 text-muted-foreground">
-                          {t(selected.setupNoteKey)}
-                        </p>
-                      ) : null}
-                      <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-foreground">
-                            {t("mcpIntegrations.personalConnection")}
-                          </p>
-                          <p className="text-xs leading-5 text-muted-foreground">
-                            {t("mcpIntegrations.personalDescription")}
-                          </p>
-                        </div>
-                        <span className="shrink-0 text-xs text-muted-foreground">
-                          {t("mcpIntegrations.personal")}
-                        </span>
+                        ) : hubspotSetupStatus === "unavailable" ? (
+                          <Alert>
+                            <IconAlertCircle aria-hidden="true" />
+                            <AlertDescription className="grid gap-3">
+                              <span>
+                                {t(
+                                  "mcpIntegrations.hubspot.setupUnavailableDescription",
+                                )}
+                              </span>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="w-fit"
+                                onClick={() => refreshHubspotSetupStatus()}
+                              >
+                                {t("mcpIntegrations.hubspot.retrySetupStatus")}
+                              </Button>
+                            </AlertDescription>
+                          </Alert>
+                        ) : (
+                          <>
+                            <p className="text-sm leading-6 text-muted-foreground">
+                              {t(
+                                !hasOrg
+                                  ? "mcpIntegrations.hubspot.noWorkspaceDescription"
+                                  : canCreateOrgMcp
+                                    ? "mcpIntegrations.hubspot.ownerSetupDescription"
+                                    : "mcpIntegrations.hubspot.memberSetupDescription",
+                              )}
+                            </p>
+                            <div className="flex flex-wrap items-center gap-2">
+                              {canCreateOrgMcp ? (
+                                <Button
+                                  type="button"
+                                  variant="secondary"
+                                  onClick={() =>
+                                    openSecretSettings("HUBSPOT_MCP_CLIENT_ID")
+                                  }
+                                >
+                                  {t(
+                                    "mcpIntegrations.hubspot.configureWorkspaceCredentials",
+                                  )}
+                                </Button>
+                              ) : null}
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                onClick={() => refreshHubspotSetupStatus()}
+                              >
+                                {t(
+                                  "mcpIntegrations.hubspot.refreshSetupStatus",
+                                )}
+                              </Button>
+                            </div>
+                          </>
+                        )}
+                        {selected.docsUrl ? (
+                          <a
+                            href={selected.docsUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex w-fit items-center gap-1 text-sm font-medium text-foreground underline underline-offset-4 hover:text-muted-foreground"
+                          >
+                            {t("mcpIntegrations.openSetupDocs")}
+                            <IconExternalLink
+                              aria-hidden="true"
+                              className="size-3.5"
+                            />
+                          </a>
+                        ) : null}
                       </div>
-                      {selected.docsUrl ? (
-                        <a
-                          href={selected.docsUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex w-fit items-center gap-1 text-sm font-medium text-foreground underline underline-offset-4 hover:text-muted-foreground"
-                        >
-                          {t("mcpIntegrations.viewSetup")}
-                          <IconExternalLink
-                            aria-hidden="true"
-                            className="size-3.5"
-                          />
-                        </a>
-                      ) : null}
-                    </div>
-                  )}
+                    ) : (
+                      <div
+                        className={cn(
+                          "mx-auto grid w-full max-w-xl gap-4",
+                          presentation === "takeover" ? "py-8" : "py-1",
+                        )}
+                      >
+                        {presentation === "takeover" ? (
+                          <div>
+                            <p className="text-base font-semibold tracking-[-0.02em] text-foreground">
+                              {t("mcpIntegrations.providerSetupRequired")}
+                            </p>
+                            <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                              {t("mcpIntegrations.providerSetupDescription", {
+                                name: selected.name,
+                              })}
+                            </p>
+                          </div>
+                        ) : null}
+                        {selected.setupNoteKey ? (
+                          <p className="text-sm leading-6 text-muted-foreground">
+                            {t(selected.setupNoteKey)}
+                          </p>
+                        ) : null}
+                        <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-foreground">
+                              {t("mcpIntegrations.personalConnection")}
+                            </p>
+                            <p className="text-xs leading-5 text-muted-foreground">
+                              {t("mcpIntegrations.personalDescription")}
+                            </p>
+                          </div>
+                          <span className="shrink-0 text-xs text-muted-foreground">
+                            {t("mcpIntegrations.personal")}
+                          </span>
+                        </div>
+                        {selected.docsUrl ? (
+                          <a
+                            href={selected.docsUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex w-fit items-center gap-1 text-sm font-medium text-foreground underline underline-offset-4 hover:text-muted-foreground"
+                          >
+                            {t("mcpIntegrations.viewSetup")}
+                            <IconExternalLink
+                              aria-hidden="true"
+                              className="size-3.5"
+                            />
+                          </a>
+                        ) : null}
+                      </div>
+                    )
+                  ) : null}
                   {!selected && (
                     <div className="flex items-center justify-between gap-3 text-sm">
                       <span className="text-muted-foreground">

@@ -58,6 +58,7 @@ const TRANSIENT_ATTRS = new Set([
   SOURCE_STAMP_ATTR,
   "data-builder-id",
   "data-slide-text-block",
+  "data-video-autoplay",
   "contenteditable",
   "data-editing-block",
   "spellcheck",
@@ -291,8 +292,19 @@ const escapeAttr = (value: string) =>
 
 function attrMap(el: Element): Map<string, string> {
   const map = new Map<string, string>();
+  const isVideo = el.tagName.toLowerCase() === "video";
   for (const attr of Array.from(el.attributes)) {
-    if (!TRANSIENT_ATTRS.has(attr.name)) map.set(attr.name, attr.value);
+    if (TRANSIENT_ATTRS.has(attr.name)) {
+      if (
+        isVideo &&
+        attr.name === "data-video-autoplay" &&
+        attr.value === "true"
+      ) {
+        map.set("autoplay", "");
+      }
+      continue;
+    }
+    map.set(attr.name, attr.value);
   }
   return map;
 }
@@ -634,7 +646,13 @@ function sourceMerge(input: MergeRenderedEditsInput) {
         }
         // The rendered <style> is the scoped copy; the stored one is
         // written from its source bytes.
-        if (el.tagName === "STYLE" && stampOf(el) === null) return;
+        if (
+          el.tagName === "STYLE" &&
+          stampOf(el) === null &&
+          !el.hasAttribute("data-fmd-crop-keyframes")
+        ) {
+          return;
+        }
         out.push(el);
       } else if (child.nodeType === 3) {
         const text = (child as Text).data;

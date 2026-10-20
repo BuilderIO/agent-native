@@ -1,13 +1,18 @@
 // @vitest-environment happy-dom
 
+import { VisualScrubInput } from "@agent-native/toolkit/design-tweaks";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 
+import { isEditorHotkeyBlockedByShortcutsDialog } from "@/components/design/KeyboardShortcutsDialog";
+
 import {
+  isDesignHotkeyBlockedByOpenLayer,
   isDesignHotkeyEditableTarget,
   isDesignHistoryHotkeyTarget,
   isNativeKeyboardActivationTarget,
+  isOptedInDesignHistoryHotkey,
   useDesignHotkeys,
   type UseDesignHotkeysProps,
 } from "./useDesignHotkeys";
@@ -37,6 +42,78 @@ describe("isDesignHotkeyEditableTarget", () => {
 
     markedInput.remove();
     ordinaryInput.remove();
+  });
+});
+
+describe("isOptedInDesignHistoryHotkey", () => {
+  it("hands Undo and Redo from an opted-in open picker to the editor, and nothing else", async () => {
+    const picker = document.createElement("div");
+    picker.setAttribute("data-radix-popper-content-wrapper", "");
+    picker.setAttribute("data-design-history-hotkeys", "true");
+    const slider = document.createElement("div");
+    picker.append(slider);
+    const plainPicker = document.createElement("div");
+    plainPicker.setAttribute("data-radix-popper-content-wrapper", "");
+    const plainSlider = document.createElement("div");
+    plainPicker.append(plainSlider);
+    document.body.append(picker, plainPicker);
+    const keydown = (target: Element, init: KeyboardEventInit) => {
+      const event = new KeyboardEvent("keydown", { bubbles: true, ...init });
+      Object.defineProperty(event, "target", { value: target });
+      return event;
+    };
+
+    await withNavigatorPlatform("MacIntel", () => {
+      expect(isDesignHotkeyBlockedByOpenLayer(slider)).toBe(true);
+      for (const init of [
+        { key: "z", metaKey: true },
+        { key: "z", metaKey: true, shiftKey: true },
+        { key: "y", metaKey: true },
+      ]) {
+        expect(isOptedInDesignHistoryHotkey(keydown(slider, init))).toBe(true);
+        expect(isOptedInDesignHistoryHotkey(keydown(plainSlider, init))).toBe(
+          false,
+        );
+      }
+      expect(
+        isOptedInDesignHistoryHotkey(
+          keydown(slider, { key: "z", metaKey: true, altKey: true }),
+        ),
+      ).toBe(false);
+      expect(
+        isOptedInDesignHistoryHotkey(
+          keydown(slider, { key: "d", metaKey: true }),
+        ),
+      ).toBe(false);
+    });
+
+    picker.remove();
+    plainPicker.remove();
+  });
+});
+
+describe("isDesignHotkeyBlockedByOpenLayer", () => {
+  it("blocks canvas keys while a menu or popover is open", () => {
+    const target = document.createElement("div");
+    const menu = document.createElement("div");
+    menu.setAttribute("role", "menu");
+    menu.setAttribute("data-state", "open");
+    document.body.append(target, menu);
+
+    expect(isDesignHotkeyBlockedByOpenLayer(target)).toBe(true);
+
+    menu.setAttribute("data-state", "closed");
+    const popover = document.createElement("div");
+    popover.setAttribute("role", "dialog");
+    popover.setAttribute("data-state", "open");
+    document.body.append(popover);
+    expect(isDesignHotkeyBlockedByOpenLayer(target)).toBe(true);
+
+    popover.setAttribute("data-state", "closed");
+    expect(isDesignHotkeyBlockedByOpenLayer(target)).toBe(false);
+    target.remove();
+    menu.remove();
+    popover.remove();
   });
 });
 
@@ -94,15 +171,37 @@ function dispatchKey(
   init: KeyboardEventInit & { code?: string } = {},
   target: EventTarget = window,
 ) {
+  const ownPlatformDescriptor = Object.getOwnPropertyDescriptor(
+    navigator,
+    "platform",
+  );
+  if (!navigatorPlatformOverride) {
+    Object.defineProperty(navigator, "platform", {
+      configurable: true,
+      value: init.metaKey && !init.ctrlKey ? "MacIntel" : "Win32",
+    });
+  }
   const event = new KeyboardEvent("keydown", {
     key,
     bubbles: true,
     cancelable: true,
     ...init,
   });
-  target.dispatchEvent(event);
+  try {
+    target.dispatchEvent(event);
+  } finally {
+    if (!navigatorPlatformOverride) {
+      if (ownPlatformDescriptor) {
+        Object.defineProperty(navigator, "platform", ownPlatformDescriptor);
+      } else {
+        Reflect.deleteProperty(navigator, "platform");
+      }
+    }
+  }
   return event;
 }
+
+let navigatorPlatformOverride: string | null = null;
 
 async function withSelectedText(text: string, run: () => Promise<void> | void) {
   const node = document.createElement("p");
@@ -125,6 +224,8 @@ async function withNavigatorPlatform(
   platform: string,
   run: () => void | Promise<void>,
 ) {
+  const previousOverride = navigatorPlatformOverride;
+  navigatorPlatformOverride = platform;
   const ownDescriptor = Object.getOwnPropertyDescriptor(navigator, "platform");
   Object.defineProperty(navigator, "platform", {
     configurable: true,
@@ -138,10 +239,149 @@ async function withNavigatorPlatform(
     } else {
       Reflect.deleteProperty(navigator, "platform");
     }
+    navigatorPlatformOverride = previousOverride;
   }
 }
 
-describe("useDesignHotkeys — current Figma tool bindings", () => {
+describe("useDesignHotkeys — drawing tool bindings", () => {
+  it("cancels an active scrub before routing Undo and ignores its stale pointerup", async () => {
+    const events: string[] = [];
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <>
+          <Probe onUndo={() => events.push("undo")} />
+          <VisualScrubInput
+            label="Width"
+            value={10}
+            onChange={(_value, meta) => events.push(meta.phase)}
+          />
+        </>,
+      );
+    });
+
+    const input = container.querySelector<HTMLInputElement>("input")!;
+    const dragContainer = input.parentElement as HTMLDivElement;
+    dragContainer.setPointerCapture = vi.fn();
+    dragContainer.hasPointerCapture = vi.fn(() => true);
+    dragContainer.releasePointerCapture = vi.fn();
+    const pointer = (type: string) =>
+      Object.assign(new Event(type, { bubbles: true }), {
+        pointerId: 4,
+        clientX: type === "pointerdown" ? 0 : 10,
+        button: 0,
+        altKey: true,
+      }) as unknown as PointerEvent;
+
+    try {
+      act(() => input.dispatchEvent(pointer("pointerdown")));
+      act(() => dragContainer.dispatchEvent(pointer("pointermove")));
+      const undoEvent = dispatchKey("z", { metaKey: true });
+      expect(undoEvent.defaultPrevented).toBe(true);
+      expect(events).toEqual(["preview", "preview", "cancel", "undo"]);
+      act(() => dragContainer.dispatchEvent(pointer("pointerup")));
+      expect(events).toEqual(["preview", "preview", "cancel", "undo"]);
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  });
+
+  it("uses a Latin key before its physical-key fallback", async () => {
+    const onMoveTool = vi.fn();
+    const onFrameTool = vi.fn();
+    await withHotkeys({ onMoveTool, onFrameTool }, () => {
+      dispatchKey("м", { code: "KeyV" });
+      dispatchKey("a", { code: "KeyQ" });
+    });
+
+    expect(onMoveTool).toHaveBeenCalledTimes(1);
+    expect(onFrameTool).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the platform primary modifier and leaves Mac Ctrl+G for layout grids", async () => {
+    const onGroup = vi.fn();
+    const onToggleLayoutGrids = vi.fn();
+    await withNavigatorPlatform("MacIntel", () =>
+      withHotkeys({ onGroup, onToggleLayoutGrids }, () => {
+        dispatchKey("g", { ctrlKey: true, code: "KeyG" });
+        dispatchKey("g", { metaKey: true, code: "KeyG" });
+      }),
+    );
+
+    expect(onToggleLayoutGrids).toHaveBeenCalledTimes(1);
+    expect(onGroup).toHaveBeenCalledTimes(1);
+  });
+
+  it("prevents browser zoom from an inspector input", async () => {
+    const onZoomIn = vi.fn();
+    const inspectorInput = document.createElement("input");
+    inspectorInput.setAttribute("data-design-inspector-section", "");
+    document.body.append(inspectorInput);
+    try {
+      await withHotkeys({ onZoomIn }, () => {
+        const event = dispatchKey(
+          "=",
+          { metaKey: true, code: "Equal" },
+          inspectorInput,
+        );
+        expect(event.defaultPrevented).toBe(true);
+      });
+    } finally {
+      inspectorInput.remove();
+    }
+    expect(onZoomIn).not.toHaveBeenCalled();
+  });
+
+  it("prevents Cmd/Ctrl+- and Cmd/Ctrl+0 browser zoom from an inspector input", async () => {
+    const onZoomOut = vi.fn();
+    const onZoomReset = vi.fn();
+    const onOpacityChange = vi.fn();
+    const inspectorInput = document.createElement("input");
+    inspectorInput.setAttribute("data-design-inspector-section", "");
+    document.body.append(inspectorInput);
+    try {
+      await withHotkeys({ onZoomOut, onZoomReset, onOpacityChange }, () => {
+        const metaMinus = dispatchKey(
+          "-",
+          { metaKey: true, code: "Minus" },
+          inspectorInput,
+        );
+        const metaZero = dispatchKey(
+          "0",
+          { metaKey: true, code: "Digit0" },
+          inspectorInput,
+        );
+        const ctrlMinus = dispatchKey(
+          "-",
+          { ctrlKey: true, code: "Minus" },
+          inspectorInput,
+        );
+        expect(metaMinus.defaultPrevented).toBe(true);
+        expect(metaZero.defaultPrevented).toBe(true);
+        expect(ctrlMinus.defaultPrevented).toBe(true);
+
+        const plainMinus = dispatchKey("-", { code: "Minus" }, inspectorInput);
+        const plainZero = dispatchKey("0", { code: "Digit0" }, inspectorInput);
+        const ctrlAltMinus = dispatchKey(
+          "-",
+          { ctrlKey: true, altKey: true, code: "Minus" },
+          inspectorInput,
+        );
+        expect(plainMinus.defaultPrevented).toBe(false);
+        expect(plainZero.defaultPrevented).toBe(false);
+        expect(ctrlAltMinus.defaultPrevented).toBe(false);
+      });
+    } finally {
+      inspectorInput.remove();
+    }
+    expect(onZoomOut).not.toHaveBeenCalled();
+    expect(onZoomReset).not.toHaveBeenCalled();
+    expect(onOpacityChange).not.toHaveBeenCalled();
+  });
+
   it("routes history chords from marked design controls only", async () => {
     const onUndo = vi.fn();
     await withHotkeys({ onUndo }, () => {
@@ -257,6 +497,34 @@ describe("useDesignHotkeys — current Figma tool bindings", () => {
     expect(onShowKeyboardShortcuts).toHaveBeenCalledTimes(2);
   });
 
+  it("opens keyboard shortcuts with Control+Shift+? on macOS", async () => {
+    const onShowKeyboardShortcuts = vi.fn();
+    await withNavigatorPlatform("MacIntel", () =>
+      withHotkeys({ onShowKeyboardShortcuts }, () => {
+        dispatchKey("?", {
+          code: "Slash",
+          ctrlKey: true,
+          shiftKey: true,
+        });
+      }),
+    );
+    expect(onShowKeyboardShortcuts).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens keyboard shortcuts with Command+Shift+? on macOS", async () => {
+    const onShowKeyboardShortcuts = vi.fn();
+    await withNavigatorPlatform("MacIntel", () =>
+      withHotkeys({ onShowKeyboardShortcuts }, () => {
+        dispatchKey("?", {
+          code: "Slash",
+          metaKey: true,
+          shiftKey: true,
+        });
+      }),
+    );
+    expect(onShowKeyboardShortcuts).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps shortcut help global without routing editing keys from editable targets", async () => {
     const onShowKeyboardShortcuts = vi.fn();
     const onTextTool = vi.fn();
@@ -276,6 +544,37 @@ describe("useDesignHotkeys — current Figma tool bindings", () => {
     input.remove();
   });
 
+  it("keeps editor hotkeys out of the shortcuts dialog but lets its own chord through", async () => {
+    const onShowKeyboardShortcuts = vi.fn();
+    const onTextTool = vi.fn();
+    const dialog = document.createElement("div");
+    dialog.setAttribute("data-keyboard-shortcuts-dialog", "");
+    const category = document.createElement("button");
+    dialog.append(category);
+    document.body.append(dialog);
+    await withHotkeys(
+      {
+        onShowKeyboardShortcuts,
+        onTextTool,
+        shouldHandleEvent: (event) =>
+          !isEditorHotkeyBlockedByShortcutsDialog(event),
+      },
+      () => {
+        dispatchKey("t", {}, category);
+        dispatchKey(
+          "?",
+          { code: "Slash", ctrlKey: true, shiftKey: true },
+          category,
+        );
+        dispatchKey("t");
+      },
+    );
+    dialog.remove();
+    expect(onShowKeyboardShortcuts).toHaveBeenCalledTimes(1);
+    // Only the keypress outside the dialog reaches the Text tool.
+    expect(onTextTool).toHaveBeenCalledTimes(1);
+  });
+
   it("Shift+Y arms the annotation/draw tool and a bare Y does not", async () => {
     const onDrawTool = vi.fn();
     const onToolChange = vi.fn();
@@ -288,6 +587,16 @@ describe("useDesignHotkeys — current Figma tool bindings", () => {
       "draw",
       expect.objectContaining({ key: "y" }),
     );
+  });
+
+  it("leaves Shift+Y alone when no draw handler is wired (Annotate lab off)", async () => {
+    const onMoveTool = vi.fn();
+    let shiftY: KeyboardEvent | undefined;
+    await withHotkeys({ onMoveTool }, () => {
+      shiftY = dispatchKey("y", { shiftKey: true });
+    });
+    expect(shiftY?.defaultPrevented).toBe(false);
+    expect(onMoveTool).not.toHaveBeenCalled();
   });
 
   it("selects Frame with both F and A", async () => {
@@ -310,7 +619,7 @@ describe("useDesignHotkeys — current Figma tool bindings", () => {
     expect(onArrowTool).toHaveBeenCalledTimes(1);
   });
 
-  it("binds Figma's I to the eyedropper on every platform", async () => {
+  it("binds I to the eyedropper on every platform", async () => {
     const onEyedropper = vi.fn();
     await withNavigatorPlatform("Win32", () =>
       withHotkeys({ onEyedropper }, () => {
@@ -371,7 +680,7 @@ describe("useDesignHotkeys — current Figma tool bindings", () => {
   });
 });
 
-describe("useDesignHotkeys — Figma selection and frame traversal", () => {
+describe("useDesignHotkeys — selection and frame traversal", () => {
   it("keeps Tab / Shift+Tab available for sibling traversal", async () => {
     const onTab = vi.fn();
     await withHotkeys({ onTab }, () => {
@@ -474,7 +783,7 @@ describe("useDesignHotkeys — Figma selection and frame traversal", () => {
   });
 });
 
-describe("useDesignHotkeys — Figma navigation and find", () => {
+describe("useDesignHotkeys — navigation and find", () => {
   it("routes Cmd+F on Apple and Ctrl+F on non-Apple platforms", async () => {
     const onAppleFind = vi.fn();
     await withNavigatorPlatform("MacIntel", () =>
@@ -746,7 +1055,7 @@ describe("useDesignHotkeys — zoom keys", () => {
     expect(onZoomOut).toHaveBeenCalledTimes(1);
   });
 
-  it('Shift+= (the "+" keystroke on a US layout) zooms in like Figma', async () => {
+  it('Shift+= (the "+" keystroke on a US layout) zooms in', async () => {
     const onZoomIn = vi.fn();
     await withHotkeys({ onZoomIn }, () => {
       dispatchKey("+", { shiftKey: true, code: "Equal" });
@@ -1035,7 +1344,7 @@ describe("useDesignHotkeys — selection alignment (Alt+A/D/W/S/H/V)", () => {
   });
 });
 
-describe("useDesignHotkeys — distribute (Ctrl+Alt+H/V) and Tidy up (Ctrl+Alt+T)", () => {
+describe("useDesignHotkeys — distribute and Tidy up", () => {
   it("Ctrl+Alt+H distributes horizontally and stays distinct from Alt+H align", async () => {
     const onDistributeSelection = vi.fn();
     const onAlignSelection = vi.fn();
@@ -1049,17 +1358,31 @@ describe("useDesignHotkeys — distribute (Ctrl+Alt+H/V) and Tidy up (Ctrl+Alt+T
     expect(onAlignSelection).not.toHaveBeenCalled();
   });
 
-  it("Ctrl+Alt+V distributes vertically and stays distinct from Alt+V align", async () => {
+  it("keeps Ctrl+Alt+V for vertical distribution on Apple platforms", async () => {
     const onDistributeSelection = vi.fn();
     const onAlignSelection = vi.fn();
-    await withHotkeys({ onDistributeSelection, onAlignSelection }, () => {
-      dispatchKey("v", { altKey: true, ctrlKey: true });
-    });
+    await withNavigatorPlatform("MacIntel", () =>
+      withHotkeys({ onDistributeSelection, onAlignSelection }, () => {
+        dispatchKey("v", { altKey: true, ctrlKey: true });
+      }),
+    );
     expect(onDistributeSelection).toHaveBeenCalledTimes(1);
     expect(onDistributeSelection.mock.calls[0]![0]).toMatchObject({
       axis: "vertical",
     });
     expect(onAlignSelection).not.toHaveBeenCalled();
+  });
+
+  it("keeps Ctrl+Alt+V for paste properties on non-Apple platforms", async () => {
+    const onDistributeSelection = vi.fn();
+    const onPasteProps = vi.fn();
+    await withNavigatorPlatform("Linux x86_64", () =>
+      withHotkeys({ onDistributeSelection, onPasteProps }, () => {
+        dispatchKey("v", { altKey: true, ctrlKey: true });
+      }),
+    );
+    expect(onPasteProps).toHaveBeenCalledTimes(1);
+    expect(onDistributeSelection).not.toHaveBeenCalled();
   });
 
   it("Ctrl+Alt+T fires Tidy up even without a meta/cmd key", async () => {

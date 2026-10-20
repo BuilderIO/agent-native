@@ -20,20 +20,79 @@ import {
   getDefaultMcpIntegrations,
   navigateToMcpOAuthStart,
 } from "@agent-native/core/client/resources/mcp-integration-catalog";
-import { IconAlertCircle } from "@tabler/icons-react";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { IconAlertCircle, IconLoader2 } from "@tabler/icons-react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import { AgentConnectionRequestCard } from "../agentkit/react/components.js";
 import {
-  dispatchIntegrationsHref,
+  dispatchApiKeysHref,
   useOrgSwitcherAppLinks,
 } from "../org/workspace-app-links.js";
-import { McpConnectionSuggestion } from "./McpConnectionSuggestion.js";
+import {
+  findMcpConnectionSuggestionIntegration,
+  McpConnectionSuggestion,
+} from "./McpConnectionSuggestion.js";
 
 export interface McpAgentKitConnectionTarget {
   threadId: string;
   runId: string;
   requestId: string;
+}
+
+const EXCLUDED_CONNECTION_REQUEST_HANDLED_KEY =
+  "agent-native:excluded-connection-request-handled";
+const handledExcludedConnectionRequests = new Set<string>();
+
+type ExcludedConnectionRequestMarker = "handled" | "unhandled" | "unavailable";
+
+function excludedConnectionRequestStorageKey(
+  target: McpAgentKitConnectionTarget,
+) {
+  return `${EXCLUDED_CONNECTION_REQUEST_HANDLED_KEY}:${JSON.stringify([
+    target.threadId,
+    target.runId,
+    target.requestId,
+  ])}`;
+}
+
+function getExcludedConnectionRequestMarker(
+  storageKey: string,
+): ExcludedConnectionRequestMarker {
+  if (handledExcludedConnectionRequests.has(storageKey)) return "handled";
+  if (typeof window === "undefined") return "unavailable";
+  try {
+    return window.sessionStorage.getItem(storageKey) === "1"
+      ? "handled"
+      : "unhandled";
+  } catch {
+    return "unavailable";
+  }
+}
+
+function markExcludedConnectionRequestHandled(
+  storageKey: string,
+  markerWasUnavailable: boolean,
+) {
+  if (markerWasUnavailable) {
+    handledExcludedConnectionRequests.add(storageKey);
+  }
+  if (typeof window === "undefined") {
+    handledExcludedConnectionRequests.add(storageKey);
+    return;
+  }
+  try {
+    window.sessionStorage.setItem(storageKey, "1");
+  } catch {
+    handledExcludedConnectionRequests.add(storageKey);
+  }
 }
 
 export interface McpAgentKitConnectionRequestCardProps {
@@ -46,6 +105,7 @@ export interface McpAgentKitConnectionRequestCardProps {
   target: McpAgentKitConnectionTarget;
   onConnected: () => void | Promise<void>;
   onDeclined: () => void | Promise<void>;
+  excludedIntegrationIds?: readonly string[];
   fallback?: ReactNode;
 }
 
@@ -59,16 +119,47 @@ export function McpAgentKitConnectionRequestCard({
   target,
   onConnected,
   onDeclined,
+  excludedIntegrationIds,
   fallback = null,
 }: McpAgentKitConnectionRequestCardProps) {
+  const t = useT();
   const settledRef = useRef(false);
+  const onDeclinedRef = useRef(onDeclined);
+  const [excludedRequestResolutionFailed, setExcludedRequestResolutionFailed] =
+    useState(false);
+  const [
+    excludedRequestResolutionPending,
+    setExcludedRequestResolutionPending,
+  ] = useState(false);
+  onDeclinedRef.current = onDeclined;
+  const targetKey = excludedConnectionRequestStorageKey(target);
   const [workspaceSetupOpened, setWorkspaceSetupOpened] = useState(false);
   const integrations = useMemo(() => getDefaultMcpIntegrations(), []);
-  const integration = integrations.find(
-    (candidate) =>
-      candidate.id.toLowerCase() === provider.trim().toLowerCase() ||
-      candidate.provider.toLowerCase() === provider.trim().toLowerCase(),
+  const excludedIds = new Set(
+    excludedIntegrationIds?.map((id) => id.trim().toLowerCase()) ?? [],
   );
+  const normalizedProvider = provider.trim().toLowerCase();
+  const catalogIntegration = integrations.find(
+    (candidate) =>
+      candidate.id.toLowerCase() === normalizedProvider ||
+      candidate.provider.toLowerCase() === normalizedProvider,
+  );
+  const integrationExcluded =
+    excludedIds.has(normalizedProvider) ||
+    (source?.kind === "workspace_connection" &&
+      excludedIds.has(source.id.trim().toLowerCase())) ||
+    Boolean(
+      catalogIntegration &&
+      (excludedIds.has(catalogIntegration.id.toLowerCase()) ||
+        excludedIds.has(catalogIntegration.provider.toLowerCase())),
+    );
+  const integration = findMcpConnectionSuggestionIntegration({
+    text: detail ?? "",
+    requestedByAgent: true,
+    integrationId: provider,
+    integrations,
+    excludedIntegrationIds,
+  });
   const workspaceProvider =
     source?.kind === "workspace_connection" && source.id === provider
       ? getWorkspaceConnectionProvider(source.id)
@@ -81,6 +172,36 @@ export function McpAgentKitConnectionRequestCard({
   useEffect(() => {
     if (status === "failed") setWorkspaceSetupOpened(false);
   }, [status]);
+  const resolveExcludedRequest = useCallback(() => {
+    if (settledRef.current) return;
+    const marker = getExcludedConnectionRequestMarker(targetKey);
+    if (marker === "handled") {
+      settledRef.current = true;
+      return;
+    }
+    settledRef.current = true;
+    setExcludedRequestResolutionPending(true);
+    void Promise.resolve()
+      .then(() => onDeclinedRef.current())
+      .then(() => {
+        markExcludedConnectionRequestHandled(
+          targetKey,
+          marker === "unavailable",
+        );
+        setExcludedRequestResolutionFailed(false);
+      })
+      .catch(() => {
+        settledRef.current = false;
+        setExcludedRequestResolutionFailed(true);
+      })
+      .finally(() => {
+        setExcludedRequestResolutionPending(false);
+      });
+  }, [targetKey]);
+  useEffect(() => {
+    if (!integrationExcluded || status !== "requested") return;
+    resolveExcludedRequest();
+  }, [integrationExcluded, resolveExcludedRequest, status]);
   const settle = async (callback: () => void | Promise<void>) => {
     if (settledRef.current) return;
     settledRef.current = true;
@@ -91,6 +212,28 @@ export function McpAgentKitConnectionRequestCard({
       throw error;
     }
   };
+  if (integrationExcluded) {
+    return excludedRequestResolutionFailed ? (
+      <div className="agentkit-command-error" role="alert">
+        <IconAlertCircle aria-hidden="true" className="agentkit-icon" />
+        <span>{t("agentChat.connection.failed")}</span>
+        <Button
+          type="button"
+          variant="outline"
+          size="xs"
+          disabled={excludedRequestResolutionPending}
+          onClick={resolveExcludedRequest}
+        >
+          {excludedRequestResolutionPending ? (
+            <IconLoader2 aria-hidden="true" className="animate-spin" />
+          ) : null}
+          {t("agentChat.common.retry")}
+        </Button>
+      </div>
+    ) : (
+      fallback
+    );
+  }
   if (source?.kind === "workspace_connection") {
     if (!workspaceProvider || !appId) return fallback;
     const request: AgentConnectionRequest = {
@@ -115,9 +258,7 @@ export function McpAgentKitConnectionRequestCard({
             if (!setupWindow) return false;
             try {
               setupWindow.opener = null;
-              setupWindow.location.assign(
-                dispatchIntegrationsHref(workspaceApps),
-              );
+              setupWindow.location.assign(dispatchApiKeysHref(workspaceApps));
             } catch {
               setupWindow.close();
               return false;
@@ -180,6 +321,7 @@ export function McpAgentKitConnectionRequestCard({
       requestedByAgent
       integrationId={integration.id}
       integrations={integrations}
+      excludedIntegrationIds={excludedIntegrationIds}
       onConnected={() => settle(onConnected)}
       onDismiss={() => settle(onDeclined)}
       onOAuthStart={(url) => {
@@ -193,11 +335,20 @@ export function McpAgentKitConnectionRequestCard({
   );
 }
 
+/**
+ * Returned by `onResume` when the saved request belongs to another chat. The
+ * record is left for its owner, so nothing is cleared, retried, or reported.
+ */
+export type McpAgentKitResumeNotOwned = "not-owner";
+
 export interface McpAgentKitConnectionResumeProps {
   onResume: (
     target: McpAgentKitConnectionTarget,
     request: McpConnectionResumeRequest,
-  ) => void | Promise<void>;
+  ) =>
+    | void
+    | McpAgentKitResumeNotOwned
+    | Promise<void | McpAgentKitResumeNotOwned>;
   onMessageResume?: (
     request: McpConnectionResumeRequest,
   ) => void | Promise<void>;
@@ -221,10 +372,15 @@ export function McpAgentKitConnectionResume({
       const pending = getPendingMcpConnectionResume();
       if (!pending) return;
       processingRef.current = true;
+      setFailed(false);
       try {
         if (pending.agentKit) {
           try {
-            await onResumeRef.current(pending.agentKit, pending);
+            const outcome = await onResumeRef.current(
+              pending.agentKit,
+              pending,
+            );
+            if (outcome === "not-owner") return;
           } catch (error) {
             if (
               !(error instanceof Error) ||
@@ -240,7 +396,6 @@ export function McpAgentKitConnectionResume({
           await onMessageResumeRef.current(pending);
         }
         clearMcpConnectionResume(pending);
-        setFailed(false);
       } finally {
         processingRef.current = false;
       }

@@ -347,9 +347,12 @@ describe("property-query failure UI", () => {
     expect(source).toContain("<QueryErrorState");
     expect(source).toContain("onRetry={() => globalThis.location.reload()}");
     expect(source).toContain(
-      "const primaryAvailable = !query.isError && primaryBlocksFieldAvailable(state)",
+      "const hasQueryError = !usePagePropertiesOnly && query.isError",
     );
-    expect(source.indexOf("if (query.isError)")).toBeLessThan(
+    expect(source).toContain(
+      "const primaryAvailable = !hasQueryError && primaryBlocksFieldAvailable(state)",
+    );
+    expect(source.indexOf("if (hasQueryError)")).toBeLessThan(
       source.indexOf("switch (state.kind)"),
     );
   });

@@ -31,6 +31,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
 import { usePlanImageUpload } from "../../hooks/use-plan-image-upload";
+import { updatePlanBlocks } from "./plan-block-structure";
 import { PlanImageViewer } from "./PlanImageViewer";
 import { PlanMarkdownReader } from "./PlanMarkdownReader";
 import { Wireframe } from "./wireframe/Wireframe";
@@ -201,6 +202,7 @@ function PlanBlockViewInner({
         }
         ctx={blockRegistry.ctx}
         compactVisuals={compactVisuals}
+        interactive
       />
     );
     const surface = blockEditSurface(spec);
@@ -714,7 +716,7 @@ function TabsBlock({
                         tab.id === active.id
                           ? {
                               ...tab,
-                              blocks: updateBlocks(
+                              blocks: updatePlanBlocks(
                                 tab.blocks,
                                 child.id,
                                 () => nextChild,
@@ -1132,25 +1134,4 @@ function ImageBlock({
 function imageSrcForAsset(assetId?: string): string | undefined {
   if (!assetId) return undefined;
   return `/_agent-native/plan-asset/${encodeURIComponent(assetId)}/image`;
-}
-
-function updateBlocks(
-  blocks: PlanBlock[],
-  id: string,
-  updater: (block: PlanBlock) => PlanBlock,
-): PlanBlock[] {
-  return blocks.map((block) => {
-    if (block.id === id) return updater(block);
-    if (block.type !== "tabs") return block;
-    return {
-      ...block,
-      data: {
-        ...block.data,
-        tabs: block.data.tabs.map((tab) => ({
-          ...tab,
-          blocks: updateBlocks(tab.blocks, id, updater),
-        })),
-      },
-    };
-  });
 }

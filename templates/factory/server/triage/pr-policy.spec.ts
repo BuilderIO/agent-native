@@ -1089,6 +1089,7 @@ describe("pull-request governance", () => {
       "templates/design/app/lib/figma-svg-copy.ts",
       "templates/design/app/pages/design-editor/commands/pasted-svg.ts",
       "templates/plan/server/plan-content.ts",
+      "templates/design/server/routes/api/qa-import-assets/[assetId].get.ts",
       "templates/design/server/routes/api/qa-figma-import-assets/[assetId].get.ts",
       "packages/core/src/client/chat/markdown-renderer.tsx",
       "packages/docs/app/components/MarkdownRenderer.tsx",

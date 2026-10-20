@@ -7,7 +7,9 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
-import { runMigrations, type MigrationEntry } from "../db/migrations.js";
+import type { MigrationEntry } from "../db/migrations.js";
+import { defineStore } from "../db/store-registry.js";
+import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
 
 const TABLE = "automation_trigger_event_queue";
 const SWEEP_STATE_TABLE = "automation_trigger_event_queue_sweep_state";
@@ -101,70 +103,78 @@ export const AUTOMATION_TRIGGER_EVENT_MIGRATIONS: MigrationEntry[] = [
   },
 ];
 
+export const automationTriggerEventsStore = defineStore({
+  id: "automation_trigger_events",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        await ensureTableExists(TABLE, CREATE_TABLE_SQL);
+        await ensureTableExists(
+          SWEEP_STATE_TABLE,
+          CREATE_SWEEP_STATE_TABLE_SQL,
+        );
+        await ensureColumnExists(
+          TABLE,
+          "failure_attempts",
+          `ALTER TABLE ${TABLE}
+            ADD COLUMN IF NOT EXISTS failure_attempts BIGINT NOT NULL DEFAULT 0`,
+        );
+        await ensureIndexExists(
+          UNIQUE_INDEX,
+          `CREATE UNIQUE INDEX IF NOT EXISTS ${UNIQUE_INDEX}
+            ON ${TABLE} (trigger_id, event_id)`,
+        );
+        await ensureIndexExists(
+          ORDER_INDEX,
+          `CREATE INDEX IF NOT EXISTS ${ORDER_INDEX}
+            ON ${TABLE} (trigger_id, sequence_id, status)`,
+        );
+        await ensureIndexExists(
+          READY_INDEX,
+          `CREATE INDEX IF NOT EXISTS ${READY_INDEX}
+            ON ${TABLE} (app_id, status, available_at, claimed_at)`,
+        );
+        await ensureIndexExists(
+          ACTIVE_HEAD_INDEX,
+          `CREATE INDEX IF NOT EXISTS ${ACTIVE_HEAD_INDEX}
+            ON ${TABLE} (app_id, trigger_id, sequence_id)
+            WHERE status IN ('pending', 'processing')`,
+        );
+        await ensureIndexExists(
+          FAILED_INDEX,
+          `CREATE INDEX IF NOT EXISTS ${FAILED_INDEX}
+            ON ${TABLE} (completed_at) WHERE status = 'failed'`,
+        );
+        await ensureIndexExists(
+          STALE_EVENT_INDEX,
+          `CREATE INDEX IF NOT EXISTS ${STALE_EVENT_INDEX}
+            ON ${TABLE} (app_id, event_name, emitted_at)
+            WHERE status = 'pending'`,
+        );
+        await ensureIndexExists(
+          COMPLETED_INDEX,
+          `CREATE INDEX IF NOT EXISTS ${COMPLETED_INDEX}
+            ON ${TABLE} (completed_at) WHERE status = 'completed'`,
+        );
+      },
+    },
+    ...fromMigrationEntries(
+      "_automation_trigger_event_migrations",
+      AUTOMATION_TRIGGER_EVENT_MIGRATIONS,
+    ),
+  ],
+});
+
+/** Kept for callers of the export; the store owns these migrations. */
 export async function runAutomationTriggerEventMigrations(
-  nitroApp: unknown,
+  _nitroApp?: unknown,
 ): Promise<void> {
-  await runMigrations(AUTOMATION_TRIGGER_EVENT_MIGRATIONS, {
-    table: "_automation_trigger_event_migrations",
-  })(nitroApp);
+  await automationTriggerEventsStore.ready();
 }
 
-let _initPromise: Promise<void> | undefined;
-
-export async function ensureAutomationTriggerEventQueue(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      await ensureTableExists(TABLE, CREATE_TABLE_SQL);
-      await ensureTableExists(SWEEP_STATE_TABLE, CREATE_SWEEP_STATE_TABLE_SQL);
-      await ensureColumnExists(
-        TABLE,
-        "failure_attempts",
-        `ALTER TABLE ${TABLE}
-          ADD COLUMN IF NOT EXISTS failure_attempts BIGINT NOT NULL DEFAULT 0`,
-      );
-      await ensureIndexExists(
-        UNIQUE_INDEX,
-        `CREATE UNIQUE INDEX IF NOT EXISTS ${UNIQUE_INDEX}
-          ON ${TABLE} (trigger_id, event_id)`,
-      );
-      await ensureIndexExists(
-        ORDER_INDEX,
-        `CREATE INDEX IF NOT EXISTS ${ORDER_INDEX}
-          ON ${TABLE} (trigger_id, sequence_id, status)`,
-      );
-      await ensureIndexExists(
-        READY_INDEX,
-        `CREATE INDEX IF NOT EXISTS ${READY_INDEX}
-          ON ${TABLE} (app_id, status, available_at, claimed_at)`,
-      );
-      await ensureIndexExists(
-        ACTIVE_HEAD_INDEX,
-        `CREATE INDEX IF NOT EXISTS ${ACTIVE_HEAD_INDEX}
-          ON ${TABLE} (app_id, trigger_id, sequence_id)
-          WHERE status IN ('pending', 'processing')`,
-      );
-      await ensureIndexExists(
-        FAILED_INDEX,
-        `CREATE INDEX IF NOT EXISTS ${FAILED_INDEX}
-          ON ${TABLE} (completed_at) WHERE status = 'failed'`,
-      );
-      await ensureIndexExists(
-        STALE_EVENT_INDEX,
-        `CREATE INDEX IF NOT EXISTS ${STALE_EVENT_INDEX}
-          ON ${TABLE} (app_id, event_name, emitted_at)
-          WHERE status = 'pending'`,
-      );
-      await ensureIndexExists(
-        COMPLETED_INDEX,
-        `CREATE INDEX IF NOT EXISTS ${COMPLETED_INDEX}
-          ON ${TABLE} (completed_at) WHERE status = 'completed'`,
-      );
-    })().catch((error) => {
-      _initPromise = undefined;
-      throw error;
-    });
-  }
-  return _initPromise;
+export function ensureAutomationTriggerEventQueue(): Promise<void> {
+  return automationTriggerEventsStore.ready();
 }
 
 export interface EnqueueAutomationTriggerEventInput {

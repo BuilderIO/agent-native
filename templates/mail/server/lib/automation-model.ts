@@ -4,6 +4,10 @@ import {
   registerBuiltinEngines,
   resolveEngine,
 } from "@agent-native/core/agent/engine";
+import type {
+  AI_SDK_MODEL_CONFIG,
+  BUILDER_MODEL_CONFIG,
+} from "@agent-native/core/agent/model-config";
 import {
   getJevContextCredentials,
   isJevEnabled,
@@ -17,14 +21,25 @@ export interface AutomationModelSettings {
 }
 
 export const DEFAULT_AUTOMATION_ENGINE = "builder";
-export const DEFAULT_AUTOMATION_MODEL = "gpt-5-6-luna";
+// Each id is typed against its engine's catalog so a retired id fails
+// typecheck instead of every automation on that engine.
+export const DEFAULT_AUTOMATION_MODEL =
+  "gpt-6-luna" satisfies (typeof BUILDER_MODEL_CONFIG.supportedModels)[number];
 export const TYPESAFE_AUTOMATION_ENGINE = "typesafe";
 export const TYPESAFE_AUTOMATION_MODEL = "jev-latest";
 
 const CHEAP_MODEL_CANDIDATES: AutomationModelSettings[] = [
   { engine: DEFAULT_AUTOMATION_ENGINE, model: DEFAULT_AUTOMATION_MODEL },
-  { engine: "ai-sdk:openai", model: "gpt-5.6-luna" },
-  { engine: "ai-sdk:openrouter", model: "openai/gpt-5.6-luna" },
+  {
+    engine: "ai-sdk:openai",
+    model:
+      "gpt-6-luna" satisfies (typeof AI_SDK_MODEL_CONFIG.openai.supportedModels)[number],
+  },
+  {
+    engine: "ai-sdk:openrouter",
+    model:
+      "openai/gpt-6-luna" satisfies (typeof AI_SDK_MODEL_CONFIG.openrouter.supportedModels)[number],
+  },
 ];
 
 function isUnavailableEngineError(error: unknown): boolean {

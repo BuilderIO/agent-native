@@ -116,7 +116,7 @@ describe("query-observability-review-panel access", () => {
     expect(mocks.resolveAnalyticsPanelSource).toHaveBeenCalledWith(
       {
         source: "bigquery",
-        query: "SELECT * FROM orders WHERE customer = 'O''Brien'",
+        query: String.raw`SELECT * FROM orders WHERE customer = 'O\'Brien'`,
       },
       { userEmail: "admin@example.com", orgId: "org-a" },
     );
@@ -151,7 +151,7 @@ describe("query-observability-review-panel access", () => {
     expect(mocks.resolveAnalyticsPanelSource).toHaveBeenCalledWith(
       {
         source: "bigquery",
-        query: "SELECT * FROM orders WHERE customer = 'O''Brien'",
+        query: String.raw`SELECT * FROM orders WHERE customer = 'O\'Brien'`,
       },
       {
         userEmail: "admin@example.com",

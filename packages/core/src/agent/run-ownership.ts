@@ -1,4 +1,4 @@
-import { getThread, resolveThreadAccess } from "../chat-threads/store.js";
+import { getThread, hasThreadAccess } from "../chat-threads/store.js";
 import type { AccessContext } from "../sharing/access.js";
 import type { ShareRole } from "../sharing/schema.js";
 import { getRun } from "./run-manager.js";
@@ -29,7 +29,7 @@ export async function callerHasThreadAccess(
   ctx: Omit<AccessContext, "userEmail"> = {},
 ): Promise<boolean> {
   if (!threadId) return false;
-  return !!(await resolveThreadAccess(owner, threadId, role, ctx));
+  return hasThreadAccess(owner, threadId, role, ctx);
 }
 
 export async function callerOwnsRun(

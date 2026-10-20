@@ -6,10 +6,17 @@ import {
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
+import { readAnalyticsAnonymousId } from "@agent-native/core/tracking";
 import { and, asc, eq, isNull, not, or, sql } from "drizzle-orm";
-import { defineEventHandler, getRequestIP, setResponseStatus } from "h3";
+import {
+  defineEventHandler,
+  getRequestHeader,
+  getRequestIP,
+  setResponseStatus,
+} from "h3";
 
 import { getDb, schema } from "../../db/index.js";
+import { trackClipEventForOwner } from "../../lib/clip-funnel-tracking.js";
 import {
   nanoid,
   ownerEmailMatches,
@@ -327,7 +334,6 @@ export default defineEventHandler(async (event) => {
             lastViewedAt: now,
             totalWatchMs: sql`CASE WHEN ${schema.recordingViewers.totalWatchMs} > ${Math.floor(totalWatchMs)} THEN ${schema.recordingViewers.totalWatchMs} ELSE ${Math.floor(totalWatchMs)} END`,
             completedPct: sql`CASE WHEN ${schema.recordingViewers.completedPct} > ${Math.floor(completedPct)} THEN ${schema.recordingViewers.completedPct} ELSE ${Math.floor(completedPct)} END`,
-            ...(meetsThreshold ? { countedView: true } : {}),
             ...(kind === "cta-click" ? { ctaClicked: true } : {}),
           })
           .where(
@@ -336,6 +342,25 @@ export default defineEventHandler(async (event) => {
               eq(schema.recordingViewers.viewerKey, viewerKey),
             ),
           );
+
+        // The only place a viewer becomes counted: a concurrent post for the
+        // same viewer waits on this row lock, then matches nothing, so exactly
+        // one request observes the transition.
+        const becameCounted = meetsThreshold
+          ? (
+              await tx
+                .update(schema.recordingViewers)
+                .set({ countedView: true })
+                .where(
+                  and(
+                    eq(schema.recordingViewers.recordingId, recordingId),
+                    eq(schema.recordingViewers.viewerKey, viewerKey),
+                    eq(schema.recordingViewers.countedView, false),
+                  ),
+                )
+                .returning({ id: schema.recordingViewers.id })
+            ).length > 0
+          : false;
 
         await tx.insert(schema.recordingEvents).values({
           id: nanoid(),
@@ -376,15 +401,32 @@ export default defineEventHandler(async (event) => {
           )
           .limit(1);
         if (!updated) throw new Error("Canonical recording viewer disappeared");
-        return updated;
+        return { countedView: updated.countedView, becameCounted };
       });
 
       const ownerEmail = rec.ownerEmail?.trim();
-      const transitionedToCountedView =
-        !existing.countedView && persisted.countedView;
+      const transitionedToCountedView = persisted.becameCounted;
       const viewerIsOwner =
         Boolean(viewerEmail && ownerEmail) &&
         viewerEmail!.trim().toLowerCase() === ownerEmail!.toLowerCase();
+      if (transitionedToCountedView && !viewerIsOwner) {
+        trackClipEventForOwner(
+          event,
+          "clip_view_counted",
+          ownerEmail,
+          {
+            output_id: recordingId,
+            viewer_id: viewerId,
+            viewer_signed_in: Boolean(viewerEmail),
+          },
+          {
+            userId: viewerEmail ?? undefined,
+            anonymousId: readAnalyticsAnonymousId(
+              getRequestHeader(event, "cookie"),
+            ),
+          },
+        );
+      }
       if (transitionedToCountedView && ownerEmail && !viewerIsOwner) {
         try {
           const { enabledAt } = await transactionalEmailStore.ensureEnabledAt();

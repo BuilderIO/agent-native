@@ -29,7 +29,9 @@ Mantén disponible una dirección de administrador de inicio verificada para la 
 
 ## Claves y roles de empresa
 
-Un propietario o administrador puede guardar una clave LLM de la organización. La configuración del proveedor guarda estas claves solo para la organización, por lo que todos usan la misma clave de empresa. Las filas personales de versiones anteriores se eliminan al guardar una clave de organización, o pueden borrarse antes desde la configuración del proveedor.
+En un despliegue administrado, un propietario o administrador guarda la clave LLM de la empresa para la organización desde la configuración del proveedor y activa **Restringir claves API personales** (`manage-provider-key-policy`) para que los miembros usen los proveedores de la empresa. La restricción impide que los miembros guarden o usen claves personales de proveedores; las claves almacenadas se conservan y vuelven a funcionar al desactivar el ajuste. Los propietarios y administradores pueden conservar una clave personal como alternativa.
+
+Sin la restricción, los miembros guardan claves de proveedores de forma personal y no ven un selector de ámbito. Los propietarios y administradores las guardan para la organización de forma predeterminada y pueden elegir **Personal**. Los miembros usan primero su propia clave; los propietarios y administradores, la de la organización. Consulta [Roles en Configuración](/docs/toolkit-settings#roles).
 
 El campo de modelo muestra modelos actuales como sugerencias y permite escribir cualquier ID compatible con el proveedor o gateway.
 

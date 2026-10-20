@@ -285,10 +285,11 @@ export function resolveRealtimeVoiceLanguage(
 
 export function realtimeVoiceReasoningEffort(
   intelligence: RealtimeVoiceIntelligence,
+  protocol?: RealtimeVoiceProtocol,
 ): "minimal" | "low" | "medium" {
   if (intelligence === "balanced") return "low";
   if (intelligence === "deep") return "medium";
-  return "minimal";
+  return protocol === "live" ? "low" : "minimal";
 }
 
 export function createRealtimeVoicePreferenceUpdate(
@@ -306,7 +307,10 @@ export function createRealtimeVoicePreferenceUpdate(
         delegation: {
           responses: {
             reasoning: {
-              effort: realtimeVoiceReasoningEffort(preferences.intelligence),
+              effort: realtimeVoiceReasoningEffort(
+                preferences.intelligence,
+                options.protocol,
+              ),
             },
           },
         },

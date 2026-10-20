@@ -113,6 +113,7 @@ TypeScript फ़ाइल है, जो अपने आप `POST /_agent-nati
 | `list-figma-library-assets`   | किसी Figma-कनेक्टेड लाइब्रेरी से इंसर्ट किए जा सकने वाले कंपोनेंट लिस्ट करें                                                   |
 | `insert-figma-library-asset`  | डिज़ाइन में एक पब्लिश्ड Figma कंपोनेंट इंसर्ट करें                                                                             |
 | `hydrate-figma-paste-images`  | किसी Figma क्लिपबोर्ड पेस्ट से इमेज रेफ़रेंस रिज़ॉल्व करें                                                                     |
+| `fill-figma-paste-image`      | पेस्ट की गई Figma की गायब इमेज को अपलोड की गई इमेज से भरें                                                                     |
 
 ### ब्रेकपॉइंट और स्क्रीन स्टेट
 
@@ -199,16 +200,16 @@ TypeScript फ़ाइल है, जो अपने आप `POST /_agent-nati
 
 | Action                         | यह क्या करता है                                                                         |
 | ------------------------------ | --------------------------------------------------------------------------------------- |
-| `create-fusion-app`            | एक Builder Fusion branch प्रोविज़न करें और किसी प्रॉम्प्ट से एक असली ऐप स्कैफ़ोल्ड करें |
-| `sync-fusion-app`              | किसी fusion branch के कंटेनर को उसके प्रीव्यू URL के लिए पोल करें                       |
-| `add-fusion-screens`           | किसी fusion-बैक्ड डिज़ाइन में स्क्रीन जोड़ें                                            |
-| `queue-fusion-edit`            | ऐप के अपने कोडिंग एजेंट के लिए एक एडिट को queue करें                                    |
-| `list-fusion-edits`            | queued और लागू किए गए fusion edits लिस्ट करें                                           |
-| `apply-fusion-edits`           | queued edits को ऐप के कोडिंग एजेंट को डिस्पैच करें                                      |
-| `send-fusion-message`          | fusion ऐप के कोडिंग एजेंट को एक मैसेज भेजें                                             |
-| `push-fusion-app`              | एक fusion branch पुश करें                                                               |
-| `deploy-fusion-app`            | किसी fusion branch को एक असली URL पर डिप्लॉय करें                                       |
-| `get-fusion-deploy-status`     | किसी डिप्लॉय की स्टेटस चेक करें                                                         |
+| `create-builder-app`           | एक Builder Fusion branch प्रोविज़न करें और किसी प्रॉम्प्ट से एक असली ऐप स्कैफ़ोल्ड करें |
+| `sync-builder-app`             | किसी fusion branch के कंटेनर को उसके प्रीव्यू URL के लिए पोल करें                       |
+| `add-builder-screens`          | किसी fusion-बैक्ड डिज़ाइन में स्क्रीन जोड़ें                                            |
+| `queue-builder-edit`           | ऐप के अपने कोडिंग एजेंट के लिए एक एडिट को queue करें                                    |
+| `list-builder-edits`           | queued और लागू किए गए fusion edits लिस्ट करें                                           |
+| `apply-builder-edits`          | queued edits को ऐप के कोडिंग एजेंट को डिस्पैच करें                                      |
+| `send-builder-message`         | fusion ऐप के कोडिंग एजेंट को एक मैसेज भेजें                                             |
+| `push-builder-app`             | एक fusion branch पुश करें                                                               |
+| `deploy-builder-app`           | किसी fusion branch को एक असली URL पर डिप्लॉय करें                                       |
+| `get-builder-deploy-status`    | किसी डिप्लॉय की स्टेटस चेक करें                                                         |
 | `create-design-branch`         | किसी fusion-बैक्ड डिज़ाइन के लिए एक नई branch बनाएं                                     |
 | `get-design-branch-diff`       | किसी fusion branch को पहले के वर्शन के ख़िलाफ़ डिफ़ करें                                |
 | `deploy-design-preview`        | किसी fusion-बैक्ड डिज़ाइन का एक प्रीव्यू डिप्लॉय करें                                   |

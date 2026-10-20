@@ -383,8 +383,9 @@ function KeyMenu({
   const t = useT();
   const test = async () => {
     const result = await testSavedApiKey(entry.name);
-    if (result.ok) toast.success(t(`${K}testPassed`));
-    else toast.error(result.error);
+    if (result.ok) {
+      toast.success(t(`${K}testPassed`));
+    } else toast.error(result.error);
   };
   return (
     <DropdownMenu>

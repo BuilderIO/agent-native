@@ -74,12 +74,8 @@ function mergeAttendees(
   return Array.from(merged.values());
 }
 
-function namesGuests(value: unknown): boolean {
-  if (typeof value !== "string" && !Array.isArray(value)) return false;
-  return (
-    (normalizeAttendees(value as Parameters<typeof normalizeAttendees>[0])
-      ?.length ?? 0) > 0
-  );
+function namesGuests(value: Parameters<typeof normalizeAttendees>[0]): boolean {
+  return (normalizeAttendees(value)?.length ?? 0) > 0;
 }
 
 function workingLocationTitle(
@@ -106,6 +102,12 @@ function eventChange(id: string, title: string) {
 }
 
 export default defineAction({
+  mcpTool: true,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: true,
+  },
   description:
     "Update a Google Calendar event. Supports moving an existing event between connected Google account calendars, as well as title, description, location, time, event color, attachments, reminders, and recurrence rules such as RRULE:FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR.",
   schema: z.object({

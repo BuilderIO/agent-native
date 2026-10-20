@@ -10,3 +10,5 @@ Core はアプリケーション状態、スコープ付きアクセス、Contex
 Context X-Ray エンジンは Core 所有のままです。一貫した表示には Toolkit を使いますが、状態とアクセスの判断は Core と actions に置きます。[Context awareness](/docs/context-awareness) はナビゲーション、選択、注目中のオブジェクトをエージェントに公開し、[Resources](/docs/toolkit-resources) はファイルと添付を扱います。
 
 コンテキストはアクセス制御を置き換えません。プロバイダー知識を取得する前に、リソースと資格情報の確認を維持してください。
+
+Toolkitは@agent-native/toolkit/app/context-xrayからパネルを提供します。アプリがmanifest、pin/evictの楽観的状態、callbackを渡します。パネルはデータ取得やaction呼び出しを行いません。

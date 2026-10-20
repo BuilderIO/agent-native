@@ -39,6 +39,7 @@ import {
   prepareContentHistoryReplay,
   STALE_CONTENT_HISTORY_REPLAY,
 } from "@/pages/design-editor/commands/prepare-content-history-replay";
+import { flushCommitsAfterPaint } from "@/pages/design-editor/commit-after-paint";
 import type { DesignDataOperation } from "@/pages/design-editor/data-operations";
 import { applyDesignDataOperations } from "@/pages/design-editor/data-operations";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
@@ -171,6 +172,7 @@ export interface RedoArgs {
       refreshPreview?: boolean;
       skipPreview?: boolean;
       forcePreviewFullDocument?: boolean;
+      allowPreviewNodeSwap?: boolean;
       immediateSave?: boolean;
       persist?: boolean;
       recordHistory?: boolean;
@@ -183,7 +185,9 @@ export interface RedoArgs {
   allowPendingLiveEdits?: boolean;
   clipboardPasteRedoStackRef: RefObject<ContentHistoryChange[]>;
   clipboardPasteUndoStackRef: RefObject<ContentHistoryChange[]>;
-  codeLayerOwnerByNodeIdRef: RefObject<Map<string, { node: CodeLayerNode }>>;
+  codeLayerOwnerByNodeIdRef: RefObject<
+    ReadonlyMap<string, { node: CodeLayerNode }>
+  >;
   contentHistorySelectionAfterRef: RefObject<ContentHistorySelectionAfterMap>;
   contentRedoSelectionStackRef: RefObject<
     (GeometryHistorySelection | undefined)[]
@@ -254,7 +258,12 @@ export interface RedoArgs {
   pendingLocalFileContentsRef: RefObject<
     Map<
       string,
-      { content: string; startedAt: number; baseUpdatedAt?: string | null }
+      {
+        content: string;
+        startedAt: number;
+        baseUpdatedAt?: string | null;
+        deferCollabReconcile?: boolean;
+      }
     >
   >;
   pendingStructureRedoReplayRef: RefObject<
@@ -308,7 +317,7 @@ export interface RedoArgs {
   replacePreviewContent: (
     nextContent: string,
     selector?: string | null,
-    options?: { forceFullDocument?: boolean },
+    options?: { forceFullDocument?: boolean; allowSourceNodeSwap?: boolean },
   ) => PreviewContentReplaceResult;
   restoreSelectionSnapshot: (
     selection: GeometryHistorySelection | undefined,
@@ -505,6 +514,7 @@ export function runRedo({
   writeFrameGeometrySnapshot,
   ydoc,
 }: RedoArgs) {
+  flushCommitsAfterPaint();
   const restoreHistorySelection = (
     selection: GeometryHistorySelection | undefined,
     replaySources: Record<string, string> = {},
@@ -912,9 +922,13 @@ export function runRedo({
         clipboardPasteRedoStackRef.current.length - 1
       ];
     if (!clipboardPasteRedo) return false;
+    const pendingPasteContent = pendingLocalFileContentsRef.current.get(
+      clipboardPasteRedo.fileId,
+    );
     const currentContent =
-      pendingLocalFileContentsRef.current.get(clipboardPasteRedo.fileId)
-        ?.content ??
+      (pendingPasteContent?.deferCollabReconcile
+        ? undefined
+        : pendingPasteContent?.content) ??
       (clipboardPasteRedo.fileId === activeFile?.id
         ? getFreshActiveContent()
         : (getScreenContent(clipboardPasteRedo.fileId) ?? ""));
@@ -938,6 +952,7 @@ export function runRedo({
         ? applyLocalContentUpdate(clipboardPasteRedo.after, {
             recordHistory: false,
             forcePreviewFullDocument: true,
+            allowPreviewNodeSwap: true,
             immediateSave: true,
             clipboardMutation,
           })
@@ -999,6 +1014,7 @@ export function runRedo({
           previewContentReplaceNeedsRenderFallback(
             replacePreviewContent(next, null, {
               forceFullDocument: true,
+              allowSourceNodeSwap: true,
             }),
           )
         ) {
@@ -1081,11 +1097,18 @@ export function runRedo({
             applyLocalContentUpdate(entry.after, {
               refreshPreview: false,
               forcePreviewFullDocument: true,
+              allowPreviewNodeSwap: true,
               immediateSave: true,
               recordHistory: false,
             });
           }
           setSelectedElement((prev) => {
+            if (entry.selectionAfter)
+              return resolveLocalHistorySelection(
+                entry.selectionAfter,
+                entry.fileId,
+                entry.after,
+              ).selectedElement;
             if (!prev) return prev;
             return refreshElementInfoFromContent(entry.after, prev, {
               kind: "design-file",
@@ -1100,10 +1123,16 @@ export function runRedo({
             });
           });
           setSelectedLayerIdsState((prev) =>
-            refreshSelectedLayerIdsFromContent(entry.after, prev, {
-              kind: "design-file",
-              fileId: entry.fileId,
-            }),
+            entry.selectionAfter
+              ? resolveLocalHistorySelection(
+                  entry.selectionAfter,
+                  entry.fileId,
+                  entry.after,
+                ).selectedLayerIds
+              : refreshSelectedLayerIdsFromContent(entry.after, prev, {
+                  kind: "design-file",
+                  fileId: entry.fileId,
+                }),
           );
           return true;
         }
@@ -1179,6 +1208,7 @@ export function runRedo({
                   historyBeforeContent: prepared.historyBeforeContent,
                   refreshPreview: false,
                   forcePreviewFullDocument: true,
+                  allowPreviewNodeSwap: true,
                   immediateSave: true,
                   recordHistory: false,
                 })

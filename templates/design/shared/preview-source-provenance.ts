@@ -1,6 +1,8 @@
 import { parse } from "parse5";
 
+import { isStructurePreservingEdit } from "./code-layer";
 import { scriptGrammar } from "./html-integrity";
+import { memoizeByContent } from "./memoize-by-content";
 import { sourceContentHash } from "./source-workspace";
 
 export interface SourceDocumentProvenance {
@@ -34,12 +36,13 @@ type SourceTreeNode = {
   content?: { childNodes?: SourceTreeNode[] };
 };
 
-export function createSourceDocumentProvenance(
+export function sourceDocumentProvenanceFromTree(
+  root: unknown,
   content: string,
 ): SourceDocumentProvenance {
   const counts = new Map<string, number>();
   let hasExecutableScript = false;
-  const stack = [parse(content) as unknown as SourceTreeNode];
+  const stack = [root as SourceTreeNode];
   while (stack.length > 0) {
     const node = stack.pop()!;
     if (
@@ -69,6 +72,19 @@ export function createSourceDocumentProvenance(
       .sort(),
   };
 }
+
+export const createSourceDocumentProvenance = memoizeByContent(
+  96,
+  (content: string) =>
+    sourceDocumentProvenanceFromTree(parse(content), content),
+  (previousContent, previous, content) =>
+    isStructurePreservingEdit(previousContent, content)
+      ? {
+          versionHash: previous.versionHash ? sourceContentHash(content) : "",
+          uniqueNodeIds: previous.uniqueNodeIds,
+        }
+      : null,
+);
 
 export function readSourceNodeProvenance(
   value: unknown,

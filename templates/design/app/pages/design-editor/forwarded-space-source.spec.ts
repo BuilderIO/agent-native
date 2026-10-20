@@ -7,27 +7,31 @@ import { fileURLToPath } from "node:url";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { readDesignEditorSource } from "./read-design-editor-source";
+
 const requireFromDesign = createRequire(
   path.resolve(process.cwd(), "package.json"),
 );
 const { chromium } = requireFromDesign("@playwright/test");
 const { transformSync } = requireFromDesign("esbuild");
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SOURCE =
-  process.env.SPACE_DESIGN_EDITOR_SOURCE ||
-  path.resolve(HERE, "../DesignEditor.tsx");
+const SOURCE_OVERRIDE = process.env.SPACE_DESIGN_EDITOR_SOURCE;
 const TOOL_STATE = path.join(HERE, "tool-state.ts");
 const START = "const handleWindowKeyDown = (event: KeyboardEvent) => {";
 const END = 'window.addEventListener("keydown", handleWindowKeyDown';
 const HELPER_START = "export function resolveSpaceForwardTransition(";
 const HELPER_END = "export function isSingleScreenAnnotationTool";
 
-function extractHandlers(sourcePath: string): string {
-  const source = readFileSync(sourcePath, "utf8");
+function extractHandlers(): string {
+  const source = SOURCE_OVERRIDE
+    ? readFileSync(SOURCE_OVERRIDE, "utf8")
+    : readDesignEditorSource();
   const start = source.indexOf(START);
   const end = source.indexOf(END, start);
   if (start < 0 || end < 0)
-    throw new Error(`Space handlers not found in ${sourcePath}`);
+    throw new Error(
+      `Space handlers not found in ${SOURCE_OVERRIDE ?? "DesignEditor"}`,
+    );
   return transformSync(source.slice(start, end), { loader: "tsx" }).code;
 }
 
@@ -55,7 +59,7 @@ describe("DesignEditor Space source handler", () => {
   let transitionHelper: (...args: unknown[]) => unknown;
 
   beforeAll(async () => {
-    handlerSource = extractHandlers(SOURCE);
+    handlerSource = extractHandlers();
     transitionHelper = loadTransitionHelper(TOOL_STATE);
     browser = await chromium.launch({ headless: true });
     page = await browser.newPage();
@@ -71,6 +75,7 @@ describe("DesignEditor Space source handler", () => {
       target?: "layer-row";
     }>,
     canEditDesign = true,
+    interact = false,
   ) {
     return page.evaluate(
       ({
@@ -78,6 +83,7 @@ describe("DesignEditor Space source handler", () => {
         helperSource,
         events,
         canEditDesign,
+        interact,
       }: {
         handlerSource: string;
         helperSource: string;
@@ -88,8 +94,10 @@ describe("DesignEditor Space source handler", () => {
           target?: "layer-row";
         }>;
         canEditDesign: boolean;
+        interact: boolean;
       }) => {
         const spaceForwardArmedRef = { current: false };
+        const interactOwnsSpaceRef = { current: interact };
         const activeEditorDragRef = { current: false };
         const canEditDesignRef = { current: canEditDesign };
         const spacePanStashedToolRef: { current: string | null } = {
@@ -110,6 +118,7 @@ describe("DesignEditor Space source handler", () => {
         const broadcastSpaceHeldToIframes = (held: boolean) =>
           broadcasts.push(held);
         const isDesignHotkeyEditableTarget = () => false;
+        const isKeyboardShortcutsDialogTarget = () => false;
         const rowButton = document.createElement("button");
         rowButton.setAttribute("data-layer-row-button", "");
         document.body.append(rowButton);
@@ -125,6 +134,7 @@ describe("DesignEditor Space source handler", () => {
           "window",
           "resolveSpaceForwardTransition",
           "spaceForwardArmedRef",
+          "interactOwnsSpaceRef",
           "activeEditorDragRef",
           "canEditDesignRef",
           "spacePanStashedToolRef",
@@ -134,11 +144,13 @@ describe("DesignEditor Space source handler", () => {
           "broadcastSpaceHeldToIframes",
           "isDesignHotkeyEditableTarget",
           "isNativeKeyboardActivationTarget",
+          "isKeyboardShortcutsDialogTarget",
           `${handlerSource}\nreturn { handleWindowKeyDown, handleWindowKeyUp, handleWindowBlur };`,
         )(
           window,
           resolveSpaceForwardTransition,
           spaceForwardArmedRef,
+          interactOwnsSpaceRef,
           activeEditorDragRef,
           canEditDesignRef,
           spacePanStashedToolRef,
@@ -148,6 +160,7 @@ describe("DesignEditor Space source handler", () => {
           broadcastSpaceHeldToIframes,
           isDesignHotkeyEditableTarget,
           isNativeKeyboardActivationTarget,
+          isKeyboardShortcutsDialogTarget,
         );
         window.addEventListener("keydown", handlers.handleWindowKeyDown, {
           capture: true,
@@ -194,9 +207,30 @@ describe("DesignEditor Space source handler", () => {
         helperSource: transitionHelper.toString(),
         events,
         canEditDesign,
+        interact,
       },
     );
   }
+
+  it("leaves Space to the page in Interact: no Hand tool, no pan, no cancelled key", async () => {
+    const result = await run(
+      [{ type: "keydown" }, { type: "keyup" }],
+      true,
+      true,
+    );
+    expect(result.prevented).toEqual([false, false]);
+    expect(result.activeTool).toBe("move");
+    expect(result.stashedTool).toBeNull();
+    expect(result.spacePanActive).toBe(false);
+    expect(result.broadcasts).toEqual([]);
+  });
+
+  it("still pans on Space outside Interact", async () => {
+    const result = await run([{ type: "keydown" }], false);
+    expect(result.prevented).toEqual([true]);
+    expect(result.activeTool).toBe("hand");
+    expect(result.spacePanActive).toBe(true);
+  });
 
   it("keeps a forwarded hold through mouseup and a duplicate nonrepeat keydown", async () => {
     const result = await run([

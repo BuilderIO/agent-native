@@ -584,14 +584,16 @@ export async function assertDerivedAudienceAccess(row: {
   }
 }
 
-export async function createSource(values: {
-  id?: string;
-  title: string;
-  provider: BrainSourceProvider;
-  config?: Record<string, unknown>;
-  visibility?: "private" | "org";
-}) {
-  const db = getDb();
+export async function createSource(
+  values: {
+    id?: string;
+    title: string;
+    provider: BrainSourceProvider;
+    config?: Record<string, unknown>;
+    visibility?: "private" | "org";
+  },
+  db: ReturnType<typeof getDb> = getDb(),
+) {
   const now = nowIso();
   const ownerEmail = requireUserEmail();
   const orgId = getRequestOrgId() ?? null;

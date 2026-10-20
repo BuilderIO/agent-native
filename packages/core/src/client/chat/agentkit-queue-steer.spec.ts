@@ -1,6 +1,7 @@
 import { AgentKitClient } from "@agent-native/agentkit/client";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { resetAgentEngineReadinessForTests } from "../agent-engine-readiness.js";
 import { createAgentNativeAgentKitTransport } from "./agentkit-agent-native.js";
 import type { AgentChatRuntime } from "./runtime.js";
 
@@ -10,6 +11,10 @@ const runStateMocks = vi.hoisted(() => ({
 
 vi.mock("../use-agent-chat-running-threads.js", () => runStateMocks);
 
+beforeEach(() => {
+  resetAgentEngineReadinessForTests();
+});
+
 function json(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), {
     status,
@@ -18,6 +23,159 @@ function json(value: unknown, status = 200): Response {
 }
 
 describe("AgentKit queued steering", () => {
+  it("persists the queued user's durable attachment in thread history", async () => {
+    const threadId = "thread-queued-attachment-history";
+    const messageId = "queued-image-history";
+    const attachmentUrl =
+      "https://storage.example/objects/3e085b35-ae52-4e37-9b03-01fb387a8165";
+    const queued = {
+      id: messageId,
+      threadId,
+      text: "Describe the queued reference image",
+      createdAt: "2026-10-01T00:00:00.000Z",
+      attachments: [
+        {
+          type: "file" as const,
+          name: "reference.png",
+          mediaType: "image/png",
+          url: attachmentUrl,
+        },
+      ],
+    };
+    let queue: Array<typeof queued & { promotionClaim?: object }> = [queued];
+    let threadData = JSON.stringify({ messages: [], queuedMessages: queue });
+    const persistedSnapshots: Array<Record<string, unknown>> = [];
+    let startedTurn: unknown;
+    const apiUrl = "/_agent-native/agent-chat";
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        const method = String(init?.method ?? "GET").toUpperCase();
+        if (url.startsWith(`${apiUrl}/runs/active?`)) {
+          return json({ active: false, status: "completed" });
+        }
+        if (url.endsWith(`/threads/${threadId}/queued`) && method === "POST") {
+          const { mutation } = JSON.parse(String(init?.body));
+          if (mutation.type === "claim") {
+            const index = queue.findIndex(
+              (message) => message.id === mutation.messageId,
+            );
+            const claimedMessage = {
+              ...queue[index]!,
+              promotionClaim: {
+                id: mutation.claimId,
+                expiresAt: Date.now() + 60_000,
+              },
+            };
+            queue[index] = claimedMessage;
+            return json({ queuedMessages: queue, claimedMessage });
+          }
+          if (mutation.type === "release") {
+            const index = queue.findIndex(
+              (message) => message.id === mutation.messageId,
+            );
+            const { promotionClaim: _claim, ...released } = queue[index]!;
+            queue[index] = released;
+            return json({ queuedMessages: queue, released: true });
+          }
+          return json({ queuedMessages: queue });
+        }
+        if (url.endsWith(`/threads/${threadId}`) && method === "GET") {
+          return json({
+            id: threadId,
+            createdAt: queued.createdAt,
+            updatedAt: queued.createdAt,
+            threadData,
+          });
+        }
+        if (url.endsWith(`/threads/${threadId}`) && method === "PUT") {
+          const body = JSON.parse(String(init?.body));
+          threadData = body.threadData;
+          persistedSnapshots.push(JSON.parse(threadData));
+          return json({ ok: true });
+        }
+        return json({ error: `Unexpected request: ${method} ${url}` }, 404);
+      },
+    );
+    const runtime: AgentChatRuntime = {
+      id: "test:queued-attachment-history",
+      kind: "external-agent",
+      label: "Queued attachment history test runtime",
+      capabilities: {
+        messages: { streaming: true, history: true },
+        tools: { events: true },
+        sessions: { create: true, persistent: true },
+      },
+      async createSession(input) {
+        const sessionId = input?.id ?? threadId;
+        return {
+          id: sessionId,
+          threadId,
+          runtimeId: "test:queued-attachment-history",
+          async startTurn(input) {
+            startedTurn = input;
+            queue = [];
+            return {
+              id: "turn-queued-image",
+              runId: "run-queued-image",
+              sessionId,
+              events: (async function* () {
+                yield { type: "done", reason: "complete" } as const;
+              })(),
+            };
+          },
+        };
+      },
+    };
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl,
+      fetch: fetcher as typeof fetch,
+      runtime,
+    });
+
+    try {
+      await expect(
+        transport.steerQueuedMessage?.({ threadId, messageId }),
+      ).resolves.toMatchObject({ runId: "run-queued-image" });
+
+      const storedMessage = persistedSnapshots
+        .flatMap(
+          (snapshot) =>
+            (snapshot.agentKit as { messages?: Array<Record<string, unknown>> })
+              ?.messages ?? [],
+        )
+        .find((message) => message.id === messageId);
+      expect(storedMessage).toMatchObject({
+        id: messageId,
+        role: "user",
+        parts: [
+          { type: "text", text: queued.text },
+          {
+            type: "file",
+            name: "reference.png",
+            mediaType: "image/png",
+            url: attachmentUrl,
+          },
+        ],
+      });
+      expect(JSON.stringify(persistedSnapshots)).not.toMatch(
+        /data:image|base64,/i,
+      );
+      expect(startedTurn).toMatchObject({
+        attachments: [
+          {
+            type: "image",
+            name: "reference.png",
+            contentType: "image/png",
+            url: attachmentUrl,
+          },
+        ],
+      });
+    } finally {
+      await transport.dispose();
+    }
+  });
+
   it.each([{ promoted: false }, { promoted: true }])(
     "reconciles an unknown claim against durable history before assuming promotion (%s)",
     async ({ promoted }) => {
@@ -186,7 +344,7 @@ describe("AgentKit queued steering", () => {
     await transport.dispose();
   });
 
-  it("cancels an active run and promotes a steered item through the real transport", async () => {
+  it("waits for dispatched work before cancelling and promoting a steered item", async () => {
     const threadId = "thread-queue-steer";
     const apiUrl = "/_agent-native/agent-chat";
     const queue: Array<
@@ -200,17 +358,31 @@ describe("AgentKit queued steering", () => {
     const cancellations: string[] = [];
     const mutations: string[] = [];
     let active = false;
+    let hasInFlightWork = false;
     let runNumber = 0;
     let releaseFirstRun: (() => void) | undefined;
     const fetcher = vi.fn(
       async (input: string | URL | Request, init?: RequestInit) => {
         const url = String(input);
         const method = String(init?.method ?? "GET").toUpperCase();
+        if (
+          new URL(url, "http://localhost").pathname ===
+          "/_agent-native/agent-engine/status"
+        ) {
+          return json({ configured: true, chatEligible: true });
+        }
         if (url.startsWith(`${apiUrl}/runs/active?`)) {
           activeReads.push(active);
           return json({
             active,
-            ...(active ? { status: "running", runId: "run-1" } : {}),
+            ...(active
+              ? {
+                  status: "running",
+                  runId: "run-1",
+                  turnId: "turn-1",
+                  hasInFlightWork,
+                }
+              : {}),
           });
         }
         if (url.endsWith(`/threads/${threadId}/queued`) && method === "POST") {
@@ -261,7 +433,7 @@ describe("AgentKit queued steering", () => {
           });
         }
         if (url.endsWith(`/threads/${threadId}`) && method === "PUT") {
-          return json({});
+          return json({ ok: true });
         }
         return json({ error: `Unexpected request: ${method} ${url}` }, 404);
       },
@@ -303,7 +475,10 @@ describe("AgentKit queued steering", () => {
             }
             turns.push(input);
             prompts.push(input.prompt ?? "");
-            if (currentRun === 1) active = true;
+            if (currentRun === 1) {
+              active = true;
+              hasInFlightWork = true;
+            }
             let release!: () => void;
             const stopped = new Promise<void>((resolve) => {
               release = resolve;
@@ -315,13 +490,17 @@ describe("AgentKit queued steering", () => {
               sessionId,
               events: (async function* () {
                 if (currentRun === 1) await stopped;
-                if (currentRun === 2) active = false;
+                if (currentRun === 2) {
+                  active = false;
+                  hasInFlightWork = false;
+                }
                 yield { type: "done", reason: "complete" } as const;
               })(),
               cancel: async () => {
                 cancellations.push(`run-${currentRun}`);
                 setTimeout(() => {
                   active = false;
+                  hasInFlightWork = false;
                 }, 700);
                 release();
                 return { status: "cancelled" } as const;
@@ -334,6 +513,7 @@ describe("AgentKit queued steering", () => {
         cancellations.push(runId ?? "");
         setTimeout(() => {
           active = false;
+          hasInFlightWork = false;
         }, 700);
         releaseFirstRun?.();
         return { status: "cancelled" };
@@ -380,12 +560,22 @@ describe("AgentKit queued steering", () => {
       expect(mutations).toEqual(["append", "claim", "release"]);
       expect(client.getThread(threadId).activeRunIds).toEqual(["run-1"]);
 
-      const steeredRun = await client.steerQueuedMessage(
+      const steering = client.steerQueuedMessage(
         threadId,
         queued.id,
         undefined,
         { interruptActiveRun: true },
       );
+      await vi.waitFor(() => {
+        expect(
+          mutations.filter((mutation) => mutation === "release"),
+        ).toHaveLength(2);
+      });
+      expect(cancellations).toEqual([]);
+      expect(queue[0]).not.toHaveProperty("promotionClaim");
+
+      hasInFlightWork = false;
+      const steeredRun = await steering;
 
       expect(cancellations).toEqual(["run-1"]);
       expect(active).toBe(false);
@@ -488,7 +678,7 @@ describe("AgentKit queued steering", () => {
           });
         }
         if (url.endsWith(`/threads/${threadId}`) && method === "PUT") {
-          return json({});
+          return json({ ok: true });
         }
         return json({ error: `Unexpected request: ${method} ${url}` }, 404);
       },
@@ -551,6 +741,12 @@ describe("AgentKit queued steering", () => {
       async (input: string | URL | Request, init?: RequestInit) => {
         const url = String(input);
         const method = String(init?.method ?? "GET").toUpperCase();
+        if (
+          new URL(url, "http://localhost").pathname ===
+          "/_agent-native/agent-engine/status"
+        ) {
+          return json({ configured: true, chatEligible: true });
+        }
         if (url === apiUrl && method === "POST") {
           starts += 1;
           return json(

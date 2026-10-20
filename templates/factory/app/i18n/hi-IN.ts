@@ -100,6 +100,7 @@ const messages = {
       pr_observed: "PR देखा गया",
       auto_approved: "स्वतः स्वीकृत",
       merged: "मर्ज किया गया",
+      resolved: "हल हो गया",
     },
     inboxColumnAutomation: "ऑटोमेशन",
     inboxRouting: {
@@ -265,6 +266,11 @@ const messages = {
     inboxTitle: "निरीक्षण इनबॉक्स",
     inboxTab: "इनबॉक्स",
     inboxBackToList: "इनबॉक्स पर वापस जाएँ",
+    inboxRowActions: "{{title}} के लिए कार्रवाइयाँ",
+    inboxMarkResolved: "हल के रूप में चिह्नित करें",
+    inboxSendBackToAutomation: "स्वचालन को वापस भेजें",
+    inboxOutcomeUpdated: "स्थिति अपडेट हुई",
+    inboxOutcomeFailed: "स्थिति अपडेट नहीं की जा सकी",
     inboxDescription: "स्वायत्त काम से पहले फ़ैक्टरी में आने वाला साक्ष्य।",
     selectObservation: "उसका रास्ता और फ़ीडबैक देखने के लिए निरीक्षण चुनें।",
     rulesDescription: "जानबूझकर बढ़ावा दिए जाने तक हर नियम शैडो मोड में रहता है।",
@@ -443,7 +449,10 @@ const messages = {
     automationSourceSentryHint: "अनसुलझी त्रुटियाँ।",
     automationSlackChannel: "Slack चैनल आईडी",
     automationSlackChannelDescription:
-      "वह चैनल जिसे यह जॉब पोल करता है। C से शुरू होता है।",
+      "Slack चैनल जिसे यह जॉब पढ़ता है या समूहित निष्कर्ष पोस्ट करता है। C से शुरू होता है।",
+    automationFindingsSlackChannel: "Slack निष्कर्ष चैनल",
+    automationFindingsSlackChannelDescription:
+      "योग्य GitHub और Sentry निष्कर्ष इस चैनल में एक संदेश में समूहित होते हैं।",
     automationRepository: "GitHub रिपॉज़िटरी",
     automationRepositoryDescription: "owner/repo जिसे यह जॉब पोल करता है।",
     automationSentryOrg: "Sentry संगठन",

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { defineAction, fail } from "../../action.js";
+import { auditAttribution } from "../../audit/attribution.js";
 import type { BuilderDefaultModel } from "../../secrets/usage.js";
 import type { BuilderConnectionsStatus } from "../../server/core-routes-plugin.js";
 
@@ -36,7 +37,7 @@ async function readDefaultModel(
 
 export default defineAction({
   description:
-    'Read or disconnect the Builder.io connections. Builder.io has an organization connection (shared with every member; owners and admins set it up or disconnect it) and a member\'s personal one (used ahead of the organization\'s, only by that member). Omit `disconnect` to read: `grants.org` and `grants.personal` are the stored connections (`{}` none, `null` unreadable; a personal grant with `restricted: true` is unused because "Restrict personal API keys" is on), `canConnect` says which the caller may connect, and `defaultModel` says whether the default model runs on Builder.io and whether disconnecting switches it to another provider (`next`) or stops chats. Pass `disconnect: "org"` (owners and admins; confirm with the user first, since it affects everyone) or `disconnect: "personal"` (the caller\'s own; they fall back to the organization\'s). To use Builder.io, sign in on the Builder.io settings page in a browser.',
+    'Read or disconnect the Builder.io connections. Builder.io has an organization connection (shared with every member; owners and admins set it up or disconnect it) and a member\'s personal one (used ahead of the organization\'s, only by that member). Omit `disconnect` to read: `grants.org` and `grants.personal` are the stored connections (`{}` none, `null` unreadable; a personal grant with `restricted: true` is unused because "Restrict personal API keys" is on), `canConnect` says which the caller may connect, and `defaultModel` says whether the default model runs on Builder.io and whether disconnecting switches it to another provider (`next`) or stops chats. Pass `disconnect: "org"` (owners and admins; confirm with the user first, since it affects everyone) or `disconnect: "personal"` (the caller\'s own; they fall back to the organization\'s). If the user needs a connection, direct them to the app\'s "Use Builder.io" setup control. It opens the shared chooser: "Create and activate" provisions in one click; "I have a Builder.io account" starts sign-in. Do not send them directly to a Builder.io connect URL.',
   schema: z.object({
     disconnect: z
       .enum(["org", "personal"])
@@ -79,6 +80,7 @@ export default defineAction({
         orgId,
         role,
         scope: args.disconnect,
+        attribution: auditAttribution(ctx),
       });
       if (result.status !== 200) {
         fail(result.body.error, {

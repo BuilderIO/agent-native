@@ -1,4 +1,6 @@
 import { isSpreadsheetDocument } from "../ingestion/spreadsheet.js";
+import { parseBase64DataUrl } from "../shared/data-url.js";
+import { normalizeImageMediaType } from "./attachment-bytes.js";
 
 export const MAX_INLINE_FILE_BASE64_CHARS = 1_000_000;
 
@@ -11,15 +13,12 @@ const INLINE_VISION_MEDIA_TYPES = new Set([
   "image/webp",
 ]);
 
-const DATA_URL_RE = /^data:([^;]+);base64,(.+)$/;
-
 export function isInlineVisionMediaType(
   mediaType: string | undefined,
 ): boolean {
   if (!mediaType) return false;
-  return INLINE_VISION_MEDIA_TYPES.has(
-    mediaType.split(";")[0]!.trim().toLowerCase(),
-  );
+  const normalized = normalizeImageMediaType(mediaType);
+  return normalized !== null && INLINE_VISION_MEDIA_TYPES.has(normalized);
 }
 
 export function formatBase64CharBudget(maxChars: number): string {
@@ -27,7 +26,7 @@ export function formatBase64CharBudget(maxChars: number): string {
   return `${decodedMb.toFixed(1)} MB`;
 }
 
-function isInlineReadableDocumentType(
+export function isInlineReadableDocumentType(
   mediaType: string,
   fileName: string | undefined,
 ): boolean {
@@ -69,12 +68,12 @@ export function classifyInlineAttachment(att: {
   if (att.referenceOnly === true) return { kind: "no-data" };
   if (typeof att.text === "string" && att.text.length > 0) return null;
 
-  const match =
-    typeof att.data === "string" ? att.data.match(DATA_URL_RE) : null;
-  if (!match) return { kind: "no-data" };
+  const dataUrl =
+    typeof att.data === "string" ? parseBase64DataUrl(att.data) : null;
+  if (!dataUrl) return { kind: "no-data" };
 
-  const mediaType = (match[1] || att.contentType || "").toLowerCase();
-  const base64Chars = match[2]!.length;
+  const mediaType = dataUrl.mediaType || att.contentType || "";
+  const base64Chars = dataUrl.data.length;
 
   if (att.type === "image") {
     if (!isInlineVisionMediaType(mediaType)) {

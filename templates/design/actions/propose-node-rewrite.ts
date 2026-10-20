@@ -159,7 +159,7 @@ function proposalResult(proposal: NodeRewriteProposal) {
     {
       type: "node-html-preview",
       proposalId: proposal.proposalId,
-      target: proposal.resolvedTarget,
+      target: proposal.target,
       html: proposal.variants[0]!.html,
       operation: "preview",
     },
@@ -187,6 +187,9 @@ export default defineAction({
     variants: z.array(variantSchema).min(1).max(3),
     repromptId: z.string().min(1),
   }),
+  // The proposal is published by compare-and-set on its repromptId, and a replay
+  // reuses the published winner instead of writing a second proposal.
+  retrySafe: true,
   run: async ({ source, target, baseVersionHash, variants, repromptId }) => {
     const file = await resolveEditableDesignFile(source);
     const sourceDescriptor: CodeLayerSource = {

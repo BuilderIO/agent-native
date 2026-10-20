@@ -1,19 +1,12 @@
 import { Agent } from "undici";
 
 import {
-  getRuntimeDatabaseUrl,
-  isPgliteUrl,
-  isProcessAlive,
-} from "../../db/client.js";
-import {
   DEV_ACTION_ORG_HEADER,
   DEV_ACTION_TOKEN_HEADER,
   DEV_ACTION_USER_HEADER,
   DEV_DB_QUERY_ROUTE,
-  hashDatabaseKey,
-  isLoopbackDevActionOrigin,
-  readDevActionDiscoveryFile,
 } from "../../server/dev-action-bridge.js";
+import { discoverPgliteDevServer } from "./dev-server-discovery.js";
 
 export interface TryForwardDbQueryOptions {
   sql: string;
@@ -32,14 +25,8 @@ export interface TryForwardDbQueryOptions {
 export async function tryForwardDbQueryToDevServer(
   options: TryForwardDbQueryOptions,
 ): Promise<boolean> {
-  const discovery = readDevActionDiscoveryFile(process.cwd());
-  if (!discovery || !isProcessAlive(discovery.pid)) return false;
-  if (!isLoopbackDevActionOrigin(discovery.origin)) return false;
-
-  const runtimeUrl = getRuntimeDatabaseUrl("pglite:./data/pglite");
-  if (!isPgliteUrl(runtimeUrl)) return false;
-  const databaseKey = hashDatabaseKey(runtimeUrl);
-  if (discovery.databaseKey !== databaseKey) return false;
+  const discovery = discoverPgliteDevServer();
+  if (!discovery) return false;
 
   let response: Response;
   // Vite's local HTTPS mode commonly uses a self-signed certificate. This

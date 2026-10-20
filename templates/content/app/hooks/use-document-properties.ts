@@ -104,6 +104,20 @@ const guardedOrdinaryPropertyTypes = new Set([
   "phone",
 ]);
 
+// A property read carries a Blocks field's `blocks` options, but the configure
+// action takes none: it decides which field is the page body itself. Sending
+// them back, as a rename from a property menu does, fails validation.
+function withoutBlocksOptions(
+  request: ConfigureDocumentPropertyRequest,
+): ConfigureDocumentPropertyRequest {
+  if (request.options?.blocks === undefined) return request;
+  const { blocks: _blocks, ...options } = request.options;
+  return {
+    ...request,
+    options: Object.keys(options).length > 0 ? options : undefined,
+  };
+}
+
 function guardedConfigurePropertyInput(
   request: ConfigureDocumentPropertyRequest,
   snapshot: ContentDatabaseResponse | undefined,
@@ -344,7 +358,10 @@ export function useContentDatabaseRowSearch(
 export function useDocumentProperties(
   documentId: string | null,
   databaseId: string | null,
-  options: { placeholder?: DocumentPropertiesResponse } = {},
+  options: {
+    enabled?: boolean;
+    placeholder?: DocumentPropertiesResponse;
+  } = {},
 ) {
   return useActionQuery<DocumentPropertiesResponse>(
     "list-document-properties",
@@ -352,7 +369,7 @@ export function useDocumentProperties(
       ? { documentId, ...(databaseId ? { databaseId } : {}) }
       : undefined,
     {
-      enabled: !!documentId,
+      enabled: options.enabled !== false && !!documentId,
       placeholderData: (prev) => options.placeholder ?? prev,
     },
   );
@@ -467,7 +484,7 @@ export function useConfigureDocumentProperty(
     mutate: (variables: ScopedVariables, options?: unknown) =>
       mutation.mutate(
         guardedConfigurePropertyInput(
-          { ...variables, databaseId },
+          withoutBlocksOptions({ ...variables, databaseId }),
           getSetupSnapshot(),
         ),
         options as never,
@@ -475,7 +492,7 @@ export function useConfigureDocumentProperty(
     mutateAsync: (variables: ScopedVariables, options?: unknown) =>
       mutation.mutateAsync(
         guardedConfigurePropertyInput(
-          { ...variables, databaseId },
+          withoutBlocksOptions({ ...variables, databaseId }),
           getSetupSnapshot(),
         ),
         options as never,

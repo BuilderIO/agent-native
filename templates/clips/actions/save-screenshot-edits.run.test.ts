@@ -16,6 +16,15 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (options: unknown) => options,
+  fail: (message: string, options: Record<string, unknown> = {}): never => {
+    const error = new Error(message) as Error & Record<string, unknown>;
+    Object.assign(error, {
+      actionContractError: true,
+      errorCode: options.errorCode ?? "action_failed",
+      statusCode: options.statusCode ?? 400,
+    });
+    throw error;
+  },
 }));
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: vi.fn(async () => undefined),
@@ -130,6 +139,37 @@ describe("save-screenshot-edits", () => {
     const result = await run({ annotations: [] });
     expect(result.staleFileLeft).toBe(true);
     expect(mocks.updates).toHaveLength(1);
+  });
+
+  it("returns a typed setup error when storage is not connected", async () => {
+    mocks.uploadFile.mockImplementationOnce(async () => null as any);
+
+    await expect(run({ annotations: [] })).rejects.toMatchObject({
+      actionContractError: true,
+      errorCode: "storage_setup_required",
+      statusCode: 503,
+    });
+    expect(mocks.updates).toHaveLength(0);
+  });
+
+  it("returns a typed setup error when the redacted base cannot be uploaded", async () => {
+    mocks.uploadFile
+      .mockImplementationOnce(async () => ({
+        url: "https://store.example/new.png",
+      }))
+      .mockImplementationOnce(async () => null as any);
+
+    await expect(
+      run({
+        baseDataUrl: PNG,
+        redactions: [{ x: 1, y: 1, width: 50, height: 50 }],
+      }),
+    ).rejects.toMatchObject({
+      actionContractError: true,
+      errorCode: "storage_setup_required",
+      statusCode: 503,
+    });
+    expect(mocks.updates).toHaveLength(0);
   });
 
   it("keeps the screenshot held when a burn could not delete the original", async () => {

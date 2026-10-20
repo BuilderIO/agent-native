@@ -1,43 +1,252 @@
 ---
 title: "Vercel"
-description: "Déployez une application agent-native sur Vercel avec le préréglage Nitro Vercel, en autonome ou en workspace."
+description: "Déployez une application Agent-Native autonome sur Vercel avec la Vercel CLI."
 ---
 
 # Vercel
 
-```ts filename="vite.config.ts"
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "vercel" } })],
-});
-```
+Vercel héberge votre application à votre place. Vous n'avez donc aucun serveur
+à configurer ni à maintenir en marche. Le build transforme l'application en
+fichiers que Vercel sert directement et en fonctions que Vercel exécute à la
+demande. Vercel fournit aussi à l'application une adresse publique en HTTPS.
 
-Déployez via la CLI Vercel ou un git push :
+Ce guide présente le déploiement d'une application autonome depuis le début.
+Vous allez créer l'application, lui fournir une base de données de production et
+un secret d'authentification, la lier à un projet Vercel, préparer la base de
+données, puis la construire et la déployer.
+
+<Callout tone="info">
+
+Node.js `22.22+` est requis.
+
+</Callout>
+
+Vous avez aussi besoin d'un compte Vercel. Exécutez les commandes de ce guide
+sur votre propre ordinateur. La Vercel CLI envoie le build final vers Vercel à
+votre place.
+
+## Étape 1 : Créer l'application {#step-1-create-the-app}
+
+Créez votre nouvelle application autonome. L'exemple ci-dessous crée une
+application à partir du template Chat, mais vous pouvez partir de n'importe quel
+template. Placez-vous dans le dossier de l'application et installez ses
+dépendances. `corepack enable` active la version de `pnpm` attendue par
+l'application. Vous n'avez donc pas besoin d'installer `pnpm` vous-même.
 
 ```bash
-npx vercel deploy
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
 ```
 
-Pour créer un aperçu temporaire sans vous connecter à Vercel, exécutez
-`npx vercel deploy --temporary`. Les déploiements temporaires ne conservent pas
-les variables d’environnement du projet. Transmettez donc la base de données et
-les secrets avec `--env` et `--build-env` si vous avez besoin de plus qu’un aperçu de l’interface.
+Remplacez `my-app` par le nom de votre application si vous le souhaitez. La
+suite de ce guide suppose que vous vous trouvez dans le dossier de
+l'application.
 
-Pour un workspace, construisez chaque application dans un seul bundle Vercel Build Output API :
+<Callout tone="info">
+
+Si ces commandes échouent avec des erreurs de dépendances pairs, une copie obsolète d'un paquet dans votre cache npx peut en être la cause. Exécutez `npx clear-npx-cache` pour vider le cache, puis relancez les commandes.
+
+</Callout>
+
+## Étape 2 : Configurer les secrets d'environnement {#step-2-configure-environment-secrets}
+
+L'application lit ses paramètres de production depuis des variables
+d'environnement :
+
+| Variable             | Requise | Rôle                                                                 |
+| -------------------- | ------- | -------------------------------------------------------------------- |
+| `DATABASE_URL`       | Oui     | Connecte l'application à sa base de données PostgreSQL               |
+| `BETTER_AUTH_SECRET` | Oui     | Signe les sessions utilisateur                                       |
+| `BETTER_AUTH_URL`    | Non     | Définit l'adresse publique utilisée pour accéder à votre application |
+
+Les exports ci-dessous permettent aux commandes suivantes de fonctionner dans ce
+shell. Avant de déployer, enregistrez ces mêmes variables dans les paramètres
+d'environnement du projet ou du service chez votre hébergeur. L'étape suivante
+montre comment les enregistrer dans Vercel.
+
+### URL de la base de données {#database-url}
+
+En développement local, l'application stocke ses données dans une base de
+données locale lorsque `DATABASE_URL` n'est pas défini. Une application déployée
+a besoin d'une vraie base de données PostgreSQL qui conserve ses données d'un
+déploiement à l'autre. Vercel ne conserve pas les fichiers entre les requêtes.
+La base de données doit donc se trouver en dehors des fonctions de Vercel.
+Copiez la chaîne de connexion fournie par votre fournisseur et exportez-la :
 
 ```bash
-npx @agent-native/core@latest deploy --preset vercel
+export DATABASE_URL='your-postgres-url-string'
 ```
 
-Pour les déploiements Git Vercel, définissez la commande de build sur :
+Les [guides des fournisseurs de bases de données](/docs/neon) indiquent où
+trouver la chaîne de connexion pour chaque fournisseur.
+
+<Callout tone="warning">
+
+Choisissez un fournisseur PostgreSQL persistant, par exemple Neon, Supabase ou Amazon RDS.
+
+</Callout>
+
+### Secret d'authentification {#auth-secret}
+
+Générez-le une seule fois et gardez-le identique d'un déploiement à l'autre.
+
+L'application utilise `BETTER_AUTH_SECRET` pour signer les sessions utilisateur.
+S'il change, tous les utilisateurs connectés sont déconnectés. La commande
+ci-dessous génère une valeur aléatoire :
 
 ```bash
-npx @agent-native/core@latest deploy --preset vercel --build-only
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
 ```
 
-Le build de workspace copie la sortie Nitro `vercel` de chaque application dans le `.vercel/output` racine, donne à chaque fonction son propre environnement de chemin de montage, et écrit la configuration de routes qui sert les applications à `/<app-id>`.
+Conservez la valeur générée en lieu sûr, par exemple dans un gestionnaire de
+mots de passe. Utilisez la même valeur à chaque déploiement.
 
-## Et ensuite
+### URL publique {#public-url}
 
-- [**Déploiement**](/docs/deployment) — choisissez une base de données persistante et un préréglage avant votre premier déploiement en production
-- [**Déploiement de workspace**](/docs/workspace-deployment) — le build de workspace `deploy --preset vercel` en détail
-- [Node.js](/docs/node-js), [Docker](/docs/docker), [**Netlify**](/docs/netlify), [**Cloudflare**](/docs/cloudflare), et [**Autres plateformes**](/docs/other-platforms) — les autres préréglages Nitro
+Facultatif. Définissez-la si vous utilisez un domaine personnalisé, un reverse
+proxy ou un flux d'authentification ou OAuth qui exige une origine publique
+fixe.
+
+`BETTER_AUTH_URL` est l'adresse publique utilisée pour accéder à votre
+application. Sans elle, l'application déduit son adresse de chaque requête
+entrante. Cela convient généralement avec l'adresse que Vercel vous fournit,
+mais définissez-la lorsque vous connectez un domaine personnalisé, afin que les
+liens de connexion et les redirections OAuth utilisent ce domaine.
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## Étape 3 : Lier le projet et enregistrer les secrets {#step-3-link-the-project-and-save-the-secrets}
+
+Connectez-vous à Vercel depuis la ligne de commande :
+
+```bash
+npx vercel login
+```
+
+Liez le dossier de l'application à un projet Vercel. Créez un nouveau projet.
+Vous n'avez pas besoin de personnaliser ses paramètres.
+
+```bash
+npx vercel link
+```
+
+La CLI propose un nom de projet basé sur le nom du dossier. Vous pouvez accepter
+les paramètres proposés, car vous construisez l'application vous-même à
+l'étape 5 et Vercel n'a pas besoin de ses propres paramètres de build.
+
+Enregistrez les deux variables requises dans l'environnement de production du
+projet :
+
+```bash
+printf '%s' "$DATABASE_URL" | npx vercel env add DATABASE_URL production
+
+printf '%s' "$BETTER_AUTH_SECRET" | npx vercel env add BETTER_AUTH_SECRET production
+```
+
+Chaque commande lit la valeur que vous avez exportée à l'étape 2 et l'enregistre
+dans Vercel. Vous n'avez donc pas à coller les secrets à la main. Si vous avez
+défini `BETTER_AUTH_URL`, enregistrez-la de la même façon. Vous pouvez aussi
+consulter et modifier ces valeurs plus tard dans les paramètres du projet sur le
+tableau de bord Vercel.
+
+## Étape 4 : Migrer {#step-4-migrate}
+
+Les migrations créent et mettent à jour les tables dont l'application a besoin
+dans votre base de données. Exécutez cette commande avant le premier
+déploiement :
+
+```bash
+pnpm migrate:production
+```
+
+La commande s'exécute sur votre ordinateur et se connecte à la base de données
+de production avec la `DATABASE_URL` que vous avez exportée à l'étape 2.
+Exécutez-la de nouveau après une mise à niveau de l'application, avant de
+déployer la nouvelle version.
+
+## Étape 5 : Déployer {#step-5-deploy}
+
+Construisez l'application pour Vercel :
+
+```bash
+NITRO_PRESET=vercel pnpm build
+```
+
+`NITRO_PRESET=vercel` construit l'application au format attendu par Vercel et
+l'écrit dans le dossier `.vercel/output`.
+
+Envoyez le build et publiez-le :
+
+```bash
+npx vercel deploy --prebuilt --prod
+```
+
+`--prebuilt` envoie le build que vous venez de créer au lieu de reconstruire
+l'application sur Vercel. `--prod` le publie à votre adresse de production, qui
+utilise les variables que vous avez enregistrées pour l'environnement de
+production.
+
+Lorsque la commande se termine, elle affiche l'adresse de production de
+l'application. Ouvrez-la et créez le premier compte.
+
+## Déployer les mises à jour {#deploy-updates}
+
+Pour publier une nouvelle version, exécutez de nouveau les commandes de
+migration, de build et de déploiement depuis le dossier de l'application :
+
+```bash
+pnpm migrate:production
+
+NITRO_PRESET=vercel pnpm build
+
+npx vercel deploy --prebuilt --prod
+```
+
+Le lien du projet et les variables enregistrées restent en place. Vous n'avez
+donc pas besoin de répéter l'étape 3.
+
+## Travail planifié {#vercel-scheduled-work}
+
+Les automatisations planifiées, les automatisations par événement en file
+d’attente et le nettoyage des exécutions interrompues passent tous par un
+balayage exécuté une fois par minute. Le build ajoute une
+[tâche cron Vercel](https://vercel.com/docs/cron-jobs) qui appelle le balayage à
+`/_agent-native/jobs/_process-sweep`. Un build de workspace ajoute une tâche
+cron par application, à `/<app-id>/_agent-native/jobs/_process-sweep`.
+
+Définissez `CRON_SECRET` dans les variables d’environnement du projet avant de
+déployer. Vercel l’envoie comme jeton bearer avec chaque requête cron, et le
+balayage rejette toute requête qui ne le contient pas. Générez une valeur avec
+`openssl rand -hex 32`.
+
+- **Production uniquement.** Vercel exécute les tâches cron sur le déploiement
+  de production, jamais sur les aperçus : les planifications ne se déclenchent
+  donc pas sur un aperçu. La page **Automations** l’indique.
+- **Hobby : une fois par jour.** Vercel rejette un déploiement Hobby dont la
+  tâche cron s’exécute plus d’une fois par jour. Définissez
+  `AGENT_NATIVE_VERCEL_CRON_SCHEDULE` dans l’environnement de build avec une
+  expression quotidienne comme `0 9 * * *`. Hobby peut aussi l’exécuter à
+  n’importe quel moment de cette heure-là. Avec un seul balayage par jour, les
+  automatisations planifiées et déclenchées par événement attendent jusqu’à un
+  jour : utilisez Pro ou un autre hébergeur lorsque l’heure d’exécution compte.
+- **Durée de la fonction.** Le balayage exécute les tâches dues dans
+  l’invocation de fonction de la tâche cron, donc une tâche est interrompue à
+  la durée maximale de la fonction (300 secondes par défaut).
+- **Pas de nouvelle tentative.** Vercel ne relance pas une invocation cron
+  échouée. Le balayage s’exécute de nouveau à la prochaine heure planifiée.
+
+Voir [Fonctionnement du planificateur](/docs/recurring-jobs#how-scheduler-runs)
+pour les autres hébergeurs.
+
+## Et ensuite {#whats-next}
+
+- [**Variables d'environnement de déploiement**](/docs/deployment-environment-variables) - la liste complète des paramètres de production
+- [**Mise en cache SSR**](/docs/ssr-caching) - le fonctionnement de la mise en cache des pages sur les cibles hébergées
+- [**Déploiement**](/docs/deployment) - comparer les cibles d'hébergement et les prérequis

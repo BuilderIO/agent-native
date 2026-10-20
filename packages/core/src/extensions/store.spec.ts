@@ -51,6 +51,13 @@ describe("extensions/store", () => {
       ),
     ).toBe(true);
     expect(
+      statements.some((sql) =>
+        /ALTER\s+TABLE\s+tool_shares\s+ADD\s+COLUMN\s+IF\s+NOT\s+EXISTS\s+notified_at/i.test(
+          sql,
+        ),
+      ),
+    ).toBe(true);
+    expect(
       statements.some((sql) => /RENAME\s+TO\s+tool_data_old/i.test(sql)),
     ).toBe(false);
     expect(

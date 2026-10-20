@@ -185,7 +185,7 @@ describe("delegated provider backpressure recovery", () => {
       message: PROVIDER_RATE_LIMITED_TERMINAL_MESSAGE,
       errorCode: PROVIDER_RATE_LIMITED_ERROR_CODE,
     });
-    await vi.advanceTimersByTimeAsync(60_000);
+    await vi.runAllTimersAsync();
     await rejected;
 
     expect(events.some((event) => event.type === "error")).toBe(false);

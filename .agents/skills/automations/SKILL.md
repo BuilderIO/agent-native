@@ -31,7 +31,7 @@ existing schedule-only integrations and delivery metadata.
 | `schedule` | Cron expression matches (same as recurring jobs) | `schedule` (cron)   |
 | `event`    | A matching event is emitted on the event bus     | `event` (event name) |
 
-Event triggers can optionally include a `condition` -- a natural-language string evaluated by Haiku against the event payload before dispatch. If the condition does not match, the automation is skipped.
+Event triggers can optionally include a `condition` -- a natural-language string evaluated by a model against the event payload before dispatch. If the condition does not match, the automation is skipped.
 
 ## How It Works
 
@@ -40,7 +40,7 @@ Event triggers can optionally include a `condition` -- a natural-language string
 3. Agent calls `manage-automations` with `action=define` to write a `jobs/<name>.md` resource.
 4. The trigger dispatcher subscribes to the event on the bus.
 5. When the event fires, the dispatcher loads all matching triggers, enforces
-   owner and organization scope, and evaluates conditions via Haiku.
+   owner and organization scope, and evaluates conditions via the resolved model.
 6. Event and cron acquisition converge on the shared background-automation
    runner, which validates identity, resolves the configured model and MCP
    allowlist, runs the agent loop, handles continuation and delivery, and
@@ -90,7 +90,7 @@ Use the web-request tool with ${keys.SLACK_WEBHOOK}.
 | `mcpTools`    | `string[]?`                    | Exact MCP tool allowlist for this automation           |
 | `lastRun`     | `string?`                      | ISO timestamp of last execution                        |
 | `lastStatus`  | `string?`                      | `success`, `error`, `running`, `skipped`, or `paused`  |
-| `lastError`   | `string?`                      | The real cause of the last failed run                  |
+| `lastError`   | `string?`                      | The last failure cause or declared skip reason          |
 | `lastErrorCode` | `string?`                    | Typed code of the last failure (see Failure handling)  |
 | `consecutiveFailures` | `number?`              | Run of identical `lastErrorCode` failures              |
 | `pausedReason` | `string?`                     | Set with `enabled: false` when the framework paused it |
@@ -111,6 +111,13 @@ All automation operations are accessed through a single `manage-automations` too
 | `run-now`     | Run one automation immediately with its real actions and side effects |
 
 Additional tool: `web-request` — outbound HTTP with `${keys.NAME}` substitution.
+
+During an automation run, `automation-no-op` declares that no action or report
+was needed. Pass a short `reason` (1–500 characters), such as "No urgent mail
+found." The runner records `skipped` in the list and Past runs without counting
+a failure or sending a report. This declaration cannot cover a failed tool,
+rejected send, or missing credentials. Closing prose alone does not declare a
+no-op: a run needs confirmed work, delivered output, or this structured signal.
 
 `manage-automations` accepts personal or organization scope and supports
 `model`, `reasoning_effort`, and `mcpTools` on define/update. An MCP allowlist
@@ -182,12 +189,12 @@ emit("calendar.booking.created", {
 
 ## Condition Evaluator
 
-When an automation has a `condition`, the dispatcher calls the configured fast/classification model to classify whether the event payload satisfies the condition. This is a yes/no classification, not a generation task. The exact model ID lives in `condition-evaluator.ts`.
+When an automation has a `condition`, the dispatcher resolves the owner's agent engine through the same `resolveEngine` path chat and the automation's own run use (owner key, deployment fallback, or Builder Gateway) and asks it a yes/no classification question. This is a yes/no classification, not a generation task; it is never hardcoded to a single provider, so an owner using Builder Gateway, OpenRouter, or any other configured provider can use conditions, not only Anthropic.
 
 - Empty or missing condition = unconditional (always fires).
-- Results are memoized (SHA-256 of condition + payload) with a 5-minute TTL and 500-entry LRU cache.
-- Payload is truncated to 4000 characters before sending to Haiku.
-- On API failure, the condition evaluates to `false` (safe default -- skips the automation).
+- Results are memoized by condition, payload, execution identity, resolved engine, and model, with a 5-minute TTL and 500-entry LRU cache. The background runner's resolved engine and model are reused for the classifier, including configured engine, deployment-key, and automation model settings.
+- Payload is truncated to 4000 characters before sending to the model.
+- On a classifier failure (no usable credential, provider error, malformed response), evaluation throws; the trigger dispatcher records it as an `error` (or a `missing_credentials` precondition) rather than silently skipping.
 
 ## The `web-request` Tool and Keys
 
@@ -208,7 +215,7 @@ tick. The runner classifies each failure (`jobs/automation-outcome.ts`):
 
 | Class        | Codes                                                                 | Pauses after |
 | ------------ | --------------------------------------------------------------------- | ------------ |
-| Precondition | `missing_credentials`, `missing_tools`, `owner_missing`, `owner_reserved`, `config_invalid` | 3 identical (owner/identity failures: immediately) |
+| Precondition | `missing_credentials`, `missing_tools`, `owner_missing`, `owner_reserved`, `config_invalid`, `connection_required` | 3 identical (owner/identity failures: immediately) |
 | Runtime      | the run's own code, e.g. `http_502`                                   | 5, with a widening gap between attempts |
 
 - An event or webhook automation counts a failure once per event
@@ -217,6 +224,12 @@ tick. The runner classifies each failure (`jobs/automation-outcome.ts`):
   "Job:" thread per tick. The failure is recorded on the automation and its run
   history only. Never write a generic "ended with status: errored"; surface the
   run's own error.
+- `connection_required` is the exception to that: a run only learns a provider
+  is not connected by running and yielding to the connection request, so every
+  failed attempt leaves a thread and an `agent_runs` row. It skips the runtime
+  backoff, pauses after 3 identical failures, and stays paused until the owner
+  enables the automation again; connecting the provider alone does not resume
+  it.
 - A paused automation has `enabled: false`, `lastStatus: paused`, and
   `pausedReason`/`pausedAt`. The owner is emailed once by the run that paused
   it (for organization and shared jobs: the creator while still a member,
@@ -283,7 +296,7 @@ Agent flow:
 | `packages/core/src/jobs/background-automation-runner.ts` | Shared schedule/event execution lifecycle |
 | `packages/core/src/jobs/automation-outcome.ts` | Failure classification, pause thresholds, reserved identities |
 | `packages/core/src/jobs/stale-reaper.ts`       | Bounded reaping of stuck runs and A2A tasks      |
-| `packages/core/src/triggers/condition-evaluator.ts` | Haiku condition classification with caching |
+| `packages/core/src/triggers/condition-evaluator.ts` | Engine-resolved condition classification with caching |
 | `packages/core/src/event-bus/`                 | Event bus (register, emit, subscribe)            |
 | `packages/core/src/tools/fetch-tool.ts`        | `web-request` tool with key substitution         |
 | `packages/core/src/secrets/substitution.ts`    | `resolveKeyReferences()` and `validateUrlAllowlist()` |

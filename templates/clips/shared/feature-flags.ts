@@ -24,8 +24,20 @@ export const UPLOAD_RETRY_RESUME_FLAG = defineFeatureFlag({
     "Resume interrupted desktop uploads from their last confirmed byte instead of replaying the full local backup.",
 });
 
-export const CLIPS_FEATURE_FLAGS = defineFeatureFlags([
+export const CLIPS_HOSTED_FREE_CLIPS_FLAG = defineFeatureFlag({
+  key: "clips-hosted-free-clips",
+  displayName: "Hosted free Clips recordings",
+  description:
+    "Let targeted users record their first Clips before connecting their own storage.",
+});
+
+export const CLIPS_LEGACY_FEATURE_FLAGS = [
   USE_CUSTOM_SCK_PIPELINE_FLAG,
   CUSTOM_SCK_LIVE_UPLOAD_FLAG,
   UPLOAD_RETRY_RESUME_FLAG,
+] as const;
+
+export const CLIPS_FEATURE_FLAGS = defineFeatureFlags([
+  ...CLIPS_LEGACY_FEATURE_FLAGS,
+  CLIPS_HOSTED_FREE_CLIPS_FLAG,
 ]);

@@ -11,6 +11,10 @@ import { requireDocumentRequestActor } from "../server/lib/document-attribution.
 import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
+import {
+  lockDocumentMetadataDatabase,
+  nextDocumentMetadataUpdatedAt,
+} from "../server/lib/document-metadata-updated-at.js";
 import { propagateDocumentTitle } from "../server/lib/document-title-propagation.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
 import {
@@ -159,6 +163,11 @@ export default defineAction({
     let softDeletedDatabaseIds: string[] = [];
     const updated = await db.transaction(async (rawTx) => {
       const tx = rawTx as any;
+      const lockedDatabaseId = await lockDocumentMetadataDatabase({
+        db: tx as unknown as ReturnType<typeof getDb>,
+        documentId,
+        ownerEmail,
+      });
       await tx
         .select({ id: schema.documents.id })
         .from(schema.documents)
@@ -224,7 +233,16 @@ export default defineAction({
       ) {
         return current;
       }
-      const now = nextDocumentUpdatedAt(current.updatedAt);
+      const now =
+        current.title !== version.title
+          ? await nextDocumentMetadataUpdatedAt({
+              db: tx as unknown as ReturnType<typeof getDb>,
+              documentId,
+              ownerEmail,
+              currentUpdatedAt: current.updatedAt,
+              lockedDatabaseId,
+            })
+          : nextDocumentUpdatedAt(current.updatedAt);
       const primaryBlocksFields = await lockPrimaryBlocksFields(
         tx as unknown as ReturnType<typeof getDb>,
         documentId,
@@ -273,6 +291,7 @@ export default defineAction({
           title: version.title,
           updatedAt: now,
           organizationIds: titleOrganizationIds,
+          databaseId: lockedDatabaseId,
         });
       }
       for (const field of primaryBlocksFields) {

@@ -1,5 +1,7 @@
 import { useCodeMode } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import type { DbAdminFilter } from "@agent-native/core/db-admin";
+import { Button } from "@agent-native/toolkit/ui/button";
 import { cn } from "@agent-native/toolkit/utils";
 import { IconDatabase, IconLoader2 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
@@ -27,13 +29,18 @@ export function DbAdminPage({
   codeModeGate = true,
   syncNavigation = true,
 }: DbAdminPageProps = {}) {
+  const t = useT();
   const { canToggle, isLoading: devLoading } = useCodeMode();
   const requestConfig = useMemo<DbAdminRequestConfig | undefined>(() => {
     if (!apiBasePath && !cacheScope) return undefined;
     return { basePath: apiBasePath, scopeKey: cacheScope };
   }, [apiBasePath, cacheScope]);
-  const { data: overview, isLoading: overviewLoading } =
-    useOverview(requestConfig);
+  const {
+    data: overview,
+    isLoading: overviewLoading,
+    error: overviewError,
+    refetch: refetchOverview,
+  } = useOverview(requestConfig);
 
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
   const [mode, setMode] = useState<"table" | "sql">("table");
@@ -79,6 +86,38 @@ export function DbAdminPage({
     );
   }
 
+  if (overviewError && !overview) {
+    return (
+      <div className="flex h-full w-full flex-col bg-background text-foreground">
+        <header className="flex h-12 shrink-0 items-center gap-3 border-b px-4">
+          <IconDatabase
+            className="h-5 w-5 text-muted-foreground"
+            stroke={1.75}
+          />
+          <span className="text-sm font-semibold">{title}</span>
+        </header>
+        <main className="flex min-h-0 flex-1 items-center justify-center p-6">
+          <div
+            role="alert"
+            className="flex flex-col items-center gap-3 text-center"
+          >
+            <p className="text-sm text-destructive">
+              {t("agentChat.settingsInfra.loadFailed")}
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => refetchOverview()}
+            >
+              {t("agentChat.common.retry")}
+            </Button>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   const showInitialLoading =
     ((codeModeGate && devLoading) || overviewLoading) && !overview;
 
@@ -97,6 +136,25 @@ export function DbAdminPage({
           </span>
         ) : null}
       </header>
+
+      {overviewError ? (
+        <div
+          role="alert"
+          className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-2"
+        >
+          <p className="text-sm text-destructive">
+            {t("agentChat.settingsInfra.loadFailed")}
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => refetchOverview()}
+          >
+            {t("agentChat.common.retry")}
+          </Button>
+        </div>
+      ) : null}
 
       {/* Body: fixed sidebar + flexible main */}
       <div className="flex min-h-0 flex-1">

@@ -18,6 +18,8 @@ import {
 } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import { appMigratesAtRelease } from "../db/migration-policy.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
+import { defineStore } from "../db/store-registry.js";
 import {
   EXTENSION_CHANGE_MARKER_KEY,
   parseExtensionChangeMarker,
@@ -88,6 +90,7 @@ export const POLL_CHANGE_EVENT = "poll-change";
 const ACCESS_CACHE_TTL_MS = 30_000;
 const ACCESS_CACHE_DENY_TTL_MS = 5_000;
 const ACCESS_CACHE_MAX = 500;
+const ACCESS_CHECK_WAIT_MS = 1_000;
 const SCREEN_REFRESH_KEY = "__screen_refresh__";
 const SCREEN_REFRESH_QUERY_LIMIT = 256;
 
@@ -162,6 +165,60 @@ function syncEventsDisabled(): boolean {
     process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE === "1" ||
     (process.env.VITEST === "true" &&
       process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS !== "1")
+  );
+}
+
+async function ensureSyncEventsSchema(
+  client: DbExec,
+  dbAssignedVersions: boolean,
+): Promise<void> {
+  const createSql = `
+        CREATE TABLE IF NOT EXISTS sync_events (
+          id TEXT PRIMARY KEY,
+          version BIGINT NOT NULL,
+          event_json TEXT NOT NULL,
+          source TEXT NOT NULL,
+          type TEXT NOT NULL,
+          event_key TEXT,
+          owner TEXT,
+          org_id TEXT,
+          resource_type TEXT,
+          resource_id TEXT,
+          created_at BIGINT NOT NULL
+        )
+      `;
+
+  const guardOptions = { injectedClient: client };
+  await ensureTableExists("sync_events", createSql, guardOptions);
+  // `version` is the only index the read and the prune can use: the read
+  // ORs owner/org/resource_type, so (owner, version) and (org_id, version)
+  // were never scanned and only multiplied the write cost of every event.
+  await ensureIndexExists(
+    "sync_events_version_idx",
+    "CREATE INDEX IF NOT EXISTS sync_events_version_idx ON sync_events (version)",
+    guardOptions,
+  );
+  if (dbAssignedVersions) {
+    await ensureTableExists(
+      "sync_version",
+      "CREATE TABLE IF NOT EXISTS sync_version (id INT PRIMARY KEY, v BIGINT NOT NULL)",
+      guardOptions,
+    );
+  }
+}
+
+async function seedSyncVersion(
+  client: DbExec,
+  dbAssignedVersions: boolean,
+): Promise<void> {
+  if (dbAssignedVersions) await client.execute(SEED_SYNC_VERSION_SQL);
+}
+
+async function ensureSyncEventsPruneState(client: DbExec): Promise<void> {
+  await ensureTableExists(
+    SYNC_EVENTS_PRUNE_STATE_TABLE,
+    SYNC_EVENTS_PRUNE_STATE_CREATE_SQL,
+    { injectedClient: client },
   );
 }
 
@@ -340,7 +397,7 @@ async function readExtensionTargetsForRows(
   );
 }
 
-type ChangeVisibility = "visible" | "hidden" | "pending";
+export type ChangeVisibility = "visible" | "hidden" | "pending";
 
 class SyncEventsTableUnavailableError extends Error {
   constructor() {
@@ -359,6 +416,8 @@ export type ChangeReadResult = {
   events: ChangeEvent[];
   cursor?: string;
   cursorLimited?: boolean;
+  /** Set when the read stopped at an event whose access check is unresolved. */
+  accessPending?: boolean;
 };
 
 export type AccessResolver = (
@@ -426,7 +485,7 @@ export class AppSyncState {
     string,
     { allowed: boolean; checkedAt: number }
   >();
-  private readonly accessInFlight = new Set<string>();
+  private readonly accessInFlight = new Map<string, Promise<void>>();
   private readonly accessInvalidationEpoch = new Map<string, number>();
   private readonly accessAllowTtlMs: number;
 
@@ -464,6 +523,48 @@ export class AppSyncState {
     return this.version;
   }
 
+  async getPollBaseline(
+    useDurableEvents: boolean,
+  ): Promise<{ version: number; cursor: string }> {
+    let cursor: SyncCursor = { version: this.version, id: "" };
+    if (compareSyncCursors(this.latestCursor, cursor) > 0) {
+      cursor = this.latestCursor;
+    }
+
+    if (useDurableEvents && !syncEventsDisabled()) {
+      try {
+        const result = await this.getDb().execute(
+          "SELECT version, id FROM sync_events WHERE version = (SELECT MAX(version) FROM sync_events) ORDER BY id DESC LIMIT 1",
+        );
+        const row = result.rows[0];
+        if (row) {
+          const version = Number(row.version);
+          if (
+            !Number.isSafeInteger(version) ||
+            version < 0 ||
+            typeof row.id !== "string"
+          ) {
+            throw new Error("Durable sync event cursor is invalid");
+          }
+          const durableCursor = { version, id: row.id };
+          if (compareSyncCursors(durableCursor, cursor) > 0) {
+            cursor = durableCursor;
+          }
+        }
+      } catch (error) {
+        if (isMissingRelationError(error)) {
+          throw new SyncEventsTableUnavailableError();
+        }
+        throw error;
+      }
+    }
+
+    return {
+      version: Math.max(this.version, cursor.version),
+      cursor: encodeSyncCursor(cursor),
+    };
+  }
+
   getPollEmitter(): EventEmitter {
     return this.pollEmitter;
   }
@@ -490,54 +591,24 @@ export class AppSyncState {
     if (syncEventsDisabled()) return false;
     if (!this.syncEventsInitPromise) {
       this.syncEventsInitPromise = (async () => {
-        const client = this.getDb();
-        const createSql = `
-        CREATE TABLE IF NOT EXISTS sync_events (
-          id TEXT PRIMARY KEY,
-          version BIGINT NOT NULL,
-          event_json TEXT NOT NULL,
-          source TEXT NOT NULL,
-          type TEXT NOT NULL,
-          event_key TEXT,
-          owner TEXT,
-          org_id TEXT,
-          resource_type TEXT,
-          resource_id TEXT,
-          created_at BIGINT NOT NULL
-        )
-      `;
-
-        const guardOptions = { injectedClient: client };
-        await ensureTableExists("sync_events", createSql, guardOptions);
+        const isDefault = this === _defaultState;
+        const client = isDefault ? undefined : this.getDb();
+        if (client) {
+          await ensureSyncEventsSchema(client, this.dbAssignedVersions);
+          await seedSyncVersion(client, this.dbAssignedVersions);
+        } else {
+          await syncEventsStore.ready();
+        }
         // Retention bookkeeping must never stop event writes: without this
         // table the prune fails on its own, loudly, and events keep flowing.
         try {
-          await ensureTableExists(
-            SYNC_EVENTS_PRUNE_STATE_TABLE,
-            SYNC_EVENTS_PRUNE_STATE_CREATE_SQL,
-            guardOptions,
-          );
+          if (client) await ensureSyncEventsPruneState(client);
+          else await syncEventsPruneStateStore.ready();
         } catch (error) {
           console.error(
             `[agent-native] sync_events_prune_state_unavailable: could not ensure ${SYNC_EVENTS_PRUNE_STATE_TABLE}; sync events still persist, retention prune will fail until it exists:`,
             error instanceof Error ? error.message : String(error),
           );
-        }
-        // `version` is the only index the read and the prune can use: the read
-        // ORs owner/org/resource_type, so (owner, version) and (org_id, version)
-        // were never scanned and only multiplied the write cost of every event.
-        await ensureIndexExists(
-          "sync_events_version_idx",
-          "CREATE INDEX IF NOT EXISTS sync_events_version_idx ON sync_events (version)",
-          guardOptions,
-        );
-        if (this.dbAssignedVersions) {
-          await ensureTableExists(
-            "sync_version",
-            "CREATE TABLE IF NOT EXISTS sync_version (id INT PRIMARY KEY, v BIGINT NOT NULL)",
-            guardOptions,
-          );
-          await client.execute(SEED_SYNC_VERSION_SQL);
         }
         this.syncEventsInitFailures = 0;
         return true;
@@ -573,9 +644,11 @@ export class AppSyncState {
     const now = Date.now();
     if (now - this.lastDurablePrune < DURABLE_PRUNE_WRITE_INTERVAL_MS) return;
     this.lastDurablePrune = now;
-    void this.pruneDurableEvents(client, {
-      budgetMs: DURABLE_PRUNE_WRITE_BUDGET_MS,
-    }).catch((error) => {
+    void retainRequestDbPoolScope(
+      this.pruneDurableEvents(client, {
+        budgetMs: DURABLE_PRUNE_WRITE_BUDGET_MS,
+      }),
+    ).catch((error) => {
       console.error("[agent-native] sync_events prune crashed:", error);
     });
   }
@@ -748,7 +821,7 @@ export class AppSyncState {
     for (const key of Array.from(this.accessCache.keys())) {
       if (key.endsWith(suffix)) this.accessCache.delete(key);
     }
-    for (const key of Array.from(this.accessInFlight)) {
+    for (const key of Array.from(this.accessInFlight.keys())) {
       if (key.endsWith(suffix)) this.accessInFlight.delete(key);
     }
   }
@@ -774,28 +847,32 @@ export class AppSyncState {
     orgId: string | undefined,
   ): void {
     if (this.accessInFlight.has(key)) return;
-    this.accessInFlight.add(key);
     const resourceKey = accessResourceKey(resourceType, resourceId);
     const epoch = this.accessInvalidationEpoch.get(resourceKey) ?? 0;
-    void (async () => {
-      try {
-        const access = await this.resolveAccessFn(resourceType, resourceId, {
-          userEmail,
-          orgId,
-        });
-        if ((this.accessInvalidationEpoch.get(resourceKey) ?? 0) !== epoch) {
-          return;
+    let settled = false;
+    const check = retainRequestDbPoolScope(
+      (async () => {
+        try {
+          const access = await this.resolveAccessFn(resourceType, resourceId, {
+            userEmail,
+            orgId,
+          });
+          if ((this.accessInvalidationEpoch.get(resourceKey) ?? 0) !== epoch) {
+            return;
+          }
+          this.setAccessCache(key, access != null, Date.now());
+        } catch {
+          if ((this.accessInvalidationEpoch.get(resourceKey) ?? 0) !== epoch) {
+            return;
+          }
+          this.setAccessCache(key, false, Date.now());
+        } finally {
+          settled = true;
+          this.accessInFlight.delete(key);
         }
-        this.setAccessCache(key, access != null, Date.now());
-      } catch {
-        if ((this.accessInvalidationEpoch.get(resourceKey) ?? 0) !== epoch) {
-          return;
-        }
-        this.setAccessCache(key, false, Date.now());
-      } finally {
-        this.accessInFlight.delete(key);
-      }
-    })();
+      })(),
+    );
+    if (!settled) this.accessInFlight.set(key, check);
   }
 
   __resetAccessCacheForTests(): void {
@@ -813,11 +890,11 @@ export class AppSyncState {
    * `getChangesSinceForUser` loop in this file. Making it async would be
    * invasive. Instead, for the access-aware branch we consult an in-memory
    * cache and, on a miss, fire a NON-BLOCKING background access check and
-   * return `false` for the current event. Because the poll fallback re-evaluates
-   * with the now-populated cache, delivery is eventually guaranteed — the only
-   * cost is that the very first event for a fresh (user, resource) pair goes
-   * over poll instead of push, and every subsequent event within the TTL is
-   * pushed.
+   * return `false` for the current event. Callers that must not lose the event
+   * use `getChangeVisibilityForUser` and wait for the pending check (the SSE
+   * handler and `getCombinedChangesSinceForUser` do); this boolean form alone
+   * would drop the first event for a fresh (user, resource) pair, and a live
+   * stream does not poll to recover it.
    *
    * Security: a cache MISS returns `false`, so we NEVER deliver to a user before
    * their access has been affirmatively confirmed by the resolver — the same
@@ -837,7 +914,52 @@ export class AppSyncState {
     );
   }
 
-  private getChangeVisibilityForUser(
+  private async waitForAccessChecks(
+    checks: Iterable<Promise<void>>,
+    timeoutMs: number,
+  ): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      Promise.allSettled(checks),
+      new Promise((resolve) => {
+        timer = setTimeout(resolve, timeoutMs);
+      }),
+    ]);
+    clearTimeout(timer);
+  }
+
+  /**
+   * Like `getChangeVisibilityForUser`, but a "pending" verdict waits (bounded)
+   * for this event's own access check and answers again, so a caller that
+   * cannot poll later does not lose the event. Still "pending" after the wait
+   * means the check did not finish.
+   */
+  async resolveChangeVisibilityForUser(
+    event: Pick<
+      ChangeEvent,
+      "owner" | "orgId" | "resourceType" | "resourceId" | "visibility"
+    >,
+    userEmail: string,
+    orgId: string | undefined,
+    timeoutMs: number,
+  ): Promise<ChangeVisibility> {
+    const visibility = this.getChangeVisibilityForUser(event, userEmail, orgId);
+    if (visibility !== "pending" || !event.resourceType || !event.resourceId) {
+      return visibility;
+    }
+    const check = this.accessInFlight.get(
+      accessCacheKey(
+        userEmail.trim().toLowerCase(),
+        orgId,
+        event.resourceType,
+        event.resourceId,
+      ),
+    );
+    if (check) await this.waitForAccessChecks([check], timeoutMs);
+    return this.getChangeVisibilityForUser(event, userEmail, orgId);
+  }
+
+  getChangeVisibilityForUser(
     event: Pick<
       ChangeEvent,
       "owner" | "orgId" | "resourceType" | "resourceId" | "visibility"
@@ -895,11 +1017,13 @@ export class AppSyncState {
     opts?: { dedupeKey?: string },
   ): void {
     if (this.dbAssignedVersions && !syncEventsDisabled()) {
-      this.recordChain = this.recordChain
-        .then(() => this.recordWithDbVersion(event, opts?.dedupeKey))
-        .catch((error) => {
-          this.reportDurableWriteFailure(error, event);
-        });
+      this.recordChain = retainRequestDbPoolScope(
+        this.recordChain
+          .then(() => this.recordWithDbVersion(event, opts?.dedupeKey))
+          .catch((error) => {
+            this.reportDurableWriteFailure(error, event);
+          }),
+      );
       return;
     }
     this.version = Math.max(this.version + 1, Date.now());
@@ -907,11 +1031,11 @@ export class AppSyncState {
     const cursorId = this.durableEventId(provisional, opts?.dedupeKey);
     const entry: ChangeEvent = { ...provisional, cursorId };
     this.commitEntry(entry);
-    void this.persistSyncEvent(entry, opts?.dedupeKey, cursorId).catch(
-      (error) => {
-        this.reportDurableWriteFailure(error, entry);
-      },
-    );
+    void retainRequestDbPoolScope(
+      this.persistSyncEvent(entry, opts?.dedupeKey, cursorId),
+    ).catch((error) => {
+      this.reportDurableWriteFailure(error, entry);
+    });
   }
 
   async prepareTransactionalChange(event: {
@@ -1045,9 +1169,7 @@ export class AppSyncState {
       };
       await this.alignVersionAllocator(this.version);
       this.commitEntryForChain(entry);
-      void this.persistSyncEvent(entry, dedupeKey, id).catch((error) => {
-        this.reportDurableWriteFailure(error, entry);
-      });
+      await this.persistSyncEvent(entry, dedupeKey, id);
       return;
     }
     this.version = Math.max(this.version, version);
@@ -1173,6 +1295,7 @@ export class AppSyncState {
           version,
           events,
           cursorLimited: true,
+          accessPending: true,
           ...(cursor && lastCursor !== readCursor
             ? { cursor: encodeSyncCursor(lastCursor) }
             : {}),
@@ -1200,7 +1323,7 @@ export class AppSyncState {
     }
 
     const readCursor = cursor ?? { version: since, id: "" };
-    if (readCursor.version <= 0 && readCursor.id === "") {
+    if (!cursor && readCursor.version <= 0 && readCursor.id === "") {
       try {
         const result = await this.getDb().execute(
           "SELECT MAX(version) as max_version FROM sync_events",
@@ -1312,6 +1435,7 @@ export class AppSyncState {
             version: Math.max(since, event.version - 1),
             events,
             cursorLimited: true,
+            accessPending: true,
             ...(cursor && compareSyncCursors(lastCursor, readCursor) > 0
               ? { cursor: encodeSyncCursor(lastCursor) }
               : {}),
@@ -1365,6 +1489,44 @@ export class AppSyncState {
     useDurableEvents: boolean,
     cursor?: SyncCursor,
   ): Promise<ChangeReadResult> {
+    const first = await this.readCombinedChangesSinceForUser(
+      since,
+      userEmail,
+      orgId,
+      useDurableEvents,
+      cursor,
+    );
+    // Only an unresolved access check is worth waiting for; a row-limit
+    // truncation (also `cursorLimited`) is not blocked on one.
+    if (!first.accessPending || this.accessInFlight.size === 0) {
+      const { accessPending: _pending, ...result } = first;
+      return result;
+    }
+    // A read stopped at an event whose access check had not finished. The
+    // check is already running, so waiting for it here (bounded) delivers the
+    // event now instead of one poll interval later.
+    await this.waitForAccessChecks(
+      this.accessInFlight.values(),
+      ACCESS_CHECK_WAIT_MS,
+    );
+    const { accessPending: _pending, ...result } =
+      await this.readCombinedChangesSinceForUser(
+        since,
+        userEmail,
+        orgId,
+        useDurableEvents,
+        cursor,
+      );
+    return result;
+  }
+
+  private async readCombinedChangesSinceForUser(
+    since: number,
+    userEmail: string,
+    orgId: string | undefined,
+    useDurableEvents: boolean,
+    cursor?: SyncCursor,
+  ): Promise<ChangeReadResult> {
     const memory = this.getChangesSinceForUser(since, userEmail, orgId, cursor);
     if (!useDurableEvents) return memory;
 
@@ -1397,16 +1559,26 @@ export class AppSyncState {
     if (cursor) {
       const limitedCursors = [memory, durable]
         .filter((result) => result.cursorLimited)
-        .map((result) => decodeSyncCursor(result.cursor))
-        .filter((value): value is SyncCursor => !!value);
+        .map((result) => decodeSyncCursor(result.cursor) ?? cursor);
       if (limitedCursors.length > 0) {
         const boundary = limitedCursors.reduce((minimum, value) =>
           compareSyncCursors(value, minimum) < 0 ? value : minimum,
+        );
+        // A check pending beyond the boundary the other read stopped at is
+        // filtered out of this response, so waiting on it delivers nothing.
+        const accessPending = [memory, durable].some(
+          (result) =>
+            result.accessPending &&
+            compareSyncCursors(
+              decodeSyncCursor(result.cursor) ?? cursor,
+              boundary,
+            ) <= 0,
         );
         return {
           version: boundary.version,
           cursor: encodeSyncCursor(boundary),
           cursorLimited: true,
+          ...(accessPending ? { accessPending } : {}),
           events: events.filter(
             (event) => compareSyncCursors(cursorForEvent(event), boundary) <= 0,
           ),
@@ -1435,6 +1607,10 @@ export class AppSyncState {
     const limitedVersions = [memory, durable]
       .filter((result) => result.cursorLimited)
       .map((result) => result.version);
+    const accessPending = [memory, durable].some(
+      (result) =>
+        result.accessPending && result.version <= Math.min(...limitedVersions),
+    );
     return {
       version:
         limitedVersions.length > 0
@@ -1446,6 +1622,8 @@ export class AppSyncState {
               (event) => event.version <= Math.min(...limitedVersions),
             )
           : events,
+      ...(limitedVersions.length > 0 ? { cursorLimited: true } : {}),
+      ...(accessPending ? { accessPending } : {}),
     };
   }
 
@@ -1773,8 +1951,61 @@ export function getDefaultAppSyncState(): AppSyncState {
   return _defaultState;
 }
 
+export const syncEventsStore = defineStore({
+  id: "sync_events",
+  migrations: [
+    {
+      name: "baseline",
+      // sync_version is created regardless of the transport flag: the release
+      // step's environment may not match the functions'.
+      run: (exec) => ensureSyncEventsSchema(exec, true),
+    },
+    {
+      name: "seed-sync-version",
+      kind: "data",
+      run: (exec) => seedSyncVersion(exec, true),
+    },
+  ],
+});
+
+export const syncEventsPruneStateStore = defineStore({
+  id: "sync_events_prune_state",
+  migrations: [
+    {
+      name: "baseline",
+      run: (exec) => ensureSyncEventsPruneState(exec),
+    },
+  ],
+});
+
 export function getVersion(): number {
   return getDefaultAppSyncState().getVersion();
+}
+
+export async function getCurrentPollBaseline(
+  state: AppSyncState = getDefaultAppSyncState(),
+): Promise<{ version: number; cursor: string }> {
+  if (syncEventsDisabled()) {
+    await state.seedVersionFromDb();
+    await state.checkExternalDbChanges({ durableEvents: false });
+    return state.getPollBaseline(false);
+  }
+
+  const releaseOwnedServerlessPoll =
+    isProductionServerlessFunctionRuntime() && appMigratesAtRelease();
+  try {
+    if (!releaseOwnedServerlessPoll) {
+      await state.seedVersionFromDb();
+      await state.checkExternalDbChanges({ durableEvents: true });
+    }
+    return await state.getPollBaseline(true);
+  } catch (error) {
+    if (!(error instanceof SyncEventsTableUnavailableError)) throw error;
+    if (releaseOwnedServerlessPoll) throw error;
+    await state.seedVersionFromDb();
+    await state.checkExternalDbChanges({ durableEvents: false });
+    return state.getPollBaseline(false);
+  }
 }
 
 export function getPollEmitter(): EventEmitter {

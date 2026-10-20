@@ -128,7 +128,7 @@ Use \`mark-thread-read\` for one specific conversation only.
 
 Provider-specific Mail actions are shortcuts, not limits. If a first-class action cannot express the exact Gmail, Google Calendar, or CRM endpoint, search query, label/filter setting, request body, pagination mode, account id, payload shape, or API version needed, call \`provider-api-catalog\` and \`provider-api-docs\` as needed, then call \`provider-api-request\` against the provider's real HTTP API.
 
-Use this raw provider API escape hatch instead of weakening the answer, broadening filters, or claiming Mail cannot do something the underlying provider API can do. For large Gmail, calendar, or CRM scans, pass \`stageAs\` and pagination options to \`provider-api-request\`, then use \`query-staged-dataset\` to count, filter, group, or project the staged rows.
+Use this raw provider API escape hatch instead of weakening the answer, broadening filters, or claiming Mail cannot do something the underlying provider API can do. Unattended automations may send (when the owner allows it), draft, and move labels through it; any other Gmail write, such as deleting, filters, or settings, needs approval an automation cannot give, so use the Mail actions for those. For large Gmail, calendar, or CRM scans, pass \`stageAs\` and pagination options to \`provider-api-request\`, then use \`query-staged-dataset\` to count, filter, group, or project the staged rows.
 
 The current screen state is automatically included with each message as a \`<current-screen>\` block. You don't need to call view-screen before every action — use it only when you need a refreshed snapshot mid-conversation.
 After any change (archive, trash, star, mark-read, send), run refresh-list to update the UI.

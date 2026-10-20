@@ -7,11 +7,14 @@ import {
   serializePrivateBlobHandle,
   type NativeResourceCaptureAdapter,
 } from "@agent-native/creative-context/server";
-import { and, inArray } from "drizzle-orm";
-import { nanoid } from "nanoid";
+import { and, eq, inArray } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 import { buildDesignSnapshot } from "./design-snapshot.js";
+import {
+  createDesignVersionSnapshotForCreativeContextCapture,
+  readDesignVersionSnapshot,
+} from "./design-versions.js";
 
 function previewText(value: string, limit = 280) {
   return value
@@ -124,24 +127,44 @@ export const nativeDesignCreativeContextAdapter: NativeResourceCaptureAdapter =
         throw new Error(
           "Design changed before it could be submitted to Context.",
         );
-      const snapshot = await buildDesignSnapshot(design.id, design.data);
+      const version =
+        await createDesignVersionSnapshotForCreativeContextCapture(design.id, {
+          label: "Creative Context submission",
+        });
+      const [versionRow] = await getDb()
+        .select({ snapshot: schema.designVersions.snapshot })
+        .from(schema.designVersions)
+        .where(eq(schema.designVersions.id, version.id))
+        .limit(1);
+      if (!versionRow) {
+        throw new Error("The captured Design version is no longer available.");
+      }
+      const captured = await readDesignVersionSnapshot(
+        versionRow.snapshot,
+        design.id,
+      );
+      const preparedFiles = captured.files.map((file) => {
+        if (!file.id) {
+          throw new Error(
+            "The captured Design version is missing file identity.",
+          );
+        }
+        return { ...file, id: file.id, source: "stored" as const };
+      });
+      const designData = captured.designData ?? design.data;
+      const snapshot = await buildDesignSnapshot(design.id, designData, {
+        preparedFiles,
+      });
       const payload = JSON.stringify({
         designId: design.id,
-        designData: design.data,
+        designData,
         files: snapshot.files,
         tweaks: snapshot.tweaks,
         appliedTweaks: snapshot.appliedTweaks,
         resolvedCssVars: snapshot.resolvedCssVars,
       });
       const contentHash = createHash("sha256").update(payload).digest("hex");
-      const versionId = nanoid();
-      await getDb().insert(schema.designVersions).values({
-        id: versionId,
-        designId: design.id,
-        label: "Creative Context submission",
-        snapshot: payload,
-        createdAt: new Date().toISOString(),
-      });
+      const versionId = version.id;
       const handle = await putPrivateBlob({
         data: Buffer.from(payload),
         filename: `${design.id}.design.json`,

@@ -6,6 +6,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { parseDocument } from "yaml";
 
+import { isTestOnlyPath } from "./guard-test-title-production.ts";
+
 const repoRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 
 function sh(cmd) {
@@ -14,7 +16,7 @@ function sh(cmd) {
 
 function getBaseSha() {
   if (process.env.GITHUB_BASE_REF) {
-    sh(`git fetch origin ${process.env.GITHUB_BASE_REF} --depth=50`);
+    sh(`git fetch origin ${process.env.GITHUB_BASE_REF}`);
     return sh(`git rev-parse origin/${process.env.GITHUB_BASE_REF}`);
   }
   return sh("git rev-parse origin/main");
@@ -187,6 +189,7 @@ function main() {
   for (const file of changedFiles) {
     const pkg = packageFromPath(file, managedPackages.byDir);
     if (!pkg) continue;
+    if (isTestOnlyPath(file)) continue;
     if (isVersionPackagesBumpOnly(file, baseSha)) continue;
     touchedPackages.add(pkg);
   }

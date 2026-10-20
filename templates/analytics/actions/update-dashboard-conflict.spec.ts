@@ -32,6 +32,7 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("@agent-native/core/collab", () => ({
   applyText: mocks.applyText,
+  getText: vi.fn(async () => ""),
   hasCollabState: mocks.hasCollabState,
   seedFromText: mocks.seedFromText,
 }));
@@ -44,8 +45,12 @@ let row: { config: Record<string, unknown>; updatedAt: string } | null = null;
 let nextUpdatedAt = 0;
 
 vi.mock("../server/lib/dashboards-store", () => ({
+  assertDashboardEditable: vi.fn(async () => undefined),
   DashboardConflictError: mocks.DashboardConflictError,
-  upsertDashboard: vi.fn(
+  getDashboard: vi.fn(async () =>
+    row ? { kind: "sql", config: row.config } : null,
+  ),
+  upsertDashboardOutcome: vi.fn(
     async (
       _id: string,
       _kind: string,
@@ -60,12 +65,22 @@ vi.mock("../server/lib/dashboards-store", () => ({
       ) {
         throw new mocks.DashboardConflictError(_id);
       }
+      const replaced = row;
       nextUpdatedAt += 1;
       row = { config, updatedAt: `t${nextUpdatedAt}` };
-      return { ...row };
+      return {
+        dashboard: { ...row },
+        didWrite: true,
+        ...(replaced
+          ? {
+              revisionId: `rev-${replaced.updatedAt}`,
+              changeSummary: { changes: [{ kind: "other" }], omitted: 2 },
+            }
+          : {}),
+      };
     },
   ),
-  upsertDashboardWithRetry: vi.fn(),
+  upsertDashboardWithRetryOutcome: vi.fn(),
 }));
 
 const { default: updateDashboard } = await import("./update-dashboard");
@@ -121,6 +136,24 @@ describe("update-dashboard config-replace concurrency fence", () => {
       panels: [panel("b")],
     });
     expect(row?.updatedAt).toBe(afterDelete.updatedAt);
+  });
+
+  it("returns the revision a full-config save left and what it changed, for the save toast", async () => {
+    const created: any = await updateDashboard.run({
+      dashboardId: "growth-health",
+      config: { name: "Growth health", panels: [panel("a")] },
+    });
+    expect(created.revisionId).toBeUndefined();
+    expect(created).not.toHaveProperty("changes");
+
+    const saved: any = await updateDashboard.run({
+      dashboardId: "growth-health",
+      config: { name: "Growth health", panels: [panel("a"), panel("b")] },
+      expectedUpdatedAt: created.updatedAt,
+    });
+    expect(saved.revisionId).toBe(`rev-${created.updatedAt}`);
+    expect(saved.changes).toEqual([{ kind: "other" }]);
+    expect(saved.omittedChanges).toBe(2);
   });
 
   it("still allows a same-tab follow-up save fenced with the delete's own fresh updatedAt", async () => {

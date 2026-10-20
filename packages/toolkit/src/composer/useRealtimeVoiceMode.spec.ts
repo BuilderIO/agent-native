@@ -143,6 +143,22 @@ describe("Realtime voice client transport", () => {
     });
   });
 
+  it("maps instant intelligence to a supported GPT-Live reasoning effort", () => {
+    expect(
+      createRealtimeVoicePreferenceUpdate(
+        { language: "auto", intelligence: "instant", voice: "cedar" },
+        { protocol: "live" },
+      ),
+    ).toEqual({
+      type: "session.update",
+      session: {
+        delegation: {
+          responses: { reasoning: { effort: "low" } },
+        },
+      },
+    });
+  });
+
   it("updates the active GPT-Live language through appended instructions", () => {
     expect(createRealtimeVoiceLanguageUpdate("auto", ["es-MX"])).toEqual({
       type: "session.instructions.append",

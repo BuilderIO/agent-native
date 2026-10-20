@@ -5,6 +5,7 @@ export interface EngineModelGroup {
   label: string;
   models: string[];
   modelDisplayNames?: Readonly<Record<string, string>>;
+  preserveCustomModels?: boolean;
   configured: boolean;
   isSubscription?: boolean;
 }
@@ -12,7 +13,10 @@ export interface EngineModelGroup {
 export interface ChatModelEngineEntry {
   name: string;
   label: string;
+  defaultModel?: string;
   supportedModels?: readonly string[];
+  /** Full runtime model set, independent of any user-selected picker subset. */
+  runtimeSupportedModels?: readonly string[];
   modelDisplayNames?: Readonly<Record<string, string>>;
   acceptsCustomModels?: boolean;
   preserveCustomModels?: boolean;
@@ -284,6 +288,7 @@ export function buildChatModelGroups({
         ...(engine.modelDisplayNames
           ? { modelDisplayNames: engine.modelDisplayNames }
           : {}),
+        ...(engine.preserveCustomModels ? { preserveCustomModels: true } : {}),
         configured:
           engine.configured ??
           (requiredEnvVars.length === 0 ||

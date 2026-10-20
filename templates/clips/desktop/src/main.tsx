@@ -16,6 +16,7 @@ import { MeetingNotification } from "./overlays/meeting-notification";
 import { MeetingNub } from "./overlays/meeting-nub";
 import { MonitorPicker } from "./overlays/monitor-picker";
 import { Preparing } from "./overlays/preparing";
+import { QuitRecoveryDialog } from "./overlays/quit-recovery-dialog";
 import { RecordingPill } from "./overlays/record-pill";
 import { MeetingPill } from "./overlays/recording-pill";
 import { RegionGuideEditor, RegionGuides } from "./overlays/region-guides";
@@ -40,7 +41,7 @@ function installRouteAttributes(route: string): void {
 function pickRoute(route: string): React.ReactElement {
   switch (route) {
     case "countdown":
-      return <Countdown />;
+      return <Countdown attemptId={currentRouteDetail()} />;
     case "toolbar":
       return <RecordingPill />;
     case "bubble":
@@ -198,6 +199,9 @@ if (rootEl) {
   ReactDOM.createRoot(rootEl).render(
     <AgentNativeI18nProvider catalog={i18nCatalog} persistPreference={false}>
       {pickRoute(route)}
+      {route === "popover" || route === "settings" ? (
+        <QuitRecoveryDialog />
+      ) : null}
     </AgentNativeI18nProvider>,
   );
 }

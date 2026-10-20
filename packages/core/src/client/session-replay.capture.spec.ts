@@ -340,6 +340,32 @@ describe("session replay console/network capture", () => {
     });
   });
 
+  it("tells a plain console error from an exception Monitoring captured", async () => {
+    installBrowser();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    recordMock.mockReturnValue(vi.fn());
+    const mod = await startCapture();
+
+    console.error("logged only");
+    console.warn("warned");
+    mod.emitSessionReplayException({ type: "TypeError", message: "boom" });
+
+    const events = consoleEvents();
+    expect(events[0]).toMatchObject({
+      level: "error",
+      source: "console",
+      exception: false,
+    });
+    expect(events[1]).not.toHaveProperty("exception");
+    expect(events[2]).toMatchObject({
+      level: "error",
+      source: "console",
+      message: "TypeError: boom",
+      exception: true,
+    });
+  });
+
   it("captures window error and unhandledrejection events", async () => {
     const { fireWindowEvent } = installBrowser();
     recordMock.mockReturnValue(vi.fn());
@@ -397,6 +423,39 @@ describe("session replay console/network capture", () => {
     expect(typeof events[0].durationMs).toBe("number");
   });
 
+  it("flags a request the page was hidden for, even if it came back", async () => {
+    const { fetchMock, windowStub } = installBrowser();
+    recordMock.mockReturnValue(vi.fn());
+    let respond: (response: Response) => void = () => {};
+    fetchMock.mockImplementationOnce(
+      () => new Promise<Response>((resolve) => (respond = resolve)),
+    );
+    await startCapture();
+    const doc = document as unknown as {
+      visibilityState: DocumentVisibilityState;
+      addEventListener: ReturnType<typeof vi.fn>;
+    };
+    const setVisibility = (state: DocumentVisibilityState) => {
+      doc.visibilityState = state;
+      for (const [event, listener] of doc.addEventListener.mock.calls) {
+        if (event === "visibilitychange") (listener as () => void)();
+      }
+    };
+
+    const wrappedFetch = windowStub.fetch as typeof fetch;
+    const pending = wrappedFetch("/_agent-native/actions/list-clips");
+    setVisibility("hidden");
+    setVisibility("visible");
+    respond(new Response("{}"));
+    await pending;
+    await wrappedFetch("/_agent-native/actions/list-clips");
+
+    const events = networkEvents();
+    expect(events).toHaveLength(2);
+    expect(events[0]).toMatchObject({ pageHidden: true });
+    expect(events[1]).not.toHaveProperty("pageHidden");
+  });
+
   it("captures network-level fetch failures and rethrows to the caller", async () => {
     const { fetchMock, windowStub } = installBrowser();
     recordMock.mockReturnValue(vi.fn());
@@ -416,6 +475,24 @@ describe("session replay console/network capture", () => {
       ok: false,
       error: "Failed to fetch",
     });
+  });
+
+  it("marks a fetch the browser cancelled while the page was leaving", async () => {
+    const { fetchMock, windowStub, fireWindowEvent } = installBrowser();
+    recordMock.mockReturnValue(vi.fn());
+    fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
+    await startCapture();
+    const wrappedFetch = windowStub.fetch as typeof fetch;
+
+    fireWindowEvent("beforeunload", {});
+    await expect(wrappedFetch("/api/poll")).rejects.toThrow();
+    fireWindowEvent("pointerdown", {});
+    await expect(wrappedFetch("/api/poll")).rejects.toThrow();
+
+    const [leaving, stayed] = networkEvents();
+    expect(leaving).toMatchObject({ status: 0, pageLeaving: true });
+    expect(stayed).toMatchObject({ status: 0, error: "Failed to fetch" });
+    expect(stayed).not.toHaveProperty("pageLeaving");
   });
 
   it("captures XHR requests including failures", async () => {

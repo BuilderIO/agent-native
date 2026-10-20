@@ -134,28 +134,44 @@ export function renderDocumentCommentEmail({
   };
 }
 
+function mentionedEmails(input: DocumentCommentNotificationInput) {
+  return new Set(
+    input.mentions.map((mention) => mention.email.trim().toLowerCase()),
+  );
+}
+
 export async function notifyDocumentComment(
   input: DocumentCommentNotificationInput,
 ): Promise<DocumentCommentNotificationResult> {
+  return runActivityNotification(LOG_LABEL, async () => {
+    const candidates = [input.ownerEmail, ...mentionedEmails(input)];
+    if (input.isReply) {
+      candidates.push(
+        ...(await threadParticipants(input.documentId, input.threadId)),
+      );
+    }
+    return deliverDocumentCommentEmails(input, candidates);
+  });
+}
+
+/**
+ * An edited comment tells only the people it newly mentions; the owner and
+ * thread already heard about the comment when it was posted.
+ */
+export async function notifyEditedCommentMentions(
+  input: DocumentCommentNotificationInput,
+): Promise<DocumentCommentNotificationResult> {
   return runActivityNotification(LOG_LABEL, () =>
-    deliverDocumentCommentEmails(input),
+    deliverDocumentCommentEmails(input, [...mentionedEmails(input)]),
   );
 }
 
 async function deliverDocumentCommentEmails(
   input: DocumentCommentNotificationInput,
+  candidates: string[],
 ): Promise<DocumentCommentNotificationResult> {
   const title = input.documentTitle.trim() || "Untitled";
-  const mentioned = new Set(
-    input.mentions.map((mention) => mention.email.trim().toLowerCase()),
-  );
-
-  const candidates = [input.ownerEmail, ...mentioned];
-  if (input.isReply) {
-    candidates.push(
-      ...(await threadParticipants(input.documentId, input.threadId)),
-    );
-  }
+  const mentioned = mentionedEmails(input);
 
   const allowed = await filterRecipientsByResourceAccess({
     resourceType: "document",

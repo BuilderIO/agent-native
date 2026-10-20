@@ -529,12 +529,12 @@ describe("connected composer menus", () => {
     await render([], { onAttachmentRequest });
     await openRoot();
     await click("Upload File");
-    await act(
-      async () =>
-        new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
-    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
     expect(onAttachmentRequest).toHaveBeenCalledOnce();
     expect(menus()).toHaveLength(0);
+    expect(document.activeElement?.getAttribute("aria-label")).toBe(
+      "Add context",
+    );
   });
   it("preserves legacy render, latest updates, dismissal and resume without reselecting", async () => {
     let controls!: ComposerContextPageControls;

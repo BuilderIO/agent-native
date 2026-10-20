@@ -40,7 +40,9 @@ conflicts. Always choose an explicit `access` mode on `createCollabPlugin`.
   awareness TTL. The boost lapses after 3 minutes with no input and no remote
   events. Lone tabs pay nothing extra. A read-only viewer must join the doc too (Design's
   `useViewerPresence`; it never uses the `ydoc`), or it never sees an editor
-  and stays on the idle cadence.
+  and stays on the idle cadence. A viewer on a different screen than the
+  editor shares no doc with them; its own collab poll sees the design's
+  resource-scoped events from other tabs and starts the boost (60 s) itself.
 - **Update batching** — local Yjs updates are debounced ~80 ms and coalesced
   with `Y.mergeUpdates` before sending; flushed immediately on
   `visibilitychange` / `pagehide`
@@ -106,6 +108,16 @@ if (
 The agent's awareness entry (`AGENT_CLIENT_ID`, max int) can never be the
 lead. A sole client is always the lead. The election is deterministic with no
 coordination round-trip.
+
+A lead that sees another visible human waits `PEER_SETTLE_MS` (2.5 s) before
+adopting a newer snapshot, so that peer's in-flight typing lands first. The wait
+is skipped only when the host passes `isEditorClean(liveMarkdown)` to
+`useCollabReconcile`, it returns true, and the live doc still equals the last
+authoritative snapshot the hook adopted. Do not substitute
+`lastAppliedSerialized`: local emits update it, so it cannot say whether the
+doc holds unsaved text. Content's `isEditorClean` also requires no queued or
+in-flight save, no reconcile recovery draft, and no journaled draft that
+differs from the live doc.
 
 ### v1 limitation
 

@@ -1,5 +1,5 @@
 /**
- * Shader-fill preview bridge — injected into every canvas iframe.
+ * Shader-fill preview bridge — injected into every Edit canvas iframe. Interact's document carries only the theme and links bridges.
  *
  * Allows the parent to apply a CSS gradient approximation of a shader fill to
  * the currently-selected element WITHOUT persisting anything.

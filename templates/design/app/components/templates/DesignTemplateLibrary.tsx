@@ -375,6 +375,7 @@ function DesignTemplatePreviewDialog({
           width={active.width}
           height={active.height}
           interactive
+          recordSessionReplay
           onEscape={onClose}
           onNavigate={(href) => {
             const filename = previewFilenameForHref(

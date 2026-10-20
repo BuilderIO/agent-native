@@ -22,60 +22,66 @@ function toBase64(arr: Uint8Array): string {
   return Buffer.from(arr).toString("base64");
 }
 
-vi.mock("../db/client.js", () => ({
-  getDbExec: vi.fn(() => ({
-    execute: async (query: string | { sql: string; args?: unknown[] }) => {
-      const sql = typeof query === "string" ? query : query.sql;
-      const args = typeof query === "string" ? [] : (query.args ?? []);
+vi.mock("../db/client.js", async () => {
+  const { storeLedgerResult } =
+    await import("../db/store-ledger.test-helpers.js");
+  return {
+    getDbExec: vi.fn(() => ({
+      execute: async (query: string | { sql: string; args?: unknown[] }) => {
+        const sql = typeof query === "string" ? query : query.sql;
+        const args = typeof query === "string" ? [] : (query.args ?? []);
+        const ledger = storeLedgerResult(sql);
+        if (ledger) return ledger;
 
-      if (/^\s*CREATE TABLE/i.test(sql) || /^\s*ALTER TABLE/i.test(sql)) {
-        return { rows: [], rowsAffected: 0 };
-      }
-
-      if (/^\s*SELECT yjs_state, version FROM _collab_docs/i.test(sql)) {
-        const row = rows.get(String(args[0]));
-        return { rows: row ? [row] : [], rowsAffected: 0 };
-      }
-
-      if (/^\s*SELECT 1 FROM _collab_docs/i.test(sql)) {
-        const row = rows.get(String(args[0]));
-        return {
-          rows: row && row.yjs_state !== "" ? [{ "1": 1 }] : [],
-          rowsAffected: 0,
-        };
-      }
-
-      if (/^\s*UPDATE _collab_docs\b/i.test(sql)) {
-        const hasVersionGuard = /\bAND version = \?/i.test(sql);
-        const docId = String(args[2]);
-        const row = rows.get(docId);
-        if (!row) return { rows: [], rowsAffected: 0 };
-        if (hasVersionGuard && row.version !== Number(args[3])) {
+        if (/^\s*CREATE TABLE/i.test(sql) || /^\s*ALTER TABLE/i.test(sql)) {
           return { rows: [], rowsAffected: 0 };
         }
-        rows.set(docId, {
-          yjs_state: String(args[0]),
-          text_snapshot: String(args[1]),
-          version: row.version + 1,
-        });
-        return { rows: [], rowsAffected: 1 };
-      }
 
-      if (/^\s*INSERT INTO _collab_docs/i.test(sql)) {
-        const docId = String(args[0]);
-        if (rows.has(docId)) return { rows: [], rowsAffected: 0 };
-        rows.set(docId, {
-          yjs_state: String(args[1]),
-          text_snapshot: String(args[2]),
-          version: 0,
-        });
-        return { rows: [], rowsAffected: 1 };
-      }
+        if (/^\s*SELECT yjs_state, version FROM _collab_docs/i.test(sql)) {
+          const row = rows.get(String(args[0]));
+          return { rows: row ? [row] : [], rowsAffected: 0 };
+        }
 
-      throw new Error(`Unexpected SQL: ${sql}`);
-    },
-  })),
-}));
+        if (/^\s*SELECT 1 FROM _collab_docs/i.test(sql)) {
+          const row = rows.get(String(args[0]));
+          return {
+            rows: row && row.yjs_state !== "" ? [{ "1": 1 }] : [],
+            rowsAffected: 0,
+          };
+        }
+
+        if (/^\s*UPDATE _collab_docs\b/i.test(sql)) {
+          const hasVersionGuard = /\bAND version = \?/i.test(sql);
+          const docId = String(args[2]);
+          const row = rows.get(docId);
+          if (!row) return { rows: [], rowsAffected: 0 };
+          if (hasVersionGuard && row.version !== Number(args[3])) {
+            return { rows: [], rowsAffected: 0 };
+          }
+          rows.set(docId, {
+            yjs_state: String(args[0]),
+            text_snapshot: String(args[1]),
+            version: row.version + 1,
+          });
+          return { rows: [], rowsAffected: 1 };
+        }
+
+        if (/^\s*INSERT INTO _collab_docs/i.test(sql)) {
+          const docId = String(args[0]);
+          if (rows.has(docId)) return { rows: [], rowsAffected: 0 };
+          rows.set(docId, {
+            yjs_state: String(args[1]),
+            text_snapshot: String(args[2]),
+            version: 0,
+          });
+          return { rows: [], rowsAffected: 1 };
+        }
+
+        throw new Error(`Unexpected SQL: ${sql}`);
+      },
+    })),
+  };
+});
 
 vi.mock("../db/ddl-guard.js", () => ({
   ensureColumnExists: vi.fn().mockResolvedValue(undefined),

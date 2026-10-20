@@ -239,6 +239,46 @@ const res = await extensionFetch("https://api.example.com/items", {
 to prevent JavaScript template literal evaluation. The substitution
 happens server-side, not in the browser.
 
+## Remote images and media
+
+The iframe's Content-Security-Policy loads images and media from `'self'
+data: blob:` only, so a remote `<img src="https://cdn.example.com/…">` is
+blocked by default. The app opts in from server config:
+
+```typescript
+// server/plugins/config.ts
+import { defineAppConfig } from "@agent-native/core/server";
+
+export default defineAppConfig({
+  extensions: {
+    iframeImageSources: ["'self'", "https:", "data:", "blob:"],
+    iframeMediaSources: ["'self'", "https:", "data:", "blob:"],
+  },
+});
+```
+
+Each entry is one CSP source expression — `'self'`, a scheme such as `https:` or
+`blob:`, or an origin such as `https://cdn.example.com`. Prefer naming the
+origin over `https:` when the app knows it. `'none'` is accepted only as the
+whole list, because CSP drops a source list that mixes it with anything else.
+Allowing a remote origin is an explicit egress permission: the browser requests
+that URL, and extension script can encode data into it. `connect-src` stays
+`'self'` and is not configurable. API calls still go through the host bridge
+(`extensionFetch()` or an action), which enforces permissions and allow-lists.
+That bridge is not the only way data can leave once a remote image or media
+source is configured.
+
+The configured lists apply to the app's extension frames: the server render
+route sets them in the CSP header and meta tag, and the client-rendered
+`srcDoc` frames (`ExtensionViewer` inside MCP chat embeds, transient
+`InlineExtensionFrame` previews) read them from the authenticated
+`/_agent-native/extensions/iframe/display-sources` endpoint. The lists are
+validated again wherever the policy is built; a client that cannot load valid
+lists falls back to the default `'self' data: blob:` policy. The portable
+toolkit frame (`AgentNativeExtensionFrame`, built by
+`buildAgentNativeExtensionHtml()`) does not read these lists and always uses
+the default policy.
+
 ## Tailwind classes
 
 Extensions inherit the main app's Tailwind v4 theme. Use the same utility

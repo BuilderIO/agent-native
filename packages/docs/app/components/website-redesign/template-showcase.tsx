@@ -14,14 +14,16 @@ import {
 import { Link } from "react-router";
 
 import { sendAhrefsEvent } from "../../lib/ahrefs-analytics";
-import { BuilderImage } from "../builder-image";
 import { BuildOnlinePopover } from "../BuilderWaitlistPopover";
 import { sitePathForLocale } from "../docs-locale";
-import { APP_ART } from "./app-art";
+import {
+  getScreenshotTileScaleX,
+  TEMPLATE_SCREENSHOTS,
+} from "../template-screenshots";
+import { TemplateScreenshot } from "../TemplateScreenshot";
 import { AppStatusBadge } from "./ds/app-status-badge";
 import { Button } from "./ds/button";
 import { CardArrow } from "./ds/card-arrow";
-import { ImgPlaceholder } from "./ds/img-placeholder";
 import { GridInner, PageSection } from "./page-grid";
 
 const CARD_IMAGE_SIZES = "(max-width: 768px) 320px, 433px";
@@ -29,21 +31,21 @@ const CARD_IMAGE_SIZES = "(max-width: 768px) 320px, 433px";
 const CARD_CLASS = [
   "app-carousel-card group flex w-[433px] shrink-0 snap-start flex-col gap-[var(--spacing-4)] overflow-hidden bg-[var(--b-bg-page)] no-underline mobile:w-[320px]",
   "transition-[background-color] duration-150 ease-[ease] hover:bg-[var(--b-bg-raised)]",
-  "not-last:border-r not-last:border-solid not-last:border-[var(--b-border-subtle)]",
+  "border border-solid border-[var(--b-border-subtle)]",
 ].join(" ");
 
 interface ShowcaseApp {
-  slug: string;
+  slug: keyof typeof TEMPLATE_SCREENSHOTS;
   name: string;
   href: string;
 }
 
 const APPS: ShowcaseApp[] = [
-  { slug: "clips", name: "Clips", href: "/apps/clips" },
   { slug: "design", name: "Design", href: "/apps/design" },
   { slug: "slides", name: "Slides", href: "/apps/slides" },
   { slug: "analytics", name: "Analytics", href: "/apps/analytics" },
   { slug: "calendar", name: "Calendar", href: "/apps/calendar" },
+  { slug: "clips", name: "Clips", href: "/apps/clips" },
   { slug: "mail", name: "Mail", href: "/apps/mail" },
   { slug: "assets", name: "Assets", href: "/apps/assets" },
   { slug: "content", name: "Content", href: "/apps/content" },
@@ -141,9 +143,8 @@ export function TemplateShowcase() {
           className="snap-x snap-mandatory scroll-smooth overflow-x-auto overflow-y-hidden border-x border-solid border-[var(--b-border-subtle)] [-webkit-overflow-scrolling:touch] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           onScroll={updateScrollState}
         >
-          <div className="app-carousel-track flex w-max border-t border-solid border-[var(--b-border-subtle)]">
+          <div className="app-carousel-track flex w-max gap-1 [&>:first-child]:border-l-0 [&>:last-child]:border-r-0">
             {APPS.map((app) => {
-              const art = APP_ART[app.slug];
               return (
                 <Link
                   key={app.slug}
@@ -155,49 +156,16 @@ export function TemplateShowcase() {
                     })
                   }
                 >
-                  {/* `relative` anchors the theme-img-light overlay, which is
-                    absolutely positioned so it can sit exactly on top of the
-                    in-flow dark variant. */}
-                  <div className="relative flex aspect-[320/256] items-center justify-center overflow-hidden bg-[var(--b-bg-page)]">
-                    {art ? (
-                      <>
-                        {/* Dark variant is the in-flow one so it establishes the
-                          box; the light variant overlays it. Both stay mounted
-                          with real geometry (theme-img-* toggles opacity, not
-                          display) so loading="lazy" will still fetch whichever
-                          one is currently hidden. */}
-                        <BuilderImage
-                          className="theme-img-dark relative h-full w-full object-cover"
-                          src={art.imageDark}
-                          alt={t("templateCard.screenshotAlt", {
-                            name: app.name,
-                          })}
-                          sizes={CARD_IMAGE_SIZES}
-                          crossOrigin="anonymous"
-                          loading="lazy"
-                          decoding="async"
-                        />
-                        <BuilderImage
-                          className="theme-img-light absolute inset-0 h-full w-full object-cover"
-                          src={art.imageLight}
-                          alt={t("templateCard.screenshotAlt", {
-                            name: app.name,
-                          })}
-                          sizes={CARD_IMAGE_SIZES}
-                          crossOrigin="anonymous"
-                          loading="lazy"
-                          decoding="async"
-                        />
-                      </>
-                    ) : (
-                      <ImgPlaceholder
-                        aspectRatio="320 / 256"
-                        label=""
-                        rounded={false}
-                        background="var(--b-bg-raised)"
-                        bordered={false}
-                      />
-                    )}
+                  <div className="relative aspect-[8/5] overflow-hidden bg-[var(--b-bg-page)]">
+                    <TemplateScreenshot
+                      alt={t("templateCard.screenshotAlt", {
+                        name: app.name,
+                      })}
+                      frame={app.slug === "clips"}
+                      scaleX={getScreenshotTileScaleX(app.slug)}
+                      sizes={CARD_IMAGE_SIZES}
+                      variants={TEMPLATE_SCREENSHOTS[app.slug]}
+                    />
                   </div>
                   <div className="flex flex-auto flex-col items-start gap-[var(--spacing-3)] p-[var(--spacing-5)]">
                     <h3 className="m-0 flex items-center gap-[var(--spacing-2)] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-5)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
@@ -221,7 +189,7 @@ export function TemplateShowcase() {
                 box. Horizontal padding matches the app cards' text block so
                 the left edge of the copy lines up across the rail, and it is
                 what buys the two buttons room to sit on one line. */}
-            <div className="app-carousel-cta-card flex w-[433px] shrink-0 snap-start flex-col items-start justify-center gap-[var(--spacing-4)] border-l border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] px-[var(--spacing-5)] py-[var(--spacing-8)] text-left transition-[background-color] duration-150 ease-[ease] hover:bg-[var(--b-bg-raised)] mobile:w-[320px]">
+            <div className="app-carousel-cta-card flex w-[433px] shrink-0 snap-start flex-col items-start justify-center gap-[var(--spacing-4)] border border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] px-[var(--spacing-5)] py-[var(--spacing-8)] text-left transition-[background-color] duration-150 ease-[ease] hover:bg-[var(--b-bg-raised)] mobile:w-[320px]">
               <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-5)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
                 {t("buildFromScratch.title")}
               </h3>

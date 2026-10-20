@@ -320,8 +320,53 @@ export function hasJsonMcpEntryForClient(
   return !!servers && typeof servers === "object" && name in servers;
 }
 
-function tomlQuote(s: string): string {
-  return `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+const TOML_ESCAPES: Record<string, string> = {
+  "\b": "\\b",
+  "\t": "\\t",
+  "\n": "\\n",
+  "\f": "\\f",
+  "\r": "\\r",
+  '"': '\\"',
+  "\\": "\\\\",
+};
+
+const TOML_UNESCAPES: Record<string, string> = {
+  b: "\b",
+  t: "\t",
+  n: "\n",
+  f: "\f",
+  r: "\r",
+  '"': '"',
+  "\\": "\\",
+};
+
+/**
+ * Names, URLs, and header values reach Codex's TOML from `--name`, existing
+ * configs, and server responses. A raw control character ends the string and
+ * the file stops parsing, so every one must be escaped, not only `"` and `\`.
+ */
+export function tomlQuote(s: string): string {
+  const escaped = s.replace(
+    /[\u0000-\u001f"\\\u007f]/g,
+    (ch) =>
+      TOML_ESCAPES[ch] ??
+      `\\u${ch.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
+  return `"${escaped}"`;
+}
+
+export function unescapeTomlBasicString(value: string): string {
+  return value.replace(
+    /\\(?:u([0-9A-Fa-f]{4})|U([0-9A-Fa-f]{8})|(.))/g,
+    (whole, short: string, long: string, ch: string) => {
+      const hex = short ?? long;
+      if (hex) {
+        const code = parseInt(hex, 16);
+        return code <= 0x10ffff ? String.fromCodePoint(code) : whole;
+      }
+      return TOML_UNESCAPES[ch] ?? whole;
+    },
+  );
 }
 
 function codexMcpHeader(name: string): string {
@@ -390,8 +435,7 @@ function parseTomlTableHeader(line: string): string[] | null {
       let key = "";
       while (i < inner.length && inner[i] !== quote) {
         if (quote === '"' && inner[i] === "\\" && i + 1 < inner.length) {
-          const next = inner[i + 1];
-          key += next === '"' ? '"' : next === "\\" ? "\\" : `\\${next}`;
+          key += inner.slice(i, i + 2);
           i += 2;
           continue;
         }
@@ -400,7 +444,7 @@ function parseTomlTableHeader(line: string): string[] | null {
       }
       if (i >= inner.length) return null;
       i++;
-      keys.push(key);
+      keys.push(quote === '"' ? unescapeTomlBasicString(key) : key);
       expectKey = false;
     } else if (isBare(ch)) {
       let key = "";

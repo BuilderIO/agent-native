@@ -1,3 +1,5 @@
+import { parseBase64DataUrl } from "@agent-native/core/shared";
+
 /**
  * Decode a base64 `data:` URL into raw bytes.
  *
@@ -16,14 +18,11 @@ export function decodeDataUrl(
   bytes: Uint8Array;
   mime: string;
 } {
-  const comma = dataUrl.indexOf(",");
-  const header = comma > 0 ? dataUrl.slice(0, comma) : "";
-  const match = /^data:([^;,]+)(?:;[^;,]*)*;base64$/.exec(header);
-  if (!match || comma === dataUrl.length - 1) {
+  const parsed = parseBase64DataUrl(dataUrl);
+  if (!parsed) {
     throw new Error("dataUrl must be base64-encoded data: URL");
   }
-  const mime = match[1];
-  const base64 = dataUrl.slice(comma + 1);
+  const { mediaType: mime, data: base64 } = parsed;
   if (options.maxBytes !== undefined) {
     // Four base64 characters carry three bytes; padding only makes it less.
     const upperBound = Math.floor((base64.length * 3) / 4);

@@ -5,6 +5,29 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const actionMocks = vi.hoisted(() => ({ callAction: vi.fn() }));
+const agentEngineStatusMock = vi.hoisted(() => ({
+  state: "missing" as "unknown" | "configured" | "missing" | "unavailable",
+}));
+
+vi.mock("@agent-native/core/client/use-agent-engine-configured", () => ({
+  useAgentEngineConfigured: () => ({
+    canChat: agentEngineStatusMock.state === "configured",
+    missing: agentEngineStatusMock.state === "missing",
+    state: agentEngineStatusMock.state,
+  }),
+}));
+
+vi.mock("../chat/chat/run-recovery.js", async () => {
+  const { createElement } = await import("react");
+  return {
+    BuilderSetupCard: () =>
+      createElement(
+        "div",
+        { "data-testid": "builder-setup-card" },
+        "Connect AI",
+      ),
+  };
+});
 
 vi.mock("@agent-native/core/client/use-action", async (importOriginal) => ({
   ...(await importOriginal<
@@ -39,6 +62,7 @@ describe("CommandMenu docs group", () => {
 
   beforeEach(() => {
     actionMocks.callAction.mockReset();
+    agentEngineStatusMock.state = "missing";
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
       cb(0);
@@ -139,6 +163,41 @@ describe("CommandMenu docs group", () => {
       search(term);
       expect(document.body.textContent).toContain("Log out");
     }
+  });
+
+  it("keeps the disconnected setup card out of command search", async () => {
+    actionMocks.callAction.mockResolvedValue({ engines: [], current: {} });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: unknown) => {
+        const url = String(input);
+        if (url.includes("env-status")) return Response.json([]);
+        if (url.includes("builder/status")) {
+          return Response.json({ configured: false });
+        }
+        return Response.json({});
+      }),
+    );
+
+    await act(async () => {
+      root.render(
+        <CommandMenu open onOpenChange={() => undefined}>
+          <CommandMenu.Group heading="Appearance">
+            <CommandMenu.Item onSelect={() => undefined}>
+              Toggle dark mode
+            </CommandMenu.Item>
+          </CommandMenu.Group>
+        </CommandMenu>,
+      );
+      await Promise.resolve();
+    });
+
+    search("dark");
+
+    expect(document.body.textContent).toContain("Toggle dark mode");
+    expect(
+      document.querySelector('[data-testid="builder-setup-card"]'),
+    ).toBeNull();
   });
 
   it("enables Ask AI for an automatically selected local runtime", async () => {

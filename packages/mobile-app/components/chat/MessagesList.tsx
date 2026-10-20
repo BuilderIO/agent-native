@@ -76,7 +76,7 @@ export function MessagesList({
   onSignIn?: () => void;
   /** Opens provider settings when chat has no eligible AI credentials. */
   onOpenSettings?: () => void;
-  onOpenConnections?: () => void;
+  onOpenConnections?: (provider?: string) => void;
 }) {
   const { foreground } = useMobileThemeColors();
   const listRef = useRef<LegendListRef>(null);

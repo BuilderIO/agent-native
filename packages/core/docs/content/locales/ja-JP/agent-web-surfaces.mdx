@@ -10,7 +10,7 @@ description: "パブリック ルートを、エージェントによるクロ�
 ドキュメント サイトはリファレンス実装です。本日発送します:
 
 - デフォルトで取得は許可するがトレーニングを禁止するクローラー ポリシーを備えた `/robots.txt`。
-- ソース ファイルが公開する場合、絶対正規 URL および `lastmod` を含む `/sitemap.xml`。
+- ロケールごとに 1 つの `/sitemap-<locale>.xml` を指すサイトマップ インデックスとしての `/sitemap.xml`。ソース ファイルが公開する場合、絶対正規 URL および `lastmod` を含みます。
 - エージェントフレンドリーなコンテンツ検出のための `/llms.txt` および `/llms-full.txt`。
 - Markdown ミラー (`/docs/getting-started.md` など)。
 - 実稼働ビルド後のパブリック ドキュメント ページに対する `Accept: text/markdown` 応答。
@@ -187,6 +187,8 @@ const files = buildAgentWebStaticFiles({
 ```
 
 Vite アプリは、実稼働ビルド中に `@agent-native/core/vite` の `createAgentWebVitePlugin` を使用して、これらのファイルを `public`、`dist`、`dist/client`、`dist/server/public`、または `build/client` に書き込むことができます。
+
+大きなサイトマップを分割するには、`buildAgentWebStaticFiles` または `createAgentWebVitePlugin` に `sitemapGroup` を渡します。各ページをロケールなどのグループ キーに対応付けると、`sitemap.xml` はグループごとに 1 つの `sitemap-<group>.xml` を持つサイトマップ インデックスになります。
 
 ## サイトを監査する {#audit}
 

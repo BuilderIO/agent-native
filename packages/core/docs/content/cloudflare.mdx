@@ -1,35 +1,240 @@
 ---
 title: "Cloudflare"
-description: "Deploy an agent-native app to Cloudflare Workers with the cloudflare_module Nitro preset."
+description: "Deploy a standalone Agent-Native app to Cloudflare Workers with Wrangler."
+search: "Cloudflare Workers deployment standalone app Nitro cloudflare_module preset Wrangler secrets production migrate build deploy"
 ---
 
 # Cloudflare
 
-## Cloudflare Workers {#cloudflare-workers}
+<a id="cloudflare-workers"></a>
 
-Use Nitro's native module output for a Cloudflare Worker. This keeps SSR
-enabled and emits the Worker entry point plus static assets under
-`.output/server` and `.output/public`:
+Cloudflare Workers runs your app on Cloudflare's network, so there is no server
+to set up or keep running. The build turns the app into a Worker, which handles
+the app's pages and API, plus static files Cloudflare serves directly.
+Cloudflare gives the app a public address with HTTPS.
 
-```ts filename="vite.config.ts"
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "cloudflare_module" } })],
-});
-```
+This guide walks through deploying one standalone app from scratch. You will
+create the app, give it a production database and an auth secret, prepare the
+database, build the Worker, save the secrets in Cloudflare, and then deploy it.
 
-Build and deploy the generated Worker with Wrangler:
+<Callout tone="info">
+
+Node.js `22.22+` is required.
+
+</Callout>
+
+You also need a Cloudflare account. Run the commands in this guide on your own
+computer. Wrangler, Cloudflare's command-line tool, uploads the finished Worker
+to Cloudflare for you.
+
+## Step 1: Create the app
+
+Create your new standalone app. The example below creates an app from the Chat
+template, but you can start from any template. Move into the app's folder and
+install its dependencies. `corepack enable` turns on the `pnpm` version the app
+expects, so you do not need to install `pnpm` yourself.
 
 ```bash
-pnpm build
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
+```
+
+Replace `my-app` with your own app name if you like. The rest of this guide
+assumes you are inside the app's folder.
+
+<Callout tone="info">
+
+If these commands fail with peer dependency errors, an outdated copy of a
+package in your npx cache may be the cause. Run `npx clear-npx-cache` to clear
+the cache, then run the commands again.
+
+</Callout>
+
+## Step 2: Configure environment secrets
+
+The app reads its production settings from environment variables:
+
+| Variable             | Required | Purpose                                              |
+| -------------------- | -------- | ---------------------------------------------------- |
+| `DATABASE_URL`       | Yes      | Connects the app to its PostgreSQL database          |
+| `BETTER_AUTH_SECRET` | Yes      | Signs user sessions                                  |
+| `BETTER_AUTH_URL`    | No       | Sets the public address people use to reach your app |
+
+The exports below make the following commands work in this shell. Before
+deploying, save these same variables in your host's project or service
+environment settings. Step 5 shows how to save them in Cloudflare.
+
+### Database URL
+
+During local development the app stores data in a local database when
+`DATABASE_URL` is unset. A deployed app needs a real PostgreSQL database that
+keeps its data between deploys. A Worker cannot keep files between requests, so
+the database must live outside Cloudflare Workers. Copy the connection string
+from your provider and export it:
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+The [database provider guides](/docs/neon) show where to find the connection
+string for each provider.
+
+<Callout tone="warning">
+
+Select a persistent PostgreSQL provider: Neon, Supabase, Amazon RDS, etc.
+
+</Callout>
+
+### Auth secret
+
+Generate this once and keep it stable across deploys.
+
+The app uses `BETTER_AUTH_SECRET` to sign user sessions. If it changes, every
+signed-in user is signed out. The command below generates a random value:
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+Save the generated value somewhere safe, such as a password manager. Use the
+same value every time you deploy.
+
+### Public URL
+
+Optional. Set it when using a custom domain, reverse proxy, or an auth/OAuth flow
+that needs a fixed public origin.
+
+`BETTER_AUTH_URL` is the public address people use to reach your app. Without
+it, the app works out its address from each incoming request. That is usually
+fine on the address Cloudflare gives you, but set it when you connect a custom
+domain so sign-in links and OAuth redirects use that domain.
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## Step 3: Migrate
+
+Migrations create and update the tables the app needs in your database. Run
+this before the first deploy:
+
+```bash
+pnpm migrate:production
+```
+
+The command runs on your computer and connects to the production database with
+the `DATABASE_URL` you exported in Step 2. Run it again after you upgrade the
+app, before you deploy the new version.
+
+## Step 4: Build
+
+Build the app as a Cloudflare Worker:
+
+```bash
+NITRO_PRESET=cloudflare_module pnpm build
+```
+
+`NITRO_PRESET=cloudflare_module` builds the app in the format Cloudflare Workers
+expects. The build writes the Worker to the `.output/server` folder and the
+static files to the `.output/public` folder.
+
+The build also writes a Wrangler configuration file to
+`.output/server/wrangler.json`. This file tells Wrangler what to deploy and
+gives the Worker its name. The name comes from the app's `package.json`, so an
+app created as `my-app` becomes a Worker named `my-app`. If the folder is a Git
+repository with a remote, the name comes from the repository instead. The build
+prints the name it chose.
+
+## Step 5: Log in and save the secrets
+
+Sign in to Cloudflare from the command line:
+
+```bash
+npx wrangler login
+```
+
+Save the two required variables as secrets on the Worker:
+
+```bash
+printf '%s' "$DATABASE_URL" | npx wrangler secret put DATABASE_URL --config .output/server/wrangler.json
+```
+
+```bash
+printf '%s' "$BETTER_AUTH_SECRET" | npx wrangler secret put BETTER_AUTH_SECRET --config .output/server/wrangler.json
+```
+
+Each command reads the value you exported in Step 2 and saves it in Cloudflare,
+so you do not have to paste secrets by hand. `--config` points Wrangler at the
+configuration file from Step 4, so the secrets go to the Worker with the name the
+build chose. The first time, the Worker does not exist yet. Because the value is piped in, Wrangler creates the Worker for you without asking.
+
+If you set `BETTER_AUTH_URL`, save it the same way. You can also see and change
+these values later in the Worker's settings on the Cloudflare dashboard.
+
+## Step 6: Deploy
+
+Upload the Worker and publish it:
+
+```bash
 npx wrangler deploy --config .output/server/wrangler.json
 ```
 
-You can also select the preset explicitly with
-`NITRO_PRESET=cloudflare_module`. Configure a durable external PostgreSQL database
-before deploying. A Worker filesystem is not a persistent application store.
+`--config` points Wrangler at the configuration file from Step 4, which tells it
+where to find the Worker and the static files.
+
+When the command finishes, it prints the app's address, which ends in
+`workers.dev`. Open it and create the first account.
+
+## Deploy updates
+
+To ship a new version, run the migrate, build, and deploy commands again from
+the app's folder:
+
+```bash
+pnpm migrate:production
+
+NITRO_PRESET=cloudflare_module pnpm build
+
+npx wrangler deploy --config .output/server/wrangler.json
+```
+
+Secrets stay saved on the Worker between deploys, so you do not need to repeat
+Step 5.
+
+## Scheduled work {#cloudflare-scheduled-work}
+
+Scheduled automations, queued event automations, and cleanup of interrupted
+runs all happen on a once-a-minute sweep. The build adds a `* * * * *`
+[Cron Trigger](https://developers.cloudflare.com/workers/configuration/cron-triggers/)
+to the generated `wrangler.json` and keeps any Cron Triggers you already
+declared. When it fires, the Worker's `scheduled` handler calls the sweep
+directly with a short-lived token signed with `A2A_SECRET`, so set that secret
+before you deploy:
+
+```bash
+npx wrangler secret put A2A_SECRET --config .output/server/wrangler.json
+```
+
+- **CPU time.** On the Workers Free plan, each Cron Trigger invocation gets 10
+  ms of CPU time, and a sweep that runs agent jobs needs more. Use the Workers
+  Paid plan for scheduled work.
+- **Timing.** Cron Triggers run on UTC, and a new or changed trigger can take
+  up to 15 minutes to start firing after a deploy.
+- **Local testing.** Run the built Worker with
+  `npx wrangler dev --test-scheduled --config .output/server/wrangler.json`,
+  then request `/cdn-cgi/handler/scheduled?cron=*+*+*+*+*` to fire the sweep
+  once.
+
+See [How the scheduler runs](/docs/recurring-jobs#how-scheduler-runs) for the
+other hosts.
 
 ## What's next
 
-- [**Deployment**](/docs/deployment) — pick a persistent database and a preset before your first production deploy
-- [**Workspace Deployment**](/docs/workspace-deployment) — deploy every workspace app to one origin with Netlify or Vercel
-- [**Node.js**](/docs/node-js), [**Docker**](/docs/docker), [**Vercel**](/docs/vercel), [**Netlify**](/docs/netlify), [**AWS Lambda**](/docs/aws-lambda), and [**Deno Deploy**](/docs/deno-deploy) — the other Nitro presets
+- [**Deployment Environment Variables**](/docs/deployment-environment-variables) - the full list of production settings
+- [**SSR Caching**](/docs/ssr-caching) - how page caching works on hosted targets
+- [**Deployment**](/docs/deployment) - compare hosting targets and prerequisites

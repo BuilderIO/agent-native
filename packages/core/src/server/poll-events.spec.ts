@@ -199,6 +199,132 @@ describe("poll event SSE handler", () => {
     },
   );
 
+  describe("events awaiting an access check", () => {
+    const deckChange = (key: string, owner = "alice@example.com") => ({
+      source: "deck",
+      type: "deck-changed",
+      key,
+      owner,
+      resourceType: "deck",
+      resourceId: "deck-1",
+    });
+
+    async function openStream(
+      resolveAccess: (
+        type: string,
+        id: string,
+        ctx: { userEmail: string },
+      ) => Promise<unknown>,
+    ) {
+      const { createPollEventsHandler } = await import("./poll-events.js");
+      const { AppSyncState } = await import("./poll.js");
+      mockSession.value = { email: "bob@example.com", orgId: undefined };
+      const state = new AppSyncState({
+        getDb: () =>
+          ({
+            execute: async () => ({ rows: [], rowsAffected: 0 }),
+          }) as never,
+        resolveAccess: resolveAccess as never,
+      });
+      const event = { pushed: [] as unknown[], close: undefined as any };
+      await (createPollEventsHandler(state) as any)(event);
+      const keys = () =>
+        event.pushed
+          .filter((data): data is string => typeof data === "string")
+          .map((data) => JSON.parse(data).key);
+      return { state, event, keys };
+    }
+
+    it("delivers a collaborator's first event once access is confirmed instead of dropping it", async () => {
+      const { state, event, keys } = await openStream(async () => ({
+        role: "editor",
+      }));
+
+      state.recordChange(deckChange("first"));
+      await vi.waitFor(() => expect(keys()).toEqual(["first"]));
+
+      state.recordChange(deckChange("second"));
+      expect(keys()).toEqual(["first", "second"]);
+
+      event.close?.();
+    });
+
+    it("does not wait on another user's slow access check", async () => {
+      const { state, event, keys } = await openStream((_type, _id, ctx) =>
+        ctx.userEmail === "carol@example.com"
+          ? new Promise(() => {})
+          : Promise.resolve({ role: "viewer" }),
+      );
+      state.getChangeVisibilityForUser(
+        deckChange("probe"),
+        "carol@example.com",
+        undefined,
+      );
+
+      state.recordChange(deckChange("first"));
+      await vi.waitFor(() => expect(keys()).toEqual(["first"]));
+
+      event.close?.();
+    });
+
+    it("keeps stream order when a later event is visible before the held one", async () => {
+      let confirm!: () => void;
+      const { state, event, keys } = await openStream(
+        () =>
+          new Promise((resolve) => {
+            confirm = () => resolve({ role: "viewer" });
+          }),
+      );
+
+      state.recordChange(deckChange("held"));
+      state.recordChange({
+        ...deckChange("own"),
+        owner: "bob@example.com",
+        resourceType: undefined,
+        resourceId: undefined,
+      });
+      await Promise.resolve();
+      expect(keys()).toEqual([]);
+
+      confirm();
+      await vi.waitFor(() => expect(keys()).toEqual(["held", "own"]));
+
+      event.close?.();
+    });
+
+    it("withholds a held event the resolver denies and keeps delivering later ones", async () => {
+      const { state, event, keys } = await openStream(async () => null);
+
+      state.recordChange(deckChange("secret"));
+      state.recordChange({
+        ...deckChange("own"),
+        owner: "bob@example.com",
+        resourceType: undefined,
+        resourceId: undefined,
+      });
+      await vi.waitFor(() => expect(keys()).toEqual(["own"]));
+
+      event.close?.();
+    });
+
+    it("closes the stream when the access check outlasts the wait so the client polls", async () => {
+      vi.useFakeTimers();
+      try {
+        const { state, event, keys } = await openStream(
+          () => new Promise(() => {}),
+        );
+
+        state.recordChange(deckChange("stuck"));
+        await vi.advanceTimersByTimeAsync(10_000);
+
+        expect(keys()).toEqual([]);
+        expect((event as any).closed).toBe(true);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
   it("rejects unauthenticated streams", async () => {
     mockSession.value = null;
     const { createPollEventsHandler } = await import("./poll-events.js");

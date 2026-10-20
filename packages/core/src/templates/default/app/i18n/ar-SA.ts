@@ -679,6 +679,8 @@ const messages = {
     promoteMustContainOptional: "نص اختياري للتحقق من وجوده في الرد…",
     promoteMustContainLabel:
       "النص الذي سيتم التحقق منه في رد التقييم الذي تمت ترقيته",
+    promoteReviewedPromptLabel:
+      "مطالبة تمت مراجعتها يدويًا (لا تُنسخ من الإنتاج تلقائيًا)",
     promoteNeedsContains:
       "لا يتضمن هذا التشغيل أي استدعاء ناجح لأداة. أدخل النص الذي يجب أن يتضمنه الرد قبل ترقيته إلى تقييم.",
     spans: "Spans",

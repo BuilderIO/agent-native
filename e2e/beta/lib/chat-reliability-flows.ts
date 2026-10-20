@@ -55,6 +55,7 @@ export async function refreshMidRun(s: ChatReliabilitySession): Promise<void> {
     { timeoutMs: 60_000 },
   );
   await s.captureThreadId(nonce);
+  s.startRefreshTimeline();
   if (isIdle(midRun)) {
     throw new Error(
       `the whole answer had streamed before the page could be reloaded, so a mid-run refresh was not exercised (${describeState(midRun)})`,
@@ -65,6 +66,7 @@ export async function refreshMidRun(s: ChatReliabilitySession): Promise<void> {
     `first tokens ${(s.elapsedMs() / 1000).toFixed(1)}s after load`,
   );
 
+  s.markRefreshTimeline("after-first-reload");
   await s.reload();
   await s.waitUntil(
     "the complete answer to be restored after a mid-run refresh, with the composer idle",
@@ -84,6 +86,7 @@ export async function refreshMidRun(s: ChatReliabilitySession): Promise<void> {
   });
 
   // A second reload restores from what was stored, not from a live run.
+  s.markRefreshTimeline("after-second-reload");
   await s.reload();
   await s.waitUntil(
     "the stored answer to be restored after reloading the finished thread",

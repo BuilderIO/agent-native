@@ -15,6 +15,20 @@ const winner = {
 } as Document;
 
 describe("document save ownership after a rejected CAS", () => {
+  it("abandons a save before persistence when its editor session is inactive", async () => {
+    const persist = vi.fn();
+
+    await expect(
+      saveDocumentWithRebase({
+        base,
+        content: draft,
+        persist,
+        canContinue: () => false,
+      }),
+    ).resolves.toEqual({ status: "abandoned" });
+    expect(persist).not.toHaveBeenCalled();
+  });
+
   it("drops a settled editor generation without retrying or confirming it", async () => {
     const confirm = vi.fn();
     const persist = vi.fn().mockResolvedValue({

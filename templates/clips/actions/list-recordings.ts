@@ -118,6 +118,11 @@ export default defineAction({
       .string()
       .nullish()
       .describe("Filter to recordings carrying this tag"),
+    recordingIds: z
+      .array(z.string().min(1))
+      .max(100)
+      .optional()
+      .describe("Restrict results to these recording IDs"),
     kind: z
       .enum(["video", "image", "all"])
       .default("all")
@@ -166,6 +171,14 @@ export default defineAction({
         },
       ),
     ];
+
+    if (args.recordingIds) {
+      whereClauses.push(
+        args.recordingIds.length
+          ? inArray(schema.recordings.id, args.recordingIds)
+          : sql`1 = 0`,
+      );
+    }
 
     const orgId = await getActiveOrganizationId();
 
@@ -309,6 +322,7 @@ export default defineAction({
           status: schema.recordings.status,
           uploadProgress: schema.recordings.uploadProgress,
           failureReason: schema.recordings.failureReason,
+          failureCode: schema.recordings.failureCode,
           visibility: schema.recordings.visibility,
           hasPassword: sql<number>`(
             CASE WHEN ${schema.recordings.password} IS NOT NULL
@@ -438,6 +452,7 @@ export default defineAction({
         status: r.status,
         uploadProgress: r.uploadProgress,
         failureReason: r.failureReason,
+        failureCode: r.failureCode,
         visibility: r.visibility,
         hasPassword: Number(r.hasPassword ?? 0) > 0,
         expiresAt: r.expiresAt,

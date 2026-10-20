@@ -47,6 +47,7 @@ describe("mobile AgentKit message actions", () => {
         client,
         "thread-1",
         "user-1",
+        async () => {},
         "Edited prompt",
       ),
     ).resolves.toEqual(forkedThread);
@@ -84,12 +85,60 @@ describe("mobile AgentKit message actions", () => {
       sendMessage: vi.fn(async () => ({ runId: "run-3" }) as never),
     } as unknown as AgentKitController;
 
-    await forkAndResubmitMobileMessage(client, "thread-1", "assistant-1");
+    await forkAndResubmitMobileMessage(
+      client,
+      "thread-1",
+      "assistant-1",
+      async () => {},
+    );
 
     expect(client.forkThread).toHaveBeenCalledWith("thread-1", undefined);
     expect(client.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({ threadId: "fork-2", text: "Question" }),
     );
+  });
+
+  it("checks readiness after loading the thread but before creating a fork", async () => {
+    const messages: AgentMessage[] = [
+      {
+        id: "user-1",
+        role: "user",
+        parts: [{ type: "text", text: "Question" }],
+      },
+      {
+        id: "assistant-1",
+        role: "assistant",
+        parts: [{ type: "text", text: "Answer" }],
+      },
+    ];
+    const setupError = new Error("AI provider is missing");
+    const loadThread = vi.fn(async () => ({ messages }) as never);
+    const forkThread = vi.fn(async () => ({ id: "fork-3" }) as never);
+    const sendMessage = vi.fn(async () => ({ runId: "run-4" }) as never);
+    const client = {
+      loadThread,
+      forkThread,
+      sendMessage,
+    } as unknown as AgentKitController;
+    const beforeFork = vi.fn(async () => {
+      throw setupError;
+    });
+
+    await expect(
+      forkAndResubmitMobileMessage(
+        client,
+        "thread-1",
+        "assistant-1",
+        beforeFork,
+      ),
+    ).rejects.toBe(setupError);
+
+    expect(beforeFork).toHaveBeenCalledOnce();
+    expect(loadThread.mock.invocationCallOrder[0]).toBeLessThan(
+      beforeFork.mock.invocationCallOrder[0]!,
+    );
+    expect(forkThread).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
   });
 
   it("submits feedback with the transcript sequence and run trace", async () => {

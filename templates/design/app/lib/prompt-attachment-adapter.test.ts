@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { createDesignPromptAttachmentAdapter } from "./prompt-attachment-adapter";
-import { MAX_UPLOAD_BYTES } from "./upload-limits";
+import { MAX_IMAGE_ATTACHMENT_BYTES, MAX_UPLOAD_BYTES } from "./upload-limits";
 
 describe("Design host attachment adapter", () => {
   const adapter = createDesignPromptAttachmentAdapter("Attachment limit");
@@ -69,6 +69,35 @@ describe("Design host attachment adapter", () => {
         file: new File([new Uint8Array(MAX_UPLOAD_BYTES + 1)], "large.tsx"),
       }),
     ).rejects.toThrow("Attachment limit");
+  });
+
+  it("accepts larger images up to the image source limit", async () => {
+    const image = new File(["image"], "reference.png", {
+      type: "image/png",
+    });
+    Object.defineProperty(image, "size", { value: MAX_UPLOAD_BYTES + 1 });
+    await expect(adapter.add({ file: image })).resolves.toMatchObject({
+      file: image,
+      type: "image",
+    });
+    const oversizedImage = new File(["image"], "reference.png", {
+      type: "image/png",
+    });
+    Object.defineProperty(oversizedImage, "size", {
+      value: MAX_IMAGE_ATTACHMENT_BYTES + 1,
+    });
+    await expect(adapter.add({ file: oversizedImage })).rejects.toThrow(
+      "Attachment limit",
+    );
+  });
+
+  it("classifies extensionless pasted images by MIME type", async () => {
+    const image = new File(["image"], "clipboard", { type: "image/png" });
+    Object.defineProperty(image, "size", { value: MAX_UPLOAD_BYTES + 1 });
+    await expect(adapter.add({ file: image })).resolves.toMatchObject({
+      file: image,
+      type: "image",
+    });
   });
 
   it("retains original images for host compression and gives same-named files distinct runtime ids", async () => {

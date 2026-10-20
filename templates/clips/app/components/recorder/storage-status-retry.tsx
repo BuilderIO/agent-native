@@ -12,7 +12,7 @@ export function StorageStatusRetry({ onRetry }: { onRetry: () => void }) {
     >
       <span className="flex min-w-0 items-center gap-2 text-muted-foreground">
         <IconAlertTriangle className="size-4 shrink-0" />
-        <span>{t("meetingsRoute.calendarStatusUnavailable")}</span>
+        <span>{t("storageSetup.statusUnavailable")}</span>
       </span>
       <Button type="button" variant="outline" onClick={onRetry}>
         {t("meetingDetail.retry")}

@@ -304,7 +304,9 @@ describe("crossScreenClaimedByHost survives the move ticks between claim and rel
       await page.mouse.down();
       await page.mouse.move(900, 400, { steps: 8 });
       await page.mouse.up();
-      await page.waitForTimeout(30);
+      // The end message reaches Node through postMessage and an exposed
+      // function; a fixed sleep misses it on a loaded runner.
+      await expect.poll(() => releasedAt, { timeout: 5_000 }).toBeDefined();
       const after = Date.now();
 
       expect(releasedAt).toBeGreaterThanOrEqual(before);

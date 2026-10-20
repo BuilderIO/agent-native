@@ -51,6 +51,21 @@ export interface ShareableResourceRegistration {
     userEmail?: string;
     orgId?: string;
   }) => void | Promise<void>;
+  /**
+   * Runs before a sharing change is persisted. Throw to refuse the change.
+   * It receives the resource row, so a registration can refuse per-row states
+   * (for example, a resource that holds private content). Runs only for a
+   * visibility change that differs from the current value, and for every
+   * `share-resource` grant. It runs again after that change is written, and a
+   * refusal then undoes the write, so one change can call it twice: keep it
+   * free of side effects.
+   */
+  assertSharingChange?: (args: {
+    resource: any;
+    change:
+      | { kind: "visibility"; visibility: "private" | "org" | "public" }
+      | { kind: "grant" };
+  }) => void | Promise<void>;
   allowPublic?: boolean;
   publicAccessRole?:
     | "viewer"
@@ -89,6 +104,39 @@ export interface ShareableResourceRegistration {
     authCapability?: string;
   };
   ownerAccessIgnoresOrg?: boolean;
+  /**
+   * Whether a row still counts as an openable resource, for example not in
+   * the trash. `columns` are the resource-table keys `isAvailable` reads;
+   * they join the lightweight access projection. A row that fails the rule
+   * reads as missing to anyone who can't open it, and as trashed to anyone
+   * who can. Omit it when every row is available.
+   */
+  availability?: {
+    columns: readonly string[];
+    isAvailable: (resource: any) => boolean;
+  };
+  /**
+   * Lets signed-in people who can't open a resource of this type ask its
+   * owner and admins for access. Off by default, so an app only starts
+   * emailing owners once its access screen offers the request.
+   */
+  accessRequests?: boolean;
+  /**
+   * A context that can open the resource when the viewer's own can't, such
+   * as the authority a Content space lends its members. Only a link's status
+   * reads it, so such a viewer hears that a page is in the trash instead of
+   * missing; `resolveAccess` and the share actions use the viewer's own
+   * context, and the app applies the grant in its own access helpers.
+   * `columns` are the resource-table keys `resolve` reads; they join the
+   * lightweight access projection, so `resolve` gets the row already loaded.
+   */
+  fallbackAccessContext?: {
+    columns: readonly string[];
+    resolve: (
+      resource: any,
+      ctx: { userEmail?: string; orgId?: string },
+    ) => Promise<{ userEmail?: string; orgId?: string } | null>;
+  };
   agentReadable?:
     | false
     | {

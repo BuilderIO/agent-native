@@ -1236,7 +1236,7 @@ describe("runUpgrade", () => {
     );
   });
 
-  it("leaves imports unchanged when installation is skipped without a migration manifest", async () => {
+  it("applies codemods by default while dependency installation is skipped", async () => {
     const root = makeTempProject({
       rootPkg: {
         name: "old-app",
@@ -1264,7 +1264,9 @@ describe("runUpgrade", () => {
 
     expect(code).toBe(0);
     expect(out.join("\n")).toContain("without installing dependencies");
-    expect(fs.readFileSync(source, "utf-8")).toBe(original);
+    expect(fs.readFileSync(source, "utf-8")).toContain(
+      'from "@agent-native/toolkit/editor"',
+    );
   });
 
   it("prints failure guidance when install fails", async () => {

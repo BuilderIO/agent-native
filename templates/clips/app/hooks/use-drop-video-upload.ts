@@ -110,6 +110,7 @@ export function useDropVideoUpload(
             recordingPlatform: isMobileRecorderRuntime(navigator)
               ? "mobile"
               : "web",
+            recordingSource: "file_upload",
             width: meta.width,
             height: meta.height,
             spaceIds: spaceId ? [spaceId] : undefined,

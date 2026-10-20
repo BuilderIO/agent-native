@@ -1,72 +1,251 @@
 ---
 title: "Docker"
-description: "Package an Agent-Native Node.js server in a Docker image or local Compose stack."
-search: "Docker container deployment Node.js Postgres Compose Nitro"
+description: "Deploy a standalone Agent-Native app as a Docker container."
+search: "Docker container deployment standalone app Dockerfile dockerignore Node.js Nitro production migrate build run"
 ---
 
 # Docker
 
-Docker is an optional packaging and self-hosting choice. It runs the
-framework's Node.js server. You do not need Docker when deploying directly to
-Node.js, Vercel, Netlify, Cloudflare, or another Nitro target.
+Docker packages an Agent-Native app and everything it needs to run into a
+single container image. The image runs the same Node.js server described in the
+[Node.js guide](/docs/node-js), so it behaves the same way on your laptop, a
+virtual machine, or any host that runs containers.
 
-## Local quickstart {#self-host-quickstart}
+This guide walks through deploying one standalone app from scratch. You will
+create the app, add a `Dockerfile`, give the app a production database and an
+auth secret, prepare the database, and then build and run the container.
 
-Create an app and install dependencies. The scaffold does not generate a
-`Dockerfile` for you:
+<Callout tone="info">
+
+Node.js `22.22+` is required.
+
+</Callout>
+
+You also need Docker installed on the machine that builds and runs the image.
+Run the commands in this guide on the server that will run the container. For a
+virtual machine, that usually means connecting to it over SSH first.
+
+<a id="self-host-quickstart"></a>
+
+## Step 1: Create the app
+
+Create your new standalone app. The example below creates an app from the Chat
+template, but you can start from any template. Move into the app's folder and
+install its dependencies. `corepack enable` turns on the `pnpm` version the app
+expects, so you do not need to install `pnpm` yourself.
 
 ```bash
 npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
 cd my-app
+
 corepack enable
+
 pnpm install
 ```
 
-For a local Postgres-backed stack, use Docker Compose. The [self-hosted Chat
-fixture](https://www.agent-native.com/examples/self-hosted-chat/docker-compose.yml)
-includes the app and database services. It is for local development, not an
-internet-facing production deployment.
+Replace `my-app` with your own app name if you like. The rest of this guide
+assumes you are inside the app's folder.
 
-## Production image
+<Callout tone="info">
 
-Use a persistent external database. Do not copy the local `data/` directory
-into the image.
+If these commands fail with peer dependency errors, an outdated copy of a
+package in your npx cache may be the cause. Run `npx clear-npx-cache` to clear
+the cache, then run the commands again.
 
-Copy this production image example into `my-app/Dockerfile`:
+</Callout>
+
+## Step 2: Create Dockerfile
+
+A new app does not include a `Dockerfile`, so you add one yourself. You also add
+a `.dockerignore` file that keeps local files out of the image. Create both
+files in the app's root folder, next to `package.json`.
+
+### Dockerfile
+
+Create a file named `Dockerfile`, with no file extension, and copy in the
+following:
 
 ```dockerfile filename="Dockerfile"
 FROM node:24-slim AS build
 WORKDIR /app
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3 make g++ \
+  && rm -rf /var/lib/apt/lists/*
+
+ENV PYTHON=/usr/bin/python3
+
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN corepack enable && pnpm install --frozen-lockfile
+
 COPY . .
 RUN pnpm build
 
 FROM node:24-slim
 WORKDIR /app
-COPY --from=build /app/.output .output
+
 ENV NODE_ENV=production
 ENV PORT=3000
+
+COPY --from=build /app/.output .output
+
 EXPOSE 3000
 CMD ["node", ".output/server/index.mjs"]
 ```
 
-After saving that block as `Dockerfile`, run:
+The `Dockerfile` builds the image in two stages:
+
+- **Build stage.** Installs the tools some dependencies need to compile during
+  install (`python3`, `make`, and `g++`), installs the app's dependencies, and
+  builds the app.
+- **Final stage.** Starts from a clean Node.js image and copies in only the
+  finished server from the `.output` folder. This keeps the image small and
+  leaves the build tools and source code behind.
+
+The final image runs in production mode and listens on port `3000`.
+
+### Docker ignore file
+
+Create a file named `.dockerignore` and copy in the following:
+
+```text filename=".dockerignore"
+node_modules
+.output
+.git
+.env
+.env.*
+data
+*.log
+```
+
+These entries keep local dependencies, old build output, Git history, local
+secrets in `.env` files, the local development database in `data`, and log
+files out of the image. The build stage installs fresh dependencies and builds
+the app from scratch, so none of these are needed. Leaving out `.env` files also
+keeps your secrets from being baked into the image.
+
+## Step 3: Configure environment secrets
+
+The app reads its production settings from environment variables:
+
+| Variable             | Required | Purpose                                              |
+| -------------------- | -------- | ---------------------------------------------------- |
+| `DATABASE_URL`       | Yes      | Connects the app to its PostgreSQL database          |
+| `BETTER_AUTH_SECRET` | Yes      | Signs user sessions                                  |
+| `BETTER_AUTH_URL`    | No       | Sets the public address people use to reach your app |
+
+The exports below make the following commands work in this shell. Before
+deploying, save these same variables in your host's project or service
+environment settings, so the container still has them after a restart or a new
+deploy.
+
+### Database URL
+
+During local development the app stores data in a local database when
+`DATABASE_URL` is unset. A deployed app needs a real PostgreSQL database that
+keeps its data between restarts. A container loses any files it writes when it
+is replaced, so the database must live outside the container. Copy the
+connection string from your provider and export it:
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+The [database provider guides](/docs/neon) show where to find the connection
+string for each provider.
+
+<Callout tone="warning">
+
+Select a persistent PostgreSQL provider: Neon, Supabase, Amazon RDS, etc.
+
+</Callout>
+
+### Auth secret
+
+Generate this once and keep it stable across deploys.
+
+The app uses `BETTER_AUTH_SECRET` to sign user sessions. If it changes, every
+signed-in user is signed out. The command below generates a random value:
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+Save the generated value somewhere safe, such as your host's secret settings or
+a password manager. Use the same value every time you deploy.
+
+### Public URL
+
+Optional. Set it when using a custom domain, reverse proxy, or an auth/OAuth flow
+that needs a fixed public origin.
+
+`BETTER_AUTH_URL` is the public address people use to reach your app. Without
+it, the app works out its address from each incoming request. That is usually
+fine, but sign-in links and OAuth redirects can point to the wrong place when
+the app sits behind a proxy or a custom domain.
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## Step 4: Migrate
+
+Migrations create and update the tables the app needs in your database.
+
+Run this on the host, against the production `DATABASE_URL`, before the first
+visit.
+
+```bash
+pnpm migrate:production
+```
+
+Run the command from the app's folder, not inside the container. The image only
+holds the finished server, so it cannot run migrations itself. The command reads
+`DATABASE_URL` from the environment you exported in the previous step. Run it
+again after you upgrade the app, before you start the new version.
+
+## Step 5: Deploy
+
+Build the image from the app's folder:
 
 ```bash
 docker build -t my-agent-native-app .
-docker run --rm -p 3000:3000 my-agent-native-app
 ```
 
-Set `DATABASE_URL`, `BETTER_AUTH_SECRET`, and any provider keys in the
-container or host secret store. Configure HTTPS and OAuth callback URLs for
-the public origin.
+The `-t` flag names the image `my-agent-native-app`. Use any name you like, and
+use the same name in the next command.
 
-Self-hosting multiple apps with Docker Compose is covered in
-[Workspace Deployment](/docs/workspace-deployment#workspace-docker-compose).
+Run the container:
+
+```bash
+docker run --rm \
+  -p 3000:3000 \
+  -e DATABASE_URL \
+  -e BETTER_AUTH_SECRET \
+  my-agent-native-app
+```
+
+`-p 3000:3000` makes the container's port `3000` reachable on the server's port
+`3000`. Each `-e` flag passes the variable of the same name from your shell into
+the container. If you set `BETTER_AUTH_URL`, add `-e BETTER_AUTH_URL` to the
+command as well. `--rm` removes the container when it stops.
+
+To reach the app from the internet, open port `3000` in the server's firewall,
+or put a reverse proxy such as Nginx or Caddy in front of it to serve your
+domain over HTTPS. Then open the app's public address and create the first
+account.
+
+## Keep the container running
+
+The `docker run` command above runs in your terminal and stops when you close
+it. To keep the app running, start the container in the background with a
+restart policy, so Docker starts it again after a crash or a server restart.
+Replace `--rm` with `-d --restart unless-stopped` to do this. Many hosts that
+run containers also handle restarts for you.
 
 ## What's next
 
-- [**Node.js**](/docs/node-js) - the runtime behind this image
-- [**Deploy an app**](/docs/deploy-an-app) - the complete app path
-- [**Deployment**](/docs/deployment) - compare deployment targets
+- [**Node.js**](/docs/node-js) - run the same server without a container
+- [**Deployment Environment Variables**](/docs/deployment-environment-variables) - the full list of production settings
+- [**Deployment**](/docs/deployment) - compare hosting targets and prerequisites

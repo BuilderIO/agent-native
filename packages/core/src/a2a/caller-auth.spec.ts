@@ -40,7 +40,9 @@ describe("resolveA2ACallerAuth", () => {
     await runWithRequestContext(
       { userEmail: "alice+qa@agent-native.test" },
       async () => {
-        const auth = await resolveA2ACallerAuth();
+        const auth = await resolveA2ACallerAuth({
+          audience: "https://peer.example.test",
+        });
 
         expect(auth.metadata).toEqual({
           userEmail: "alice+qa@agent-native.test",
@@ -52,19 +54,24 @@ describe("resolveA2ACallerAuth", () => {
             new TextEncoder().encode("global-a2a-secret"),
           ),
         ).resolves.toMatchObject({
-          payload: { sub: "alice+qa@agent-native.test" },
+          payload: {
+            sub: "alice+qa@agent-native.test",
+            aud: "https://peer.example.test",
+          },
         });
       },
     );
   });
 
-  it("prefers the shared A2A secret and includes the verified org domain hint", async () => {
+  it("uses the org secret for an organization-principal fallback", async () => {
     process.env.A2A_SECRET = "global-a2a-secret";
 
     await runWithRequestContext(
       { userEmail: "alice+qa@agent-native.test", orgId: "org-qa" },
       async () => {
-        const auth = await resolveA2ACallerAuth();
+        const auth = await resolveA2ACallerAuth({
+          audience: "https://peer.example.test",
+        });
 
         expect(auth.orgDomain).toBe("builder.io");
         expect(auth.orgSecret).toBe("org-a2a-secret");
@@ -81,6 +88,7 @@ describe("resolveA2ACallerAuth", () => {
           payload: {
             sub: "alice+qa@agent-native.test",
             org_domain: "builder.io",
+            aud: "https://peer.example.test",
           },
         });
         await expect(
@@ -90,19 +98,128 @@ describe("resolveA2ACallerAuth", () => {
           ),
         ).rejects.toThrow();
         expect(auth.apiKeyFallbacks).toHaveLength(1);
+        const { payload: orgPrincipal } = await jose.jwtVerify(
+          auth.apiKeyFallbacks![0],
+          new TextEncoder().encode("org-a2a-secret"),
+        );
+        expect(orgPrincipal).toMatchObject({
+          org_domain: "builder.io",
+          aud: "https://peer.example.test",
+        });
+        expect(orgPrincipal).not.toHaveProperty("org_id");
+        expect(orgPrincipal).not.toHaveProperty("sub");
         await expect(
           jose.jwtVerify(
             auth.apiKeyFallbacks![0],
-            new TextEncoder().encode("org-a2a-secret"),
+            new TextEncoder().encode("global-a2a-secret"),
+          ),
+        ).rejects.toThrow();
+      },
+    );
+  });
+
+  it("only signs a user identity when requested", async () => {
+    process.env.A2A_SECRET = "global-a2a-secret";
+
+    await runWithRequestContext(
+      { userEmail: "alice+qa@agent-native.test", orgId: "org-qa" },
+      async () => {
+        const auth = await resolveA2ACallerAuth({
+          audience: "https://peer.example.test",
+          userIdentityOnly: true,
+        });
+
+        expect(auth.apiKey).toBeTruthy();
+        expect(auth.apiKeyFallbacks).toBeUndefined();
+        await expect(
+          jose.jwtVerify(
+            auth.apiKey!,
+            new TextEncoder().encode("global-a2a-secret"),
           ),
         ).resolves.toMatchObject({
           payload: {
             sub: "alice+qa@agent-native.test",
-            org_domain: "builder.io",
+            org_id: "org-qa",
+            aud: "https://peer.example.test",
           },
         });
+        const { payload } = await jose.jwtVerify(
+          auth.apiKey!,
+          new TextEncoder().encode("global-a2a-secret"),
+        );
+        expect(payload).not.toHaveProperty("org_domain");
+
+        delete process.env.A2A_SECRET;
+        const orgSecretOnly = await resolveA2ACallerAuth({
+          audience: "https://peer.example.test",
+          userIdentityOnly: true,
+        });
+
+        expect(orgSecretOnly.apiKey).toBeUndefined();
+        expect(orgSecretOnly.apiKeyFallbacks).toBeUndefined();
       },
     );
+  });
+
+  it("does not mint an unscoped user token when the active org has no domain", async () => {
+    process.env.A2A_SECRET = "global-a2a-secret";
+    getOrgDomainMock.mockResolvedValueOnce(null);
+
+    await runWithRequestContext(
+      { userEmail: "alice+qa@agent-native.test", orgId: "org-qa" },
+      async () => {
+        const auth = await resolveA2ACallerAuth({
+          audience: "https://peer.example.test",
+        });
+
+        expect(auth.apiKey).toBeUndefined();
+        expect(auth.apiKeyFallbacks).toBeUndefined();
+      },
+    );
+  });
+
+  it("scopes identity-only tokens to domainless organizations by id", async () => {
+    process.env.A2A_SECRET = "global-a2a-secret";
+    getOrgDomainMock.mockResolvedValueOnce(null);
+
+    await runWithRequestContext(
+      { userEmail: "alice+qa@agent-native.test", orgId: "org-qa" },
+      async () => {
+        const auth = await resolveA2ACallerAuth({
+          audience: "https://peer.example.test",
+          userIdentityOnly: true,
+        });
+
+        expect(auth.apiKey).toBeTruthy();
+        expect(auth.apiKeyFallbacks).toBeUndefined();
+        const { payload } = await jose.jwtVerify(
+          auth.apiKey!,
+          new TextEncoder().encode("global-a2a-secret"),
+        );
+        expect(payload).toMatchObject({
+          sub: "alice+qa@agent-native.test",
+          org_id: "org-qa",
+          aud: "https://peer.example.test",
+        });
+        expect(payload).not.toHaveProperty("org_domain");
+      },
+    );
+  });
+
+  it("preserves workspace identity lookup failures instead of omitting auth", async () => {
+    getOrgDomainMock.mockRejectedValueOnce(
+      new Error("organization lookup unavailable"),
+    );
+
+    await runWithRequestContext(
+      { userEmail: "alice+qa@agent-native.test", orgId: "org-qa" },
+      async () => {
+        await expect(
+          resolveA2ACallerAuth({ audience: "https://peer.example.test" }),
+        ).rejects.toThrow("organization lookup unavailable");
+      },
+    );
+    expect(getOrgA2ASecretMock).not.toHaveBeenCalled();
   });
 
   it("falls back to the org A2A secret when no shared secret is configured", async () => {
@@ -111,21 +228,22 @@ describe("resolveA2ACallerAuth", () => {
     await runWithRequestContext(
       { userEmail: "alice+qa@agent-native.test", orgId: "org-qa" },
       async () => {
-        const auth = await resolveA2ACallerAuth();
+        const auth = await resolveA2ACallerAuth({
+          audience: "https://peer.example.test",
+        });
 
         expect(auth.orgDomain).toBe("builder.io");
         expect(auth.orgSecret).toBe("org-a2a-secret");
-        await expect(
-          jose.jwtVerify(
-            auth.apiKey!,
-            new TextEncoder().encode("org-a2a-secret"),
-          ),
-        ).resolves.toMatchObject({
-          payload: {
-            sub: "alice+qa@agent-native.test",
-            org_domain: "builder.io",
-          },
+        const { payload } = await jose.jwtVerify(
+          auth.apiKey!,
+          new TextEncoder().encode("org-a2a-secret"),
+        );
+        expect(payload).toMatchObject({
+          org_domain: "builder.io",
+          aud: "https://peer.example.test",
         });
+        expect(payload).not.toHaveProperty("org_id");
+        expect(payload).not.toHaveProperty("sub");
       },
     );
   });

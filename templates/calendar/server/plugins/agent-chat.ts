@@ -85,7 +85,12 @@ export default createAgentChatPlugin({
   appId: "calendar",
   durableBackgroundRuns: true,
   initialToolNames: INITIAL_TOOL_NAMES,
-  mcp: { connectorCatalog: [...CALENDAR_CONNECTOR_CATALOG] },
+  mcp: {
+    connectorCatalog: [...CALENDAR_CONNECTOR_CATALOG],
+    externalAgents: { writes: "allowlisted" },
+    instructions:
+      "Read schedules with list-events. Create events with create-event and edit them with update-event. RSVP with respond-to-event; scope=single (default) answers only the supplied recurring occurrence id. Preserve the event id and accountEmail returned by list-events or create-event on subsequent writes. These actions run directly as the authenticated user; use ask_app for work requiring the Calendar agent's reasoning.",
+  },
   codeExecution: { production: "sandboxed" },
   resolveOrgId: async (event) => {
     const ctx = await getOrgContext(event);

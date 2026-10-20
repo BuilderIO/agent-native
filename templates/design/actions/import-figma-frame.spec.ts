@@ -111,7 +111,12 @@ describe("import-figma-frame", () => {
 
     expect(mocks.resolveImportDesignId).not.toHaveBeenCalled();
     expect(mocks.createDesign).toHaveBeenCalledWith(
-      { title: "Hero", projectType: "prototype", designSystemId: null },
+      {
+        title: "Hero",
+        projectType: "prototype",
+        designSystemId: null,
+        creationMethod: "import_figma",
+      },
       undefined,
     );
     expect(
@@ -266,7 +271,10 @@ describe("import-figma-frame", () => {
               children: [
                 {
                   id: "page-1",
-                  children: [{ id: "9:9", name: "First Frame" }],
+                  children: [
+                    { id: "9:8", type: "RECTANGLE", name: "Cover shape" },
+                    { id: "9:9", type: "FRAME", name: "First Frame" },
+                  ],
                 },
               ],
             },

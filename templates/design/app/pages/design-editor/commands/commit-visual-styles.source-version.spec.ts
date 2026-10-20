@@ -6,6 +6,7 @@ import {
   runCommitVisualStyles,
   type CommitVisualStylesArgs,
 } from "@/pages/design-editor/commands/commit-visual-styles";
+import { flushCommitsAfterPaint } from "@/pages/design-editor/commit-after-paint";
 
 const ref = <T>(current: T) => ({ current });
 
@@ -61,6 +62,7 @@ it("uses the projected source and refuses a style commit while source actions ar
     replacePreviewContent: vi.fn(() => "applied" as const),
     responsiveEditScopeRef: ref("cascade-smaller"),
     selectedElement: null,
+    selectedElementRef: { current: null },
     setCollabContent: vi.fn(),
     setCollabContentFileId: vi.fn(),
     setContentRenderRevision: vi.fn(),
@@ -80,6 +82,7 @@ it("uses the projected source and refuses a style commit while source actions ar
     backgroundImage: "linear-gradient(90deg, red, blue)",
     backgroundClip: "text",
   });
+  flushCommitsAfterPaint();
 
   expect(queueFileContentSave).toHaveBeenCalledOnce();
   const [savedFileId, savedContent, options] =
@@ -98,6 +101,7 @@ it("uses the projected source and refuses a style commit while source actions ar
   queueFileContentSave.mockClear();
   canApplyContentEdit.mockReturnValue(false);
   runCommitVisualStyles(args, "#target", { color: "green" });
+  flushCommitsAfterPaint();
   expect(queueFileContentSave).not.toHaveBeenCalled();
   expect(latestActiveContentRef.current).toBe(savedContent);
 
@@ -119,6 +123,7 @@ it("uses the projected source and refuses a style commit while source actions ar
       ...args,
       activeCanvasSourceType: "localhost",
       selectedElement: null,
+      selectedElementRef: { current: null },
     },
     "#provider",
     { borderRadius: "12px" },
@@ -134,6 +139,7 @@ it("uses the projected source and refuses a style commit while source actions ar
       routePath: "/library",
     },
   );
+  flushCommitsAfterPaint();
   expect(recordPendingVisualStyleEdit).not.toHaveBeenCalled();
   expect(onNoRenderedBox).toHaveBeenCalledOnce();
   expect(upsertMotionKeyframesFromStyles).not.toHaveBeenCalled();

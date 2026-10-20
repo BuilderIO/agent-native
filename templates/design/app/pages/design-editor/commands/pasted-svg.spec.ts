@@ -26,7 +26,7 @@ describe("parsePastedSvg", () => {
     expect(pasted?.svg).not.toContain("data-an-open-fill-opacity");
   });
 
-  it("preserves fractional dimensions from Figma vector clipboard data", () => {
+  it("preserves fractional SVG dimensions", () => {
     const pasted = parsePastedSvg(
       '<svg xmlns="http://www.w3.org/2000/svg" width="17.5" height="9.5" viewBox="0 0 17.5 9.5"><path d="M0 0L17.5 9.5"/></svg>',
     );
@@ -192,6 +192,26 @@ describe("parsePastedSvg", () => {
     const scopedId = pasted?.svg.match(/linearGradient id="([^"]+)"/)?.[1];
     expect(scopedId).toMatch(/^an-pasted-/);
     expect(pasted?.svg).toContain(`fill="url(#${scopedId})"`);
+  });
+
+  it("keeps authored SVG shape names while scoping their ids", () => {
+    const pasted = parsePastedSvg(
+      '<svg width="17" height="9"><defs><linearGradient id="warm-paint"><stop offset="0" stop-color="#123456"/></linearGradient></defs><path id="first-shape" d="M0 0h17" fill="url(#warm-paint)"/></svg>',
+    );
+    const root = new DOMParser().parseFromString(
+      pasted!.svg,
+      "image/svg+xml",
+    ).documentElement;
+    const shape = root.querySelector("path");
+    const gradient = root.querySelector("linearGradient");
+
+    expect(shape?.id).not.toBe("first-shape");
+    expect(shape?.id).toMatch(/^an-pasted-/);
+    expect(shape?.getAttribute("data-agent-native-layer-name")).toBe(
+      "First Shape",
+    );
+    expect(gradient?.id).not.toBe("warm-paint");
+    expect(shape?.getAttribute("fill")).toBe(`url(#${gradient?.id})`);
   });
 
   it.each([

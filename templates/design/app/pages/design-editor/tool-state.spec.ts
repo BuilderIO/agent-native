@@ -1,13 +1,24 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DESIGN_EDITOR_TOOLS,
+  areCommentPinsHidden,
+  commentModeReturnOptions,
+  commandRequestsAnnotate,
   getDesignBottomToolbarMode,
+  normalizeDesignLeftPanel,
+  normalizeDesignTool,
+  resolveDrawStateWithoutLab,
   resolveModeChangeView,
+  resolveModeForAnnotateLab,
   resolveSpaceForwardTransition,
   resolveToolAfterSelection,
+  resolveAvailableTool,
+  resolveCommentModeExit,
   shouldAskOnNewDesignArrival,
   shouldRevealLayersOnFirstCreate,
 } from "./tool-state";
+import type { DesignTool } from "./types";
 
 describe("resolveModeChangeView", () => {
   it("routes Interact from the canvas into the focused screen", () => {
@@ -38,6 +49,56 @@ describe("resolveModeChangeView", () => {
   });
 });
 
+describe("commentModeReturnOptions", () => {
+  it("restores the screen and device when comments are opened from Interact", () => {
+    expect(commentModeReturnOptions("interact", "screen-1")).toEqual({
+      targetFileId: "screen-1",
+      keepInteractDevice: true,
+    });
+  });
+
+  it("returns to Design for comments opened from other modes", () => {
+    expect(commentModeReturnOptions("edit", "screen-1")).toBeNull();
+    expect(commentModeReturnOptions("annotate", "screen-1")).toBeNull();
+    expect(commentModeReturnOptions("interact", null)).toBeNull();
+  });
+});
+
+describe("resolveCommentModeExit", () => {
+  const returnOptions = {
+    targetFileId: "screen-1",
+    keepInteractDevice: true,
+  } as const;
+
+  it("returns to the saved Interact screen while it still exists", () => {
+    expect(
+      resolveCommentModeExit(
+        returnOptions,
+        new Set(["screen-1"]),
+        new Set(["screen-1"]),
+      ),
+    ).toEqual({ mode: "interact", options: returnOptions });
+  });
+
+  it.each([
+    [new Set<string>(), new Set(["screen-1"])],
+    [new Set(["screen-1"]), new Set<string>()],
+  ])(
+    "falls back to Design when the saved screen was removed",
+    (screens, files) => {
+      expect(resolveCommentModeExit(returnOptions, screens, files)).toEqual({
+        mode: "edit",
+      });
+    },
+  );
+
+  it("returns to Design when Comments did not come from Interact", () => {
+    expect(resolveCommentModeExit(null, new Set(), new Set())).toEqual({
+      mode: "edit",
+    });
+  });
+});
+
 describe("getDesignBottomToolbarMode", () => {
   it("keeps all tools for editors", () => {
     expect(
@@ -46,6 +107,7 @@ describe("getDesignBottomToolbarMode", () => {
         canEditDesign: true,
         canCommentDesign: true,
         hasActiveFile: true,
+        scopedWidget: false,
       }),
     ).toBe("editor");
   });
@@ -57,6 +119,7 @@ describe("getDesignBottomToolbarMode", () => {
         canEditDesign: false,
         canCommentDesign: true,
         hasActiveFile: true,
+        scopedWidget: false,
       }),
     ).toBe("commenter");
   });
@@ -68,6 +131,7 @@ describe("getDesignBottomToolbarMode", () => {
         canEditDesign: true,
         canCommentDesign: true,
         hasActiveFile: false,
+        scopedWidget: false,
       }),
     ).toBe("editor");
   });
@@ -79,6 +143,7 @@ describe("getDesignBottomToolbarMode", () => {
         canEditDesign: false,
         canCommentDesign: true,
         hasActiveFile: false,
+        scopedWidget: false,
       }),
     ).toBe("hidden");
   });
@@ -90,6 +155,7 @@ describe("getDesignBottomToolbarMode", () => {
         canEditDesign: false,
         canCommentDesign: false,
         hasActiveFile: true,
+        scopedWidget: false,
       }),
     ).toBe("hidden");
     expect(
@@ -98,6 +164,43 @@ describe("getDesignBottomToolbarMode", () => {
         canEditDesign: false,
         canCommentDesign: false,
         hasActiveFile: false,
+        scopedWidget: false,
+      }),
+    ).toBe("hidden");
+  });
+
+  it("gives a scoped widget editor the toolbar without a signed-in session", () => {
+    expect(
+      getDesignBottomToolbarMode({
+        isSignedIn: false,
+        canEditDesign: true,
+        canCommentDesign: false,
+        hasActiveFile: true,
+        scopedWidget: true,
+      }),
+    ).toBe("editor");
+  });
+
+  it("does not let a widget without a write ticket borrow the toolbar", () => {
+    expect(
+      getDesignBottomToolbarMode({
+        isSignedIn: false,
+        canEditDesign: false,
+        canCommentDesign: false,
+        hasActiveFile: true,
+        scopedWidget: true,
+      }),
+    ).toBe("hidden");
+  });
+
+  it("still hides the toolbar from a signed-out editor outside a widget", () => {
+    expect(
+      getDesignBottomToolbarMode({
+        isSignedIn: false,
+        canEditDesign: true,
+        canCommentDesign: false,
+        hasActiveFile: true,
+        scopedWidget: false,
       }),
     ).toBe("hidden");
   });
@@ -109,6 +212,7 @@ describe("getDesignBottomToolbarMode", () => {
         canEditDesign: false,
         canCommentDesign: false,
         hasActiveFile: true,
+        scopedWidget: false,
       }),
     ).toBe("hidden");
   });
@@ -238,5 +342,131 @@ describe("resolveSpaceForwardTransition", () => {
       armed: false,
       broadcast: null,
     });
+  });
+});
+
+describe("normalizeDesignLeftPanel", () => {
+  it("accepts the Threads panel and rejects an unknown one", () => {
+    expect(normalizeDesignLeftPanel("threads")).toBe("threads");
+    expect(normalizeDesignLeftPanel("comments")).toBeUndefined();
+  });
+});
+
+describe("normalizeDesignTool", () => {
+  it("accepts the tools the editor knows and rejects the rest", () => {
+    expect(normalizeDesignTool("comment")).toBe("comment");
+    expect(normalizeDesignTool("pen")).toBe("pen");
+    expect(normalizeDesignTool("nope")).toBeNull();
+    expect(normalizeDesignTool(undefined)).toBeNull();
+  });
+
+  it("lands the retired Agent tool on Move", () => {
+    expect(DESIGN_EDITOR_TOOLS.has("agent" as DesignTool)).toBe(false);
+    expect(normalizeDesignTool("agent")).toBe("move");
+  });
+});
+
+describe("Comment tool", () => {
+  it.each(["on", "off", "loading"] as const)(
+    "offers the Comment tool while the Annotate lab is %s",
+    (lab) => {
+      expect(resolveAvailableTool("comment", lab)).toBe("comment");
+    },
+  );
+});
+
+describe("Annotate lab gate", () => {
+  it("keeps Annotate and Draw while the lab is on", () => {
+    expect(resolveModeForAnnotateLab("annotate", "on")).toBe("annotate");
+    expect(resolveAvailableTool("draw", "on")).toBe("draw");
+  });
+
+  it.each(["off", "loading"] as const)(
+    "lands Annotate on Design and Draw on Move while the lab is %s",
+    (lab) => {
+      expect(resolveModeForAnnotateLab("annotate", lab)).toBe("edit");
+      expect(resolveAvailableTool("draw", lab)).toBe("move");
+    },
+  );
+
+  it.each(["on", "off", "loading"] as const)(
+    "leaves every other mode and tool alone while the lab is %s",
+    (lab) => {
+      expect(resolveModeForAnnotateLab("edit", lab)).toBe("edit");
+      expect(resolveModeForAnnotateLab("interact", lab)).toBe("interact");
+      for (const tool of ["move", "pen", "text", "hand", "scale"] as const) {
+        expect(resolveAvailableTool(tool, lab)).toBe(tool);
+      }
+    },
+  );
+
+  it("clears a leftover Draw state only once the lab is known to be off", () => {
+    const drawing = {
+      activeTool: "draw",
+      drawMode: true,
+      pinMode: false,
+    } as const;
+    expect(
+      resolveDrawStateWithoutLab({ ...drawing, annotateLab: "off" }),
+    ).toEqual({ dropAnnotateMode: true });
+    expect(
+      resolveDrawStateWithoutLab({ ...drawing, annotateLab: "on" }),
+    ).toBeNull();
+    expect(
+      resolveDrawStateWithoutLab({ ...drawing, annotateLab: "loading" }),
+    ).toBeNull();
+  });
+
+  it("leaves Annotate mode to a comment pin and ignores an editor that is not drawing", () => {
+    expect(
+      resolveDrawStateWithoutLab({
+        annotateLab: "off",
+        activeTool: "draw",
+        drawMode: true,
+        pinMode: true,
+      }),
+    ).toEqual({ dropAnnotateMode: false });
+    expect(
+      resolveDrawStateWithoutLab({
+        annotateLab: "off",
+        activeTool: "comment",
+        drawMode: false,
+        pinMode: true,
+      }),
+    ).toBeNull();
+    expect(
+      resolveDrawStateWithoutLab({
+        annotateLab: "off",
+        activeTool: "move",
+        drawMode: false,
+        pinMode: false,
+      }),
+    ).toBeNull();
+  });
+
+  it("hides comment pins in Interact even when comments are shown", () => {
+    expect(
+      areCommentPinsHidden({ commentsHidden: false, mode: "interact" }),
+    ).toBe(true);
+    expect(
+      areCommentPinsHidden({ commentsHidden: true, mode: "interact" }),
+    ).toBe(true);
+  });
+
+  it.each(["edit", "annotate"] as const)(
+    "follows the show-comments setting in %s mode",
+    (mode) => {
+      expect(areCommentPinsHidden({ commentsHidden: false, mode })).toBe(false);
+      expect(areCommentPinsHidden({ commentsHidden: true, mode })).toBe(true);
+    },
+  );
+
+  it("recognises a command that asks for Annotate or Draw", () => {
+    expect(commandRequestsAnnotate({ mode: "annotate" })).toBe(true);
+    expect(commandRequestsAnnotate({ tool: "draw" })).toBe(true);
+    expect(commandRequestsAnnotate({ mode: "edit", tool: "rect" })).toBe(false);
+    expect(commandRequestsAnnotate({ tool: "comment" })).toBe(false);
+    expect(commandRequestsAnnotate({})).toBe(false);
+    expect(commandRequestsAnnotate({ mode: 3, tool: ["draw"] })).toBe(false);
   });
 });

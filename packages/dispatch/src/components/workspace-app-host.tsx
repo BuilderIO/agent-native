@@ -261,6 +261,10 @@ export function WorkspaceAppFrame({
     );
   }, [theme]);
   const handleFrameLoad = useCallback(() => {
+    embedFrameRef.current?.contentWindow?.postMessage(
+      { type: "agentNative.frameOrigin", origin: window.location.origin },
+      "*",
+    );
     postThemeToFrame();
     if (isDirectFallback) setEmbedError(null);
   }, [isDirectFallback, postThemeToFrame]);

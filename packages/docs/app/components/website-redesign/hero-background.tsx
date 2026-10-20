@@ -1,5 +1,5 @@
-import { HeroShaderBackground } from "./hero-shader-background";
+import { WaveBackground } from "@agent-native/toolkit/app/shared";
 
 export function HeroBackground() {
-  return <HeroShaderBackground />;
+  return <WaveBackground className="absolute inset-0 z-[-1]" />;
 }

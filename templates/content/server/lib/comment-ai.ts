@@ -489,8 +489,11 @@ function pendingSession(request: RequestRow): CommentAiPendingSession | null {
       phase: "classification",
       backgroundSession: classificationBackgroundSession(request),
       prompt: request.instructions,
-      context:
-        "Classify this request by calling submit-comment-ai-classification exactly once. Choose reply for conversation or explanation, suggest for uncertain or reviewable action, and apply-resolve only for a clear instruction to change the Page and resolve the comment. No other actions are authorized.",
+      context: `Classify this request by calling submit-comment-ai-classification exactly once. Choose reply for conversation or explanation, suggest for uncertain or reviewable action, and apply-resolve only for a clear instruction to change the Page and resolve the comment.${
+        request.continuationOfRequestId
+          ? " This is a follow-up on a comment the AI already answered or proposed a change for: asking for a different or adjusted change is suggest unless it explicitly asks to apply the change now."
+          : ""
+      } No other actions are authorized.`,
     };
   }
   if (request.status === "classified" || request.status === "queued") {

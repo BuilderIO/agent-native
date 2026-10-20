@@ -6,6 +6,7 @@ import {
   type ActionChangeTarget,
 } from "../action-change-marker.js";
 import { appStatePut } from "../application-state/store.js";
+import { recordActionChangeMarkerFailure } from "../observability/metrics.js";
 import { runAfterWriteDrains } from "../resource-changes/store.js";
 import {
   getRequestOrgId,
@@ -57,4 +58,38 @@ export async function writeActionChangeMarker(
     actionChangeMarkerValue(target),
     { requestSource: options.requestSource ?? "agent" },
   );
+}
+
+/**
+ * Awaited in full, even when the platform has waitUntil: polling clients read
+ * the marker right after the response, so it must be durable before it goes out.
+ *
+ * Resolves `false` when the durable write failed. Never turn that into a failed
+ * response: the data change is already committed, and a retry repeats the write.
+ */
+export async function writeActionChangeMarkerForResponse(
+  options: NotifyActionChangeOptions,
+): Promise<boolean> {
+  try {
+    await writeActionChangeMarker(options);
+    return true;
+  } catch (error: unknown) {
+    console.warn(
+      "[action-change] durable marker write failed:",
+      error instanceof Error ? error.message : String(error),
+    );
+    // Still inside the catch: a throw from the metric would reject a write that
+    // already committed.
+    try {
+      recordActionChangeMarkerFailure(error);
+    } catch (metricError: unknown) {
+      console.warn(
+        "[action-change] failure metric failed:",
+        metricError instanceof Error
+          ? metricError.message
+          : String(metricError),
+      );
+    }
+    return false;
+  }
 }

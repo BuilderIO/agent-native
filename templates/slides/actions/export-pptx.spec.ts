@@ -1,8 +1,16 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import fs from "fs";
+import path from "path";
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   ssrfSafeFetch: vi.fn(),
   resolveAccess: vi.fn(),
+  track: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/tracking", () => ({
+  track: mocks.track,
 }));
 
 vi.mock("@agent-native/core/extensions/url-safety", () => ({
@@ -21,6 +29,13 @@ vi.mock("../server/db/index.js", () => ({}));
 
 import PptxGenJS from "pptxgenjs";
 
+import { asGoogleSlidesBuildStep } from "../server/lib/deck-export-tracking";
+import {
+  pptxDeckBindingPath,
+  pptxExportRevisionKey,
+  safeGeneratedFilename,
+  tenantExportDir,
+} from "../server/lib/tenant-files";
 import exportPptx, {
   applyDeckIdentity,
   assertServerPptxExportable,
@@ -35,6 +50,18 @@ import exportPptx, {
 } from "./export-pptx";
 
 describe("export-pptx action", () => {
+  beforeEach(() => {
+    mocks.track.mockReset();
+    vi.stubEnv("NETLIFY", "1");
+    vi.spyOn(fs, "readdirSync").mockReturnValue([] as never);
+    vi.spyOn(fs, "mkdirSync").mockImplementation(() => undefined);
+    vi.spyOn(fs, "writeFileSync").mockImplementation(() => undefined);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
   it("rejects empty decks before generating a PowerPoint", async () => {
     mocks.resolveAccess.mockResolvedValue({
       resource: { data: JSON.stringify({ slides: [] }) },
@@ -43,6 +70,311 @@ describe("export-pptx action", () => {
     await expect(
       exportPptx.run({ deckId: "deck-1", includeNotes: true }, {} as never),
     ).rejects.toThrow("Cannot export empty deck");
+  });
+
+  it("reports a failed export once, then rethrows", async () => {
+    mocks.resolveAccess.mockResolvedValue({
+      resource: {
+        data: JSON.stringify({
+          slides: [],
+          generationContext: { generationAttemptId: "attempt-1" },
+        }),
+      },
+    });
+
+    await expect(
+      exportPptx.run({ deckId: "deck-1", includeNotes: true }, {
+        caller: "ui",
+      } as never),
+    ).rejects.toThrow("Cannot export empty deck");
+
+    expect(mocks.track).toHaveBeenCalledTimes(1);
+    expect(mocks.track.mock.calls[0][0]).toBe("deck_exported");
+    expect(mocks.track.mock.calls[0][1]).toEqual({
+      caller: "ui",
+      output_id: "deck-1",
+      output_type: "deck",
+      export_format: "pptx",
+      render_location: "server",
+      status: "failed",
+      error_type: "empty_deck",
+      slide_count: 0,
+      generation_attempt_id: "attempt-1",
+      app_name: "slides",
+      template_name: "slides",
+    });
+  });
+
+  it("reports a completed export with its slide count", async () => {
+    mocks.resolveAccess.mockResolvedValue({
+      resource: {
+        title: "Deck",
+        data: JSON.stringify({
+          slides: [{ id: "s1", content: importedSlide("") }],
+        }),
+      },
+    });
+
+    await exportPptx.run({ deckId: "deck-1", includeNotes: true }, {
+      caller: "agent",
+      runId: "run-1",
+    } as never);
+
+    expect(mocks.track).toHaveBeenCalledTimes(1);
+    expect(mocks.track.mock.calls[0][1]).toMatchObject({
+      run_id: "run-1",
+      caller: "agent",
+      output_id: "deck-1",
+      export_format: "pptx",
+      render_location: "server",
+      status: "completed",
+      slide_count: 1,
+    });
+  });
+
+  it("returns a download link instead of file bytes to tool callers", async () => {
+    mocks.resolveAccess.mockResolvedValue({
+      resource: {
+        title: "Deck",
+        data: JSON.stringify({
+          slides: [{ id: "s1", content: importedSlide("") }],
+        }),
+      },
+    });
+
+    const result = await exportPptx.run(
+      { deckId: "deck-1", includeNotes: false },
+      { caller: "tool" } as never,
+    );
+
+    const downloadUrl = new URL(result.downloadUrl);
+    expect(downloadUrl.pathname).toBe(`/api/exports/${result.filename}`);
+    expect(downloadUrl.searchParams.get("deckId")).toBe("deck-1");
+    expect(downloadUrl.searchParams.get("includeNotes")).toBe("false");
+    expect(result).not.toHaveProperty("buffer");
+    expect(result).not.toHaveProperty("filePath");
+  });
+
+  it("does not return binary internals to generic HTTP action callers", async () => {
+    mocks.resolveAccess.mockResolvedValue({
+      resource: {
+        title: "Deck",
+        data: JSON.stringify({
+          slides: [{ id: "s1", content: importedSlide("") }],
+        }),
+      },
+    });
+
+    const result = await exportPptx.run(
+      { deckId: "deck-1", includeNotes: true },
+      { caller: "http" } as never,
+    );
+
+    expect(result.downloadUrl).toContain("/api/exports/");
+    expect(result).not.toHaveProperty("buffer");
+    expect(result).not.toHaveProperty("filePath");
+  });
+
+  it("returns bytes without persisting for a direct Slides download", async () => {
+    mocks.resolveAccess.mockResolvedValue({
+      resource: {
+        title: "Deck",
+        data: JSON.stringify({
+          slides: [{ id: "s1", content: importedSlide("") }],
+        }),
+      },
+    });
+
+    const result = await exportPptx.run(
+      { deckId: "deck-1", includeNotes: true },
+      {
+        caller: "http",
+        slidesPptxDownload: true,
+        slidesPptxDownloadFilename: "requested-export.pptx",
+      } as never,
+    );
+
+    expect(result.buffer).toBeInstanceOf(Buffer);
+    expect(result.filename).toBe("requested-export.pptx");
+    expect(result).not.toHaveProperty("filePath");
+    expect(fs.writeFileSync).not.toHaveBeenCalled();
+    expect(fs.mkdirSync).not.toHaveBeenCalled();
+  });
+
+  it("persists authenticated download regeneration for later GET requests", async () => {
+    vi.stubEnv("NETLIFY", "");
+    vi.stubEnv("K_SERVICE", "slides");
+    const filename = safeGeneratedFilename(
+      "requested-export",
+      ".pptx",
+      "deck-1",
+    );
+    const data = JSON.stringify({
+      slides: [{ id: "s1", content: importedSlide("") }],
+    });
+    mocks.resolveAccess.mockResolvedValue({
+      resource: {
+        title: "Deck",
+        data,
+      },
+    });
+
+    const result = await exportPptx.run(
+      { deckId: "deck-1", includeNotes: true },
+      {
+        caller: "http",
+        slidesPptxDownload: true,
+        slidesPptxDownloadFilename: filename,
+        slidesPptxDownloadPersist: true,
+        slidesPptxDownloadExpectedRevision: pptxExportRevisionKey(
+          "deck-1",
+          null,
+          "Deck",
+          data,
+          true,
+        ),
+      } as never,
+    );
+    const exportDir = tenantExportDir("local@example.com");
+
+    expect(result.buffer).toBeInstanceOf(Buffer);
+    expect(fs.writeFileSync).toHaveBeenCalledWith(
+      path.join(exportDir, filename),
+      expect.any(Buffer),
+    );
+    expect(fs.writeFileSync).toHaveBeenCalledWith(
+      pptxDeckBindingPath(exportDir, filename),
+      pptxExportRevisionKey("deck-1", null, "Deck", data, true),
+    );
+    expect(new URL(result.downloadUrl).searchParams.get("exportRevision")).toBe(
+      pptxExportRevisionKey("deck-1", null, "Deck", data, true),
+    );
+  });
+
+  it("rejects regeneration when the deck no longer matches the export revision", async () => {
+    const data = JSON.stringify({
+      slides: [{ id: "s1", content: importedSlide("") }],
+    });
+    const previousData = JSON.stringify({
+      slides: [{ id: "s1", content: importedSlide("Earlier slide content") }],
+    });
+    const previousRevision = pptxExportRevisionKey(
+      "deck-1",
+      null,
+      "Deck",
+      previousData,
+      true,
+    );
+    mocks.resolveAccess.mockResolvedValue({
+      resource: { title: "Deck", data },
+    });
+
+    await expect(
+      exportPptx.run({ deckId: "deck-1", includeNotes: true }, {
+        caller: "http",
+        slidesPptxDownload: true,
+        slidesPptxDownloadFilename: "requested-export.pptx",
+        slidesPptxDownloadPersist: true,
+        slidesPptxDownloadExpectedRevision: previousRevision,
+      } as never),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "export_revision_stale",
+    });
+
+    expect(fs.writeFileSync).not.toHaveBeenCalled();
+    expect(fs.mkdirSync).not.toHaveBeenCalled();
+  });
+
+  it("persists exports in the hosted runtime directory for later downloads", async () => {
+    vi.stubEnv("NETLIFY", "");
+    vi.stubEnv("K_SERVICE", "slides");
+    mocks.resolveAccess.mockResolvedValue({
+      resource: {
+        title: "Deck",
+        data: JSON.stringify({
+          slides: [{ id: "s1", content: importedSlide("") }],
+        }),
+      },
+    });
+
+    const result = await exportPptx.run(
+      { deckId: "deck-1", includeNotes: true },
+      { caller: "tool" } as never,
+    );
+    const exportDir = tenantExportDir("local@example.com");
+
+    expect(fs.mkdirSync).toHaveBeenCalledWith(exportDir, { recursive: true });
+    expect(fs.writeFileSync).toHaveBeenCalledWith(
+      path.join(exportDir, result.filename),
+      expect.any(Buffer),
+    );
+  });
+
+  it("reports hosted export cleanup failures without failing the export", async () => {
+    mocks.resolveAccess.mockResolvedValue({
+      resource: {
+        title: "Deck",
+        data: JSON.stringify({
+          slides: [{ id: "s1", content: importedSlide("") }],
+        }),
+      },
+    });
+    const cleanupError = new Error("temporary directory is unavailable");
+    vi.mocked(fs.readdirSync).mockImplementationOnce(() => {
+      throw cleanupError;
+    });
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = await exportPptx.run(
+      { deckId: "deck-1", includeNotes: true },
+      { caller: "tool" } as never,
+    );
+
+    expect(result.downloadUrl).toContain("/api/exports/");
+    expect(fs.writeFileSync).toHaveBeenCalled();
+    expect(warning).toHaveBeenCalledWith(
+      "[export-pptx] Could not prune hosted PPTX exports",
+      cleanupError,
+    );
+  });
+
+  it("does not let a caller pass an analytics opt-out", () => {
+    const parsed = exportPptx.schema.safeParse({
+      deckId: "deck-1",
+      exportPurpose: "google_slides",
+    });
+    expect(parsed.success).toBe(true);
+    expect(parsed.data).not.toHaveProperty("exportPurpose");
+  });
+
+  it("stays silent inside the Google Slides build step", async () => {
+    mocks.resolveAccess.mockResolvedValue({
+      resource: {
+        title: "Deck",
+        data: JSON.stringify({
+          slides: [{ id: "s1", content: importedSlide("") }],
+        }),
+      },
+    });
+    await asGoogleSlidesBuildStep(() =>
+      exportPptx.run({ deckId: "deck-1", includeNotes: true }, {
+        caller: "ui",
+      } as never),
+    );
+
+    mocks.resolveAccess.mockResolvedValue({
+      resource: { data: JSON.stringify({ slides: [] }) },
+    });
+    await expect(
+      asGoogleSlidesBuildStep(() =>
+        exportPptx.run({ deckId: "deck-1", includeNotes: true }, {
+          caller: "ui",
+        } as never),
+      ),
+    ).rejects.toThrow("Cannot export empty deck");
+
+    expect(mocks.track).not.toHaveBeenCalled();
   });
 });
 

@@ -18,6 +18,11 @@ import {
   SheetDescription,
   SheetTitle,
 } from "@/components/ui/sheet";
+import {
+  BRAIN_MCP_SUGGESTION_EXCLUDED_INTEGRATION_IDS,
+  brainAskThreadPath,
+  isBrainAskPath,
+} from "@/lib/brain";
 import { TAB_ID } from "@/lib/tab-id";
 
 const SIDEBAR_COLLAPSE_KEY = "brain.sidebar.collapsed";
@@ -38,7 +43,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] =
     useState(readSidebarCollapsed);
-  const isAskRoute = location.pathname === "/home";
+  const isAskRoute = isBrainAskPath(location.pathname);
   // Settings brings its own navigation and agent toggle, so Brain's sidebar
   // and mobile bar would double them.
   const isFullWidthSettings =
@@ -52,7 +57,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const chatHomeHandoffPending = isAgentChatHomeHandoffActive("brain");
   useAgentChatHomeHandoffLinks({
     storageKey: "brain",
-    chatPath: "/home",
+    isChatPath: isBrainAskPath,
     requireActiveHandoff: true,
   });
 
@@ -126,9 +131,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
     );
   }
 
-  function openAskAgentFullscreen() {
+  function openAskAgentFullscreen(threadId?: string) {
     focusAgentChat();
-    navigateWithAgentChatViewTransition(navigate, "/home");
+    navigateWithAgentChatViewTransition(
+      navigate,
+      brainAskThreadPath(threadId ?? null),
+    );
   }
 
   return (
@@ -143,6 +151,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
         openOnChatRunning={chatHomeHandoffActive}
         onFullscreenRequest={openAskAgentFullscreen}
         emptyStateText={t("chat.emptyState")}
+        mcpSuggestionExcludedIntegrationIds={
+          BRAIN_MCP_SUGGESTION_EXCLUDED_INTEGRATION_IDS
+        }
         agentPageHref="/settings/agent"
         suggestions={[
           t("chat.suggestionSecurity"),

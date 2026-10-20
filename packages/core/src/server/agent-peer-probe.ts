@@ -98,9 +98,10 @@ export async function probePeerAgent(
   if (capabilities.cardStatus === "no-json-rpc") return result;
   if (options?.verifyAuth === false) return result;
 
-  const auth = agent.auth ? undefined : await deps.resolveCallerAuth();
+  let auth: Awaited<ReturnType<PeerProbeDeps["resolveCallerAuth"]>> | undefined;
   let apiKey: string | undefined;
   try {
+    auth = agent.auth ? undefined : await deps.resolveCallerAuth();
     apiKey = agent.auth
       ? await deps.resolveRemoteAgentToken(agent.auth, {
           userEmail: getRequestUserEmail(),
@@ -157,10 +158,21 @@ export async function probeAllPeerAgents(
     const batch = agents.slice(i, i + PROBE_CONCURRENCY);
     results.push(
       ...(await Promise.all(
-        batch.map(async (agent) => ({
-          id: agent.id,
-          ...(await probePeerAgent(agent, deps)),
-        })),
+        batch.map(async (agent) => {
+          try {
+            return {
+              id: agent.id,
+              ...(await probePeerAgent(agent, deps)),
+            };
+          } catch (error) {
+            return {
+              id: agent.id,
+              url: agent.url,
+              reachable: false,
+              error: error instanceof Error ? error.message : String(error),
+            };
+          }
+        }),
       )),
     );
   }

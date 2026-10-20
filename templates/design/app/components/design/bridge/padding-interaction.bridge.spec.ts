@@ -39,11 +39,19 @@ const GAP_FRAME = `<!doctype html><html><body style="margin:0">
 </body></html>`;
 
 const THIN_PADDING_FRAME = `<!doctype html><html><body style="margin:0">
-  <div id="card" data-agent-native-node-id="card" style="position:absolute;left:200px;top:150px;width:160px;height:100px;margin:0;padding:1px;background:#333;box-sizing:border-box"></div>
+  <div style="position:absolute;left:200px;top:150px;display:flex">
+    <div id="card" data-agent-native-node-id="card" style="width:160px;height:100px;margin:0;padding:1px;background:#333;box-sizing:border-box"></div>
+  </div>
 </body></html>`;
 
 const MARGIN_LEAF = `<!doctype html><html><body style="margin:0">
-  <div id="leaf" data-agent-native-node-id="leaf" style="position:absolute;left:240px;top:180px;width:160px;height:100px;margin:0;background:#c33"></div>
+  <div style="position:absolute;left:240px;top:180px;display:flex;width:400px;height:200px">
+    <div id="leaf" data-agent-native-node-id="leaf" style="width:160px;height:100px;margin:0;background:#c33"></div>
+  </div>
+</body></html>`;
+
+const PLAIN_FRAME = `<!doctype html><html><body style="margin:0">
+  <div id="frame" data-agent-native-node-id="frame" data-an-primitive="frame" style="position:absolute;left:200px;top:150px;width:48px;height:48px;margin:0;background:#d946ef"></div>
 </body></html>`;
 
 const MARGIN_MIRROR_LEAF = `<!doctype html><html><body style="margin:0">
@@ -355,7 +363,7 @@ describe("padding interaction bridge", () => {
     }
   });
 
-  it("shows editable zero margin handles on leaves and commits signed CSS margins", async () => {
+  it("shows editable zero margin handles on flex items and commits signed CSS margins", async () => {
     const browser = await chromium.launch({ headless: true });
     try {
       const page = await browser.newPage({
@@ -427,6 +435,46 @@ describe("padding interaction bridge", () => {
           }
         ).__styleChanges?.some((styles) => styles.marginTop === "-12px"),
       );
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("offers no spacing handles on a selected plain frame with no padding, margin or auto layout", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 800, height: 600 },
+      });
+      await page.setContent(PLAIN_FRAME);
+      await installBridge(page);
+
+      const frameBox = (await page.locator("#frame").boundingBox())!;
+      await page.mouse.click(
+        frameBox.x + frameBox.width / 2,
+        frameBox.y + frameBox.height / 2,
+      );
+      await page.waitForFunction(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        return !!overlay && overlay.style.display === "block";
+      });
+
+      expect(
+        await page.evaluate(() => ({
+          regions: document.querySelectorAll(
+            "[data-agent-native-spacing-region]",
+          ).length,
+          lines: document.querySelectorAll("[data-agent-native-spacing-line]")
+            .length,
+          overlayDisplay: (
+            document.querySelector(
+              "[data-agent-native-spacing-overlay]",
+            ) as HTMLElement
+          ).style.display,
+        })),
+      ).toEqual({ regions: 0, lines: 0, overlayDisplay: "none" });
     } finally {
       await browser.close();
     }

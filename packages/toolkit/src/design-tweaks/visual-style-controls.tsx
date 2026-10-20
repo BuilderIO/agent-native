@@ -19,10 +19,13 @@ import {
 import { cn } from "../utils.js";
 
 export {
+  cancelActiveScrubInputs,
   VisualScrubInput,
+  readVisualScrubInputs,
   resolvePendingScrubCommit,
   type PendingScrubCommit,
   type ScrubInputChangeMeta,
+  type ScrubInputDisplay,
   type ScrubInputProps,
 } from "./scrub-input.js";
 export {

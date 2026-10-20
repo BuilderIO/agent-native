@@ -56,6 +56,7 @@ interface ActiveCapture {
   commitFn: PendingTextHostCommitFn | null;
   retryTimer: number | null;
   teardown: Array<{ run: () => void; kind: TeardownKind; done: boolean }>;
+  onSettled?: (outcome: "accepted" | "failed") => void;
 }
 
 let active: ActiveCapture | null = null;
@@ -63,6 +64,11 @@ let nextToken = 1;
 const owners = new Map<OwnerIdentity, TextEditOwner>();
 let hostCommit: PendingTextHostCommitFn | null = null;
 const hostCommitQueue = new Set<ActiveCapture>();
+const hostWrittenNodes = new Set<string>();
+
+function hostWrittenKey(owner: OwnerIdentity, nodeId: string): string {
+  return `${owner}\u0000${nodeId}`;
+}
 
 function liveCapture(): ActiveCapture | null {
   if (active?.intercepting && Date.now() > active.interceptUntil) {
@@ -171,6 +177,9 @@ export const HOST_COMMIT_RETRY_DELAYS_MS = [250, 1_000, 3_000];
 function commitOwedHostSide(capture: ActiveCapture): void {
   runTeardown(capture, "revoke");
   const detached = (active === capture ? clearRecord() : null) ?? capture;
+  if (detached.nodeId) {
+    hostWrittenNodes.add(hostWrittenKey(detached.owner, detached.nodeId));
+  }
   detached.committing = true;
   detached.intercepting = false;
   detached.handedOff = false;
@@ -192,7 +201,7 @@ function attemptHostCommit(record: ActiveCapture): void {
     error = caught;
   }
   if (committed) {
-    settleHostCommit(record);
+    settleHostCommit(record, "accepted");
     return;
   }
   const delay = HOST_COMMIT_RETRY_DELAYS_MS[record.commitAttempts];
@@ -204,16 +213,84 @@ function attemptHostCommit(record: ActiveCapture): void {
     }, delay);
     return;
   }
-  settleHostCommit(record);
+  settleHostCommit(record, "failed");
   reportUnwrittenText(record, error, commitFn ? "commit-failed" : "no-writer");
 }
 
-function settleHostCommit(record: ActiveCapture): void {
+function settleHostCommit(
+  record: ActiveCapture,
+  outcome?: "accepted" | "failed",
+): void {
   hostCommitQueue.delete(record);
   if (record.retryTimer !== null && typeof window !== "undefined") {
     window.clearTimeout(record.retryTimer);
   }
   record.retryTimer = null;
+  if (outcome) record.onSettled?.(outcome);
+}
+
+export function cancelPendingTextHostCommit(
+  owner: OwnerIdentity,
+  nodeId: string,
+): void {
+  for (const record of [...hostCommitQueue]) {
+    if (record.owner !== owner || record.nodeId !== nodeId) continue;
+    hostCommitQueue.delete(record);
+    if (record.retryTimer !== null && typeof window !== "undefined") {
+      window.clearTimeout(record.retryTimer);
+    }
+    record.retryTimer = null;
+  }
+}
+
+export function queuePendingTextHostCommit(
+  owner: OwnerIdentity,
+  nodeId: string,
+  text: string,
+  onSettled?: (outcome: "accepted" | "failed") => void,
+): boolean {
+  if (!owner || !nodeId || !text) return false;
+  const existing = [...hostCommitQueue].find(
+    (record) => record.owner === owner && record.nodeId === nodeId,
+  );
+  if (existing) {
+    existing.onSettled = onSettled;
+    if (existing.buffer !== text) {
+      existing.buffer = text;
+      existing.commitAttempts = 0;
+      if (existing.retryTimer !== null && typeof window !== "undefined") {
+        window.clearTimeout(existing.retryTimer);
+      }
+      existing.retryTimer = null;
+      existing.commitFn = hostCommit;
+      attemptHostCommit(existing);
+    }
+    return true;
+  }
+  const record: ActiveCapture = {
+    token: nextToken++,
+    owner,
+    nodeId,
+    buffer: text,
+    intercepting: false,
+    handedOff: false,
+    interceptUntil: 0,
+    pendingBegin: null,
+    commitOnBegin: true,
+    deliveryPosted: false,
+    deliveryFallbackArmed: false,
+    committing: true,
+    commitAttempts: 0,
+    teardownRun: false,
+    timers: [],
+    commitFn: hostCommit,
+    retryTimer: null,
+    teardown: [],
+    onSettled,
+  };
+  hostCommitQueue.add(record);
+  attemptHostCommit(record);
+  return true;
 }
 
 function reportUnwrittenText(
@@ -267,6 +344,14 @@ function onKeyDown(event: KeyboardEvent): void {
 }
 
 function onPointerDown(): void {
+  const capture = liveCapture();
+  if (!capture) return;
+  stopIntercepting(capture);
+  // Clicking away keeps text the user already typed; only an empty request stands down.
+  if (capture.nodeId && capture.buffer) {
+    commitOwedHostSide(capture);
+    return;
+  }
   cancelActive();
 }
 
@@ -379,7 +464,7 @@ export function registerPendingTextHostCommit(
     if (hostCommit === commit) hostCommit = null;
     for (const record of [...hostCommitQueue]) {
       if (record.commitFn !== commit) continue;
-      settleHostCommit(record);
+      settleHostCommit(record, "failed");
       reportUnwrittenText(record, null, "writer-unregistered");
     }
   };
@@ -409,6 +494,18 @@ export function takePendingTextCapture(
   capture.handedOff = true;
   capture.pendingBegin = null;
   return buffer;
+}
+
+// A bridge session opened on the still-empty node before the host wrote the captured
+// text never held that text, so its empty commit must not delete what the host wrote.
+export function isSupersededEmptyTextCommit(
+  owner: OwnerIdentity,
+  nodeId: string,
+  value: string,
+  originalValue: string | undefined,
+): boolean {
+  if (!hostWrittenNodes.delete(hostWrittenKey(owner, nodeId))) return false;
+  return !value && !originalValue;
 }
 
 export function peekPendingTextCapture(
@@ -467,6 +564,17 @@ export function acknowledgePendingTextInsert(
   }
   capture.deliveryPosted = false;
   oweDelivery(capture);
+}
+
+// A session that ends before its owed text lands was left by the user (Escape,
+// blur), so the text is owed as a commit, not as a reopened session.
+export function endPendingTextSession(
+  owner: OwnerIdentity,
+  nodeId: string,
+): void {
+  const capture = liveCapture();
+  if (!matches(capture, owner, nodeId) || !capture.deliveryPosted) return;
+  capture.commitOnBegin = true;
 }
 
 export function releasePendingTextCapture(

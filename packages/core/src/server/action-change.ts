@@ -1,6 +1,7 @@
 import {
   type NotifyActionChangeOptions,
   writeActionChangeMarker,
+  writeActionChangeMarkerForResponse,
 } from "./action-change-marker-write.js";
 import "./poll.js";
 
@@ -13,13 +14,14 @@ export async function notifyActionChange(
   await writeActionChangeMarker(options);
 }
 
+export function notifyActionChangeForResponse(
+  options: NotifyActionChangeOptions,
+): Promise<boolean> {
+  return writeActionChangeMarkerForResponse(options);
+}
+
 export function notifyActionChangeInBackground(
   options: NotifyActionChangeOptions,
 ): void {
-  void writeActionChangeMarker(options).catch((error: unknown) => {
-    console.warn(
-      "[action-change] durable marker write failed:",
-      error instanceof Error ? error.message : String(error),
-    );
-  });
+  void writeActionChangeMarkerForResponse(options);
 }

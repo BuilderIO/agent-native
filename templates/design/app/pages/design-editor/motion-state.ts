@@ -1,8 +1,25 @@
 import type { CodeLayerProjection } from "@shared/code-layer";
+import type { MotionAnimationStyleDefinition } from "@shared/motion-animation-styles";
+import type { MotionBuiltInRecipe } from "@shared/motion-built-in-recipes";
+import type { MotionAudioClip } from "@shared/motion-code";
+import type { MotionEasingVariable } from "@shared/motion-easing";
+import type { MotionNativeStyleInstance } from "@shared/motion-native-style";
+import type { MotionSourceReadCapability } from "@shared/motion-source-read";
+import {
+  MOTION_TEXT_PROPERTIES,
+  type MotionTextAnimation,
+  type MotionTextDocument,
+  type MotionTextProperty,
+} from "@shared/motion-text-code";
 import {
   applyMotionAutoKeyframe,
+  createMotionTrackId,
   type MotionEase,
+  type MotionPlaybackMode,
   type MotionTrack,
+  withMotionTrackIds,
+  MOTION_TIMELINE_MAX_DURATION_MS,
+  MOTION_TIMELINE_MAX_CONTENT_END_MS,
 } from "@shared/motion-timeline";
 
 import type { MotionDockTrack } from "@/components/design/MotionDock";
@@ -15,11 +32,25 @@ export interface MotionTimelineRow {
   sourceRef: string | null;
   filePath: string | null;
   tracks: unknown;
+  animationStyles?: MotionAnimationStyleDefinition[];
+  nativeStyles?: MotionNativeStyleInstance[];
+  easingVariables?: MotionEasingVariable[];
+  textDocument?: MotionTextDocument | null;
+  audioClips?: MotionAudioClip[];
   durationMs: number;
+  playbackMode?: MotionPlaybackMode;
   defaultEase: string;
   compiledHash: string | null;
   cssHash?: string | null;
-  source?: "stored" | "recovered-css" | "stored-css-drift";
+  sourceVersionHash?: string | null;
+  source?:
+    | "stored"
+    | "recovered-css"
+    | "stored-css-drift"
+    | "recovered-react"
+    | "stored-react-drift"
+    | "recovered-html"
+    | "stored-html-drift";
   createdAt: string | null;
   updatedAt: string | null;
 }
@@ -28,6 +59,220 @@ export interface MotionTimelineQueryResult {
   designId: string;
   timelines: MotionTimelineRow[];
   count: number;
+  sourceReadCapability?: MotionSourceReadCapability | null;
+  recoveryErrors?: Array<{
+    sourceRef: string;
+    errorCode: string;
+    message: string;
+  }>;
+}
+
+export function motionSourceReadUnavailableMessageKey(
+  capability: MotionSourceReadCapability | null | undefined,
+) {
+  if (!capability) return null;
+  return capability.errorCode === "motion_html_source_unresolved_stylesheet"
+    ? "designEditor.motion.unresolvedStylesheets"
+    : "designEditor.motion.sourceReadUnavailable";
+}
+
+export function hasMotionTimelineContent(args: {
+  id: string | null;
+  tracks: readonly MotionDockTrack[];
+  animationStyles: readonly MotionAnimationStyleDefinition[];
+  nativeStyles: readonly MotionNativeStyleInstance[];
+  easingVariables: readonly MotionEasingVariable[];
+  textDocument: MotionTextDocument | null;
+  audioClips: readonly MotionAudioClip[];
+}): boolean {
+  return Boolean(
+    args.id ||
+    args.tracks.length ||
+    args.animationStyles.length ||
+    args.nativeStyles.length ||
+    args.easingVariables.length ||
+    args.textDocument ||
+    args.audioClips.length,
+  );
+}
+
+export interface SelectedMotionTarget {
+  nodeId: string;
+  label: string;
+  isText: boolean;
+}
+
+export interface MotionSourcePreviewProof {
+  modulePath: string;
+  moduleVersionHash: string;
+  renderedNodeIds: string[];
+}
+
+export interface MotionSourceWriteCapabilitySnapshot {
+  status: "supported" | "unsupported";
+  modulePath: string;
+  moduleVersionHash: string;
+  targetNodeIds: string[];
+  code?: string;
+  reason?: string;
+}
+
+export interface MotionSourceVersionBaseline {
+  captured: boolean;
+  versionHash: string | null;
+}
+
+export function captureMotionSourceVersionBaseline(
+  baseline: MotionSourceVersionBaseline,
+  previewVersionHash: string | null | undefined,
+): MotionSourceVersionBaseline {
+  if (baseline.captured) return baseline;
+  const versionHash = baseline.versionHash ?? previewVersionHash ?? null;
+  if (!versionHash) return baseline;
+  return {
+    captured: true,
+    versionHash,
+  };
+}
+
+interface MotionTargetInspectorElement {
+  sourceLayerIdentity?: { screenId?: string; nodeId?: string };
+  textContent?: string;
+  tagName: string;
+}
+
+interface MotionTargetCodeLayerNode {
+  id: string;
+  dataAttributes: Readonly<Record<string, string | undefined>>;
+  layerName?: string;
+  paintsOwnText?: boolean;
+}
+
+export function resolveSelectedMotionTargets<
+  TElement extends MotionTargetInspectorElement,
+>(args: {
+  elements: readonly TElement[];
+  activeScreenId: string | null | undefined;
+  nodes: readonly MotionTargetCodeLayerNode[];
+  preferredTarget?: SelectedMotionTarget | null;
+}): Array<SelectedMotionTarget & { element: TElement }> {
+  const nodesById = new Map(args.nodes.map((node) => [node.id, node]));
+  return args.elements.flatMap((element) => {
+    const identity = element.sourceLayerIdentity;
+    if (
+      !identity?.nodeId ||
+      !args.activeScreenId ||
+      identity.screenId !== args.activeScreenId
+    ) {
+      return [];
+    }
+
+    const layerNode = nodesById.get(identity.nodeId);
+    const nodeId =
+      layerNode?.dataAttributes["data-agent-native-node-id"]?.trim() ?? "";
+    if (!nodeId || !layerNode) return [];
+
+    const textLabel = element.textContent?.trim().replace(/\s+/g, " ");
+    return [
+      {
+        nodeId,
+        label:
+          args.preferredTarget?.nodeId === nodeId
+            ? args.preferredTarget.label
+            : layerNode.layerName || textLabel?.slice(0, 48) || element.tagName,
+        isText:
+          args.preferredTarget?.nodeId === nodeId
+            ? args.preferredTarget.isText
+            : Boolean(layerNode.paintsOwnText),
+        element,
+      },
+    ];
+  });
+}
+
+export function motionSourcePreviewProofForTargets(
+  projection: CodeLayerProjection,
+  targetNodeIds: readonly string[],
+): MotionSourcePreviewProof | null {
+  if (targetNodeIds.length === 0) return null;
+  const targets = [...new Set(targetNodeIds)];
+  const nodesByMotionId = new Map<string, MotionSourcePreviewProof>();
+  for (const node of projection.nodes) {
+    const nodeId = node.dataAttributes["data-agent-native-node-id"]?.trim();
+    const modulePath =
+      node.dataAttributes["data-agent-native-motion-source-file"]?.trim();
+    const moduleVersionHash =
+      node.dataAttributes["data-agent-native-motion-source-hash"]?.trim();
+    if (
+      !nodeId ||
+      !modulePath ||
+      !/^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9._/-]+\.(?:tsx|jsx|html?)$/i.test(
+        modulePath,
+      ) ||
+      !moduleVersionHash ||
+      !/^[a-f0-9]{64}$/i.test(moduleVersionHash)
+    ) {
+      continue;
+    }
+    const proof = nodesByMotionId.get(nodeId);
+    if (proof) {
+      nodesByMotionId.set(nodeId, {
+        ...proof,
+        renderedNodeIds: [...proof.renderedNodeIds, nodeId],
+      });
+    } else {
+      nodesByMotionId.set(nodeId, {
+        modulePath,
+        moduleVersionHash,
+        renderedNodeIds: [nodeId],
+      });
+    }
+  }
+
+  let selectedProof: MotionSourcePreviewProof | null = null;
+  for (const targetNodeId of targets) {
+    const target = nodesByMotionId.get(targetNodeId);
+    if (!target || target.renderedNodeIds.length !== 1) return null;
+    if (!selectedProof) {
+      selectedProof = target;
+      continue;
+    }
+    if (
+      target.modulePath !== selectedProof.modulePath ||
+      target.moduleVersionHash !== selectedProof.moduleVersionHash
+    ) {
+      return null;
+    }
+  }
+  if (!selectedProof) return null;
+
+  const renderedNodeIds = projection.nodes.flatMap((node) => {
+    const nodeId = node.dataAttributes["data-agent-native-node-id"]?.trim();
+    return nodeId &&
+      node.dataAttributes["data-agent-native-motion-source-file"]?.trim() ===
+        selectedProof!.modulePath &&
+      node.dataAttributes["data-agent-native-motion-source-hash"]?.trim() ===
+        selectedProof!.moduleVersionHash
+      ? [nodeId]
+      : [];
+  });
+  return { ...selectedProof, renderedNodeIds };
+}
+
+export function motionSourceWriteCapabilityAllowsTargets(
+  capability: MotionSourceWriteCapabilitySnapshot | null | undefined,
+  previewProof: MotionSourcePreviewProof | null,
+  targetNodeIds: readonly string[],
+): boolean {
+  return (
+    Boolean(previewProof) &&
+    capability?.status === "supported" &&
+    capability.modulePath === previewProof?.modulePath &&
+    capability.moduleVersionHash === previewProof?.moduleVersionHash &&
+    targetNodeIds.length > 0 &&
+    capability.targetNodeIds.length === targetNodeIds.length &&
+    targetNodeIds.every((nodeId) => capability.targetNodeIds.includes(nodeId))
+  );
 }
 
 function isMotionTrack(value: unknown): value is MotionTrack {
@@ -45,7 +290,9 @@ function isMotionTrack(value: unknown): value is MotionTrack {
 }
 
 function normalizeMotionTracks(value: unknown): MotionTrack[] {
-  return Array.isArray(value) ? value.filter(isMotionTrack) : [];
+  return withMotionTrackIds(
+    Array.isArray(value) ? value.filter(isMotionTrack) : [],
+  );
 }
 
 function labelForMotionTrack(
@@ -68,6 +315,78 @@ export function hydrateMotionDockTracks(
     ...track,
     label: labelForMotionTrack(track, projection),
   }));
+}
+
+const MOTION_TEXT_DOCK_PROPERTY_PREFIX = "text:";
+const MOTION_TEXT_PROPERTY_SET = new Set<MotionTextProperty>(
+  MOTION_TEXT_PROPERTIES,
+);
+
+export function motionTextDockProperty(property: MotionTextProperty): string {
+  return `${MOTION_TEXT_DOCK_PROPERTY_PREFIX}${property}`;
+}
+
+export function motionTextPropertyFromDockTrack(
+  property: string,
+): MotionTextProperty | null {
+  if (!property.startsWith(MOTION_TEXT_DOCK_PROPERTY_PREFIX)) return null;
+  const candidate = property.slice(MOTION_TEXT_DOCK_PROPERTY_PREFIX.length);
+  return MOTION_TEXT_PROPERTY_SET.has(candidate as MotionTextProperty)
+    ? (candidate as MotionTextProperty)
+    : null;
+}
+
+export function motionTextDocumentAsDockTracks(
+  document: MotionTextDocument | null | undefined,
+  projection: CodeLayerProjection,
+): MotionDockTrack[] {
+  return withMotionTrackIds(
+    (document?.animations ?? []).map((animation) => ({
+      targetNodeId: animation.targetNodeId,
+      property: motionTextDockProperty(animation.property),
+      keyframes: animation.keyframes,
+      delayMs: animation.delayMs ?? 0,
+      durationMs: animation.durationMs,
+      label: labelForMotionTrack(
+        {
+          targetNodeId: animation.targetNodeId,
+          property: motionTextDockProperty(animation.property),
+          keyframes: animation.keyframes,
+        },
+        projection,
+      ),
+      isTextAnimation: true,
+    })),
+  );
+}
+
+export function motionTextAnimationsFromDockTracks(
+  document: MotionTextDocument | null | undefined,
+  tracks: readonly MotionDockTrack[],
+): MotionTextAnimation[] {
+  const existingAnimations = new Map(
+    (document?.animations ?? []).map((animation) => [
+      `${animation.targetNodeId}\u001f${motionTextDockProperty(animation.property)}`,
+      animation,
+    ]),
+  );
+  return tracks.flatMap((track) => {
+    if (!track.isTextAnimation) return [];
+    const property = motionTextPropertyFromDockTrack(track.property);
+    if (!property) return [];
+    const existing = existingAnimations.get(
+      `${track.targetNodeId}\u001f${motionTextDockProperty(property)}`,
+    );
+    if (!existing) return [];
+    return [
+      {
+        ...existing,
+        delayMs: track.delayMs ?? 0,
+        durationMs: track.durationMs ?? existing.durationMs,
+        keyframes: track.keyframes,
+      },
+    ];
+  });
 }
 
 export const MOTION_KEYFRAME_TIME_EPSILON = 0.002;
@@ -142,6 +461,7 @@ export function applyMotionAutoKeyframesForStyles(
     playheadT: number;
     timelineDurationMs: number;
     defaultEase?: MotionEase;
+    trackId?: string;
   },
 ): MotionDockTrack[] {
   let next: MotionDockTrack[] = tracks;
@@ -159,6 +479,7 @@ export function applyMotionAutoKeyframesForStyles(
         value,
         playheadT: args.playheadT,
         timelineDurationMs: args.timelineDurationMs,
+        trackId: args.trackId,
       },
       args.defaultEase,
     );
@@ -194,7 +515,9 @@ export function upsertMotionStyleKeyframes(args: {
   styles: Record<string, string>;
   computedStyles?: Record<string, string>;
   playhead: number;
+  timelineDurationMs?: number;
   defaultEase?: string;
+  trackId?: string;
 }): MotionDockTrack[] {
   const t = Math.max(0, Math.min(1, args.playhead));
   const ease = args.defaultEase ?? "ease";
@@ -208,25 +531,39 @@ export function upsertMotionStyleKeyframes(args: {
     if (!property) continue;
     if (!isMotionAnimatableProperty(property)) continue;
 
-    const existingIndex = nextTracks.findIndex(
-      (track) =>
-        track.targetNodeId === args.targetNodeId && track.property === property,
+    const matchingIndices = nextTracks.flatMap((track, index) =>
+      track.targetNodeId === args.targetNodeId && track.property === property
+        ? [index]
+        : [],
     );
+    const selectedIndex = args.trackId
+      ? matchingIndices.find((index) => nextTracks[index]?.id === args.trackId)
+      : undefined;
+    const existingIndex =
+      selectedIndex ?? (matchingIndices.length === 1 ? matchingIndices[0] : -1);
+
+    if (matchingIndices.length > 1 && existingIndex === -1) continue;
 
     if (existingIndex >= 0) {
-      nextTracks = nextTracks.map((track, index) => {
-        if (index !== existingIndex) return track;
-        const withoutCurrentTime = track.keyframes.filter(
-          (keyframe) => Math.abs(keyframe.t - t) > MOTION_KEYFRAME_TIME_EPSILON,
-        );
-        return {
-          ...track,
-          label: track.label || args.label,
-          keyframes: [...withoutCurrentTime, { t, value, ease }].sort(
-            (a, b) => a.t - b.t,
-          ),
-        };
-      });
+      const keyed = applyMotionAutoKeyframe(
+        nextTracks,
+        {
+          targetNodeId: args.targetNodeId,
+          property,
+          value,
+          playheadT: t,
+          timelineDurationMs: args.timelineDurationMs ?? 1,
+          trackId: nextTracks[existingIndex]?.id,
+        },
+        ease,
+      );
+      if (keyed) {
+        nextTracks = (keyed as MotionDockTrack[]).map((track, index) =>
+          index === existingIndex
+            ? { ...track, label: track.label || args.label }
+            : track,
+        ) as MotionDockTrack[];
+      }
       continue;
     }
 
@@ -237,23 +574,19 @@ export function upsertMotionStyleKeyframes(args: {
     if (value === baseValue) continue;
     const keyframes =
       t <= MOTION_KEYFRAME_TIME_EPSILON
-        ? [
-            { t: 0, value, ease },
-            { t: 1, value: baseValue, ease },
-          ]
-        : t >= 1 - MOTION_KEYFRAME_TIME_EPSILON
-          ? [
-              { t: 0, value: baseValue, ease },
-              { t: 1, value, ease },
-            ]
-          : [
-              { t: 0, value: baseValue, ease },
-              { t, value, ease },
-              { t: 1, value: baseValue, ease },
-            ];
+        ? [{ t: 0, value, ease }]
+        : [
+            { t: 0, value: baseValue, ease },
+            {
+              t: t >= 1 - MOTION_KEYFRAME_TIME_EPSILON ? 1 : t,
+              value,
+              ease,
+            },
+          ];
     nextTracks = [
       ...nextTracks,
       {
+        id: createMotionTrackId(),
         targetNodeId: args.targetNodeId,
         property,
         keyframes,
@@ -263,6 +596,310 @@ export function upsertMotionStyleKeyframes(args: {
   }
 
   return nextTracks;
+}
+
+export function applyMotionStyleKeyframeEdit(
+  tracks: MotionDockTrack[],
+  args: {
+    targetNodeId: string;
+    label: string;
+    styles: Record<string, string>;
+    computedStyles?: Record<string, string>;
+    playhead: number;
+    timelineDurationMs: number;
+    defaultEase?: string;
+    autoKeyframeEnabled: boolean;
+    trackId?: string;
+  },
+): MotionDockTrack[] {
+  if (args.autoKeyframeEnabled) {
+    return upsertMotionStyleKeyframes({ tracks, ...args });
+  }
+  return applyMotionAutoKeyframesForStyles(tracks, {
+    targetNodeId: args.targetNodeId,
+    styles: args.styles,
+    playheadT: args.playhead,
+    timelineDurationMs: args.timelineDurationMs,
+    defaultEase: args.defaultEase as MotionEase | undefined,
+    trackId: args.trackId,
+  });
+}
+
+export function motionAnimationStyleDefinitionFromTracks(args: {
+  id: string;
+  name: string;
+  category: MotionAnimationStyleDefinition["category"];
+  description?: string;
+  targetNodeId: string;
+  tracks: readonly MotionTrack[];
+}): MotionAnimationStyleDefinition | null {
+  const tracks = args.tracks
+    .filter((track) => track.targetNodeId === args.targetNodeId)
+    .map(({ property, keyframes, enabled, delayMs, durationMs }) => ({
+      property,
+      keyframes: keyframes.map((keyframe) => ({
+        ...keyframe,
+        ...(keyframe.motionPath
+          ? {
+              motionPath: {
+                ...keyframe.motionPath,
+                control1: { ...keyframe.motionPath.control1 },
+                control2: { ...keyframe.motionPath.control2 },
+              },
+            }
+          : {}),
+      })),
+      ...(enabled !== undefined ? { enabled } : {}),
+      ...(delayMs !== undefined ? { delayMs } : {}),
+      ...(durationMs !== undefined ? { durationMs } : {}),
+    }));
+  if (tracks.length === 0) return null;
+  return {
+    id: args.id,
+    name: args.name,
+    category: args.category,
+    ...(args.description ? { description: args.description } : {}),
+    tracks,
+  };
+}
+
+export function applyMotionAnimationStyleToTargets(args: {
+  style: MotionAnimationStyleDefinition;
+  targets: readonly { nodeId: string; label: string }[];
+  currentTimeMs: number;
+  timelineDurationMs: number;
+}): {
+  tracks: MotionDockTrack[];
+  timelineDurationMs: number;
+  unsupportedSequenceProperty?: string;
+} {
+  const nextTracks: MotionDockTrack[] = [];
+  const timelineDurationMs = Math.min(
+    MOTION_TIMELINE_MAX_DURATION_MS,
+    Math.max(0, args.timelineDurationMs),
+  );
+  const playheadMs = Math.max(0, args.currentTimeMs);
+  const baseTimelineDurationMs = timelineDurationMs;
+
+  for (const target of args.targets) {
+    const tracksByProperty = new Map<string, typeof args.style.tracks>();
+    for (const styleTrack of args.style.tracks) {
+      if (styleTrack.enabled === false) continue;
+      const propertyTracks = tracksByProperty.get(styleTrack.property) ?? [];
+      tracksByProperty.set(styleTrack.property, [
+        ...propertyTracks,
+        styleTrack,
+      ]);
+    }
+
+    for (const [property, styleTracks] of tracksByProperty) {
+      const segments = styleTracks
+        .map((styleTrack, order) => {
+          const startMs = playheadMs + (styleTrack.delayMs ?? 0);
+          if (
+            startMs > MOTION_TIMELINE_MAX_DURATION_MS ||
+            startMs + (styleTrack.durationMs ?? 0) >
+              MOTION_TIMELINE_MAX_CONTENT_END_MS
+          ) {
+            return null;
+          }
+          const requestedDuration =
+            styleTrack.durationMs ??
+            Math.max(50, baseTimelineDurationMs - startMs);
+          if (
+            startMs + requestedDuration >
+            MOTION_TIMELINE_MAX_CONTENT_END_MS
+          ) {
+            return null;
+          }
+          const durationMs = requestedDuration;
+          return durationMs > 0
+            ? { styleTrack, startMs, durationMs, order }
+            : null;
+        })
+        .filter(
+          (segment): segment is NonNullable<typeof segment> => segment !== null,
+        );
+      if (segments.length === 0) continue;
+
+      const keyframes =
+        segments.length === 1
+          ? segments[0]!.styleTrack.keyframes.map((keyframe) => ({
+              ...keyframe,
+            }))
+          : sequenceStyleTrackSegments(segments);
+      if (!keyframes) {
+        return {
+          tracks: [],
+          timelineDurationMs: args.timelineDurationMs,
+          unsupportedSequenceProperty: property,
+        };
+      }
+
+      const startMs = Math.min(...segments.map((segment) => segment.startMs));
+      const endMs = Math.max(
+        ...segments.map((segment) => segment.startMs + segment.durationMs),
+      );
+      const durationMs = endMs - startMs;
+      const hasExplicitDuration =
+        segments.length > 1 || segments[0]!.styleTrack.durationMs !== undefined;
+      if (durationMs <= 0) continue;
+
+      nextTracks.push({
+        targetNodeId: target.nodeId,
+        label: target.label,
+        property,
+        keyframes,
+        ...(startMs > 0 ? { delayMs: startMs } : {}),
+        ...(hasExplicitDuration ||
+        durationMs !== baseTimelineDurationMs - startMs
+          ? { durationMs }
+          : {}),
+      });
+    }
+  }
+
+  return { tracks: nextTracks, timelineDurationMs };
+}
+
+export function applyMotionBuiltInRecipeToTargets(args: {
+  recipe: MotionBuiltInRecipe;
+  targets: readonly { nodeId: string; label: string }[];
+  currentTimeMs: number;
+  timelineDurationMs: number;
+}): {
+  tracks: MotionDockTrack[];
+  timelineDurationMs: number;
+  skippedTrackCount: number;
+} {
+  const timelineDurationMs = Math.min(
+    MOTION_TIMELINE_MAX_DURATION_MS,
+    Math.max(0, args.timelineDurationMs),
+  );
+  const playheadMs = Math.min(
+    MOTION_TIMELINE_MAX_DURATION_MS,
+    Math.max(0, args.currentTimeMs),
+  );
+  const tracks: MotionDockTrack[] = [];
+  let skippedTrackCount = 0;
+
+  for (const target of args.targets) {
+    for (const recipeTrack of args.recipe.tracks) {
+      const startMs = playheadMs + recipeTrack.delayMs;
+      if (startMs > MOTION_TIMELINE_MAX_DURATION_MS) {
+        skippedTrackCount += 1;
+        continue;
+      }
+      const durationMs = recipeTrack.durationMs;
+      if (
+        durationMs <= 0 ||
+        startMs + durationMs > MOTION_TIMELINE_MAX_CONTENT_END_MS
+      ) {
+        skippedTrackCount += 1;
+        continue;
+      }
+      tracks.push({
+        id: createMotionTrackId(),
+        targetNodeId: target.nodeId,
+        label: target.label,
+        property: recipeTrack.property,
+        ...(recipeTrack.property === "translate"
+          ? { composition: "add" as const }
+          : {}),
+        keyframes: recipeTrack.keyframes.map((keyframe, index) => ({
+          ...keyframe,
+          ...(index === 0 ? { ease: recipeTrack.easing } : {}),
+        })),
+        ...(startMs > 0 ? { delayMs: startMs } : {}),
+        durationMs,
+      });
+    }
+  }
+
+  return {
+    tracks: skippedTrackCount === 0 ? tracks : [],
+    timelineDurationMs,
+    skippedTrackCount,
+  };
+}
+
+function sequenceStyleTrackSegments(
+  segments: Array<{
+    styleTrack: MotionAnimationStyleDefinition["tracks"][number];
+    startMs: number;
+    durationMs: number;
+    order: number;
+  }>,
+): MotionTrack["keyframes"] | null {
+  const sortedSegments = [...segments].sort(
+    (left, right) => left.startMs - right.startMs || left.order - right.order,
+  );
+  if (
+    sortedSegments.some((segment) =>
+      segment.styleTrack.keyframes.some((keyframe) => keyframe.motionPath),
+    )
+  ) {
+    return null;
+  }
+
+  const timedKeyframes: Array<{
+    timeMs: number;
+    order: number;
+    keyframe: MotionTrack["keyframes"][number];
+  }> = [];
+  let previousEndMs = -1;
+  let previousEndValue: string | undefined;
+  for (const segment of sortedSegments) {
+    const keyframes = [...segment.styleTrack.keyframes].sort(
+      (left, right) => left.t - right.t,
+    );
+    const first = keyframes[0];
+    const last = keyframes[keyframes.length - 1];
+    const endMs = segment.startMs + segment.durationMs;
+    if (
+      !first ||
+      !last ||
+      first.t !== 0 ||
+      last.t !== 1 ||
+      segment.startMs < previousEndMs ||
+      (previousEndMs >= 0 && previousEndValue !== first.value)
+    ) {
+      return null;
+    }
+
+    for (const [index, keyframe] of keyframes.entries()) {
+      timedKeyframes.push({
+        timeMs: segment.startMs + segment.durationMs * keyframe.t,
+        order: segment.order * 1_000 + index,
+        keyframe: { ...keyframe },
+      });
+    }
+    previousEndMs = endMs;
+    previousEndValue = last.value;
+  }
+
+  const startMs = sortedSegments[0]!.startMs;
+  const endMs = Math.max(
+    ...sortedSegments.map((segment) => segment.startMs + segment.durationMs),
+  );
+  const durationMs = endMs - startMs;
+  const keyframes: MotionTrack["keyframes"] = [];
+  for (const entry of timedKeyframes.sort(
+    (left, right) => left.timeMs - right.timeMs || left.order - right.order,
+  )) {
+    const normalized = {
+      ...entry.keyframe,
+      t: (entry.timeMs - startMs) / durationMs,
+    };
+    const previous = keyframes[keyframes.length - 1];
+    if (previous?.t === normalized.t) {
+      if (previous.value !== normalized.value) return null;
+      keyframes[keyframes.length - 1] = normalized;
+    } else {
+      keyframes.push(normalized);
+    }
+  }
+  return keyframes.length >= 2 ? keyframes : null;
 }
 
 export function motionTimelineFingerprint(
@@ -276,7 +913,14 @@ export function motionTimelineFingerprint(
     timeline.updatedAt ?? "no-updated-at",
     timeline.compiledHash ?? "no-compiled-hash",
     timeline.cssHash ?? "no-css-hash",
+    timeline.sourceVersionHash ?? "no-source-version-hash",
+    timeline.playbackMode ?? "once",
     timeline.source ?? "stored",
     JSON.stringify(timeline.tracks),
+    JSON.stringify(timeline.animationStyles ?? []),
+    JSON.stringify(timeline.nativeStyles ?? []),
+    JSON.stringify(timeline.easingVariables ?? []),
+    JSON.stringify(timeline.textDocument ?? null),
+    JSON.stringify(timeline.audioClips ?? []),
   ].join(":");
 }

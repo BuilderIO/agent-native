@@ -43,10 +43,20 @@ export function parseAiRequestTabId(tabId: string): {
 
 export interface ClipsAiRequestStatus {
   kind?: ClipsAiRequestKind;
-  status?: "queued" | "working" | "completed" | "failed" | "cancelled";
+  status?:
+    | "queued"
+    | "working"
+    | "completed"
+    | "failed"
+    | "truncated"
+    | "cancelled";
   message?: string | null;
   requestedAt?: string;
   updatedAt?: string;
+  operationId?: string;
+  threadId?: string;
+  turnId?: string;
+  runId?: string;
 }
 
 /** A recording the browser bridge may auto-title once it is old enough. */

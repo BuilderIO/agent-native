@@ -45,7 +45,7 @@ function resolveScope(options?: {
   return options?.scope ?? (options?.shared ? "shared" : "personal");
 }
 
-async function assertCanManageSharedResource(): Promise<void> {
+export async function assertCanManageSharedResource(): Promise<void> {
   const orgId = getRequestOrgId();
   if (!orgId) return;
 

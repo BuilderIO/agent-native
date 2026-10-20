@@ -26,6 +26,17 @@ ORDER BY
   1`);
   });
 
+  it("formats BigQuery dashboard filters with conditional and list variables", () => {
+    const formatted = formatPanelSql(
+      "select week, count(*) from events where {{?appFilter}}and ('all' in ({{appFilter:list}}) or lower(app) in ({{appFilter:list}})){{/appFilter}} group by 1",
+      "bigquery",
+    );
+
+    expect(formatted).toContain("{{?appFilter}}");
+    expect(formatted).toContain("{{appFilter:list}}");
+    expect(formatted).toContain("{{/appFilter}}");
+  });
+
   it("does not try to format JSON descriptor sources", () => {
     expect(canFormatPanelSql("amplitude")).toBe(false);
     expect(formatPanelSql('{"event":"signup"}', "amplitude")).toBe(

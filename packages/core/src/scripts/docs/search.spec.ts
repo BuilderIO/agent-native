@@ -69,6 +69,15 @@ describe("docs-search: skill reference sub-files are reachable end-to-end", () =
     vi.clearAllMocks();
   });
 
+  it("prints the supported commands when no search option is provided", async () => {
+    const output = await runDocsSearch([]);
+
+    expect(output).toContain('pnpm action docs-search --query "<feature>"');
+    expect(output).toContain("pnpm action docs-search --slug <slug>");
+    expect(output).toContain("pnpm action docs-search --list");
+    expect(output).not.toContain("Use --help");
+  });
+
   it("populates Skill.files with the reference sub-file content", () => {
     const bundle = readAgentsBundleFromFs(tplDir);
     const skill = bundle.skills["recap-tools"];

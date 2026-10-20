@@ -160,7 +160,7 @@ export function renderReleaseBody(entries: PendingChangelogEntry[]): string {
     const bullet = text.includes("\n")
       ? text
           .split(/\r?\n/)
-          .map((l, i) => (i === 0 ? `- ${l}` : `  ${l}`))
+          .map((l, i) => (i === 0 ? `- ${l}` : l.trim() ? `  ${l}` : ""))
           .join("\n")
       : `- ${text}`;
     const list = groups.get(entry.type) ?? [];

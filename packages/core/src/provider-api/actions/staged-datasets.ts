@@ -1,6 +1,6 @@
 import { z, type ZodTypeAny } from "zod";
 
-import { defineAction, type ActionHttpConfig } from "../../action.js";
+import { defineAction, fail, type ActionHttpConfig } from "../../action.js";
 import { getCredentialContext } from "../../server/request-context.js";
 import { runAggregateQuery } from "../staged-datasets-aggregate.js";
 import {
@@ -8,6 +8,7 @@ import {
   getStagedDatasetMeta,
   getStagedDatasetRows,
   listStagedDatasets,
+  stagedDatasetVersion,
 } from "../staged-datasets-store.js";
 
 const WhereSchema = z.object({
@@ -231,6 +232,19 @@ export function createQueryStagedDatasetAction<
         );
       }
       const rows = await runtime.getRows({ id: datasetId, ...scope });
+      // Metadata and rows are separate reads. An eviction or re-stage between
+      // them would answer from this metadata with no rows, or another
+      // version's rows, and read as a valid result.
+      const current = await runtime.getMeta({ id: datasetId, ...scope });
+      if (
+        !current ||
+        stagedDatasetVersion(current) !== stagedDatasetVersion(meta)
+      ) {
+        fail(
+          `Dataset ${datasetId} was evicted or replaced while it was being read. Stage it again and rerun the query.`,
+          { errorCode: "staged_dataset_changed", statusCode: 409 },
+        );
+      }
       const result = runtime.aggregate(rows, {
         where: args.where,
         groupBy: args.groupBy,

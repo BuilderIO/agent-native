@@ -5,13 +5,18 @@ import {
   type McpClientManager,
   type McpTool,
 } from "../mcp-client/index.js";
+import { runWithRequestContext } from "../server/request-context.js";
 import type { ActionEntry } from "./production-agent.js";
 import {
   attachToolSearch,
   createToolSearchEntry,
+  extractToolSearchResultNames,
   filterActionsForAgentDiscovery,
+  isTargetedToolSearch,
+  readLoadedToolNames,
   searchToolRegistry,
   TOOL_SEARCH_ACTION_NAME,
+  withLoadedToolNames,
 } from "./tool-search.js";
 
 function action(
@@ -556,5 +561,383 @@ describe("tool-search", () => {
       }
       expect(tool).not.toHaveProperty("inputSchema");
     });
+  });
+
+  describe("loading tools by name", () => {
+    // Names a prompt can advertise must load in one call, whichever form the
+    // model uses, with the named tool ahead of anything that merely mentions it.
+    const registry = {
+      "bigquery-query": action("Run a BigQuery SQL query"),
+      "bigquery-query-history": action(
+        "List past bigquery query runs. Use bigquery query history to review a bigquery query.",
+        { query: { type: "string", description: "bigquery query text" } },
+      ),
+      "search-analytics-query-catalog": action(
+        "Search saved analytics queries",
+      ),
+      "list-dashboards": action("List dashboards"),
+    };
+
+    it("ranks an exact-name query ahead of longer names that mention it", () => {
+      const result = searchToolRegistry(registry, {
+        query: "bigquery-query",
+        limit: 1,
+      });
+
+      expect(result.results.map((r) => r.name)).toEqual(["bigquery-query"]);
+    });
+
+    it("loads several advertised names, with schemas, in a single call", () => {
+      const result = searchToolRegistry(registry, {
+        names: ["bigquery-query", "search-analytics-query-catalog"],
+      });
+
+      expect(result.results.map((r) => r.name).sort()).toEqual([
+        "bigquery-query",
+        "search-analytics-query-catalog",
+      ]);
+      expect(result.message).toBeUndefined();
+    });
+  });
+
+  describe("batched search", () => {
+    const registry = {
+      "send-email": action("Send an email message"),
+      "list-events": action("List calendar events"),
+      "export-report": action("Export a report to CSV"),
+      "delete-event": action("Delete a calendar event"),
+    };
+
+    it("unions the matches of several queries into one result", () => {
+      const result = searchToolRegistry(registry, {
+        queries: ["send email", "export report"],
+      });
+
+      expect(result.results.map((r) => r.name).sort()).toEqual([
+        "export-report",
+        "send-email",
+      ]);
+      expect(result.count).toBe(2);
+      expect(result.query).toBe("send email | export report");
+    });
+
+    it("keeps the single query alongside queries without duplicating it", () => {
+      const result = searchToolRegistry(registry, {
+        query: "send email",
+        queries: ["Send Email", "calendar"],
+      });
+
+      expect(result.query).toBe("send email | calendar");
+      expect(result.results.map((r) => r.name)).toEqual(
+        expect.arrayContaining(["send-email", "list-events", "delete-event"]),
+      );
+      expect(
+        result.results.filter((r) => r.name === "send-email"),
+      ).toHaveLength(1);
+    });
+
+    it("loads exact names, ignoring fuzzy matches, and reports the ones it lacks", () => {
+      const result = searchToolRegistry(registry, {
+        names: ["list-events", "no-such-tool"],
+      });
+
+      expect(result.results.map((r) => r.name)).toEqual(["list-events"]);
+      expect(result.query).toBe("names: list-events, no-such-tool");
+      expect(result.message).toBe(
+        "No tool named no-such-tool is available in the current mode.",
+      );
+    });
+
+    it("combines queries and names in one result", () => {
+      const result = searchToolRegistry(registry, {
+        queries: ["send email"],
+        names: ["delete-event"],
+      });
+
+      expect(result.results.map((r) => r.name).sort()).toEqual([
+        "delete-event",
+        "send-email",
+      ]);
+    });
+
+    it("runs at most five queries and ignores blanks and repeats", () => {
+      const result = searchToolRegistry(registry, {
+        queries: [
+          "email",
+          " ",
+          "EMAIL",
+          "report",
+          "events",
+          "calendar",
+          "csv",
+          "delete",
+        ],
+      });
+
+      expect(result.query).toBe("email | report | events | calendar | csv");
+      expect(result.message).toContain("Only the first 5 queries were used");
+      expect(result.message).toContain("delete");
+    });
+
+    it("says so when names past the limit are ignored", () => {
+      const names = Array.from({ length: 22 }, (_, i) => `tool-${i}`);
+      const result = searchToolRegistry(registry, { names });
+
+      expect(result.query).toBe(`names: ${names.slice(0, 20).join(", ")}`);
+      expect(result.message).toContain("Only the first 20 names were used");
+      expect(result.message).toContain("2 more were ignored");
+      expect(result.message).toContain("tool-21");
+    });
+
+    it("keeps the per-name misses and adds the truncation note", () => {
+      const result = searchToolRegistry(registry, {
+        queries: ["email", "report", "events", "calendar", "csv", "delete"],
+        names: ["no-such-tool"],
+      });
+
+      expect(result.message).toContain("No tool named no-such-tool");
+      expect(result.message).toContain("Only the first 5 queries were used");
+    });
+
+    it("does not mention truncation when nothing was dropped", () => {
+      const result = searchToolRegistry(registry, {
+        queries: ["email", "report"],
+      });
+
+      expect(result.message ?? "").not.toContain("Only the first");
+    });
+
+    it("never cuts the ignored-entries note inside an emoji", () => {
+      const loneSurrogate =
+        /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
+      for (let pad = 0; pad < 2; pad += 1) {
+        const result = searchToolRegistry(registry, {
+          queries: [
+            "email",
+            "report",
+            "events",
+            "calendar",
+            "csv",
+            `${"a".repeat(pad)}${"😀".repeat(120)}`,
+          ],
+        });
+        expect(result.message).toContain("Only the first 5 queries");
+        expect(result.message).not.toMatch(loneSurrogate);
+      }
+    });
+
+    describe("isTargetedToolSearch", () => {
+      it.each([
+        ["a query", { query: "email" }, true],
+        ["a queries array", { queries: ["email"] }, true],
+        ["a bare string queries", { queries: "email" }, true],
+        ["a names array", { names: ["send-email"] }, true],
+        ["a bare string names", { names: "send-email" }, true],
+        ["no arguments", {}, false],
+        ["blank entries", { query: " ", queries: [" "], names: [""] }, false],
+        ["a nested list", { queries: [["email"]] }, false],
+        ["a non-string list", { queries: [1], names: [{}] }, false],
+      ])("agrees with the search on %s", (_label, args, targeted) => {
+        expect(isTargetedToolSearch(args)).toBe(targeted);
+        if (targeted) {
+          expect(
+            searchToolRegistry(registry, args).results.length,
+          ).toBeGreaterThan(0);
+        }
+      });
+    });
+
+    it("keeps a repeat guard per query, flagging the call only when all repeated", async () => {
+      await runWithRequestContext(
+        { userEmail: "agent@example.com", run: {} },
+        () => {
+          const first = searchToolRegistry(registry, {
+            queries: ["send email", "export report"],
+          });
+          const partial = searchToolRegistry(registry, {
+            queries: ["send email", "calendar"],
+          });
+          const again = searchToolRegistry(registry, {
+            queries: ["send email", "export report"],
+          });
+
+          expect(first.repeated).toBeUndefined();
+          expect(partial.repeated).toBeUndefined();
+          expect(partial.results.map((r) => r.name)).toEqual(
+            expect.arrayContaining(["send-email", "list-events"]),
+          );
+          expect(again.repeated).toBe(true);
+          expect(again.message).toContain("already ran");
+        },
+      );
+    });
+
+    it("leaves single-query results and menu mode unchanged", () => {
+      expect(searchToolRegistry(registry, { query: "email" }).query).toBe(
+        "email",
+      );
+      expect(searchToolRegistry(registry, { queries: [" "] }).query).toBe("");
+      expect(searchToolRegistry(registry, {}).results).toHaveLength(4);
+    });
+  });
+});
+
+describe("readLoadedToolNames", () => {
+  const output = {
+    query: "alpha",
+    totalTools: 2,
+    count: 1,
+    results: [
+      { name: "alpha-tool", callable: true },
+      { name: "plan-only", callable: false },
+    ],
+  };
+
+  it("reads the loaded list from a result followed by notes", () => {
+    const stored = `${JSON.stringify(
+      withLoadedToolNames(output, ["alpha-tool", 'odd "name"']),
+      null,
+      2,
+    )}\n\nLoaded matching tool schemas for the next step, not this one: alpha-tool`;
+    expect(readLoadedToolNames(stored)).toEqual(["alpha-tool", 'odd "name"']);
+  });
+
+  it("keeps the loaded list readable after the rest of the result is clipped", () => {
+    const stored = JSON.stringify(
+      withLoadedToolNames(output, ["alpha-tool", "beta-tool"]),
+      null,
+      2,
+    );
+    const clipped = `${stored.slice(0, stored.indexOf('"results"') + 20)}\n\n...[truncated]`;
+    expect(readLoadedToolNames(clipped)).toEqual(["alpha-tool", "beta-tool"]);
+  });
+
+  it("reads a compact result and an empty loaded list", () => {
+    expect(
+      readLoadedToolNames(JSON.stringify(withLoadedToolNames(output, []))),
+    ).toEqual([]);
+    expect(
+      readLoadedToolNames(
+        JSON.stringify(withLoadedToolNames(output, ["a", "b"])),
+      ),
+    ).toEqual(["a", "b"]);
+  });
+
+  it("reads the callable matches of a result stored before the loaded list", () => {
+    const stored = `${JSON.stringify(output, null, 2)}\n\nLoaded matching tool schemas for next step: alpha-tool`;
+    expect(readLoadedToolNames(stored)).toEqual(["alpha-tool"]);
+    expect(readLoadedToolNames(JSON.stringify(output))).toEqual(["alpha-tool"]);
+  });
+
+  it("tells a result that loaded nothing from one it cannot read", () => {
+    expect(
+      readLoadedToolNames("Interrupted before this tool returned"),
+    ).toEqual([]);
+    expect(
+      readLoadedToolNames(JSON.stringify({ query: "", results: [] })),
+    ).toEqual([]);
+    const stored = JSON.stringify(output, null, 2);
+    expect(
+      readLoadedToolNames(`${stored.slice(0, 60)}\n\n...[truncated]`),
+    ).toBeNull();
+    expect(readLoadedToolNames('{"query": "alpha", "results": [')).toBeNull();
+  });
+});
+
+describe("tool-search ranking", () => {
+  it("ranks a rare query word above words most tools share", () => {
+    const registry = {
+      "list-dashboards": action("List dashboards in the app"),
+      "list-gong-calls": action("List recorded Gong calls"),
+      "list-users": action("List users in the app"),
+      "list-events": action("List calendar events"),
+    };
+
+    const result = searchToolRegistry(registry, { query: "list gong calls" });
+
+    expect(result.results[0]?.name).toBe("list-gong-calls");
+  });
+
+  it("matches plural queries to singular names and ignores stop words", () => {
+    const registry = {
+      "create-dashboard": action("Create a dashboard"),
+      "send-email": action("Send an email message"),
+    };
+
+    const result = searchToolRegistry(registry, {
+      query: "the dashboards",
+    });
+
+    expect(result.results.map((r) => r.name)).toEqual(["create-dashboard"]);
+  });
+});
+
+describe("tool-search zero-hit fallback", () => {
+  it("suggests close names that are never loaded", () => {
+    const registry = {
+      "send-email": action("Send an email message"),
+      "list-calendars": action("List available calendars"),
+    };
+
+    const result = searchToolRegistry(registry, {
+      query: "sender notification",
+    });
+
+    expect(result.results).toEqual([]);
+    expect(result.suggestions?.map((s) => s.name)).toEqual(["send-email"]);
+    expect(result.message).toContain("Closest tool names: send-email");
+    expect(extractToolSearchResultNames(result)).toEqual([]);
+    expect(
+      readLoadedToolNames(JSON.stringify(withLoadedToolNames(result, []))),
+    ).toEqual([]);
+  });
+
+  it("keeps suggestions when the same empty search repeats in one run", () => {
+    const registry = {
+      "send-email": action("Send an email message"),
+      "list-calendars": action("List available calendars"),
+    };
+
+    const [first, second] = runWithRequestContext(
+      { userEmail: "agent@example.com", run: {} },
+      () => [
+        searchToolRegistry(registry, { query: "sender notification" }),
+        searchToolRegistry(registry, { query: "sender notification" }),
+      ],
+    );
+
+    expect(first.suggestions?.map((s) => s.name)).toEqual(["send-email"]);
+    expect(second.repeated).toBe(true);
+    expect(second.suggestions?.map((s) => s.name)).toEqual(["send-email"]);
+  });
+
+  it("points at the Tool index when nothing is close", () => {
+    const result = searchToolRegistry(
+      { "send-email": action("Send an email message") },
+      { query: "zzzzzzzzzzz" },
+    );
+
+    expect(result.suggestions).toBeUndefined();
+    expect(result.message).toContain("Check the Tool index");
+  });
+
+  it("does not dead-end a query made only of stop words", () => {
+    const result = searchToolRegistry(
+      { "send-email": action("Send an email message") },
+      { query: "the" },
+    );
+
+    expect(result.results).toEqual([]);
+    expect(result.message).toContain("Check the Tool index");
+  });
+
+  it("leaves menu mode without suggestions", () => {
+    const result = searchToolRegistry(
+      { "send-email": action("Send an email message") },
+      {},
+    );
+
+    expect(result.suggestions).toBeUndefined();
+    expect(result.message).not.toContain("No tool matched");
   });
 });

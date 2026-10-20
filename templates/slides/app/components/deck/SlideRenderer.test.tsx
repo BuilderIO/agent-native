@@ -4,6 +4,7 @@ import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import SlideRenderer, {
+  applyRemoteSlideContentUnderEdit,
   computeSlideFitTransform,
   getRenderedSlideSource,
   isRawHtmlSlide,
@@ -246,6 +247,63 @@ describe("SlideInner source stamps", () => {
       ),
     );
   });
+
+  it("restores stored image frame geometry in place across move and undo", async () => {
+    const originalContent =
+      '<div class="fmd-slide"><video src="clip.mp4"></video><div class="fmd-pptx-image" data-slide-object-id="image-1" style="position:absolute;left:40px;top:24px;width:320px;height:180px;"><img src="image.png"></div><div class="fmd-shape" data-slide-object-id="shape-1" style="position:absolute;left:400px;top:24px;width:100px;height:80px;">Text</div></div>';
+    const slide = {
+      id: "slide-undo-image",
+      content: originalContent,
+      layout: "blank",
+    } as Slide;
+    const { rerender } = render(<SlideInner slide={slide} stampSource />);
+    const root = document.querySelector<HTMLElement>(".slide-content")!;
+    const frame = root.querySelector<HTMLElement>(".fmd-pptx-image")!;
+    const image = root.querySelector("img")!;
+    const video = root.querySelector("video")!;
+    const otherObject = root.querySelector(".fmd-shape")!;
+    const moved = originalContent.replace("left:40px", "left:90px");
+    frame.style.left = "90px";
+    rerender(<SlideInner slide={{ ...slide, content: moved }} stampSource />);
+    await waitFor(() =>
+      expect(getRenderedSlideSource(root)?.stored).toBe(moved),
+    );
+    expect(frame.style.left).toBe("90px");
+
+    rerender(<SlideInner slide={slide} stampSource />);
+    await waitFor(() => expect(frame.style.left).toBe("40px"));
+    expect(root.querySelector(".fmd-pptx-image")).toBe(frame);
+    expect(root.querySelector("img")).toBe(image);
+    expect(root.querySelector("video")).toBe(video);
+    expect(root.querySelector(".fmd-shape")).toBe(otherObject);
+  });
+
+  it("keeps sibling media mounted for a normal live image move", async () => {
+    const mediaContent =
+      '<div class="fmd-slide"><video src="clip.mp4"></video><img src="image.png" data-slide-object-id="image-1" style="position:absolute;left:40px;top:24px;width:320px;height:180px;"></div>';
+    const slide = {
+      id: "slide-live-image-move",
+      content: mediaContent,
+      layout: "blank",
+    } as Slide;
+    const { rerender } = render(<SlideInner slide={slide} stampSource />);
+    const root = document.querySelector<HTMLElement>(".slide-content")!;
+    const image = root.querySelector("img")!;
+    const video = root.querySelector("video")!;
+    image.style.left = "90px";
+    const movedContent = mediaContent.replace("left:40px", "left:90px");
+
+    rerender(
+      <SlideInner slide={{ ...slide, content: movedContent }} stampSource />,
+    );
+    await waitFor(() =>
+      expect(getRenderedSlideSource(root)?.stored).toBe(movedContent),
+    );
+
+    expect(root.querySelector("img")).toBe(image);
+    expect(root.querySelector("video")).toBe(video);
+  });
+
   it("never re-renders a root whose text is being edited", () => {
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
     const slide = { id: "slide-c", content, layout: "blank" } as Slide;
@@ -415,6 +473,121 @@ describe("SlideInner source stamps", () => {
     expect(commit).not.toHaveBeenCalled();
     expect(root.querySelector("p")).toBe(edited);
     expect(edited.textContent).toBe("Caption typed");
+  });
+
+  describe("another writer's saved edit under an open text edit", () => {
+    const objects = (a: string, b: string, bLeft = 100) =>
+      `<div class="fmd-slide"><div data-slide-object-id="a" style="left:100px">${a}</div><div data-slide-object-id="b" style="left:${bLeft}px">${b}</div></div>`;
+
+    function openEdit(slideId: string, base: string) {
+      const slide = { id: slideId, content: base, layout: "blank" } as Slide;
+      const view = render(<SlideInner slide={slide} stampSource />);
+      const root = document.querySelector<HTMLElement>(".slide-content")!;
+      const edited = root.querySelector<HTMLElement>(
+        '[data-slide-object-id="a"]',
+      )!;
+      edited.setAttribute("contenteditable", "true");
+      edited.textContent = "Alpha typed";
+      return { slide, view, root, edited };
+    }
+
+    it("shows a change to another object around the edit, which keeps its node and text", () => {
+      const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+      const base = objects("Alpha", "Beta");
+      const remote = objects("Alpha", "Beta by remote", 300);
+      const { slide, view, root, edited } = openEdit("slide-live-a", base);
+      const commit = vi.fn();
+      document.addEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+
+      expect(applyRemoteSlideContentUnderEdit(root, base, remote)).toBe(
+        "applied",
+      );
+
+      const other = root.querySelector<HTMLElement>(
+        '[data-slide-object-id="b"]',
+      )!;
+      expect(other.textContent).toBe("Beta by remote");
+      expect(other.style.left).toBe("300px");
+      expect(root.querySelector('[data-slide-object-id="a"]')).toBe(edited);
+      expect(edited.getAttribute("contenteditable")).toBe("true");
+      expect(edited.textContent).toBe("Alpha typed");
+      const source = getRenderedSlideSource(root)!;
+      expect(source.stored).toBe(remote);
+      expect(
+        mergeRenderedEdits({ ...source, live: root.cloneNode(true) as Element })
+          .html,
+      ).toBe(objects("Alpha typed", "Beta by remote", 300));
+
+      // The same content then arrives as the prop: it is already on screen.
+      view.rerender(
+        <SlideInner slide={{ ...slide, content: remote }} stampSource />,
+      );
+      document.removeEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+      expect(commit).not.toHaveBeenCalled();
+      expect(errors).not.toHaveBeenCalled();
+      expect(root.querySelector('[data-slide-object-id="a"]')).toBe(edited);
+      expect(edited.textContent).toBe("Alpha typed");
+      errors.mockRestore();
+    });
+
+    it("renders the remote copy the way the canvas was rendered, so a video slide is not replaced", () => {
+      const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+      const withVideo = (b: string) =>
+        objects("Alpha", b).replace(
+          '<div class="fmd-slide">',
+          '<div class="fmd-slide"><video src="https://example.test/v.mp4" autoplay muted></video>',
+        );
+      const base = withVideo("Beta");
+      const remote = withVideo("Beta by remote");
+      const slide = {
+        id: "slide-live-video",
+        content: base,
+        layout: "blank",
+      } as Slide;
+      const view = render(
+        <SlideInner slide={slide} stampSource disableVideoAutoplay />,
+      );
+      const root = document.querySelector<HTMLElement>(".slide-content")!;
+      const edited = root.querySelector<HTMLElement>(
+        '[data-slide-object-id="a"]',
+      )!;
+      edited.setAttribute("contenteditable", "true");
+      const commit = vi.fn();
+      document.addEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+
+      expect(applyRemoteSlideContentUnderEdit(root, base, remote)).toBe(
+        "applied",
+      );
+      view.rerender(
+        <SlideInner
+          slide={{ ...slide, content: remote }}
+          stampSource
+          disableVideoAutoplay
+        />,
+      );
+
+      document.removeEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+      expect(commit).not.toHaveBeenCalled();
+      expect(errors).not.toHaveBeenCalled();
+      expect(root.querySelector('[data-slide-object-id="a"]')).toBe(edited);
+      errors.mockRestore();
+    });
+
+    it("leaves the canvas alone when the other writer changed the edited object too", () => {
+      const base = objects("Alpha", "Beta");
+      const remote = objects("Alpha by remote", "Beta by remote");
+      const { root, edited } = openEdit("slide-live-b", base);
+
+      expect(applyRemoteSlideContentUnderEdit(root, base, remote)).toBe(
+        "overlap",
+      );
+
+      expect(
+        root.querySelector('[data-slide-object-id="b"]')!.textContent,
+      ).toBe("Beta");
+      expect(edited.textContent).toBe("Alpha typed");
+      expect(getRenderedSlideSource(root)!.stored).toBe(base);
+    });
   });
 
   it("asks the editor to commit before another slide replaces an edit", () => {

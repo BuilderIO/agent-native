@@ -18,7 +18,7 @@ import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
 import { AgentConversation } from "@agent-native/toolkit/app/chat/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
 import { SharedRichEditor } from "@agent-native/toolkit/editor";
-import { ResourcesPanel } from "@agent-native/core/client/resources";
+import { ResourcesPanel } from "@agent-native/toolkit/app/resources";
 ```
 
 避免從裸 `@agent-native/core` 包匯入 UI 元件。使用
@@ -612,7 +612,7 @@ const collab = useCollaborativeDoc({
 完整的面板不需要道具：
 
 ```tsx
-import { ResourcesPanel } from "@agent-native/core/client/resources";
+import { ResourcesPanel } from "@agent-native/toolkit/app/resources";
 
 <ResourcesPanel />;
 ```
@@ -624,6 +624,8 @@ import { useState } from "react";
 import {
   ResourceEditor,
   ResourceTree,
+} from "@agent-native/toolkit/app/resources";
+import {
   useResource,
   useResourceTree,
   useUpdateResource,
@@ -662,16 +664,16 @@ function WorkspaceResources() {
 
 ## 其他公開 UI {#other-ui}
 
-| 區域         | APIs                                           | 匯入路徑                                  |
-| ------------ | ---------------------------------------------- | ----------------------------------------- |
-| 分享         | `<ShareButton>`, `<ShareDialog>`               | `@agent-native/core/client/sharing`       |
-| Sharing UI   | `<VisibilityBadge>`                            | `@agent-native/toolkit/sharing`           |
-| 通知         | `<NotificationsBell>`                          | `@agent-native/core/client/notifications` |
-| 進度         | `<RunsTray>`，進度掛鉤和型別                   | `@agent-native/core/client/progress`      |
-| 入職         | `useOnboarding()`，入門面板掛鉤                | `@agent-native/core/client/onboarding`    |
-| 可觀察性     | `<ObservabilityDashboard>`, `<ThumbsFeedback>` | `@agent-native/toolkit/app/observability` |
-| 資源         | `<ResourcesPanel>`、`<ResourceTree>`、資源掛鉤 | `@agent-native/core/client/resources`     |
-| 豐富的編輯器 | `<SharedRichEditor>`，斜杠指令，塊節點掛鉤     | `@agent-native/toolkit/editor`            |
+| 區域         | APIs                                           | 匯入路徑                                                                    |
+| ------------ | ---------------------------------------------- | --------------------------------------------------------------------------- |
+| 分享         | `<ShareButton>`, `<ShareDialog>`               | `@agent-native/toolkit/app/sharing`                                         |
+| Sharing UI   | `<VisibilityBadge>`                            | `@agent-native/toolkit/sharing`                                             |
+| 通知         | `<NotificationsBell>`                          | `@agent-native/toolkit/app/notifications`                                   |
+| 執行註冊表   | `<RunsTray>`，執行類型和伺服器端註冊表函式     | `@agent-native/toolkit/app/progress + @agent-native/core/progress`          |
+| 入職         | `useOnboarding()`，入門面板掛鉤                | `@agent-native/core/client/onboarding`                                      |
+| 可觀察性     | `<ObservabilityDashboard>`, `<ThumbsFeedback>` | `@agent-native/toolkit/app/observability`                                   |
+| 資源         | `<ResourcesPanel>`、`<ResourceTree>`、資源掛鉤 | `@agent-native/toolkit/app/resources + @agent-native/core/client/resources` |
+| 豐富的編輯器 | `<SharedRichEditor>`，斜杠指令，塊節點掛鉤     | `@agent-native/toolkit/editor`                                              |
 
 ## 一次性文字完成 {#one-off-text-completion}
 

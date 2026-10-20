@@ -1,13 +1,84 @@
 import { sourceContentHash } from "@shared/source-workspace";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { MissingVisualImagePayloadError } from "@/lib/chat-image-attachments";
 
 import {
+  failPendingGenerationForMissingImagePayload,
   generationOutputFiles,
   hasPendingGenerationOutput,
   isPendingGenerationStale,
   PENDING_GENERATION_STALE_MS,
+  readPendingGeneration,
   shouldSkipPendingGenerationResume,
+  writePendingGeneration,
 } from "./pending-generation";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe("missing image payload cleanup", () => {
+  it("clears persisted and in-memory pending state while surfacing the issue", () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal("window", {
+      sessionStorage: {
+        getItem: (key: string) => values.get(key) ?? null,
+        setItem: (key: string, value: string) => values.set(key, value),
+        removeItem: (key: string) => values.delete(key),
+      },
+    });
+    writePendingGeneration("design-1", { prompt: "Create from screenshot" });
+    const setGenerationIssue = vi.fn();
+    const setHasPendingGeneration = vi.fn();
+
+    expect(
+      failPendingGenerationForMissingImagePayload(
+        "design-1",
+        new MissingVisualImagePayloadError(),
+        "Attach the image again.",
+        setGenerationIssue,
+        setHasPendingGeneration,
+      ),
+    ).toBe(true);
+
+    expect(
+      readPendingGeneration("design-1", { allowUntimestamped: true }),
+    ).toBeNull();
+    expect(setGenerationIssue).toHaveBeenCalledWith("Attach the image again.");
+    expect(setHasPendingGeneration).toHaveBeenCalledWith(false);
+  });
+
+  it("leaves pending state intact for unexpected errors", () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal("window", {
+      sessionStorage: {
+        getItem: (key: string) => values.get(key) ?? null,
+        setItem: (key: string, value: string) => values.set(key, value),
+        removeItem: (key: string) => values.delete(key),
+      },
+    });
+    writePendingGeneration("design-1", { prompt: "Create from screenshot" });
+    const setGenerationIssue = vi.fn();
+    const setHasPendingGeneration = vi.fn();
+
+    expect(
+      failPendingGenerationForMissingImagePayload(
+        "design-1",
+        new Error("Unexpected failure"),
+        "Attach the image again.",
+        setGenerationIssue,
+        setHasPendingGeneration,
+      ),
+    ).toBe(false);
+
+    expect(
+      readPendingGeneration("design-1", { allowUntimestamped: true }),
+    ).toMatchObject({ prompt: "Create from screenshot" });
+    expect(setGenerationIssue).not.toHaveBeenCalled();
+    expect(setHasPendingGeneration).not.toHaveBeenCalled();
+  });
+});
 
 describe("pending generation freshness", () => {
   it("keeps multi-minute design generations active", () => {

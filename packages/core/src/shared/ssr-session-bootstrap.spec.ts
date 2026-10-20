@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   getSsrSessionBootstrapScriptBody,
+  hasSessionHint,
   isSessionNavigationPending,
   navigateForSession,
   SESSION_NAVIGATION_RELEASED_EVENT,
@@ -107,5 +108,44 @@ describe("getSsrSessionBootstrapScriptBody", () => {
 
     expect(scheduled).toBe(false);
     expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("hasSessionHint", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function bootstrapFetches(cookie: string, name?: string) {
+    const fetch = vi.fn(() => new Promise(() => {}));
+    new Function(
+      "window",
+      "document",
+      "AbortController",
+      "setTimeout",
+      "clearTimeout",
+      "fetch",
+      getSsrSessionBootstrapScriptBody("/session", name),
+    )({}, { cookie }, undefined, () => 1, vi.fn(), fetch);
+    return fetch.mock.calls.length > 0;
+  }
+
+  it.each([
+    ["an_session_hint=1", undefined, true],
+    ["theme=dark; an_session_content_hint=1", undefined, true],
+    ["an_session_hint=0", undefined, false],
+    ["an_session=token", undefined, false],
+    ["other_hint=1", undefined, false],
+    ["", undefined, false],
+    ["an_hint=1", "an_hint", true],
+    ["an_session_hint=1", "an_hint", false],
+  ])("reads %j the way the early session read does", (cookie, name, hinted) => {
+    vi.stubGlobal("document", { cookie });
+    expect(hasSessionHint(name)).toBe(hinted);
+    expect(bootstrapFetches(cookie, name)).toBe(hinted);
+  });
+
+  it("is false where there is no document", () => {
+    expect(hasSessionHint()).toBe(false);
   });
 });

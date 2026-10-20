@@ -5,10 +5,18 @@ import { getEvent } from "./registry.js";
 import type { EventMeta } from "./types.js";
 
 type Handler = (payload: unknown, meta: EventMeta) => void | Promise<void>;
+type AnyEventHandler = (
+  event: string,
+  payload: unknown,
+  meta: EventMeta,
+) => void | Promise<void>;
 
 interface BusState {
   emitter: EventEmitter;
   subscriptions: Map<string, { event: string; handler: Handler }>;
+  // Optional: a bus created by an older copy of this module in the same
+  // process has no field, so readers must create it on demand.
+  anyEventSubscriptions?: Map<string, AnyEventHandler>;
 }
 
 const BUS_KEY = Symbol.for("@agent-native/core/event-bus.bus");
@@ -26,6 +34,12 @@ function getBus(): BusState {
   return g[BUS_KEY]!;
 }
 
+function getAnyEventSubscriptions(): Map<string, AnyEventHandler> {
+  const bus = getBus();
+  bus.anyEventSubscriptions ??= new Map();
+  return bus.anyEventSubscriptions;
+}
+
 export function subscribe(event: string, handler: Handler): string {
   if (typeof event !== "string" || !event) {
     throw new Error("subscribe: event name is required");
@@ -40,7 +54,21 @@ export function subscribe(event: string, handler: Handler): string {
   return id;
 }
 
+/**
+ * Subscribe to every emitted event. For a subscriber whose interest is stored
+ * data it should not read until an event actually arrives.
+ */
+export function subscribeAll(handler: AnyEventHandler): string {
+  if (typeof handler !== "function") {
+    throw new Error("subscribeAll: handler must be a function");
+  }
+  const id = randomUUID();
+  getAnyEventSubscriptions().set(id, handler);
+  return id;
+}
+
 export function unsubscribe(id: string): boolean {
+  if (getAnyEventSubscriptions().delete(id)) return true;
   const bus = getBus();
   const sub = bus.subscriptions.get(id);
   if (!sub) return false;
@@ -150,7 +178,14 @@ function prepareDispatch(
     owner: meta?.owner,
   };
 
-  const listeners = bus.emitter.listeners(event) as Handler[];
+  const listeners = [
+    ...(bus.emitter.listeners(event) as Handler[]),
+    ...[...getAnyEventSubscriptions().values()].map(
+      (handler): Handler =>
+        (eventPayload, eventMeta) =>
+          handler(event, eventPayload, eventMeta),
+    ),
+  ];
   return { payload: validated, meta: fullMeta, listeners };
 }
 
@@ -170,4 +205,5 @@ export function __resetEventBus(): void {
   const bus = getBus();
   bus.emitter.removeAllListeners();
   bus.subscriptions.clear();
+  getAnyEventSubscriptions().clear();
 }

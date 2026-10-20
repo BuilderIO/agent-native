@@ -70,10 +70,10 @@ describe("MultiScreenCanvas camera command delivery", () => {
       root.render(
         <MultiScreenCanvas
           screens={options.screens ?? []}
-          selectedScreenIds={options.selectedScreenIds}
+          selection={{ selectedScreenIds: options.selectedScreenIds }}
           zoom={options.zoom ?? 100}
           onPick={() => {}}
-          cameraCommand={cameraCommand}
+          camera={{ cameraCommand }}
         />,
       );
     });
@@ -116,6 +116,40 @@ describe("MultiScreenCanvas camera command delivery", () => {
     );
     expect(world?.style.transform).toBe(
       `translate(${expected.x}px, ${expected.y}px) scale(${expected.zoom / 100})`,
+    );
+  });
+
+  it("centers the requested bounds at an explicit canvas zoom", async () => {
+    const fitBounds = {
+      left: 100,
+      top: 200,
+      right: 300,
+      bottom: 400,
+      width: 200,
+      height: 200,
+      centerX: 200,
+      centerY: 300,
+    };
+    const canvasZoom = 180;
+    await renderCanvas({ fitBounds, canvasZoom, nonce: 1 });
+    measurable = true;
+    await waitForAnimationFrame();
+
+    const expected = getCameraForBounds(
+      fitBounds,
+      { width: 800, height: 600 },
+      {
+        paddingScreenPx: 64,
+        canvasPadding: SURFACE_PADDING,
+        minZoom: canvasZoom,
+        maxZoom: canvasZoom,
+      },
+    );
+    const world = container.querySelector<HTMLElement>(
+      "[data-multi-screen-canvas-world]",
+    );
+    expect(world?.style.transform).toBe(
+      `translate(${expected.x}px, ${expected.y}px) scale(${canvasZoom / 100})`,
     );
   });
 

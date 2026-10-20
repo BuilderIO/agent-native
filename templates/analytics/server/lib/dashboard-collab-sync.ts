@@ -1,15 +1,25 @@
-import {
-  applyText,
-  hasCollabState,
-  seedFromText,
-} from "@agent-native/core/collab";
+import { applyText, getText } from "@agent-native/core/collab";
 
 export const DASHBOARD_COLLAB_SYNC_TIMEOUT_MS = 2_000;
+
+type DashboardSnapshot = {
+  config: Record<string, unknown>;
+  updatedAt: string;
+};
+
+type LoadDashboard = () => Promise<DashboardSnapshot | null>;
 
 class DashboardCollabSyncTimeoutError extends Error {
   constructor(timeoutMs: number) {
     super(`timed out after ${timeoutMs}ms`);
     this.name = "DashboardCollabSyncTimeoutError";
+  }
+}
+
+class DashboardCollabSnapshotMismatchError extends Error {
+  constructor() {
+    super("The collaboration document did not match the dashboard snapshot.");
+    this.name = "DashboardCollabSnapshotMismatchError";
   }
 }
 
@@ -35,39 +45,152 @@ async function withTimeout<T>(
 
 async function syncDashboardToCollab(
   dashboardId: string,
-  config: Record<string, unknown>,
+  queuedUpdatedAt: string,
+  loadDashboard: LoadDashboard,
   requestSource?: string,
+  retryLateFailure = true,
 ): Promise<void> {
   const docId = `dash-${dashboardId}`;
   const startedAt = Date.now();
-  try {
-    const configStr = JSON.stringify(config);
-    await withTimeout(
-      (async () => {
-        const exists = await hasCollabState(docId);
-        if (exists) {
-          await applyText(docId, configStr, "content", requestSource);
-        } else {
-          await seedFromText(docId, configStr);
+  const sync = (async () => {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const dashboard = await loadDashboard();
+      if (!dashboard) {
+        throw new Error(
+          `Dashboard "${dashboardId}" is unavailable for collab sync.`,
+        );
+      }
+      if (dashboard.updatedAt < queuedUpdatedAt) {
+        throw new Error(
+          `Dashboard "${dashboardId}" read version ${dashboard.updatedAt} is older than queued version ${queuedUpdatedAt}.`,
+        );
+      }
+      const configStr = JSON.stringify(dashboard.config);
+      try {
+        const previousText = await getText(docId, "content");
+        await applyText(docId, configStr, "content", requestSource, {
+          validateSnapshot(snapshot) {
+            if (snapshot !== configStr) {
+              throw new DashboardCollabSnapshotMismatchError();
+            }
+          },
+        });
+        if (
+          previousText === configStr &&
+          (await getText(docId, "content")) !== configStr
+        ) {
+          continue;
         }
-      })(),
-      DASHBOARD_COLLAB_SYNC_TIMEOUT_MS,
+      } catch (error) {
+        if (error instanceof DashboardCollabSnapshotMismatchError) continue;
+        throw error;
+      }
+
+      const latest = await loadDashboard();
+      if (!latest) {
+        throw new Error(
+          `Dashboard "${dashboardId}" became unavailable during collab sync.`,
+        );
+      }
+      if (JSON.stringify(latest.config) === configStr) return;
+    }
+
+    throw new Error(
+      `Dashboard "${dashboardId}" kept changing during collab sync.`,
     );
+  })();
+
+  try {
+    await withTimeout(sync, DASHBOARD_COLLAB_SYNC_TIMEOUT_MS);
   } catch (error) {
     const elapsedMs = Date.now() - startedAt;
     const message = error instanceof Error ? error.message : String(error);
-    const outcome =
-      error instanceof DashboardCollabSyncTimeoutError ? "timed out" : "failed";
+    const timedOut = error instanceof DashboardCollabSyncTimeoutError;
     console.warn(
-      `[analytics] Dashboard collab sync ${outcome} for ${dashboardId} after ${elapsedMs}ms: ${message}`,
+      `[analytics] Dashboard collab sync ${timedOut ? "timed out" : "failed"} for ${dashboardId} after ${elapsedMs}ms: ${message}`,
     );
+    if (timedOut) {
+      void sync.catch((lateError) => {
+        const lateMessage =
+          lateError instanceof Error ? lateError.message : String(lateError);
+        console.warn(
+          `[analytics] Dashboard collab sync failed for ${dashboardId} after timeout: ${lateMessage}`,
+        );
+        if (retryLateFailure) {
+          void queueDashboardCollabSyncInternal(
+            dashboardId,
+            queuedUpdatedAt,
+            loadDashboard,
+            requestSource,
+            false,
+          ).catch((repairError) => {
+            const repairMessage =
+              repairError instanceof Error
+                ? repairError.message
+                : String(repairError);
+            console.warn(
+              `[analytics] Dashboard collab sync recovery failed for ${dashboardId}: ${repairMessage}`,
+            );
+          });
+        }
+      });
+    }
   }
+}
+
+const syncsByDocumentId = new Map<string, Promise<void>>();
+
+function queueDashboardCollabSyncInternal(
+  dashboardId: string,
+  updatedAt: string,
+  loadDashboard: LoadDashboard,
+  requestSource?: string,
+  retryLateFailure = true,
+): Promise<void> {
+  const docId = `dash-${dashboardId}`;
+  const previous = syncsByDocumentId.get(docId) ?? Promise.resolve();
+  const next = previous.then(
+    () =>
+      syncDashboardToCollab(
+        dashboardId,
+        updatedAt,
+        loadDashboard,
+        requestSource,
+        retryLateFailure,
+      ),
+    () =>
+      syncDashboardToCollab(
+        dashboardId,
+        updatedAt,
+        loadDashboard,
+        requestSource,
+        retryLateFailure,
+      ),
+  );
+  syncsByDocumentId.set(docId, next);
+  void next.then(
+    () => {
+      if (syncsByDocumentId.get(docId) === next)
+        syncsByDocumentId.delete(docId);
+    },
+    () => {
+      if (syncsByDocumentId.get(docId) === next)
+        syncsByDocumentId.delete(docId);
+    },
+  );
+  return next;
 }
 
 export function queueDashboardCollabSync(
   dashboardId: string,
-  config: Record<string, unknown>,
+  updatedAt: string,
+  loadDashboard: LoadDashboard,
   requestSource?: string,
-): void {
-  void syncDashboardToCollab(dashboardId, config, requestSource);
+): Promise<void> {
+  return queueDashboardCollabSyncInternal(
+    dashboardId,
+    updatedAt,
+    loadDashboard,
+    requestSource,
+  );
 }

@@ -9,6 +9,8 @@ export {
   getEmbedAuthToken,
   isEmbedAuthActive,
   isEmbedMcpChatBridgeActive,
+  isMcpDirectoryWidgetReadOnlyEmbed,
+  isMcpDirectoryWidgetWriteEmbed,
 } from "../embed-auth.js";
 export {
   sendToFrame,
@@ -48,6 +50,7 @@ export {
 export {
   buildSessionReplayIframeBootstrap,
   injectSessionReplayIframeBootstrap,
+  RRWEB_RECORD_IFRAME_CDN_URL,
 } from "../../extensions/session-replay-iframe.js";
 export {
   SESSION_REPLAY_IFRAME_ATTRIBUTE,
@@ -131,6 +134,7 @@ export {
   createAgentNativeBrowserSessionBridge,
   startAgentNativeBrowserSessionBridge,
   type AgentNativeBrowserSessionBridge,
+  type AgentNativeBrowserSessionBridgeErrorSource,
   type AgentNativeBrowserSessionBridgeOptions,
 } from "../browser-session-bridge.js";
 export type {

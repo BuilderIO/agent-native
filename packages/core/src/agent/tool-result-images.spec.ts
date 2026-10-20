@@ -42,9 +42,9 @@ describe("normalizeToolResultImages", () => {
 
   it("parses a full data URL into data + mediaType", () => {
     const { images } = normalizeToolResultImages([
-      { data: `data:image/webp;base64,${PNG_B64}` },
+      { data: `data:IMAGE/JPG;charset=binary;base64,${PNG_B64}` },
     ]);
-    expect(images).toEqual([{ data: PNG_B64, mediaType: "image/webp" }]);
+    expect(images).toEqual([{ data: PNG_B64, mediaType: "image/jpeg" }]);
   });
 
   it("rejects unsupported media types with a note", () => {

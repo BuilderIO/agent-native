@@ -6,6 +6,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   callAction: (...args: unknown[]) => mockCallAction(...args),
 }));
 
+import { SOURCE_IMPORT_NO_WRITE_ERROR_CODE } from "../../shared/source-import-errors";
 import {
   IMPORT_ACTION_TIMEOUT_MS,
   importUploadedDeckIntoDeck,
@@ -38,14 +39,21 @@ describe("importUploadedDeckIntoDeck", () => {
       deckId: "deck-1",
       slideCount: 8,
     });
+    const onImportStarted = vi.fn();
+    const onImportCleanupSafe = vi.fn();
 
     await expect(
-      importUploadedDeckIntoDeck([pptxFile], "deck-1"),
+      importUploadedDeckIntoDeck([pptxFile], "deck-1", {
+        onImportStarted,
+        onImportCleanupSafe,
+      }),
     ).resolves.toMatchObject({
       format: "pptx",
       slideCount: 8,
       file: pptxFile,
     });
+    expect(onImportStarted).toHaveBeenCalledOnce();
+    expect(onImportCleanupSafe).toHaveBeenCalledOnce();
     expect(mockCallAction).toHaveBeenCalledWith(
       "import-pptx",
       {
@@ -78,9 +86,14 @@ describe("importUploadedDeckIntoDeck", () => {
   });
 
   it("refuses ambiguous multi-deck uploads", async () => {
+    const onImportStarted = vi.fn();
+
     await expect(
-      importUploadedDeckIntoDeck([pptxFile, pdfFile], "deck-1"),
+      importUploadedDeckIntoDeck([pptxFile, pdfFile], "deck-1", {
+        onImportStarted,
+      }),
     ).rejects.toThrow("Upload one presentation at a time");
+    expect(onImportStarted).not.toHaveBeenCalled();
     expect(mockCallAction).not.toHaveBeenCalled();
   });
 
@@ -92,8 +105,64 @@ describe("importUploadedDeckIntoDeck", () => {
       imagesSkipped: 2,
     });
 
+    const onImportCleanupSafe = vi.fn();
+
     await expect(
-      importUploadedDeckIntoDeck([pptxFile], "deck-1"),
+      importUploadedDeckIntoDeck([pdfFile], "deck-1", { onImportCleanupSafe }),
     ).rejects.toThrow("could not preserve 2 image(s)");
+    expect(onImportCleanupSafe).not.toHaveBeenCalled();
+  });
+
+  it("allows cleanup after a resolved empty import", async () => {
+    mockCallAction.mockResolvedValue({
+      imported: true,
+      deckId: "deck-1",
+      slideCount: 0,
+    });
+    const onImportStarted = vi.fn();
+    const onImportCleanupSafe = vi.fn();
+
+    await expect(
+      importUploadedDeckIntoDeck([pptxFile], "deck-1", {
+        onImportStarted,
+        onImportCleanupSafe,
+      }),
+    ).rejects.toThrow("contained no importable slides");
+
+    expect(onImportStarted).toHaveBeenCalledOnce();
+    expect(onImportCleanupSafe).toHaveBeenCalledOnce();
+  });
+
+  it("leaves an import result unknown when the action fails", async () => {
+    mockCallAction.mockRejectedValue(new Error("import failed"));
+    const onImportStarted = vi.fn();
+    const onImportCleanupSafe = vi.fn();
+
+    await expect(
+      importUploadedDeckIntoDeck([pptxFile], "deck-1", {
+        onImportStarted,
+        onImportCleanupSafe,
+      }),
+    ).rejects.toThrow("import failed");
+
+    expect(onImportStarted).toHaveBeenCalledOnce();
+    expect(onImportCleanupSafe).not.toHaveBeenCalled();
+  });
+
+  it("marks an explicit no-write action failure as a known empty import", async () => {
+    mockCallAction.mockRejectedValue(
+      Object.assign(new Error("No slides were written."), {
+        errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE,
+      }),
+    );
+    const onImportCleanupSafe = vi.fn();
+
+    await expect(
+      importUploadedDeckIntoDeck([pptxFile], "deck-1", {
+        onImportCleanupSafe,
+      }),
+    ).rejects.toThrow("No slides were written.");
+
+    expect(onImportCleanupSafe).toHaveBeenCalledOnce();
   });
 });

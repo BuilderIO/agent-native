@@ -9,14 +9,24 @@ import {
   getWorkspaceAppIdValidationError,
 } from "../shared/workspace-app-id.js";
 import type { CreateStartKind } from "./create-tui.js";
-import { setupAgentSymlinks } from "./setup-agents.js";
+import {
+  createAgentSymlink,
+  prepareAgentSymlink,
+  rebaseAgentSymlinkTarget,
+  setupAgentSymlinks,
+} from "./setup-agents.js";
+import { resolveTarExecutable } from "./tar-command.js";
+import { applyTemplateLayer, readTemplateLayer } from "./template-layer.js";
 import {
   coreTemplates,
   getTemplate,
   allTemplateNames,
   type TemplateMeta,
 } from "./templates-meta.js";
-import { addConfiguredMigrationDependencies } from "./upgrade.js";
+import {
+  addConfiguredMigrationDependencies,
+  readUpgradeEnvironment,
+} from "./upgrade.js";
 import {
   mergeWorkspaceYamlListItems,
   mergeWorkspaceYamlSections,
@@ -111,9 +121,7 @@ const FIRST_PARTY_TARBALL_SYMLINK_EXCLUDES = [
 // the files that import them. A scaffold cannot install these (a standalone app
 // resolves them from npm, a new workspace has no such package), so it drops the
 // dependency and those files. Publishing a package removes its entry here.
-const WORKSPACE_ONLY_TEMPLATE_WIRING: Record<string, readonly string[]> = {
-  "@agent-native/otel": ["server/plugins/otel.ts"],
-};
+const WORKSPACE_ONLY_TEMPLATE_WIRING: Record<string, readonly string[]> = {};
 const TAR_LISTING_MAX_BUFFER = 100 * 1024 * 1024;
 const localPackageTarballs = new Map<string, string>();
 const IN_PLACE_ALLOWLIST = new Set([
@@ -720,12 +728,13 @@ async function createWorkspaceInteractive(
         dispatchDependencyVersion: getDispatchDependencyVersion(),
         toolkitDependencyVersion: getToolkitDependencyVersion(),
         agentKitDependencyVersion: getAgentKitDependencyVersion(),
+        otelDependencyVersion: getOtelDependencyVersion(),
       });
       fixPackageJsonName(appDir, appName, templateName, {
         ...resolution,
         shape: "workspace",
       });
-      addConfiguredFeatureDependencies(appDir, targetDir);
+      _addConfiguredFeatureDependencies(appDir, targetDir);
       ensureGuardedScaffold(appDir);
       fixWebManifestName(
         appDir,
@@ -870,24 +879,11 @@ function linkWorkspaceRootSkills(targetDir: string): void {
 
   fs.mkdirSync(agentsDir, { recursive: true });
 
-  try {
-    const stat = fs.lstatSync(linkPath);
-    if (stat.isSymbolicLink()) {
-      if (fs.readlinkSync(linkPath) === target) return;
-      fs.unlinkSync(linkPath);
-    } else {
-      return;
-    }
-  } catch {
-    // Missing link; create below.
-  }
+  const state = prepareAgentSymlink(linkPath, target, "dir");
+  if (state !== "create") return;
 
   try {
-    fs.symlinkSync(
-      target,
-      linkPath,
-      process.platform === "win32" ? "junction" : "dir",
-    );
+    createAgentSymlink(target, linkPath, "dir");
   } catch {
     try {
       copyDir(sharedSkillsDir, linkPath);
@@ -1075,12 +1071,13 @@ async function scaffoldOneAppIntoWorkspace(
       dispatchDependencyVersion: getDispatchDependencyVersion(),
       toolkitDependencyVersion: getToolkitDependencyVersion(),
       agentKitDependencyVersion: getAgentKitDependencyVersion(),
+      otelDependencyVersion: getOtelDependencyVersion(),
     });
     fixPackageJsonName(appDir, appName, templateName, {
       ...resolution,
       shape: "workspace",
     });
-    addConfiguredFeatureDependencies(appDir, workspace.workspaceRoot);
+    _addConfiguredFeatureDependencies(appDir, workspace.workspaceRoot);
     ensureScaffoldEmailBrandingConfig(appDir, appName, templateName);
     ensureGuardedScaffold(appDir);
     fixWebManifestName(
@@ -1446,7 +1443,7 @@ async function scaffoldAppTemplate(
   const sourceTemplate = templateSourceName(resolved);
   const localTemplate = findLocalTemplate(sourceTemplate);
   if (localTemplate) {
-    copyDir(localTemplate, targetDir);
+    copyTemplateTree(localTemplate, targetDir);
     removeWorkspaceOnlyTemplateWiring(targetDir);
     return {
       templateSource: localTemplateSourceKind(localTemplate),
@@ -1478,6 +1475,30 @@ function removeWorkspaceOnlyTemplateWiring(appDir: string): void {
     changed = true;
   }
   if (changed) fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+}
+
+/** Copies a bundled template's source tree, resolving template layers. */
+function copyTemplateTree(templateDir: string, dest: string): void {
+  const layer = readTemplateLayer(templateDir);
+  if (!layer) {
+    copyDir(templateDir, dest);
+    return;
+  }
+  const base = findLocalTemplate(layer.base);
+  if (!base) {
+    throw new Error(
+      `No local copy of "${layer.base}", the base of ${templateDir}.`,
+    );
+  }
+  copyTemplateTree(base, dest);
+  applyTemplateLayer(templateDir, layer, dest);
+}
+
+// A bundled layer (template-layer.json) installs its base template's
+// dependencies, so it needs the same workspace overrides as that base.
+function firstPartyBaseTemplate(templateName: string): string {
+  const local = findLocalTemplate(templateName);
+  return (local && readTemplateLayer(local)?.base) || templateName;
 }
 
 function localTemplateSourceKind(
@@ -1771,7 +1792,7 @@ function localPackageTarball(packageDir: string): string {
   const unpackDir = fs.mkdtempSync(
     path.join(os.tmpdir(), "agent-native-local-package-unpack-"),
   );
-  execFileSync("tar", ["-xzf", rawTarball, "-C", unpackDir], {
+  execFileSync(resolveTarExecutable(), ["-xzf", rawTarball, "-C", unpackDir], {
     stdio: "pipe",
   });
   rewritePublishedPackageManifest(
@@ -2096,9 +2117,6 @@ function ensureGuardedScaffold(appDir: string): void {
     !existingNativeDoctor.includes(AGENT_NATIVE_DOCTOR)
       ? `${existingNativeDoctor} && ${AGENT_NATIVE_DOCTOR}`
       : AGENT_NATIVE_DOCTOR;
-  if (typeof scripts.doctor !== "string") {
-    scripts.doctor = AGENT_NATIVE_DOCTOR;
-  }
 
   if (
     typeof scripts.build === "string" &&
@@ -2211,6 +2229,8 @@ function postProcessStandalone(
             deps[key] = getToolkitDependencyVersion();
           } else if (key === "@agent-native/agentkit") {
             deps[key] = getAgentKitDependencyVersion();
+          } else if (key === "@agent-native/otel") {
+            deps[key] = getOtelDependencyVersion();
           } else if (typeof val === "string" && val.startsWith("workspace:")) {
             deps[key] = "latest";
           } else if (typeof val === "string" && val === "catalog:") {
@@ -2230,7 +2250,7 @@ function postProcessStandalone(
         pkg.optionalDependencies,
       ].some((deps) => Boolean(deps?.["node-pty"]));
       fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
-      addConfiguredFeatureDependencies(targetDir);
+      _addConfiguredFeatureDependencies(targetDir);
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       throw new Error(`Could not finalize ${pkgPath}: ${detail}`, {
@@ -2260,7 +2280,7 @@ function postProcessStandalone(
       nf3: '"0.3.17"',
     };
   }
-  if (templateName && getTemplate(templateName)) {
+  if (templateName && getTemplate(firstPartyBaseTemplate(templateName))) {
     sections.overrides = {
       ...sections.overrides,
       ...TIPTAP_WORKSPACE_OVERRIDES,
@@ -2293,17 +2313,21 @@ function postProcessStandalone(
   setupAgentSymlinks(targetDir);
 }
 
-function addConfiguredFeatureDependencies(
+export function _addConfiguredFeatureDependencies(
   appDir: string,
   workspaceRoot = appDir,
 ): void {
   const packageFile = path.join(appDir, "package.json");
   if (!fs.existsSync(packageFile)) return;
-  addConfiguredMigrationDependencies({
-    root: workspaceRoot,
-    kind: workspaceRoot === appDir ? "standalone" : "workspace",
-    packageFiles: [packageFile],
-  });
+  const projectEnvironment = readUpgradeEnvironment(workspaceRoot, appDir, {});
+  addConfiguredMigrationDependencies(
+    {
+      root: workspaceRoot,
+      kind: workspaceRoot === appDir ? "standalone" : "workspace",
+      packageFiles: [packageFile],
+    },
+    projectEnvironment,
+  );
 }
 
 function ensureReactRouterBuildDependencies(pkg: Record<string, any>): void {
@@ -2509,6 +2533,7 @@ export {
   rewriteNetlifyToml as _rewriteNetlifyToml,
   getCoreDependencyVersion as _getCoreDependencyVersion,
   getDispatchDependencyVersion as _getDispatchDependencyVersion,
+  getOtelDependencyVersion as _getOtelDependencyVersion,
   getToolkitDependencyVersion as _getToolkitDependencyVersion,
   getAgentKitDependencyVersion as _getAgentKitDependencyVersion,
   prepareLocalWorkspaceOverrides as _prepareLocalWorkspaceOverrides,
@@ -2547,6 +2572,7 @@ export {
   ensureScaffoldEmailBrandingConfig as _ensureScaffoldEmailBrandingConfig,
   fixWebManifestName as _fixWebManifestName,
   copyDir as _copyDir,
+  copyTemplateTree as _copyTemplateTree,
   localTemplateSourceKind as _localTemplateSourceKind,
   REPO as _REPO,
   TEMPLATES_DIR as _TEMPLATES_DIR,
@@ -2601,7 +2627,7 @@ interface ArchiveSymlink {
 }
 
 function archiveSymlinksForExtraction(tarPath: string): ArchiveSymlink[] {
-  const listing = execFileSync("tar", ["tvzf", tarPath], {
+  const listing = execFileSync(resolveTarExecutable(), ["tvzf", tarPath], {
     encoding: "utf-8",
     stdio: ["ignore", "pipe", "pipe"],
     maxBuffer: TAR_LISTING_MAX_BUFFER,
@@ -2734,7 +2760,7 @@ function extractTarball(
       ? archiveSymlinksForExtraction(tarPath)
       : [];
   execFileSync(
-    "tar",
+    resolveTarExecutable(),
     tarExtractArgs(tarPath, destDir, {
       ...options,
       additionalExcludes: symlinks.map((link) => link.archivePath),
@@ -2783,7 +2809,7 @@ async function downloadAndExtract(
 }
 
 function validateCommunityArchive(tarPath: string): void {
-  const listing = execFileSync("tar", ["tvzf", tarPath], {
+  const listing = execFileSync(resolveTarExecutable(), ["tvzf", tarPath], {
     encoding: "utf-8",
     stdio: ["ignore", "pipe", "pipe"],
     maxBuffer: TAR_LISTING_MAX_BUFFER,
@@ -3537,7 +3563,9 @@ function scaffoldGuidanceForTemplate(
   if (!templateName || templateName.startsWith("github:")) return undefined;
   const normalized = normalizeTemplateName(templateName);
   if (normalized === "headless") return "headless";
-  return getTemplate(normalized) ? "default" : undefined;
+  return getTemplate(firstPartyBaseTemplate(normalized))
+    ? "default"
+    : undefined;
 }
 
 function fixWebManifestName(
@@ -3610,6 +3638,17 @@ function getDispatchDependencyVersion(): string {
   if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE === "1") {
     const localDispatch = findLocalPackage("dispatch");
     if (localDispatch) return pathToFileURL(localDispatch).href;
+  }
+
+  return "latest";
+}
+
+// OTel is versioned independently of Core (it peer-depends on Core's public
+// observability provider API), so a scaffold takes its current npm release.
+function getOtelDependencyVersion(): string {
+  if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE === "1") {
+    const localOtel = findLocalPackage("otel");
+    if (localOtel) return localPackageTarball(localOtel);
   }
 
   return "latest";
@@ -4209,8 +4248,10 @@ function copyDir(
   dest: string,
   root?: string,
   opts?: { skipExisting?: boolean; materializeSymlinks?: boolean },
+  destinationRoot?: string,
 ): void {
   const resolvedRoot = root ?? path.resolve(src);
+  const resolvedDestinationRoot = destinationRoot ?? path.resolve(dest);
   const skipExisting = opts?.skipExisting ?? false;
   fs.mkdirSync(dest, { recursive: true });
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
@@ -4222,17 +4263,43 @@ function copyDir(
     }
     if (entry.isSymbolicLink()) {
       const target = fs.readlinkSync(srcPath);
-      const resolvedTarget = path.resolve(path.dirname(srcPath), target);
-      if (
-        !opts?.materializeSymlinks &&
-        isPathWithin(resolvedRoot, resolvedTarget)
-      ) {
-        fs.symlinkSync(target, destPath);
+      const copiedTarget = rebaseAgentSymlinkTarget(
+        resolvedRoot,
+        resolvedDestinationRoot,
+        srcPath,
+        destPath,
+        target,
+      );
+      if (!opts?.materializeSymlinks && copiedTarget !== undefined) {
+        let stat: fs.Stats;
+        try {
+          stat = fs.statSync(srcPath);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+          if (process.platform === "win32") {
+            throw new Error(
+              `Cannot copy dangling symlink at "${srcPath}" on Windows because its target type is unknown.`,
+            );
+          }
+          fs.symlinkSync(copiedTarget, destPath);
+          continue;
+        }
+        createAgentSymlink(
+          copiedTarget,
+          destPath,
+          stat.isDirectory() ? "dir" : "file",
+        );
       } else {
         try {
           const stat = fs.statSync(srcPath);
           if (stat.isDirectory()) {
-            copyDir(srcPath, destPath, resolvedRoot, opts);
+            copyDir(
+              srcPath,
+              destPath,
+              resolvedRoot,
+              opts,
+              resolvedDestinationRoot,
+            );
           } else {
             fs.copyFileSync(srcPath, destPath);
           }
@@ -4241,7 +4308,7 @@ function copyDir(
         }
       }
     } else if (entry.isDirectory()) {
-      copyDir(srcPath, destPath, resolvedRoot, opts);
+      copyDir(srcPath, destPath, resolvedRoot, opts, resolvedDestinationRoot);
     } else {
       fs.copyFileSync(srcPath, destPath);
     }

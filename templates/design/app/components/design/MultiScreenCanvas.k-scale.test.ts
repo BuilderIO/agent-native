@@ -16,7 +16,7 @@ function rectDraft(overrides: Partial<DraftPrimitive> = {}): DraftPrimitive {
 const DOUBLE: FrameGeometry = { x: 0, y: 0, width: 200, height: 200 };
 const HALF: FrameGeometry = { x: 0, y: 0, width: 50, height: 50 };
 
-describe("applyDraftGeometry — K-scale strokeWidth parity", () => {
+describe("applyDraftGeometry — K-scale strokeWidth behavior", () => {
   it("a normal resize (scaleK omitted) never touches strokeWidth", () => {
     const draft = rectDraft();
     const result = applyDraftGeometry(draft, DOUBLE);

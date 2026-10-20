@@ -144,6 +144,7 @@ function RecentSidebarRow({
 export function PersonalSidebarSections({
   renderPinned,
   pinnedCount,
+  pinnedError,
   renderFiles,
   spaceId,
   activeDocumentId,
@@ -157,6 +158,7 @@ export function PersonalSidebarSections({
   renderPinned: (limit: number) => ReactNode;
   /** Null until Pinned has loaded. */
   pinnedCount: number | null;
+  pinnedError: boolean;
   renderFiles: () => ReactNode;
   /** Null until the spaces arrive. */
   spaceId: string | null;
@@ -286,6 +288,10 @@ export function PersonalSidebarSections({
     recent: t("sidebar.recent"),
     files: t("sidebar.files"),
   };
+  const hideEmptyPinned = pinnedCount === 0 && !pinnedError;
+  const renderedSections = sections.order.filter(
+    (id) => id !== "pinned" || !hideEmptyPinned,
+  );
   function canShowMore(id: "pinned" | "recent") {
     const count = id === "pinned" ? (pinnedCount ?? 0) : (recentCount ?? 0);
     if (limits[id] >= 50) return false;
@@ -320,7 +326,7 @@ export function PersonalSidebarSections({
           save({ ...sections, order: ids as ContentSidebarSectionId[] })
         }
       >
-        {sections.order.map((id) =>
+        {renderedSections.map((id) =>
           id === "files" ? (
             <PersonalSection
               key={id}

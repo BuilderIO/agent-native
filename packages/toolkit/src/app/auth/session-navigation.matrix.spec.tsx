@@ -14,6 +14,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  *  (b) once a load is authenticated, nothing later sends it to sign-in;
  *  (c) at most one navigation per page load;
  *  (d) an unavailable endpoint never navigates; it shows a retry notice.
+ * "Shown" means on screen: with a hint cookie the app mounts hidden while the
+ * session reads (so its action reads start early), and a hidden app is not shown.
  */
 
 type Endpoint =
@@ -68,15 +70,21 @@ interface PageLoad {
     session: typeof import("@agent-native/core/client/use-session"),
   ) => void;
   afterLoadEndpoint?: Endpoint;
+  /** Runs right after the first render, while the session read is still open. */
+  duringLoad?: (
+    session: typeof import("@agent-native/core/client/use-session"),
+  ) => void;
+  duringLoadEndpoint?: Endpoint;
 }
 
 interface PageResult {
   navigations: string[];
-  appRendered: boolean;
-  /** Whether the app had rendered when the first navigation went out. */
-  appRenderedAtNavigation: boolean | undefined;
-  /** Whether the app had rendered 1.5 s in, inside the navigation stall window. */
-  appRenderedWithinStall: boolean;
+  /** Whether the app was on screen at any point during the load. */
+  appShownEver: boolean;
+  /** Whether the app was on screen when the first navigation went out. */
+  appShownAtNavigation: boolean | undefined;
+  /** Whether the app was on screen 1.5 s in, inside the navigation stall window. */
+  appShownWithinStall: boolean;
   appVisibleAtEnd: boolean;
   sessionRequests: number;
   text: string;
@@ -119,13 +127,23 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
+/** The app is rendered and no ancestor is hidden. */
+function appOnScreen(): boolean {
+  const app = document.querySelector<HTMLElement>('[data-testid="app"]');
+  if (!app) return false;
+  for (let node: HTMLElement | null = app; node; node = node.parentElement) {
+    if (getComputedStyle(node).display === "none") return false;
+  }
+  return true;
+}
+
 async function loadPage(page: PageLoad): Promise<PageResult> {
   vi.resetModules();
   // The mocked replace never unloads the document, like a cancelled navigation.
-  let appRendered = false;
-  let appRenderedAtNavigation: boolean | undefined;
+  let appShownEver = false;
+  let appShownAtNavigation: boolean | undefined;
   replaceMock.mockImplementation(() => {
-    appRenderedAtNavigation ??= appRendered;
+    appShownAtNavigation ??= appOnScreen();
   });
   const url = new URL(page.href ?? "https://app.example.com/inbox?tab=all");
   Object.defineProperty(window, "location", {
@@ -192,7 +210,6 @@ async function loadPage(page: PageLoad): Promise<PageResult> {
   const sessionModule = await import("@agent-native/core/client/use-session");
 
   function App() {
-    appRendered = true;
     return React.createElement("div", { "data-testid": "app" }, "app");
   }
   const container = document.createElement("div");
@@ -206,12 +223,21 @@ async function loadPage(page: PageLoad): Promise<PageResult> {
       React.createElement(RequireSession, null, React.createElement(App)),
     );
   });
-  let appRenderedWithinStall = false;
+  if (page.duringLoad) {
+    if (page.duringLoadEndpoint) {
+      respond = endpoint(page.duringLoadEndpoint, page.session ?? PERSON);
+    }
+    await act(async () => {
+      page.duringLoad?.(sessionModule);
+    });
+  }
+  let appShownWithinStall = false;
   for (let elapsed = 0; elapsed < 45_000; elapsed += 500) {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(500);
     });
-    if (elapsed + 500 === 1_500) appRenderedWithinStall = appRendered;
+    appShownEver ||= appOnScreen();
+    if (elapsed + 500 === 1_500) appShownWithinStall = appOnScreen();
   }
   if (page.afterLoad) {
     if (page.afterLoadEndpoint) {
@@ -224,14 +250,15 @@ async function loadPage(page: PageLoad): Promise<PageResult> {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(500);
       });
+      appShownEver ||= appOnScreen();
     }
   }
 
   const result: PageResult = {
     navigations: replaceMock.mock.calls.map((call) => String(call[0])),
-    appRendered,
-    appRenderedAtNavigation,
-    appRenderedWithinStall,
+    appShownEver,
+    appShownAtNavigation,
+    appShownWithinStall,
     appVisibleAtEnd: container.querySelector('[data-testid="app"]') !== null,
     sessionRequests: fetchMock.mock.calls.filter((call) =>
       String(call[0]).includes(SESSION_PATH),
@@ -268,13 +295,13 @@ describe("session navigation matrix: cold load × endpoint × client × hint", (
             // (a) a definitive signed-out answer goes to sign-in, once.
             expect(page.navigations).toHaveLength(1);
             expect(page.navigations[0]).toMatch(/^\/sign-in\?c=/);
-            expect(page.appRendered).toBe(false);
+            expect(page.appShownEver).toBe(false);
             expect(page.sessionRequests).toBe(1);
           } else if (UNAVAILABLE.includes(kind)) {
             // (d) unavailable never navigates and never flashes the app;
             // a hint cookie with a failing probe included.
             expect(page.navigations).toEqual([]);
-            expect(page.appRendered).toBe(false);
+            expect(page.appShownEver).toBe(false);
             expect(page.text).toContain("Retry connection");
           } else {
             expect(page.navigations).toEqual([]);
@@ -285,6 +312,23 @@ describe("session navigation matrix: cold load × endpoint × client × hint", (
       }
     }
   }
+});
+
+describe("a refused read during a hinted load settles the session before the app shows (c)", () => {
+  it("re-reads past a hung session read and sends a signed-out load to sign-in once", async () => {
+    const page = await loadPage({
+      endpoint: "timeout",
+      client: "web",
+      hint: true,
+      duringLoadEndpoint: "signed-out",
+      duringLoad: (session) => session.recheckSessionAfterUnauthorized(),
+    });
+
+    expect(page.navigations).toHaveLength(1);
+    expect(page.navigations[0]).toMatch(/^\/sign-in\?c=/);
+    expect(page.appShownEver).toBe(false);
+    expect(page.sessionRequests).toBeGreaterThanOrEqual(2);
+  });
 });
 
 describe("once authenticated, a load never leaves for sign-in (b)", () => {
@@ -349,8 +393,8 @@ describe("beta lane shares the probe and the one navigation", () => {
     ]);
     // Never flashes the app while the switch is in flight. (This harness's
     // document never unloads, so the stall release later gives it back.)
-    expect(page.appRenderedAtNavigation).toBe(false);
-    expect(page.appRenderedWithinStall).toBe(false);
+    expect(page.appShownAtNavigation).toBe(false);
+    expect(page.appShownWithinStall).toBe(false);
     expect(page.sessionRequests).toBe(1);
   });
 

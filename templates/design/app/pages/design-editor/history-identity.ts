@@ -117,6 +117,7 @@ export function remapHistorySelection<T extends GeometryHistorySelection>(
   const affected =
     (selection.activeFileId && fileIds.has(selection.activeFileId)) ||
     selection.overviewSelectedScreenIds.some((id) => fileIds.has(id)) ||
+    selection.explicitOverviewScreenIds?.some((id) => fileIds.has(id)) ||
     selection.selectedLayerIds.some((id) => fileIds.has(id)) ||
     Object.keys(selection.sourceContentByFileId ?? {}).some((id) =>
       fileIds.has(id),
@@ -165,6 +166,13 @@ export function remapHistorySelection<T extends GeometryHistorySelection>(
         : selection.overviewSelectedScreenIds.map(
             (id) => fileIds.get(id) ?? id,
           ),
+      ...(selection.explicitOverviewScreenIds !== undefined
+        ? {
+            explicitOverviewScreenIds: selection.explicitOverviewScreenIds.map(
+              (id) => fileIds.get(id) ?? id,
+            ),
+          }
+        : {}),
       selectedLayerIds,
       sourceContentByFileId: nextSources,
       sourceFileIdByFileId,
@@ -332,32 +340,41 @@ export function remapHistoryChange(
       fileIds.has(owner) &&
       ["canvasFrames", "screenMetadata", "localhostScreens"].includes(key),
   );
-  if (fileId === change.fileId && !change.selectionBefore && !remapsData)
+  if (
+    fileId === change.fileId &&
+    !change.selectionBefore &&
+    !change.selectionAfter &&
+    !remapsData
+  )
     return change;
-  const snapshot = change.selectionBefore;
-  let selectionBefore = snapshot;
-  if (snapshot) {
+  const remapSelection = (
+    snapshot: YjsUndoSelectionSnapshot | undefined,
+    sourceContent: string,
+  ) => {
+    if (!snapshot) return snapshot;
     const original = localAsSelection(snapshot, change.fileId);
     const selection = remapHistorySelection(original, fileIds, {
-      [change.fileId]: change.before,
+      [change.fileId]: sourceContent,
     });
-    if (selection !== original) {
-      const resolved = resolveHistorySelection(
-        selection,
-        selection.sourceContentByFileId ?? {},
-      );
-      selectionBefore = {
-        ...snapshot,
-        selectedElement: resolved.element,
-        selectedLayerIds: resolved.selection!.selectedLayerIds,
-        sourceContentByFileId: selection.sourceContentByFileId,
-        sourceFileIdByFileId: selection.sourceFileIdByFileId,
-      };
-    }
-  }
+    if (selection === original) return snapshot;
+    const resolved = resolveHistorySelection(
+      selection,
+      selection.sourceContentByFileId ?? {},
+    );
+    return {
+      ...snapshot,
+      selectedElement: resolved.element,
+      selectedLayerIds: resolved.selection!.selectedLayerIds,
+      sourceContentByFileId: selection.sourceContentByFileId,
+      sourceFileIdByFileId: selection.sourceFileIdByFileId,
+    };
+  };
+  const selectionBefore = remapSelection(change.selectionBefore, change.before);
+  const selectionAfter = remapSelection(change.selectionAfter, change.after);
   if (
     fileId === change.fileId &&
     selectionBefore === change.selectionBefore &&
+    selectionAfter === change.selectionAfter &&
     !remapsData
   )
     return change;
@@ -382,6 +399,7 @@ export function remapHistoryChange(
     ...change,
     fileId,
     ...(selectionBefore ? { selectionBefore } : {}),
+    ...(selectionAfter ? { selectionAfter } : {}),
     ...(change.designDataChange
       ? {
           designDataChange: {

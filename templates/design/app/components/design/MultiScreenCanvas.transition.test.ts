@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  isDirectScreenHoverTarget,
-  shouldShowFrameFullViewButton,
-} from "./multi-screen/canvas-tools";
+import { isDirectScreenHoverTarget } from "./multi-screen/canvas-tools";
 import {
   getChromeBorderTransition,
   getChromeLabelTransition,
@@ -29,8 +26,10 @@ describe("MultiScreenCanvas selection chrome transitions", () => {
     expect(getChromeBorderTransition(true)).toContain("inset");
   });
 
-  it("settles frame labels with an all-property transition after zoom", () => {
-    expect(getChromeLabelTransition(true)).toBe("all 150ms ease-out");
+  it("keeps frame label truncation in sync while chrome settles after zoom", () => {
+    expect(getChromeLabelTransition(true)).toBe(
+      "transform 150ms ease-out, opacity 150ms ease-out",
+    );
     expect(getChromeLabelTransition(false)).toBe("opacity 150ms ease-out");
   });
 
@@ -43,15 +42,6 @@ describe("MultiScreenCanvas selection chrome transitions", () => {
 
     expect(isDirectScreenHoverTarget(frame, frame)).toBe(true);
     expect(isDirectScreenHoverTarget(screenContentChild, frame)).toBe(false);
-  });
-
-  it("keeps the Interact button visible for hovered child content", () => {
-    expect(
-      shouldShowFrameFullViewButton({
-        emphasized: false,
-        childHoverActive: true,
-      }),
-    ).toBe(true);
   });
 
   it("keeps rectangle creation preview collapsed before the drag threshold", () => {

@@ -36,6 +36,7 @@ import {
   shouldRunCoreRouteBootDatabaseWork,
   ensureS3FileUploadProvider,
   mountApplicationStateRoutes,
+  mountMcpConnectRoutes,
   matchesSavedHostedAgentProbe,
   stripRemoteAgentAuth,
   createPublicRemoteAgentsHandler,
@@ -62,6 +63,34 @@ describe("mountApplicationStateRoutes", () => {
       "/_agent-native/application-state/compose",
       "/_agent-native/application-state",
     ]);
+  });
+});
+
+describe("mountMcpConnectRoutes", () => {
+  const request = (path: string) =>
+    new Request(`https://mail.example.test${path}`, {
+      headers: { host: "mail.example.test", "x-forwarded-proto": "https" },
+    });
+
+  it("still serves the identity route when the connect flows are off", async () => {
+    const app = createApp();
+    mountMcpConnectRoutes(app, {
+      connect: false,
+      serverName: undefined,
+      appId: "mail",
+      appName: "Mail",
+    });
+
+    for (const prefix of ["/_agent-native/mcp", "/mcp"]) {
+      const identity = await app.fetch(request(`${prefix}/connect/identity`));
+      expect(identity.status).toBe(200);
+      expect(await identity.json()).toMatchObject({
+        serverName: expect.stringMatching(/agent-native-mail$/),
+        mcpUrl: "https://mail.example.test/mcp",
+        connect: false,
+      });
+      expect((await app.fetch(request(`${prefix}/connect`))).status).toBe(404);
+    }
   });
 });
 
@@ -923,7 +952,7 @@ describe("buildBuilderWaitlistFormPayload", () => {
     });
   });
 
-  it("preserves the design make-real waitlist use case", () => {
+  it("maps the design make-real waitlist to a supported Design category", () => {
     const event = createMockEvent(
       "https://forms.agent-native.com/_agent-native/builder/branch-waitlist",
     );
@@ -938,11 +967,59 @@ describe("buildBuilderWaitlistFormPayload", () => {
       data: {
         email: "reader@example.com",
         source: "design_make_real_dialog",
-        useCase: "design_make_real_waitlist",
+        useCase: "design_publish_app",
       },
       _meta: {
         source: "design_make_real_dialog",
-        useCase: "design_make_real_waitlist",
+        useCase: "design_publish_app",
+      },
+    });
+  });
+
+  it("maps the Design Systems page waitlist to a supported Design category", () => {
+    const event = createMockEvent(
+      "https://forms.agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    expect(
+      buildBuilderWaitlistFormPayload(event, "reader@example.com", {
+        pageUrl: "https://design.agent-native.com/design-systems",
+        source: "design_systems_page",
+        useCase: "design_system_workflows_waitlist",
+      }),
+    ).toMatchObject({
+      data: {
+        email: "reader@example.com",
+        source: "design_systems_page",
+        useCase: "design_publish_app",
+      },
+      _meta: {
+        source: "design_systems_page",
+        useCase: "design_publish_app",
+      },
+    });
+  });
+
+  it("maps the Design Systems empty-state waitlist to a supported category", () => {
+    const event = createMockEvent(
+      "https://forms.agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    expect(
+      buildBuilderWaitlistFormPayload(event, "reader@example.com", {
+        pageUrl: "https://design.agent-native.com/design-systems",
+        source: "design_systems_empty_state",
+        useCase: "design_system_waitlist",
+      }),
+    ).toMatchObject({
+      data: {
+        email: "reader@example.com",
+        source: "design_systems_empty_state",
+        useCase: "design_publish_app",
+      },
+      _meta: {
+        source: "design_systems_empty_state",
+        useCase: "design_publish_app",
       },
     });
   });

@@ -18,7 +18,7 @@ import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
 import { AgentConversation } from "@agent-native/toolkit/app/chat/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
 import { SharedRichEditor } from "@agent-native/toolkit/editor";
-import { ResourcesPanel } from "@agent-native/core/client/resources";
+import { ResourcesPanel } from "@agent-native/toolkit/app/resources";
 ```
 
 Evite importar componentes UI desde el paquete básico `@agent-native/core`. Usar
@@ -619,7 +619,7 @@ modelo de recursos del espacio de trabajo que impulsa la pestaña Espacio de tra
 El panel completo no necesita accesorios:
 
 ```tsx
-import { ResourcesPanel } from "@agent-native/core/client/resources";
+import { ResourcesPanel } from "@agent-native/toolkit/app/resources";
 
 <ResourcesPanel />;
 ```
@@ -631,6 +631,8 @@ import { useState } from "react";
 import {
   ResourceEditor,
   ResourceTree,
+} from "@agent-native/toolkit/app/resources";
+import {
   useResource,
   useResourceTree,
   useUpdateResource,
@@ -669,16 +671,16 @@ function WorkspaceResources() {
 
 ## Otro público UI {#other-ui}
 
-| Área               | APIs                                                                       | Ruta de importación                       |
-| ------------------ | -------------------------------------------------------------------------- | ----------------------------------------- |
-| Compartir          | `<ShareButton>`, `<ShareDialog>`                                           | `@agent-native/core/client/sharing`       |
-| Sharing UI         | `<VisibilityBadge>`                                                        | `@agent-native/toolkit/sharing`           |
-| Notificaciones     | `<NotificationsBell>`                                                      | `@agent-native/core/client/notifications` |
-| Progreso           | `<RunsTray>`, ganchos de progreso y tipos                                  | `@agent-native/core/client/progress`      |
-| Incorporación      | `useOnboarding()`, ganchos para panel de incorporación                     | `@agent-native/core/client/onboarding`    |
-| Observabilidad     | `<ObservabilityDashboard>`, `<ThumbsFeedback>`                             | `@agent-native/toolkit/app/observability` |
-| Recursos           | `<ResourcesPanel>`, `<ResourceTree>`, enlaces de recursos                  | `@agent-native/core/client/resources`     |
-| Editor enriquecido | `<SharedRichEditor>`, comandos de barra diagonal, bloquear ganchos de nodo | `@agent-native/toolkit/editor`            |
+| Área                    | APIs                                                                       | Ruta de importación                                                         |
+| ----------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Compartir               | `<ShareButton>`, `<ShareDialog>`                                           | `@agent-native/toolkit/app/sharing`                                         |
+| Sharing UI              | `<VisibilityBadge>`                                                        | `@agent-native/toolkit/sharing`                                             |
+| Notificaciones          | `<NotificationsBell>`                                                      | `@agent-native/toolkit/app/notifications`                                   |
+| Registro de ejecuciones | `<RunsTray>`, tipos de ejecución y funciones de registro del servidor      | `@agent-native/toolkit/app/progress + @agent-native/core/progress`          |
+| Incorporación           | `useOnboarding()`, ganchos para panel de incorporación                     | `@agent-native/core/client/onboarding`                                      |
+| Observabilidad          | `<ObservabilityDashboard>`, `<ThumbsFeedback>`                             | `@agent-native/toolkit/app/observability`                                   |
+| Recursos                | `<ResourcesPanel>`, `<ResourceTree>`, enlaces de recursos                  | `@agent-native/toolkit/app/resources + @agent-native/core/client/resources` |
+| Editor enriquecido      | `<SharedRichEditor>`, comandos de barra diagonal, bloquear ganchos de nodo | `@agent-native/toolkit/editor`                                              |
 
 ## Completación de texto única {#one-off-text-completion}
 

@@ -29,6 +29,7 @@ export function MissingDeckAccessPane({
   requestAccessDialogOpen,
   requesterEmail,
   requestAccessDialogError,
+  originalPrompt,
   signedIn,
   signInHref,
   viewerEmail,
@@ -53,6 +54,7 @@ export function MissingDeckAccessPane({
   requestAccessDialogOpen: boolean;
   requesterEmail: string;
   requestAccessDialogError: string | null;
+  originalPrompt?: string | null;
   signedIn: boolean;
   signInHref: string;
   viewerEmail: string | null;
@@ -72,6 +74,8 @@ export function MissingDeckAccessPane({
   const privateDeck =
     deckAccessDenied && accessStatus?.visibility === "private";
   const accessRequestAvailable = !deckAccessDenied || privateDeck;
+  const hasOriginalPrompt =
+    typeof originalPrompt === "string" && originalPrompt.trim().length > 0;
   const accessCheckFailed = accessStatusError || orgError;
   const noAccess = deckAccessDenied || accessCheckFailed;
   const checkingAccess = !noAccess && (accessStatusLoading || orgLoading);
@@ -110,6 +114,16 @@ export function MissingDeckAccessPane({
           </div>
         </div>
         <p className="text-sm leading-6 text-muted-foreground">{description}</p>
+        {hasOriginalPrompt ? (
+          <div className="mt-4 rounded-md border border-border bg-muted/35 px-3 py-2">
+            <p className="text-xs font-medium text-muted-foreground">
+              {t("deckEditor.originalPrompt")}
+            </p>
+            <p className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap text-sm text-foreground">
+              {originalPrompt}
+            </p>
+          </div>
+        ) : null}
         {noAccess && viewerEmail ? (
           <div className="mt-4 flex items-center gap-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-sm">
             <IconAt className="size-4 shrink-0 text-muted-foreground" />
@@ -168,7 +182,11 @@ export function MissingDeckAccessPane({
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <Button type="button" variant="outline" onClick={onBack}>
               <IconArrowLeft className="size-4" />
-              {t("deckEditor.backToDecks")}
+              {t(
+                hasOriginalPrompt
+                  ? "deckEditor.backToHome"
+                  : "deckEditor.backToDecks",
+              )}
             </Button>
             <Button
               type="button"

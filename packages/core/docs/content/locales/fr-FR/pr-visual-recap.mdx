@@ -356,8 +356,10 @@ l'organisation peut le lister ou le révoquer. Créez-en un (propriétaire
 ou administrateur d'organisation uniquement) :
 
 ```bash
-npx @agent-native/core@latest connect https://plan.agent-native.com --service-token pr-recap
+npx @agent-native/core@latest connect https://plan.agent-native.com --service-token pr-recap --ttl-days 3650
 ```
+
+Le jeton CI reste ainsi valide pendant 10 ans et peut toujours être révoqué à tout moment.
 
 La commande vous authentifie dans le navigateur, puis affiche le jeton de
 service exactement une fois — stockez-le comme secret

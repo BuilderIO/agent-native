@@ -12,14 +12,16 @@ import {
   localPlanKindSchema,
   resolveLocalPlanKind,
 } from "../server/lib/local-plan-kind.js";
-import { normalizePlanContent } from "../server/plan-content.js";
+import { normalizeStoredPlanContent } from "../server/plan-content.js";
 import { referencedBlockIdsForPlanComments } from "../server/plan-mdx.js";
 import {
   agentPlanContentPatchesSchema,
-  agentPlanContentSchema,
   applyPlanContentPatches,
+  getPlanContentValidationMessage,
+  parsePlanContentAuthoringChanges,
   planContentPatchesSchema,
-  planContentSchema,
+  storedPlanContentSchema,
+  assertPlanContentAuthoringChanges,
   type PlanContent,
 } from "../shared/plan-content.js";
 import type { PlanKind } from "../shared/types.js";
@@ -28,6 +30,12 @@ const CONTENT_DESCRIPTION =
   "Full structured content replacement. Prefer contentPatches for targeted edits.";
 const CONTENT_PATCHES_DESCRIPTION =
   "Targeted structured content edits addressed by stable block/prototype/canvas ids.";
+
+function failInvalidPlanContent(error: unknown): never {
+  const message = getPlanContentValidationMessage(error);
+  if (message === null) throw error;
+  fail(message, { errorCode: "invalid_plan_content", statusCode: 422 });
+}
 
 const updateLocalPlanFolderSchema = z.object({
   slug: z
@@ -47,7 +55,7 @@ const updateLocalPlanFolderSchema = z.object({
     .optional()
     .describe("One-line plan summary shown under the title."),
   kind: localPlanKindSchema.optional(),
-  content: planContentSchema.optional().describe(CONTENT_DESCRIPTION),
+  content: z.unknown().optional().describe(CONTENT_DESCRIPTION),
   contentPatches: planContentPatchesSchema
     .optional()
     .default([])
@@ -60,7 +68,7 @@ export default defineAction({
     "Update a DB-free local Agent-Native Plan MDX folder from PLAN_LOCAL_DIR or an optional repo-relative path. Applies the same structured contentPatches used by update-visual-plan, writes plan.mdx/canvas.mdx/prototype.mdx back to the same local folder, and never writes to the database.",
   schema: updateLocalPlanFolderSchema,
   agentInputSchema: updateLocalPlanFolderSchema.extend({
-    content: agentPlanContentSchema.optional().describe(CONTENT_DESCRIPTION),
+    content: storedPlanContentSchema.optional().describe(CONTENT_DESCRIPTION),
     contentPatches: agentPlanContentPatchesSchema
       .optional()
       .default([])
@@ -88,6 +96,12 @@ export default defineAction({
       slug: args.slug,
       path: args.path,
     });
+    if (current.hasSalvagedInvalidBlocks) {
+      fail(
+        "This local plan contains malformed source blocks that were shown as warning placeholders. Repair the source files directly before updating the plan.",
+        { errorCode: "plan_source_salvage_write_blocked", statusCode: 422 },
+      );
+    }
     const currentComments = await readLocalPlanComments(current.folder);
     const kind = resolveLocalPlanKind(args.kind, current.mdx) as PlanKind;
     if (kind === "recap") {
@@ -97,12 +111,18 @@ export default defineAction({
       );
     }
 
-    let nextContent: PlanContent =
-      args.content !== undefined
-        ? (normalizePlanContent(args.content) ?? current.content)
-        : current.content;
-    if (args.contentPatches.length > 0) {
-      nextContent = applyPlanContentPatches(nextContent, args.contentPatches);
+    let nextContent: PlanContent;
+    try {
+      nextContent =
+        args.content !== undefined
+          ? parsePlanContentAuthoringChanges(args.content, current.content)
+          : current.content;
+      if (args.contentPatches.length > 0) {
+        nextContent = applyPlanContentPatches(nextContent, args.contentPatches);
+      }
+      assertPlanContentAuthoringChanges(nextContent, current.content);
+    } catch (error) {
+      failInvalidPlanContent(error);
     }
 
     const metadataPatch = args.contentPatches.find(
@@ -120,8 +140,15 @@ export default defineAction({
       nextContent.brief ??
       current.content.brief ??
       "Local files preview.";
-    nextContent =
-      normalizePlanContent({ ...nextContent, title, brief }) ?? nextContent;
+    try {
+      nextContent = normalizeStoredPlanContent({
+        ...nextContent,
+        title,
+        brief,
+      });
+    } catch (error) {
+      failInvalidPlanContent(error);
+    }
 
     const planId = `local-${current.slug}`;
     const localFiles = await writePlanLocalFolder({

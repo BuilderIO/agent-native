@@ -1,51 +1,20 @@
-export type InteractDeviceCategory = "phone" | "tablet" | "desktop" | "custom";
+import {
+  DEFAULT_INTERACT_DEVICE_PRESET,
+  INTERACT_CUSTOM_DEVICE_NAME,
+  INTERACT_DEVICE_PRESETS,
+  type InteractDevicePreset,
+} from "@shared/interact-device-presets";
 
-export interface InteractDevicePreset {
-  name: string;
-  width: number;
-  height: number;
-  category: InteractDeviceCategory;
-}
-
-export const INTERACT_CUSTOM_DEVICE_NAME = "Custom";
-
-export const RESPONSIVE_INTERACT_BAR_HEIGHT = 48;
-
-export const INTERACT_DEVICE_PRESETS: InteractDevicePreset[] = [
-  { name: "iPhone SE", category: "phone", width: 320, height: 568 }, // i18n-ignore: stable device preset name.
-  { name: "iPhone 17", category: "phone", width: 402, height: 874 }, // i18n-ignore: stable device preset name.
-  { name: "iPhone 17 Pro Max", category: "phone", width: 440, height: 956 }, // i18n-ignore: stable device preset name.
-  { name: "Android Compact", category: "phone", width: 412, height: 917 }, // i18n-ignore: stable device preset name.
-  {
-    name: 'iPad Pro 11" Portrait',
-    category: "tablet",
-    width: 834,
-    height: 1194,
-  },
-  {
-    name: 'iPad Pro 11" Landscape',
-    category: "tablet",
-    width: 1194,
-    height: 834,
-  },
-  { name: 'MacBook Air 13"', category: "desktop", width: 1440, height: 900 },
-  {
-    name: INTERACT_CUSTOM_DEVICE_NAME,
-    category: "custom",
-    width: 402,
-    height: 874,
-  },
-];
-
-export const DEFAULT_INTERACT_DEVICE_PRESET = INTERACT_DEVICE_PRESETS.find(
-  (preset) => preset.category === "desktop",
-)!;
-
-export function findInteractDevicePreset(
-  name: string,
-): InteractDevicePreset | undefined {
-  return INTERACT_DEVICE_PRESETS.find((preset) => preset.name === name);
-}
+export {
+  DEFAULT_INTERACT_DEVICE_PRESET,
+  findInteractDevicePreset,
+  findSelectableInteractDevicePreset,
+  INTERACT_CUSTOM_DEVICE_NAME,
+  INTERACT_DEVICE_PRESETS,
+  SELECTABLE_INTERACT_DEVICE_PRESETS,
+  type InteractDeviceCategory,
+  type InteractDevicePreset,
+} from "@shared/interact-device-presets";
 
 export function resolveInteractDeviceForScreen(screen?: {
   width?: number | null;

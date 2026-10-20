@@ -13,7 +13,8 @@ function editingSafetyBridgeScript(
       "__EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__",
       String(spaceKeyForwardingEnabled),
     )
-    .replace("__EDITING_SAFETY_ENABLED__", String(enabled));
+    .replace("__EDITING_SAFETY_ENABLED__", String(enabled))
+    .replace("__INTERACTION_MODE__", "false");
 }
 
 describe("editing safety bridge", () => {

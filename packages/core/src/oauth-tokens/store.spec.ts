@@ -117,6 +117,7 @@ const mockDb = {
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => mockDb,
+  withDbExec: (_exec: unknown, run: () => unknown) => run(),
 }));
 
 vi.mock("../db/ddl-guard.js", () => ({

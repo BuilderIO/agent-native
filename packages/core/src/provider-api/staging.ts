@@ -24,10 +24,14 @@
  * here; redaction is applied to the response returned to the model.
  */
 
+import { fail } from "../action.js";
 import type { ProviderApiRequestArgs } from "./index.js";
+import { rejectFailedProviderResult } from "./result-outcome.js";
 import {
   upsertStagedDataset,
   deriveColumns,
+  legacyStagedDatasetId,
+  stagedDatasetId,
   MAX_ROWS_PER_APP,
 } from "./staged-datasets-store.js";
 
@@ -225,9 +229,11 @@ export async function stagingExecuteRequest(
   let providerMeta: unknown;
   let requestMeta: unknown;
 
-  const datasetId = `ds_${ctx.appId}_${ctx.ownerEmail}_${datasetName}`
-    .replace(/[^a-zA-Z0-9_-]/g, "_")
-    .slice(0, 80);
+  const datasetId = stagedDatasetId({
+    appId: ctx.appId,
+    ownerEmail: ctx.ownerEmail,
+    name: datasetName,
+  });
 
   let currentArgs = { ...baseArgs };
   let pageNum = pagination?.startPage ?? 1;
@@ -275,12 +281,16 @@ export async function stagingExecuteRequest(
             typeof json?.retryAt === "string"
               ? ` Retry after ${json.retryAt}.`
               : "";
-          throw new Error(`Provider API quota exhausted (429).${retryAt}`);
+          fail(`Provider API quota exhausted (429).${retryAt}`, {
+            statusCode: 429,
+            errorCode: "http_429",
+          });
         }
         if (attempt >= 5) {
-          throw new Error(
+          fail(
             `Provider returned 429 Too Many Requests after ${attempt + 1} attempts. ` +
               `Try again later or reduce the page count.`,
+            { statusCode: 429, errorCode: "http_429" },
           );
         }
         const waitMs = getRetryAfterMs(
@@ -291,7 +301,7 @@ export async function stagingExecuteRequest(
         attempt++;
         continue;
       }
-      result = raw;
+      result = rejectFailedProviderResult(args.provider, raw);
       break;
     }
 
@@ -303,13 +313,17 @@ export async function stagingExecuteRequest(
 
     const response = result.response as Record<string, unknown> | undefined;
     if (!response?.ok) {
-      if (pageIndex === 0) {
-        throw new Error(
-          `Provider API returned status ${response?.status}: ${JSON.stringify(response?.json ?? response?.text).slice(0, 200)}`,
-        );
-      }
-      truncated = true;
-      break;
+      fail(
+        `Provider API returned status ${response?.status}: ${JSON.stringify(response?.json ?? response?.text).slice(0, 200)}`,
+        { errorCode: "provider_api_rejected" },
+      );
+    }
+
+    if (response.truncated === true) {
+      fail(
+        `Provider response page ${pageIndex + 1} was cut at the response size limit, so staging it would drop rows. Request smaller pages (a lower limit or fewer fields) or add a server-side filter.`,
+        { errorCode: "provider_response_truncated" },
+      );
     }
 
     const body =
@@ -356,6 +370,11 @@ export async function stagingExecuteRequest(
   const columns = deriveColumns(allRows);
   const meta = await upsertStagedDataset({
     id: datasetId,
+    supersedes: legacyStagedDatasetId({
+      appId: ctx.appId,
+      ownerEmail: ctx.ownerEmail,
+      name: datasetName,
+    }),
     appId: ctx.appId,
     ownerEmail: ctx.ownerEmail,
     name: datasetName,

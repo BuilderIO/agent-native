@@ -89,6 +89,25 @@ describe("Design agent chat routing", () => {
     );
   });
 
+  it("preserves new-branch prompts for the ChatGPT host router", async () => {
+    const result = await sendToDesignAgentChatAndConfirm({
+      message: "Apply the alternate direction",
+      submit: true,
+      newTab: true,
+    });
+
+    expect(result).toEqual({ tabId: "tab-design", delivered: true });
+    expect(sendToAgentChatAndConfirmMock).toHaveBeenCalledWith(
+      {
+        message: "Apply the alternate direction",
+        submit: true,
+        newTab: true,
+        chatTarget: "local",
+      },
+      undefined,
+    );
+  });
+
   it("hands source edits to Builder on the shell canvas, which holds no session of its own", async () => {
     isBuilderHostEmbedMock.mockReturnValue(true);
     isEmbedChromeRequestedMock.mockReturnValue(true);

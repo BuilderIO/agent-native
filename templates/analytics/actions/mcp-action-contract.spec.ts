@@ -20,9 +20,11 @@ const { default: actionsRegistry } = await import(
 );
 
 type ActionDefinition = {
+  agentTool?: boolean;
   mcpTool?: boolean;
   readOnly?: boolean;
   needsApproval?: unknown;
+  publicAgent?: { expose?: boolean };
   tool: {
     description: string;
     parameters?: { properties?: Record<string, unknown> };
@@ -39,10 +41,15 @@ const DIRECT_MCP_READS = [
   "account-deep-dive",
   "builder-blog-articles",
   "data-source-status",
+  "estimate-onboarding-journey-cost",
+  "estimate-query-cost",
+  "find-data",
+  "query-dbt-semantic-metric",
   "get-analysis",
   "get-data-program",
   "get-error-issue",
   "get-first-party-analytics-health",
+  "get-onboarding-journey",
   "get-session-replay-summary",
   "get-session-replay-timeline",
   "get-sql-dashboard",
@@ -64,7 +71,10 @@ const DIRECT_MCP_READS = [
   "search-dashboard-references",
 ];
 
-const DIRECT_MCP_WRITES = ["run-gong-native-insight"];
+const DIRECT_MCP_WRITES = [
+  "run-gong-native-insight",
+  "update-analytics-public-key",
+];
 
 // Raw SQL and capability minting stay off every MCP catalog, including the
 // explicit full-catalog opt-in, which otherwise serves every undeclared action.
@@ -72,11 +82,15 @@ const VETOED = [
   "bigquery",
   "create-session-replay-agent-link",
   "db-admin-federated-read",
+  "import-data-dictionary-index",
   "query-agent-native-analytics",
   "search-bigquery-schema",
+  "list-sigma-workbooks",
+  "inspect-sigma-workbook",
+  "migrate-sigma-workbook",
 ];
 
-// Left off the default connector; the full-catalog opt-in can still serve them.
+// UI, bulk replay, and unapproved writes stay off the read-scoped catalog.
 const DEFAULT_CONNECTOR_EXCLUDED = [
   "get-session-replay-events",
   "navigate",
@@ -177,6 +191,11 @@ describe("Analytics direct MCP tools", () => {
         expect(action.mcpTool, name).not.toBe(true);
       }
     }
+    expect(actions["migrate-sigma-workbook"].mcpTool).toBe(false);
+    expect(actions["migrate-sigma-workbook"].readOnly).not.toBe(true);
+    expect(actions["migrate-sigma-workbook"].needsApproval).toBe(true);
+    expect(actions["migrate-sigma-workbook"].publicAgent?.expose).toBe(false);
+    expect(actions["migrate-sigma-workbook"].agentTool).toBe(false);
   });
 
   it("classifies every direct read as read-only so mcp:read tokens can call it", () => {
@@ -185,10 +204,10 @@ describe("Analytics direct MCP tools", () => {
     }
   });
 
-  it("requires write scope and approval for paid Gong synthesis", () => {
+  it("requires write scope, without a per-call approval, for Gong synthesis", () => {
     const run = actions["run-gong-native-insight"];
     expect(run.readOnly).not.toBe(true);
-    expect(typeof run.needsApproval).toBe("function");
+    expect(run.needsApproval).toBeUndefined();
 
     const discovery = actions["gong-native-insights"];
     expect(discovery.needsApproval).toBeUndefined();
@@ -223,7 +242,7 @@ describe("Analytics MCP tools/list", () => {
     );
   }, 60_000);
 
-  it("adds only paid Gong synthesis for an mcp:write token", async () => {
+  it("adds only allowlisted writes for an mcp:write token", async () => {
     expect(await listAppTools(["mcp:read", "mcp:write"])).toEqual(
       [...DIRECT_MCP_READS, ...DIRECT_MCP_WRITES].sort(),
     );

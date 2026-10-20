@@ -38,7 +38,7 @@ export interface RecordPendingLiveLayerStateEditArgs {
   ) => void;
   clipboardPasteRedoStackRef: RefObject<ContentHistoryChange[]>;
   codeLayerOwnerByNodeIdRef: RefObject<
-    Map<
+    ReadonlyMap<
       string,
       {
         fileId: string;

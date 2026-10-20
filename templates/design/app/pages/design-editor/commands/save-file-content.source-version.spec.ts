@@ -1,4 +1,7 @@
-import { sourceContentHash } from "@shared/source-workspace";
+import {
+  sourceContentHash,
+  sourceContentPatch,
+} from "@shared/source-workspace";
 import type { QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -430,7 +433,10 @@ describe("runSaveFileContent source version", () => {
       [
         expect.objectContaining({
           id: secondPending.id,
-          content: secondPending.content,
+          contentPatch: sourceContentPatch(
+            firstPending.content,
+            secondPending.content,
+          ),
           expectedVersionHash: sourceContentHash(firstPending.content),
         }),
       ],
@@ -674,7 +680,7 @@ describe("runSaveFileContent source version", () => {
       ],
       [
         expect.objectContaining({
-          content: userContent,
+          contentPatch: sourceContentPatch(canonical, userContent),
           expectedVersionHash: sourceContentHash(canonical),
         }),
       ],
@@ -737,7 +743,9 @@ describe("runSaveFileContent source version", () => {
       expect(invalidateQueries).toHaveBeenCalledWith({
         queryKey: ["action", "get-design"],
       });
-      expect(acknowledgeOutboxEntry).not.toHaveBeenCalled();
+      expect(acknowledgeOutboxEntry).toHaveBeenCalledWith({
+        key: "stale-mirror",
+      });
       expect(latestFileSaveForUnloadRef.current[pending.id]).toBeUndefined();
       expect(conflictToast).toHaveBeenCalledWith(
         "designEditor.toasts.saveConflict",

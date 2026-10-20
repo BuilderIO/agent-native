@@ -166,7 +166,7 @@ describe("realistic connector acceptance corpus", () => {
     expect(revised.items[2]?.contentHash).not.toBe(first.items[2]?.contentHash);
   });
 
-  it("keeps Figma frame identity stable across real file revisions", async () => {
+  it("keeps imported frame identity stable across fixture revisions", async () => {
     let file = await jsonFixture("figma-brand-system-v1.json");
     const providerApi = {
       executeRequest: vi.fn(async (input: Record<string, any>) => {
@@ -195,11 +195,11 @@ describe("realistic connector acceptance corpus", () => {
       }),
     };
     const context = stablePrivateContext({
-      resolveConnection: async () => "figma-fixture",
+      resolveConnection: async () => "synthetic-provider-connection",
       providerApi,
     }) as never;
     const connector = new FigmaContextConnector();
-    const config = { fileKeys: ["brand-system"] };
+    const config = { fileKeys: ["juniper-studio"] };
     const inventory = await connector.inventory(
       { sourceId: "eval-figma", config },
       context,
@@ -214,26 +214,26 @@ describe("realistic connector acceptance corpus", () => {
 
     expect(stableEvidence(repeated.items)).toEqual(stableEvidence(first.items));
     expect(first.items[0]).toMatchObject({
-      externalId: "brand-system",
+      externalId: "juniper-studio",
       parseStatus: "parsed",
-      sourceVersion: "figma-v1-2026-06-01",
+      sourceVersion: "local-juniper-r1",
       metadata: { artifactCount: 3 },
     });
     expect(
-      first.items.find((item) => item.externalId.endsWith("pricing-hero")),
-    ).toMatchObject({
-      content: expect.stringContaining(
-        "Build with your whole creative context",
+      first.items.find((item) =>
+        item.externalId.endsWith("frame:service-pricing"),
       ),
+    ).toMatchObject({
+      content: expect.stringContaining("Build a steady plan for every team"),
       metadata: {
         nativeArtifact: { app: "design", format: "design-html" },
       },
     });
     expect(
-      first.items.find((item) => item.externalId.includes("deprecated")),
-    ).toMatchObject({ title: expect.stringContaining("DEPRECATED") });
+      first.items.find((item) => item.externalId.includes("archived-offer")),
+    ).toMatchObject({ title: expect.stringContaining("RETIRED") });
     expect(
-      first.items.find((item) => item.externalId.includes("prompt-injection")),
+      first.items.find((item) => item.externalId.includes("untrusted-note")),
     ).toMatchObject({ content: expect.stringContaining("INJECTION_EXECUTED") });
     expect(JSON.stringify(first.items)).not.toContain("token=secret");
 
@@ -242,13 +242,15 @@ describe("realistic connector acceptance corpus", () => {
     expect(revised.items.map((item) => item.externalId)).toEqual(
       first.items.map((item) => item.externalId),
     );
-    expect(revised.items[0]?.sourceVersion).toBe("figma-v2-2026-07-15");
+    expect(revised.items[0]?.sourceVersion).toBe("local-juniper-r2");
     expect(
-      revised.items.find((item) => item.externalId.endsWith("pricing-hero"))
-        ?.contentHash,
+      revised.items.find((item) =>
+        item.externalId.endsWith("frame:service-pricing"),
+      )?.contentHash,
     ).not.toBe(
-      first.items.find((item) => item.externalId.endsWith("pricing-hero"))
-        ?.contentHash,
+      first.items.find((item) =>
+        item.externalId.endsWith("frame:service-pricing"),
+      )?.contentHash,
     );
   });
 

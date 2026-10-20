@@ -63,9 +63,10 @@ export function FileStorageSetupPopover(props: FileStorageSetupPopoverProps) {
   }
 
   const title = t("onboarding.fileStorage.title");
+  const description = t("onboarding.fileStorage.description");
   // ponytail: wide home composers open left; add an explicit placement prop if a wide sidebar needs another side.
   const useLeftSide =
-    (anchorRef?.current?.getBoundingClientRect().width ?? 0) >= 500;
+    open && (anchorRef?.current?.getBoundingClientRect().width ?? 0) >= 500;
 
   return (
     <Popover
@@ -97,7 +98,7 @@ export function FileStorageSetupPopover(props: FileStorageSetupPopoverProps) {
         className={
           status === "unavailable"
             ? "w-[256px] gap-2 p-2"
-            : "w-[288px] gap-1 p-2"
+            : "w-[288px] gap-2 p-3"
         }
       >
         {status === "unavailable" ? (
@@ -126,11 +127,20 @@ export function FileStorageSetupPopover(props: FileStorageSetupPopoverProps) {
             onConnected={onConnected}
             render={({ viewModel }) => {
               const flow = viewModel.connectFlow;
+              const connectFlow = flow
+                ? {
+                    ...flow,
+                    cancel: () => {
+                      flow.cancel?.();
+                      onOpenChange(false, "dismiss");
+                    },
+                  }
+                : null;
               const connectButton = (
                 <Button
                   type="button"
                   size="sm"
-                  className="min-w-0 flex-1 px-2 text-xs"
+                  className="h-auto min-h-9 w-full min-w-0 break-words whitespace-normal px-2 py-2 text-center text-xs leading-4"
                   disabled={!flow || viewModel.pending}
                   aria-busy={viewModel.pending}
                 >
@@ -139,14 +149,19 @@ export function FileStorageSetupPopover(props: FileStorageSetupPopoverProps) {
               );
 
               return (
-                <div className={viewModel.error ? "grid gap-1.5" : undefined}>
-                  <div className="mt-2 flex gap-1.5">
-                    {flow ? (
+                <div className="grid gap-2">
+                  <div className="grid gap-1">
+                    <h2 className="text-sm font-medium leading-5">{title}</h2>
+                    <p className="text-xs leading-4 text-muted-foreground">
+                      {description}
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {connectFlow ? (
                       <BuilderConnectPopover
-                        flow={flow}
-                        defaultProvisionAccount
+                        flow={connectFlow}
                         onConnect={(provisionAccount) =>
-                          flow.start({ provisionAccount })
+                          connectFlow.start({ provisionAccount })
                         }
                       >
                         {connectButton}
@@ -158,7 +173,7 @@ export function FileStorageSetupPopover(props: FileStorageSetupPopoverProps) {
                       type="button"
                       size="sm"
                       variant="outline"
-                      className="min-w-0 flex-1 px-2 text-xs"
+                      className="h-auto min-h-9 w-full min-w-0 break-words whitespace-normal px-2 py-2 text-center text-xs leading-4"
                       onClick={() => {
                         onOpenChange(false, "setup");
                         if (typeof window !== "undefined") {

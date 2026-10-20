@@ -4,8 +4,9 @@ description: >-
   How Clips shares recordings — composes with the framework sharing skill and
   adds password, expiry, embed URLs, view-counting, and per-viewer "Viewed by"
   records. Use when wiring the share dialog, building embed links, adding a
-  password, showing who viewed a clip and when, or debugging who can see a
-  recording.
+  password, showing who viewed a clip and when, debugging who can see a
+  recording, or when an agent receives a Clips link and needs its transcript or
+  video frames.
 ---
 
 # Video Sharing
@@ -191,6 +192,41 @@ Required Slack app setup:
 
 ## Agent-readable clips
 
+When a user supplies a Clips link, read the clip through its published agent
+context instead of stopping at the share page or transcript preview:
+
+1. Use the exact `agentContextUrl` in the page's agent-readable instructions or
+   `application/agent-native+json` discovery payload. Preserve its `id` and any
+   `agent_access` query parameter on every related request.
+2. Fetch `apis.transcript` for the complete transcript. Fetch each
+   `recommendedFrames[].url` as an image and inspect the returned pixels; when
+   more visual context is needed, request `apis.frame.urlTemplate` with an
+   `atMs` timestamp. To watch motion (an animation, a transition, a cursor
+   path), request `apis.frames.urlTemplate` with `startMs`, `endMs` and `fps`:
+   one JPEG contact sheet of up to 36 consecutive frames from a range of at
+   most 60 seconds. Cells read left to right, then top to bottom; cell `i`
+   shows the frame on screen at `startMs + i * 1000 / fps`, and solid black
+   cells at the end of the grid hold no frame. Without `fps` the sheet uses
+   the video's own frame rate, and without `endMs` it takes up to 36 frames
+   from `startMs`, stopping at 60 seconds or the end of the clip. A
+   `failureKind: request` response names a request that fits in `nextStep`.
+3. On an error, inspect the JSON `failureKind`, `error`, and `nextStep`. If a
+   context or transcript request has `failureKind: access`, explain that the
+   link does not grant access. For a private clip, ask its owner to open the
+   Clips Share menu, choose **Share with agents**, and send the generated link.
+   If a frame request has `failureKind: media` while the transcript works,
+   report that the stored media could not be retrieved; another link will not
+   fix it. If it has `failureKind: processing`, follow `nextStep`: extraction,
+   size-limit, and temporary storage errors do not prove that media is missing
+   or that the link lacks access.
+   If `failureKind: expired`, ask the owner to extend or remove the clip expiry
+   in the Share menu, save, then create and send a new **Share with agents**
+   link. Never claim to have seen frames that were not returned as images.
+
+The JSON discovery payload and HTTP endpoints work without browser tools. A
+WebMCP-capable browser is optional; its frame tool returns a URL, so the agent
+must still fetch that URL as an image.
+
 Recordings can expose URLs meant for external agents without handing over raw
 video bytes:
 
@@ -199,6 +235,7 @@ video bytes:
 | `/api/agent-context.json?id=<recordingId>`        | Clip metadata, transcript summary, recommended frames, and API discovery links                               |
 | `/api/agent-transcript.json?id=<recordingId>`     | Timestamped transcript segments with `startMs`, `endMs`, `timestamp`, `range`, `text`, and optional `source`; add `maxSegments` to page and continue with the returned `nextStartIndex` |
 | `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | JPEG frame extracted from the video at the requested original-video timestamp                                |
+| `/api/agent-frames.jpg?id=<recordingId>&startMs=<ms>&endMs=<ms>&fps=<n>` | One JPEG contact sheet of up to 36 consecutive frames from a range; the `X-Clips-Frame-Sheet-Fps`, `-Grid` and `-Times` headers describe the cells |
 
 These endpoints follow the same access model as `/api/public-recording`, plus a
 temporary agent-link path:
@@ -234,7 +271,17 @@ the console stream (all levels) as `browserDiagnostics.consoleLogs` and the
 fetch/XHR stream as `browserDiagnostics.networkRequests` (method, sanitized URL
 with query values redacted, status, duration), plus `consoleIssues` and
 `failedNetworkRequests` highlights. All of it is bounded, and page URL, headers,
-bodies, and cookies stay omitted.
+bodies, and cookies stay omitted. When a list is trimmed, failures and
+pre-recording entries are kept before the newest.
+
+When the clip carries app activity from an agent-native app, the context adds
+`appActivity` (counts, recorder coverage windows, up to 20 failures with
+`elapsedMs`). For the owner, or a Share with agents link made by someone who
+can still edit the clip, it also lists `apis.appActivity`
+(`/api/agent-app-activity.json`, filtered by `fromMs`, `toMs`, `maxEvents`,
+continued with `start=nextStart`). An open public link, a share password, or a
+link made by a viewer gets the summary only, because event data is more
+sensitive than the summary.
 
 Password-protected clips require the password once to mint a short-lived token,
 which is returned inside the agent-context links.
@@ -317,7 +364,7 @@ Events feeding this live in `recording_events`. The `/api/view-event` route rece
 
 An **agent view** is an outside agent reading a clip through its public agent
 APIs — `/api/agent-context.json`, `/api/agent-transcript.json`,
-`/api/agent-frame.jpg`. Those routes are agent-only surfaces (a human watching a
+`/api/agent-frame.jpg`, `/api/agent-frames.jpg`. Those routes are agent-only surfaces (a human watching a
 clip never hits them), so a request on one is the signal.
 
 - **Table:** `recording_agent_views` — one row per `(recordingId, agentKey, viewSessionId)`.

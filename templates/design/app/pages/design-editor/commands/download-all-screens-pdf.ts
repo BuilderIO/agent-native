@@ -4,6 +4,11 @@ import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 
 import { measureNaturalDocumentHeight } from "@/components/design/design-canvas/content-size-report";
+import {
+  browserDesignExportErrorType,
+  trackBrowserDesignExported,
+  type BrowserDesignExportContext,
+} from "@/lib/design-export-tracking";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import type { RasterPdfPage } from "@/pages/design-editor/export-capture";
 import {
@@ -16,19 +21,22 @@ import type { ExportSnapshotSource } from "@/pages/design-editor/export-snapshot
 import {
   PngCaptureError,
   renderExportDocumentCanvas,
+  screenFrameCropRect,
 } from "@/pages/design-editor/png-export-render";
 
 export interface DownloadAllScreensPdfArgs {
   activeCanvasSourceType: "inline" | "localhost" | "fusion";
   canEditDesign: boolean;
   canvasFrameGeometryById: CanvasFrameGeometryById;
+  /** Join keys for the `design_exported` this command reports. */
+  exportTracking?: BrowserDesignExportContext;
   fallbackExportName: (extension: string, suffix?: string) => string;
   overviewScreens: OverviewScreen[];
-  prepareScreenForExport: (screenId: string) => void;
+  prepareScreenForExport: (screenId: string) => symbol | undefined;
   resolveSnapshotExportSource?: (
     screenId: string,
   ) => ExportSnapshotSource | null | Promise<ExportSnapshotSource | null>;
-  releaseScreenFromExport: () => void;
+  releaseScreenFromExport: (lease: symbol) => void;
   pngExportingRef: RefObject<boolean>;
   setPngExporting: Dispatch<SetStateAction<boolean>>;
   showRasterCaptureError: (error: unknown, format?: "png" | "pdf") => void;
@@ -193,6 +201,7 @@ export async function runDownloadAllScreensPdf({
   activeCanvasSourceType,
   canEditDesign,
   canvasFrameGeometryById,
+  exportTracking,
   fallbackExportName,
   overviewScreens,
   prepareScreenForExport,
@@ -208,12 +217,11 @@ export async function runDownloadAllScreensPdf({
   if (overviewScreens.length < 2) return;
   pngExportingRef.current = true;
   setPngExporting(true);
-  let requestedScreenId: string | null = null;
+  let requestedScreenLease: symbol | undefined;
   try {
     const pages: RasterPdfPage[] = [];
     for (const screen of overviewScreens) {
-      requestedScreenId = screen.id;
-      prepareScreenForExport(screen.id);
+      requestedScreenLease = prepareScreenForExport(screen.id);
       let iframe: HTMLIFrameElement | null = null;
       let snapshotFrameCleanup: (() => void) | null = null;
       let priorInlineHeight: string | null = null;
@@ -295,12 +303,10 @@ export async function runDownloadAllScreensPdf({
           doc,
           iframe,
           exportScale: PDF_MIN_PRINT_RASTER_SCALE,
-          cropRect: {
-            x: doc.defaultView?.scrollX ?? 0,
-            y: doc.defaultView?.scrollY ?? 0,
-            width: Math.max(1, iframe.clientWidth),
-            height: Math.max(1, iframe.clientHeight),
-          },
+          cropRect: screenFrameCropRect(doc, iframe, {
+            width: pageWidth,
+            height: pageHeight,
+          }),
         });
         const dataUrl = rendered.canvas.toDataURL("image/png");
         pages.push({ dataUrl, width: pageWidth, height: pageHeight });
@@ -309,18 +315,31 @@ export async function runDownloadAllScreensPdf({
           iframe.style.height = priorInlineHeight;
         }
         snapshotFrameCleanup?.();
-        releaseScreenFromExport();
-        requestedScreenId = null;
+        if (requestedScreenLease) {
+          releaseScreenFromExport(requestedScreenLease);
+          requestedScreenLease = undefined;
+        }
       }
     }
     const pdf = await createMultiPageRasterPdf(pages);
     triggerBlobDownload(pdf, fallbackExportName("pdf", "all-screens"));
     toast.success(t("designEditor.toasts.pdfAllScreensDownloaded"));
+    trackBrowserDesignExported("pdf_all_screens", {
+      ...exportTracking,
+      status: "completed",
+      screenCount: overviewScreens.length,
+    });
   } catch (error) {
+    trackBrowserDesignExported("pdf_all_screens", {
+      ...exportTracking,
+      status: "failed",
+      errorType: browserDesignExportErrorType(error),
+      screenCount: overviewScreens.length,
+    });
     console.error("All-screens PDF export failed:", error);
     showRasterCaptureError(error, "pdf");
   } finally {
-    if (requestedScreenId !== null) releaseScreenFromExport();
+    if (requestedScreenLease) releaseScreenFromExport(requestedScreenLease);
     pngExportingRef.current = false;
     setPngExporting(false);
   }

@@ -1,9 +1,14 @@
 import { defineAction } from "@agent-native/core/action";
-import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
+import {
+  accessFilter,
+  ForbiddenError,
+  resolveAccess,
+} from "@agent-native/core/sharing";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { requireFormsPermission } from "../server/lib/app-roles.js";
 import {
   toPublicFormSettings,
   type FormField,
@@ -120,7 +125,7 @@ export default defineAction({
   description: "See what the user is currently looking at on screen.",
   schema: z.object({}),
   http: false,
-  run: async () => {
+  run: async (_args, ctx) => {
     const navigation = await readAppStateForCurrentTab("navigation", {
       fallbackToGlobal: false,
     });
@@ -130,6 +135,27 @@ export default defineAction({
 
     const nav = navigation as any;
     const activeTab = nav?.activeTab ?? nav?.tab;
+    const viewingResponses =
+      (nav?.view === "responses" ||
+        (nav?.view === "form" &&
+          (activeTab === "responses" || activeTab === "results"))) &&
+      nav?.formId;
+    let responseAccessDenied = false;
+    if (viewingResponses) {
+      try {
+        await requireFormsPermission("forms.review", "formId")(
+          { formId: nav.formId },
+          ctx,
+        );
+      } catch (error) {
+        if (!(error instanceof ForbiddenError)) throw error;
+        responseAccessDenied = true;
+        screen.responseAccess = {
+          status: "denied",
+          permission: "forms.review",
+        };
+      }
+    }
 
     if (nav?.formId) {
       try {
@@ -140,10 +166,12 @@ export default defineAction({
           const fields = safeJson<FormField[]>(form.fields, []);
           const settings = safeJson<FormSettings>(form.settings, {});
           const canReadPrivateData = canReadPrivateFormData(access.role);
-          const [responseCount] = await db
-            .select({ count: sql<number>`count(*)` })
-            .from(schema.responses)
-            .where(eq(schema.responses.formId, nav.formId));
+          const [responseCount] = responseAccessDenied
+            ? []
+            : await db
+                .select({ count: sql<number>`count(*)` })
+                .from(schema.responses)
+                .where(eq(schema.responses.formId, nav.formId));
           const selectionState = (await readAppStateForCurrentTab(
             "forms-selection",
             {
@@ -168,7 +196,9 @@ export default defineAction({
             settings: canReadPrivateData
               ? summarizeSettings(settings)
               : toPublicFormSettings(settings),
-            responseCount: responseCount?.count ?? 0,
+            ...(!responseAccessDenied
+              ? { responseCount: responseCount?.count ?? 0 }
+              : {}),
             createdAt: form.createdAt,
             updatedAt: form.updatedAt,
             ...(selection ? { selection } : {}),
@@ -242,12 +272,7 @@ export default defineAction({
       };
     }
 
-    if (
-      (nav?.view === "responses" ||
-        (nav?.view === "form" &&
-          (activeTab === "responses" || activeTab === "results"))) &&
-      nav?.formId
-    ) {
+    if (viewingResponses && !responseAccessDenied) {
       try {
         const db = getDb();
         const access = await resolveAccess("form", nav.formId);

@@ -1,3 +1,4 @@
+import { cancelActiveScrubInputs } from "@agent-native/toolkit/design-tweaks";
 import { useEffect, useLayoutEffect, useRef } from "react";
 
 import { createDesignCanvasInteractionAdapter } from "@/components/design/canvas-interactions/design-canvas-interactions";
@@ -225,6 +226,34 @@ export function isDesignHotkeyEditableTarget(target: EventTarget | null) {
   return tagName === "input" || tagName === "textarea" || tagName === "select";
 }
 
+export function isDesignHotkeyBlockedByOpenLayer(target: EventTarget | null) {
+  if (typeof Element === "undefined" || typeof document === "undefined") {
+    return false;
+  }
+  const targetElement = target instanceof Element ? target : null;
+  const layer = targetElement?.closest(
+    '[role="menu"], [role="listbox"], [role="dialog"], [data-radix-popper-content-wrapper]',
+  );
+  if (
+    layer &&
+    layer.getAttribute("aria-hidden") !== "true" &&
+    !layer.hasAttribute("hidden") &&
+    layer.getAttribute("data-state") !== "closed"
+  ) {
+    return true;
+  }
+  return Boolean(
+    document.querySelector(
+      [
+        '[role="menu"][data-state="open"]:not([aria-hidden="true"]):not([hidden])',
+        '[role="listbox"][data-state="open"]:not([aria-hidden="true"]):not([hidden])',
+        '[role="dialog"][data-state="open"]:not([aria-hidden="true"]):not([hidden])',
+        '[data-radix-popper-content-wrapper] [data-state="open"]',
+      ].join(","),
+    ),
+  );
+}
+
 export function isDesignHistoryHotkeyTarget(target: EventTarget | null) {
   if (!target || typeof Element === "undefined") return false;
   if (!(target instanceof Element)) return false;
@@ -233,9 +262,16 @@ export function isDesignHistoryHotkeyTarget(target: EventTarget | null) {
 
 function isDesignHistoryHotkey(event: KeyboardEvent) {
   return (
-    (event.metaKey || event.ctrlKey) &&
+    isPlatformPrimaryModifier(event) &&
     !event.altKey &&
-    (event.key.toLowerCase() === "z" || event.key.toLowerCase() === "y")
+    (normalizeDesignHotkeyKey(event) === "z" ||
+      normalizeDesignHotkeyKey(event) === "y")
+  );
+}
+
+export function isOptedInDesignHistoryHotkey(event: KeyboardEvent) {
+  return (
+    isDesignHistoryHotkey(event) && isDesignHistoryHotkeyTarget(event.target)
   );
 }
 
@@ -252,7 +288,7 @@ export function isShowKeyboardShortcutsHotkey(event: KeyboardEvent) {
   if (!(event.ctrlKey || event.metaKey) || !event.shiftKey || event.altKey) {
     return false;
   }
-  const key = normalizedKey(event);
+  const key = normalizeDesignHotkeyKey(event);
   return key === "?" || key === "/";
 }
 
@@ -342,7 +378,7 @@ export function useDesignHotkeys(props: UseDesignHotkeysProps) {
       if (current.preventDefault !== false) event.preventDefault();
       current.onOpacityChange?.({
         event,
-        key: normalizedKey(event),
+        key: normalizeDesignHotkeyKey(event),
         primary: false,
         shift: false,
         alt: false,
@@ -362,6 +398,16 @@ export function useDesignHotkeys(props: UseDesignHotkeysProps) {
         resetOpacitySequence();
         return;
       }
+      if (
+        isDesignHotkeyEditableTarget(event.target) &&
+        isPlatformPrimaryModifier(event) &&
+        !event.altKey &&
+        ["=", "+", "-", "0"].includes(normalizeDesignHotkeyKey(event))
+      ) {
+        event.preventDefault();
+        resetOpacitySequence();
+        return;
+      }
       if (current.shouldHandleEvent && !current.shouldHandleEvent(event)) {
         resetOpacitySequence();
         return;
@@ -370,10 +416,7 @@ export function useDesignHotkeys(props: UseDesignHotkeysProps) {
         current.ignoreEditableTargets !== false &&
         isDesignHotkeyEditableTarget(event.target) &&
         !isShowKeyboardShortcutsHotkey(event) &&
-        !(
-          isDesignHistoryHotkey(event) &&
-          isDesignHistoryHotkeyTarget(event.target)
-        )
+        !isOptedInDesignHistoryHotkey(event)
       ) {
         resetOpacitySequence();
         return;
@@ -421,8 +464,42 @@ export function handleDesignHotkey(
   event: KeyboardEvent,
   props: UseDesignHotkeysProps,
 ) {
-  const key = normalizedKey(event);
-  const primary = event.metaKey || event.ctrlKey;
+  const key = normalizeDesignHotkeyKey(event);
+  const primary = isPlatformPrimaryModifier(event);
+  const isLayoutGridControlChord =
+    event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey &&
+    ((!event.shiftKey && key === "g") ||
+      (event.shiftKey && event.code === "Digit4"));
+  const isControlAltTidyChord =
+    event.ctrlKey &&
+    !event.metaKey &&
+    event.altKey &&
+    !event.shiftKey &&
+    key === "t";
+  const isSecondaryModifierHotkey =
+    isLayoutGridControlChord ||
+    isControlAltTidyChord ||
+    isShowKeyboardShortcutsHotkey(event) ||
+    (event.ctrlKey &&
+      !event.metaKey &&
+      event.altKey &&
+      !event.shiftKey &&
+      (key === "h" || (isApplePlatform() && key === "v"))) ||
+    (isApplePlatform() &&
+      event.ctrlKey &&
+      !event.metaKey &&
+      !event.altKey &&
+      !event.shiftKey &&
+      key === "c");
+  if (
+    (event.metaKey || event.ctrlKey) &&
+    !primary &&
+    !isSecondaryModifierHotkey
+  ) {
+    return false;
+  }
   const details: DesignHotkeyDetails = {
     event,
     key,
@@ -500,6 +577,17 @@ export function handleDesignHotkey(
     }
   }
 
+  if (
+    isApplePlatform() &&
+    event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey &&
+    !event.shiftKey &&
+    key === "c"
+  ) {
+    return run(props.onEyedropper);
+  }
+
   if (!primary && !event.altKey && !event.shiftKey) {
     const toolShortcut = TOOL_SHORTCUTS[key];
     if (toolShortcut) {
@@ -559,12 +647,21 @@ export function handleDesignHotkey(
   }
 
   if (primary && key === "z") {
+    const historyHandler = event.shiftKey ? props.onRedo : props.onUndo;
+    if (historyHandler || props.canClaimBoundChords !== false) {
+      cancelActiveScrubInputs();
+    }
     return (
       runSharedCanvasCommand() ||
       (event.shiftKey ? claim(props.onRedo) : claim(props.onUndo))
     );
   }
-  if (primary && key === "y") return claim(props.onRedo);
+  if (primary && key === "y") {
+    if (props.onRedo || props.canClaimBoundChords !== false) {
+      cancelActiveScrubInputs();
+    }
+    return claim(props.onRedo);
+  }
   if (
     isPlatformPrimaryModifier(event) &&
     !event.altKey &&
@@ -588,23 +685,16 @@ export function handleDesignHotkey(
 
   if (event.ctrlKey && event.altKey && !event.metaKey && !event.shiftKey) {
     if (key === "h") return runDistribute("horizontal");
-    if (key === "v") return runDistribute("vertical");
+    // Ctrl+Alt+V is the platform-primary paste-properties shortcut on Linux
+    // and Windows. Keep the legacy distribution chord on Apple platforms,
+    // where paste-properties uses Cmd+Alt+V instead.
+    if (key === "v" && isApplePlatform()) return runDistribute("vertical");
   }
 
   if (!primary && !event.altKey && !event.shiftKey && key === "i") {
     return run(props.onEyedropper);
   }
 
-  if (
-    isApplePlatform() &&
-    event.ctrlKey &&
-    !event.metaKey &&
-    !event.altKey &&
-    !event.shiftKey &&
-    key === "c"
-  ) {
-    return run(props.onEyedropper);
-  }
   if (primary && key === "c") {
     if (event.altKey) return run(props.onCopyProps);
     if (event.shiftKey) return run(props.onCopyAsPng);
@@ -758,7 +848,7 @@ export function handleDesignHotkey(
   return false;
 }
 
-const ALT_CODE_KEYS: Record<string, string> = {
+const DESIGN_HOTKEY_CODE_FALLBACKS: Record<string, string> = {
   KeyA: "a",
   KeyB: "b",
   KeyC: "c",
@@ -797,23 +887,23 @@ export function isApplePlatform() {
     }
   ).userAgentData?.platform;
   return /Mac|iPhone|iPad|iPod/i.test(
-    userAgentDataPlatform || navigator.platform || "",
+    navigator.platform || userAgentDataPlatform || "",
   );
 }
 
-function isPlatformPrimaryModifier(event: KeyboardEvent) {
+export function isPlatformPrimaryModifier(event: KeyboardEvent) {
   return isApplePlatform()
     ? event.metaKey && !event.ctrlKey
     : event.ctrlKey && !event.metaKey;
 }
 
-function normalizedKey(event: KeyboardEvent) {
+export function normalizeDesignHotkeyKey(
+  event: Pick<KeyboardEvent, "key" | "code"> & { altKey?: boolean },
+) {
   if (event.key === " ") return "space";
-  if (event.altKey) {
-    const fromCode = ALT_CODE_KEYS[event.code];
-    if (fromCode) return fromCode;
-  }
-  return event.key.length === 1 ? event.key.toLowerCase() : event.key;
+  const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+  if (/^[a-z]$/.test(key)) return key;
+  return DESIGN_HOTKEY_CODE_FALLBACKS[event.code] ?? key;
 }
 
 function digitFromEvent(event: KeyboardEvent) {

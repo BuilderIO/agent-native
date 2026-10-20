@@ -24,6 +24,8 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
   useDbSync: mocks.useDbSync,
 }));
 
+import { shouldInvalidateDesignQueryForSync } from "@/lib/design-sync-invalidation";
+
 import { DbSyncSetup, isPrivateDesignEditorPath } from "./root";
 
 async function renderAt(pathname: string) {
@@ -39,6 +41,7 @@ async function renderAt(pathname: string) {
   await act(async () => root.unmount());
   return mocks.useDbSync.mock.lastCall?.[0] as {
     realtime?: { reason: string };
+    actionInvalidatePredicate?: unknown;
   };
 }
 
@@ -50,6 +53,13 @@ describe("design realtime sync opt-in", () => {
   it("opens the shared transport while a design is open so collaborators' saves arrive without a refresh", async () => {
     const options = await renderAt("/design/abc123");
     expect(options.realtime?.reason).toBeTruthy();
+  });
+
+  it("scopes collaborator-driven refetches instead of refetching every action query", async () => {
+    const options = await renderAt("/design/abc123");
+    expect(options.actionInvalidatePredicate).toBe(
+      shouldInvalidateDesignQueryForSync,
+    );
   });
 
   it("stays opted out on routes where nobody else edits the open page", async () => {

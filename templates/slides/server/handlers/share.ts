@@ -1,11 +1,7 @@
 import crypto from "crypto";
 
 import { readBody } from "@agent-native/core/server";
-import {
-  assertAccess,
-  ForbiddenError,
-  resolveAccess,
-} from "@agent-native/core/sharing";
+import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 import { toSharedDeckSlide } from "@shared/api";
 import type {
   DesignSystemData,
@@ -16,7 +12,13 @@ import type {
 import { eq, lt } from "drizzle-orm";
 import { defineEventHandler, getRouterParam, setResponseStatus } from "h3";
 
+import {
+  projectRenderingDesignSystemData,
+  readDeckLinkedDesignSystem,
+} from "../../actions/_linked-design-system.js";
 import { getDb, schema } from "../db";
+import { slideRevealIssues } from "../lib/slide-reveal-issues.js";
+import { trackSlides } from "../lib/slides-tracking.js";
 import {
   resolveSlidesRequestAuth,
   withSlidesRequestContext,
@@ -45,19 +47,30 @@ export const shareDeck = defineEventHandler(async (event) => {
     return { error: auth.error };
   }
   const session = auth.context;
-  if (!session.email) {
+  const userEmail = session.email;
+  if (!userEmail) {
     setResponseStatus(event, 401);
     return { error: "Unauthorized" };
   }
 
   return withSlidesRequestContext(
     event,
-    async () => createShareLink(event, deck.id),
+    async () => createShareLink(event, deck.id, userEmail),
     session,
   );
 });
 
-async function createShareLink(event: any, deckId: string) {
+/**
+ * Links a viewer's `/share/<token>` visit back to this deck in the warehouse,
+ * which recomputes the same value from the path with
+ * `SUBSTR(TO_HEX(SHA256(token)), 1, 16)`. It must stay an unkeyed hash for
+ * that join to work; the raw token grants view access and is never tracked.
+ */
+function shareTokenHash(token: string): string {
+  return crypto.createHash("sha256").update(token).digest("hex").slice(0, 16);
+}
+
+async function createShareLink(event: any, deckId: string, userEmail: string) {
   const db = getDb();
   let storedDeck: any;
   let title = "Untitled";
@@ -88,27 +101,20 @@ async function createShareLink(event: any, deckId: string) {
   let designSystemData: string | null = null;
 
   if (typeof designSystemId === "string" && designSystemId.trim()) {
-    const designSystemAccess = await resolveAccess(
-      "design-system",
+    const designSystemAccess = await readDeckLinkedDesignSystem(
+      deckResource,
       designSystemId,
     );
-    const rawData = designSystemAccess?.resource?.data;
-    if (typeof rawData === "string") {
-      try {
-        const parsed = JSON.parse(rawData);
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-          designSystemData = JSON.stringify(parsed as DesignSystemData);
-        }
-        // coercion-ok: malformed optional style data keeps a valid deck shareable.
-      } catch {
-        // A malformed style record should not make an otherwise valid deck
-        // impossible to share; the presentation will use its default tokens.
-      }
-    }
+    designSystemData = projectRenderingDesignSystemData(
+      designSystemAccess?.resource?.data,
+    );
   }
 
   const slides = storedDeck.slides.map((slide: unknown, index: number) =>
-    toSharedDeckSlide(slide, index, { includeNotes: false }),
+    toSharedDeckSlide(slide, index, {
+      includeNotes: false,
+      revealIssues: slideRevealIssues(slide),
+    }),
   );
 
   await db.insert(schema.deckShareLinks).values({
@@ -119,6 +125,17 @@ async function createShareLink(event: any, deckId: string) {
     designSystemData,
     createdAt: now,
   });
+
+  trackSlides(
+    "share_link_created",
+    {
+      output_id: deckId,
+      output_type: "deck",
+      share_type: "presentation_link",
+      share_token_hash: shareTokenHash(token),
+    },
+    { userId: userEmail },
+  );
 
   db.delete(schema.deckShareLinks)
     .where(

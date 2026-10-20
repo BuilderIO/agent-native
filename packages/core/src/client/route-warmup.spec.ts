@@ -15,6 +15,7 @@ const {
   renderWarmupLinksForSelector,
   routeAssetUrlsForHref,
   resetRouteWarmupCachesForTests,
+  warmRouteAssetsForHref,
 } = __routeWarmupInternalsForTests;
 
 describe("route warmup runtime helpers", () => {
@@ -247,6 +248,33 @@ describe("route warmup runtime helpers", () => {
 
     expect(hasWarmableRouteAssets()).toBe(false);
     expect(routeAssetUrlsForHref("/docs")).toEqual([]);
+  });
+
+  it("marks speculative module preloads so chunk recovery can ignore them", () => {
+    window.__reactRouterManifest = {
+      routes: {
+        root: {
+          id: "root",
+          path: "",
+          module: "/assets/root-AbC123.js",
+        },
+        "routes/docs._index": {
+          id: "routes/docs._index",
+          parentId: "root",
+          path: "docs",
+          index: true,
+          module: "/assets/docs._index-DNb8kxCk.js",
+        },
+      },
+    };
+
+    warmRouteAssetsForHref("/docs");
+
+    expect(
+      document
+        .querySelector('link[href$="/assets/docs._index-DNb8kxCk.js"]')
+        ?.getAttribute("data-agent-native-route-warmup"),
+    ).toBe("true");
   });
 
   it("finds render warmup links using the configured selector", () => {

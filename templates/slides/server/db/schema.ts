@@ -6,6 +6,7 @@ import {
   now,
   ownableColumns,
   createSharesTable,
+  uniqueIndex,
 } from "@agent-native/core/db/schema";
 import { boolean } from "drizzle-orm/pg-core";
 
@@ -60,16 +61,27 @@ export const deckShareLinks = table("deck_share_links", {
   createdAt: text("created_at").notNull().default(now()),
 });
 
-export const uploadedAssets = table("uploaded_assets", {
-  id: text("id").primaryKey(),
-  filename: text("filename").notNull(),
-  url: text("url").notNull(),
-  type: text("type").notNull(),
-  size: integer("size").notNull(),
-  provider: text("provider"),
-  ownerEmail: text("owner_email").notNull(),
-  createdAt: text("created_at").notNull().default(now()),
-});
+export const uploadedAssets = table(
+  "uploaded_assets",
+  {
+    id: text("id").primaryKey(),
+    filename: text("filename").notNull(),
+    url: text("url").notNull(),
+    type: text("type").notNull(),
+    size: integer("size").notNull(),
+    provider: text("provider"),
+    providerObjectId: text("provider_object_id"),
+    uploadSessionId: text("upload_session_id"),
+    orgId: text("org_id"),
+    ownerEmail: text("owner_email").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (asset) => ({
+    uploadSessionUniqueIdx: uniqueIndex(
+      "uploaded_assets_owner_upload_session_uidx",
+    ).on(asset.ownerEmail, asset.uploadSessionId),
+  }),
+);
 
 export const slideComments = table(
   "slide_comments",

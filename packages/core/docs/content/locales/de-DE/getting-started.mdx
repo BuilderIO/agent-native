@@ -15,12 +15,14 @@ Tool verwendet und die UI aus Code aufruft.
 In diesem Leitfaden erstellen Sie einen Agenten mit einer Chat-UI und rufen
 dessen enthaltene `hello`-Action über den Agenten und die UI auf.
 
+Lieber einen KI-Agenten die Einrichtung übernehmen lassen? Siehe
+[Eine App mit einem KI-Agenten erstellen](/docs/create-with-an-agent).
+
 ## Voraussetzungen
 
 - [Node.js](https://nodejs.org) 22.22 oder höher
 - [pnpm](https://pnpm.io), installiert und über Ihren `PATH` verfügbar
-- Eine LLM-Verbindung für den Agenten: Builder.io, ein Anthropic- oder
-  OpenAI-API-Schlüssel oder ein lokales Ollama-Modell
+- Bei der Einrichtung optional, zum Ausführen des Agenten erforderlich: Builder.io, ein Anthropic-/OpenAI-Schlüssel oder lokales Ollama
 
 ## Einen Agenten erstellen
 
@@ -37,6 +39,12 @@ Das Template gibt Ihrem Agenten eine Browser-UI, Authentifizierung, dauerhafte
 Unterhaltungen, Live-Synchronisierung, Anwendungskontext und ein
 `actions/`-Verzeichnis. Außerdem enthält es eine kleine `hello`-Action, die Sie
 in diesem Leitfaden verwenden werden.
+
+<Callout tone="info">
+
+Wenn diese Befehle mit Fehlern zu Peer-Abhängigkeiten fehlschlagen, liegt das möglicherweise an einer veralteten Kopie eines Pakets in Ihrem npx-Cache. Führen Sie `npx clear-npx-cache` aus, um den Cache zu leeren, und führen Sie die Befehle dann erneut aus.
+
+</Callout>
 
 ## Den Entwicklungsserver starten
 
@@ -56,11 +64,9 @@ lokale Entwicklung müssen Sie keine E-Mail-Adresse und kein Passwort eingeben.
 
 </Callout>
 
-## Ein LLM verbinden
+## LLM verbinden (optional) {#connect-an-llm}
 
-Verbinden Sie als Nächstes ein LLM. Wählen Sie **Builder.io verwenden**, um
-kostenlose Credits zu verwenden, oder **Custom keys**, wählen Sie einen Anbieter
-aus und geben Sie die abgefragten Verbindungsdaten ein.
+Optional: Verbinden Sie sich mit **Use Builder.io**, fügen Sie über **Custom keys** einen Schlüssel hinzu oder hinterlegen Sie für die lokale Entwicklung einen Provider-Schlüssel in `.env`. Bei selbst gehosteten Deployments kann ein serverseitiger Schlüssel als appweiter Fallback dienen. Weitere Informationen finden Sie unter [LLM-Provider-Schlüssel](/docs/environment-variables#llm-provider-keys).
 
 ## Die Action über den Agenten ausführen
 
@@ -69,7 +75,7 @@ kann und die Agenten als Tool verwenden können. Das Chat-Template enthält eine
 einfache `hello`-Action, damit Sie dieses Muster ausprobieren können, bevor Sie
 selbst eine schreiben.
 
-Geben Sie im Agenten-Panel ein:
+Geben Sie im Eingabefeld der Seite **Loslegen** ein:
 
 > Call the hello action for Alex.
 

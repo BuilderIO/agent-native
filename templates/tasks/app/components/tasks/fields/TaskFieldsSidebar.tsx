@@ -1,7 +1,7 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { ExtensionSlot } from "@agent-native/toolkit/app/extensions";
-import { IconSparkles } from "@tabler/icons-react";
+import { AgentMark } from "@agent-native/toolkit/app/shared";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -112,7 +112,7 @@ function TaskFieldsSidebarPanel({ task }: { task: TaskWithFields }) {
           disabled={suggestRoute.isPending}
           onClick={() => void requestSuggestion()}
         >
-          <IconSparkles className="size-4" />
+          <AgentMark className="size-4" />
           {t("taskFields.suggestRoute")}
         </Button>
         {suggestion && (

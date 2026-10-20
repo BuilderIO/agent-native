@@ -57,4 +57,26 @@ export const OBSERVABILITY_MIGRATIONS: MigrationEntry[] = [
           AND summary.org_id IS NOT NULL;
     `,
   },
+  {
+    version: 3,
+    name: "observability-org-scope-legacy-threads",
+    // A thread created without a request org kept org_id NULL, so every review
+    // join (thread.org_id = trace org) hid it. Adopt the org only when all of
+    // the owner's runs on the thread name the same one.
+    sql: `
+      UPDATE chat_threads AS thread
+        SET org_id = trace_org.org_id
+        FROM (
+          SELECT thread_id, LOWER(user_id) AS owner_key, MIN(org_id) AS org_id
+          FROM agent_trace_summaries
+          WHERE thread_id IS NOT NULL AND user_id IS NOT NULL
+            AND org_id IS NOT NULL
+          GROUP BY thread_id, LOWER(user_id)
+          HAVING COUNT(DISTINCT org_id) = 1
+        ) AS trace_org
+        WHERE thread.org_id IS NULL
+          AND thread.id = trace_org.thread_id
+          AND LOWER(thread.owner_email) = trace_org.owner_key;
+    `,
+  },
 ];

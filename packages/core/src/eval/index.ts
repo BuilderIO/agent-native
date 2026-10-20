@@ -32,6 +32,7 @@ export {
   runEvals,
   scoreEval,
   loadEvals,
+  loadProductionEvalContext,
   discoverEvalFiles,
   type RunEvalSuiteOptions,
 } from "./runner.js";
@@ -39,7 +40,15 @@ export { formatReport } from "./report.js";
 export type {
   Eval,
   EvalInput,
+  AgentRunOptions,
   EvalRunContext,
+  EvalProductionContext,
+  EvalProductionIdentity,
+  EvalProductionChatPath,
+  EvalProductionPathReceipt,
+  EvalProductionPathRun,
+  EvalPrefetchStatus,
+  EvalProductionContextResolver,
   AgentRunOutput,
   Scorer,
   ScorerDefinition,

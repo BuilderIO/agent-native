@@ -120,3 +120,91 @@ it("persists distinct sources through reads, edits, and resolution without chang
     },
   );
 });
+
+it("records the model, effort, and conversation behind an AI comment, and no run for a person's", async () => {
+  await runWithRequestContext(
+    {
+      userEmail: owner,
+      run: {
+        runId: "effort-run",
+        threadId: "effort-thread",
+        model: "claude-sonnet-4-6",
+        reasoningEffort: "medium",
+      },
+    },
+    async () => {
+      const ai = await addComment.run(
+        {
+          documentId: "attribution-doc",
+          content: "@Comment Author this reads well",
+          mentions: [{ kind: "person", email: owner, name: "Comment Author" }],
+        },
+        { caller: "tool", userEmail: owner, runId: "effort-run" },
+      );
+      const result = await listComments.run(
+        { documentId: "attribution-doc" },
+        { caller: "frontend", userEmail: owner },
+      );
+      expect(
+        result.comments.find((comment) => comment.id === ai.id),
+      ).toMatchObject({
+        author_model: "claude-sonnet-4-6",
+        author_effort: "medium",
+        submission_run_id: "effort-run",
+        submission_thread_id: "effort-thread",
+        mentions: [{ kind: "person", email: owner, name: "Comment Author" }],
+      });
+    },
+  );
+  await runWithRequestContext({ userEmail: owner }, async () => {
+    const human = await addComment.run(
+      { documentId: "attribution-doc", content: "Written by hand" },
+      { caller: "frontend", userEmail: owner },
+    );
+    const result = await listComments.run(
+      { documentId: "attribution-doc" },
+      { caller: "frontend", userEmail: owner },
+    );
+    expect(
+      result.comments.find((comment) => comment.id === human.id),
+    ).toMatchObject({
+      author_model: null,
+      author_effort: null,
+      submission_thread_id: null,
+    });
+  });
+});
+
+it("replays a retried AI comment from a run on another model as the first one", async () => {
+  const submit = (runId: string, model: string, reasoningEffort: string) =>
+    runWithRequestContext(
+      { userEmail: owner, run: { runId, model, reasoningEffort } },
+      () =>
+        addComment.run(
+          {
+            documentId: "attribution-doc",
+            content: "Retried reply",
+            idempotencyKey: "retried-ai-reply",
+          },
+          { caller: "tool", userEmail: owner, runId },
+        ),
+    );
+
+  const first = await submit("first-run", "claude-opus-5-5", "high");
+  const retry = await submit("retry-run", "claude-sonnet-5-5", "medium");
+
+  expect(retry).toMatchObject({ id: first.id, replayed: true });
+  const result = await runWithRequestContext({ userEmail: owner }, () =>
+    listComments.run(
+      { documentId: "attribution-doc" },
+      { caller: "frontend", userEmail: owner },
+    ),
+  );
+  expect(
+    result.comments.find((comment) => comment.id === first.id),
+  ).toMatchObject({
+    author_model: "claude-opus-5-5",
+    author_effort: "high",
+    submission_run_id: "first-run",
+  });
+});

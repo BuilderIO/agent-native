@@ -10,14 +10,23 @@ export const CLIP_AGENT_CONTEXT_VERSION = 2;
 export const AGENT_CONTEXT_ENDPOINT = "/api/agent-context.json";
 export const AGENT_TRANSCRIPT_ENDPOINT = "/api/agent-transcript.json";
 export const AGENT_FRAME_ENDPOINT = "/api/agent-frame.jpg";
+export const AGENT_FRAME_SHEET_ENDPOINT = "/api/agent-frames.jpg";
+export const AGENT_APP_ACTIVITY_ENDPOINT = "/api/agent-app-activity.json";
 export const CLIP_AGENT_ACCESS_TOKEN_PREFIX = "clip-agent-context";
 export const CLIPS_AGENT_ACCESS_PARAM = AGENT_ACCESS_PARAM || "agent_access";
 export const CLIPS_WEBMCP_MAX_TRANSCRIPT_SEGMENTS = 50;
+// A contact sheet is one JPEG grid of consecutive frames. 36 cells covers just
+// over a second at 30 fps and stays legible after vision models downscale it.
+export const MAX_AGENT_FRAME_SHEET_FRAMES = 36;
+export const MAX_AGENT_FRAME_SHEET_SPAN_MS = 60_000;
+export const MIN_AGENT_FRAME_SHEET_FPS = 0.1;
+export const MAX_AGENT_FRAME_SHEET_FPS = 60;
 
 export const CLIPS_WEBMCP_TOOL_NAMES = {
   context: "clips-get-context",
   transcript: "clips-get-transcript",
   frame: "clips-get-frame",
+  frames: "clips-get-frames",
 } as const;
 
 export const CLIPS_WEBMCP_INPUT_SCHEMAS = {
@@ -60,10 +69,35 @@ export const CLIPS_WEBMCP_INPUT_SCHEMAS = {
       atMs: {
         type: "number",
         minimum: 0,
-        description: "Video timestamp in milliseconds.",
+        description:
+          "Video timestamp in milliseconds; fetch the returned imageUrl as an image to inspect the frame.",
       },
     },
     required: ["atMs"],
+    additionalProperties: false,
+  },
+  frames: {
+    type: "object",
+    properties: {
+      startMs: {
+        type: "number",
+        minimum: 0,
+        description: "Time of the first frame, in milliseconds.",
+      },
+      endMs: {
+        type: "number",
+        minimum: 0,
+        description: `End of the range in milliseconds (exclusive). Omit it to get up to ${MAX_AGENT_FRAME_SHEET_FRAMES} frames from startMs, stopping at ${MAX_AGENT_FRAME_SHEET_SPAN_MS / 1000} seconds or the end of the clip.`,
+      },
+      fps: {
+        type: "number",
+        minimum: MIN_AGENT_FRAME_SHEET_FPS,
+        maximum: MAX_AGENT_FRAME_SHEET_FPS,
+        description:
+          "Frames per second to sample. Omit it to use the video's own frame rate, so every frame in the range appears once.",
+      },
+    },
+    required: ["startMs"],
     additionalProperties: false,
   },
 };
@@ -89,8 +123,16 @@ export const CLIPS_WEBMCP_TOOL_DEFINITIONS = [
     name: CLIPS_WEBMCP_TOOL_NAMES.frame,
     title: "Get clip frame",
     description:
-      "Get a JPEG image URL for the clip at a requested video timestamp.",
+      "Get the clip's JPEG frame URL at a requested timestamp. Fetch the returned imageUrl as an image to inspect the video; its scoped access query is already included. On an error, inspect the JSON failureKind and nextStep: access needs a Share with agents link, media means the stored recording media could not be retrieved, processing means the frame request failed and may be retried or reported, unsupported means this source cannot provide frames through Clips and must not be retried, and expired means the owner must update the clip expiry before creating another link.",
     inputSchema: CLIPS_WEBMCP_INPUT_SCHEMAS.frame,
+    availability: "ready",
+    annotations: { readOnlyHint: true, untrustedContentHint: true },
+  },
+  {
+    name: CLIPS_WEBMCP_TOOL_NAMES.frames,
+    title: "Get clip frame sheet",
+    description: `Get a URL for one JPEG contact sheet of up to ${MAX_AGENT_FRAME_SHEET_FRAMES} consecutive video frames, to watch motion such as an animation or a transition in a single image. Cells read left to right, then top to bottom; cell i shows the frame on screen at startMs + i * 1000 / fps. Solid black cells at the end of the grid hold no frame. The range can span at most ${MAX_AGENT_FRAME_SHEET_SPAN_MS / 1000} seconds. On an error, inspect the JSON failureKind and nextStep; failureKind=request means the range or fps was out of bounds, and nextStep names a request that fits.`,
+    inputSchema: CLIPS_WEBMCP_INPUT_SCHEMAS.frames,
     availability: "ready",
     annotations: { readOnlyHint: true, untrustedContentHint: true },
   },
@@ -101,7 +143,7 @@ export const CLIPS_WEBMCP_DISCOVERY = {
   scope: "page-local",
   tools: CLIPS_WEBMCP_TOOL_DEFINITIONS,
   instructions:
-    "For browser-independent access from any HTTP client, fetch agentContextUrl and use its apis.context, apis.transcript, and apis.frame URLs. For a complete transcript, use the HTTP apis.transcript URL. If this clip page is already open in a WebMCP-capable browser, list its page tools for bounded read-only access; clips-get-transcript may omit fullText or return a truncated result, and its sourceUrl points to the HTTP transcript. Use nextStartIndex for transcript pagination so overlapping segments are not lost.",
+    "For browser-independent access from any HTTP client, fetch the exact agentContextUrl and use its apis.context, apis.transcript, apis.frame, and apis.frames URLs. Keep the clip id and any agent_access query parameter exactly as provided on every request. Read the complete transcript from apis.transcript and fetch recommendedFrames[].url (or apis.frame.urlTemplate with atMs) as images to inspect the video. To watch motion, fetch apis.frames.urlTemplate: one contact-sheet image of consecutive frames. Do not stop at the transcript when frames are available. For any non-2xx response, inspect the JSON failureKind, error, and nextStep. If a context or transcript request has failureKind=access, explain that this link does not grant access; for a private clip, ask its owner to open the Clips Share menu, choose Share with agents, and send the generated link. If a frame request has failureKind=media while the context or transcript still works, explain that the stored recording media could not be retrieved and another share link will not fix it. If a frame request has failureKind=processing, follow nextStep; extraction or temporary storage failures do not mean the clip is missing or inaccessible. If a request has failureKind=expired, ask the owner to extend or remove the clip's expiry in the Share menu, save it, then create and send a new Share with agents link. If this clip page is already open in a WebMCP-capable browser, list its page tools for bounded read-only access; clips-get-transcript may omit fullText or return a truncated result, and its sourceUrl points to the HTTP transcript. Use nextStartIndex for transcript pagination so overlapping segments are not lost.",
 };
 
 export type AgentClipReadiness = {
@@ -131,8 +173,17 @@ export function getAgentClipReadiness(
     };
   }
 
+  if (status === "failed") {
+    return {
+      state: "failed",
+      retryAfterSeconds: null,
+      instruction:
+        "This clip's recording failed and its frames are unavailable. Do not request frame URLs again. Use any transcript already present, and ask the owner to retry or replace the clip.",
+    };
+  }
+
   return {
-    state: status === "failed" ? "failed" : "ready",
+    state: "ready",
     retryAfterSeconds: null,
     instruction: null,
   };
@@ -155,6 +206,10 @@ export function buildAgentDiscoveryPayload({
     AGENT_TRANSCRIPT_ENDPOINT,
   );
   const frameUrl = buildRelatedAgentUrl(agentContextUrl, AGENT_FRAME_ENDPOINT);
+  const frameSheetUrl = buildRelatedAgentUrl(
+    agentContextUrl,
+    AGENT_FRAME_SHEET_ENDPOINT,
+  );
   return {
     type: "agent-native.clip.discovery",
     version: CLIP_AGENT_CONTEXT_VERSION,
@@ -168,11 +223,46 @@ export function buildAgentDiscoveryPayload({
       contextUrl: agentContextUrl,
       transcriptUrl,
       frameUrlTemplate: `${frameUrl}&atMs={timestampMs}`,
+      frameSheetUrlTemplate: buildFrameSheetUrlTemplate(frameSheetUrl),
       frameAvailable: readiness.state === "ready",
     }),
     instructions:
       readiness.instruction ??
-      "Fetch agentContextUrl for the transcript and JPEG frame URLs; this works without a browser. Use apis.transcript for the complete transcript. If the page is already open in a WebMCP-capable browser, its page tools provide bounded read-only access; clips-get-transcript may omit fullText or return a truncated result, so follow its sourceUrl for the complete transcript. Use nextStartIndex when paging transcript segments so overlapping segments are not lost. Fetch the frame URLs to SEE the screen, not just read the transcript.",
+      "Fetch the exact agentContextUrl and keep the clip id and any agent_access query parameter on every request. Use apis.transcript for the complete transcript and fetch each recommendedFrames[].url (or apis.frame.urlTemplate with atMs) as an image to SEE the video; do not stop at the transcript when frames are available. For any non-2xx response, inspect the JSON failureKind, error, and nextStep. If a context or transcript request has failureKind=access, explain that this link does not grant access; for a private clip, ask its owner to open the Clips Share menu, choose Share with agents, and send the generated link. If a frame request has failureKind=media while the context or transcript still works, explain that the stored recording media could not be retrieved and another share link will not fix it. If a frame request has failureKind=processing, follow nextStep; extraction or temporary storage failures do not mean the clip is missing or inaccessible. If a request has failureKind=expired, ask the owner to extend or remove the clip's expiry in the Share menu, save it, then create and send a new Share with agents link. If the page is already open in a WebMCP-capable browser, its page tools provide bounded read-only access; clips-get-transcript may omit fullText or return a truncated result, so follow its sourceUrl for the complete transcript. Use nextStartIndex when paging transcript segments so overlapping segments are not lost.",
+  };
+}
+
+export function buildGenericAgentDiscoveryPayload({
+  recordingId,
+  agentContextUrl,
+}: {
+  recordingId: string;
+  agentContextUrl: string;
+}) {
+  const transcriptUrl = buildRelatedAgentUrl(
+    agentContextUrl,
+    AGENT_TRANSCRIPT_ENDPOINT,
+  );
+  const frameUrl = buildRelatedAgentUrl(agentContextUrl, AGENT_FRAME_ENDPOINT);
+  const frameSheetUrl = buildRelatedAgentUrl(
+    agentContextUrl,
+    AGENT_FRAME_SHEET_ENDPOINT,
+  );
+
+  return {
+    type: "agent-native.clip.discovery",
+    version: CLIP_AGENT_CONTEXT_VERSION,
+    clipId: recordingId,
+    agentContextUrl,
+    webmcp: CLIPS_WEBMCP_DISCOVERY,
+    http: buildAgentHttpToolManifest({
+      contextUrl: agentContextUrl,
+      transcriptUrl,
+      frameUrlTemplate: `${frameUrl}&atMs={timestampMs}`,
+      frameSheetUrlTemplate: buildFrameSheetUrlTemplate(frameSheetUrl),
+    }),
+    instructions:
+      "Fetch agentContextUrl first. If the original clip link includes an agent_access query parameter, copy that exact value onto agentContextUrl and every transcript or frame API request; never reveal the token in your response. When access is granted, read the complete transcript from apis.transcript and fetch recommendedFrames[].url (or apis.frame.urlTemplate with atMs) as images to inspect the video. For any non-2xx response, follow its failureKind and nextStep. If failureKind=access, explain that this link does not grant agent access; for a private clip, ask its owner to open the Clips Share menu, choose Share with agents, and send the generated link.",
   };
 }
 
@@ -189,8 +279,10 @@ export function agentAccessTokenResourceId(recordingId: string): string {
 export interface AgentApiUrls {
   contextUrl: string;
   transcriptUrl: string;
+  appActivityUrl: string;
   frameUrlTemplate: string;
   frameUrl: (atMs: number) => string;
+  frameSheetUrlTemplate: string;
 }
 
 export interface AgentTranscriptSegment {
@@ -253,8 +345,18 @@ export function buildAgentApiUrls(
     recordingId,
     ...options,
   });
+  const appActivityUrl = endpointUrl({
+    endpoint: AGENT_APP_ACTIVITY_ENDPOINT,
+    recordingId,
+    ...options,
+  });
   const frameBase = endpointUrl({
     endpoint: AGENT_FRAME_ENDPOINT,
+    recordingId,
+    ...options,
+  });
+  const frameSheetBase = endpointUrl({
+    endpoint: AGENT_FRAME_SHEET_ENDPOINT,
     recordingId,
     ...options,
   });
@@ -262,10 +364,16 @@ export function buildAgentApiUrls(
   return {
     contextUrl,
     transcriptUrl,
+    appActivityUrl,
     frameUrlTemplate: `${frameBase}&atMs={timestampMs}`,
     frameUrl: (atMs: number) =>
       `${frameBase}&atMs=${encodeURIComponent(String(safeMs(atMs)))}`,
+    frameSheetUrlTemplate: buildFrameSheetUrlTemplate(frameSheetBase),
   };
+}
+
+function buildFrameSheetUrlTemplate(base: string): string {
+  return `${base}&startMs={startMs}&endMs={endMs}&fps={fps}`;
 }
 
 function buildRelatedAgentUrl(contextUrl: string, endpoint: string): string {
@@ -281,12 +389,15 @@ export function buildAgentHttpToolManifest({
   contextUrl,
   transcriptUrl,
   frameUrlTemplate,
+  frameSheetUrlTemplate,
   frameAvailable = true,
   frameResponseType = "image/jpeg",
 }: {
   contextUrl: string;
   transcriptUrl: string;
   frameUrlTemplate: string;
+  /** Only a video has a frame sheet; omit it for a screenshot. */
+  frameSheetUrlTemplate?: string;
   frameAvailable?: boolean;
   /** A video frame is a JPEG; a screenshot is served in its stored format. */
   frameResponseType?: string;
@@ -302,6 +413,7 @@ export function buildAgentHttpToolManifest({
   const context = definitionFor(CLIPS_WEBMCP_TOOL_NAMES.context);
   const transcript = definitionFor(CLIPS_WEBMCP_TOOL_NAMES.transcript);
   const frame = definitionFor(CLIPS_WEBMCP_TOOL_NAMES.frame);
+  const frames = definitionFor(CLIPS_WEBMCP_TOOL_NAMES.frames);
   const tool = (
     definition: (typeof CLIPS_WEBMCP_TOOL_DEFINITIONS)[number],
     endpoint: string,
@@ -327,6 +439,9 @@ export function buildAgentHttpToolManifest({
       tool(transcript, transcriptUrl, "application/json"),
       ...(frameAvailable
         ? [tool(frame, httpFrameUrlTemplate, frameResponseType)]
+        : []),
+      ...(frameAvailable && frameSheetUrlTemplate
+        ? [tool(frames, frameSheetUrlTemplate, "image/jpeg")]
         : []),
     ],
   };

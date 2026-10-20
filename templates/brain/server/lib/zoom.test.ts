@@ -4,9 +4,10 @@ import {
   ZoomHttpError,
   downloadZoomTranscript,
   fetchZoomAccessToken,
+  getZoomMeetingRecordings,
   hasProcessingTranscript,
+  listZoomAccountRecordings,
   listZoomRecordings,
-  listZoomUserIds,
   nextZoomCursorFrom,
   normalizeZoomRecording,
   parseZoomVtt,
@@ -47,7 +48,139 @@ function jsonResponse(body: unknown, init: ResponseInit = {}) {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+describe("Zoom timeout diagnostics", () => {
+  const requests = [
+    {
+      name: "OAuth",
+      step: "token request",
+      bodyMethod: "json" as const,
+      run: () =>
+        fetchZoomAccessToken({
+          accountId: "private-account",
+          clientId: "private-client",
+          clientSecret: "private-secret",
+        }),
+    },
+    {
+      name: "account recording list",
+      step: "recording list",
+      bodyMethod: "json" as const,
+      run: () =>
+        listZoomAccountRecordings("private-token", "2026-10-19", "2026-10-20"),
+    },
+    {
+      name: "user recording list",
+      step: "recording list",
+      bodyMethod: "json" as const,
+      run: () =>
+        listZoomRecordings(
+          "private-token",
+          "private-user",
+          "2026-10-19",
+          "2026-10-20",
+        ),
+    },
+    {
+      name: "meeting recording lookup",
+      step: "meeting recording lookup",
+      bodyMethod: "json" as const,
+      run: () => getZoomMeetingRecordings("private-token", "private-meeting"),
+    },
+    {
+      name: "transcript download",
+      step: "transcript download",
+      bodyMethod: "text" as const,
+      run: () =>
+        downloadZoomTranscript(
+          "private-token",
+          "https://zoom.us/rec/download/private-recording?access_token=private-token",
+        ),
+    },
+  ];
+
+  it.each(requests)(
+    "labels $name timeouts before headers",
+    async ({ step, run }) => {
+      vi.spyOn(performance, "now")
+        .mockReturnValueOnce(500)
+        .mockReturnValue(30_625);
+      const timeout = vi.spyOn(AbortSignal, "timeout");
+      const fetchMock = vi
+        .fn()
+        .mockRejectedValue(
+          new DOMException("private request details", "TimeoutError"),
+        );
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(run()).rejects.toMatchObject({
+        message: `Zoom ${step} timed out after 30125 ms (limit 30000 ms).`,
+      });
+      expect(timeout).toHaveBeenCalledWith(30_000);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each(requests)(
+    "labels $name timeouts while reading the response body",
+    async ({ step, bodyMethod, run }) => {
+      const controller = new AbortController();
+      vi.spyOn(AbortSignal, "timeout").mockReturnValue(controller.signal);
+      vi.spyOn(performance, "now")
+        .mockReturnValueOnce(500)
+        .mockReturnValue(30_625);
+      const response = jsonResponse({});
+      vi.spyOn(response, bodyMethod).mockImplementation(async () => {
+        controller.abort(new DOMException("request timed out", "TimeoutError"));
+        throw new DOMException("private response details", "AbortError");
+      });
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+
+      await expect(run()).rejects.toMatchObject({
+        message: `Zoom ${step} timed out after 30125 ms (limit 30000 ms).`,
+      });
+    },
+  );
+
+  it.each(requests)("preserves non-timeout $name failures", async ({ run }) => {
+    const failure = new TypeError("fetch failed");
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(failure));
+
+    await expect(run()).rejects.toBe(failure);
+  });
+
+  it("labels a timeout on a transcript redirect without exposing the CDN URL", async () => {
+    vi.spyOn(performance, "now")
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(500)
+      .mockReturnValue(30_625);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 302,
+          headers: { location: "https://cdn.example.test/private-transcript" },
+        }),
+      )
+      .mockRejectedValueOnce(
+        new DOMException("private CDN details", "TimeoutError"),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      downloadZoomTranscript(
+        "private-token",
+        "https://zoom.us/rec/download/private-recording",
+      ),
+    ).rejects.toMatchObject({
+      message:
+        "Zoom transcript download timed out after 30125 ms (limit 30000 ms).",
+    });
+    expect(fetchMock.mock.calls[1][1].headers).toEqual({});
+  });
 });
 
 describe("parseZoomVtt", () => {
@@ -144,6 +277,40 @@ describe("downloadZoomTranscript", () => {
       "https://cdn.example.test/file.vtt",
     );
     expect(fetchMock.mock.calls[1][1].headers).toEqual({});
+  });
+});
+
+describe("listZoomAccountRecordings", () => {
+  it("lists every account recording from the account endpoint", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          meetings: [{ ...meeting, uuid: "first" }],
+          next_page_token: "page-2",
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ meetings: [{ ...meeting, uuid: "second" }] }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const onPage = vi.fn(async () => undefined);
+    const meetings = await listZoomAccountRecordings(
+      "token",
+      "2026-09-01",
+      "2026-09-08",
+      onPage,
+    );
+
+    expect(meetings.map((item) => item.uuid)).toEqual(["first", "second"]);
+    const firstUrl = new URL(fetchMock.mock.calls[0][0]);
+    expect(firstUrl.pathname).toBe("/v2/accounts/me/recordings");
+    expect(onPage).toHaveBeenCalledTimes(2);
+    expect(firstUrl.searchParams.get("from")).toBe("2026-09-01");
+    expect(firstUrl.searchParams.get("to")).toBe("2026-09-08");
+    const secondUrl = new URL(fetchMock.mock.calls[1][0]);
+    expect(secondUrl.searchParams.get("next_page_token")).toBe("page-2");
   });
 });
 
@@ -314,24 +481,43 @@ describe("Zoom error detail", () => {
     );
   });
 
-  it("names the user-list step and the missing scope", async () => {
+  it("tells the admin to use a Server-to-Server OAuth app on unsupported_grant_type", () => {
+    const error = new ZoomHttpError(
+      400,
+      null,
+      "token request",
+      "unsupported_grant_type",
+      "The application does not support account_credentials",
+    );
+
+    expect(error.message).toContain(
+      "not from a Zoom Server-to-Server OAuth app",
+    );
+    expect(error.message).toContain("ZOOM_CLIENT_SECRET");
+  });
+
+  it("names the recording-list step and the missing scope", async () => {
+    const scope = "cloud_recording:read:list_account_recordings:admin";
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
         new Response(
           JSON.stringify({
             code: 4711,
-            message:
-              "Invalid access token, does not contain scopes:[user:read:list_users:admin].",
+            message: `Invalid access token, does not contain scopes:[${scope}].`,
           }),
           { status: 400 },
         ),
       ),
     );
-    const error = await listZoomUserIds("token").catch((err: unknown) => err);
+    const error = await listZoomAccountRecordings(
+      "token",
+      "2026-09-01",
+      "2026-09-08",
+    ).catch((err: unknown) => err);
     expect((error as Error).message).toContain(
-      "Zoom user list failed with status 400 (code 4711)",
+      "Zoom recording list failed with status 400 (code 4711)",
     );
-    expect((error as Error).message).toContain("user:read:list_users:admin");
+    expect((error as Error).message).toContain(scope);
   });
 });

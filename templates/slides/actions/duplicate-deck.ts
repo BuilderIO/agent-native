@@ -10,6 +10,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { repairDeckSlideReferences } from "../shared/slide-ids.js";
 import { getDeckUrl } from "./_app-url.js";
+import { trackDeckCreated } from "./_deck-tracking.js";
 
 export default defineAction({
   description:
@@ -41,7 +42,7 @@ export default defineAction({
     destructiveHint: false,
     openWorldHint: false,
   },
-  run: async ({ deckId, title, newId: clientNewId, slideIds }) => {
+  run: async ({ deckId, title, newId: clientNewId, slideIds }, ctx) => {
     const access = await resolveAccess("deck", deckId);
     if (!access) throw new Error(`Deck not found: ${deckId}`);
 
@@ -88,6 +89,16 @@ export default defineAction({
       })(),
       orgId: getRequestOrgId() || null,
     });
+
+    trackDeckCreated(
+      newId,
+      {
+        creationMethod: "duplicate",
+        purpose: "direct",
+        slideCount: (deckData.slides || []).length,
+      },
+      ctx,
+    );
 
     return {
       id: newId,

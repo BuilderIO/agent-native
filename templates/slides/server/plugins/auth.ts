@@ -1,12 +1,13 @@
-import { createAuthPlugin } from "@agent-native/core/server";
+import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
 
 import { DECK_AGENT_CONTEXT_ENDPOINT } from "../../shared/agent-readable.js";
 
-export default createAuthPlugin({
+export default createToolkitAuthPlugin({
   workspaceAppPublicPaths: ["/"],
   marketing: {
     appName: "Slides",
-    learnMoreUrl: "https://agent-native.com/apps/slides",
+    learnMoreUrl:
+      "https://agent-native.com/apps/slides?utm_source=app&utm_medium=product&utm_content=onboarding-learn-more",
     tagline:
       "Your AI agent builds, edits, and refines presentations alongside you.",
     features: [

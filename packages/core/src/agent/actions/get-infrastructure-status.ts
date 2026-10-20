@@ -18,6 +18,7 @@ export default defineAction({
   schema: z.object({}),
   http: { method: "GET" },
   readOnly: true,
+  persistInBrowser: false,
   // The database host and deploy layout are not for sandboxed extensions.
   toolCallable: false,
   run: async (_args, ctx): Promise<InfrastructureStatus> => {

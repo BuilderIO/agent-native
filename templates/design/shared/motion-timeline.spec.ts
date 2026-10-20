@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { compile } from "./motion-compiler";
+import { motionEaseVariableToken } from "./motion-easing";
 import {
   MOTION_DEFAULT_PLAYBACK_MODE,
   MOTION_KEYFRAME_TIME_EPSILON,
@@ -11,6 +12,9 @@ import {
   createMotionTrackFromPreset,
   evaluateMotionEase,
   getMotionTrackTiming,
+  hasPreviousMotionKeyframe,
+  motionTimelineDurationForContent,
+  motionTimelineDurationForTracks,
   hasTrackFor,
   lerpMotionValues,
   parseMotionPlaybackMode,
@@ -22,6 +26,8 @@ import {
   staggerLayerTracks,
   timelineTimeToTrackTime,
   upsertMotionKeyframeAtTime,
+  withMotionTrackIds,
+  withMotionTrackIdsFromExisting,
   withTimelinePlaybackMode,
   type MotionKeyframe,
   type MotionTimeline,
@@ -29,6 +35,15 @@ import {
 } from "./motion-timeline";
 
 describe("createMotionTrack", () => {
+  it("assigns each newly created track a stable unique id", () => {
+    const first = createMotionTrack("node-1", "opacity");
+    const second = createMotionTrack("node-1", "opacity");
+
+    expect(first.id).toMatch(/^[A-Za-z0-9_-]{1,128}$/);
+    expect(second.id).toMatch(/^[A-Za-z0-9_-]{1,128}$/);
+    expect(first.id).not.toBe(second.id);
+  });
+
   it("seeds exactly two keyframes at t=0 and t=1", () => {
     const track = createMotionTrack("node-1", "opacity", {
       from: "0",
@@ -67,6 +82,99 @@ describe("createMotionTrack", () => {
   });
 });
 
+describe("withMotionTrackIds", () => {
+  it("assigns deterministic legacy ids without colliding with explicit ids", () => {
+    const tracks: MotionTrack[] = [
+      {
+        targetNodeId: "node-1",
+        property: "opacity",
+        keyframes: [{ t: 0, value: "0" }],
+      },
+      {
+        id: "legacy-track-0",
+        targetNodeId: "node-1",
+        property: "opacity",
+        keyframes: [{ t: 1, value: "1" }],
+      },
+    ];
+
+    const first = withMotionTrackIds(tracks);
+    const second = withMotionTrackIds(tracks);
+
+    expect(first.map((track) => track.id)).toEqual(
+      second.map((track) => track.id),
+    );
+    expect(first[0]?.id).not.toBe("legacy-track-0");
+    expect(first[1]?.id).toBe("legacy-track-0");
+  });
+
+  it("keeps merged legacy tracks uniquely addressable when their ids collide", () => {
+    const tracks: MotionTrack[] = [
+      {
+        id: "legacy-track-0",
+        targetNodeId: "node-1",
+        property: "opacity",
+        keyframes: [{ t: 0, value: "0" }],
+      },
+      {
+        id: "legacy-track-0",
+        targetNodeId: "node-1",
+        property: "text:opacity",
+        keyframes: [{ t: 0, value: "0" }],
+      },
+    ];
+
+    const first = withMotionTrackIds(tracks);
+    const second = withMotionTrackIds(tracks);
+
+    expect(first.map((track) => track.id)).toEqual([
+      "legacy-track-0",
+      "legacy-track-0-1",
+    ]);
+    expect(second.map((track) => track.id)).toEqual(
+      first.map((track) => track.id),
+    );
+  });
+});
+
+describe("withMotionTrackIdsFromExisting", () => {
+  it("preserves matching source ids for callers that omit them", () => {
+    const existingTracks: MotionTrack[] = [
+      {
+        id: "stable-opacity-a",
+        targetNodeId: "node-1",
+        property: "opacity",
+        keyframes: [{ t: 0, value: "0" }],
+      },
+      {
+        id: "stable-opacity-b",
+        targetNodeId: "node-1",
+        property: "opacity",
+        keyframes: [{ t: 1, value: "1" }],
+      },
+    ];
+    const requestedTracks: MotionTrack[] = [
+      {
+        id: "stable-opacity-b",
+        targetNodeId: "node-1",
+        property: "opacity",
+        keyframes: [{ t: 0.5, value: "0.5" }],
+      },
+      {
+        targetNodeId: "node-1",
+        property: "opacity",
+        keyframes: [{ t: 0.75, value: "0.75" }],
+      },
+    ];
+
+    expect(
+      withMotionTrackIdsFromExisting(requestedTracks, existingTracks).map(
+        (track) => track.id,
+      ),
+    ).toEqual(["stable-opacity-b", "stable-opacity-a"]);
+  });
+});
+
 describe("createMotionTrackFromPreset", () => {
   it("forwards the preset property + from/to into the track", () => {
     const preset = MOTION_PROPERTY_PRESETS.find((p) => p.label === "Position");
@@ -78,7 +186,7 @@ describe("createMotionTrackFromPreset", () => {
     expect(track.keyframes[1].value).toBe("0px 0px");
   });
 
-  it("matches Figma Motion's Add-motion submenu verbatim", () => {
+  it("lists primary and additional motion properties", () => {
     const primary = MOTION_PROPERTY_PRESETS.filter(
       (p) => p.group === "primary",
     ).map((p) => p.label);
@@ -294,9 +402,33 @@ describe("evaluateMotionEase", () => {
     expect(evaluateMotionEase("bouncy-nonsense", 0.4)).toBeCloseTo(0.4, 6);
     expect(evaluateMotionEase(undefined, 0.4)).not.toBeNaN();
   });
+
+  it("resolves named variables for preview sampling and rejects missing references", () => {
+    const easingVariables = [
+      {
+        id: "ease-in",
+        name: "Ease in",
+        value: "cubic-bezier(0.42, 0, 1, 1)",
+      },
+    ];
+    const reference = motionEaseVariableToken("ease-in");
+    expect(evaluateMotionEase(reference, 0.25, easingVariables)).toBeCloseTo(
+      evaluateMotionEase(easingVariables[0]!.value, 0.25),
+      6,
+    );
+    expect(() => evaluateMotionEase(reference, 0.25)).toThrow(/not defined/);
+  });
 });
 
 describe("sampleMotionKeyframesAt", () => {
+  it("holds the value of a single keyframe across the track", () => {
+    const keyframes: MotionKeyframe[] = [{ t: 0, value: "0.5" }];
+
+    expect(sampleMotionKeyframesAt(keyframes, 0)).toBe("0.5");
+    expect(sampleMotionKeyframesAt(keyframes, 0.5)).toBe("0.5");
+    expect(sampleMotionKeyframesAt(keyframes, 1)).toBe("0.5");
+  });
+
   it("lerps plain numeric values linearly", () => {
     const keyframes: MotionKeyframe[] = [
       { t: 0, value: "0", ease: "linear" },
@@ -321,6 +453,48 @@ describe("sampleMotionKeyframesAt", () => {
     expect(sampleMotionKeyframesAt(keyframes, 0.9)).toBe("0");
   });
 
+  it("samples variable-backed easing for keyframes and tracks", () => {
+    const easingVariables = [
+      {
+        id: "ease-in",
+        name: "Ease in",
+        value: "cubic-bezier(0.42, 0, 1, 1)",
+      },
+    ];
+    const ease = motionEaseVariableToken("ease-in");
+    const keyframes: MotionKeyframe[] = [
+      { t: 0, value: "0", ease },
+      { t: 1, value: "1" },
+    ];
+    const sample = sampleMotionKeyframesAt(
+      keyframes,
+      0.25,
+      undefined,
+      easingVariables,
+    );
+    expect(Number(sample)).toBeCloseTo(
+      evaluateMotionEase(easingVariables[0]!.value, 0.25),
+      4,
+    );
+
+    const track: MotionTrack = {
+      targetNodeId: "n",
+      property: "opacity",
+      keyframes,
+    };
+    expect(
+      Number(
+        sampleMotionTrackAtTimelineTime(
+          track,
+          250,
+          1000,
+          undefined,
+          easingVariables,
+        ),
+      ),
+    ).toBeCloseTo(Number(sample), 6);
+  });
+
   it("clamps outside the keyframe range and handles unsorted input", () => {
     const keyframes: MotionKeyframe[] = [
       { t: 1, value: "1", ease: "linear" },
@@ -338,6 +512,50 @@ describe("sampleMotionKeyframesAt", () => {
       { t: 1, value: "block", ease: "linear" },
     ];
     expect(sampleMotionKeyframesAt(keyframes, 0.4)).toBe("none");
+  });
+
+  it("samples cubic Position geometry by arc length while retaining temporal ease", () => {
+    const keyframes: MotionKeyframe[] = [
+      {
+        t: 0,
+        value: "0px 0px",
+        ease: "linear",
+        motionPath: {
+          version: 1,
+          type: "cubic",
+          control1: { x: 0, y: 100 },
+          control2: { x: 0, y: 100 },
+        },
+      },
+      { t: 1, value: "100px 0px", ease: "linear" },
+    ];
+
+    expect(sampleMotionKeyframesAt(keyframes, 0.5)).toBe("50px 75px");
+    expect(
+      sampleMotionKeyframesAt(
+        [{ ...keyframes[0]!, ease: "step-start" }, keyframes[1]!],
+        0.5,
+      ),
+    ).toBe("100px 0px");
+  });
+
+  it("rejects unsupported Position units when a spatial path is present", () => {
+    const keyframes: MotionKeyframe[] = [
+      {
+        t: 0,
+        value: "0% 0px",
+        motionPath: {
+          version: 1,
+          type: "cubic",
+          control1: { x: 0, y: 10 },
+          control2: { x: 0, y: 10 },
+        },
+      },
+      { t: 1, value: "100px 0px" },
+    ];
+    expect(() => sampleMotionKeyframesAt(keyframes, 0.5)).toThrow(
+      /finite two-dimensional px keyframes/,
+    );
   });
 
   it("lerps hex colors channel-wise", () => {
@@ -394,6 +612,53 @@ describe("getMotionTrackTiming / timelineTimeToTrackTime", () => {
     expect(timelineTimeToTrackTime(track, 1500, 2000)).toBe(1);
     expect(timelineTimeToTrackTime(track, 0, 2000)).toBe(0);
     expect(timelineTimeToTrackTime(track, 2000, 2000)).toBe(1);
+  });
+
+  it("detects only keyframes earlier than the current timeline time", () => {
+    const track = {
+      targetNodeId: "hero",
+      property: "translate",
+      delayMs: 500,
+      durationMs: 1000,
+      keyframes: [
+        { t: 0, value: "0px 16px" },
+        { t: 1, value: "0px 0px" },
+      ],
+    };
+    expect(hasPreviousMotionKeyframe(track, 500, 2000)).toBe(false);
+    expect(hasPreviousMotionKeyframe(track, 502, 2000)).toBe(false);
+    expect(hasPreviousMotionKeyframe(track, 1500, 2000)).toBe(true);
+    expect(hasPreviousMotionKeyframe(track, 1501, 2000)).toBe(true);
+  });
+
+  it("extends the timeline when a track span would outlast it", () => {
+    const track = { delayMs: 300, durationMs: 900 };
+    expect(motionTimelineDurationForTracks(1000, [track])).toBe(1200);
+    expect(getMotionTrackTiming(track, 1200)).toEqual({
+      startMs: 300,
+      durationMs: 900,
+      endMs: 1200,
+    });
+  });
+
+  it("uses the remaining timeline span when duration is omitted", () => {
+    const track = { delayMs: 300 };
+    expect(getMotionTrackTiming(track, 1000)).toEqual({
+      startMs: 300,
+      durationMs: 700,
+      endMs: 1000,
+    });
+    expect(motionTimelineDurationForContent(1000, [track])).toBe(1000);
+  });
+
+  it("extends the timeline to include a delayed text animation", () => {
+    expect(
+      motionTimelineDurationForContent(
+        1000,
+        [],
+        [{ delayMs: 250, durationMs: 900 }],
+      ),
+    ).toBe(1150);
   });
 
   it("samples an offset track at absolute timeline times", () => {
@@ -531,6 +796,50 @@ describe("applyMotionAutoKeyframe", () => {
       }),
     ).toBeNull();
   });
+
+  it("requires an id to keyframe one of several tracks with the same property", () => {
+    const tracks: MotionTrack[] = [
+      {
+        id: "opacity-first",
+        targetNodeId: "hero",
+        property: "opacity",
+        keyframes: [
+          { t: 0, value: "0" },
+          { t: 1, value: "0.5" },
+        ],
+      },
+      {
+        id: "opacity-second",
+        targetNodeId: "hero",
+        property: "opacity",
+        keyframes: [
+          { t: 0, value: "0.5" },
+          { t: 1, value: "1" },
+        ],
+      },
+    ];
+
+    expect(
+      applyMotionAutoKeyframe(tracks, {
+        targetNodeId: "hero",
+        property: "opacity",
+        value: "0.75",
+        playheadT: 0.5,
+        timelineDurationMs: 2000,
+      }),
+    ).toBeNull();
+    const next = applyMotionAutoKeyframe(tracks, {
+      targetNodeId: "hero",
+      property: "opacity",
+      trackId: "opacity-second",
+      value: "0.75",
+      playheadT: 0.5,
+      timelineDurationMs: 2000,
+    });
+
+    expect(next?.[0]?.keyframes).toEqual(tracks[0]?.keyframes);
+    expect(next?.[1]?.keyframes).toContainEqual({ t: 0.5, value: "0.75" });
+  });
 });
 
 describe("copyLayerAnimation / pasteLayerAnimation / staggerLayerTracks", () => {
@@ -586,6 +895,8 @@ describe("copyLayerAnimation / pasteLayerAnimation / staggerLayerTracks", () => 
       bTracks.find((t) => t.property === "opacity")!.keyframes[0].value,
     ).toBe("0");
     expect(bTracks.find((t) => t.property === "translate")!.delayMs).toBe(200);
+    expect(bTracks.every((track) => track.id)).toBe(true);
+    expect(new Set(bTracks.map((track) => track.id)).size).toBe(2);
     expect(readTimelinePlaybackMode(pasted)).toBe("loop");
   });
 

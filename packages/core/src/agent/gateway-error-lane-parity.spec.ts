@@ -193,6 +193,20 @@ const FAILURES: GatewayFailure[] = [
     expect: { isRetryableError: true },
   },
   {
+    label: "in-stream no-detail overloaded_error",
+    response: () =>
+      jsonlResponse([
+        { type: "stop", reason: "error", code: "overloaded_error" },
+      ]),
+    expect: {
+      isRetryableError: true,
+      isResumableEngineError: true,
+      isTransientProviderRateLimitError: true,
+      continuationReasonForResumableError: "rate_limited",
+      isRecoverableContinuationError: true,
+    },
+  },
+  {
     label: "in-stream unknown stop reason",
     response: () =>
       jsonlResponse([{ type: "stop", reason: "provider_exploded" }]),
@@ -320,6 +334,9 @@ async function runLane(
     type: "error" as const,
     error: stop.error ?? "",
     ...(stop.errorCode ? { errorCode: stop.errorCode } : {}),
+    ...(stop.providerRetryable !== undefined
+      ? { providerRetryable: stop.providerRetryable }
+      : {}),
   };
   const input: ClassifierInput = { engineError, errorEvent };
 

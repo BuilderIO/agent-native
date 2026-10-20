@@ -14,22 +14,33 @@ import {
   finalizeContrastAudit,
 } from "../shared/contrast-audit.js";
 import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
+import {
+  projectRenderingDesignSystemData,
+  readDeckLinkedDesignSystem,
+} from "./_linked-design-system.js";
 import { getCurrentRequestBrowserTabId } from "./_tab-state.js";
 
 const AUDIT_TIMEOUT_MS = 60_000;
 
 export default defineAction({
   description:
-    "Check text color contrast on every slide of a deck against WCAG AA, using axe-core in the user's open editor tab. " +
+    "Check text color contrast against WCAG AA on the given slideIds, or on every slide when omitted, using axe-core in the user's open editor tab. " +
     "Requires the deck to be open in the Slides editor. Returns failures (measured vs required ratio, colors, objectId), " +
     "unverified text that could not be measured (text over images, gradients, blend modes, or filters; text over overlapping solid shapes is measured), and skipped slides. " +
-    "Only claim the deck passes when canClaimContrastPasses is true; report unverified and skipped slides as not checked.",
+    "Only claim the deck passes when canClaimContrastPasses is true (whole deck audited, no findings). A slideIds audit can only support canClaimRequestedSlidesPass, for those slides alone. Report unverified and skipped slides as not checked.",
   schema: z.object({
     deckId: z.string().describe("Deck ID"),
+    slideIds: z
+      .array(z.string())
+      .min(1)
+      .optional()
+      .describe(
+        "Audit only these slides, such as the ones this turn created or changed. Omit to audit the whole deck.",
+      ),
   }),
   http: false,
   readOnly: true,
-  run: async ({ deckId }) => {
+  run: async ({ deckId, slideIds }) => {
     const access = await resolveAccess("deck", deckId);
     if (!access) {
       fail(`Deck not found: ${deckId}`, {
@@ -54,15 +65,39 @@ export default defineAction({
     };
     const designSystemId = resolveDeckDesignSystemId(access.resource, data);
     const designSystemAccess = designSystemId
-      ? await resolveAccess("design-system", designSystemId)
+      ? await readDeckLinkedDesignSystem(access.resource, designSystemId)
       : null;
-    const request = buildContrastAuditRequest(deckId, {
-      designSystemId,
-      designSystemData: designSystemAccess?.resource.data ?? null,
-      tweaks: data.tweaks,
-      aspectRatio: data.aspectRatio,
-      slides: Array.isArray(data.slides) ? data.slides : [],
-    });
+    const slides = Array.isArray(data.slides) ? data.slides : [];
+    const requestedSlideIds = slideIds ? new Set(slideIds) : undefined;
+    const unknownSlideIds = slideIds?.filter(
+      (id) => !slides.some((slide) => slide.id === id),
+    );
+    if (unknownSlideIds?.length) {
+      fail(
+        `Slides not found in deck ${deckId}: ${unknownSlideIds.join(", ")}`,
+        {
+          errorCode: "slide_not_found",
+          statusCode: 404,
+        },
+      );
+    }
+    const request = buildContrastAuditRequest(
+      deckId,
+      {
+        designSystemId,
+        // The client renders what get-design-system returned, so the render
+        // key must hash the same projection a deck-only reader receives.
+        designSystemData: designSystemAccess
+          ? designSystemAccess.viaDeck
+            ? projectRenderingDesignSystemData(designSystemAccess.resource.data)
+            : (designSystemAccess.resource.data ?? null)
+          : null,
+        tweaks: data.tweaks,
+        aspectRatio: data.aspectRatio,
+        slides,
+      },
+      requestedSlideIds ? (id) => requestedSlideIds.has(id) : undefined,
+    );
 
     const sessions = (await listBrowserSessions(ownerEmail)).filter(
       (session) =>

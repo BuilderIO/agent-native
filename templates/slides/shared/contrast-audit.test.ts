@@ -104,4 +104,29 @@ describe("finalizeContrastAudit", () => {
       ),
     ).toThrow("unknown slide");
   });
+
+  it("audits only requested slides and keeps their deck numbers", () => {
+    const scoped = buildContrastAuditRequest(
+      "deck-1",
+      { designSystemId: "ds-1", slides: [{ id: "a" }, { id: "b" }] },
+      (id) => id === "b",
+    );
+    const report = finalizeContrastAudit(scoped, {
+      ...browserResult({ failures: [failure] }),
+      renderKey: scoped.renderKey,
+      audited: scoped.slides,
+    });
+
+    expect(scoped.slides.map((slide) => slide.id)).toEqual(["b"]);
+    expect(report.failures).toEqual([{ ...failure, slideNumber: 2 }]);
+  });
+});
+
+describe("scoped audits", () => {
+  it("cannot claim a deck-wide pass when only some slides were requested", () => {
+    const scoped = { ...request, slides: [request.slides[0]] };
+    const report = finalizeContrastAudit(scoped, browserResult());
+    expect(report.canClaimRequestedSlidesPass).toBe(true);
+    expect(report.canClaimContrastPasses).toBe(false);
+  });
 });

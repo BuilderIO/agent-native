@@ -9,7 +9,7 @@ description: "Cron 調度提示代理自行執行 - 每日摘要、每週報告�
 
 <Callout tone="info">
 
-**Recurring Jobs** 是 **Scheduled** 自動化的舊稱。**Automations** 是 **Scheduled** 和 **Event** 的總稱。`jobs/` 和 `manage-jobs` 為舊 schedule-only 整合保留。新的個人或組織工作（包括模型和 MCP 允許清單）請使用 `manage-automations` 和 `/agent#jobs` 中的 **Automations**。
+**Recurring Jobs** 是 **Scheduled** 自動化的舊稱。**Automations** 是 **Scheduled** 和 **Event** 的總稱。`jobs/` 和 `manage-jobs` 為舊 schedule-only 整合保留。新的個人或組織工作（包括模型和 MCP 允許清單）請使用 `manage-automations` 和 **Settings › Automations**。
 
 </Callout>
 
@@ -105,6 +105,10 @@ mcpTools:
 
 ## 建立作業 {#creating}
 
+### 從 Automations 介面
+
+開啟 **Settings › Automations**，然後建立一個 **Scheduled** 自動化。舊的 `/agent#jobs` 連結會重新導向到該頁面。
+
 ### 從“代理資源”分頁
 
 `+` → **代理資源面板中的計畫工作**。填寫提示和時間表。另存為 `jobs/<slug>.md` 並在下一個匹配的刻度處開始執行。
@@ -135,15 +139,24 @@ Summarize overnight emails.`,
 
 ## 調度程式如何執行 {#how-scheduler-runs}
 
-調度程式是一個在行程中執行的框架外掛（內部 `processRecurringJobs()` 例程）：無論伺服器在何處執行，代理聊天外掛內的 `setInterval` 每 60 秒觸發一次（有 10 秒的啟動延遲）。
+在每個調度週期中，調度程式（內部 `processRecurringJobs()` 例程）會找出到期的作業並執行它們。由什麼觸發調度週期，取決於應用程式在哪裡執行：
 
-<Diagram id="doc-block-ixllnx" title={"一個調度程式勾選"} summary={"每 60 秒，調度程式就會找到到期的作業，將每個作業作為新的代理對話串執行，並將結果寫回作業檔案。"}>
+| 託管環境                                                         | 觸發調度週期的機制                                     | 需求與限制                                                                          |
+| ---------------------------------------------------------------- | ------------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| 長時間執行的伺服器（Node.js、Docker、Fly、Render、VPS）          | 行程內計時器，每 60 秒一次，啟動 10 秒後開始           | 只要行程在執行就會運作。                                                            |
+| [Netlify](/docs/netlify)                                         | 建置產生的排程 function，每分鐘一次                    | 僅限已發佈的部署，Deploy Previews 和分支部署中永遠不會執行。建置需要 `A2A_SECRET`。 |
+| [Vercel](/docs/vercel#vercel-scheduled-work)                     | 建置新增的 Vercel cron 工作，預設每分鐘一次            | 僅限正式環境部署。需要 `CRON_SECRET`。Hobby 專案最多每天執行一次。                  |
+| [Cloudflare Workers](/docs/cloudflare#cloudflare-scheduled-work) | 建置新增到 `wrangler.json` 的 Cron Trigger，每分鐘一次 | 需要將 `A2A_SECRET` 設定為 Worker 密鑰。                                            |
+| AWS Lambda                                                       | 無                                                     | 排程自動化不會觸發。                                                                |
+| 本機開發                                                         | 無，除非你主動啟用                                     | 請參閱下方的提示框。                                                                |
+
+在 Netlify、Vercel 和 Cloudflare 上，同一個調度週期還會處理佇列中的事件觸發自動化、清理 function 被中途切斷的執行，並執行應用程式本身的掃描工作，例如 Mail 的稍後提醒和排程傳送。沒有觸發器的無伺服器部署則完全沒有這些處理：事件觸發自動化會一直在佇列中等待，被中斷的執行也會一直卡住。Webhook 觸發的自動化和 **Run now** 會自行分派，因此仍然可以正常運作。當某個部署無法觸發排程時，**Automations** 頁面會明確提示並說明原因。
+
+<Diagram id="doc-block-ixllnx" title={"一個調度程式勾選"} summary={"在每個調度週期中，調度程式會找出到期的作業，然後讓它們經過與事件自動化相同的背景執行生命週期。"}>
 
 ```html
 <div class="sched">
-  <div class="diagram-box accent">
-    <code>setInterval</code> &bull; 60s &#8635;
-  </div>
+  <div class="diagram-box accent">調度週期 &bull; 每分鐘 &#8635;</div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
   <div class="diagram-card">
     <span class="diagram-pill">1 &middot; scan</span
@@ -200,14 +213,26 @@ Summarize overnight emails.`,
 
 <Callout id="doc-block-j6yn07" tone="risk">
 
-**Scale-to-zero caveat.** The scheduler is in-process, so on serverless hosts jobs only fire while an instance is warm. If reliable scheduling matters, keep an instance warm with keep-alive pings or use an always-on host (Fly, Render, a VPS).
+**喚醒中的執行個體不會執行排程。** 無伺服器託管環境從不啟動行程內計時器，因此 keep-alive ping 無法讓作業觸發，只有上表中的平台觸發器才能做到。AWS Lambda 目前沒有任何機制觸發它們，因此請改在長時間執行的託管環境（Fly、Render、VPS）上執行排程自動化。
+
+</Callout>
+
+<Callout id="doc-block-rj2" tone="warning">
+
+**本機開發中預設停用。** 當 `NODE_ENV` 為 `development` 或 `test`，或應用程式 URL 指向 `localhost` / `127.0.0.1` / `*.localhost` 時，調度程式的 `setInterval` 迴圈永遠不會啟動——這涵蓋了大多數本機開發環境。設定 `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS=1` 即可照樣在本機執行調度程式。若要在任何託管環境中關閉排程作業，請使用下文介紹的 `AGENT_NATIVE_DISABLE_RECURRING_JOBS=1`。
+
+</Callout>
+
+<Callout id="doc-block-rj3" tone="warning">
+
+**`AGENT_NATIVE_DISABLE_RECURRING_JOBS` 會在兩個範圍中讀取。** 在 Netlify、Vercel 和 Cloudflare 上，由**建置**環境決定：平台觸發器會繼續觸發，以處理佇列中的事件自動化並清理執行，但開啟此開關的建置會略過排程作業，無論已部署環境如何設定。在長時間執行的伺服器上，由**執行時期**環境控制行程內計時器。請在你的託管環境讀取它的地方設定它。建置會記錄這項決定，因此 **Automations** 頁面可以明確說明排程永遠不會執行，而不是顯示一個不會被遵守的下次執行時間。
 
 </Callout>
 
 ## 偵錯作業 {#debugging}
 
-- 在代理資源中開啟 `jobs/<name>.md` — frontmatter 顯示 `lastRun`、`lastStatus`、`lastError`、`nextRun`。
-- **無需等待即可測試：**沒有強制發射工具。要按需執行相同的工作，可以將作業的提示貼上到代理聊天中並讓它在那裡執行，或者暫時將計畫設定為下一分鐘，以便調度程式在下一個時間點上選取它（然後恢復真正的 cron）。
+- 在 **Settings › Automations** 中開啟該自動化的詳細資料，或在代理資源中檢查 `jobs/<name>.md` — frontmatter 顯示 `lastRun`、`lastStatus`、`lastError`、`nextRun`。
+- **無需等待即可測試：**在 **Settings › Automations** 中點選 **Run now**，或讓代理執行它（`manage-automations` 搭配 `action=run-now`）。作業的提示會立即執行並產生真實的副作用，`nextRun` 不會改變。例外情況是框架暫停的作業：成功的執行會重新開啟它並重新計算 `nextRun`。Run now 不必等待調度週期，因此在 localhost 上不設定 `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS` 也能使用，在沒有調度觸發器的託管環境中同樣可用。
 - **暫停：**翻轉`enabled: false`。檔案保持不變，只是停止執行。
 
 ## 代理工具 {#agent-tool}
@@ -227,7 +252,7 @@ Summarize overnight emails.`,
 
 不要將重複性作業與 `@agent-native/scheduling` 混淆：
 
-- **重複作業（本頁面）** — cron 計畫*提示*代理在背景執行。框架層級。住在代理資源。在任何 Agent-Native 應用程式上執行。
+- **重複作業（本頁面）** — cron 計畫*提示*代理在背景執行。框架層級。住在代理資源。在任何具備調度程式的託管環境中觸發（請參閱 [調度程式如何執行](#how-scheduler-runs)）。
 - **`@agent-native/scheduling`** — 用於建置行事曆/預訂功能（事件型別、可用視窗、預訂）的可重用域包。為 `calendar` 範本和自訂調度介面提供支援。
 
 重複性工作是“如何讓代理自行行動？”日程安排包是“如何建置行事曆應用程式？”不同的關注點。

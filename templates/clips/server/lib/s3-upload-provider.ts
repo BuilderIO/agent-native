@@ -9,8 +9,10 @@ import {
 } from "@agent-native/core/private-blob";
 import { readAppSecret } from "@agent-native/core/secrets";
 import {
+  getAppConfig,
   getRequestOrgId,
   prefetchSecrets,
+  resolveClipsHostedStorageConfig,
   resolveSecret,
 } from "@agent-native/core/server";
 
@@ -309,6 +311,32 @@ async function readS3Config(): Promise<S3Config | null> {
   });
 }
 
+function readHostedClipS3Config(): S3Config | null {
+  const hostedStorage = getAppConfig().clips.hostedStorage;
+  // The flag gates new grants, while pinned hosted recordings still need their
+  // bucket credentials for playback, deletion, and uploads already in flight.
+  const config = resolveClipsHostedStorageConfig({
+    ...hostedStorage,
+    enabled: true,
+  });
+  if (!config) return null;
+  return buildS3Config({
+    bucket: config.bucket,
+    accessKeyId: config.accessKeyId,
+    secretAccessKey: config.secretAccessKey,
+    endpoint: config.endpoint,
+    region: config.region,
+  });
+}
+
+type ClipsS3StorageMode = "own" | "hosted";
+
+function readS3ConfigForMode(
+  mode: ClipsS3StorageMode,
+): Promise<S3Config | null> | S3Config | null {
+  return mode === "hosted" ? readHostedClipS3Config() : readS3Config();
+}
+
 async function resolveOrganizationLogoS3Secret(
   organizationId: string,
   primary: string,
@@ -526,9 +554,6 @@ async function signedS3Request(
       headers: {
         ...headers,
         Authorization: authorization,
-        ...(options.body
-          ? { "Content-Length": String(options.body.byteLength) }
-          : {}),
       },
       ...(options.body
         ? {
@@ -969,20 +994,47 @@ async function verifyCompletedMultipartObject(
   return Number.isSafeInteger(contentLength) && contentLength === expectedBytes;
 }
 
-export async function deleteS3ObjectByUrl(url: string): Promise<boolean> {
-  const cfg = await readS3Config();
+export async function deleteS3ObjectByUrl(
+  url: string,
+  options: { storageMode?: ClipsS3StorageMode; recordingId?: string } = {},
+): Promise<boolean> {
+  const storageMode = options.storageMode ?? "own";
+  const cfg = await readS3ConfigForMode(storageMode);
   if (!cfg) return false;
   const key = objectKeyFromUrl(cfg, url);
   if (!key) return false;
+  if (
+    storageMode === "hosted" &&
+    (!options.recordingId ||
+      !isCompletedClipObjectKey(key) ||
+      !isRecordingObjectKey(key, options.recordingId))
+  ) {
+    return false;
+  }
   await deleteObject(cfg, key);
   return true;
+}
+
+/**
+ * Whether a URL points inside the configured bucket at all. `false` means an
+ * external URL (e.g. an imported Loom thumbnail) that no bucket call can serve
+ * or delete; `null` means storage is not configured, so ownership is unknown.
+ */
+export async function isUrlInS3Storage(
+  url: string,
+  options: { storageMode?: ClipsS3StorageMode } = {},
+): Promise<boolean | null> {
+  const cfg = await readS3ConfigForMode(options.storageMode ?? "own");
+  if (!cfg) return null;
+  return objectKeyFromUrl(cfg, url) !== null;
 }
 
 export async function isS3ObjectUrlBoundToRecording(
   url: string,
   recordingId: string,
+  options: { storageMode?: ClipsS3StorageMode } = {},
 ): Promise<boolean | null> {
-  const cfg = await readS3Config();
+  const cfg = await readS3ConfigForMode(options.storageMode ?? "own");
   if (!cfg) return null;
   const key = objectKeyFromUrl(cfg, url);
   if (!key) return null;
@@ -998,9 +1050,10 @@ export async function fetchS3ObjectByUrl(
     timeoutMs?: number;
     recordingId: string;
     allowLegacyObjectKey?: boolean;
+    storageMode?: ClipsS3StorageMode;
   },
 ): Promise<Response | null> {
-  const cfg = await readS3Config();
+  const cfg = await readS3ConfigForMode(options.storageMode ?? "own");
   if (!cfg) return null;
   const key = objectKeyFromUrl(cfg, url);
   if (
@@ -1019,232 +1072,283 @@ export async function fetchS3ObjectByUrl(
   });
 }
 
-export const s3FileUploadProvider: FileUploadProvider = {
-  id: "s3",
-  name: "S3-compatible storage",
-  // Clips reads objects back through signed requests (`fetchS3ObjectByUrl`),
-  // so storage settings can leave the public base URL blank.
-  publicBaseUrlOptional: true,
-  isConfigured: () => readS3EnvConfig() !== null,
-  isConfiguredForRequest: async () => (await readS3Config()) !== null,
-  upload: async ({ data, filename, mimeType }) => {
-    const cfg = await readS3Config();
-    if (!cfg) throw new Error("S3 credentials are not configured");
+/**
+ * Stored size of a recording-bound object, or null when it cannot be read: an
+ * object that is already gone is "unknown", not zero, so a retry never
+ * refunds bytes twice.
+ */
+export async function s3ObjectSizeBytesByUrl(
+  url: string,
+  options: { recordingId: string; storageMode?: ClipsS3StorageMode },
+): Promise<number | null> {
+  const response = await fetchS3ObjectByUrl(url, {
+    ...options,
+    range: "bytes=0-0",
+  });
+  if (!response) return null;
+  await cancelS3ResponseBody(response);
+  const total =
+    response.status === 206
+      ? Number(response.headers.get("content-range")?.match(/\/(\d+)$/)?.[1])
+      : response.status === 200
+        ? Number(response.headers.get("content-length"))
+        : Number.NaN;
+  return Number.isSafeInteger(total) && total >= 0 ? total : null;
+}
 
-    const ext = filename?.split(".").pop() ?? "bin";
-    const basename = filename?.slice(0, -(ext.length + 1)) || "file";
-    const safeBasename = safeClipFilename(basename);
-    const stamp = Date.now();
-    const rand = Math.random().toString(36).slice(2, 10);
-    const objectKey = `clips/${safeBasename}/${stamp}-${rand}.${ext}`;
-    const contentType = mimeType || "application/octet-stream";
-
-    const bytes =
-      data instanceof Uint8Array
-        ? data
-        : new Uint8Array(data as unknown as ArrayBuffer);
-
-    const publicUrl = await putObject(cfg, objectKey, bytes, contentType);
-    return { url: publicUrl, provider: "s3" };
-  },
-  resumable: {
-    async startSession(filename, mimeType, maxBytes) {
-      const cfg = await readS3Config();
+function createS3FileUploadProvider(
+  storageMode: ClipsS3StorageMode,
+): FileUploadProvider {
+  const id = storageMode === "hosted" ? "clips-hosted" : "s3";
+  const name =
+    storageMode === "hosted" ? "Clips hosted storage" : "S3-compatible storage";
+  return {
+    id,
+    name,
+    // Clips reads objects back through signed requests (`fetchS3ObjectByUrl`),
+    // so storage settings can leave the public base URL blank.
+    publicBaseUrlOptional: true,
+    isConfigured: () =>
+      storageMode === "hosted"
+        ? readHostedClipS3Config() !== null
+        : readS3EnvConfig() !== null,
+    isConfiguredForRequest: async () =>
+      (await readS3ConfigForMode(storageMode)) !== null,
+    upload: async ({ data, filename, mimeType }) => {
+      const cfg = await readS3ConfigForMode(storageMode);
       if (!cfg) throw new Error("S3 credentials are not configured");
 
-      const safeFilename = safeClipFilename(filename);
-      if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
-        throw new Error("S3 resumable upload requires a positive byte limit");
-      }
-      const objectKey = `clips/${safeFilename}`;
-      const stagingKey = `clips/.multipart/${safeFilename}.pending`;
-      const res = await signedS3Request(cfg, objectKey, {
-        method: "POST",
-        query: { uploads: "" },
-        contentType: mimeType,
-        timeoutMs: S3_PUT_TIMEOUT_MS,
-      });
-      const body = await res.text().catch(() => "");
-      if (!res.ok) {
-        throw new S3MultipartStartError(res.status);
-      }
-      const uploadId = xmlElement(body, "UploadId");
-      if (!uploadId) {
-        throw new Error("S3 CreateMultipartUpload did not return an UploadId");
-      }
-      return {
-        sessionId: uploadId,
-        meta: {
-          objectKey,
-          stagingKey,
-          mimeType,
-          maxBytes,
-          pendingBytes: 0,
-          parts: [],
-        },
-      };
+      const ext = filename?.split(".").pop() ?? "bin";
+      const basename = filename?.slice(0, -(ext.length + 1)) || "file";
+      const safeBasename = safeClipFilename(basename);
+      const stamp = Date.now();
+      const rand = Math.random().toString(36).slice(2, 10);
+      const objectKey = `clips/${safeBasename}/${stamp}-${rand}.${ext}`;
+      const contentType = mimeType || "application/octet-stream";
+
+      const bytes =
+        data instanceof Uint8Array
+          ? data
+          : new Uint8Array(data as unknown as ArrayBuffer);
+
+      const publicUrl = await putObject(cfg, objectKey, bytes, contentType);
+      return { url: publicUrl, provider: id };
     },
+    resumable: {
+      async startSession(filename, mimeType, maxBytes) {
+        const cfg = await readS3ConfigForMode(storageMode);
+        if (!cfg) throw new Error("S3 credentials are not configured");
 
-    async relayChunk(session, contentRange, bytes) {
-      const cfg = await readS3Config();
-      if (!cfg) throw new Error("S3 credentials are not configured");
-      const meta = readMultipartMeta(session.meta);
-      const isFinal = !contentRange.endsWith("/*");
-      const rangeEnd = contentRangeEndExclusive(contentRange);
-      if (rangeEnd === null) {
-        throw new Error(
-          "S3 resumable upload received an invalid Content-Range",
-        );
-      }
-      if (rangeEnd > meta.maxBytes) {
-        throw new Error(
-          `S3 resumable upload exceeds its ${meta.maxBytes} byte limit`,
-        );
-      }
-
-      let pending: Uint8Array = new Uint8Array(0);
-      if (meta.pendingBytes > 0) {
-        pending = await getObject(cfg, meta.stagingKey);
-        if (pending.byteLength !== meta.pendingBytes) {
+        const safeFilename = safeClipFilename(filename);
+        if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
+          throw new Error("S3 resumable upload requires a positive byte limit");
+        }
+        const objectKey = `clips/${safeFilename}`;
+        const stagingKey = `clips/.multipart/${safeFilename}.pending`;
+        const res = await signedS3Request(cfg, objectKey, {
+          method: "POST",
+          query: { uploads: "" },
+          contentType: mimeType,
+          timeoutMs: S3_PUT_TIMEOUT_MS,
+        });
+        const body = await res.text();
+        if (!res.ok) {
+          throw new S3MultipartStartError(res.status);
+        }
+        const uploadId = xmlElement(body, "UploadId");
+        if (!uploadId) {
           throw new Error(
-            `S3 resumable staging object has ${pending.byteLength} bytes; expected ${meta.pendingBytes}`,
+            "S3 CreateMultipartUpload did not return an UploadId",
           );
         }
-      }
-      const combined = concatBytes(pending, bytes);
+        return {
+          sessionId: uploadId,
+          meta: {
+            objectKey,
+            stagingKey,
+            mimeType,
+            maxBytes,
+            pendingBytes: 0,
+            parts: [],
+          },
+        };
+      },
 
-      if (combined.byteLength === 0) {
-        return { ok: true, status: 200 };
-      }
+      async relayChunk(session, contentRange, bytes) {
+        const cfg = await readS3ConfigForMode(storageMode);
+        if (!cfg) throw new Error("S3 credentials are not configured");
+        const meta = readMultipartMeta(session.meta);
+        const isFinal = !contentRange.endsWith("/*");
+        const rangeEnd = contentRangeEndExclusive(contentRange);
+        if (rangeEnd === null) {
+          throw new Error(
+            "S3 resumable upload received an invalid Content-Range",
+          );
+        }
+        if (rangeEnd > meta.maxBytes) {
+          throw new Error(
+            `S3 resumable upload exceeds its ${meta.maxBytes} byte limit`,
+          );
+        }
 
-      if (!isFinal && combined.byteLength < S3_MULTIPART_MIN_PART_BYTES) {
-        await putObject(cfg, meta.stagingKey, combined, meta.mimeType);
+        let pending: Uint8Array = new Uint8Array(0);
+        if (meta.pendingBytes > 0) {
+          pending = await getObject(cfg, meta.stagingKey);
+          if (pending.byteLength !== meta.pendingBytes) {
+            throw new Error(
+              `S3 resumable staging object has ${pending.byteLength} bytes; expected ${meta.pendingBytes}`,
+            );
+          }
+        }
+        const combined = concatBytes(pending, bytes);
+
+        if (combined.byteLength === 0) {
+          return { ok: true, status: 200 };
+        }
+
+        if (!isFinal && combined.byteLength < S3_MULTIPART_MIN_PART_BYTES) {
+          await putObject(cfg, meta.stagingKey, combined, meta.mimeType);
+          return {
+            ok: true,
+            status: 200,
+            updatedMeta: { pendingBytes: combined.byteLength },
+          };
+        }
+
+        const part = await uploadMultipartPart(
+          cfg,
+          session.sessionId,
+          meta,
+          combined,
+        );
         return {
           ok: true,
           status: 200,
-          updatedMeta: { pendingBytes: combined.byteLength },
+          updatedMeta: {
+            pendingBytes: 0,
+            parts: [...meta.parts, part],
+          },
         };
-      }
+      },
 
-      const part = await uploadMultipartPart(
-        cfg,
-        session.sessionId,
-        meta,
-        combined,
-      );
-      return {
-        ok: true,
-        status: 200,
-        updatedMeta: {
-          pendingBytes: 0,
-          parts: [...meta.parts, part],
-        },
-      };
-    },
-
-    async completeSession(session) {
-      const cfg = await readS3Config();
-      if (!cfg) throw new Error("S3 credentials are not configured");
-      const meta = readMultipartMeta(session.meta);
-      if (meta.pendingBytes > 0) {
-        throw new Error(
-          "S3 multipart upload still has an uncommitted final part",
-        );
-      }
-      if (meta.parts.length === 0) {
-        throw new Error("Cannot complete an empty S3 multipart upload");
-      }
-      const manifest =
-        "<CompleteMultipartUpload>" +
-        meta.parts
-          .map(
-            (part) =>
-              `<Part><PartNumber>${part.partNumber}</PartNumber><ETag>${xmlEscape(part.etag)}</ETag></Part>`,
-          )
-          .join("") +
-        "</CompleteMultipartUpload>";
-      // CompleteMultipartUpload is not idempotent; retries verify the deterministic object instead.
-      let res: Response;
-      try {
-        res = await signedS3Request(cfg, meta.objectKey, {
-          method: "POST",
-          query: { uploadId: session.sessionId },
-          body: new TextEncoder().encode(manifest),
-          contentType: "application/xml",
-          timeoutMs: S3_PUT_TIMEOUT_MS,
-        });
-      } catch (error) {
+      async completeSession(session) {
+        const cfg = await readS3ConfigForMode(storageMode);
+        if (!cfg) throw new Error("S3 credentials are not configured");
+        const meta = readMultipartMeta(session.meta);
+        if (meta.pendingBytes > 0) {
+          throw new Error(
+            "S3 multipart upload still has an uncommitted final part",
+          );
+        }
+        if (meta.parts.length === 0) {
+          throw new Error("Cannot complete an empty S3 multipart upload");
+        }
+        const manifest =
+          "<CompleteMultipartUpload>" +
+          meta.parts
+            .map(
+              (part) =>
+                `<Part><PartNumber>${part.partNumber}</PartNumber><ETag>${xmlEscape(part.etag)}</ETag></Part>`,
+            )
+            .join("") +
+          "</CompleteMultipartUpload>";
+        // CompleteMultipartUpload is not idempotent; retries verify the deterministic object instead.
+        // A lost response body is as ambiguous as a failed request: S3 may have completed.
+        let res: Response;
+        let body: string;
         try {
-          if (await verifyCompletedMultipartObject(cfg, meta)) {
-            await deleteObject(cfg, meta.stagingKey).catch((cleanupError) => {
+          res = await signedS3Request(cfg, meta.objectKey, {
+            method: "POST",
+            query: { uploadId: session.sessionId },
+            body: new TextEncoder().encode(manifest),
+            contentType: "application/xml",
+            timeoutMs: S3_PUT_TIMEOUT_MS,
+          });
+          body = await res.text();
+        } catch (error) {
+          try {
+            if (await verifyCompletedMultipartObject(cfg, meta)) {
+              await deleteObject(cfg, meta.stagingKey).catch((cleanupError) => {
+                console.warn(
+                  "[s3-upload] failed to delete multipart staging object:",
+                  cleanupError instanceof Error
+                    ? cleanupError.message
+                    : String(cleanupError),
+                );
+              });
+              return publicObjectUrl(cfg, meta.objectKey);
+            }
+          } catch (verificationError) {
+            console.warn(
+              "[s3-upload] completion reconciliation failed:",
+              verificationError,
+            );
+          }
+          throw new Error(
+            `S3 CompleteMultipartUpload failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+        if (!res.ok || /<Error(?:\s|>)/.test(body)) {
+          if (
+            xmlElement(body, "Code") === "NoSuchUpload" &&
+            (await verifyCompletedMultipartObject(cfg, meta))
+          ) {
+            await deleteObject(cfg, meta.stagingKey).catch((err) => {
               console.warn(
                 "[s3-upload] failed to delete multipart staging object:",
-                cleanupError instanceof Error
-                  ? cleanupError.message
-                  : String(cleanupError),
+                err instanceof Error ? err.message : String(err),
               );
             });
             return publicObjectUrl(cfg, meta.objectKey);
           }
-        } catch (verificationError) {
-          console.warn(
-            "[s3-upload] completion reconciliation failed:",
-            verificationError,
+          throw new Error(
+            `S3 CompleteMultipartUpload failed (${res.status}): ${body || res.statusText}`,
           );
         }
-        throw new Error(
-          `S3 CompleteMultipartUpload failed: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      }
-      const body = await res.text().catch(() => "");
-      if (!res.ok || /<Error(?:\s|>)/.test(body)) {
+        await deleteObject(cfg, meta.stagingKey).catch((err) => {
+          console.warn(
+            "[s3-upload] failed to delete multipart staging object:",
+            err instanceof Error ? err.message : String(err),
+          );
+        });
+        return publicObjectUrl(cfg, meta.objectKey);
+      },
+
+      async abortSession(session) {
+        const cfg = await readS3ConfigForMode(storageMode);
+        if (!cfg) throw new Error("S3 credentials are not configured");
+        const meta = readMultipartMeta(session.meta);
+        const abortRes = await signedS3Request(cfg, meta.objectKey, {
+          method: "DELETE",
+          query: { uploadId: session.sessionId },
+          timeoutMs: S3_DELETE_TIMEOUT_MS,
+        });
+        if (!abortRes.ok && abortRes.status !== 404) {
+          const body = await abortRes.text();
+          throw new Error(
+            `S3 AbortMultipartUpload failed (${abortRes.status}): ${body || abortRes.statusText}`,
+          );
+        }
+        await cancelS3ResponseBody(abortRes);
+        // A 404 also means CompleteMultipartUpload already consumed this
+        // session; its object then sits at the deterministic key, unlinked.
         if (
-          xmlElement(body, "Code") === "NoSuchUpload" &&
+          abortRes.status === 404 &&
           (await verifyCompletedMultipartObject(cfg, meta))
         ) {
-          await deleteObject(cfg, meta.stagingKey).catch((err) => {
-            console.warn(
-              "[s3-upload] failed to delete multipart staging object:",
-              err instanceof Error ? err.message : String(err),
-            );
-          });
-          return publicObjectUrl(cfg, meta.objectKey);
+          await deleteObject(cfg, meta.objectKey);
         }
-        throw new Error(
-          `S3 CompleteMultipartUpload failed (${res.status}): ${body || res.statusText}`,
-        );
-      }
-      await deleteObject(cfg, meta.stagingKey).catch((err) => {
-        console.warn(
-          "[s3-upload] failed to delete multipart staging object:",
-          err instanceof Error ? err.message : String(err),
-        );
-      });
-      return publicObjectUrl(cfg, meta.objectKey);
+        await deleteObject(cfg, meta.stagingKey).catch((err) => {
+          console.warn(
+            "[s3-upload] failed to delete aborted multipart staging object:",
+            err instanceof Error ? err.message : String(err),
+          );
+        });
+      },
     },
+  };
+}
 
-    async abortSession(session) {
-      const cfg = await readS3Config();
-      if (!cfg) throw new Error("S3 credentials are not configured");
-      const meta = readMultipartMeta(session.meta);
-      const abortRes = await signedS3Request(cfg, meta.objectKey, {
-        method: "DELETE",
-        query: { uploadId: session.sessionId },
-        timeoutMs: S3_DELETE_TIMEOUT_MS,
-      });
-      if (!abortRes.ok && abortRes.status !== 404) {
-        const body = await abortRes.text().catch(() => "");
-        throw new Error(
-          `S3 AbortMultipartUpload failed (${abortRes.status}): ${body || abortRes.statusText}`,
-        );
-      }
-      await cancelS3ResponseBody(abortRes);
-      await deleteObject(cfg, meta.stagingKey).catch((err) => {
-        console.warn(
-          "[s3-upload] failed to delete aborted multipart staging object:",
-          err instanceof Error ? err.message : String(err),
-        );
-      });
-    },
-  },
-};
+export const s3FileUploadProvider = createS3FileUploadProvider("own");
+export const clipsHostedFileUploadProvider =
+  createS3FileUploadProvider("hosted");

@@ -16,24 +16,40 @@ describe("app layout", () => {
   it("exposes the sidebar width to editor content for responsive surfaces", () => {
     const source = readLayoutSource();
 
-    expect(source).toContain("const contentSidebarWidth = isCompactLayout");
+    expect(source).toMatch(
+      /contentSidebarWidth\s*=\s*hostOwnsChrome\s*\|\|\s*isCompactLayout/,
+    );
     expect(source).toContain('"--content-sidebar-width"');
     expect(source).toContain("sidebarCollapsed");
   });
 
-  it("uses overlay navigation through compact widths and settles it on route commit", () => {
+  it("sizes the sidebar from the shared width budget and settles overlay navigation on route commit", () => {
     const source = readLayoutSource();
 
+    expect(source).toContain("useContentShellLayout({");
     expect(source).toContain(
-      'export const COMPACT_LAYOUT_QUERY = "(max-width: 1099.98px)"',
+      'const isCompactLayout = shellLayout.sidebar === "drawer"',
     );
-    expect(source).toContain("const isCompactLayout = useIsCompactLayout()");
+    expect(source).toContain(
+      'const sidebarCollapsed = shellLayout.sidebar === "rail"',
+    );
+    expect(source).toContain(
+      "<ContentLayoutContext.Provider value={shellLayout}>",
+    );
     expect(source).toContain("{isCompactLayout ? (");
     expect(source).toContain("}, [location.key])");
+    expect(source).toContain(
+      'if (shellLayout.sidebar !== "drawer") setMobileSidebarOpen(false)',
+    );
     expect(source).toContain(
       'className="w-[85vw] max-w-80 border-sidebar-border bg-sidebar p-0 text-sidebar-foreground"',
     );
     expect(source).not.toContain("md:hidden");
+    expect(source).not.toContain("matchMedia");
+  });
+
+  it("never closes the agent panel to make room for the page", () => {
+    expect(readLayoutSource()).not.toContain("agent-panel:close");
   });
 
   it("persists the desktop sidebar collapse preference through the shared app shell", () => {
@@ -54,7 +70,7 @@ describe("app layout", () => {
     );
   });
 
-  it("uses pending document navigation for immediate sidebar and editor feedback", () => {
+  it("uses pending document navigation for immediate sidebar and created-page editor feedback", () => {
     const source = readLayoutSource();
 
     expect(source).toContain("useNavigation()");
@@ -64,8 +80,26 @@ describe("app layout", () => {
       "const activeDocumentId = pendingDocumentId ?? currentDocumentId",
     );
     expect(source).toContain("const showPendingDocumentSkeleton =");
+    expect(source).toContain("const activeDocumentWasCreated = Boolean(");
+    expect(source).toContain(
+      "const createdDocumentTransitionIdRef = useRef<string | null>(null);",
+    );
+    expect(source).toContain(
+      "activeDocumentWasCreated ||\n    createdDocumentTransitionIdRef.current === activeDocumentId",
+    );
+    expect(source).toContain(
+      "const showCurrentCreatedDocumentEditor = Boolean(",
+    );
+    expect(source).toContain(
+      "createdDocumentTransitionIdRef.current === currentDocumentId",
+    );
+    expect(source).toContain("const showDocumentTransition =");
+    expect(source).toContain("<PendingDocumentTransition");
+    expect(source).toContain("created={activeDocumentTransitionWasCreated}");
+    expect(source).toContain("if (!created) return fallback");
+    expect(source).toContain("return (\n    <DocumentEditor");
     expect(source).toMatch(
-      /<DocumentEditorSkeleton\s+title=\{pendingDocumentTitle\}\s+iconRow=\{readPageIconRowHint\(pendingDocumentId\)\}/,
+      /<DocumentEditorSkeleton\s+title=\{title\}\s+iconRow=\{readPageIconRowHint\(documentId\)\}\s+shape=\{readPageShapeHint\(documentId\)\}/,
     );
   });
 

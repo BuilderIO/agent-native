@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { uploadDesignVideoFile } from "./design-media-upload";
+import {
+  uploadDesignAudioFile,
+  uploadDesignVideoFile,
+} from "./design-media-upload";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -74,5 +77,55 @@ describe("uploadDesignVideoFile", () => {
         new File(["video"], "demo.mp4", { type: "video/mp4" }),
       ),
     ).rejects.toThrow("invalid JSON (503)");
+  });
+});
+
+describe("uploadDesignAudioFile", () => {
+  it("uploads an audio file as authenticated multipart and returns its durable URL", async () => {
+    const fetchMock = vi.fn<typeof globalThis.fetch>(
+      async () =>
+        new Response(JSON.stringify({ url: "https://cdn.example/audio.mp3" }), {
+          status: 201,
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const file = new File(["audio"], "demo.mp3", { type: "audio/mpeg" });
+
+    await expect(uploadDesignAudioFile(file)).resolves.toBe(
+      "https://cdn.example/audio.mp3",
+    );
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(url).toContain("/_agent-native/file-upload");
+    expect(init?.method).toBe("POST");
+    expect(init?.credentials).toBe("include");
+    expect(init?.body).toBeInstanceOf(FormData);
+    expect((init?.body as FormData).get("file")).toMatchObject({
+      name: file.name,
+      type: file.type,
+      size: file.size,
+    });
+  });
+
+  it("rejects non-audio files and unusable storage responses", async () => {
+    await expect(
+      uploadDesignAudioFile(
+        new File(["video"], "demo.mp4", { type: "video/mp4" }),
+      ),
+    ).rejects.toThrow("Only audio files can be uploaded.");
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ url: "blob:temporary" }), {
+            status: 201,
+          }),
+      ),
+    );
+    await expect(
+      uploadDesignAudioFile(
+        new File(["audio"], "demo.mp3", { type: "audio/mpeg" }),
+      ),
+    ).rejects.toThrow("Audio upload returned an invalid URL.");
   });
 });

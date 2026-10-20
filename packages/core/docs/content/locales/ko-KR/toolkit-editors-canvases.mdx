@@ -15,3 +15,18 @@ description: "Core 호환성, 템플릿 패턴, Toolkit 프리미티브를 혼�
 | 캔버스 표현 | Toolkit 또는 앱 조합.                                               |
 
 에디터는 `@agent-native/toolkit/editor`에서 가져옵니다. 기존 Core 경로는 호환성 재내보내기로 유지됩니다. 스키마, 명령, 저장은 앱에 둡니다. 블록은 Core에 남지만 Toolkit 섹션이 재사용 UI 카탈로그이므로 문서는 여기에 함께 둡니다.
+
+Blocks 스키마와 런타임 계약은 Core가 소유하고, 재사용 가능한 클라이언트 UI는 Toolkit이 제공합니다.
+
+## 캔버스 상호작용 및 주석
+
+Toolkit은 제스처와 단축키를 위한 headless 헬퍼와 그리기/텍스트 지시를 위한 DrawOverlay, 에이전트에 보낼 수 있는 고정 피드백을 위한 CanvasCommentPins를 제공합니다. 캔버스 모델, 렌더링, 저장 및 에이전트 컨텍스트는 앱이 소유합니다.
+
+<WireframeBlock id="doc-block-toolkit-canvas-interactions">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:500px;box-sizing:border-box;padding:24px;display:grid;grid-template-columns:1fr 250px;gap:14px'><main class='wf-card' style='display:flex;flex-direction:column;gap:12px'><div style='display:flex;align-items:center;gap:8px'><span class='wf-pill accent'>선택</span><span class='wf-pill'>그리기</span><span class='wf-pill'>댓글</span><div style='flex:1'></div><span class='wf-muted'>캔버스 컨트롤</span></div><div class='wf-box' style='position:relative;flex:1;min-height:330px;display:flex;align-items:center;justify-content:center'><div style='width:72%;height:76%;border:1px solid var(--wf-line);border-radius:10px;padding:18px;display:flex;flex-direction:column;gap:10px'><strong>캠페인 페이지</strong><div style='position:relative;height:70px;border-radius:8px;background:var(--wf-accent-soft);overflow:hidden'><span class='wf-pill accent' style='position:absolute;top:42%;left:38%'>그림 메모</span></div><div style='height:10px;width:85%;background:var(--wf-line);border-radius:4px'></div><div style='height:10px;width:65%;background:var(--wf-line);border-radius:4px'></div></div><span class='wf-pill accent' style='position:absolute;top:34%;left:61%'>1</span><span class='wf-pill accent' style='position:absolute;bottom:28%;left:41%'>2</span></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px;padding-top:26px'><strong>피드백</strong><div class='wf-box'>1 &nbsp; 이 제목을 이미지 위로 옮기세요.</div><div class='wf-box'>2 &nbsp; 이 라벨의 대비를 높이세요.</div><div style='flex:1'></div><button class='primary'><span data-icon='send'></span> 피드백 보내기</button></aside></div>"
+    }
+  />
+</WireframeBlock>

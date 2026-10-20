@@ -1,10 +1,15 @@
-import { defineAction } from "@agent-native/core/action";
+import { ActionContractError, defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import type { Visibility } from "@agent-native/core/sharing";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  assertDocumentMetadataDatabaseScope,
+  lockDocumentMetadataDatabase,
+  nextDocumentMetadataUpdatedAt,
+} from "../server/lib/document-metadata-updated-at.js";
 import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
@@ -298,15 +303,14 @@ export default defineAction({
 
     const targetParentId =
       args.parentId !== undefined ? args.parentId : existing.parentId;
-    const blockDatabaseIdToDetach =
-      args.parentId !== undefined
-        ? await preflightBlockDatabaseOwnershipClearance({
-            db,
-            documentId: id,
-            ownerEmail,
-            parentId: args.parentId,
-          })
-        : null;
+    if (args.parentId !== undefined) {
+      await preflightBlockDatabaseOwnershipClearance({
+        db,
+        documentId: id,
+        ownerEmail,
+        parentId: args.parentId,
+      });
+    }
     let normalizedSiblingPositions: Array<{
       id: string;
       position: number;
@@ -314,6 +318,68 @@ export default defineAction({
 
     const runMoveTransaction = () =>
       db.transaction(async (tx) => {
+        let blockDatabaseIdToDetach: string | null = null;
+        if (args.parentId !== undefined) {
+          const lockedDatabaseId = await lockDocumentMetadataDatabase({
+            db: tx,
+            documentId: id,
+            ownerEmail,
+          });
+          await tx
+            .select({ id: schema.documents.id })
+            .from(schema.documents)
+            .where(
+              and(
+                eq(schema.documents.id, id),
+                eq(schema.documents.ownerEmail, ownerEmail),
+              ),
+            )
+            .for("update");
+          const current = (
+            await assertDocumentMutationAccess(id, "editor", "id")
+          ).resource;
+          if (
+            current.ownerEmail !== ownerEmail ||
+            current.spaceId !== existing.spaceId ||
+            !sameRootSection(current, existing)
+          ) {
+            throw new ActionContractError(
+              "The document's move scope changed. Read it again and retry.",
+              { errorCode: "DOCUMENT_MOVE_SCOPE_CHANGED", statusCode: 409 },
+            );
+          }
+          await assertDocumentMetadataDatabaseScope({
+            db: tx,
+            documentId: id,
+            ownerEmail,
+            lockedDatabaseId,
+          });
+          blockDatabaseIdToDetach =
+            await preflightBlockDatabaseOwnershipClearance({
+              db: tx,
+              documentId: id,
+              ownerEmail,
+              parentId: args.parentId,
+            });
+          if (lockedDatabaseId !== null) {
+            updates.updatedAt = await nextDocumentMetadataUpdatedAt({
+              db: tx,
+              documentId: id,
+              ownerEmail,
+              lockedDatabaseId,
+              currentUpdatedAt: current.updatedAt,
+            });
+            await tx
+              .update(schema.contentDatabases)
+              .set({ updatedAt: updates.updatedAt as string })
+              .where(
+                and(
+                  eq(schema.contentDatabases.id, lockedDatabaseId),
+                  eq(schema.contentDatabases.ownerEmail, ownerEmail),
+                ),
+              );
+          }
+        }
         await tx
           .update(schema.documents)
           .set(updates)
@@ -329,7 +395,7 @@ export default defineAction({
             db: tx,
             databaseId: blockDatabaseIdToDetach,
             ownerEmail,
-            updatedAt,
+            updatedAt: updates.updatedAt as string,
           });
         }
 

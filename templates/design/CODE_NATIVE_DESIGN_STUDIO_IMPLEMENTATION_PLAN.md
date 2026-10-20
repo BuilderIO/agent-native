@@ -2,12 +2,12 @@
 
 ## Goal
 
-Turn the Design template into a Figma-class editor where code is the source of
+Turn the Design template into a code-native editor where code is the source of
 truth. Components, tokens, motion, states, accessibility review, branches/diffs,
 assets, shaders, and plugins should all round-trip through real source when the
 current source can safely support it.
 
-The editor should stay minimal and Figma-esque:
+The editor should stay minimal:
 
 - left pages/layers
 - central canvas
@@ -459,7 +459,7 @@ Requirements:
 ## Actions
 
 Every user-facing operation should have an action contract so the UI and agent
-stay in parity.
+stay in sync.
 
 Use `useActionQuery` / `useActionMutation` in UI. Do not create pass-through
 REST routes for normal app operations.
@@ -737,7 +737,7 @@ Exit criteria:
 
 ### Phase 3: Components For Real Apps
 
-Goal: unlock the main Figma-competitor component story where it can be true.
+Goal: support full component editing when the source mode allows it.
 
 Work:
 
@@ -926,7 +926,7 @@ Test:
 - capture state respects source capabilities
 - a11y audit returns stable findings
 
-### Agent Parity
+### Agent Workflow Verification
 
 Verify the agent can:
 
@@ -1028,7 +1028,7 @@ much unbuilt real-app plumbing.
 
 The first milestone is:
 
-> In an inline design, open the screenshot-aligned Tokens panel, edit a friendly
+> In an inline design, open the Tokens panel, edit a friendly
 > CSS variable token through the existing Tweaks path, open the Motion dock, add
 > a simple multi-layer CSS keyframe animation, preview it by scrubbing, and write
 > it into the design document with a visible proof.
@@ -1036,13 +1036,13 @@ The first milestone is:
 This proves the thesis cheaply:
 
 - visual edit becomes durable CSS/design data
-- editor shell matches the visual direction
+- editor shell presents the chosen visual direction
 - capability gates and CTAs establish honest product boundaries
 - the future real-app path is visible without blocking the first win
 
 ## Canonical Execution Order
 
-1. Capability gates and screenshot-aligned UI primitives.
+1. Capability gates and focused UI primitives.
 2. Tier-A Tokens panel on existing Tweaks/CSS-var path.
 3. Tier-A CSS-first Motion dock and inline managed keyframes.
 4. Make-it-real CTAs and Builder/fusion handoff framing.

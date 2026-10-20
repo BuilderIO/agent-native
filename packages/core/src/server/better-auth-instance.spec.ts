@@ -6,21 +6,106 @@ import { convertSetCookieToCookie, getTestInstance } from "better-auth/test";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 const mockAcceptPendingInvitationsForEmail = vi.hoisted(() => vi.fn());
+const mockLoadOptionalPeer = vi.hoisted(() => vi.fn());
 
 vi.mock("../org/accept-pending.js", () => ({
   acceptPendingInvitationsForEmail: mockAcceptPendingInvitationsForEmail,
 }));
 
+vi.mock("../shared/optional-peer.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../shared/optional-peer.js")>()),
+  loadOptionalPeer: mockLoadOptionalPeer,
+}));
+
+import { getAppConfig, resetAppConfigForTests } from "../app-config/index.js";
+import { closeDbExec, resumePgliteClientAccess } from "../db/client.js";
 import { DEPLOY_SETTINGS_REQUIRED_CODE } from "../shared/runtime-config.js";
 import {
   desktopMagicLinkLandingUrl,
   ensureGoogleAuthIdentityWithAdapter,
+  getBetterAuth,
+  getBetterAuthSync,
   getAuthSecret,
   normalizeBetterAuthInternalAdapter,
+  resetBetterAuth,
   withBetterAuthActionSession,
   type BetterAuthInternalAdapter,
 } from "./better-auth-instance.js";
 import { deriveServerSecret } from "./derived-secret.js";
+
+mockLoadOptionalPeer.mockImplementation(
+  (_packageName: string, load: () => Promise<unknown>) => load(),
+);
+
+describe("Better Auth initialization during PGlite shutdown", () => {
+  it("does not publish a pre-close instance over the replacement initialization", async () => {
+    const appRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "better-auth-pglite-close-race-"),
+    );
+    const previousCwd = process.cwd();
+    const pendingSsoLoads: Array<() => void> = [];
+    mockLoadOptionalPeer.mockImplementation(
+      (packageName: string, load: () => Promise<unknown>) => {
+        if (packageName !== "@better-auth/sso") return load();
+        return new Promise((resolve, reject) => {
+          pendingSsoLoads.push(() => {
+            void load().then(resolve, reject);
+          });
+        });
+      },
+    );
+
+    try {
+      process.chdir(appRoot);
+      vi.stubEnv("DATABASE_URL", `pglite:${path.join(appRoot, "pglite")}`);
+      vi.stubEnv("BETTER_AUTH_SECRET", "test-secret-".repeat(5));
+      vi.stubEnv("AUTH_SSO", "1");
+      resetAppConfigForTests();
+      expect(getAppConfig().access.sso.enabled).toBe(true);
+      await resetBetterAuth();
+
+      const staleInitialization = getBetterAuth();
+      await vi.waitFor(() => expect(pendingSsoLoads).toHaveLength(1), {
+        timeout: 10_000,
+      });
+
+      await closeDbExec();
+      resumePgliteClientAccess();
+
+      const currentInitialization = getBetterAuth();
+      await vi.waitFor(() => expect(pendingSsoLoads).toHaveLength(2), {
+        timeout: 10_000,
+      });
+
+      pendingSsoLoads[1]();
+      const currentAuth = await currentInitialization;
+      expect(getBetterAuthSync()).toBe(currentAuth);
+
+      pendingSsoLoads[0]();
+      await expect(staleInitialization).rejects.toThrow(
+        /initialization was invalidated before it completed/,
+      );
+      expect(getBetterAuthSync()).toBe(currentAuth);
+
+      const concurrentInitialization = getBetterAuth();
+      expect(pendingSsoLoads).toHaveLength(2);
+      await expect(concurrentInitialization).resolves.toBe(currentAuth);
+      expect(getBetterAuthSync()).toBe(currentAuth);
+    } finally {
+      await closeDbExec();
+      resumePgliteClientAccess();
+      await resetBetterAuth();
+      resetAppConfigForTests();
+      mockLoadOptionalPeer.mockReset();
+      mockLoadOptionalPeer.mockImplementation(
+        (_packageName: string, load: () => Promise<unknown>) => load(),
+      );
+      vi.unstubAllEnvs();
+      process.chdir(previousCwd);
+      fs.rmSync(appRoot, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("desktopMagicLinkLandingUrl", () => {
   it("moves only desktop verification links behind a non-consuming landing page", () => {

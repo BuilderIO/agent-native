@@ -87,6 +87,37 @@ describe("createPollEngine", () => {
     engine.stop();
   });
 
+  it("routes attempt timeouts separately when configured", async () => {
+    const onError = vi.fn();
+    const onTimeout = vi.fn();
+    const attempt = vi.fn(
+      (signal: AbortSignal) =>
+        new Promise<void>((_, reject) => {
+          signal.addEventListener("abort", () => reject(new Error("aborted")), {
+            once: true,
+          });
+        }),
+    );
+    const engine = createPollEngine(attempt, {
+      intervalMs: 1000,
+      timeoutMs: 5000,
+      onError,
+      onTimeout,
+    });
+
+    engine.start();
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(onTimeout).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "poll attempt timed out after 5000ms",
+      }),
+    );
+    expect(onError).not.toHaveBeenCalled();
+    engine.stop();
+  });
+
   it("never overlaps: pollNow() is a no-op while an attempt is in flight", async () => {
     let resolveFirst: (() => void) | undefined;
     const attempt = vi
@@ -197,6 +228,56 @@ describe("createPollEngine", () => {
     expect(seenSignal?.aborted).toBe(true);
   });
 
+  it("does not report the AbortError caused by stop()", async () => {
+    const onError = vi.fn();
+    const attempt = vi.fn(
+      (signal: AbortSignal) =>
+        new Promise<void>((_resolve, reject) => {
+          signal.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+        }),
+    );
+    const engine = createPollEngine(attempt, {
+      intervalMs: 1000,
+      onError,
+    });
+
+    engine.start();
+    await vi.advanceTimersByTimeAsync(0);
+    engine.stop();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("does not report a fetch rejection caused by stop() in WebKit", async () => {
+    const onError = vi.fn();
+    const attempt = vi.fn(
+      (signal: AbortSignal) =>
+        new Promise<void>((_resolve, reject) => {
+          signal.addEventListener(
+            "abort",
+            () => reject(new TypeError("Load failed")),
+            { once: true },
+          );
+        }),
+    );
+    const engine = createPollEngine(attempt, {
+      intervalMs: 1000,
+      onError,
+    });
+
+    engine.start();
+    await vi.advanceTimersByTimeAsync(0);
+    engine.stop();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(onError).not.toHaveBeenCalled();
+  });
+
   it("stays alive when start() lands while a stopped attempt is still settling", async () => {
     let resolveFirst: (() => void) | undefined;
     const attempt = vi
@@ -214,6 +295,45 @@ describe("createPollEngine", () => {
     engine.start();
     await vi.advanceTimersByTimeAsync(5000);
     expect(attempt).toHaveBeenCalledTimes(1);
+
+    resolveFirst?.();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(attempt).toHaveBeenCalledTimes(2);
+    engine.stop();
+  });
+
+  it("reports a restart waiting on an abort-ignoring attempt and resumes after it settles", async () => {
+    const onError = vi.fn();
+    let resolveFirst: (() => void) | undefined;
+    const attempt = vi
+      .fn()
+      .mockImplementationOnce(
+        () => new Promise<void>((resolve) => (resolveFirst = resolve)),
+      )
+      .mockResolvedValue(undefined);
+    const engine = createPollEngine(attempt, {
+      intervalMs: 1000,
+      onError,
+    });
+    engine.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(attempt).toHaveBeenCalledTimes(1);
+
+    engine.stop();
+    engine.start();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(attempt).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message:
+          "poll attempt is still in flight after stop; restart is waiting for it to settle",
+      }),
+    );
+
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(attempt).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledTimes(1);
 
     resolveFirst?.();
     await vi.advanceTimersByTimeAsync(1000);

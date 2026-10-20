@@ -31,6 +31,7 @@ export interface AutomationDetailsDialogProps {
   instructions: string;
   mcpTools: string[];
   lastError: string | null;
+  lastStatus?: string | null;
   scope: JobsScope;
   formatTimestamp: (value: number) => string;
   onClose: () => void;
@@ -44,7 +45,9 @@ function RunStatusDot({ status }: { status: string }) {
         ? "bg-destructive"
         : status === "interrupted"
           ? "bg-destructive"
-          : "bg-amber-500";
+          : status === "skipped"
+            ? "bg-muted-foreground/40"
+            : "bg-amber-500";
   return <span className={`size-1.5 shrink-0 rounded-full ${tone}`} />;
 }
 
@@ -57,6 +60,7 @@ export function AutomationDetailsDialog({
   instructions,
   mcpTools,
   lastError,
+  lastStatus,
   scope,
   formatTimestamp,
   onClose,
@@ -80,14 +84,24 @@ export function AutomationDetailsDialog({
 
         <div className="space-y-4">
           {lastError ? (
-            <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-2.5">
-              <IconAlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
+            <div
+              className={
+                lastStatus === "skipped"
+                  ? "flex items-start gap-2 rounded-md border p-2.5"
+                  : "flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-2.5"
+              }
+            >
+              {lastStatus !== "skipped" ? (
+                <IconAlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
+              ) : null}
               <div className="min-w-0">
-                <p className="text-xs font-medium text-destructive">
-                  {t("jobs.blockedTitle", {
-                    defaultValue: "This automation is not running",
-                  })}
-                </p>
+                {lastStatus !== "skipped" ? (
+                  <p className="text-xs font-medium text-destructive">
+                    {t("jobs.blockedTitle", {
+                      defaultValue: "This automation is not running",
+                    })}
+                  </p>
+                ) : null}
                 <p className="mt-0.5 max-w-prose min-w-0 whitespace-normal break-words text-xs text-muted-foreground">
                   {lastError}
                 </p>

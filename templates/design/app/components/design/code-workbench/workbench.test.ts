@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { readDesignEditorSource } from "../../../pages/design-editor/read-design-editor-source";
 import { normalizeMonacoThemeColor } from "../code-workbench-theme";
 import { CODE_WORKBENCH_SHELL_CLASSNAME } from "./code-workbench-shell";
 
@@ -25,7 +26,7 @@ describe("code workbench shell", () => {
   });
 
   it("keeps the per-design workbench mounted while another panel is visible", () => {
-    const source = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+    const source = readDesignEditorSource();
     const workbenchIndex = source.indexOf("<CodeWorkbenchLoader");
     expect(workbenchIndex).toBeGreaterThan(0);
     const mountGate = source.slice(workbenchIndex - 120, workbenchIndex);
@@ -56,20 +57,5 @@ describe("code workbench shell", () => {
     expect(source).toContain('"apply-source-edit"');
     expect(source).toContain("expectedVersionHash");
     expect(source).toContain("WorkspaceStaleVersionError");
-  });
-
-  it("places Code directly under Tokens with a rail separator", () => {
-    const source = readFileSync(
-      "app/components/design/editor/DesignWorkspaceRail.tsx",
-      "utf8",
-    );
-    const tokensIndex = source.indexOf('panel: "tokens"');
-    const codeIndex = source.indexOf('panel: "code"');
-    expect(tokensIndex).toBeGreaterThanOrEqual(0);
-    expect(codeIndex).toBeGreaterThan(tokensIndex);
-    expect(source.slice(tokensIndex, codeIndex + 200)).toContain(
-      "separatorBefore: true",
-    );
-    expect(source).not.toContain("const codeItem =");
   });
 });

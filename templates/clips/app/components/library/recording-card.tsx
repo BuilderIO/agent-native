@@ -66,6 +66,23 @@ import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 import { cn } from "@/lib/utils";
 
 import type { BulkMoveTarget } from "./bulk-action-toolbar";
+import { FolderMoveItems, type FolderMenuParts } from "./folder-move-items";
+
+const DROPDOWN_FOLDER_PARTS: FolderMenuParts = {
+  Item: DropdownMenuItem,
+  Separator: DropdownMenuSeparator,
+  Sub: DropdownMenuSub,
+  SubTrigger: DropdownMenuSubTrigger,
+  SubContent: DropdownMenuSubContent,
+};
+
+const CONTEXT_FOLDER_PARTS: FolderMenuParts = {
+  Item: ContextMenuItem,
+  Separator: ContextMenuSeparator,
+  Sub: ContextMenuSub,
+  SubTrigger: ContextMenuSubTrigger,
+  SubContent: ContextMenuSubContent,
+};
 
 function formatDuration(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
@@ -167,6 +184,12 @@ export function RecordingCard({
   const staleUpload = isStaleRecordingUpload(recording);
   const atRiskUpload = isAtRiskRecordingUpload(recording);
   const displayFailed = recording.status === "failed" || staleUpload;
+  const hostedFailureReason =
+    recording.failureCode === "global_storage_cap"
+      ? t("clipsFinalRaw.hostedStorageFull")
+      : recording.failureCode === "taken_down"
+        ? t("clipsFinalRaw.hostedRecordingTakenDown")
+        : null;
   // A screenshot has nothing to play and no length to show, so the card drops
   // the play overlay and the duration badge rather than claiming "0:00".
   const isImage = isImageRecording(recording);
@@ -174,7 +197,9 @@ export function RecordingCard({
   const failureReason = staleUpload
     ? (recording.failureReason ??
       t("recordingPage.processingStuck", { status: recording.status }))
-    : (recording.failureReason ?? t("clipsFinalRaw.removeFailedClip"));
+    : (hostedFailureReason ??
+      recording.failureReason ??
+      t("clipsFinalRaw.removeFailedClip"));
   const nativeUploadPaused =
     recording.status === "failed" &&
     /native recording|native fullscreen|screencapture|avconvert/i.test(
@@ -392,7 +417,7 @@ export function RecordingCard({
                 checked={selected}
                 onClick={handleCheckbox}
                 className={cn(
-                  "pointer-events-auto absolute start-2 top-2 z-20 size-5 rounded border-background/80 bg-foreground/25 text-background opacity-70 shadow-sm backdrop-blur-sm transition-[background-color,border-color,opacity] hover:bg-foreground/45",
+                  "pointer-events-auto absolute start-2 top-2 z-20 size-5 rounded border-ring bg-background text-foreground opacity-100 shadow-sm ring-1 ring-ring transition-[background-color,border-color,opacity] hover:bg-foreground/45",
                   selectionMode || selected
                     ? "opacity-100 sm:opacity-100"
                     : "sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100",
@@ -414,7 +439,7 @@ export function RecordingCard({
               )}
 
             {!displayFailed && !waitingForStorage && atRiskUpload && (
-              <div className="absolute inset-x-2 bottom-2 rounded-md border border-amber-500/30 bg-background/95 p-2 text-start shadow-sm backdrop-blur">
+              <div className="absolute inset-x-2 bottom-2 rounded-md border border-amber-500/30 bg-background/95 p-2 text-start shadow-sm">
                 <div className="flex items-start gap-2">
                   <IconAlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
                   <div className="min-w-0 flex-1">
@@ -432,7 +457,7 @@ export function RecordingCard({
             {(displayFailed || waitingForStorage) && (
               <div
                 className={cn(
-                  "absolute inset-x-2 bottom-2 rounded-md border bg-background/95 p-2.5 text-start shadow-sm backdrop-blur",
+                  "absolute inset-x-2 bottom-2 rounded-md border bg-background/95 p-2.5 text-start shadow-sm",
                   waitingForStorage
                     ? "border-primary/30"
                     : "border-destructive/30",
@@ -582,27 +607,12 @@ export function RecordingCard({
                             {t("navigation.newFolder")}
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
-                          {moveTargets.map((target, index) => (
-                            <DropdownMenuItem
-                              key={target.id ?? `root-${index}`}
-                              disabled={target.disabled || isMovePending}
-                              onSelect={() => onMove?.(recording, target.id)}
-                            >
-                              <span
-                                className="truncate"
-                                style={{
-                                  paddingInlineStart: (target.depth ?? 0) * 12,
-                                }}
-                              >
-                                {target.name}
-                              </span>
-                              {target.disabled && (
-                                <span className="ms-auto text-xs text-muted-foreground">
-                                  {t("clipsFinalRaw.current")}
-                                </span>
-                              )}
-                            </DropdownMenuItem>
-                          ))}
+                          <FolderMoveItems
+                            parts={DROPDOWN_FOLDER_PARTS}
+                            targets={moveTargets}
+                            disabled={isMovePending}
+                            onMove={(folderId) => onMove?.(recording, folderId)}
+                          />
                         </DropdownMenuSubContent>
                       </DropdownMenuSub>
                     ) : null}
@@ -743,27 +753,12 @@ export function RecordingCard({
                 {t("navigation.newFolder")}
               </ContextMenuItem>
               <ContextMenuSeparator />
-              {moveTargets.map((target, index) => (
-                <ContextMenuItem
-                  key={target.id ?? `context-root-${index}`}
-                  disabled={target.disabled || isMovePending}
-                  onSelect={() => onMove?.(recording, target.id)}
-                >
-                  <span
-                    className="truncate"
-                    style={{
-                      paddingInlineStart: (target.depth ?? 0) * 12,
-                    }}
-                  >
-                    {target.name}
-                  </span>
-                  {target.disabled && (
-                    <span className="ms-auto text-xs text-muted-foreground">
-                      {t("clipsFinalRaw.current")}
-                    </span>
-                  )}
-                </ContextMenuItem>
-              ))}
+              <FolderMoveItems
+                parts={CONTEXT_FOLDER_PARTS}
+                targets={moveTargets}
+                disabled={isMovePending}
+                onMove={(folderId) => onMove?.(recording, folderId)}
+              />
             </ContextMenuSubContent>
           </ContextMenuSub>
         ) : null}

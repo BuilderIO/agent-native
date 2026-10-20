@@ -2,6 +2,8 @@ import type { EventHandler, H3Event } from "h3";
 import { getHeader, setResponseHeader, setResponseStatus } from "h3";
 
 import { AppConfigurationError } from "../app-config/index.js";
+import { hasCloudflareRuntime } from "../db/migration-runtime.js";
+import { runWithRequestDbPoolScope } from "../db/request-pool-context.js";
 import { markServerRuntimeStarted } from "../db/server-runtime.js";
 import { getMissingDefaultPlugins } from "../deploy/route-discovery.js";
 import { MCP_PUBLIC_ROUTE_PREFIX } from "../mcp/route-paths.js";
@@ -17,6 +19,7 @@ import { getConfiguredAppBasePath } from "./app-base-path.js";
 import { captureError } from "./capture-error.js";
 import { createCsrfMiddleware } from "./csrf.js";
 import { getDisabledDefaultPlugins } from "./default-plugins.js";
+import { installDevDatabaseCloseHook } from "./dev-database-lifecycle.js";
 import { PUBLIC_PATHNAME_CONTEXT_KEY } from "./framework-request-context.js";
 import {
   getFrameworkRoutePrefix,
@@ -49,6 +52,8 @@ const MIDDLEWARE_DISPATCHER_PATCHED_KEY =
   "_agentNativeMiddlewareDispatcherPatched";
 const REQUEST_CONTEXT_BOUNDARY_KEY = "_agentNativeRequestContextBoundary";
 const RETIRED_PATH_CONTEXT_KEY = "_frameworkRetiredPathname";
+const ROUTE_MIDDLEWARE_BATCH_SIZE = 64;
+const routeMiddlewareBatches = new WeakMap<Function, MountedMiddleware[]>();
 
 const CANONICAL_AUTH_EARLY_PATHS = [
   "/",
@@ -70,6 +75,7 @@ export const FRAMEWORK_AUTH_EARLY_PATHS = [
 
 interface PluginReadyEntry {
   promise: Promise<void>;
+  settled?: boolean;
   paths?: string[];
   excludedPaths?: string[];
 }
@@ -153,6 +159,10 @@ export { getPublicFrameworkPathname } from "./framework-request-context.js";
 export interface H3AppShim {
   use(path: string, handler: EventHandler): void;
   use(handler: EventHandler): void;
+  /** Register many mounted routes behind one middleware layer, in order. */
+  useGroup?(
+    entries: ReadonlyArray<{ path: string; handler: EventHandler }>,
+  ): void;
 }
 
 export function markDefaultPluginProvided(nitroApp: any, stem: string): void {
@@ -185,6 +195,7 @@ export function getH3App(nitroApp: any): H3AppShim {
   ensureGlobalMiddlewareDispatch(nitroApp);
   installHttpResponseTelemetryHooks(nitroApp);
   installDevConnectionCloseHook(nitroApp);
+  installDevDatabaseCloseHook(nitroApp);
 
   const cached = nitroApp[APP_SHIM_KEY] as H3AppShim | undefined;
   if (cached) return cached;
@@ -197,6 +208,9 @@ export function getH3App(nitroApp: any): H3AppShim {
         throw new Error("getH3App.use: handler must be a function");
       }
       registerMiddleware(nitroApp, path, handler);
+    },
+    useGroup(entries) {
+      registerMiddlewareGroup(nitroApp, entries);
     },
   };
 
@@ -248,6 +262,7 @@ export function getH3App(nitroApp: any): H3AppShim {
     registerRequestContextBoundary(nitroApp);
 
     nitroApp.hooks?.hook?.("request", async (event: H3Event) => {
+      keepRequestOpenForPluginInit(nitroApp, event);
       translatePublicFrameworkRequest(event);
       const reqPath = event.url?.pathname ?? "";
       if (
@@ -318,7 +333,9 @@ function registerRequestContextBoundary(nitroApp: any): void {
           isSyntheticTraffic: syntheticTraffic,
           trackingScope,
         };
-    return runWithRequestContext(requestContext, () => next());
+    return runWithRequestDbPoolScope(hasCloudflareRuntime(), event.req, () =>
+      runWithRequestContext(requestContext, () => next()),
+    );
   };
 
   h3[REQUEST_CONTEXT_BOUNDARY_KEY] = middleware;
@@ -461,6 +478,9 @@ export function trackPluginInit(
     paths: options.paths?.filter(Boolean),
     excludedPaths: options.excludedPaths?.filter(Boolean),
   };
+  void safe.then(() => {
+    entry.settled = true;
+  });
   const existing = nitroApp[PLUGIN_READY_KEY] as PluginReadyEntry[] | undefined;
   if (existing) {
     existing.push(entry);
@@ -577,6 +597,22 @@ function debugClientAbort(args: {
   );
 }
 
+/**
+ * workerd stops a request's pending I/O once it responds, so plugin init that
+ * a page load started would never finish, and every route behind the readiness
+ * gate would time out on that isolate. Keep each request open until it does.
+ */
+function keepRequestOpenForPluginInit(nitroApp: any, event: H3Event): void {
+  const waitUntil = (event.req as { waitUntil?: unknown } | undefined)
+    ?.waitUntil;
+  if (typeof waitUntil !== "function") return;
+  const pending = (
+    (nitroApp[PLUGIN_READY_KEY] as PluginReadyEntry[] | undefined) ?? []
+  ).filter((entry) => !entry.settled);
+  if (!pending.length) return;
+  waitUntil.call(event.req, Promise.all(pending.map((entry) => entry.promise)));
+}
+
 export async function awaitPluginsReady(
   nitroApp: any,
   reqPath?: string,
@@ -609,12 +645,9 @@ export async function awaitPluginsReady(
   }
 }
 
-function registerMiddleware(
-  nitroApp: any,
-  path: string,
-  handler: EventHandler,
-  options: { prepend?: boolean } = {},
-) {
+type MountedMiddleware = (event: H3Event, next: () => any) => Promise<any>;
+
+function requireH3Middleware(nitroApp: any): any[] {
   const h3 = nitroApp.h3;
   if (!h3 || !Array.isArray(h3["~middleware"])) {
     throw new Error(
@@ -622,8 +655,76 @@ function registerMiddleware(
         "Make sure you're calling getH3App() from inside a Nitro plugin.",
     );
   }
+  return h3["~middleware"];
+}
 
-  const middleware = async (event: H3Event, next: () => any) => {
+function registerMiddleware(
+  nitroApp: any,
+  path: string,
+  handler: EventHandler,
+  options: { prepend?: boolean } = {},
+) {
+  const chain = requireH3Middleware(nitroApp);
+  const middleware = createMountedMiddleware(path, handler);
+  if (options.prepend) {
+    chain.unshift(middleware);
+  } else if (path) {
+    const last = chain[chain.length - 1] as Function | undefined;
+    const existing = last && routeMiddlewareBatches.get(last);
+    if (existing && existing.length < ROUTE_MIDDLEWARE_BATCH_SIZE) {
+      existing.push(middleware);
+      return;
+    }
+    const batch: MountedMiddleware[] = [middleware];
+    const dispatch = (event: H3Event, next: () => any) => {
+      const run = (index: number): any =>
+        index === batch.length
+          ? Promise.resolve().then(next)
+          : batch[index](event, () => run(index + 1));
+      return run(0);
+    };
+    routeMiddlewareBatches.set(dispatch, batch);
+    chain.push(dispatch);
+  } else {
+    chain.push(middleware);
+  }
+}
+
+/**
+ * Many routes behind one layer. h3 walks its chain by recursive `next()`
+ * calls, so a request that matches none of N separately registered routes
+ * nests N calls deep; with one layer per action (hundreds of them) that
+ * overflows the stack in dev. The group tries its routes in a loop instead,
+ * in registration order, with the same matching and fall-through behaviour.
+ */
+function registerMiddlewareGroup(
+  nitroApp: any,
+  entries: ReadonlyArray<{ path: string; handler: EventHandler }>,
+) {
+  if (entries.length === 0) return;
+  const chain = requireH3Middleware(nitroApp);
+  const members = entries.map((entry) =>
+    createMountedMiddleware(entry.path, entry.handler),
+  );
+  chain.push(async (event: H3Event, next: () => any) => {
+    for (const member of members) {
+      let passedThrough = false;
+      const result = await member(event, () => {
+        passedThrough = true;
+        return undefined;
+      });
+      // Like h3, an undefined result means "not handled here": keep going.
+      if (!passedThrough && result !== undefined) return result;
+    }
+    return next();
+  });
+}
+
+function createMountedMiddleware(
+  path: string,
+  handler: EventHandler,
+): MountedMiddleware {
+  return async (event: H3Event, next: () => any) => {
     let originalPathname: string | undefined;
     let originalEventPath: string | undefined;
     let hadEventPath = false;
@@ -731,6 +832,9 @@ function registerMiddleware(
       }
       return {
         error: e?.message || "Internal server error",
+        // Clients name a failure by its code (no model connected, run slot
+        // busy); a bare HTTP status reaches them as an unnamed "forbidden".
+        ...(typeof e?.data?.code === "string" ? { code: e.data.code } : {}),
         ...(status >= 500 &&
         process.env.AGENT_NATIVE_DEBUG_ERRORS === "1" &&
         e?.stack
@@ -741,12 +845,6 @@ function registerMiddleware(
       restoreOriginalPath();
     }
   };
-
-  if (options.prepend) {
-    h3["~middleware"].unshift(middleware);
-  } else {
-    h3["~middleware"].push(middleware);
-  }
 }
 
 async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {

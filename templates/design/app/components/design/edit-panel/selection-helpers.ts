@@ -1,4 +1,9 @@
+import { parseCssColorExtended, rgbaToHex } from "@shared/color-utils";
+
 import type { ElementInfo } from "../types";
+import { isVectorShapeElement } from "./element-classification";
+
+const vectorShapeSelections = new WeakSet<ElementInfo>();
 
 export const MIXED_VALUE = "Mixed";
 
@@ -6,10 +11,50 @@ export function isMixedValue(value: string | undefined): boolean {
   return value === MIXED_VALUE;
 }
 
+export function isVectorShapeSelection(element: ElementInfo): boolean {
+  return vectorShapeSelections.has(element) || isVectorShapeElement(element);
+}
+
+export function inheritVectorShapeSelection<T extends ElementInfo>(
+  source: ElementInfo,
+  target: T,
+): T {
+  if (isVectorShapeSelection(source)) vectorShapeSelections.add(target);
+  return target;
+}
+
 export function sameOrMixed(values: string[]): string {
   if (values.length === 0) return "";
   const first = values[0] ?? "";
   return values.every((value) => value === first) ? first : MIXED_VALUE;
+}
+
+const COLOR_STYLE_PROPERTIES = new Set([
+  "backgroundcolor",
+  "bordercolor",
+  "color",
+  "fill",
+  "floodcolor",
+  "lightingcolor",
+  "outlinecolor",
+  "stopcolor",
+  "stroke",
+  "textdecorationcolor",
+]);
+
+function sameOrMixedColorStyle(property: string, values: string[]): string {
+  const propertyKey = property.replace(/-/g, "").toLowerCase();
+  if (!COLOR_STYLE_PROPERTIES.has(propertyKey) || values.length === 0) {
+    return sameOrMixed(values);
+  }
+  const keys = values.map((value) => {
+    const parsed = parseCssColorExtended(value.trim());
+    return parsed ? rgbaToHex(parsed, true).toUpperCase() : undefined;
+  });
+  const firstKey = keys[0];
+  return firstKey && keys.every((key) => key === firstKey)
+    ? (values[0] ?? "")
+    : sameOrMixed(values);
 }
 
 function sameStructure<T>(a: T | undefined, b: T | undefined): boolean {
@@ -34,7 +79,10 @@ export function mixedElementFromSelection(
   const computedStyles = Object.fromEntries(
     Array.from(styleKeys).map((key) => [
       key,
-      sameOrMixed(elements.map((element) => element.computedStyles[key] ?? "")),
+      sameOrMixedColorStyle(
+        key,
+        elements.map((element) => element.computedStyles[key] ?? ""),
+      ),
     ]),
   );
   const inlineStyleKeys = new Set<string>();
@@ -48,7 +96,8 @@ export function mixedElementFromSelection(
       ? Object.fromEntries(
           Array.from(inlineStyleKeys).map((key) => [
             key,
-            sameOrMixed(
+            sameOrMixedColorStyle(
+              key,
               elements.map((element) => element.inlineStyles?.[key] ?? ""),
             ),
           ]),
@@ -81,7 +130,7 @@ export function mixedElementFromSelection(
       ? firstComponentName
       : undefined;
 
-  return {
+  const merged: ElementInfo = {
     ...base,
     tagName: sameOrMixed(elements.map((element) => element.tagName)),
     id: undefined,
@@ -125,9 +174,25 @@ export function mixedElementFromSelection(
       elements.map((element) => element.parentBoundingRect),
       base.parentBoundingRect,
     ),
+    positionReferenceRect: sameValueOrUndefined(
+      elements.map((element) => element.positionReferenceRect),
+      base.positionReferenceRect,
+    ),
+    positionContainingBlockOrigin: sameValueOrUndefined(
+      elements.map((element) => element.positionContainingBlockOrigin),
+      base.positionContainingBlockOrigin,
+    ),
+    positionContainingBlockTransform: sameValueOrUndefined(
+      elements.map((element) => element.positionContainingBlockTransform),
+      base.positionContainingBlockTransform,
+    ),
     parentLayout: sameValueOrUndefined(
       elements.map((element) => element.parentLayout),
       base.parentLayout,
     ),
   };
+  if (elements.every(isVectorShapeElement)) {
+    vectorShapeSelections.add(merged);
+  }
+  return merged;
 }

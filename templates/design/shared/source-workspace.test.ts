@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { vi } from "vitest";
 
 import {
+  applySourceContentPatch,
   applySourceEdit,
   normalizeInlineSourcePath,
   previewSourceDiff,
   sourceContentHash,
+  sourceContentPatch,
 } from "./source-workspace";
 
 describe("source workspace helpers", () => {
@@ -49,9 +52,71 @@ describe("source workspace helpers", () => {
     expect(diff.bytesAfter).toBe(after.length);
   });
 
+  it("patches carry only the changed span and rebuild the exact document", () => {
+    const base = `<main>${"x".repeat(5000)}<h1>Before</h1>${"y".repeat(5000)}</main>`;
+    const next = base.replace("Before", "After");
+    const patch = sourceContentPatch(base, next);
+
+    expect(patch.text.length).toBeLessThan(10);
+    expect(patch.resultHash).toBe(sourceContentHash(next));
+    expect(applySourceContentPatch(base, patch)).toBe(next);
+  });
+
+  it("patches rebuild documents whose change overlaps a repeated prefix or suffix", () => {
+    for (const [base, next] of [
+      ["aaa", "aa"],
+      ["aa", "aaa"],
+      ["abcabc", "abc"],
+      ["", "<p>new</p>"],
+      ["<p>old</p>", ""],
+      ["same", "same"],
+    ] as const) {
+      expect(
+        applySourceContentPatch(base, sourceContentPatch(base, next)),
+      ).toBe(next);
+    }
+  });
+
   it("hashes content with length included", () => {
     expect(sourceContentHash("abc")).toMatch(/^3:/);
     expect(sourceContentHash("abc")).toBe(sourceContentHash("abc"));
     expect(sourceContentHash("abc")).not.toBe(sourceContentHash("abcd"));
   });
+});
+
+const hashComputation = vi.hoisted(() => vi.fn());
+
+vi.mock("./memoize-by-content", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./memoize-by-content")>();
+  return {
+    ...actual,
+    memoizeByContent: <T>(
+      limit: number,
+      compute: (content: string) => T,
+      derive?: (
+        previousContent: string,
+        previous: T,
+        content: string,
+      ) => T | null,
+    ) =>
+      actual.memoizeByContent(
+        limit,
+        (content) => {
+          hashComputation();
+          return compute(content);
+        },
+        derive,
+      ),
+  };
+});
+
+it("memoizes repeated source content hashes", async () => {
+  hashComputation.mockClear();
+  const { sourceContentHash } = await import("./source-workspace");
+  const content = "<main>same source</main>";
+
+  expect(sourceContentHash(content)).toBe(sourceContentHash(content));
+  expect(hashComputation).toHaveBeenCalledTimes(1);
+  expect(sourceContentHash(content + " ")).not.toBe(sourceContentHash(content));
+  expect(hashComputation).toHaveBeenCalledTimes(2);
 });

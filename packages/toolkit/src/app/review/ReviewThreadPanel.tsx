@@ -257,6 +257,11 @@ export function ReviewThreadPanel({
     }>
   >([]);
   const createPendingRef = useRef(false);
+  const editChosenFromMenuRef = useRef(false);
+  // Reply and Edit put the cursor in their box. A box reopened after a
+  // failed save takes focus only if nobody else holds it by then.
+  const [focusReplyBox, setFocusReplyBox] = useState(true);
+  const [focusEditBox, setFocusEditBox] = useState(true);
   const [replyingThreadId, setReplyingThreadId] = useState<string | null>(null);
   const replyingThreadIdRef = useRef<string | null>(null);
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
@@ -538,6 +543,7 @@ export function ReviewThreadPanel({
       editCandidateRef.current = comment;
       editDraftRef.current = submittedDraft;
       editMentionsRef.current = submittedMentions;
+      setFocusEditBox(focusIsFree());
       setEditCandidate(comment);
       setEditDraft(submittedDraft);
       setEditMentions(submittedMentions);
@@ -546,6 +552,7 @@ export function ReviewThreadPanel({
 
   const startEditing = (comment: ReviewComment) => {
     editGenerationRef.current += 1;
+    setFocusEditBox(true);
     editCandidateRef.current = comment;
     editDraftRef.current = comment.body;
     editMentionsRef.current = [...comment.mentions];
@@ -564,8 +571,9 @@ export function ReviewThreadPanel({
     setEditMentions([]);
   };
 
-  const startReplying = (threadId: string) => {
+  const startReplying = (threadId: string, focus = true) => {
     replyingThreadIdRef.current = threadId;
+    setFocusReplyBox(focus);
     setReplyingThreadId(threadId);
   };
 
@@ -648,7 +656,8 @@ export function ReviewThreadPanel({
         ...current,
         [comment.id]: submittedMentions,
       }));
-      if (replyingThreadIdRef.current === null) startReplying(threadId);
+      if (replyingThreadIdRef.current === null)
+        startReplying(threadId, focusIsFree());
     } finally {
       replyPendingRef.current.delete(comment.id);
     }
@@ -983,6 +992,7 @@ export function ReviewThreadPanel({
                         commentLabel={saveEditLabel}
                         placeholder={editLabel}
                         textareaProps={{ "aria-label": editLabel }}
+                        autoFocus={focusEditBox}
                         submitOnEnter
                         onEscape={cancelEditing}
                       />
@@ -1129,6 +1139,7 @@ export function ReviewThreadPanel({
                         onSubmit={() => submitReply(thread.root)}
                         placeholder={replyPlaceholder}
                         commentLabel={replyLabel}
+                        autoFocus={focusReplyBox}
                         submitOnEnter
                         onEscape={cancelReplying}
                         textareaProps={{ "data-review-reply-input": true }}
@@ -1227,10 +1238,23 @@ export function ReviewThreadPanel({
                                 <IconDots className="size-4" />
                               </Button>
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-44">
+                            <DropdownMenuContent
+                              align="end"
+                              className="w-44"
+                              onCloseAutoFocus={(event) => {
+                                // Edit puts focus in its composer; leave it
+                                // there. Other actions return to the button.
+                                if (editChosenFromMenuRef.current)
+                                  event.preventDefault();
+                                editChosenFromMenuRef.current = false;
+                              }}
+                            >
                               {editAllowed ? (
                                 <DropdownMenuItem
-                                  onSelect={() => startEditing(thread.root)}
+                                  onSelect={() => {
+                                    editChosenFromMenuRef.current = true;
+                                    startEditing(thread.root);
+                                  }}
                                 >
                                   {editLabel}
                                 </DropdownMenuItem>
@@ -1597,6 +1621,12 @@ export function isTrustedReviewAttachmentUrl(value: string): boolean {
   if (typeof window !== "undefined" && parsed.origin === window.location.origin)
     return true;
   return parsed.protocol === "https:" && parsed.hostname === "cdn.builder.io";
+}
+
+/** Nothing on the page holds focus, so taking it moves nobody's caret. */
+function focusIsFree() {
+  const active = document.activeElement;
+  return !active || active === document.body;
 }
 
 function displayReviewCommentBody(body: string): string {

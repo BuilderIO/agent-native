@@ -1,10 +1,13 @@
 import { defineAction } from "@agent-native/core/action";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { track } from "@agent-native/core/tracking";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  trackDesignExported,
+  withDesignExportFailureTracking,
+} from "../server/lib/design-export-tracking.js";
 import {
   buildStandaloneHtml,
   exportFilename,
@@ -12,6 +15,10 @@ import {
 } from "../server/lib/design-export.js";
 import { isBoardFile } from "../shared/board-file.js";
 import "../server/db/index.js";
+
+const trackHtmlExportFailures = withDesignExportFailureTracking<{ id: string }>(
+  "html",
+);
 
 export default defineAction({
   description:
@@ -21,9 +28,10 @@ export default defineAction({
   schema: z.object({
     id: z.string().describe("Design ID to export"),
   }),
-  run: async ({ id }, ctx) => {
+  run: trackHtmlExportFailures(async ({ id }, ctx, facts) => {
     const access = await resolveAccess("design", id);
     if (!access) throw new Error(`Design not found: ${id}`);
+    facts.designId = id;
 
     const row = access.resource;
     const db = getDb();
@@ -33,6 +41,7 @@ export default defineAction({
       .from(schema.designFiles)
       .where(eq(schema.designFiles.designId, id));
     const exportFiles = files.filter((file) => !isBoardFile(file.filename));
+    facts.fileCount = exportFiles.length;
 
     const html = buildStandaloneHtml({
       title: row.title,
@@ -43,19 +52,11 @@ export default defineAction({
     const filename = exportFilename(row.title, "html");
     const saveResult = await trySaveExportFile(filename, html);
 
-    track(
-      "design_exported",
-      {
-        app_name: "design",
-        template_name: "design",
-        output_id: id,
-        output_type: "design",
-        export_format: "html",
-        file_count: exportFiles.length,
-      },
+    trackDesignExported(
+      { ...facts, exportFormat: "html", status: "completed" },
       ctx,
     );
 
     return { html, filename, ...saveResult, fileCount: exportFiles.length };
-  },
+  }),
 });

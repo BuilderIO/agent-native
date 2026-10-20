@@ -66,7 +66,7 @@ registerRequiredSecret({
   key: "ZOOM_ACCOUNT_ID",
   label: "Zoom Account ID",
   description:
-    "Optional Zoom Server-to-Server OAuth account ID for cloud-recording transcript imports. The app needs scopes user:read:list_users:admin and cloud_recording:read:list_user_recordings:admin.",
+    "Optional Zoom Server-to-Server OAuth account ID for cloud-recording transcript imports. The app needs scopes cloud_recording:read:list_account_recordings:admin, cloud_recording:read:list_recording_files:admin and cloud_recording:read:recording:admin; sources that set zoom.userIds also need cloud_recording:read:list_user_recordings:admin.",
   docsUrl: "https://developers.zoom.us/docs/internal-apps/s2s-oauth/",
   scope: "workspace",
   kind: "api-key",
@@ -84,7 +84,7 @@ registerRequiredSecret({
   key: "ZOOM_CLIENT_ID",
   label: "Zoom Client ID",
   description:
-    "Optional Zoom Server-to-Server OAuth client ID for cloud-recording transcript imports. The app needs scopes user:read:list_users:admin and cloud_recording:read:list_user_recordings:admin.",
+    "Optional Zoom Server-to-Server OAuth client ID for cloud-recording transcript imports. The app needs scopes cloud_recording:read:list_account_recordings:admin, cloud_recording:read:list_recording_files:admin and cloud_recording:read:recording:admin; sources that set zoom.userIds also need cloud_recording:read:list_user_recordings:admin.",
   docsUrl: "https://developers.zoom.us/docs/internal-apps/s2s-oauth/",
   scope: "workspace",
   kind: "api-key",
@@ -102,7 +102,7 @@ registerRequiredSecret({
   key: "ZOOM_CLIENT_SECRET",
   label: "Zoom Client Secret",
   description:
-    "Optional Zoom Server-to-Server OAuth client secret for cloud-recording transcript imports. The app needs scopes user:read:list_users:admin and cloud_recording:read:list_user_recordings:admin.",
+    "Optional Zoom Server-to-Server OAuth client secret for cloud-recording transcript imports. The app needs scopes cloud_recording:read:list_account_recordings:admin, cloud_recording:read:list_recording_files:admin and cloud_recording:read:recording:admin; sources that set zoom.userIds also need cloud_recording:read:list_user_recordings:admin.",
   docsUrl: "https://developers.zoom.us/docs/internal-apps/s2s-oauth/",
   scope: "workspace",
   kind: "api-key",
@@ -130,6 +130,63 @@ registerRequiredSecret({
       appId: "brain",
       feature: "GitHub sync",
       effectWhenRemoved: "GitHub source sync stops.",
+    },
+  ],
+  required: false,
+});
+
+registerRequiredSecret({
+  key: "GONG_ACCESS_KEY",
+  label: "Gong Access Key",
+  description:
+    "Optional organization-scoped Gong API key for on-demand call queries. Brain uses the shared organization credential so members do not need individual Gong seats.",
+  docsUrl: "https://gong.app.gong.io/settings/api/documentation",
+  scope: "org",
+  kind: "api-key",
+  usedFor: [
+    {
+      appId: "brain",
+      feature: "Gong call queries",
+      effectWhenRemoved:
+        "Brain can no longer query Gong calls with the organization's shared access.",
+    },
+  ],
+  required: false,
+});
+
+registerRequiredSecret({
+  key: "GONG_ACCESS_SECRET",
+  label: "Gong Access Secret",
+  description:
+    "Optional organization-scoped Gong API secret paired with the shared access key for on-demand call queries.",
+  docsUrl: "https://gong.app.gong.io/settings/api/documentation",
+  scope: "org",
+  kind: "api-key",
+  usedFor: [
+    {
+      appId: "brain",
+      feature: "Gong call queries",
+      effectWhenRemoved:
+        "Brain can no longer authenticate its shared Gong API requests.",
+    },
+  ],
+  required: false,
+});
+
+registerRequiredSecret({
+  key: "GONG_API_BASE",
+  label: "Gong API Base URL",
+  description:
+    "Optional organization-scoped Gong API base URL override. Leave unset to use Gong's default API base.",
+  docsUrl: "https://gong.app.gong.io/settings/api/documentation",
+  scope: "org",
+  kind: "api-key",
+  usedFor: [
+    {
+      appId: "brain",
+      feature: "Gong call queries",
+      effectWhenRemoved:
+        "Brain uses the default Gong API base URL instead of the organization's override.",
     },
   ],
   required: false,

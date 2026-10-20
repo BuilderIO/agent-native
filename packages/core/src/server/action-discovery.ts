@@ -4,7 +4,9 @@ import "../authorization/check-action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { ActionTool } from "../agent/types.js";
 import { CORE_ACTION_GROUPS } from "../framework-tools.js";
+import { normalizeShellArgs, serializeCliArgs } from "../scripts/parse-args.js";
 import { captureCliOutput } from "./cli-capture.js";
+import { carryExecutionKey } from "./filesystem-action-entry.js";
 
 let _fs: typeof import("fs") | undefined;
 async function getFs(): Promise<typeof import("fs")> {
@@ -70,41 +72,6 @@ export function mergePackageActions(
   }
 }
 
-function splitShellArgs(input: string): string[] {
-  const tokens: string[] = [];
-  let current = "";
-  let inDouble = false;
-  let inSingle = false;
-  let wasQuoted = false;
-
-  for (let i = 0; i < input.length; i++) {
-    const ch = input[i];
-    if (ch === '"' && !inSingle) {
-      inDouble = !inDouble;
-      wasQuoted = true;
-      continue;
-    }
-    if (ch === "'" && !inDouble) {
-      inSingle = !inSingle;
-      wasQuoted = true;
-      continue;
-    }
-    if ((ch === " " || ch === "\t") && !inDouble && !inSingle) {
-      if (current.length > 0 || wasQuoted) {
-        tokens.push(current);
-      }
-      current = "";
-      wasQuoted = false;
-      continue;
-    }
-    current += ch;
-  }
-  if (current.length > 0 || wasQuoted) {
-    tokens.push(current);
-  }
-  return tokens;
-}
-
 function wrapDefaultExport(
   name: string,
   defaultFn: (args: string[]) => Promise<void>,
@@ -126,14 +93,10 @@ function wrapDefaultExport(
   return {
     tool,
     run: async (args: Record<string, string>): Promise<string> => {
-      const cliArgs: string[] = [];
-      if (args.args && Object.keys(args).length === 1) {
-        cliArgs.push(...splitShellArgs(args.args));
-      } else {
-        for (const [k, v] of Object.entries(args)) {
-          cliArgs.push(`--${k}`, v);
-        }
-      }
+      const cliArgs =
+        args.args && Object.keys(args).length === 1
+          ? normalizeShellArgs(args.args)
+          : serializeCliArgs(args);
       return captureCliOutput(() => defaultFn(cliArgs));
     },
   };
@@ -141,6 +104,13 @@ function wrapDefaultExport(
 
 function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   const out: Partial<ActionEntry> = {};
+  if (
+    entry.schema &&
+    typeof entry.schema === "object" &&
+    "~standard" in entry.schema
+  ) {
+    out.schema = entry.schema;
+  }
   if (
     entry.access &&
     typeof entry.access === "object" &&
@@ -159,6 +129,14 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
     typeof entry.mcpAnnotations.openWorldHint === "boolean"
   ) {
     out.mcpAnnotations = entry.mcpAnnotations;
+  }
+  if (
+    entry.mcpOutputContract &&
+    typeof entry.mcpOutputContract === "object" &&
+    entry.mcpOutputContract.response &&
+    typeof entry.mcpOutputContract.response === "object"
+  ) {
+    out.mcpOutputContract = entry.mcpOutputContract;
   }
   if (typeof entry.deferLoading === "boolean") {
     out.deferLoading = entry.deferLoading;
@@ -188,6 +166,13 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   if (typeof entry.parallelSafe === "boolean") {
     out.parallelSafe = entry.parallelSafe;
   }
+  if (
+    typeof entry.retrySafe === "boolean" ||
+    typeof entry.retrySafe === "function"
+  ) {
+    out.retrySafe = entry.retrySafe;
+  }
+  carryExecutionKey(entry, out);
   if (typeof entry.endsTurn === "boolean") {
     out.endsTurn = entry.endsTurn;
   }
@@ -467,16 +452,26 @@ export const ALWAYS_ON_CORE_ACTIONS: ReadonlySet<string> = new Set([
   "upload-image",
   "list-mcp-tools",
   "call-mcp-tool",
+  // Connection setup UI needs the workspace prerequisite even in minimal apps.
+  "get-managed-mcp-oauth-readiness",
   "get-agentkit-capabilities",
   "get-hosted-harness-config",
   "set-hosted-harness-enabled",
   "set-tool-approval-policy",
+  // The client's same-tick GET batching depends on it, so it cannot be gated.
+  "get-actions-batch",
+  // Any app can mount ReportProblemButton, which needs these.
+  "save-problem-report",
+  "read-problem-report",
 ]);
 
-export async function mergeCoreSharingActions(
-  registry: Record<string, ActionEntry>,
-): Promise<void> {
-  const entries: Array<[string, () => Promise<any>]> = [
+/**
+ * The framework actions every app composes, by action name. Each loader imports
+ * one action module. `mergeCoreSharingActions` skips a loader that throws, so
+ * contract tests import this list directly to see a failed or invalid entry.
+ */
+export function coreActionLoaderEntries(): Array<[string, () => Promise<any>]> {
+  return [
     ["share-resource", () => import("../sharing/actions/share-resource.js")],
     [
       "unshare-resource",
@@ -485,6 +480,30 @@ export async function mergeCoreSharingActions(
     [
       "list-resource-shares",
       () => import("../sharing/actions/list-resource-shares.js"),
+    ],
+    [
+      "get-resource-access-status",
+      () => import("../sharing/actions/get-resource-access-status.js"),
+    ],
+    [
+      "request-resource-access",
+      () => import("../sharing/actions/request-resource-access.js"),
+    ],
+    [
+      "get-resource-access-request",
+      () => import("../sharing/actions/get-resource-access-request.js"),
+    ],
+    [
+      "list-resource-access-requests",
+      () => import("../sharing/actions/list-resource-access-requests.js"),
+    ],
+    [
+      "approve-resource-access-request",
+      () => import("../sharing/actions/approve-resource-access-request.js"),
+    ],
+    [
+      "decline-resource-access-request",
+      () => import("../sharing/actions/decline-resource-access-request.js"),
     ],
     [
       "set-resource-visibility",
@@ -529,10 +548,26 @@ export async function mergeCoreSharingActions(
     ["explain-access", () => import("../org/actions/explain-access.js")],
     ["offboard-member", () => import("../org/actions/offboard-member.js")],
     [
+      "list-organization-members",
+      () => import("../org/actions/list-organization-members.js"),
+    ],
+    [
+      "invite-organization-member",
+      () => import("../org/actions/invite-organization-member.js"),
+    ],
+    [
       "get-agentkit-capabilities",
       () => import("../agent/actions/get-agentkit-capabilities.js"),
     ],
     ["upload-image", () => import("../file-upload/actions/upload-image.js")],
+    [
+      "save-problem-report",
+      () => import("../problem-report/actions/save-problem-report.js"),
+    ],
+    [
+      "read-problem-report",
+      () => import("../problem-report/actions/read-problem-report.js"),
+    ],
     [
       "get-file-storage",
       () => import("../file-upload/actions/get-file-storage.js"),
@@ -789,6 +824,10 @@ export async function mergeCoreSharingActions(
       "get-auth-methods",
       () => import("../user-profile/actions/get-auth-methods.js"),
     ],
+    [
+      "get-managed-mcp-oauth-readiness",
+      () => import("../mcp-client/actions/get-managed-mcp-oauth-readiness.js"),
+    ],
     ["set-password", () => import("../user-profile/actions/set-password.js")],
     [
       "change-password",
@@ -810,6 +849,10 @@ export async function mergeCoreSharingActions(
     [
       "export-audit-events",
       () => import("../audit/actions/export-audit-events.js"),
+    ],
+    [
+      "export-audit-ocsf",
+      () => import("../audit/actions/export-audit-ocsf.js"),
     ],
     [
       "export-resource-pack",
@@ -954,10 +997,24 @@ export async function mergeCoreSharingActions(
       "revoke-org-service-token",
       () => import("../mcp/actions/revoke-org-service-token.js"),
     ],
+    [
+      "set-service-principal-policy",
+      () => import("../mcp/actions/set-service-principal-policy.js"),
+    ],
+    [
+      "set-service-principal-lifecycle",
+      () => import("../mcp/actions/set-service-principal-lifecycle.js"),
+    ],
     ["list-mcp-tools", () => import("../mcp/actions/list-mcp-tools.js")],
     ["call-mcp-tool", () => import("../mcp/actions/call-mcp-tool.js")],
+    ["get-actions-batch", () => import("./get-actions-batch.js")],
   ];
-  for (const [name, loader] of entries) {
+}
+
+export async function mergeCoreSharingActions(
+  registry: Record<string, ActionEntry>,
+): Promise<void> {
+  for (const [name, loader] of coreActionLoaderEntries()) {
     if (registry[name]) continue;
     try {
       const mod = await loader();

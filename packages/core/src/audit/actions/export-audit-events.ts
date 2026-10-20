@@ -26,15 +26,20 @@ const CSV_COLUMNS: Array<[key: keyof AuditEvent, header: string]> = [
   ["ownerEmail", "owner_email"],
   ["visibility", "visibility"],
   ["app", "app"],
+  ["reportedClientName", "reported_client_name"],
+  ["reportedClientVersion", "reported_client_version"],
+  ["oauthClientId", "oauth_client_id"],
+  ["approval", "approval"],
 ];
 
 function csvField(value: unknown): string {
   if (value === null || value === undefined) return "";
   const raw = String(value);
-  if (/[",\n\r]/.test(raw)) {
-    return `"${raw.replace(/"/g, '""')}"`;
+  const safe = /^[\s\x00-\x1f\x7f-\x9f]*[=+\-@]/u.test(raw) ? `'${raw}` : raw;
+  if (/[",\n\r]/.test(safe)) {
+    return `"${safe.replace(/"/g, '""')}"`;
   }
-  return raw;
+  return safe;
 }
 
 function toCsv(events: AuditEvent[]): string {
@@ -68,9 +73,11 @@ export default defineAction({
       .optional()
       .describe("Filter to one resource id (pair with targetType)."),
     actorKind: z
-      .enum(["agent", "human", "system"])
+      .enum(["agent", "human", "service", "system"])
       .optional()
-      .describe("Filter to changes made by the agent, a human, or the system."),
+      .describe(
+        "Filter to changes made by an agent, human, service principal, or the system.",
+      ),
     actorEmail: z.string().optional().describe("Filter to one actor's email."),
     status: z
       .enum(["success", "error", "denied"])

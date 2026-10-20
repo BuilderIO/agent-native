@@ -116,6 +116,7 @@ async function insertUsage(row: {
   owner: string;
   app?: string;
   costX100?: number;
+  engine?: string | null;
   label?: string;
   model?: string;
   sourcePlatform?: string | null;
@@ -126,14 +127,15 @@ async function insertUsage(row: {
   await pglite
     .prepare(
       `INSERT INTO token_usage
-        (id, owner_email, input_tokens, output_tokens, cost_cents_x100, model,
+        (id, owner_email, input_tokens, output_tokens, cost_cents_x100, engine_name, model,
          label, app, org_id, run_id, thread_id, source_platform, created_at)
-       VALUES (?, ?, 100, 10, ?, ?, ?, ?, 'org-1', ?, ?, ?, ?)`,
+       VALUES (?, ?, 100, 10, ?, ?, ?, ?, ?, 'org-1', ?, ?, ?, ?)`,
     )
     .run(
       nextId++,
       row.owner,
       row.costX100 ?? 1_000,
+      row.engine ?? null,
       row.model ?? "claude-sonnet-4-5",
       row.label ?? "chat",
       row.app ?? "clips",
@@ -304,7 +306,11 @@ describe("listAppUsageMetrics daily breakdowns", () => {
   });
 
   it("carries Builder credit amounts on breakdown rows when reporting is on", async () => {
-    await insertUsage({ owner: "owner@example.com", costX100: 10_000 });
+    await insertUsage({
+      owner: "owner@example.com",
+      costX100: 10_000,
+      engine: "anthropic",
+    });
 
     const metrics = await listAppUsageMetrics(
       { sinceDays: 30, scope: "me", builderCreditsEnabled: true },

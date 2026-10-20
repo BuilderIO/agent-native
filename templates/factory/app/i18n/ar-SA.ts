@@ -100,6 +100,7 @@ const messages = {
       pr_observed: "تمت ملاحظة طلب السحب",
       auto_approved: "مُوافَق تلقائياً",
       merged: "مدمج",
+      resolved: "تم الحل",
     },
     inboxColumnAutomation: "الأتمتة",
     inboxRouting: {
@@ -265,6 +266,11 @@ const messages = {
     inboxTitle: "صندوق ملاحظات المراقبة",
     inboxTab: "الوارد",
     inboxBackToList: "العودة إلى الوارد",
+    inboxRowActions: "إجراءات {{title}}",
+    inboxMarkResolved: "وضع علامة كمحلول",
+    inboxSendBackToAutomation: "إعادة إلى الأتمتة",
+    inboxOutcomeUpdated: "تم تحديث الحالة",
+    inboxOutcomeFailed: "تعذّر تحديث الحالة",
     inboxDescription: "الأدلة التي تدخل المصنع قبل العمل المستقل.",
     selectObservation: "حدد ملاحظة لفحص مسارها وملاحظاتها.",
     rulesDescription: "تظل كل قاعدة في وضع الظل حتى ترقيتها عمدًا.",
@@ -442,7 +448,10 @@ const messages = {
     automationSourceSentryHint: "أخطاء غير محلولة.",
     automationSlackChannel: "معرّف قناة Slack",
     automationSlackChannelDescription:
-      "القناة التي تستطلعها هذه المهمة. تبدأ بـ C.",
+      "قناة Slack التي تقرؤها هذه المهمة أو تنشر فيها تقارير مجمّعة. تبدأ بـ C.",
+    automationFindingsSlackChannel: "قناة تقارير Slack",
+    automationFindingsSlackChannelDescription:
+      "تُجمع النتائج المؤهلة من GitHub وSentry في رسالة واحدة بهذه القناة.",
     automationRepository: "مستودع GitHub",
     automationRepositoryDescription: "owner/repo الذي تستطلعه هذه المهمة.",
     automationSentryOrg: "منظمة Sentry",

@@ -42,6 +42,7 @@ export interface FileUploadProvider {
    */
   publicBaseUrlOptional?: boolean;
   upload: (input: FileUploadInput) => Promise<FileUploadResult>;
+  /** Resolves true when the object was deleted or was already missing. */
   delete?: (input: FileUploadDeleteInput) => Promise<boolean>;
   resumable?: {
     startSession(

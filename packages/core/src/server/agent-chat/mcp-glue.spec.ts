@@ -10,6 +10,7 @@ const authMocks = vi.hoisted(() => ({
 const mockedMcp = vi.hoisted(() => {
   const managers: Array<{
     config: unknown;
+    authorizationResolver: unknown;
     reconfigure: ReturnType<typeof vi.fn>;
     stop: ReturnType<typeof vi.fn>;
   }> = [];
@@ -33,6 +34,10 @@ vi.mock("../../mcp-client/index.js", () => ({
     });
     getStatus = vi.fn(() => ({ principal: (this.config as any)?.source }));
     stop = vi.fn(async () => {});
+    authorizationResolver: unknown;
+    setToolAuthorizationResolver = vi.fn((resolver: unknown) => {
+      this.authorizationResolver = resolver;
+    });
 
     constructor(config: unknown) {
       this.config = config;
@@ -53,6 +58,7 @@ import {
   getMcpManagerForPrincipal,
   refreshMcpManagerForPrincipal,
   resolveBackgroundMcpToolSelection,
+  setMcpToolAuthorizationResolver,
 } from "./mcp-glue.js";
 
 describe("principal-scoped MCP managers", () => {
@@ -94,6 +100,22 @@ describe("principal-scoped MCP managers", () => {
       [{ userEmail: "alice@example.com", orgId: "acme" }],
       [{ userEmail: "bob@example.com", orgId: "acme" }],
     ]);
+  });
+
+  it("installs the app authorization resolver on cached and new managers", async () => {
+    const alice = await getMcpManagerForPrincipal({
+      userEmail: "alice@example.com",
+      orgId: "acme",
+    });
+    const resolver = vi.fn();
+    setMcpToolAuthorizationResolver(resolver);
+    const bob = await getMcpManagerForPrincipal({
+      userEmail: "bob@example.com",
+      orgId: "acme",
+    });
+
+    expect((alice as any).authorizationResolver).toBe(resolver);
+    expect((bob as any).authorizationResolver).toBe(resolver);
   });
 
   it("invalidates same-org managers after an org server is changed", async () => {

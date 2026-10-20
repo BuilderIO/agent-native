@@ -1,63 +1,115 @@
-import { expect, test } from "@playwright/test";
-
 import { appPath } from "./helpers";
+import { expect, test } from "./rails";
 
-test("No design system remains explicit when creating a blank design", async ({
+test("create-design preserves an explicit no-system choice", async ({
+  request,
+}) => {
+  let designId: string | undefined;
+  const title = `QA no-system design ${Date.now()}`;
+
+  try {
+    const response = await request.post(
+      appPath("/_agent-native/actions/create-design"),
+      { data: { title, designSystemId: null } },
+    );
+    expect(response.ok()).toBe(true);
+
+    const created = await response.json();
+    const createdId = created.id;
+    if (typeof createdId !== "string" || !createdId) {
+      throw new Error("create-design response did not include an id");
+    }
+    designId = createdId;
+    expect(created).toHaveProperty("designSystemId", null);
+
+    const saved = await request.get(
+      appPath("/_agent-native/actions/get-design"),
+      { params: { id: createdId } },
+    );
+    expect(saved.ok()).toBe(true);
+    expect(await saved.json()).toMatchObject({ title, designSystemId: null });
+  } finally {
+    if (designId) {
+      await request
+        .post(appPath("/_agent-native/actions/delete-design"), {
+          data: { id: designId },
+        })
+        .catch(() => {});
+    }
+  }
+});
+
+test("Home creates a blank design without a system and reloads it", async ({
   page,
   request,
 }) => {
-  const systemResponse = await request.post(
-    appPath("/_agent-native/actions/create-design-system"),
-    { data: { title: "QA optional design system", data: "{}" } },
-  );
-  expect(systemResponse.ok()).toBe(true);
-  const system = await systemResponse.json();
-  await page.goto(appPath("/home"));
-  const newDesign = page.getByRole("button", {
-    name: "New Design",
-    exact: true,
-  });
-  const dismissSetup = page.getByRole("button", {
-    name: "Dismiss",
-    exact: true,
-  });
-  await expect(newDesign.or(dismissSetup).first()).toBeVisible();
-  if (await dismissSetup.isVisible()) await dismissSetup.click();
-  await newDesign.click();
-  await page.getByRole("combobox").click();
-  await page
-    .getByRole("option", { name: "No design system", exact: true })
-    .click();
-  const creation = page.waitForResponse((response) =>
-    response.url().endsWith("/_agent-native/actions/create-design"),
-  );
-  await page.getByRole("button", { name: "Skip prompt", exact: true }).click();
-  const response = await creation;
-  expect(response.ok()).toBe(true);
-  expect(response.request().postDataJSON()).toHaveProperty(
-    "designSystemId",
-    null,
-  );
-  const created = await response.json();
-  const designId = created.id;
-  expect(typeof designId).toBe("string");
+  let designId: string | undefined;
+
   try {
-    await expect(page).toHaveURL(new RegExp(`/design/${designId}`));
-    await page.reload();
+    await page.goto(appPath("/home"), { waitUntil: "domcontentloaded" });
+
+    const skipPrompt = page.getByRole("button", {
+      name: "Skip prompt",
+      exact: true,
+    });
+    await expect(skipPrompt).toBeVisible({ timeout: 30_000 });
+
+    const creation = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        response.url().endsWith("/_agent-native/actions/create-design"),
+    );
+    await skipPrompt.click();
+
+    const response = await creation;
+    expect(response.ok()).toBe(true);
+    expect(response.request().postDataJSON()).toHaveProperty(
+      "designSystemId",
+      null,
+    );
+
+    const created = await response.json();
+    const createdId = created.id;
+    if (typeof createdId !== "string" || !createdId) {
+      throw new Error("create-design response did not include an id");
+    }
+    designId = createdId;
+
+    const editorUrl = new RegExp(`/design/${createdId}$`);
+    await expect(page).toHaveURL(editorUrl, { timeout: 30_000 });
+    const moveTool = page.getByRole("button", {
+      name: "Move",
+      exact: true,
+    });
+    await expect(moveTool).toBeVisible({ timeout: 30_000 });
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page).toHaveURL(editorUrl);
+    await expect(moveTool).toBeVisible({ timeout: 30_000 });
+
     const saved = await request.get(
       appPath("/_agent-native/actions/get-design"),
-      {
-        params: { id: designId },
-      },
+      { params: { id: createdId } },
     );
     expect(saved.ok()).toBe(true);
-    expect(await saved.json()).toHaveProperty("designSystemId", null);
+    const record = await saved.json();
+    expect(record).toHaveProperty("designSystemId", null);
+    const screens = (record.files ?? []).filter(
+      (file: { filename: string }) => file.filename !== "__board__.html",
+    );
+    await expect(
+      page.locator("[data-screen-shell]"),
+      "the reloaded editor shows the saved screens",
+    ).toHaveCount(screens.length);
   } finally {
-    await request.post(appPath("/_agent-native/actions/delete-design"), {
-      data: { id: designId },
-    });
-    await request.post(appPath("/_agent-native/actions/delete-design-system"), {
-      data: { id: system.id },
-    });
+    // The design is created by the product flow, not app.seed, so it is deleted here, after leaving the editor.
+    await page.goto("about:blank");
+    if (designId) {
+      await request
+        .post(appPath("/_agent-native/actions/delete-design"), {
+          data: { id: designId },
+        })
+        .catch(() => {});
+    }
   }
 });

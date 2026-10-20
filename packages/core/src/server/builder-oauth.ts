@@ -12,6 +12,7 @@ import {
   type McpOAuthCredentialBundle,
 } from "../mcp-client/oauth-client.js";
 import { getOAuthTokens, listOAuthTokenOwners } from "../oauth-tokens/store.js";
+import { invalidateAgentEngineStatusCache } from "./agent-engine-status-cache.js";
 import { orderCredentialScopes } from "./credential-read-order.js";
 import { isPersonalProviderKeyUseRestricted } from "./personal-provider-key-policy.js";
 
@@ -150,14 +151,20 @@ function userOwnerOptions(ownerEmail: string) {
 async function resolveBuilderOAuthOptions(
   ownerEmail: string,
   orgId?: string | null,
-  { forUse = false }: { forUse?: boolean } = {},
+  {
+    forUse = false,
+    orgOnly = false,
+  }: { forUse?: boolean; orgOnly?: boolean } = {},
 ) {
   const email = normalizeOwnerEmail(ownerEmail);
   const userOptions = userOwnerOptions(email);
   const resolvedOrgId =
-    orgId === undefined
-      ? await resolveOrgIdForEmail(email)
-      : orgId?.trim() || null;
+    orgOnly && orgId === undefined
+      ? null
+      : orgId === undefined
+        ? await resolveOrgIdForEmail(email)
+        : orgId?.trim() || null;
+  if (orgOnly) return resolvedOrgId ? [orgOwnerOptions(resolvedOrgId)] : [];
   const personalAllowed =
     !forUse ||
     (await isPersonalBuilderGrantAllowed({
@@ -354,6 +361,7 @@ export async function saveBuilderOAuthCredentials(input: {
     ...options,
     credentials: { ...input.credentials, connectedAt: Date.now() },
   });
+  invalidateAgentEngineStatusCache();
   return options.scope;
 }
 
@@ -402,11 +410,12 @@ export async function getBuilderOAuthSession(
   ownerEmail: string,
   orgId?: string | null,
   requiredScope?: BuilderOAuthPermissionScope,
-  access: { forceRefresh?: boolean } = {},
+  access: { forceRefresh?: boolean; orgOnly?: boolean } = {},
 ): Promise<BuilderOAuthSession | null> {
   let missingRequiredScope = false;
   for (const options of await resolveBuilderOAuthOptions(ownerEmail, orgId, {
     forUse: true,
+    orgOnly: access.orgOnly,
   })) {
     const stored = await getOAuthTokens(
       "mcp",
@@ -449,9 +458,11 @@ export class BuilderOAuthScopeError extends Error {
 export async function hasBuilderOAuthSession(
   ownerEmail: string,
   orgId?: string | null,
+  access: { orgOnly?: boolean } = {},
 ): Promise<boolean> {
   for (const options of await resolveBuilderOAuthOptions(ownerEmail, orgId, {
     forUse: true,
+    orgOnly: access.orgOnly,
   })) {
     const stored = await getOAuthTokens(
       "mcp",
@@ -466,6 +477,42 @@ export async function hasBuilderOAuthSession(
     ) {
       return true;
     }
+  }
+  return false;
+}
+
+/**
+ * Read the saved Builder grant without refreshing its access token. The
+ * status route and chat preflight need a cheap readiness answer; runtime
+ * dispatch owns token refresh and reports a reconnect error if refresh fails.
+ */
+export async function hasUsableBuilderOAuthSessionForReadiness(
+  ownerEmail: string,
+  orgId?: string | null,
+  requiredScope: BuilderOAuthPermissionScope = BUILDER_OAUTH_SCOPE,
+): Promise<boolean> {
+  for (const options of await resolveBuilderOAuthOptions(ownerEmail, orgId, {
+    forUse: true,
+  })) {
+    if (
+      (await getOAuthTokens(
+        "mcp",
+        options.key,
+        `${options.scope}:${options.scopeId}`,
+      )) === null
+    ) {
+      continue;
+    }
+    const credentials = await readMcpOAuthCredentials(options);
+    if (
+      !credentials ||
+      !isBuilderCredential(credentials) ||
+      credentials.oauthLifecycle?.reconnectReason ||
+      !scopesFrom(credentials).includes(requiredScope)
+    ) {
+      continue;
+    }
+    return true;
   }
   return false;
 }
@@ -650,6 +697,7 @@ export async function deleteBuilderOAuthSession(
   }
   if (!selected) return { localDeleted: false, remoteRevoked: false };
   const result = await revokeMcpOAuthCredentials(selected);
+  if (result.local === "deleted") invalidateAgentEngineStatusCache();
   return {
     localDeleted: result.local === "deleted",
     remoteRevoked: result.remote === "succeeded",

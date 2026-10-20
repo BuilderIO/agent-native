@@ -17,7 +17,9 @@ import { dispatchAccessDescriptor } from "../../shared/app-roles.js";
 let dispatchAccess: AppRoles<"admin", "administer"> | undefined;
 
 function getDispatchAccess(): AppRoles<"admin", "administer"> {
-  return (dispatchAccess ??= defineAppRoles(dispatchAccessDescriptor));
+  return (dispatchAccess ??= defineAppRoles(dispatchAccessDescriptor, {
+    allowOrgAdmins: true,
+  }));
 }
 
 export async function authorizeDispatchAdmin(
@@ -55,7 +57,6 @@ export async function authorizeDispatchAdmin(
       "Dispatch administration requires active organization membership.",
     );
   }
-  if (membership.role === "owner" || membership.role === "admin") return;
   await getDispatchAccess().assertPermission(["administer"], {
     userEmail: email,
     orgId,

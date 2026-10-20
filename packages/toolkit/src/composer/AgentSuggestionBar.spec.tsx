@@ -64,6 +64,7 @@ describe("AgentSuggestionBar", () => {
     const bar = container.querySelector('[data-agent-suggestion-bar="true"]');
     const buttons = container.querySelectorAll("button");
     expect(bar?.getAttribute("aria-label")).toBe("Next actions");
+    expect(bar?.getAttribute("aria-live")).toBeNull();
     expect(buttons).toHaveLength(2);
     expect(bar?.className).toContain("py-2");
     expect(bar?.className).toContain("min-w-0");
@@ -83,5 +84,54 @@ describe("AgentSuggestionBar", () => {
 
     act(() => buttons[0]?.click());
     expect(onSelect).toHaveBeenCalledWith(suggestion);
+  });
+
+  it("reserves a single row with skeleton chips while suggestions load", () => {
+    act(() => {
+      root.render(
+        <AgentSuggestionBar
+          ariaLabel="Suggested prompts"
+          suggestions={[]}
+          loading
+          announceUpdates
+          layout="single-line"
+          onSelect={() => {}}
+        />,
+      );
+    });
+
+    const bar = container.querySelector<HTMLElement>(
+      '[data-agent-suggestion-bar="true"]',
+    );
+    const track = container.querySelector<HTMLElement>(
+      '[data-agent-suggestion-track="true"]',
+    );
+    expect(bar?.getAttribute("aria-busy")).toBe("true");
+    expect(bar?.getAttribute("aria-live")).toBe("polite");
+    expect(
+      container.querySelectorAll('[data-agent-suggestion-placeholder="true"]'),
+    ).toHaveLength(3);
+    expect(track?.className).toContain("flex-nowrap");
+    expect(track?.className).toContain("h-7");
+    expect(container.querySelectorAll("button")).toHaveLength(0);
+  });
+
+  it("keeps requested suggestions on one horizontal row", () => {
+    act(() => {
+      root.render(
+        <AgentSuggestionBar
+          ariaLabel="Suggested prompts"
+          suggestions={["First", "Second", "Third"]}
+          layout="single-line"
+          onSelect={() => {}}
+        />,
+      );
+    });
+
+    const track = container.querySelector<HTMLElement>(
+      '[data-agent-suggestion-track="true"]',
+    );
+    expect(track?.className).toContain("flex-nowrap");
+    expect(track?.className).toContain("h-7");
   });
 });

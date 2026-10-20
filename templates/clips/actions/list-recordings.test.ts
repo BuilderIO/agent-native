@@ -389,6 +389,37 @@ describe("list-recordings shared view", () => {
   });
 });
 
+describe.each([
+  {
+    view: "archive" as const,
+    statusFilter: { kind: "is-not-null", column: "recordings.archivedAt" },
+  },
+  {
+    view: "trash" as const,
+    statusFilter: { kind: "is-not-null", column: "recordings.trashedAt" },
+  },
+])("list-recordings $view count", ({ view, statusFilter }) => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns the count used by the lifecycle sidebar", async () => {
+    const result = await action.run(
+      action.schema.parse({ view, countOnly: true }),
+    );
+
+    expect(mockCountWhere).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conditions: expect.arrayContaining([
+          { kind: "access-filter" },
+          statusFilter,
+        ]),
+      }),
+    );
+    expect(result).toEqual({ recordings: [], total: 3 });
+  });
+});
+
 describe("list-recordings folder scope", () => {
   beforeEach(() => {
     vi.clearAllMocks();

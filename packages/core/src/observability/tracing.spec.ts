@@ -177,10 +177,10 @@ describe("tracing helper — test provider registered", () => {
     __setAgentTracerForTests(tracer as any);
 
     await recordTrackingEvent(
-      "http.response",
+      "action_completed",
       {
         source: "server",
-        action_name: "list-visual-plans",
+        action: "list-visual-plans",
         method: "GET",
         path: "/_agent-native/actions/list-visual-plans",
         route_template: "/_agent-native/actions/:action",
@@ -192,9 +192,9 @@ describe("tracing helper — test provider registered", () => {
     );
 
     expect(spans[0]).toMatchObject({
-      name: "http.server",
+      name: "action.server",
       attributes: {
-        "agent.event_name": "http.response",
+        "agent.event_name": "action_completed",
         "agent.source": "server",
         "agent.telemetry_source": "server",
         "agent.action": "list-visual-plans",
@@ -307,7 +307,7 @@ describe("tracing helper — test provider registered", () => {
     const { tracer, spans } = createTestTracer();
     __setAgentTracerForTests(tracer as any);
 
-    queueTrackingEvent("http.response", { duration_ms: 42 }, "server");
+    queueTrackingEvent("action_completed", { duration_ms: 42 }, "server");
     await flushTrackingEvents();
 
     expect(spans[0]?.ended).toBe(true);

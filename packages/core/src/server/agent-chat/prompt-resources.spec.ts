@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildCompactSkillsSummary,
   promptResourceBlock,
   type PromptSection,
   resourceScopeForOwner,
@@ -186,6 +187,36 @@ describe("promptResourceBlock", () => {
     });
     expect(block).toBe(
       '<resource name="AGENTS.md" scope="personal">\nPrefer pnpm over npm.\n</resource>',
+    );
+  });
+});
+
+describe("buildCompactSkillsSummary", () => {
+  const skills = [
+    { meta: { name: "deep-review", description: "Review risky changes" } },
+    { meta: { name: "no-description" } },
+  ];
+
+  it("points every skill at the supplied read tool", () => {
+    const summary = buildCompactSkillsSummary(skills, "docs-search");
+
+    expect(summary).toContain('`docs-search --slug "skill-deep-review"`');
+    expect(summary).toContain('`docs-search --slug "skill-no-description"`');
+    expect(summary).toContain("Review risky changes.");
+  });
+
+  it("returns nothing when there is no read tool or no skill", () => {
+    expect(buildCompactSkillsSummary(skills, null)).toBeNull();
+    expect(buildCompactSkillsSummary([], "docs-search")).toBeNull();
+  });
+
+  it("names the overflow lookup with the same tool", () => {
+    const many = Array.from({ length: 45 }, (_, index) => ({
+      meta: { name: `skill-${index}` },
+    }));
+
+    expect(buildCompactSkillsSummary(many, "read-skill")).toContain(
+      '5 more codebase skills. Use `read-skill --query "<topic>"`',
     );
   });
 });

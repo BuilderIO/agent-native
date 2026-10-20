@@ -14,6 +14,12 @@ import type {
 import { describe, expect, it } from "vitest";
 
 import {
+  DATABASE_NAVIGATION_STATE_MAX_BYTES,
+  DATABASE_NAVIGATION_VISIBLE_ITEM_LIMIT,
+  databaseNavigationStateFitsKeepaliveBudget,
+  fitDatabaseNavigationState,
+} from "./database/navigation-state";
+import {
   addDatabaseView,
   appendDatabaseFilter,
   applyDatabaseView,
@@ -78,6 +84,7 @@ import {
   databaseGridColumns,
   databaseItemPropertyForColumn,
   databaseInlineFilterLabel,
+  databaseFilterRuleCandidate,
   databaseViewSummaries,
   databaseViewItemGroups,
   databaseResultCountLabel,
@@ -389,13 +396,45 @@ describe("database property picker", () => {
     ).toEqual(["number", "checkbox", "date", "end"]);
   });
 
-  it("can omit fields that already have active filters", () => {
+  it("can omit fields that are already sorted", () => {
     expect(
       databasePropertyPickerItems(properties, "", {
         includeName: true,
         excludeKeys: new Set(["checkbox", "name"]),
       }).map((item) => item.key),
     ).toEqual(["number", "date", "end"]);
+  });
+
+  it("prefers an unfiltered field for a new rule but never runs out", () => {
+    const filterOn = (key: string): DatabaseFilter => ({
+      key,
+      label: key,
+      operator: "is_not_empty",
+      value: "",
+    });
+
+    expect(databaseFilterRuleCandidate(properties, []).key).toBe("number");
+    expect(
+      databaseFilterRuleCandidate(properties, [
+        filterOn("number"),
+        filterOn("checkbox"),
+      ]).key,
+    ).toBe("date");
+    expect(
+      databaseFilterRuleCandidate(
+        properties,
+        ["number", "checkbox", "date", "end"].map(filterOn),
+      ).key,
+    ).toBe("name");
+    expect(
+      databaseFilterRuleCandidate(
+        properties,
+        ["name", "number", "checkbox", "date", "end"].map(filterOn),
+      ).key,
+    ).toBe("number");
+    expect(databaseFilterRuleCandidate([], [filterOn("name")]).key).toBe(
+      "name",
+    );
   });
 });
 
@@ -822,7 +861,85 @@ describe("database view filtering", () => {
         },
         [ownerProperty],
       ),
-    ).toBe("Owner: Is empty");
+    ).toBe("Owner: is empty");
+  });
+
+  it("names the operator on a chip unless it reads as a plain match", () => {
+    const chipProperties = [
+      property("status", "Status", "status", null, {
+        options: [{ id: "done", name: "done", color: "green" }],
+      }),
+      property("context", "Context", "multi_select", null, {
+        options: [
+          { id: "builder", name: "Builder", color: "blue" },
+          { id: "agent-native", name: "Agent-Native", color: "purple" },
+        ],
+      }),
+      property("rank", "Rank", "number"),
+      property("deadline", "Deadline", "date"),
+      property("done", "Done", "checkbox"),
+    ];
+    const chip = (
+      key: string,
+      label: string,
+      operator: DatabaseFilter["operator"],
+      value = "",
+    ) =>
+      databaseInlineFilterLabel(
+        { key, label, operator, value },
+        chipProperties,
+      );
+    const context = JSON.stringify(["Builder", "Agent-Native"]);
+
+    expect(chip("status", "Status", "does_not_equal", "done")).toBe(
+      "Status: is not done",
+    );
+    expect(chip("status", "Status", "contains", "done")).toBe("Status: done");
+    expect(chip("context", "Context", "does_not_equal", context)).toBe(
+      "Context: does not contain Builder, Agent-Native",
+    );
+    expect(chip("context", "Context", "contains", context)).toBe(
+      "Context: Builder, Agent-Native",
+    );
+
+    expect(chip("name", "Name", "contains", "foo")).toBe("Name: foo");
+    expect(chip("name", "Name", "equals", "foo")).toBe("Name: is foo");
+    expect(chip("name", "Name", "does_not_equal", "foo")).toBe(
+      "Name: is not foo",
+    );
+
+    expect(chip("rank", "Rank", "equals", "25")).toBe("Rank: = 25");
+    expect(chip("rank", "Rank", "does_not_equal", "25")).toBe("Rank: ≠ 25");
+    expect(chip("rank", "Rank", "greater_than", "25")).toBe("Rank: > 25");
+    expect(chip("rank", "Rank", "less_than", "25")).toBe("Rank: < 25");
+    expect(chip("rank", "Rank", "greater_than_or_equal", "25")).toBe(
+      "Rank: ≥ 25",
+    );
+    expect(chip("rank", "Rank", "less_than_or_equal", "25")).toBe("Rank: ≤ 25");
+    expect(chip("rank", "Rank", "is_not_empty")).toBe("Rank: is not empty");
+
+    expect(chip("deadline", "Deadline", "equals", "2026-11-01")).toBe(
+      "Deadline: is 2026-11-01",
+    );
+    expect(chip("deadline", "Deadline", "does_not_equal", "2026-11-01")).toBe(
+      "Deadline: is not 2026-11-01",
+    );
+    expect(chip("deadline", "Deadline", "before", "2026-11-01")).toBe(
+      "Deadline: before 2026-11-01",
+    );
+    expect(chip("deadline", "Deadline", "after", "2026-11-01")).toBe(
+      "Deadline: after 2026-11-01",
+    );
+    expect(
+      chip(
+        "deadline",
+        "Deadline",
+        "between",
+        JSON.stringify(["2026-11-01", "2026-11-30"]),
+      ),
+    ).toBe("Deadline: 2026-11-01 to 2026-11-30");
+
+    expect(chip("done", "Done", "is_checked")).toBe("Done: checked");
   });
 
   it("can match any active filter instead of requiring every filter", () => {
@@ -1339,6 +1456,60 @@ describe("new database item defaults", () => {
     ).toEqual({
       status: "published",
       pillars: ["design"],
+    });
+  });
+
+  it("gives a new row every value from repeated multi-select and person filters", () => {
+    const pillarsProperty = property("pillars", "Pillars", "multi_select");
+    const ownerProperty = property("owner", "Owner", "person");
+    const statusProperty = property("status", "Status", "select");
+
+    expect(
+      databasePropertyValuesForNewItem(
+        [
+          {
+            key: "pillars",
+            label: "Pillars",
+            operator: "contains",
+            value: "design",
+          },
+          {
+            key: "pillars",
+            label: "Pillars",
+            operator: "contains",
+            value: JSON.stringify(["research", "design"]),
+          },
+          {
+            key: "owner",
+            label: "Owner",
+            operator: "contains",
+            value: "alice@example.com",
+          },
+          {
+            key: "owner",
+            label: "Owner",
+            operator: "contains",
+            value: "eric@example.com",
+          },
+          {
+            key: "status",
+            label: "Status",
+            operator: "equals",
+            value: "published",
+          },
+          {
+            key: "status",
+            label: "Status",
+            operator: "equals",
+            value: "draft",
+          },
+        ],
+        [pillarsProperty, ownerProperty, statusProperty],
+      ),
+    ).toEqual({
+      pillars: ["design", "research"],
+      owner: ["alice@example.com", "eric@example.com"],
+      status: "published",
     });
   });
 
@@ -2149,7 +2320,6 @@ describe("database item preview", () => {
             propertyId: "number",
             name: "Priority",
             type: "number",
-            value: 3,
             text: "3",
           },
           {
@@ -2162,6 +2332,158 @@ describe("database item preview", () => {
         ],
       },
     ]);
+  });
+
+  it("sends a cell's text once and marks text it cuts", () => {
+    const notes = property("notes", "Notes", "text");
+    const status = property("status", "Status", "status", null, {
+      options: [{ id: "opt-doing", name: "Doing", color: "blue" }],
+    });
+    const waiting = property("waiting", "Waiting on", "text");
+    const row: ContentDatabaseItem = {
+      ...item("alpha", "Alpha", {}),
+      properties: [
+        { ...notes, value: "x".repeat(250) },
+        { ...status, value: "opt-doing" },
+        { ...waiting, value: null },
+      ],
+    };
+
+    const [summary] = databaseVisibleItemSummaries(
+      [row],
+      [notes, status, waiting],
+    );
+
+    expect(summary?.properties).toEqual([
+      {
+        propertyId: "notes",
+        name: "Notes",
+        type: "text",
+        text: `${"x".repeat(200)}…`,
+        textTruncated: true,
+      },
+      {
+        propertyId: "status",
+        name: "Status",
+        type: "status",
+        value: "opt-doing",
+        text: "Doing",
+      },
+      { propertyId: "waiting", name: "Waiting on", type: "text", text: "" },
+    ]);
+  });
+
+  it("keeps navigation state for a wide database under its byte budget", () => {
+    const options = ["Not started", "In progress", "Waiting", "Done"].map(
+      (name, index) => ({ id: `opt-${index}`, name, color: "gray" as const }),
+    );
+    const columns = [
+      property("status", "Status", "status", null, { options }),
+      property("area", "Area", "select", null, { options }),
+      property("tags", "Tags", "multi_select", null, { options }),
+      property("rank", "Rank", "number"),
+      property("effort", "Effort", "number"),
+      property("due", "Due", "date"),
+      property("touched", "Last touched", "date"),
+      property("link", "Link", "url"),
+      ...["Next action", "Waiting on", "Notes", "Context", "Outcome"].map(
+        (name, index) => property(`text-${index}`, name, "text"),
+      ),
+    ];
+    const rows = Array.from({ length: 60 }, (_, index) => ({
+      ...item(`row-${index}`, `Task ${index} with a descriptive title`, {}),
+      properties: columns.map((column) => ({
+        ...column,
+        value:
+          column.definition.type === "text"
+            ? `Row ${index} ${"long free-form note text ".repeat(12)}`
+            : column.definition.type === "multi_select"
+              ? ["opt-0", "opt-2"]
+              : column.definition.type === "number"
+                ? index
+                : column.definition.type === "date"
+                  ? { start: "2026-06-01", includeTime: false }
+                  : column.definition.type === "url"
+                    ? `https://example.com/tasks/${index}`
+                    : "opt-1",
+      })),
+    }));
+    const state = databaseNavigationState({
+      document: { id: "database-doc", title: "Tasks" },
+      databaseId: "database",
+      activeView: { id: "default", name: "Table", type: "table" },
+      visibleItems: rows,
+      visibleProperties: columns,
+      visibleItemCount: rows.length,
+      totalItemCount: 230,
+      selectedItems: rows.slice(0, 40),
+      previewItem: null,
+    });
+    const bytes = (value: unknown) =>
+      new TextEncoder().encode(JSON.stringify(value)).length;
+    expect(bytes(state)).toBeGreaterThan(64 * 1024);
+
+    const fitted = fitDatabaseNavigationState(state);
+
+    expect(bytes(fitted)).toBeLessThanOrEqual(
+      DATABASE_NAVIGATION_STATE_MAX_BYTES,
+    );
+    expect(databaseNavigationStateFitsKeepaliveBudget(fitted)).toBe(true);
+    expect(DATABASE_NAVIGATION_STATE_MAX_BYTES).toBeLessThan(64 * 1024);
+    expect(fitted.databaseVisibleItems.length).toBeGreaterThan(0);
+    expect(fitted.databaseVisibleItems.length).toBeLessThan(
+      DATABASE_NAVIGATION_VISIBLE_ITEM_LIMIT,
+    );
+    expect(fitted.databaseVisibleItemLimit).toBe(
+      fitted.databaseVisibleItems.length,
+    );
+    expect(fitted.databaseVisibleItems).toEqual(
+      state.databaseVisibleItems.slice(0, fitted.databaseVisibleItemLimit),
+    );
+    expect(fitted.databaseVisibleItemCount).toBe(60);
+    expect(fitDatabaseNavigationState(fitted)).toBe(fitted);
+  });
+
+  it("drops every row but keeps the view's settings when the settings alone pass the budget", () => {
+    const filters = Array.from({ length: 20 }, (_, index) => ({
+      id: `filter-${index}`,
+      propertyId: "notes",
+      operator: "contains",
+      value: "a long filter value ".repeat(5),
+    }));
+    const state = {
+      databaseActiveFilters: filters,
+      databaseVisibleItems: [{ itemId: "row-0" }, { itemId: "row-1" }],
+      databaseSelectedItems: [{ itemId: "row-0" }],
+      databaseVisibleItemLimit: DATABASE_NAVIGATION_VISIBLE_ITEM_LIMIT,
+    };
+
+    const fitted = fitDatabaseNavigationState(state, 512);
+
+    expect(fitted.databaseVisibleItems).toEqual([]);
+    expect(fitted.databaseSelectedItems).toEqual([]);
+    expect(fitted.databaseVisibleItemLimit).toBe(0);
+    expect(fitted.databaseActiveFilters).toBe(filters);
+  });
+
+  it("keeps oversized view settings out of keepalive requests", () => {
+    const state = {
+      databaseActiveFilters: [
+        {
+          propertyId: "notes",
+          value: "x".repeat(DATABASE_NAVIGATION_STATE_MAX_BYTES),
+        },
+      ],
+      databaseVisibleItems: [{ itemId: "row-0" }],
+      databaseSelectedItems: [{ itemId: "row-0" }],
+      databaseVisibleItemLimit: DATABASE_NAVIGATION_VISIBLE_ITEM_LIMIT,
+    };
+
+    const fitted = fitDatabaseNavigationState(state);
+
+    expect(fitted.databaseVisibleItems).toEqual([]);
+    expect(fitted.databaseSelectedItems).toEqual([]);
+    expect(databaseNavigationStateFitsKeepaliveBudget(fitted)).toBe(false);
   });
 
   it("omits preview row ids from navigation state when no row is open", () => {

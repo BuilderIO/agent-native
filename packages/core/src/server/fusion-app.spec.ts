@@ -139,7 +139,7 @@ describe("Fusion Builder authorization", () => {
     });
   });
 
-  it("rejects inconsistent Builder credit quota totals", async () => {
+  it("reports inconsistent Builder credit quota totals as unavailable", async () => {
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "<OAUTH_TOKEN_EXAMPLE>",
       authorization: "Bearer <OAUTH_TOKEN_EXAMPLE>",
@@ -156,7 +156,30 @@ describe("Fusion Builder authorization", () => {
       ),
     );
 
-    await expect(getBuilderCreditUsage()).rejects.toThrow();
+    await expect(getBuilderCreditUsage()).rejects.toMatchObject({
+      actionContractError: true,
+      errorCode: "builder_credit_usage_unavailable",
+      statusCode: 502,
+      details: { upstreamStatus: 200 },
+    });
+  });
+
+  it("reports malformed Builder credit responses as unavailable", async () => {
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "<OAUTH_TOKEN_EXAMPLE>",
+      authorization: "Bearer <OAUTH_TOKEN_EXAMPLE>",
+      source: "oauth",
+    });
+    vi.mocked(fetch).mockResolvedValue(
+      new Response("not json", { status: 200 }),
+    );
+
+    await expect(getBuilderCreditUsage()).rejects.toMatchObject({
+      actionContractError: true,
+      errorCode: "builder_credit_usage_unavailable",
+      statusCode: 502,
+      details: { upstreamStatus: 200 },
+    });
   });
 
   it.each([
@@ -289,6 +312,11 @@ describe("Fusion Builder authorization", () => {
       ),
     );
 
-    await expect(getBuilderCreditUsage()).rejects.toThrow();
+    await expect(getBuilderCreditUsage()).rejects.toMatchObject({
+      actionContractError: true,
+      errorCode: "builder_credit_usage_unavailable",
+      statusCode: 502,
+      details: { upstreamStatus: 200 },
+    });
   });
 });

@@ -1,26 +1,19 @@
 // @vitest-environment jsdom
 
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { HeroBackground } from "./hero-background";
 
-const { oceanMount, shaderMount } = vi.hoisted(() => ({
-  oceanMount: vi.fn(),
-  shaderMount: vi.fn(),
-}));
+const { waveMount } = vi.hoisted(() => ({ waveMount: vi.fn() }));
 
-vi.mock("./hero-shader-background", () => ({
-  HeroShaderBackground: () => {
-    shaderMount();
-    return <div data-testid="webgl-wave" />;
-  },
-}));
-
-vi.mock("./ocean/hero-ocean-background", () => ({
-  HeroOceanBackground: () => {
-    oceanMount();
-    return <div data-testid="ocean" />;
+vi.mock("@agent-native/toolkit/app/shared", () => ({
+  WaveBackground: ({ className }: { className?: string }) => {
+    waveMount();
+    return <div className={className} data-testid="shared-wave" />;
   },
 }));
 
@@ -31,12 +24,28 @@ afterEach(() => {
     configurable: true,
     value: undefined,
   });
-  oceanMount.mockClear();
-  shaderMount.mockClear();
+  waveMount.mockClear();
 });
 
 describe("HeroBackground", () => {
-  it("uses the WebGL wave without probing an available WebGPU adapter", () => {
+  it("keeps the background inside the clipped homepage hero section", () => {
+    const route = readFileSync(
+      resolve(process.cwd(), "app/routes/_index.tsx"),
+      "utf8",
+    );
+    const hero = readFileSync(
+      resolve(process.cwd(), "app/components/website-redesign/hero.tsx"),
+      "utf8",
+    );
+
+    expect(route).not.toContain("HeroBackground");
+    expect(hero.match(/<HeroBackground \/>/g)).toHaveLength(1);
+    expect(hero.indexOf("<HeroBackground />")).toBeLessThan(
+      hero.indexOf("<GridInner"),
+    );
+  });
+
+  it("renders the shared Toolkit wave on the homepage", () => {
     const requestAdapter = vi.fn(async () => ({ name: "adapter" }));
     Object.defineProperty(navigator, "gpu", {
       configurable: true,
@@ -45,8 +54,12 @@ describe("HeroBackground", () => {
 
     render(<HeroBackground />);
 
-    expect(screen.getByTestId("webgl-wave")).toBeDefined();
+    const wave = screen.getByTestId("shared-wave");
+    expect(wave.className).toContain("absolute");
+    expect(wave.className).toContain("inset-0");
+    expect(wave.className).toContain("z-[-1]");
+    expect(wave.className).not.toContain("fixed");
     expect(requestAdapter).not.toHaveBeenCalled();
-    expect(oceanMount).not.toHaveBeenCalled();
+    expect(waveMount).toHaveBeenCalledOnce();
   });
 });

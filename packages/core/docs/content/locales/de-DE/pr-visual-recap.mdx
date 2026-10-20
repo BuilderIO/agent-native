@@ -361,8 +361,10 @@ Org-Owner oder -Admin kann es auflisten oder widerrufen. Prägen Sie
 eines (nur Org-Owner/-Admin):
 
 ```bash
-npx @agent-native/core@latest connect https://plan.agent-native.com --service-token pr-recap
+npx @agent-native/core@latest connect https://plan.agent-native.com --service-token pr-recap --ttl-days 3650
 ```
+
+Damit gilt das Token für CI zehn Jahre und kann weiterhin jederzeit widerrufen werden.
 
 Der Befehl authentifiziert Sie im Browser und gibt dann das
 Service-Token genau einmal aus — speichern Sie es als Secret

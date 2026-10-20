@@ -17,6 +17,7 @@ import {
   createSmoothNode,
   getPenPathGeometry,
   hitTestPenAnchor,
+  hitTestPenEditTarget,
   hitTestPenHandle,
   isPenCloseTarget,
   movePenAnchor,
@@ -633,6 +634,28 @@ describe("pen path helpers", () => {
     });
   });
 
+  describe("hitTestPenEditTarget", () => {
+    const path = appendPenNode(
+      null,
+      createSmoothNode({ x: 0, y: 0 }, { x: 10, y: 0 }),
+    );
+
+    it("grabs the anchor when its own short handle is also within the radius", () => {
+      expect(hitTestPenEditTarget(path, { x: 0, y: 0 }, 16)).toEqual({
+        kind: "anchor",
+        nodeIndex: 0,
+      });
+    });
+
+    it("grabs the handle when the pointer is nearer to it than to the anchor", () => {
+      expect(hitTestPenEditTarget(path, { x: 8, y: 0 }, 16)).toEqual({
+        kind: "handle",
+        nodeIndex: 0,
+        which: "out",
+      });
+    });
+  });
+
   describe("hitTestPenHandle", () => {
     it("finds handleOut of the first node", () => {
       const path = appendPenNode(
@@ -686,7 +709,7 @@ describe("pen path helpers", () => {
   });
 
   describe("movePenAnchor", () => {
-    it("translates handleIn/handleOut with the anchor by default (Figma default)", () => {
+    it("translates handleIn/handleOut with the anchor by default", () => {
       const path = appendPenNode(
         null,
         createSmoothNode({ x: 50, y: 50 }, { x: 70, y: 60 }),

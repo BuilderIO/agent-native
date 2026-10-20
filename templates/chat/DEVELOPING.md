@@ -233,7 +233,11 @@ Local development uses PGlite at `data/pglite`. For production and shared enviro
 
 Real credential values belong only in local `.env` files, deployment configuration, or registered secrets/settings UI. Never commit, document, log, return, paste, or include real keys, tokens, webhook URLs, signing secrets, or private data in examples; use empty values or obvious placeholders.
 
-When adding app data, define tables with `@agent-native/core/db/schema` helpers and use Drizzle's query builder for reads/writes. Keep SQL PostgreSQL-compatible and reserve raw SQL for additive migrations, health checks, or carefully scoped maintenance.
+When adding app data, define tables with Drizzle's `drizzle-orm/pg-core`
+exports and use Drizzle's query builder for reads/writes. Import framework
+sharing helpers such as `ownableColumns()` and `createSharesTable()` from
+`@agent-native/core/db/schema`. Keep SQL PostgreSQL-compatible and reserve raw
+SQL for additive migrations, health checks, or carefully scoped maintenance.
 
 | Variable        | Required                     | Description                                                                   |
 | --------------- | ---------------------------- | ----------------------------------------------------------------------------- |

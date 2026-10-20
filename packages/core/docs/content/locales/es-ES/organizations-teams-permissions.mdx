@@ -17,6 +17,34 @@ La aplicación declara los roles y las claves de permiso en el código. Un admin
 
 Consulta [Despliegues administrados](/docs/administered-deployments) para invitaciones y configuración. Consulta [Ámbito de datos](/docs/security#data-scoping) para el acceso a datos.
 
+## Políticas de permisos opcionales
+
+Por defecto, las comprobaciones de permisos requieren un rol de aplicación asignado. El segundo argumento opcional de `defineAppRoles` cambia esta política en el servidor. Forms utiliza:
+
+```ts
+const formsAccess = defineAppRoles(
+  {
+    appId: "forms",
+    roles: ["editor", "reviewer"] as const,
+    defaultRole: "editor",
+    permissions: {
+      "forms.edit": ["editor"],
+      "forms.review": ["editor", "reviewer"],
+    },
+  },
+  { unassignedRole: "editor", allowOrgAdmins: true },
+);
+```
+
+- `unassignedRole` aplica los permisos de un rol declarado a los miembros activos sin asignaciones de roles de aplicación. Las sobrescrituras de permisos siguen aplicándose. No crea una asignación ni se aplica a miembros eliminados o a asignaciones que solo contienen roles retirados. Borrar todas las asignaciones restaura este comportamiento predeterminado.
+- `allowOrgAdmins: true` permite que los propietarios y administradores activos de la organización superen cualquier comprobación de permisos de aplicación declarados, independientemente de sus roles de aplicación o de las sobrescrituras de permisos. No concede administración de la organización a los administradores de aplicación.
+
+Estas opciones solo afectan a `requirePermission` y `assertPermission`. `resolve`, `requireAny` y `assertAny` siguen basándose en asignaciones explícitas; `defaultRole` solo sirve para la presentación. Sin estas opciones se mantiene la política estricta. Ninguna sustituye la autorización de recursos: conserva las comprobaciones `accessFilter` y `assertAccess`.
+
+Forms conserva el acceso de edición de los miembros existentes sin rol asignado. Un Reviewer asignado explícitamente puede revisar envíos, pero no editar formularios; Editor puede hacer ambas cosas. Los permisos compartidos siguen determinando a qué formularios y envíos pueden acceder.
+
+En los formularios de una organización, editar y revisar envíos requiere pertenecer activamente a esa organización, salvo que el sistema de permisos compartidos reconozca a la persona como propietaria del formulario. Una invitación directa a compartir no basta para superar esta comprobación de permisos de aplicación.
+
 ## Grupos de usuarios {#user-groups}
 
 Las organizaciones pueden tener grupos reutilizables formados por sus miembros actuales. Los propietarios y administradores gestionan la pertenencia, y una persona puede estar en varios grupos. Las aplicaciones pueden usar un grupo para compartir un recurso que admita grupos o limitar el acceso a una conexión del espacio de trabajo.

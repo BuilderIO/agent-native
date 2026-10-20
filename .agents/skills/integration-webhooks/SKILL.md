@@ -189,7 +189,7 @@ CREATE INDEX IF NOT EXISTS idx_pending_tasks_dispatch_scope
   ON integration_pending_tasks(platform, dispatch_scope);
 ```
 
-The store layer creates this lazily on first use via `ensureTable()` and uses
+Its `defineStore()` migrations create it (see `framework-stores`); it uses
 PostgreSQL `BIGINT` columns for millisecond timestamps and counters.
 
 `claimPendingTask` is the critical concurrency primitive: it atomically flips

@@ -1,0 +1,88 @@
+---
+title: "Chat : Parler à l'agent"
+description: "Ce que l'agent sait de l'endroit où vous vous trouvez dans Chat, et des invites organisées par tâche."
+---
+
+# Parler à l'agent
+
+Dans Chat, la conversation est le principal moyen d'utiliser l'application. L'agent peut exécuter les actions de l'application, rechercher des informations, retenir ce que vous lui dites et vous emmener vers d'autres pages. Cette page couvre ce que l'agent sait de votre écran, des invites utiles par tâche, et où il dépasse les actions intégrées. Consultez [Chat](/docs/template-chat) pour la vue d'ensemble.
+
+## Comment l'agent voit votre écran
+
+L'agent sait toujours sur quelle page vous êtes et quelle conversation est ouverte. C'est pourquoi « ramène-moi à l'accueil » ou « sur quelle page suis-je ? » fonctionne sans explication. L'application informe l'agent de chaque changement de page au moment où il se produit, si bien que l'agent n'a jamais à deviner.
+
+Chat n'a aucune donnée métier à désigner, comme un événement sélectionné ou un document ouvert. Tout le reste de ce que l'agent sait provient de ce que vous dites dans la conversation.
+
+## Invites utiles par tâche
+
+Chaque invite ci-dessous s'exécute sur l'application réelle. Voici un exemple détaillé :
+
+<Comparison>
+
+### :blue: Vous demandez
+
+« Appelle l'action hello pour Alex. »
+
+### :green: Ce qui se passe
+
+L'agent exécute l'action d'exemple **hello** avec le nom Alex. L'action
+renvoie « Hello, Alex! » et l'agent l'affiche dans le chat. Rien d'autre dans
+l'application ne change.
+
+</Comparison>
+
+<Cards columns={2}>
+
+### Découvrir ce que l'application sait faire
+
+- **« Que peut faire cette application ? »** L'agent liste les actions dont il dispose et ce que fait
+  chacune d'elles.
+- **« Montre-moi les actions disponibles. »** Même principe, sous forme de simple liste de noms.
+- **« Aide-moi à démarrer. »** L'agent suggère une première chose à essayer.
+
+### Se déplacer
+
+- **« Emmène-moi dans Paramètres. »** L'application ouvre la page pour vous.
+- **« Ouvre la page Base de données. »** L'agent ouvre `/database`, qui n'est pas liée
+  depuis la barre latérale.
+- **« Retourne à l'accueil. »** La page Premiers pas s'ouvre.
+
+### Apprendre à l'agent
+
+- **« Retiens que je préfère les réponses courtes. »** L'agent l'enregistre dans sa
+  mémoire, et l'utilise dans les chats suivants.
+- **« À partir de maintenant, explique toujours ton raisonnement avant de répondre. »** L'agent
+  peut l'enregistrer comme une instruction permanente.
+- **« Que retiens-tu à mon sujet ? »** L'agent vous relit sa mémoire.
+
+### Consulter vos données
+
+- **« Quelles tables contient la base de données de cette application ? »** L'agent lit la structure
+  de la base de données et liste les tables.
+- **« Combien de chats ai-je ? »** L'agent exécute une question en lecture seule sur
+  la base de données et répond dans le chat.
+
+### Découvrir le framework
+
+- **« Comment ajouter une nouvelle action à cette application ? »** L'agent cherche dans la
+  documentation d'Agent-Native et explique les étapes.
+- **« Quelle est la différence entre une action et une compétence ? »** Même principe, avec une réponse tirée
+  de la documentation.
+
+</Cards>
+
+<Callout tone="info">
+
+L'agent lit la base de données mais ne la modifie pas directement. Pour enregistrer de nouvelles
+informations, il utilise une action. Cela garde chaque changement sur le même chemin que celui qu'empruntent
+les propres écrans de l'application. Un développeur peut modifier ce comportement dans la configuration de l'application.
+
+</Callout>
+
+## Et ensuite
+
+- [**Chat**](/docs/template-chat) — la vue d'ensemble
+- [**Fonctionnalités**](/docs/template-chat-features) — conversations, action d'exemple, équipes et pages d'administration
+- [**Chat dans un espace de travail multi-apps**](/docs/template-chat-integrations) — connecter Chat à Dispatch et à d'autres applications
+- [**Guide développeur**](/docs/template-chat-developers) — démarrage rapide, actions, la route du chat et ajout de votre première fonctionnalité
+- [**Connaissance du contexte**](/docs/context-awareness) — comment l'agent sait ce qui s'affiche sur votre écran

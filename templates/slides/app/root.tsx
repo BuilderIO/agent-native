@@ -8,6 +8,7 @@ import {
   enterStyleEditing as coreEnterStyleEditing,
   enterTextEditing as coreEnterTextEditing,
   exitSelectionMode as coreExitSelectionMode,
+  getEmbedAuthToken,
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { getLocaleInitScript } from "@agent-native/core/client/i18n";
@@ -70,6 +71,13 @@ export function isBareContentPath(pathname: string): boolean {
 export function isDeckEditorPath(pathname: string): boolean {
   const normalizedPath = pathname.replace(/\/+$/, "");
   return pathname.startsWith("/deck/") && !normalizedPath.endsWith("/present");
+}
+
+export function computeSessionBypass(pathname: string): boolean {
+  return (
+    isBareContentPath(pathname) ||
+    (isDeckEditorPath(pathname) && Boolean(getEmbedAuthToken()))
+  );
 }
 
 function isPrivateDeckEditorPath(pathname: string): boolean {
@@ -360,7 +368,7 @@ export default function Root() {
         skeletonLayout="prompt-library"
         defaultTheme="dark"
         i18n={{ catalog: i18nCatalog }}
-        sessionBypass={isBareContentPath(location.pathname)}
+        sessionBypass={computeSessionBypass(location.pathname)}
         skipFirstRunOnboarding={isDeckEditorPath(location.pathname)}
       >
         <AppContent />

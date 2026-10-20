@@ -126,7 +126,7 @@ https://<your-app>.agent-native.com/mcp
 
 Chaque application hébergée dispose également d'une page d'aide à l'adresse
 `https://&lt;app&gt;/mcp/connect` avec le URL copiable et
-onglets spécifiques à l'hôte pour Claude, ChatGPT, Cursor, Claude Code, Codex, Grok et autres.
+des onglets propres à chaque hôte pour Claude, ChatGPT, Cursor, VS Code, Claude Code, Codex, Grok et Autre.
 
 ## Liens Content privés {#private-content-links}
 
@@ -177,9 +177,40 @@ instantanés. Les portées `mcp:read` / `mcp:write` / `mcp:apps` / `offline_acce
 que celles décrites plus bas dans
 [OAuth MCP distant standard](#standard-oauth).
 
-Cursor, Goose, Postman, MCPJam et VS Code GitHub Copilot utilisent la même télécommande
-MCP URL via leur propre serveur MCP UI lorsque leur version prend en charge les OAuth distants
-Serveurs MCP.
+### Cursor, VS Code et Codex {#install-links}
+
+Les onglets **Cursor** et **VS Code** de **Settings → MCP server** et de
+`/mcp/connect` proposent des boutons d’installation. **Ajouter à Cursor** ouvre
+l’invite **Install MCP server?** de Cursor. **Ajouter à VS Code** et **Ajouter à
+VS Code Insiders** ouvrent une page de serveur avec un bouton **Install**. Un
+lien ne contient que le nom du serveur, le transport et l’URL MCP ; il ne
+contient jamais de jeton, d’en-tête ni d’information de compte. Le client lance
+sa propre connexion OAuth lors de sa première connexion. Dans VS Code, les
+outils apparaissent ensuite dans la vue Chat, en mode Agent.
+
+Pour Codex, exécutez `codex mcp add <server-name> --url <mcp-url>`, puis
+`codex mcp login <server-name>` pour vous connecter avec OAuth. L’onglet
+**Codex** renseigne les deux valeurs.
+
+Goose, Postman, MCPJam et les autres clients utilisent la même URL MCP distante
+depuis leurs propres écrans de serveurs MCP lorsque leur version prend en
+charge les serveurs MCP distants avec OAuth.
+
+### Noms de serveur {#server-names}
+
+L’app nomme son serveur MCP, et chaque surface utilise ce nom : les liens
+d’installation, les commandes à copier et
+`npx @agent-native/core@latest connect`.
+La production utilise le nom sans préfixe, par exemple `agent-native-mail`. Les
+déploiements bêta, d’aperçu et locaux placent l’environnement en tête, par
+exemple `beta-agent-native-mail`, pour qu’un même client puisse garder une
+entrée de production et une entrée bêta côte à côte. Ces préfixes sont
+réservés : `mcp.serverName` ne peut pas commencer par `beta-`, `preview-` ou
+`local-`, si bien qu’un nom bêta ne correspond jamais au nom de production
+d’une autre app. Les scripts peuvent lire le nom avec
+`GET /mcp/connect/identity`, qui ne demande aucune connexion et renvoie le nom
+du serveur, le nom de l’app, l’URL de l’app, l’URL MCP et l’environnement, ainsi
+que l’indicateur `connect`, qui vaut `false` lorsque `mcp.connect` est désactivé.
 
 ### Invite de test rapide {#quick-test}
 
@@ -269,7 +300,9 @@ La connexion est **par utilisateur, limitée et révocable**. Dans le chemin OAu
 
 ### Ré-authentification après un 401 {#reconnect}
 
-Une fois connecté, l'authentification doit persister à long terme : les jetons d'accès durent 30 jours par défaut (remplacement par `MCP_OAUTH_ACCESS_TOKEN_TTL` sur le serveur, par exemple `7d` ou `12h`) avec une fenêtre d'actualisation glissante de 365 jours, les 401 aléatoires devraient donc être rares. Lorsque cela se produit, utilisez la commande légère de reconnexion plutôt que de réinstaller :
+La mise à jour du lien de propriété OAuth impose à chaque connexion OAuth existante de [se reconnecter une fois](/docs/external-agents#reconnect). Les anciens jetons d'accès OAuth sont refusés après le déploiement. Les anciens jetons d'actualisation sans lien de propriété renvoient `invalid_grant`, et les anciens codes d'autorisation encore en attente doivent reprendre le consentement. Les jetons d'accès nouvellement émis utilisent la durée de validité configurée et les vérifications d'appartenance à chaque requête. Cette transition ne modifie ni les anciens identifiants `mcp-connect` au format A2A ni les jetons A2A entre applications. Les connexions utilisant d’anciens jetons Connect au format OAuth doivent aussi être rétablies.
+
+Une fois connecté, l'authentification doit persister à long terme : les jetons d'accès durent 30 jours par défaut (remplacement par `MCP_OAUTH_ACCESS_TOKEN_TTL` sur le serveur, par exemple `7d` ou `12h`) et les jetons d'actualisation n'ont pas de date d'expiration fixe, les 401 aléatoires devraient donc être rares. Lorsque cela se produit, utilisez la commande légère de reconnexion plutôt que de réinstaller :
 
 ```bash
 npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex
@@ -317,7 +350,7 @@ Il s'agit de la même entrée réservée uniquement à URL que `npx @agent-nativ
 https://dispatch.agent-native.com/mcp
 ```
 
-Le flux OAuth est le code d'autorisation + PKCE avec rotation du jeton d'actualisation. Les jetons d'accès sont liés au public à la ressource MCP exacte URL et portent l'identité signée de l'utilisateur/de l'organisation. Ainsi, les appels d'outils, `resources/read` et MCP initiés par iframe de l'application `tools/call` s'exécutent tous via la même portée de locataire `runWithRequestContext` que le chemin JWT existant créé par la connexion. L'iframe ne reçoit jamais de jetons OAuth bruts ; l'hôte négocie les appels via la connexion authentifiée MCP.
+Le flux OAuth est le code d'autorisation + PKCE avec des jetons d'actualisation, qui ne font pas l'objet d'une rotation. Les jetons d'accès sont liés au public à la ressource MCP exacte URL et portent l'identité signée de l'utilisateur/de l'organisation. Ainsi, les appels d'outils, `resources/read` et MCP initiés par iframe de l'application `tools/call` s'exécutent tous via la même portée de locataire `runWithRequestContext` que le chemin JWT existant créé par la connexion. L'iframe ne reçoit jamais de jetons OAuth bruts ; l'hôte négocie les appels via la connexion authentifiée MCP.
 
 Les champs d'application actuels sont les suivants :
 

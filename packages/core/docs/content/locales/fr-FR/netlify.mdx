@@ -1,63 +1,269 @@
 ---
 title: "Netlify"
-description: "Déployez une application agent-native sur Netlify avec le préréglage Nitro Netlify, et configurez le maintien à chaud pour les bases de données scale-to-zero."
+description: "Déployez une application Agent-Native autonome sur Netlify avec la Netlify CLI, et configurez le maintien à chaud pour les bases de données scale-to-zero."
 ---
 
 # Netlify
 
-Le préréglage Nitro `netlify` fonctionne bien et, en pratique, nous a donné des démarrages à froid rapides (~200ms TTFB) pour les templates qui communiquent avec un Postgres externe (Neon). Pour une configuration minimale en dehors du scaffold généré, définissez le préréglage dans `vite.config.ts` :
+Netlify héberge votre application à votre place. Vous n'avez donc aucun serveur
+à configurer ni à maintenir en marche. Le build transforme l'application en
+fichiers statiques que Netlify sert directement et en fonctions que Netlify
+exécute à la demande. Netlify fournit aussi à l'application une adresse
+publique en HTTPS.
 
-```ts filename="vite.config.ts"
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "netlify" } })],
-});
+Ce guide présente le déploiement d'une application autonome depuis le début.
+Vous allez créer l'application, lui fournir une base de données de production et
+un secret d'authentification, créer un site Netlify pour elle, préparer la base
+de données, puis la construire et la déployer.
+
+<Callout tone="info">
+
+Node.js `22.22+` est requis.
+
+</Callout>
+
+Vous avez aussi besoin d'un compte Netlify. Exécutez les commandes de ce guide
+sur votre propre ordinateur. La Netlify CLI envoie le build final vers Netlify à
+votre place.
+
+## Étape 1 : Créer l'application {#step-1-create-the-app}
+
+Créez votre nouvelle application autonome. L'exemple ci-dessous crée une
+application à partir du template Chat, mais vous pouvez partir de n'importe quel
+template. Placez-vous dans le dossier de l'application et installez ses
+dépendances. `corepack enable` active la version de `pnpm` attendue par
+l'application. Vous n'avez donc pas besoin d'installer `pnpm` vous-même.
+
+```bash
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
 ```
 
-Dans le scaffold Chat généré, l’import reste `agentNative`. La configuration l’assigne à un alias
-local `agentNativePlugins` avec une assertion de type, puis étale le tableau de plugins renvoyé
-pour aligner les types des paquets Vite. Il accepte les mêmes options que l’exemple `agentNative`
-ci-dessus. Pour déployer ce scaffold sur Netlify, ajoutez `nitro: { preset: "netlify" }` aux
-options de l’appel `agentNativePlugins({ ... })` existant. Conservez les autres plugins, options et
-alias propres à Chat.
+Remplacez `my-app` par le nom de votre application si vous le souhaitez. La
+suite de ce guide suppose que vous vous trouvez dans le dossier de
+l'application.
 
-…soit définissez `NITRO_PRESET=netlify` au moment du build.
+<Callout tone="info">
 
-Pour une application autonome, construisez la sortie Netlify puis déployez les assets et les fonctions :
+Si ces commandes échouent avec des erreurs de dépendances pairs, une copie obsolète d'un paquet dans votre cache npx peut en être la cause. Exécutez `npx clear-npx-cache` pour vider le cache, puis relancez les commandes.
+
+</Callout>
+
+## Étape 2 : Configurer les secrets d'environnement {#step-2-configure-environment-secrets}
+
+L'application lit ses paramètres de production depuis des variables
+d'environnement :
+
+| Variable             | Requise | Rôle                                                                 |
+| -------------------- | ------- | -------------------------------------------------------------------- |
+| `DATABASE_URL`       | Oui     | Connecte l'application à sa base de données PostgreSQL               |
+| `BETTER_AUTH_SECRET` | Oui     | Signe les sessions utilisateur                                       |
+| `BETTER_AUTH_URL`    | Non     | Définit l'adresse publique utilisée pour accéder à votre application |
+
+Les exports ci-dessous permettent aux commandes suivantes de fonctionner dans ce
+shell. Avant de déployer, enregistrez ces mêmes variables dans les paramètres
+d'environnement du projet ou du service chez votre hébergeur. L'étape suivante
+montre comment les enregistrer dans Netlify.
+
+### URL de la base de données {#database-url}
+
+En développement local, l'application stocke ses données dans une base de
+données locale lorsque `DATABASE_URL` n'est pas défini. Une application déployée
+a besoin d'une vraie base de données PostgreSQL qui conserve ses données d'un
+déploiement à l'autre. Netlify ne conserve pas les fichiers entre les requêtes.
+La base de données doit donc se trouver en dehors des fonctions de Netlify.
+Copiez la chaîne de connexion fournie par votre fournisseur et exportez-la :
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+Les [guides des fournisseurs de bases de données](/docs/neon) indiquent où
+trouver la chaîne de connexion pour chaque fournisseur.
+
+<Callout tone="warning">
+
+Choisissez un fournisseur PostgreSQL persistant, par exemple Neon, Supabase ou Amazon RDS.
+
+</Callout>
+
+### Secret d'authentification {#auth-secret}
+
+Générez-le une seule fois et gardez-le identique d'un déploiement à l'autre.
+
+L'application utilise `BETTER_AUTH_SECRET` pour signer les sessions utilisateur.
+S'il change, tous les utilisateurs connectés sont déconnectés. La commande
+ci-dessous génère une valeur aléatoire :
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+Conservez la valeur générée en lieu sûr, par exemple dans un gestionnaire de
+mots de passe. Utilisez la même valeur à chaque déploiement.
+
+### URL publique {#public-url}
+
+Facultatif. Définissez-la si vous utilisez un domaine personnalisé, un reverse
+proxy ou un flux d'authentification ou OAuth qui exige une origine publique
+fixe.
+
+`BETTER_AUTH_URL` est l'adresse publique utilisée pour accéder à votre
+application. Sans elle, l'application déduit son adresse de chaque requête
+entrante. Cela convient généralement avec l'adresse que Netlify vous fournit,
+mais définissez-la lorsque vous connectez un domaine personnalisé, afin que les
+liens de connexion et les redirections OAuth utilisent ce domaine.
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## Étape 3 : Lier le site et enregistrer les secrets {#step-3-link-the-site-and-save-the-secrets}
+
+Connectez-vous à Netlify depuis la ligne de commande, puis créez un nouveau site
+pour l'application. Vous pouvez garder le nom de projet proposé par défaut et
+laisser le dépôt GitHub vide pour l'instant.
+
+```bash
+npx netlify login
+
+npx netlify sites:create --name my-app
+```
+
+`sites:create` crée le site et le lie au dossier de l'application, afin que les
+commandes suivantes sachent quel site utiliser. Le nom devient aussi l'adresse
+du site, par exemple `my-app.netlify.app`. Les noms de site sont partagés sur
+l'ensemble de Netlify. Choisissez donc un autre nom si `my-app` est déjà pris.
+Vous n'avez pas besoin d'un dépôt GitHub, car vous déployez l'application depuis
+votre ordinateur à l'étape 5.
+
+Enregistrez les deux variables requises dans l'environnement du site :
+
+```bash
+npx netlify env:set DATABASE_URL "$DATABASE_URL"
+
+npx netlify env:set BETTER_AUTH_SECRET "$BETTER_AUTH_SECRET"
+```
+
+Chaque commande lit la valeur que vous avez exportée à l'étape 2 et l'enregistre
+dans Netlify. Vous n'avez donc pas à coller les secrets à la main. Si vous avez
+défini `BETTER_AUTH_URL`, enregistrez-la de la même façon. Vous pouvez aussi
+consulter et modifier ces valeurs plus tard dans les paramètres du site sur le
+tableau de bord Netlify.
+
+## Étape 4 : Migrer {#step-4-migrate}
+
+Les migrations créent et mettent à jour les tables dont l'application a besoin
+dans votre base de données. Exécutez cette commande avant le premier
+déploiement :
+
+```bash
+pnpm migrate:production
+```
+
+La commande s'exécute sur votre ordinateur et se connecte à la base de données
+de production avec la `DATABASE_URL` que vous avez exportée à l'étape 2.
+Exécutez-la de nouveau après une mise à niveau de l'application, avant de
+déployer la nouvelle version.
+
+## Étape 5 : Déployer {#step-5-deploy}
+
+Construisez l'application pour Netlify :
 
 ```bash
 NITRO_PRESET=netlify pnpm build
+```
+
+`NITRO_PRESET=netlify` construit l'application au format attendu par Netlify.
+Le build écrit les fichiers statiques de l'application dans le dossier `dist` et
+ses fonctions serveur dans le dossier `.netlify/functions-internal`.
+
+Envoyez le build et publiez-le :
+
+```bash
 npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
 
-Avant le premier déploiement en production, définissez `DATABASE_URL` et un `BETTER_AUTH_SECRET` stable dans les variables d’environnement du site Netlify. Ne vous fiez pas à la base PGlite locale ; `DATABASE_URL` doit pointer vers une base PostgreSQL persistante accessible par la fonction déployée.
+`--dir` et `--functions` indiquent à la CLI où trouver les fichiers statiques et
+les fonctions que vous venez de construire. `--prod` les publie à votre adresse
+de production au lieu d'un brouillon de prévisualisation.
 
-Pour un workspace, déployez chaque application depuis un seul site Netlify en exécutant :
+Lorsque la commande se termine, elle affiche l'adresse de production de
+l'application. Ouvrez-la et créez le premier compte.
+
+## Déployer les mises à jour {#deploy-updates}
+
+Pour publier une nouvelle version, exécutez de nouveau les commandes de
+migration, de build et de déploiement depuis le dossier de l'application :
 
 ```bash
-npx @agent-native/core@latest deploy --preset netlify
+pnpm migrate:production
+
+NITRO_PRESET=netlify pnpm build
+
+npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
 
-Le build de workspace écrit les assets statiques sous `dist/_workspace_static/` et achemine chaque application vers sa propre fonction Netlify sans redirections d'assets forcées, de sorte que des fichiers comme `/mail/assets/...` sont servis statiquement avant que la fonction serveur ne traite les routes de l'application.
+Le lien du site et les variables enregistrées restent en place. Vous n'avez
+donc pas besoin de répéter l'étape 3.
 
 ## Maintien à chaud et bases de données scale-to-zero {#netlify-keep-warm}
 
-Lorsqu'elle est activée, le build Netlify émet une fonction planifiée qui demande `/_agent-native/health` **chaque minute**. Cela maintient au chaud la fonction serveur et sa base de données pour que le prochain visiteur après une période d'inactivité ne paie pas un démarrage à froid (1 à 5s sur Neon).
+Après une période d'inactivité, la première requête peut être lente, le temps
+que Netlify démarre la fonction et qu'une base de données scale-to-zero, comme
+l'offre gratuite de Neon, se réveille. Agent-Native peut réduire cette attente
+grâce au maintien à chaud. Lorsqu'il est activé, le build ajoute une fonction
+Netlify planifiée qui appelle le point de terminaison `/_agent-native/health` de
+l'application **chaque minute**, ce qui garde éveillées la fonction serveur et
+sa base de données.
 
-Le maintien à chaud est **désactivé par défaut** car un réveil une fois par minute empêche l'auto-suspension sur les bases de données scale-to-zero facturées à l'usage. Sur un Neon en offre gratuite, cela peut épuiser le quota de calcul, et la base de données rejette alors **toutes** les lectures en cours de session. Le symptôme est une application morte, pas une application lente. Définissez `AGENT_NATIVE_ENABLE_KEEP_WARM=1` quand la latence réduite pour le prochain visiteur vaut le temps de veille de la base de données.
+Le maintien à chaud est **désactivé par défaut**. Garder la base de données
+éveillée l'empêche de se mettre en pause, ce qui consomme le quota de calcul
+des offres gratuites ou facturées à l'usage. Si le quota est épuisé, la base de
+données rejette **toutes** les lectures et l'application cesse de fonctionner.
+Définissez `AGENT_NATIVE_ENABLE_KEEP_WARM=1` lorsqu'une première visite plus
+rapide vaut le temps de base de données supplémentaire.
 
-Le planning de maintien à chaud et le maintien à chaud de la fonction d'arrière-plan ne s'appliquent qu'après l'activation du drapeau principal de maintien à chaud :
+Ces variables contrôlent le maintien à chaud. Les paramètres de planning et
+d'arrière-plan ne s'appliquent qu'après l'activation de
+`AGENT_NATIVE_ENABLE_KEEP_WARM` :
 
-| Variable                                    | Effet                                                                                                                                                                                                                           |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Active le maintien à chaud planifié du serveur/de la base de données. Non défini par défaut.                                                                                                                                    |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Interrupteur de compatibilité qui l'emporte sur le drapeau d'activation quand il est défini.                                                                                                                                    |
-| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Remplace la cadence par une expression cron à 5 champs, par ex. `*/5 * * * *`. La cadence par défaut une fois activée est `* * * * *`. Une valeur non interprétable **fait échouer le build**.                                  |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Supprime uniquement le maintien à chaud de la fonction d'arrière-plan, en gardant le serveur au chaud. Réchauffer `server` est une seule requête. Réchauffer `-background` démarre un nouveau conteneur qui re-sonde le schéma. |
+| Variable                                    | Effet                                                                                                                                                                                                                                                                               |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Active le réchauffement planifié de la fonction serveur et de la base de données. Non défini par défaut.                                                                                                                                                                            |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Désactive le maintien à chaud même lorsque `AGENT_NATIVE_ENABLE_KEEP_WARM` est défini. Conservé pour la compatibilité avec les anciennes configurations.                                                                                                                            |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Modifie la fréquence du réchauffement, sous la forme d'une expression cron à 5 champs comme `*/5 * * * *`. La valeur par défaut est `* * * * *`, soit chaque minute. Une valeur qui n'est pas une expression cron valide **fait échouer le build**.                                 |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Ignore le réchauffement de la fonction d'arrière-plan et continue de réchauffer la fonction serveur. Réchauffer le serveur représente une seule requête. Réchauffer la fonction d'arrière-plan démarre un nouveau conteneur qui vérifie de nouveau le schéma de la base de données. |
 
-Si vous êtes sur un niveau de base de données gratuit ou autrement limité en quota, laissez `AGENT_NATIVE_ENABLE_KEEP_WARM` non défini. Si vous l'activez, utilisez une cadence plus lente ou définissez `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1` pour supprimer le réchauffement d'arrière-plan plus coûteux.
+Si votre base de données utilise une offre gratuite ou limitée d'une autre
+manière, laissez `AGENT_NATIVE_ENABLE_KEEP_WARM` non défini. Si vous l'activez,
+choisissez un planning plus lent ou définissez
+`AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1` pour ignorer le réchauffement
+d'arrière-plan, plus coûteux.
 
-## Et ensuite
+C'est le build qui lit ces variables, pas l'application en cours d'exécution.
+Comme vous construisez sur votre propre ordinateur à l'étape 5, définissez-les
+dans le même shell avant de lancer le build. Les enregistrer dans les paramètres
+du site Netlify n'a aucun effet sur un build exécuté en local. Par exemple, pour
+activer le maintien à chaud avec un planning de cinq minutes :
 
-- [**Déploiement**](/docs/deployment) — choisissez une base de données persistante et un préréglage avant votre premier déploiement en production
-- [**Mise en cache SSR**](/docs/ssr-caching) — la politique de cache par défaut et le comportement séparé `netlify-cdn-cache-control` de Netlify
-- [Node.js](/docs/node-js), [Docker](/docs/docker), [**Vercel**](/docs/vercel), [**Cloudflare**](/docs/cloudflare), et [**Autres plateformes**](/docs/other-platforms) — les autres préréglages Nitro
+```bash
+export AGENT_NATIVE_ENABLE_KEEP_WARM=1
+
+export AGENT_NATIVE_KEEP_WARM_SCHEDULE='*/5 * * * *'
+
+NITRO_PRESET=netlify pnpm build
+```
+
+Déployez ensuite comme d'habitude.
+
+## Et ensuite {#whats-next}
+
+- [**Variables d'environnement de déploiement**](/docs/deployment-environment-variables) - la liste complète des paramètres de production
+- [**Mise en cache SSR**](/docs/ssr-caching) - la politique de cache par défaut et le comportement séparé `netlify-cdn-cache-control` de Netlify
+- [**Déploiement**](/docs/deployment) - comparer les cibles d'hébergement et les prérequis

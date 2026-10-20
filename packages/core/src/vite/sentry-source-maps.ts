@@ -100,6 +100,61 @@ function resolvedClientBuildId(config: ResolvedConfig): string | null {
   return typeof buildId === "string" && buildId.trim() ? buildId.trim() : null;
 }
 
+async function loadSentryUploadPlugin(
+  uploadConfig: SentrySourceMapUploadConfig,
+): Promise<Plugin> {
+  const { sentryVitePlugin } = await loadOptionalPeer(
+    "@sentry/vite-plugin",
+    () => import("@sentry/vite-plugin"),
+  );
+  const sentryPlugin = sentryVitePlugin({
+    org: uploadConfig.org,
+    project: uploadConfig.project,
+    authToken: uploadConfig.authToken,
+    url: uploadConfig.url,
+    telemetry: false,
+    release: {
+      name: uploadConfig.release,
+      inject: false,
+    },
+    // A source-map upload is optional observability work. The cleanup plugin
+    // still removes maps when this handler returns, so a bad token cannot
+    // block the deploy or publish source contents.
+    errorHandler: (error) => {
+      const message = (
+        error instanceof Error ? error.message : String(error)
+      ).replaceAll(uploadConfig.authToken, "[redacted]");
+      console.warn(
+        `Sentry source map upload failed; continuing without publishing source maps: ${message}`,
+      );
+    },
+  }) as Plugin | Plugin[];
+  return Array.isArray(sentryPlugin) ? sentryPlugin[0] : sentryPlugin;
+}
+
+// Nitro bundles the server in its own rolldown pass after Vite, so the client
+// plugins never see the deployed server chunks. Callers must enable server
+// source maps exactly when this returns plugins, or the upload has no maps and
+// the cleanup has nothing to remove.
+export async function createSentryServerSourceMapUploadPlugins(
+  env: Record<string, string | undefined> = process.env,
+): Promise<Plugin[]> {
+  const credentials = resolveSentrySourceMapUploadCredentials(env);
+  if (!credentials) return [];
+  const buildId = resolveAgentNativeBuildId(env, "");
+  if (!buildId) {
+    console.warn(
+      "Sentry server source map upload skipped because the build ID is missing.",
+    );
+    return [];
+  }
+  const { enforce: _enforce, ...uploadPlugin } = await loadSentryUploadPlugin({
+    ...credentials,
+    release: `agent-native-server@${buildId}`,
+  });
+  return [uploadPlugin, createUploadedSourceMapCleanupPlugin()];
+}
+
 export function createSentrySourceMapUploadPlugin(
   env: Record<string, string | undefined> = process.env,
 ): Plugin[] {
@@ -110,6 +165,12 @@ export function createSentrySourceMapUploadPlugin(
   const proxyPlugin: Plugin = {
     name: "sentry-vite-plugin",
     enforce: "pre",
+    // The SSR bundle is re-bundled by Nitro, which injects its own debug IDs.
+    // A second snippet inlined from SSR output would point server frames at a
+    // map whose positions no longer match.
+    applyToEnvironment(environment) {
+      return environment.name === "client";
+    },
     async configResolved(config) {
       if (config.command !== "build") return;
       const buildId = resolvedClientBuildId(config);
@@ -123,35 +184,7 @@ export function createSentrySourceMapUploadPlugin(
         ...credentials,
         release: `agent-native-client@${buildId}`,
       };
-      const { sentryVitePlugin } = await loadOptionalPeer(
-        "@sentry/vite-plugin",
-        () => import("@sentry/vite-plugin"),
-      );
-      const sentryPlugin = sentryVitePlugin({
-        org: uploadConfig.org,
-        project: uploadConfig.project,
-        authToken: uploadConfig.authToken,
-        url: uploadConfig.url,
-        telemetry: false,
-        release: {
-          name: uploadConfig.release,
-          inject: false,
-        },
-        // A source-map upload is optional observability work. The cleanup plugin
-        // still removes maps when this handler returns, so a bad token cannot
-        // block the deploy or publish source contents.
-        errorHandler: (error) => {
-          const message = (
-            error instanceof Error ? error.message : String(error)
-          ).replaceAll(uploadConfig.authToken, "[redacted]");
-          console.warn(
-            `Sentry source map upload failed; continuing without publishing source maps: ${message}`,
-          );
-        },
-      }) as Plugin | Plugin[];
-      uploadPlugin = Array.isArray(sentryPlugin)
-        ? sentryPlugin[0]
-        : sentryPlugin;
+      uploadPlugin = await loadSentryUploadPlugin(uploadConfig);
     },
     buildStart(options) {
       const hook = uploadPlugin?.buildStart;

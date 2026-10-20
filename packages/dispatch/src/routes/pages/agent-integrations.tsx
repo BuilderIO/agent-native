@@ -20,7 +20,7 @@ export default function AgentIntegrationsRoute() {
         <p className="mt-5 text-right text-xs text-muted-foreground">
           <Link
             className="underline-offset-4 hover:text-foreground hover:underline"
-            to="/integrations"
+            to="/settings/integrations"
           >
             {t("integrations.connectedAccounts")}
           </Link>

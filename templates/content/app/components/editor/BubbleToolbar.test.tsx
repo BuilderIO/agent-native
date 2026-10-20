@@ -802,7 +802,7 @@ describe("BubbleToolbar", () => {
       underline: true,
     });
     expect(editor.getHTML()).toContain(
-      'class="notion-block-color--red notion-block-bg--yellow"',
+      'class="content-block-color--red content-block-bg--yellow"',
     );
     expect(editor.state.selection).toMatchObject({ from: 1, to: 8 });
   });

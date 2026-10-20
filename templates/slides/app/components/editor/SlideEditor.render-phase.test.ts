@@ -301,7 +301,7 @@ describe("SlideEditor render-phase safety", () => {
     const clickStart = source.indexOf("const handleSlideClick");
     const clickEnd = source.indexOf("const handleSlideDoubleClick", clickStart);
     const clickBody = source.slice(clickStart, clickEnd);
-    expect(clickBody).toContain("includeTextBoxes: false");
+    expect(clickBody).toContain("hit.textRoot");
     expect(clickBody).toContain("setSelectedImg(null);");
     expect(clickBody).toContain("setImageOverlay(null);");
     expect(clickBody).not.toContain("showImageOverlay");
@@ -312,38 +312,47 @@ describe("SlideEditor render-phase safety", () => {
     );
     const doubleClickBody = source.slice(doubleClickStart, doubleClickEnd);
     expect(doubleClickBody).toContain(
-      "findPersistedImageObject(resolvedTarget, slideContent)",
+      "findPersistedImageObject(hit.object, slideContent)",
     );
     expect(doubleClickBody).toContain(
       'imageOwner?.querySelector<HTMLElement>("img")',
-    );
-    expect(doubleClickBody).not.toContain(
-      'resolvedTarget.querySelector<HTMLElement>("img")',
     );
     expect(doubleClickBody).toContain(
       "startImageCrop(imageTarget as HTMLImageElement);",
     );
     expect(doubleClickBody).toContain("showImageOverlay(imagePlaceholder);");
-    expect(doubleClickBody.indexOf("const resolvedTarget")).toBeLessThan(
+    expect(doubleClickBody.indexOf("const hit =")).toBeLessThan(
       doubleClickBody.indexOf("const imageTarget"),
-    );
-    expect(source).toContain(
-      "const block = findSmartBlock(resolvedTarget, slideContent);",
     );
   });
 
-  it("keeps standalone transparent text boxes as canvas hit targets", () => {
-    const helperStart = source.indexOf("function resolveSlideCanvasHitTarget");
-    const helperEnd = source.indexOf(
-      "const PASTED_TEXT_STYLE_PROPERTIES",
-      helperStart,
-    );
-    const helperBody = source.slice(helperStart, helperEnd);
-
-    expect(helperBody).toContain("candidate instanceof HTMLElement");
-    expect(helperBody).toContain("candidate = candidate.parentElement;");
-    expect(helperBody).toContain("element !== slideContent");
-    expect(helperBody).toContain("return underlying ?? target;");
+  it("asks the one pointer resolver from every canvas pointer entry point", () => {
+    const body = (start: string, end: string) => {
+      const from = source.indexOf(start);
+      return source.slice(from, source.indexOf(end, from));
+    };
+    const entryPoints = [
+      body("const handleSlidePointerMove", "const handleSlidePointerDown"),
+      body("const handleSlidePointerDown", "// Keep these listeners stable"),
+      body("const handleSlideClick", "const handleCanvasBackgroundPointerDown"),
+      body("const handleSlideContextMenu", "const preserveRichTextSelection"),
+      body("const handleSlideDoubleClick", "const slideElementSelected ="),
+    ];
+    for (const entryPoint of entryPoints) {
+      expect(entryPoint).toContain("resolvePointerTarget(");
+    }
+    expect(entryPoints[4]).toContain("intoGroups: true");
+    for (const retired of [
+      "resolveSlideCanvasHitTarget",
+      "findGrabbedSlideShape",
+      "shapePressRef",
+      "findSelectableElement",
+      "isSlideWhitespaceTarget",
+      "resolveSlidesCanvasPointerIntent",
+      "resolveSlidesCanvasDragTarget",
+    ]) {
+      expect(source).not.toContain(retired);
+    }
   });
 
   it("enters crop mode for wrapped images on double-click", () => {
@@ -355,10 +364,7 @@ describe("SlideEditor render-phase safety", () => {
     const doubleClickBody = source.slice(doubleClickStart, doubleClickEnd);
 
     expect(doubleClickBody).toContain(
-      "findPersistedImageObject(resolvedTarget, slideContent)",
-    );
-    expect(doubleClickBody).not.toContain(
-      'resolvedTarget.querySelector<HTMLElement>("img")',
+      "findPersistedImageObject(hit.object, slideContent)",
     );
     expect(doubleClickBody).toContain(
       "startImageCrop(imageTarget as HTMLImageElement);",
@@ -632,13 +638,12 @@ describe("SlideEditor render-phase safety", () => {
     expect(pasteBody).toContain("if (hasNativeText) return;");
   });
 
-  it("uses the native layer marker instead of a timer to arbitrate paste", () => {
+  it("uses the native layer marker and keeps native text authoritative", () => {
     expect(source).toContain("writeSlideObjectClipboard");
     expect(source).toContain("readSlideObjectClipboardId");
-    expect(source).toContain("overlappingNativeClipboardIdsRef");
-    expect(source).toContain("copySessionId");
-    expect(source).toContain('window.addEventListener("blur"');
     expect(source).not.toContain("objectPasteFallbackRef");
+    expect(source).not.toContain("navigator.clipboard.write");
+    expect(source).not.toContain("overlappingNativeClipboardIdsRef");
     const pasteStart = source.indexOf("const onPaste = (e: ClipboardEvent)");
     const pasteEnd = source.indexOf(
       "// Appearance clipboard shortcuts",
@@ -648,14 +653,7 @@ describe("SlideEditor render-phase safety", () => {
     expect(pasteBody.indexOf("nativeClipboardId")).toBeLessThan(
       pasteBody.indexOf("const hasNativeText"),
     );
-    expect(pasteBody).toContain(
-      "overlappingNativeClipboardIdsRef.current.get(nativeClipboardId)",
-    );
-    expect(pasteBody.indexOf("const hasNativeText")).toBeLessThan(
-      pasteBody.indexOf('clipboard.nativeClipboardMode === "pending"'),
-    );
-    expect(pasteBody).toContain('clipboard.nativeClipboardMode === "pending"');
-    expect(pasteBody).toContain('clipboard.nativeClipboardMode === "failed"');
+    expect(pasteBody).toContain("if (hasNativeText) return;");
     expect(pasteBody).not.toContain("clipboard.clipboardText");
     expect(source).toContain(
       "copySlideObjects(selection, storedFormOfCopy),\n      selection[0],",
@@ -673,6 +671,6 @@ describe("SlideEditor render-phase safety", () => {
     );
     expect(layoutBody).toContain("new ResizeObserver(update)");
     expect(layoutBody).toContain("new MutationObserver(update)");
-    expect(layoutBody).toContain("invalidateSelectionOverlayMeasurement();");
+    expect(layoutBody).toContain("measureSelectionOverlayNow();");
   });
 });

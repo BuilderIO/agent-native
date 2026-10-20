@@ -61,7 +61,11 @@ export interface JevRankCandidatesOptions {
 }
 
 export interface JevCandidateRanking {
-  status: "selected" | "no-match" | "unavailable";
+  /**
+   * `unavailable` means there was nothing to rank against (no key, no
+   * candidates); `failed` and `timed_out` mean a ranking was attempted and lost.
+   */
+  status: "selected" | "no-match" | "unavailable" | "failed" | "timed_out";
   ids: string[];
 }
 
@@ -187,11 +191,15 @@ export async function rankJevCandidatesWithStatus(
   if (
     !request ||
     (!apiKey && !builderAuth) ||
-    options.candidates.length === 0 ||
+    options.candidates.length === 0
+  ) {
+    return { status: "unavailable", ids: [] };
+  }
+  if (
     options.signal?.aborted ||
     (options.timeoutMs !== undefined && options.timeoutMs <= 0)
   ) {
-    return { status: "unavailable", ids: [] };
+    return { status: "timed_out", ids: [] };
   }
 
   const candidates = shortlistJevCandidates(request, options.candidates);
@@ -256,7 +264,7 @@ export async function rankJevCandidatesWithStatus(
       noMatchProbability < 0 ||
       noMatchProbability > 1
     ) {
-      return { status: "unavailable", ids: [] };
+      return { status: "failed", ids: [] };
     }
     for (const candidate of candidates) {
       const probability = probabilities[candidate.id];
@@ -267,7 +275,7 @@ export async function rankJevCandidatesWithStatus(
           probability < 0 ||
           probability > 1)
       ) {
-        return { status: "unavailable", ids: [] };
+        return { status: "failed", ids: [] };
       }
     }
     const ids = candidates
@@ -294,8 +302,21 @@ export async function rankJevCandidatesWithStatus(
       "[agent] Jev context prefetch unavailable; continuing with the existing context.",
       error instanceof Error ? error.message : "unknown error",
     );
-    return { status: "unavailable", ids: [] };
+    return {
+      status: isJevTimeout(error, options.signal) ? "timed_out" : "failed",
+      ids: [],
+    };
   }
+}
+
+function isJevTimeout(error: unknown, signal?: AbortSignal): boolean {
+  if (signal?.aborted) return true;
+  return (
+    error instanceof Error &&
+    (error.name === "AbortError" ||
+      error.name === "TimeoutError" ||
+      /\btime(?:d)?[ -]?out\b/i.test(error.message))
+  );
 }
 
 export function shortlistJevCandidates<T extends JevCandidate>(

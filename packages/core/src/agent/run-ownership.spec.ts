@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const getRun = vi.fn();
 const getRunById = vi.fn();
 const getThread = vi.fn();
-const resolveThreadAccess = vi.fn();
+const hasThreadAccess = vi.fn();
 
 vi.mock("./run-manager.js", () => ({ getRun: (...a: any[]) => getRun(...a) }));
 vi.mock("./run-store.js", () => ({
@@ -11,7 +11,7 @@ vi.mock("./run-store.js", () => ({
 }));
 vi.mock("../chat-threads/store.js", () => ({
   getThread: (...a: any[]) => getThread(...a),
-  resolveThreadAccess: (...a: any[]) => resolveThreadAccess(...a),
+  hasThreadAccess: (...a: any[]) => hasThreadAccess(...a),
 }));
 
 import {
@@ -100,9 +100,9 @@ describe("run-ownership", () => {
 
   describe("callerHasThreadAccess", () => {
     it("true when the caller has the requested shared role", async () => {
-      resolveThreadAccess.mockResolvedValue({ id: "t1" });
+      hasThreadAccess.mockResolvedValue(true);
       expect(await callerHasThreadAccess("b@x.com", "t1", "editor")).toBe(true);
-      expect(resolveThreadAccess).toHaveBeenCalledWith(
+      expect(hasThreadAccess).toHaveBeenCalledWith(
         "b@x.com",
         "t1",
         "editor",
@@ -111,7 +111,7 @@ describe("run-ownership", () => {
     });
 
     it("false when the caller lacks shared access", async () => {
-      resolveThreadAccess.mockResolvedValue(null);
+      hasThreadAccess.mockResolvedValue(false);
       expect(await callerHasThreadAccess("b@x.com", "t1")).toBe(false);
     });
   });
@@ -119,7 +119,7 @@ describe("run-ownership", () => {
   describe("callerHasRunAccess", () => {
     it("checks shared access on the run's thread", async () => {
       getRun.mockReturnValue({ threadId: "t1" });
-      resolveThreadAccess.mockResolvedValue({ id: "t1" });
+      hasThreadAccess.mockResolvedValue(true);
       expect(await callerHasRunAccess("b@x.com", "r1", "viewer")).toBe(true);
     });
   });

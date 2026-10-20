@@ -2,8 +2,11 @@
   "name": "agent-native",
   "displayName": "Agent-Native",
   "description": "Open and operate granted Agent-Native apps through Dispatch MCP, with inline app surfaces and current browser screen state.",
-  "author": { "name": "Agent-Native", "url": "https://agent-native.com" },
-  "homepage": "https://dispatch.agent-native.com",
+  "author": {
+    "name": "Agent-Native",
+    "url": "https://agent-native.com/?utm_source=claude-plugins&utm_medium=referral&utm_content=plugin-author"
+  },
+  "homepage": "https://dispatch.agent-native.com/?utm_source=claude-plugins&utm_medium=referral&utm_content=plugin-homepage",
   "repository": "https://github.com/BuilderIO/agent-native",
   "license": "MIT",
   "keywords": [

@@ -138,6 +138,13 @@ describe("bodyToHtml", () => {
     expect(html).not.toContain("&amp;amp;");
   });
 
+  it("keeps typed numeric entities as text instead of markup", () => {
+    const html = bodyToHtml("Wrap it in &#60;b&#62;bold&#60;/b&#62; tags.");
+
+    expect(html).not.toContain("<b>");
+    expect(html).toContain("&#60;b&#62;bold&#60;/b&#62;");
+  });
+
   it("renders tables (GFM) that the hand-rolled converter couldn't handle", () => {
     const md = `| Name | Score |\n| ---- | ----- |\n| Alice | 90 |\n| Bob | 85 |`;
     const html = bodyToHtml(md);

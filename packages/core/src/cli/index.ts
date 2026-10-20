@@ -17,6 +17,7 @@ import { cliSpawnOptions, runDevServer } from "./process.js";
 import {
   findBinUpwards,
   findReactRouterInvocation,
+  reactRouterTypegenEnv,
 } from "./react-router-command.js";
 import {
   captureSentryException as captureOptionalSentryException,
@@ -689,13 +690,15 @@ switch (command) {
     if (isReactRouterFramework()) {
       validateReactRouterBuildDependencies();
       const rr = findReactRouterInvocation(["typegen"]);
+      const env = reactRouterTypegenEnv();
       try {
         if (rr.shell) {
           execSync(`${rr.command} ${rr.args.join(" ")}`, {
             stdio: "inherit",
+            env,
           });
         } else {
-          execFileSync(rr.command, rr.args, { stdio: "inherit" });
+          execFileSync(rr.command, rr.args, { stdio: "inherit", env });
         }
       } catch {
         // typegen may fail if routes aren't set up yet; continue to TypeScript.
@@ -785,6 +788,19 @@ switch (command) {
     import("./doctor.js")
       .then(async (m) => {
         const code = await m.runDoctor(args);
+        process.exit(code);
+      })
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
+  case "db-migrate": {
+    import("./db-migrate.js")
+      .then(async (m) => {
+        const code = await m.runDbMigrate(args);
         process.exit(code);
       })
       .catch((err) => {
@@ -1182,6 +1198,10 @@ Usage:
                                 cmds: add "<summary>" [--type added|fixed|...] |
                                 release | list. Pending entries live in
                                 changelog/; 'release' rolls them into CHANGELOG.md.
+  agent-native db-migrate       Apply drizzle migrations. With PGlite and a running
+                                dev server, applies them through that server
+                                (reads drizzle.config.ts, or --config <path>);
+                                otherwise runs drizzle-kit migrate.
   agent-native clean            Reclaim disk by deleting regenerable build
                                 caches (node_modules/.vite, .nitro). Dry-run
                                 unless --apply; --builds also selects build/,

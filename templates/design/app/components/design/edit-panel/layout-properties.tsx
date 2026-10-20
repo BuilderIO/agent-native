@@ -390,6 +390,7 @@ function FlexContainerControls({
   onDisableAutoLayout,
   onApplyLayoutFlow,
   showSizingControls,
+  motionKeyframeContext,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
@@ -397,6 +398,7 @@ function FlexContainerControls({
   onDisableAutoLayout?: (nodeId: string) => void;
   onApplyLayoutFlow?: ApplyLayoutFlowHandler;
   showSizingControls: boolean;
+  motionKeyframeContext?: MotionKeyframeFieldContext;
 }) {
   const t = useT();
   const styles = element.computedStyles;
@@ -511,6 +513,9 @@ function FlexContainerControls({
       <AutoLayoutMatrix
         value={autoLayoutValue}
         labels={marginLabels}
+        showMotionKeyframes={motionKeyframeContext?.hasTimeline === true}
+        motionKeyframedProperties={motionKeyframeContext?.keyframedProperties}
+        onToggleMotionKeyframe={motionKeyframeContext?.onToggle}
         onFlowChange={(flow) => {
           const nodeId = element.sourceId ?? element.pendingNodeId;
           if (flow === "normal" && onDisableAutoLayout && nodeId) {
@@ -611,14 +616,10 @@ function FlexContainerControls({
         }}
         onPaddingLinkedChange={(linked) => {
           setPaddingLinked(linked);
-          // Linking is a display-mode choice, not a style edit. Figma keeps
-          // asymmetric padding intact when the sides are linked and only
-          // equalizes an axis after the user edits that linked field. The old
-          // eager average destroyed all four authored values immediately and
-          // produced four source commits/undo entries just from clicking the
-          // link icon. AutoLayoutMatrix intentionally displays left/top as
-          // each linked axis's representative value and applies both sides on
-          // the next real field edit, so no style write belongs here.
+          // Linking changes the display mode without committing a style edit.
+          // Asymmetric values remain intact until the user edits a linked
+          // field; eagerly averaging them here would destroy the authored
+          // values and create history entries from a display-only action.
         }}
         onMarginChange={(nextMargin, meta, changedSides) => {
           const patch = spacingStylesForSides(
@@ -852,6 +853,7 @@ export function LayoutContextProperties({
   onDisableAutoLayout,
   onApplyLayoutFlow,
   showContainerSizing = true,
+  motionInspector = false,
   motionKeyframeContext,
   breakpointOverrideContext,
 }: {
@@ -861,6 +863,7 @@ export function LayoutContextProperties({
   onDisableAutoLayout?: (nodeId: string) => void;
   onApplyLayoutFlow?: ApplyLayoutFlowHandler;
   showContainerSizing?: boolean;
+  motionInspector?: boolean;
   motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
 }) {
@@ -887,6 +890,8 @@ export function LayoutContextProperties({
     ) : undefined;
 
   if (!isContainer) {
+    if (motionInspector) return null;
+
     const widthSizing = inferElementSizing(element, "horizontal");
     const heightSizing = inferElementSizing(element, "vertical");
     const resolvedWidth = measuredElementSize(element, "horizontal");
@@ -964,7 +969,7 @@ export function LayoutContextProperties({
         {/* design-editor single-row-per-axis: [W | value | Fixed/Hug/Fill ▾]
             with the full sizing menu (modes + min/max + variable) per axis,
             plus a chain-link aspect-ratio lock at the FAR RIGHT of the row
-            (Figma parity — the constrain-proportions link sits after both W
+            (the constrain-proportions link sits after both W
             and H, not between them). */}
         <InspectorGrid className="items-start" layout="action-pair">
           <InspectorGridCell
@@ -976,6 +981,7 @@ export function LayoutContextProperties({
                 <SubsectionLabel>{t("editPanel.labels.width")}</SubsectionLabel>
                 <FieldTrailer
                   element={element}
+                  motionCssProperty="width"
                   overrideProperty="width"
                   motionKeyframeContext={motionKeyframeContext}
                   breakpointOverrideContext={breakpointOverrideContext}
@@ -1021,6 +1027,7 @@ export function LayoutContextProperties({
                 </SubsectionLabel>
                 <FieldTrailer
                   element={element}
+                  motionCssProperty="height"
                   overrideProperty="height"
                   motionKeyframeContext={motionKeyframeContext}
                   breakpointOverrideContext={breakpointOverrideContext}
@@ -1120,6 +1127,22 @@ export function LayoutContextProperties({
     );
   }
 
+  if (motionInspector) {
+    if (!element.isFlexContainer && !element.isGridContainer) return null;
+    return (
+      <FlexContainerControls
+        key={elementStableKey(element)}
+        element={element}
+        onStyleChange={onStyleChange}
+        onStylesChange={onStylesChange}
+        onDisableAutoLayout={onDisableAutoLayout}
+        onApplyLayoutFlow={onApplyLayoutFlow}
+        showSizingControls={false}
+        motionKeyframeContext={motionKeyframeContext}
+      />
+    );
+  }
+
   return (
     <PanelSection
       title={t("editPanel.sections.autoLayout")}
@@ -1145,6 +1168,7 @@ export function LayoutContextProperties({
         onDisableAutoLayout={onDisableAutoLayout}
         onApplyLayoutFlow={onApplyLayoutFlow}
         showSizingControls={showContainerSizing}
+        motionKeyframeContext={motionKeyframeContext}
       />
     </PanelSection>
   );

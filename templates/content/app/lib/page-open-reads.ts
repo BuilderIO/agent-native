@@ -1,3 +1,4 @@
+import { isSessionFromFirstRead } from "@agent-native/core/client/use-session";
 import {
   hashKey,
   type FetchQueryOptions,
@@ -6,8 +7,8 @@ import {
 } from "@tanstack/react-query";
 
 // A page open starts its reads before the component that shows them mounts:
-// in the layout while the route loads, or on /home while the landing
-// resolves. The mounting component adopts a read made for its open instead of
+// at load before the session is known, in the layout while the route loads,
+// or on /home while the landing resolves. The mounting component adopts a read made for its open instead of
 // refetching. A read that was spoiled, failed, cancelled, expired, or already
 // adopted is never adopted, so any other mount still reads fresh.
 export const PAGE_OPEN_READ_TTL_MS = 10_000;
@@ -23,6 +24,9 @@ export type PageOpenRead = {
   // manual success and never counts: a read cancelled by an optimistic update
   // leaves the older cached body behind with a fresh timestamp.
   landed: boolean;
+  // Sent before the session was known, with whatever account the cookies
+  // named then.
+  beforeSession: boolean;
 };
 
 export type PageOpenReadAdoption = "fresh" | "pending" | "none";
@@ -51,11 +55,13 @@ function openReads(queryClient: QueryClient) {
   return reads;
 }
 
+// Returns whether it started a read; one made for this open already counts.
 export function startPageOpenRead<TData>(
   queryClient: QueryClient,
   documentId: string,
   options: FetchQueryOptions<TData, Error, TData, QueryKey>,
-) {
+  { beforeSession = false }: { beforeSession?: boolean } = {},
+): boolean {
   const reads = openReads(queryClient);
   const queryHash = hashKey(options.queryKey);
   const current = reads.get(queryHash);
@@ -64,7 +70,7 @@ export function startPageOpenRead<TData>(
     !current.invalidated &&
     Date.now() - current.startedAt < PAGE_OPEN_READ_TTL_MS
   ) {
-    return;
+    return false;
   }
   const query = queryClient
     .getQueryCache()
@@ -85,8 +91,10 @@ export function startPageOpenRead<TData>(
     startedAt: Date.now(),
     invalidated: false,
     landed: false,
+    beforeSession,
   });
   void queryClient.prefetchQuery({ ...options, staleTime: 0 });
+  return true;
 }
 
 export function isPageOpenRead(queryClient: QueryClient, queryKey: QueryKey) {
@@ -104,6 +112,10 @@ export function claimPageOpenRead(
   const queryHash = hashKey(queryKey);
   const read = reads.get(queryHash);
   if (!read) return { adoption: "none", read: null };
+  if (read.beforeSession && !isSessionFromFirstRead()) {
+    dropReadsBeforeSession(queryClient);
+    return { adoption: "none", read: null };
+  }
   const query = queryClient.getQueryCache().get(queryHash);
   const usable =
     !!query &&
@@ -129,6 +141,21 @@ export function claimPageOpenRead(
     return { adoption, read: null };
   }
   return { adoption, read };
+}
+
+// The session that answered is not the one the load asked alongside these
+// reads, so they may hold another account's page or draft. None of them is
+// shown, and a component already showing one reads it again.
+function dropReadsBeforeSession(queryClient: QueryClient) {
+  const reads = openReads(queryClient);
+  for (const [queryHash, read] of reads) {
+    if (!read.beforeSession) continue;
+    reads.delete(queryHash);
+    const query = queryClient.getQueryCache().get(queryHash);
+    if (query) {
+      void queryClient.resetQueries({ queryKey: query.queryKey, exact: true });
+    }
+  }
 }
 
 // Called once the claiming component is subscribed. A read spoiled after it

@@ -10,7 +10,7 @@ import { useLocation } from "react-router";
 import { APP_TITLE } from "@/lib/app-config";
 
 const pageTitleKeys: Record<string, string> = {
-  "/home": "navigation.chat",
+  "/home": "navigation.home",
   "/observability": "navigation.observability",
   "/agent": "settings.agentTitle",
   "/settings": "navigation.settings",

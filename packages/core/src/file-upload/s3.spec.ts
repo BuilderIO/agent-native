@@ -135,6 +135,36 @@ describe("s3FileUploadProvider", () => {
     });
   });
 
+  it("treats a missing S3 object as already deleted", async () => {
+    const secrets: Record<string, string> = {
+      S3_ENDPOINT: "https://s3.example.com",
+      S3_BUCKET: "uploads-example",
+      S3_ACCESS_KEY_ID: "access-example",
+      S3_SECRET_ACCESS_KEY: "secret-example",
+      S3_REGION: "us-east-1",
+      S3_PUBLIC_BASE_URL: "https://cdn.example.com/assets",
+    };
+    resolveSecretMock.mockImplementation(
+      async (key: string) => secrets[key] ?? null,
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: false,
+        status: 404,
+        statusText: "Not Found",
+        text: async () => "",
+      })),
+    );
+
+    await expect(
+      s3FileUploadProvider.delete!({
+        url: "https://cdn.example.com/assets/uploads/missing.mp4",
+        id: "uploads/missing.mp4",
+      }),
+    ).resolves.toBe(true);
+  });
+
   it("uploads through environment-backed storage when scoped secrets are absent", async () => {
     Object.assign(process.env, {
       S3_ENDPOINT: "https://s3.example.com",

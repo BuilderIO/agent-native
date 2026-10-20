@@ -3,7 +3,7 @@
 An open-source, agent-native alternative to Google Slides, Pitch, and PowerPoint.
 Generate full decks from a prompt, edit slides visually, and present full-screen.
 
-**Live app: [slides.agent-native.com](https://slides.agent-native.com)**
+**Live app: [slides.agent-native.com](https://slides.agent-native.com?utm_source=github&utm_medium=referral&utm_content=slides-readme)**
 
 Ask the agent for "a 10-slide pitch deck for a coffee subscription service" and
 watch it stream in slide-by-slide, then refine it visually or by prompt. Anything
@@ -31,4 +31,4 @@ pnpm install
 pnpm dev
 ```
 
-Full docs: [agent-native.com/docs/template-slides](https://agent-native.com/docs/template-slides).
+Full docs: [agent-native.com/docs/template-slides](https://agent-native.com/docs/template-slides?utm_source=github&utm_medium=referral&utm_content=slides-readme).

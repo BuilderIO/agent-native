@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   writeAppState,
   deleteAppState,
@@ -9,6 +9,7 @@ import { and, eq, inArray, ne, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { deleteAppActivityBlob } from "../server/lib/app-activity.js";
 import { countPendingRedactions } from "../server/lib/pending-redactions.js";
 import {
   deleteRecordingMediaObjects,
@@ -23,10 +24,16 @@ import {
   screenshotLeftoverUrls,
   withDeleteClaim,
 } from "../server/lib/screenshot-edits.js";
+import {
+  adjustHostedClipRecordingBytes,
+  getHostedClipRecordingAllowance,
+  releaseHostedClipRecording,
+} from "../server/lib/video-storage.js";
+import { trashRecordingContextFootage } from "./remove-recording-context.js";
 
 export default defineAction({
   description:
-    "Permanently delete a recording and every related row (comments, reactions, viewers, events, transcript, tags, CTAs, shares, diagnostics, bug reports). This cannot be undone.",
+    "Permanently delete a recording and every related row (comments, reactions, viewers, events, transcript, tags, CTAs, shares, diagnostics, bug reports, screen history context). The context's footage is trashed. This cannot be undone.",
   schema: z.object({
     id: z.string().describe("Recording ID"),
   }),
@@ -44,6 +51,18 @@ export default defineAction({
         ),
       );
     if (!existing) throw new Error(`Recording not found: ${args.id}`);
+
+    const hostedAllowance =
+      existing.storageMode === "hosted"
+        ? await getHostedClipRecordingAllowance({
+            recordingId: args.id,
+            ownerEmail,
+          })
+        : null;
+    if (existing.storageMode === "hosted" && !hostedAllowance) {
+      // guard:allow-bare-error — invariant: every hosted recording is created with a durable allowance row.
+      throw new Error(`Hosted recording allowance not found: ${args.id}`);
+    }
 
     const mediaUrls = recordingMediaUrls(existing);
     const protectedUrls = new Set<string>();
@@ -124,7 +143,10 @@ export default defineAction({
         if (protectedUrls.has(url)) continue;
         let gone = false;
         try {
-          gone = await deleteStoredMediaUrl(url);
+          gone = await deleteStoredMediaUrl(url, {
+            storageMode: existing.storageMode,
+            recordingId: existing.id,
+          });
         } catch (err) {
           console.warn(
             `[delete-recording-permanent] could not delete an unredacted file for ${args.id}:`,
@@ -166,27 +188,83 @@ export default defineAction({
       }
     }
 
-    await db.transaction(async (tx) => {
-      // The claim is what keeps saves out; a row without it was changed by
-      // something that does not honour it, and is left for the next try.
-      if (claimedEditsJson) {
-        const [current] = await tx
-          .select({
-            editsJson: schema.recordings.editsJson,
-            mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
-          })
-          .from(schema.recordings)
-          .where(eq(schema.recordings.id, args.id));
-        if (
-          !current ||
-          current.editsJson !== claimedEditsJson ||
-          current.mediaUpdatedAt !== claimedAt
-        ) {
-          throw new Error(
-            "This screenshot changed while it was being deleted. Nothing more was deleted — try again.",
-          );
-        }
+    // Every refusal is decided before any footage is trashed. Trashing is not
+    // transactional, so a refusal after it would leave the Clip with its footage
+    // gone. A row without the claim was changed by something that does not
+    // honour it, and is left for the next try.
+    if (claimedEditsJson) {
+      const [current] = await db
+        .select({
+          editsJson: schema.recordings.editsJson,
+          mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
+        })
+        .from(schema.recordings)
+        .where(eq(schema.recordings.id, args.id));
+      if (
+        !current ||
+        current.editsJson !== claimedEditsJson ||
+        current.mediaUpdatedAt !== claimedAt
+      ) {
+        fail(
+          "This screenshot changed while it was being deleted. Nothing more was deleted — try again.",
+          { errorCode: "recording_delete_conflict", statusCode: 409 },
+        );
       }
+    }
+
+    // Footage is trashed before the context rows that name it are deleted, so a
+    // failed trash leaves the Clip and its context in place for a retry.
+    const contextItems = await db
+      .select({
+        mediaRecordingId: schema.recordingContextItems.mediaRecordingId,
+        pendingMediaRecordingId:
+          schema.recordingContextItems.pendingMediaRecordingId,
+      })
+      .from(schema.recordingContextItems)
+      .where(eq(schema.recordingContextItems.recordingId, args.id));
+    await trashRecordingContextFootage(
+      contextItems.flatMap((item) => [
+        item.mediaRecordingId,
+        item.pendingMediaRecordingId,
+      ]),
+    );
+
+    const [diagnostics] = await db
+      .select({
+        appActivityBlobJson:
+          schema.recordingBrowserDiagnostics.appActivityBlobJson,
+      })
+      .from(schema.recordingBrowserDiagnostics)
+      .where(eq(schema.recordingBrowserDiagnostics.recordingId, args.id));
+
+    // Hosted media goes after every other fallible step and just before the
+    // row: once the row is gone nothing can find the objects or the allowance,
+    // so an unconfirmed delete would strand both, while an earlier delete
+    // would leave a surviving row pointing at deleted objects. Deleting an
+    // already-deleted object succeeds, so a retry finishes it.
+    const cleanupProtectedUrls = new Set([...protectedUrls, ...alreadyDeleted]);
+    let hostedMediaCleanup: Awaited<
+      ReturnType<typeof deleteRecordingMediaObjects>
+    > | null = null;
+    if (hostedAllowance) {
+      hostedMediaCleanup = await deleteRecordingMediaObjects(existing, {
+        protectedUrls: cleanupProtectedUrls,
+      });
+      const unprotectedUrls = mediaUrls.filter(
+        (url) => !cleanupProtectedUrls.has(url),
+      );
+      if (
+        hostedMediaCleanup.deleted + hostedMediaCleanup.external <
+        unprotectedUrls.length
+      ) {
+        fail(
+          "Hosted media for this recording could not be deleted from storage, so the recording was kept. Try again later.",
+          { errorCode: "hosted_media_cleanup_incomplete", statusCode: 502 },
+        );
+      }
+    }
+
+    await db.transaction(async (tx) => {
       // Cascade delete every related row before deleting remote objects. If any
       // DB delete fails, the transaction rolls back and provider media stays put.
       await tx
@@ -211,6 +289,9 @@ export default defineAction({
         .delete(schema.recordingTranscripts)
         .where(eq(schema.recordingTranscripts.recordingId, args.id));
       await tx
+        .delete(schema.recordingTranscriptVersions)
+        .where(eq(schema.recordingTranscriptVersions.recordingId, args.id));
+      await tx
         .delete(schema.recordingBrowserDiagnostics)
         .where(eq(schema.recordingBrowserDiagnostics.recordingId, args.id));
       await tx
@@ -226,13 +307,42 @@ export default defineAction({
         .delete(schema.recordingShares)
         .where(eq(schema.recordingShares.resourceId, args.id));
       await tx
+        .delete(schema.recordingContextItems)
+        .where(eq(schema.recordingContextItems.recordingId, args.id));
+      await tx
         .delete(schema.recordings)
         .where(eq(schema.recordings.id, args.id));
     });
 
-    const mediaCleanup = await deleteRecordingMediaObjects(existing, {
-      protectedUrls: new Set([...protectedUrls, ...alreadyDeleted]),
-    });
+    const mediaCleanup =
+      hostedMediaCleanup ??
+      (await deleteRecordingMediaObjects(existing, {
+        protectedUrls: cleanupProtectedUrls,
+      }));
+
+    if (hostedAllowance) {
+      if (hostedAllowance.status === "consumed") {
+        const adjustment = await adjustHostedClipRecordingBytes({
+          recordingId: args.id,
+          userId: hostedAllowance.userId,
+          retainedBytes: 0,
+        });
+        if (!adjustment.ok) {
+          // guard:allow-bare-error — invariant: media is already deleted, so returning success without freeing ledger bytes would corrupt the global cap.
+          throw new Error(
+            `Hosted recording retained-byte quota could not be released: ${args.id}`,
+          );
+        }
+      } else if (hostedAllowance.status === "reserved") {
+        await releaseHostedClipRecording({
+          recordingId: args.id,
+          userId: hostedAllowance.userId,
+        });
+      }
+    }
+    const appActivityCleanup = diagnostics?.appActivityBlobJson
+      ? await deleteAppActivityBlob(diagnostics.appActivityBlobJson, args.id)
+      : null;
 
     await deleteAppStateByPrefix(`recording-chunks-${args.id}-`);
     await deleteAppState(`recording-upload-${args.id}`);
@@ -248,6 +358,6 @@ export default defineAction({
     console.log(
       `Permanently deleted recording "${existing.title}" (${args.id})`,
     );
-    return { success: true, id: args.id, mediaCleanup };
+    return { success: true, id: args.id, mediaCleanup, appActivityCleanup };
   },
 });

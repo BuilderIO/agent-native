@@ -25,7 +25,9 @@ import {
  *     re-runs the server auth guard from scratch. On failure, reload the
  *     current document so it can re-read the still-authoritative session.
  */
+import { clearActionQueryCache } from "./action-query-cache.js";
 import { agentNativePath } from "./api-path.js";
+import { clearRecorder } from "./recorder.js";
 import { buildSignInReturnHref } from "./sign-in-return.js";
 import { beginSignOut, completeSignOut } from "./use-session.js";
 
@@ -88,6 +90,7 @@ export function signOut(options: SignOutOptions = {}): Promise<void> {
 async function signOutFlow(options: SignOutOptions): Promise<void> {
   setBetaRedirectSignOutSignal();
   beginSignOut();
+  clearRecorder();
   const controller = new AbortController();
   const timeout = setTimeout(
     () => controller.abort(),
@@ -110,6 +113,11 @@ async function signOutFlow(options: SignOutOptions): Promise<void> {
   } finally {
     clearTimeout(timeout);
   }
+  // Stored results outlive this document. A failed clear is logged and sign-out
+  // continues: each record is keyed by user and org, so the next session cannot read it.
+  await clearActionQueryCache().catch((error) =>
+    console.warn("Unable to clear cached action results", error),
+  );
   if (!revoked) {
     clearBetaRedirectSignOutSignal();
     clearBetaRedirectMarker();

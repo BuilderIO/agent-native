@@ -149,6 +149,7 @@ export function scheduleBeginTextEditForScreen(
     isAbandoned?: () => boolean;
     repeat?: TextEditRepeatIdentity;
     onExhausted?: (finalStatus: BeginTextEditOutcome) => void;
+    afterPointerGesture?: boolean;
   },
 ): () => void {
   if (typeof window === "undefined") return () => {};
@@ -165,7 +166,9 @@ export function scheduleBeginTextEditForScreen(
     timers.forEach((timer) => window.clearTimeout(timer));
     onExhausted?.(status);
   };
-  const delays = BEGIN_TEXT_EDIT_RETRY_DELAYS_MS;
+  const delays = options?.afterPointerGesture
+    ? BEGIN_TEXT_EDIT_RETRY_DELAYS_MS
+    : [0, ...BEGIN_TEXT_EDIT_RETRY_DELAYS_MS];
   delays.forEach((delay, index) => {
     const timer = window.setTimeout(() => {
       if (finished) return;

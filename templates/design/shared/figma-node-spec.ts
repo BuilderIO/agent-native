@@ -752,7 +752,7 @@ function resolveContainer(
     else if (sameColumn) mode = "VERTICAL";
     else {
       return giveUp(
-        "CSS grid spans both axes; Figma auto-layout is single-axis, so this " +
+        "CSS grid spans both axes; the target auto-layout model supports single-axis layout, so this " +
           "frame keeps absolutely-positioned children.",
       );
     }
@@ -763,13 +763,13 @@ function resolveContainer(
   const primaryAlign = primaryAlignFrom(css.justifyContent, flow.length);
   if (!primaryAlign) {
     return giveUp(
-      `justify-content: ${css.justifyContent} has no Figma primaryAxisAlignItems equivalent.`,
+      `justify-content: ${css.justifyContent} has no supported primaryAxisAlignItems value.`,
     );
   }
   const counterAlign = counterAlignFrom(css.alignItems, mode);
   if (!counterAlign) {
     return giveUp(
-      `align-items: ${css.alignItems} has no Figma counterAxisAlignItems equivalent for a ${mode.toLowerCase()} stack.`,
+      `align-items: ${css.alignItems} has no supported counterAxisAlignItems value for a ${mode.toLowerCase()} stack.`,
     );
   }
 
@@ -782,7 +782,7 @@ function resolveContainer(
   const lines = wraps ? groupIntoLines(flow, horizontal) : [flow];
   if (css.flexWrap === "wrap-reverse" && lines.length > 1) {
     return giveUp(
-      "flex-wrap: wrap-reverse stacks lines against the counter axis; Figma's layoutWrap only stacks forwards.",
+      "flex-wrap: wrap-reverse stacks lines against the counter axis.",
     );
   }
 
@@ -826,8 +826,8 @@ function resolveContainer(
   if (worst === null || worst > POSITION_EPSILON) {
     return giveUp(
       worst === null
-        ? "this stack's alignment cannot be replayed with Figma auto-layout properties; children stay absolutely positioned."
-        : `Figma auto-layout would move a child by ${worst.toFixed(2)}px, so this frame keeps absolutely-positioned children.`,
+        ? "this stack's alignment cannot be represented by the target layout properties; children stay absolutely positioned."
+        : `the generated layout would move a child by ${worst.toFixed(2)}px, so this frame keeps absolutely-positioned children.`,
     );
   }
 
@@ -856,8 +856,8 @@ function resolveContainer(
       ctx.notes.push({
         node: base.name,
         note:
-          "flex-grow ratios across siblings have no Figma equivalent (FILL " +
-          "splits free space evenly), so these children keep fixed sizes.",
+          "flex-grow ratios across siblings are unsupported; FILL divides free space " +
+          "evenly, so these children keep fixed sizes.",
       });
     }
   }

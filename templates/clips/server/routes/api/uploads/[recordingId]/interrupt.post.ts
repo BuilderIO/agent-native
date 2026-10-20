@@ -28,6 +28,7 @@ import {
   retryableUploadInterruptionReason,
 } from "../../../../../shared/upload-interruption.js";
 import { getDb, schema } from "../../../../db/index.js";
+import { reconcileMeetingOnRecordingFailed } from "../../../../lib/reconcile-meeting-on-finalize.js";
 import {
   normalizeRecordingFailureCode,
   trackRecordingFailure,
@@ -37,6 +38,7 @@ import {
   getEventOwnerContext,
   ownerEmailMatches,
 } from "../../../../lib/recordings.js";
+import { isParkedForStorage } from "../../../../lib/upload-lease.js";
 import abortUpload from "./abort.post.js";
 
 export default defineEventHandler(async (event: H3Event) => {
@@ -156,6 +158,14 @@ export default defineEventHandler(async (event: H3Event) => {
         staleAttempt: true,
       };
     }
+    if (isParkedForStorage(existing)) {
+      return {
+        ok: true,
+        recordingId,
+        status: "uploading",
+        parkedForStorage: true,
+      };
+    }
     const alreadyInterrupted =
       existing.status === "failed" &&
       isRetryableUploadInterruption(existing.failureReason);
@@ -233,6 +243,10 @@ export default defineEventHandler(async (event: H3Event) => {
       );
     }
     await writeAppState("refresh-signal", { ts: Date.now() });
+    await reconcileMeetingOnRecordingFailed({
+      recordingId,
+      ownerEmail,
+    });
 
     console.info("[upload-interrupt] resumable state preserved", {
       recordingId,

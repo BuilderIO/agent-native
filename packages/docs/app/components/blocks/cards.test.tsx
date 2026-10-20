@@ -51,13 +51,13 @@ describe("CardsBlock", () => {
           blockId="cards"
           ctx={{ localizeHref: (href) => localizeDocsHref(href, "de-DE") }}
           data={{
-            cards: [{ title: "AWS", href: "/docs/aws-lambda", body: "Body." }],
+            cards: [{ title: "Netlify", href: "/docs/netlify", body: "Body." }],
           }}
         />
       </MemoryRouter>,
     );
 
-    expect(html).toContain('href="/de-de/docs/aws-lambda/"');
+    expect(html).toContain('href="/de-de/docs/netlify/"');
   });
 
   it("falls back to the raw href when the host provides no rewrite", () => {
@@ -67,13 +67,13 @@ describe("CardsBlock", () => {
           blockId="cards"
           ctx={{}}
           data={{
-            cards: [{ title: "AWS", href: "/docs/aws-lambda", body: "Body." }],
+            cards: [{ title: "Netlify", href: "/docs/netlify", body: "Body." }],
           }}
         />
       </MemoryRouter>,
     );
 
-    expect(html).toContain('href="/docs/aws-lambda"');
+    expect(html).toContain('href="/docs/netlify"');
   });
 
   it("renders the icon for a card that has one", () => {

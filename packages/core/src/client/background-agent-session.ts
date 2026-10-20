@@ -8,6 +8,7 @@ import { appendAgentChatContextToMessage } from "../shared/agent-chat-context.js
 import { backgroundAgentTurnIdForReceipt } from "../shared/background-agent-session.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import { requestAgentChatThreadOpen } from "./agent-chat.js";
+import { requireAgentEngineConfiguredForDispatch } from "./agent-engine-readiness.js";
 import { agentNativePath } from "./api-path.js";
 
 export type BackgroundAgentSessionStatus =
@@ -124,35 +125,40 @@ export function startBackgroundAgentSession(
     rejectCompletion = reject;
   });
 
-  const routeRequest = fetch(agentNativePath("/_agent-native/agent-chat"), {
-    method: "POST",
-    credentials: "same-origin",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      message: appendAgentChatContextToMessage(
-        message,
-        options.instructions ?? "",
-      ),
-      displayMessage: message,
-      queuedMessageId: operationId,
-      threadId,
-      turnId,
-      history: [],
-      structuredHistory: [],
-      ...(options.scope !== undefined ? { scope: options.scope } : {}),
-      ...(actionScope ? { actionScope } : {}),
-      ...(options.mode ? { mode: options.mode } : {}),
-      ...(options.model?.trim() ? { model: options.model.trim() } : {}),
-      ...(options.engine?.trim() ? { engine: options.engine.trim() } : {}),
-      ...(options.effort ? { effort: options.effort } : {}),
-      ...(options.attachments?.length
-        ? { attachments: options.attachments }
-        : {}),
-      ...(options.usageLabel?.trim()
-        ? { usageLabel: options.usageLabel.trim() }
-        : {}),
-    }),
+  const routeRequest = requireAgentEngineConfiguredForDispatch({
+    engine: options.engine,
   })
+    .then(() =>
+      fetch(agentNativePath("/_agent-native/agent-chat"), {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: appendAgentChatContextToMessage(
+            message,
+            options.instructions ?? "",
+          ),
+          displayMessage: message,
+          queuedMessageId: operationId,
+          threadId,
+          turnId,
+          history: [],
+          structuredHistory: [],
+          ...(options.scope !== undefined ? { scope: options.scope } : {}),
+          ...(actionScope ? { actionScope } : {}),
+          ...(options.mode ? { mode: options.mode } : {}),
+          ...(options.model?.trim() ? { model: options.model.trim() } : {}),
+          ...(options.engine?.trim() ? { engine: options.engine.trim() } : {}),
+          ...(options.effort ? { effort: options.effort } : {}),
+          ...(options.attachments?.length
+            ? { attachments: options.attachments }
+            : {}),
+          ...(options.usageLabel?.trim()
+            ? { usageLabel: options.usageLabel.trim() }
+            : {}),
+        }),
+      }),
+    )
     .then(async (response) => {
       routeResponded = true;
       if (!response.ok) {

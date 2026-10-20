@@ -47,3 +47,33 @@ test("discovers ownable tables outside db/schema.ts, including sibling files", a
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("ignores ownable tables that only appear in comments", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "guard-ownable-comments-"));
+  const schemaDir = path.join(root, "packages/demo/src/templates/app/drizzle");
+  mkdirSync(schemaDir, { recursive: true });
+  writeFileSync(
+    path.join(schemaDir, "schema.ts"),
+    [
+      '// export const notes = pgTable("notes", {',
+      "//   ...ownableColumns(),",
+      "// });",
+      'export const tasks = pgTable("tasks", { ...ownableColumns() });',
+    ].join("\n"),
+  );
+
+  try {
+    const guard = (await import(
+      pathToFileURL(path.resolve("scripts/guard-no-unscoped-queries.mjs")).href
+    )) as {
+      collectOwnableTables(root: string): Promise<Map<string, Set<string>>>;
+    };
+    const tables = (await guard.collectOwnableTables(root)).get(
+      "packages/demo/src/templates/app/drizzle",
+    );
+    assert.ok(tables?.has("tasks"));
+    assert.equal(tables?.has("notes"), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

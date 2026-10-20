@@ -73,6 +73,7 @@ describe("Page save recovery after a rejected rebase", () => {
       first,
       { contentEditVersion: 1, editGeneration: 1, contentObservationEpoch: 0 },
       {
+        active: true,
         canEdit: true,
         contentEditVersion: 1,
         editGeneration: 1,

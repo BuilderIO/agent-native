@@ -125,6 +125,33 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     specifier: "@agent-native/core/sharing/actions/list-resource-shares",
   },
   {
+    name: "get-resource-access-status",
+    specifier: "@agent-native/core/sharing/actions/get-resource-access-status",
+  },
+  {
+    name: "request-resource-access",
+    specifier: "@agent-native/core/sharing/actions/request-resource-access",
+  },
+  {
+    name: "get-resource-access-request",
+    specifier: "@agent-native/core/sharing/actions/get-resource-access-request",
+  },
+  {
+    name: "list-resource-access-requests",
+    specifier:
+      "@agent-native/core/sharing/actions/list-resource-access-requests",
+  },
+  {
+    name: "approve-resource-access-request",
+    specifier:
+      "@agent-native/core/sharing/actions/approve-resource-access-request",
+  },
+  {
+    name: "decline-resource-access-request",
+    specifier:
+      "@agent-native/core/sharing/actions/decline-resource-access-request",
+  },
+  {
     name: "set-resource-visibility",
     specifier: "@agent-native/core/sharing/actions/set-resource-visibility",
   },

@@ -11,6 +11,7 @@ const mockGetRequestURL = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/server", () => ({
   getAppBasePath: () => mockGetAppBasePath(),
+  getForwardedRequestURL: () => mockGetRequestURL(),
 }));
 
 vi.mock("h3", () => ({

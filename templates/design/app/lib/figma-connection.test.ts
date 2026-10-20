@@ -10,6 +10,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 
 import {
   FIGMA_ACCESS_TOKEN_SECRET_KEY,
+  FigmaFileUrlUsedAsTokenError,
   getFigmaConnectionStatus,
   saveFigmaAccessToken,
 } from "./figma-connection";
@@ -182,6 +183,20 @@ describe("Figma connection client", () => {
     expect(JSON.stringify(result)).not.toContain(EXAMPLE_TOKEN);
   });
 
+  it.each([
+    "https://www.figma.com/design/file-key/file-name",
+    "figma.com/file/file-key/file-name",
+    "https://figma.com/proto/file-key/file-name",
+  ])("rejects a Figma file URL as a token before saving: %s", async (value) => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(saveFigmaAccessToken(value)).rejects.toBeInstanceOf(
+      FigmaFileUrlUsedAsTokenError,
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("redacts a reflected token from a failed save", async () => {
     vi.stubGlobal(
       "fetch",
@@ -198,6 +213,45 @@ describe("Figma connection client", () => {
     await expect(saveFigmaAccessToken(EXAMPLE_TOKEN)).rejects.toThrow(
       "Provider rejected [redacted]",
     );
+  });
+
+  it("maps the typed server validation code to the Figma token error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse(
+          {
+            error: "Paste a Figma access token, not a Figma file URL.",
+            validationCode: "figma_file_url_as_token",
+          },
+          { status: 400 },
+        ),
+      ),
+    );
+
+    await expect(saveFigmaAccessToken(EXAMPLE_TOKEN)).rejects.toBeInstanceOf(
+      FigmaFileUrlUsedAsTokenError,
+    );
+  });
+
+  it("uses a safe status error for non-JSON connection failures", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(`upstream failed while handling ${EXAMPLE_TOKEN}`, {
+          status: 502,
+          headers: { "Content-Type": "text/html" },
+        }),
+      ),
+    );
+
+    const error = await saveFigmaAccessToken(EXAMPLE_TOKEN).catch(
+      (reason: unknown) => reason,
+    );
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe("Could not connect Figma (502)");
+    expect((error as Error).message).not.toContain(EXAMPLE_TOKEN);
   });
 
   it("redacts URL-encoded and JSON-escaped reflections of a failed token", async () => {

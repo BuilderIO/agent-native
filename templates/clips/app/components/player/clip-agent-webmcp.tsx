@@ -5,11 +5,14 @@ import { useEffect } from "react";
 import {
   AGENT_CONTEXT_ENDPOINT,
   AGENT_FRAME_ENDPOINT,
+  AGENT_FRAME_SHEET_ENDPOINT,
   AGENT_TRANSCRIPT_ENDPOINT,
   CLIPS_WEBMCP_TOOL_DEFINITIONS,
   CLIPS_WEBMCP_MAX_TRANSCRIPT_SEGMENTS,
   CLIPS_WEBMCP_TOOL_NAMES,
   formatAgentTimestamp,
+  MAX_AGENT_FRAME_SHEET_FPS,
+  MIN_AGENT_FRAME_SHEET_FPS,
   nextAgentTranscriptStartMs,
   safeMs,
 } from "../../../shared/agent-context";
@@ -102,11 +105,23 @@ async function fetchAgentJson(
     throw new Error("Clip agent response was not valid JSON");
   }
   if (!response.ok) {
+    const failureKind =
+      isRecord(payload) && typeof payload.failureKind === "string"
+        ? ` (${payload.failureKind})`
+        : "";
     const detail =
       isRecord(payload) && typeof payload.error === "string"
         ? payload.error
         : `HTTP ${response.status}`;
-    throw new Error(`Clip agent request failed: ${detail}`);
+    const nextStep =
+      isRecord(payload) && typeof payload.nextStep === "string"
+        ? `Next step: ${payload.nextStep}`
+        : null;
+    throw new Error(
+      [`Clip agent request failed${failureKind}: ${detail}`, nextStep]
+        .filter(Boolean)
+        .join(" "),
+    );
   }
   return requiredRecord(payload, "Clip agent response");
 }
@@ -142,12 +157,13 @@ function compactApis(
     context: { method: "GET", url: contextUrl },
     transcript: { method: "GET", url: transcriptUrl },
   };
-  const frame = optionalRecord(apis?.frame);
-  if (frame) {
-    const query = optionalRecord(frame.query);
-    result.frame = {
-      method: boundedString(frame.method, 16) ?? "GET",
-      urlTemplate: boundedString(frame.urlTemplate, MAX_WEBMCP_URL_CHARS),
+  for (const key of ["frame", "frames"] as const) {
+    const api = optionalRecord(apis?.[key]);
+    if (!api) continue;
+    const query = optionalRecord(api.query);
+    result[key] = {
+      method: boundedString(api.method, 16) ?? "GET",
+      urlTemplate: boundedString(api.urlTemplate, MAX_WEBMCP_URL_CHARS),
       ...(query
         ? {
             query: Object.fromEntries(
@@ -290,6 +306,52 @@ function parseFrameInput(input: unknown): number {
   return safeMs(value.atMs);
 }
 
+function parseFrameSheetInput(input: unknown): {
+  startMs: number;
+  endMs?: number;
+  fps?: number;
+} {
+  const value = requiredRecord(input, "Frame sheet input");
+  for (const key of Object.keys(value)) {
+    if (!["startMs", "endMs", "fps"].includes(key)) {
+      throw new Error(`Frame sheet input has an unexpected field: ${key}`);
+    }
+  }
+  const readMs = (key: "startMs" | "endMs") => {
+    const raw = value[key];
+    if (raw === undefined) return undefined;
+    if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0) {
+      throw new Error(`Frame sheet input ${key} must be a non-negative number`);
+    }
+    return safeMs(raw);
+  };
+  const startMs = readMs("startMs");
+  if (startMs === undefined) {
+    throw new Error("Frame sheet input startMs is required");
+  }
+  const endMs = readMs("endMs");
+  if (endMs !== undefined && endMs <= startMs) {
+    throw new Error("Frame sheet input endMs must be greater than startMs");
+  }
+  const fps = value.fps;
+  if (
+    fps !== undefined &&
+    (typeof fps !== "number" ||
+      !Number.isFinite(fps) ||
+      fps < MIN_AGENT_FRAME_SHEET_FPS ||
+      fps > MAX_AGENT_FRAME_SHEET_FPS)
+  ) {
+    throw new Error(
+      `Frame sheet input fps must be from ${MIN_AGENT_FRAME_SHEET_FPS} to ${MAX_AGENT_FRAME_SHEET_FPS}`,
+    );
+  }
+  return {
+    startMs,
+    ...(endMs !== undefined ? { endMs } : {}),
+    ...(typeof fps === "number" ? { fps } : {}),
+  };
+}
+
 function transcriptSegment(value: unknown, index: number) {
   const segment = requiredRecord(value, `Transcript segment ${index}`);
   const startMs = numberValue(segment.startMs);
@@ -339,6 +401,7 @@ export function createClipAgentWebMcpActions({
     CLIPS_WEBMCP_TOOL_NAMES.transcript,
   );
   const frameDefinition = clipToolDefinition(CLIPS_WEBMCP_TOOL_NAMES.frame);
+  const framesDefinition = clipToolDefinition(CLIPS_WEBMCP_TOOL_NAMES.frames);
   const contextAction = defineClientAction({
     name: contextDefinition.name,
     title: contextDefinition.title,
@@ -567,7 +630,58 @@ export function createClipAgentWebMcpActions({
           stringValue(optionalRecord(apis.frame)?.responseType) ?? "image/jpeg",
         sourceUrl: imageUrl,
         instructions:
-          "Fetch imageUrl as an image to SEE the recorded screen. The URL uses the same scoped access as this clip page.",
+          "Fetch the exact imageUrl as an image to SEE the recorded screen. Keep its id and any agent_access query parameter. For any non-2xx response, inspect the JSON failureKind, error, and nextStep. If failureKind=access on a context or transcript request, explain that the link does not grant access; for a private clip, ask the owner to open the Clips Share menu, choose Share with agents, and send the link. If a frame request has failureKind=media while the transcript works, explain that the stored recording media could not be retrieved and another link will not fix it. If a frame request has failureKind=processing, follow nextStep; this does not prove the clip is missing or the link is inaccessible. If failureKind=unsupported, follow nextStep and do not retry frame extraction. If failureKind=expired, ask the owner to extend or remove the clip's expiry in the Clips Share menu, save it, then create and send a new Share with agents link.",
+      };
+    },
+  });
+
+  const framesAction = defineClientAction({
+    name: framesDefinition.name,
+    title: framesDefinition.title,
+    description: framesDefinition.description,
+    schema: framesDefinition.inputSchema,
+    readOnly: true,
+    untrustedContentHint: true,
+    run: async (input, runtime) => {
+      if (!agentContextUrl)
+        throw new Error("Clip agent context is unavailable");
+      const { startMs, endMs, fps } = parseFrameSheetInput(input);
+      const payload = await fetchAgentJson(agentContextUrl, runtime.signal);
+      const apis = optionalRecord(payload.apis);
+      if (!apis?.frames) {
+        const status = stringValue(optionalRecord(payload.clip)?.status);
+        if (status === "uploading" || status === "processing") {
+          throw new Error("Clip is not ready for frame extraction yet");
+        }
+        // A screenshot still lists its single frame. Without that, no frame
+        // can be read at all (a failed clip or a Loom embed).
+        throw new Error(
+          apis?.frame
+            ? "Frame sheets are only available for videos. Use clips-get-frame to see the picture."
+            : "Frame extraction is not available for this clip. Use the transcript instead.",
+        );
+      }
+
+      const imageUrl = buildRelatedAgentUrl(
+        agentContextUrl,
+        AGENT_FRAME_SHEET_ENDPOINT,
+        {
+          startMs: String(startMs),
+          ...(endMs !== undefined ? { endMs: String(endMs) } : {}),
+          ...(fps !== undefined ? { fps: String(fps) } : {}),
+        },
+      );
+      return {
+        type: "image",
+        clipId: recordingId,
+        startMs,
+        ...(endMs !== undefined ? { endMs } : {}),
+        ...(fps !== undefined ? { fps } : {}),
+        imageUrl,
+        mimeType: "image/jpeg",
+        sourceUrl: imageUrl,
+        instructions:
+          "Fetch the exact imageUrl as an image: one contact sheet of consecutive frames. Cells read left to right, then top to bottom; cell i shows the frame on screen at startMs + i * 1000 / fps. A range that runs past the end of the clip stops there, and one that starts past it is moved back inside it, so read each cell's actual time from the X-Clips-Frame-Sheet-Times response header. Solid black cells at the end of the grid hold no frame. Without fps, the sheet uses the video's own frame rate, given with each cell's time in the X-Clips-Frame-Sheet-Fps and X-Clips-Frame-Sheet-Times response headers. For any non-2xx response, inspect the JSON failureKind, error, and nextStep. If failureKind=request, the range or fps was out of bounds; follow nextStep, which names a request that fits. Other failure kinds mean the same as for clips-get-frame.",
       };
     },
   });
@@ -575,7 +689,9 @@ export function createClipAgentWebMcpActions({
   return [
     contextAction,
     transcriptAction,
-    ...(recordingStatus === "ready" && frameAvailable ? [frameAction] : []),
+    ...(recordingStatus === "ready" && frameAvailable
+      ? [frameAction, framesAction]
+      : []),
   ];
 }
 

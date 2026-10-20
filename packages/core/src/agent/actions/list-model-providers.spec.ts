@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { runWithRequestContext } from "../../server/request-context.js";
+
 const mocks = vi.hoisted(() => ({
   // `${scope}:${scopeId}` -> key -> value
   secrets: new Map<string, Map<string, string>>(),
@@ -9,7 +11,9 @@ const mocks = vi.hoisted(() => ({
   restricted: false,
   defaultValue: null as Record<string, unknown> | null,
   defaultSource: "none" as "org" | "user" | "legacy" | "none",
+  defaultReadContext: null as Record<string, unknown> | null,
   authorityAllowed: true,
+  deploymentEngines: new Set<string>(),
 }));
 
 vi.mock("../../secrets/storage.js", () => ({
@@ -59,14 +63,29 @@ vi.mock("../../server/personal-provider-key-policy.js", () => ({
 }));
 
 vi.mock("../default-agent-engine.js", () => ({
-  readDefaultAgentEngineSettingDetailed: async () => ({
-    value: mocks.defaultValue,
-    source: mocks.defaultSource,
-  }),
+  readDefaultAgentEngineSettingDetailed: async (
+    context: Record<string, unknown>,
+  ) => {
+    mocks.defaultReadContext = context;
+    if (!context.orgId && context.orgScope !== "personal") {
+      throw new Error("Organization scope could not be resolved.");
+    }
+    return { value: mocks.defaultValue, source: mocks.defaultSource };
+  },
   resolveDefaultAgentEngineAuthority: async () =>
     mocks.authorityAllowed
       ? { allowed: true, scope: "org", orgId: "org-1", userEmail: "x" }
       : { allowed: false, reason: "not-admin", message: "no" },
+}));
+
+vi.mock("../engine/registry.js", () => ({
+  getAgentEngineEntry: (name: string) => ({ name }),
+  isDeploymentEngineUsableForRequest: async (entry: { name: string }) =>
+    mocks.deploymentEngines.has(entry.name),
+}));
+
+vi.mock("../engine/builtin.js", () => ({
+  registerBuiltinEngines: vi.fn(),
 }));
 
 const { default: action } = await import("./list-model-providers.js");
@@ -77,13 +96,25 @@ function setSecret(scope: string, scopeId: string, key: string, value: string) {
   mocks.secrets.set(`${scope}:${scopeId}`, bucket);
 }
 
-function run(userEmail: string | undefined, orgId: string | null = "org-1") {
-  return action.run({}, {
-    actionName: "list-model-providers",
-    caller: "frontend",
-    userEmail,
-    orgId,
-  } as never);
+function run(
+  userEmail: string | undefined,
+  orgId: string | null = "org-1",
+  orgScope?: "personal",
+) {
+  return runWithRequestContext(
+    {
+      ...(userEmail ? { userEmail } : {}),
+      ...(orgId ? { orgId } : {}),
+      ...(orgScope ? { orgScope } : {}),
+    },
+    () =>
+      action.run({}, {
+        actionName: "list-model-providers",
+        caller: "frontend",
+        userEmail,
+        orgId,
+      } as never),
+  );
 }
 
 function entry(
@@ -105,7 +136,9 @@ beforeEach(() => {
   mocks.restricted = false;
   mocks.defaultValue = null;
   mocks.defaultSource = "none";
+  mocks.defaultReadContext = null;
   mocks.authorityAllowed = true;
+  mocks.deploymentEngines.clear();
 });
 
 describe("list-model-providers", () => {
@@ -128,6 +161,75 @@ describe("list-model-providers", () => {
     expect(listing.providers.every((item) => !item.org && !item.personal)).toBe(
       true,
     );
+    expect(listing.providers.every((item) => !item.deploymentConfigured)).toBe(
+      true,
+    );
+  });
+
+  it("passes confirmed personal scope into the saved default reader", async () => {
+    await run("solo@example.com", null, "personal");
+
+    expect(mocks.defaultReadContext).toEqual({
+      userEmail: "solo@example.com",
+      orgId: null,
+      orgScope: "personal",
+    });
+  });
+
+  it("does not infer personal scope from a missing organization", async () => {
+    await expect(run("unknown@example.com", null)).rejects.toThrow(
+      "Organization scope could not be resolved.",
+    );
+  });
+
+  it("reports usable deployment providers without exposing credential values", async () => {
+    mocks.deploymentEngines.add("anthropic");
+    mocks.deploymentEngines.add("ai-sdk:google");
+    const listing = await run("admin@example.com");
+
+    expect(entry(listing, "anthropic").deploymentConfigured).toBe(true);
+    expect(entry(listing, "google").deploymentConfigured).toBe(true);
+    expect(entry(listing, "openai").deploymentConfigured).toBe(false);
+    expect(JSON.stringify(listing)).not.toContain("API_KEY");
+  });
+
+  it("does not report a deployment fallback when a rejected saved key takes precedence", async () => {
+    mocks.deploymentEngines.add("anthropic");
+    setSecret("org", "org-1", "ANTHROPIC_API_KEY", "sk-ant-test-rejected");
+    mocks.rejected.set(
+      "ANTHROPIC_API_KEY=sk-ant-test-rejected",
+      1_700_000_900_000,
+    );
+
+    const listing = await run("admin@example.com");
+
+    expect(entry(listing, "anthropic").org?.rejectedAt).toBe(1_700_000_900_000);
+    expect(entry(listing, "anthropic").deploymentConfigured).toBe(false);
+  });
+
+  it("keeps the organization deployment fallback when an admin has a personal key", async () => {
+    mocks.deploymentEngines.add("anthropic");
+    setSecret(
+      "user",
+      "admin@example.com",
+      "ANTHROPIC_API_KEY",
+      "sk-ant-personal-test",
+    );
+
+    const listing = await run("admin@example.com");
+
+    expect(entry(listing, "anthropic").personal?.masked).toBe("••••test");
+    expect(entry(listing, "anthropic").deploymentConfigured).toBe(true);
+  });
+
+  it("does not advertise a deployment fallback when the default scope has only a provider endpoint", async () => {
+    mocks.deploymentEngines.add("ai-sdk:openai");
+    setSecret("org", "org-1", "OPENAI_BASE_URL", "https://gateway.example/v1");
+
+    const listing = await run("admin@example.com");
+
+    expect(entry(listing, "openai").org).toBeNull();
+    expect(entry(listing, "openai").deploymentConfigured).toBe(false);
   });
 
   it("shows admins the organization key's mask and gateway", async () => {
@@ -231,7 +333,11 @@ describe("list-model-providers", () => {
       "https://gateway.example/v1",
     );
     for (const orgId of ["org-1", null]) {
-      const listing = await run("member@example.com", orgId);
+      const listing = await run(
+        "member@example.com",
+        orgId,
+        orgId === null ? "personal" : undefined,
+      );
       expect(entry(listing, "openai").personal).toEqual({
         scope: "user",
         masked: "••••9999",
@@ -305,7 +411,7 @@ describe("list-model-providers", () => {
       "OPENROUTER_API_KEY",
       "sk-or-test-fake-7777",
     );
-    const listing = await run("solo@example.com", null);
+    const listing = await run("solo@example.com", null, "personal");
     expect(listing).toMatchObject({
       hasOrganization: false,
       canManageOrg: false,

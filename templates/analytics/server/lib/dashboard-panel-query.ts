@@ -6,6 +6,7 @@ import {
 } from "@agent-native/core/data-programs";
 import type { MissingKeyResponse } from "@agent-native/core/server";
 
+import type { SqlQueryExecutionMetadata } from "../../shared/sql-query-contract";
 import { getUserSegmentation, queryEvents } from "./amplitude";
 import { runQuery } from "./bigquery";
 import { runDemoPanel, serializeDemoDescriptorInput } from "./demo-source";
@@ -30,11 +31,9 @@ export const DASHBOARD_PANEL_SOURCES = [
 
 export type DashboardPanelSource = (typeof DASHBOARD_PANEL_SOURCES)[number];
 
-export interface DashboardPanelQueryResult {
+export interface DashboardPanelQueryResult extends SqlQueryExecutionMetadata {
   rows: Record<string, unknown>[];
   schema: { name: string; type: string }[];
-  truncated?: boolean;
-  bytesProcessed?: number;
 }
 
 export interface UnsupportedBackendResponse {
@@ -406,10 +405,22 @@ export async function runDashboardPanelQuery(args: {
   query: string;
   ctx: CredentialContext;
   timeoutMs?: number;
+  forceRefresh?: boolean;
+  signal?: AbortSignal;
+  /** Billed-byte cap for warehouse-backed sources; the others ignore it. */
+  maxBytesBilled?: number;
 }): Promise<
   DashboardPanelQueryResult | MissingKeyResponse | UnsupportedBackendResponse
 > {
-  const { source, query, ctx, timeoutMs } = args;
+  const {
+    source,
+    query,
+    ctx,
+    timeoutMs,
+    forceRefresh,
+    signal,
+    maxBytesBilled,
+  } = args;
 
   if (source === "bigquery") {
     const missing = await missingCredential(
@@ -418,7 +429,11 @@ export async function runDashboardPanelQuery(args: {
       "BigQuery",
     );
     if (missing) return missing;
-    return await runQuery(query);
+    return await runQuery(query, {
+      ...(forceRefresh ? { forceRefresh: true } : {}),
+      ...(signal ? { signal } : {}),
+      ...(maxBytesBilled !== undefined ? { maxBytesBilled } : {}),
+    });
   }
 
   if (source === "ga4") {
@@ -467,6 +482,7 @@ export async function runDashboardPanelQuery(args: {
         {
           cache: true,
           ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+          ...(maxBytesBilled !== undefined ? { maxBytesBilled } : {}),
         },
       );
     } catch (error) {

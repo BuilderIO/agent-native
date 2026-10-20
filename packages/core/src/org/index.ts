@@ -59,9 +59,17 @@ export const resolveOrgByDomain = lazyFunction(
   loadOrgContext,
   "resolveOrgByDomain",
 );
+export const lookupOrgByDomain = lazyFunction(
+  loadOrgContext,
+  "lookupOrgByDomain",
+);
 export const resolveOrgIdForEmail = lazyFunction(
   loadOrgContext,
   "resolveOrgIdForEmail",
+);
+export const resolveActiveOrgIdForStorageCredential = lazyFunction(
+  loadOrgContext,
+  "resolveActiveOrgIdForStorageCredential",
 );
 export const createOrganization = lazyFunction(
   loadOrgContext,
@@ -94,9 +102,14 @@ export type {
   IdentityOrgScope,
 } from "../identity/rekey.js";
 export {
+  checkWorkspaceAppAccess,
   claimWorkspaceAppForOrganization,
   isStandaloneDispatchRuntime,
   isWorkspaceAppAccessAllowed,
+  isWorkspaceAppAccessUnavailable,
+  type WorkspaceAppAccessCheck,
+  type WorkspaceAppAccessOutcome,
+  type WorkspaceAppAccessUnavailable,
 } from "./workspace-app-access.js";
 
 export {
@@ -116,6 +129,7 @@ export type {
   AppRoles,
   AppRolesDescriptor,
   AppRoleCaller,
+  AppPermissionPolicy,
   AppRoleLookup,
   AppMemberRoleRow,
   AppAuthorizationContext,

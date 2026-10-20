@@ -1,4 +1,7 @@
 import { createHmac } from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -436,46 +439,62 @@ describe("Dispatch private icon assets", () => {
   });
 
   it("accepts a signed service JWT only for the private-icon audience", async () => {
-    vi.stubEnv("A2A_SECRET", "example-dispatch-shared-secret");
-    vi.stubEnv("APP_URL", "https://dispatch.example.test");
-    const { verifyA2AToken } = await vi.importActual<
-      typeof import("@agent-native/core/a2a")
-    >("@agent-native/core/a2a");
-    mocks.verifyA2AToken.mockImplementation(verifyA2AToken);
-
-    const token = (aud: string) => {
-      const now = Math.floor(Date.now() / 1000);
-      const head = Buffer.from(
-        JSON.stringify({ alg: "HS256", typ: "JWT" }),
-      ).toString("base64url");
-      const body = Buffer.from(
-        JSON.stringify({
-          sub: "owner@example.test",
-          iss: "https://content.example.test",
-          aud,
-          scope: "private-icon:read",
-          org_id: "dispatch-org",
-          asset_id: id,
-          iat: now,
-          exp: now + 60,
-        }),
-      ).toString("base64url");
-      const unsigned = `${head}.${body}`;
-      const signature = createHmac("sha256", "example-dispatch-shared-secret")
-        .update(unsigned)
-        .digest("base64url");
-      return `${unsigned}.${signature}`;
-    };
-
-    const withToken = (value: string) => {
-      const requestEvent = event("GET");
-      requestEvent.req = new Request(requestEvent.url, {
-        headers: { authorization: `Bearer ${value}` },
-      });
-      return requestEvent;
-    };
-
+    const databaseDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "dispatch-private-icon-assets-"),
+    );
+    let closeDatabase: (() => Promise<void>) | undefined;
     try {
+      vi.stubEnv("A2A_SECRET", "example-dispatch-shared-secret");
+      vi.stubEnv("APP_URL", "https://dispatch.example.test");
+      vi.stubEnv("DATABASE_URL", `pglite:${databaseDir}`);
+      const { closeDbExec, getDbExec } = await import("@agent-native/core/db");
+      closeDatabase = closeDbExec;
+      const db = getDbExec();
+      await db.execute(
+        "CREATE TABLE organizations (id TEXT PRIMARY KEY, allowed_domain TEXT)",
+      );
+      await db.execute({
+        sql: "INSERT INTO organizations (id, allowed_domain) VALUES (?, ?)",
+        args: ["dispatch-org", null],
+      });
+
+      const { verifyA2AToken } = await vi.importActual<
+        typeof import("@agent-native/core/a2a")
+      >("@agent-native/core/a2a");
+      mocks.verifyA2AToken.mockImplementation(verifyA2AToken);
+
+      const token = (aud: string) => {
+        const now = Math.floor(Date.now() / 1000);
+        const head = Buffer.from(
+          JSON.stringify({ alg: "HS256", typ: "JWT" }),
+        ).toString("base64url");
+        const body = Buffer.from(
+          JSON.stringify({
+            sub: "owner@example.test",
+            iss: "https://content.example.test",
+            aud,
+            scope: "private-icon:read",
+            org_id: "dispatch-org",
+            asset_id: id,
+            iat: now,
+            exp: now + 60,
+          }),
+        ).toString("base64url");
+        const unsigned = `${head}.${body}`;
+        const signature = createHmac("sha256", "example-dispatch-shared-secret")
+          .update(unsigned)
+          .digest("base64url");
+        return `${unsigned}.${signature}`;
+      };
+
+      const withToken = (value: string) => {
+        const requestEvent = event("GET");
+        requestEvent.req = new Request(requestEvent.url, {
+          headers: { authorization: `Bearer ${value}` },
+        });
+        return requestEvent;
+      };
+
       const handler = createPrivateIconAssetsHandler();
       expect(
         (
@@ -492,7 +511,12 @@ describe("Dispatch private icon assets", () => {
         ).status,
       ).toBe(200);
     } finally {
-      vi.unstubAllEnvs();
+      try {
+        await closeDatabase?.();
+      } finally {
+        vi.unstubAllEnvs();
+        fs.rmSync(databaseDir, { recursive: true, force: true });
+      }
     }
   }, 20_000);
 });

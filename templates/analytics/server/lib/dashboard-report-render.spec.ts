@@ -1,6 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SqlPanel } from "../../app/pages/adhoc/sql-dashboard/types";
+import {
+  CONNECT_UNDERCOUNT,
+  SETUP_INCIDENT,
+  SKIPS_UNTRACKED,
+} from "../../shared/annotation-fixtures";
+import {
+  APP_SERIES_COLORS,
+  UNKNOWN_APP_COLOR,
+} from "../../shared/tokens/app-series-colors";
 
 const mocks = vi.hoisted(() => ({
   runWithRequestContext: vi.fn(
@@ -8,6 +17,9 @@ const mocks = vi.hoisted(() => ({
   ),
   resolveAnalyticsPanelSource: vi.fn(),
   renderReportChartSvg: vi.fn(
+    (_input: unknown) => "<svg xmlns='http://www.w3.org/2000/svg'/>",
+  ),
+  renderFunnelChartSvg: vi.fn(
     (_input: unknown) => "<svg xmlns='http://www.w3.org/2000/svg'/>",
   ),
 }));
@@ -31,6 +43,7 @@ vi.mock("./dashboard-panel-query", () => ({
 vi.mock("./report-chart-svg", () => ({
   REPORT_CHART_FONT_FAMILY: "Liberation Sans",
   renderReportChartSvg: mocks.renderReportChartSvg,
+  renderFunnelChartSvg: mocks.renderFunnelChartSvg,
 }));
 vi.mock("@resvg/resvg-js", () => ({
   Resvg: class {
@@ -88,6 +101,9 @@ beforeEach(() => {
     (_ctx: unknown, fn: () => unknown | Promise<unknown>) => fn(),
   );
   mocks.renderReportChartSvg.mockReturnValue(
+    "<svg xmlns='http://www.w3.org/2000/svg'/>",
+  );
+  mocks.renderFunnelChartSvg.mockReturnValue(
     "<svg xmlns='http://www.w3.org/2000/svg'/>",
   );
 });
@@ -345,6 +361,7 @@ describe("fetchReportPanelData", () => {
     expect(data.get("slow")).toEqual({
       status: "query-failed",
       message: "Panel query timed out after 0s",
+      timedOut: true,
     });
     expect(data.get("fast")).toEqual({
       status: "rows",
@@ -806,5 +823,448 @@ describe("renderReportEmail", () => {
     expect(rendered.attachments).toEqual([]);
     expect(rendered.degradedPanelIds).toEqual(["chart"]);
     expect(rendered.html).toContain("Failed to load native binding");
+  });
+});
+
+describe("reportPanelVariables", () => {
+  it("passes a text filter value through unchanged, even when it matches the multi-select marker", async () => {
+    const { reportPanelVariables } = await import("./dashboard-report-render");
+    const vars = reportPanelVariables({
+      variables: {},
+      filters: { f_query: "__empty__" },
+    } as unknown as Parameters<typeof reportPanelVariables>[0]);
+
+    expect(vars.query).toBe("__empty__");
+  });
+
+  it("keeps a cleared multi-select empty over a dashboard variable of the same name", async () => {
+    const { reportPanelVariables } = await import("./dashboard-report-render");
+    const vars = reportPanelVariables({
+      variables: { plan: "enterprise" },
+      filters: { f_plan: "" },
+    } as unknown as Parameters<typeof reportPanelVariables>[0]);
+
+    expect(vars.plan).toBe("");
+  });
+});
+
+describe("report chart parity with the dashboard", () => {
+  it("splits a funnel by funnelOutcomes and notes stages that cannot split", async () => {
+    const funnelOutcomes = {
+      completedKey: "completed",
+      skippedKey: "skipped",
+      leftKey: "left_here",
+    };
+    const rendered = await renderReportEmail({
+      snapshot: snapshotOf([
+        panel({
+          id: "steps",
+          chartType: "funnel",
+          config: { xKey: "step", yKey: "shown", funnelOutcomes },
+        }),
+        panel({
+          id: "plain",
+          chartType: "funnel",
+          config: { xKey: "step", yKey: "shown" },
+        }),
+      ]),
+      panelData: new Map(
+        ["steps", "plain"].map((id) => [
+          id,
+          {
+            status: "rows" as const,
+            rows: [
+              {
+                step: "Your role",
+                shown: 100,
+                completed: 60,
+                skipped: 30,
+                left_here: 4,
+              },
+              {
+                step: "Connect",
+                shown: 50,
+                completed: 45,
+                skipped: 0,
+                left_here: 9,
+              },
+            ],
+            schema: [],
+          },
+        ]),
+      ),
+    });
+
+    const [split, plain] = mocks.renderFunnelChartSvg.mock.calls.map(
+      ([input]) =>
+        input as {
+          rows: Array<{ label: string; outcomes?: unknown }>;
+          outcomes?: { keys: unknown };
+        },
+    );
+    expect(split.outcomes?.keys).toEqual(funnelOutcomes);
+    expect(split.rows.map((row) => row.outcomes ?? null)).toEqual([
+      { completed: 60, skipped: 30, movedOn: 6, left: 4, optional: false },
+      null,
+    ]);
+    expect(plain).not.toHaveProperty("outcomes");
+    expect(rendered.html).toContain(
+      "Stage &quot;Connect&quot;: completed, skipped and left add up to more than shown",
+    );
+    expect(rendered.degradedPanelIds).toEqual([]);
+  });
+
+  it("keeps the first 400 bars of a category chart and says so", async () => {
+    const rendered = await renderReportEmail({
+      snapshot: snapshotOf([
+        panel({
+          id: "pages",
+          chartType: "bar",
+          config: { xKey: "page", yKey: "views" },
+        }),
+      ]),
+      panelData: new Map([
+        [
+          "pages",
+          {
+            status: "rows" as const,
+            rows: Array.from({ length: 450 }, (_, index) => ({
+              page: `/page-${index}`,
+              views: 450 - index,
+            })),
+            schema: [],
+          },
+        ],
+      ]),
+    });
+
+    const chartInput = mocks.renderReportChartSvg.mock.calls[0][0] as {
+      labels: string[];
+    };
+    expect(chartInput.labels).toHaveLength(400);
+    expect(chartInput.labels[0]).toBe("/page-0");
+    expect(rendered.html).toContain("showing the first 400 of 450 points");
+  });
+
+  it("stacks pivoted series largest first with Other last, like the dashboard", async () => {
+    await renderReportEmail({
+      snapshot: {
+        ...snapshotOf([
+          panel({
+            id: "stacked",
+            chartType: "area",
+            config: {
+              stacked: true,
+              pivot: { xKey: "day", seriesKey: "template", valueKey: "n" },
+            },
+          }),
+        ]),
+        filters: { f_timeRange: "all" },
+      },
+      panelData: new Map([
+        [
+          "stacked",
+          {
+            status: "rows" as const,
+            rows: [
+              { day: "2026-07-01", template: "other", n: 500 },
+              { day: "2026-07-01", template: "mail", n: 3 },
+              { day: "2026-07-01", template: "slides", n: 30 },
+            ],
+            schema: [],
+          },
+        ],
+      ]),
+    });
+
+    const chartInput = mocks.renderReportChartSvg.mock.calls[0][0] as {
+      series: Array<{ label: string }>;
+    };
+    expect(chartInput.series.map((entry) => entry.label)).toEqual([
+      "slides",
+      "mail",
+      "other",
+    ]);
+  });
+
+  it("keeps each stacked series' configured color after ranking", async () => {
+    await renderReportEmail({
+      snapshot: {
+        ...snapshotOf([
+          panel({
+            id: "feedback",
+            chartType: "bar",
+            config: {
+              stacked: true,
+              colors: ["#10b981", "#ef4444"],
+              pivot: {
+                xKey: "model",
+                seriesKey: "sentiment",
+                valueKey: "responses",
+              },
+            },
+          }),
+        ]),
+        filters: { f_timeRange: "all" },
+      },
+      panelData: new Map([
+        [
+          "feedback",
+          {
+            status: "rows" as const,
+            rows: [
+              { model: "a", sentiment: "positive", responses: 5 },
+              { model: "a", sentiment: "negative", responses: 20 },
+            ],
+            schema: [],
+          },
+        ],
+      ]),
+    });
+
+    const chartInput = mocks.renderReportChartSvg.mock.calls[0][0] as {
+      series: Array<{ label: string; color: string }>;
+    };
+    expect(
+      chartInput.series.map((entry) => [entry.label, entry.color]),
+    ).toEqual([
+      ["negative", "#ef4444"],
+      ["positive", "#10b981"],
+    ]);
+  });
+
+  it("draws each app in the same fixed color as the dashboard", async () => {
+    await renderReportEmail({
+      snapshot: {
+        ...snapshotOf([
+          panel({
+            id: "daily",
+            chartType: "area",
+            config: {
+              stacked: true,
+              pivot: {
+                xKey: "date",
+                seriesKey: "template",
+                valueKey: "visitors",
+              },
+            },
+          }),
+        ]),
+        filters: { f_timeRange: "all" },
+      },
+      panelData: new Map([
+        [
+          "daily",
+          {
+            status: "rows" as const,
+            rows: [
+              { date: "2026-10-01", template: "slides", visitors: 2 },
+              { date: "2026-10-01", template: "mail", visitors: 9 },
+              { date: "2026-10-01", template: "unknown", visitors: 1 },
+            ],
+            schema: [],
+          },
+        ],
+      ]),
+    });
+
+    const chartInput = mocks.renderReportChartSvg.mock.calls[0][0] as {
+      series: Array<{ label: string; color: string }>;
+    };
+    expect(
+      chartInput.series.map((entry) => [entry.label, entry.color]),
+    ).toEqual([
+      ["mail", APP_SERIES_COLORS.mail],
+      ["slides", APP_SERIES_COLORS.slides],
+      ["unknown", UNKNOWN_APP_COLOR],
+    ]);
+  });
+});
+
+describe("renderReportEmail key dates", () => {
+  const rows = [
+    { date: "2026-10-12", people: 10 },
+    { date: "2026-10-13", people: 12 },
+    { date: "2026-10-14", people: 30 },
+  ];
+  const keyDates = [
+    {
+      date: "2026-10-14",
+      time: "00:01",
+      timeZone: "America/Los_Angeles",
+      label: "Product Hunt live",
+    },
+  ];
+
+  async function chartEvents(chartType: SqlPanel["chartType"]) {
+    await renderReportEmail({
+      snapshot: {
+        ...snapshotOf([
+          panel({
+            id: "people",
+            chartType,
+            config: {
+              xKey: "date",
+              yKeys: ["people"],
+              events: [{ date: "2026-10-12", label: "Role step first" }],
+            },
+          }),
+        ]),
+        keyDates,
+      },
+      panelData: new Map([
+        ["people", { status: "rows" as const, rows, schema: [] }],
+      ]),
+    });
+    return (
+      mocks.renderReportChartSvg.mock.calls[0]?.[0] as
+        | { events: Array<{ index: number; label: string }> }
+        | undefined
+    )?.events;
+  }
+
+  it("draws the dashboard's key dates next to the panel's own events", async () => {
+    expect(await chartEvents("line")).toEqual([
+      { index: 0, label: "Role step first" },
+      { index: 2, label: "Product Hunt live" },
+    ]);
+  });
+
+  it("leaves key dates off charts that do not draw events", async () => {
+    expect(await chartEvents("pie")).toEqual([]);
+  });
+});
+
+describe("renderReportEmail data notes", () => {
+  const rows = [
+    { date: "2026-10-08", failures: 3 },
+    { date: "2026-10-09", failures: 20 },
+    { date: "2026-10-13", failures: 40 },
+    { date: "2026-10-14", failures: 4 },
+  ];
+
+  async function render(
+    chartType: SqlPanel["chartType"],
+    notes = [SETUP_INCIDENT],
+    { xKey = "date", panelRows = rows as Array<Record<string, unknown>> } = {},
+  ) {
+    return renderReportEmail({
+      snapshot: {
+        ...snapshotOf([
+          panel({
+            id: "failures",
+            chartType,
+            config: { xKey, yKeys: ["failures"] },
+          }),
+        ]),
+        generatedAt: "2026-10-30T00:00:00.000Z",
+        dataNotesByPanel: { failures: notes },
+      },
+      panelData: new Map([
+        ["failures", { status: "rows" as const, rows: panelRows, schema: [] }],
+      ]),
+    });
+  }
+
+  it("shades a time chart over the note's days and spells the note out under it", async () => {
+    const email = await render("line");
+    expect(mocks.renderReportChartSvg.mock.calls[0]?.[0]).toMatchObject({
+      bands: [
+        {
+          label: "Builder.io account setup failures",
+          runs: [
+            { startIndex: 1, endIndex: 2, startEdge: true, endEdge: true },
+          ],
+        },
+      ],
+    });
+    expect(email.html).toContain(
+      "<strong>Builder.io account setup failures</strong>",
+    );
+    expect(email.html).toContain("a deploy on Oct 13 fixed it.");
+    expect(email.text).toContain("! Builder.io account setup failures (Oct 9");
+  });
+
+  it("shades only the note's rows on a chart sorted by something other than date, under one title", async () => {
+    await render("bar", [SETUP_INCIDENT], {
+      panelRows: [
+        { date: "2026-10-09", failures: 20 },
+        { date: "2026-10-01", failures: 3 },
+        { date: "2026-10-13", failures: 40 },
+      ],
+    });
+    expect(mocks.renderReportChartSvg.mock.calls[0]?.[0]).toMatchObject({
+      bands: [
+        {
+          label: "Builder.io account setup failures",
+          runs: [
+            { startIndex: 0, endIndex: 0, startEdge: true, endEdge: true },
+            { startIndex: 2, endIndex: 2, startEdge: true, endEdge: true },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("writes a note that falls between the chart's dates under it, without a band", async () => {
+    // The rows skip Oct 10–12, so no x value stands for those days.
+    const email = await render("line", [
+      { ...SETUP_INCIDENT, startDate: "2026-10-10", endDate: "2026-10-12" },
+    ]);
+    expect(mocks.renderReportChartSvg.mock.calls[0]?.[0]).toMatchObject({
+      bands: [],
+    });
+    expect(email.html).toContain(
+      "<strong>Builder.io account setup failures</strong>",
+    );
+  });
+
+  it("leaves off a note whose dates are outside the chart", async () => {
+    const email = await render("line", [SKIPS_UNTRACKED]);
+    expect(mocks.renderReportChartSvg.mock.calls[0]?.[0]).toMatchObject({
+      bands: [],
+    });
+    expect(email.html).not.toContain("Onboarding step skips not tracked");
+  });
+
+  it("spells a time chart's note out once and leaves off recent notes outside its dates", async () => {
+    const earlier = {
+      ...SETUP_INCIDENT,
+      id: "note-earlier-outage",
+      title: "Earlier outage",
+      startDate: "2026-10-01",
+      endDate: "2026-10-03",
+    };
+    const email = await render("line", [SETUP_INCIDENT, earlier]);
+    expect(
+      email.html.split("<strong>Builder.io account setup failures</strong>"),
+    ).toHaveLength(2);
+    expect(
+      email.text.split("! Builder.io account setup failures"),
+    ).toHaveLength(2);
+    expect(email.html).not.toContain("Earlier outage");
+  });
+
+  it("lists recent notes under a chart whose x axis is numbers, not dates", async () => {
+    const email = await render("line", [CONNECT_UNDERCOUNT], {
+      xKey: "hour",
+      panelRows: [
+        { hour: 9, failures: 3 },
+        { hour: 10, failures: 20 },
+        { hour: 11, failures: 4 },
+      ],
+    });
+    expect(mocks.renderReportChartSvg.mock.calls[0]?.[0]).toMatchObject({
+      bands: [],
+    });
+    expect(email.html).toContain(
+      "<strong>Connect clicks undercounted</strong>",
+    );
+  });
+
+  it("lists recent notes under charts without a date axis", async () => {
+    const email = await render("metric", [SETUP_INCIDENT, SKIPS_UNTRACKED]);
+    expect(email.html).toContain("Builder.io account setup failures");
+    expect(email.html).not.toContain("Onboarding step skips not tracked");
   });
 });

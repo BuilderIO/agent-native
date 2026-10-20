@@ -556,17 +556,13 @@ async function requestedEndpoint(
 }
 
 /**
- * The OpenAI endpoint chats resolve, deployment value included, before
- * validation. Auth-failure markers are global per key value, so a check only
- * writes one when it reached this same endpoint.
+ * The OpenAI endpoint chats resolve for a saved key, before validation.
+ * Auth-failure markers are global per key value, so a check only writes one
+ * when it reached this same endpoint. A deployment value is excluded because
+ * chats never pair a saved key with it (see keyBelongsToDeployment).
  */
 async function runtimeOpenAiEndpoint(): Promise<string | null> {
-  const resolved = await resolveSecretDetailed(OPENAI_BASE_URL_ENV_VAR);
-  if (resolved.value) return resolved.value;
-  if (resolved.lookupFailed) {
-    throw new Error("Could not read the credential store.");
-  }
-  return null;
+  return readSaved(OPENAI_BASE_URL_ENV_VAR, undefined);
 }
 
 async function assertMayCheck(input: ProviderKeyCheckInput): Promise<void> {

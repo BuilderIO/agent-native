@@ -20,6 +20,7 @@ describe("normalizeDashboardConfig", () => {
             source: "bigquery",
             chartType: "table",
             width: 2,
+            height: 3,
             tab: "Adoption",
             columns: [{ key: "activity_window" }],
           },
@@ -37,6 +38,7 @@ describe("normalizeDashboardConfig", () => {
       source: "bigquery",
       chartType: "table",
       width: 2,
+      height: 3,
       tab: "Adoption",
       config: { columns: [{ key: "activity_window" }] },
     });
@@ -51,13 +53,19 @@ describe("normalizeDashboardConfig", () => {
       panels: [
         {
           id: "panel",
-          config: { sql: "SELECT 1", chartType: "table", width: 2 },
+          config: { sql: "SELECT 1", chartType: "table", width: 2, height: 3 },
         },
       ],
     });
 
     expect(normalized.panels).toEqual([
-      { id: "panel", sql: "SELECT 1", chartType: "table", width: 2 },
+      {
+        id: "panel",
+        sql: "SELECT 1",
+        chartType: "table",
+        width: 2,
+        height: 3,
+      },
     ]);
   });
 

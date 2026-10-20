@@ -113,6 +113,7 @@ function AnnotatedCodeRead({
   summary,
   ctx,
 }: BlockReadProps<AnnotatedCodeData>) {
+  const code = data.code === undefined ? "" : data.code;
   const copy = useBlockCopy();
   const hover = useAnnotationHover();
   const { activeIndex } = hover;
@@ -124,10 +125,7 @@ function AnnotatedCodeRead({
     else lineRefs.current.delete(lineNo);
   };
 
-  const lines = useMemo(
-    () => data.code.replace(/\n$/, "").split("\n"),
-    [data.code],
-  );
+  const lines = useMemo(() => code.replace(/\n$/, "").split("\n"), [code]);
   const lineCount = lines.length;
 
   const language = useMemo(
@@ -406,13 +404,13 @@ function AnnotatedCodeRead({
             </span>
           )}
           <span className="plan-code-chrome">
-            <CopyButton value={data.code} />
+            <CopyButton value={code} />
           </span>
         </div>
       )}
       {!hasFilename && !showLangChip && (
         <span className="plan-code-chrome plan-code-chrome-float">
-          <CopyButton value={data.code} />
+          <CopyButton value={code} />
         </span>
       )}
       <div className="overflow-x-auto py-1.5" data-code-surface>
@@ -511,6 +509,7 @@ function AnnotatedCodeEdit({
   onChange,
   editable,
 }: BlockEditProps<AnnotatedCodeData>) {
+  const code = data.code === undefined ? "" : data.code;
   const annotations = data.annotations ?? [];
   const patch = (next: Partial<AnnotatedCodeData>) =>
     onChange({ ...data, ...next });
@@ -576,7 +575,7 @@ function AnnotatedCodeEdit({
           id="annotated-code-code"
           spellCheck={false}
           className={codeAreaClass}
-          value={data.code}
+          value={code}
           disabled={!editable}
           onChange={(event) => patch({ code: event.target.value })}
         />

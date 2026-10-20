@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { resolveDocumentTextEdits } from "./document-text-edits";
-import { docToNfm, nfmToDoc } from "./nfm";
+import { canonicalizeNfm, docToNfm, nfmToDoc } from "./nfm";
 import {
   markdownSuggestionOperation,
   markdownSuggestionOperations,
+  markdownSuggestionOperationsForEditorRevision,
   markdownSuggestionOperationsForFindReplace,
 } from "./suggestion-diff";
 import {
@@ -271,7 +272,6 @@ describe("verified formatting coordinates in stored Markdown", () => {
     "**\nx\n**marked**",
     "x\n**marked**\n**",
     "Above<br/>old phrase<br/>Below\n**marked**",
-    "| Heading | Other |\n| --- | --- |\n| old phrase | Value |\n**marked**",
     "``````ts\nconst label = 'old phrase';\n``````\n**marked**",
   ])("refuses unsupported or stray gap bytes in %s", (before) => {
     expect(() => suggestionMarkedSourceRanges(before)).toThrow(
@@ -405,5 +405,115 @@ describe("verified formatting coordinates in stored Markdown", () => {
     expect(suggestionMarkedSourceRanges(before)).toEqual([
       { from, to: from + 10 },
     ]);
+  });
+});
+
+describe("pipe tables stored as Markdown", () => {
+  const find = "old phrase";
+  const replace = "new wording";
+  // Synthetic plan page: agents write GFM pipe tables, which canonical NFM
+  // stores as HTML tables.
+  const page = [
+    "## Plan",
+    "",
+    "| # | Step | Owner | Status |",
+    "|---|---|---|---|",
+    "| 1 | Ship the **reading pane** | Ana | Done |",
+    "| 2 | Use `mail-parity` as the checklist |  | Next |",
+    "",
+    "- Review the old phrase before Friday.",
+    "",
+    "## Notes",
+  ].join("\n");
+  const markedSlices = (before: string) =>
+    suggestionMarkedSourceRanges(before)?.map(({ from, to }) =>
+      before.slice(from, to),
+    );
+
+  it("maps formatted cells in a pipe table to their stored bytes", () => {
+    expect(docToNfm(nfmToDoc(page))).toContain('<table header-row="true">');
+    expect(markedSlices(page)).toEqual(["**reading pane**", "`mail-parity`"]);
+  });
+
+  it.each([
+    ["alignment markers", "|:---|:---:|---:|---|"],
+    ["spaced separators", "| --- | --- | --- | --- |"],
+  ])("maps a table whose separator row uses %s", (_name, separator) => {
+    const before = page.replace("|---|---|---|---|", separator);
+    expect(markedSlices(before)).toEqual(["**reading pane**", "`mail-parity`"]);
+  });
+
+  it("maps a table with CRLF line endings", () => {
+    const before = page.replace(/\n/g, "\r\n");
+    expect(markedSlices(before)).toEqual(["**reading pane**", "`mail-parity`"]);
+  });
+
+  const withoutOuterPipes = (source: string) =>
+    source.replace(/^\| ?| ?\|$/gm, "");
+
+  it.each([
+    ["on a page", page],
+    ["that is the whole page", page.split("\n").slice(2, 6).join("\n")],
+  ])("maps a table without outer pipes %s", (_name, source) => {
+    const before = withoutOuterPipes(source);
+    expect(before).not.toContain("| 1 |");
+    expect(markedSlices(before)).toEqual(["**reading pane**", "`mail-parity`"]);
+  });
+
+  it("maps a bare table whose cells touch their pipes", () => {
+    expect(markedSlices("H | Other\n---|---\n**marked**|value")).toEqual([
+      "**marked**",
+    ]);
+  });
+
+  it("suggests an edit after the table on a page with formatted cells", () => {
+    suggestDocumentEdit(page, { find, replace });
+  });
+
+  it("maps a find inside a formatted table cell to its stored bytes", () => {
+    const operations = suggestDocumentEdit(page, {
+      find: "**reading pane**",
+      replace: "**split view**",
+    });
+    expect(operations.map((operation) => operation.after.changedText)).toEqual([
+      "**split view**",
+    ]);
+  });
+
+  it.each([
+    ["after the table", page, find, replace],
+    ["inside a formatted cell", page, "reading pane", "split view"],
+    [
+      "after a table without outer pipes",
+      withoutOuterPipes(page),
+      find,
+      replace,
+    ],
+  ])(
+    "turns a Suggesting-mode edit %s into edits on the stored bytes",
+    (_name, before, from, to) => {
+      const after = canonicalizeNfm(before).replace(from, to);
+      const operations = markdownSuggestionOperationsForEditorRevision({
+        before,
+        after,
+        replacements: [],
+      });
+      let applied = before;
+      for (const operation of [...operations].reverse())
+        applied =
+          applied.slice(0, operation.anchor.from) +
+          operation.after.changedText +
+          applied.slice(operation.anchor.to);
+      expect(applied).toBe(before.replace(from, to));
+    },
+  );
+
+  it.each([
+    ["an extra stored cell", page.replace("| Ana |", "| Ana | Extra |")],
+    ["a stray emphasis pair", page.replace("| Done |", "| Done |**")],
+  ])("refuses a pipe table with %s", (_name, before) => {
+    expect(() => suggestionMarkedSourceRanges(before)).toThrow(
+      SuggestionFormattingMappingError,
+    );
   });
 });

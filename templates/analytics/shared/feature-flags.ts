@@ -14,7 +14,15 @@ export const RESILIENT_FLEET_FLAG_DIRECTORY = defineFeatureFlag({
     "Retry transient organization directory failures before changing a feature flag.",
 });
 
+export const SIGMA_DASHBOARD_MIGRATION = defineFeatureFlag({
+  key: "analytics.sigma-dashboard-migration",
+  displayName: "Sigma workbook preview",
+  description:
+    "Enable read-only discovery and preview of Sigma workbooks in Analytics.",
+});
+
 export const ANALYTICS_FEATURE_FLAGS = [
   VERIFIED_FLEET_FLAG_MUTATIONS,
   RESILIENT_FLEET_FLAG_DIRECTORY,
+  SIGMA_DASHBOARD_MIGRATION,
 ];

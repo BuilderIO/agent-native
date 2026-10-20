@@ -263,7 +263,7 @@ const emailStep: OnboardingStep = {
       description:
         "See which variables each email provider needs and how to set them.",
       payload: {
-        url: "https://www.agent-native.com/docs/deployment#email-provider",
+        url: "https://www.agent-native.com/docs/deployment?utm_source=app&utm_medium=product&utm_content=onboarding-email-provider#email-provider",
         external: true,
       },
     },

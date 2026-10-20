@@ -11,7 +11,7 @@ describe("share page agent discovery", () => {
   it("puts the context URL and instructions in the anchor text", () => {
     const route = readRoute("share.$shareId.tsx");
     expect(route).toContain(
-      '{`${t("sharePage.agentReadableContext")}: ${agentContextUrl} ${t("sharePage.agentInstructions")}`}',
+      '{`${t("sharePage.agentReadableContext")}: ${agentContextUrl} ${t("sharePage.agentInstructions", { shareWithAgents: t("shareDialog.shareWithAgents") })}`}',
     );
   });
 });

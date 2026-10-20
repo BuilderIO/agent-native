@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { REPORT_EXPECTED_FAILURE_TAG } from "../shared/error-noise.js";
+import { captureException } from "../tracking/error-capture.js";
+import {
+  registerTrackingProvider,
+  unregisterTrackingProvider,
+} from "../tracking/registry.js";
+import type { TrackingEvent } from "../tracking/types.js";
 import {
   captureError,
   getCaptureErrorStats,
@@ -10,6 +16,123 @@ import {
 import { runWithRequestContext } from "./request-context.js";
 
 describe("server captureError", () => {
+  it("omits named run error messages from flood summaries", () => {
+    resetCaptureErrorStateForTests();
+    vi.useFakeTimers();
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "run-flood-privacy",
+      track: (event) => {
+        events.push(event);
+      },
+    });
+    const unregister = registerErrorCaptureProvider(
+      "run-flood-privacy",
+      captureException,
+    );
+    const message = "Jane Doe's notes are locked";
+    try {
+      for (let i = 0; i < 2; i++)
+        captureError(new Error(message), {
+          route: "/_agent-native/agent-chat",
+          errorMessagePolicy: "omit",
+          tags: {
+            failureClass: "transient-database",
+            errorCode: "provider_network_error",
+          },
+        });
+      vi.advanceTimersByTime(60_000);
+      expect(events).toHaveLength(2);
+      expect(JSON.stringify(events)).not.toContain("Jane Doe");
+      expect(events[1]?.properties?.exceptionTags).toMatchObject({
+        aggregated: "true",
+        errorCode: "provider_network_error",
+      });
+      expect(events[1]?.properties?.exceptionExtra).toMatchObject({
+        suppressedCount: 1,
+      });
+    } finally {
+      unregister();
+      unregisterTrackingProvider("run-flood-privacy");
+      resetCaptureErrorStateForTests();
+      vi.useRealTimers();
+    }
+  });
+
+  it("tells omitted run failures apart by code in flood summaries", () => {
+    resetCaptureErrorStateForTests();
+    vi.useFakeTimers();
+    const provider = vi.fn();
+    const unregister = registerErrorCaptureProvider(
+      "run-flood-codes",
+      provider,
+    );
+    try {
+      for (const errorCode of [
+        "provider_network_error",
+        "provider_network_error",
+        "provider_timeout",
+      ])
+        captureError(new Error("Jane Doe's notes are locked"), {
+          route: "/_agent-native/agent-chat",
+          errorMessagePolicy: "omit",
+          tags: { failureClass: "transient-database", errorCode },
+        });
+      vi.advanceTimersByTime(60_000);
+      expect(provider.mock.calls[1]?.[1].extra).toMatchObject({
+        suppressedCount: 2,
+        suppressedBreakdown: [
+          {
+            error: "Error [provider_network_error]: Internal Server Error",
+            count: 1,
+          },
+          {
+            error: "Error [provider_timeout]: Internal Server Error",
+            count: 1,
+          },
+        ],
+      });
+    } finally {
+      unregister();
+      resetCaptureErrorStateForTests();
+      vi.useRealTimers();
+    }
+  });
+
+  it("puts only the sanitized run error code in the failure context", () => {
+    resetCaptureErrorStateForTests();
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "run-packet-privacy",
+      track: (event) => {
+        events.push(event);
+      },
+    });
+    const unregister = registerErrorCaptureProvider(
+      "run-packet-privacy",
+      captureException,
+    );
+    try {
+      captureError(new Error("Run failed"), {
+        route: "/_agent-native/agent-chat",
+        errorMessagePolicy: "omit",
+        tags: { errorCode: "Jane Doe's notes are locked" },
+      });
+      expect(events).toHaveLength(1);
+      expect(JSON.stringify(events)).not.toContain("Jane Doe");
+      expect(events[0]?.properties?.exceptionTags).toMatchObject({
+        errorCode: "unknown",
+      });
+      expect(events[0]?.properties?.exceptionExtra).toMatchObject({
+        failureContext: { errorCode: "unknown" },
+      });
+    } finally {
+      unregister();
+      unregisterTrackingProvider("run-packet-privacy");
+      resetCaptureErrorStateForTests();
+    }
+  });
+
   it("no-ops when no capture provider is registered", () => {
     expect(captureError(new Error("boom"))).toBeUndefined();
   });

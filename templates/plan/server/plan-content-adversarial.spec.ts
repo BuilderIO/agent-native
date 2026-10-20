@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  agentPlanContentPatchSchema,
+  agentPlanContentSchema,
+  agentPlanIncrementalContentPatchesSchema,
   applyPlanContentPatches,
+  planAuthoringBlockSchema,
   planContentSchema,
+  planContentPatchSchema,
   type PlanBlock,
   type PlanContent,
 } from "../shared/plan-content.js";
@@ -168,6 +173,26 @@ describe("resource bounds and DoS protection", () => {
     return `{"version":2,"brief":"x","blocks":[${json}]}`;
   }
 
+  function nestContainer(type: "tabs" | "columns", depth: number): unknown {
+    let block: unknown = {
+      id: "leaf",
+      type: "rich-text",
+      data: { markdown: "x" },
+    };
+    for (let index = 0; index < depth; index += 1) {
+      const group =
+        type === "tabs"
+          ? { id: `tab${index}`, label: "Tab", blocks: [block] }
+          : { id: `column${index}`, label: "Column", blocks: [block] };
+      block = {
+        id: `${type}${index}`,
+        type,
+        data: { [type]: [group] },
+      };
+    }
+    return block;
+  }
+
   it("does not throw a RangeError on deeply nested tabs (safeParse must stay safe)", () => {
     expect(() =>
       planContentSchema.safeParse({
@@ -176,6 +201,56 @@ describe("resource bounds and DoS protection", () => {
         blocks: [nestTabs(800)],
       }),
     ).not.toThrow();
+  });
+
+  it("bounds all recursive authoring validators for tabs and columns", () => {
+    for (const type of ["tabs", "columns"] as const) {
+      const block = nestContainer(type, 800);
+      const safeParses: Array<() => { success: boolean }> = [
+        () => planAuthoringBlockSchema.safeParse(block),
+        () => agentPlanContentSchema.safeParse({ version: 2, blocks: [block] }),
+        () => planContentPatchSchema.safeParse({ op: "append-block", block }),
+        () =>
+          agentPlanContentPatchSchema.safeParse({ op: "append-block", block }),
+        () =>
+          agentPlanIncrementalContentPatchesSchema.safeParse([
+            { op: "append-block", block },
+          ]),
+      ];
+
+      for (const safeParse of safeParses) {
+        let success: boolean | undefined;
+        expect(() => {
+          success = safeParse().success;
+        }).not.toThrow();
+        expect(success).toBe(false);
+      }
+    }
+
+    expect(
+      planAuthoringBlockSchema.safeParse(nestContainer("tabs", 40)).success,
+    ).toBe(true);
+    const shallowInvalid = planAuthoringBlockSchema.safeParse({
+      id: "tabs",
+      type: "tabs",
+      data: {
+        tabs: [
+          {
+            id: "tab",
+            label: "Tab",
+            blocks: [{ id: "questions", type: "question-form", data: {} }],
+          },
+        ],
+      },
+    });
+    expect(shallowInvalid.success).toBe(false);
+    if (!shallowInvalid.success) {
+      expect(shallowInvalid.error.issues).toContainEqual(
+        expect.objectContaining({
+          path: ["data", "tabs", 0, "blocks", 0, "data", "questions"],
+        }),
+      );
+    }
   });
 
   it("parsePlanContent returns null (never throws) on a deeply nested stored plan", () => {

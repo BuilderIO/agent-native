@@ -44,6 +44,7 @@ import {
 import { aiPriorityEmailKey } from "../../shared/ai-priority.js";
 import { automationActionSchema } from "../../shared/automation-schema.js";
 import { mailLabelsInclude } from "../../shared/gmail-labels.js";
+import { decodeGmailSnippet } from "../../shared/gmail-snippet.js";
 import type { AutomationAction, EmailMessage } from "../../shared/types.js";
 import { db, schema } from "../db/index.js";
 import { getAiFilterState, recordAiFilterDecisions } from "./ai-filter.js";
@@ -1008,7 +1009,10 @@ async function captureGmailCandidates(
             from: headerValue(latest, "From").slice(0, 320),
             to: headerValue(latest, "To").slice(0, 320),
             subject: headerValue(latest, "Subject").slice(0, 500),
-            snippet: String(latest.snippet ?? "").slice(0, 320),
+            snippet: decodeGmailSnippet(String(latest.snippet ?? "")).slice(
+              0,
+              320,
+            ),
             labelIds: labelIds.slice(0, 64),
             date,
             isArchived: false,

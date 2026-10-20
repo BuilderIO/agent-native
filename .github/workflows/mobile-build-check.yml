@@ -21,17 +21,13 @@ on:
       - "packages/core/src/localization/**"
       - "packages/core/src/data-widgets/**"
       - "packages/core/src/action-ui.ts"
-      - "packages/core/src/agent/abort-reasons.ts"
-      - "packages/core/src/agent/auto-continue.ts"
-      - "packages/core/src/agent/engine/credential-state.ts"
-      - "packages/core/src/agent/types.ts"
+      - "packages/core/src/agent/**"
+      - "packages/core/src/code-agents/**"
       - "packages/core/src/session-replay-iframe-protocol.ts"
-      - "packages/core/src/agent/engine/credential-errors.ts"
-      - "packages/core/src/agent/engine/error-detail.ts"
-      - "packages/core/src/agent/engine/openai-compatible-endpoint.ts"
-      - "packages/core/src/agent/engine/provider-env-vars.ts"
       - "packages/core/src/app-config/run-lifecycle-invariants.ts"
       - "packages/core/src/observability/otel-provider.ts"
+      - "packages/core/src/observability/trace-error.ts"
+      - "packages/core/src/observability/trace-redaction.ts"
       - "packages/core/src/observability/tracing.ts"
       - "packages/core/src/package-lifecycle/migration-message.ts"
       - "packages/core/src/tracking/posthog-exception.ts"
@@ -62,17 +58,13 @@ on:
       - "packages/core/src/localization/**"
       - "packages/core/src/data-widgets/**"
       - "packages/core/src/action-ui.ts"
-      - "packages/core/src/agent/abort-reasons.ts"
-      - "packages/core/src/agent/auto-continue.ts"
-      - "packages/core/src/agent/engine/credential-state.ts"
-      - "packages/core/src/agent/types.ts"
+      - "packages/core/src/agent/**"
+      - "packages/core/src/code-agents/**"
       - "packages/core/src/session-replay-iframe-protocol.ts"
-      - "packages/core/src/agent/engine/credential-errors.ts"
-      - "packages/core/src/agent/engine/error-detail.ts"
-      - "packages/core/src/agent/engine/openai-compatible-endpoint.ts"
-      - "packages/core/src/agent/engine/provider-env-vars.ts"
       - "packages/core/src/app-config/run-lifecycle-invariants.ts"
       - "packages/core/src/observability/otel-provider.ts"
+      - "packages/core/src/observability/trace-error.ts"
+      - "packages/core/src/observability/trace-redaction.ts"
       - "packages/core/src/observability/tracing.ts"
       - "packages/core/src/package-lifecycle/migration-message.ts"
       - "packages/core/src/tracking/posthog-exception.ts"
@@ -130,7 +122,7 @@ jobs:
             echo "No native build input changed; skipping the Gradle compile."
           fi
 
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -191,7 +183,7 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:

@@ -23,6 +23,7 @@ describe("verifyA2ATokenWithClaims", () => {
     verifyA2ATokenMock.mockResolvedValue({
       email: "operator@example.com",
       orgDomain: "builder.io",
+      orgId: "org-1",
     });
   });
 
@@ -45,6 +46,7 @@ describe("verifyA2ATokenWithClaims", () => {
           aud: "https://content.example.com",
           iss: "https://analytics.example.com",
           org_id: "org-1",
+          org_domain: "builder.io",
           jti: "call-1",
           scope: "flags:write",
         }),
@@ -56,6 +58,27 @@ describe("verifyA2ATokenWithClaims", () => {
       jti: "call-1",
       issuer: "https://analytics.example.com",
       scope: ["flags:write"],
+    });
+  });
+
+  it("uses the receiver-verified organization ID when the token omits its local ID", async () => {
+    expect(
+      await verifyA2ATokenWithClaims(
+        await token({
+          aud: "https://content.example.com",
+          iss: "https://analytics.example.com",
+          org_domain: "builder.io",
+          jti: "call-1",
+          scope: "flags:read",
+        }),
+      ),
+    ).toEqual({
+      email: "operator@example.com",
+      orgId: "org-1",
+      orgDomain: "builder.io",
+      jti: "call-1",
+      issuer: "https://analytics.example.com",
+      scope: ["flags:read"],
     });
   });
 
@@ -71,6 +94,112 @@ describe("verifyA2ATokenWithClaims", () => {
           org_id: "org-1",
           jti: "call-1",
           scope: "flags:write",
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("rejects delegation when the receiver cannot resolve a local organization ID", async () => {
+    verifyA2ATokenMock.mockResolvedValue({
+      email: "operator@example.com",
+      orgDomain: "builder.io",
+      orgId: "",
+    });
+    expect(
+      await verifyA2ATokenWithClaims(
+        await token({
+          aud: "https://content.example.com",
+          org_domain: "builder.io",
+          jti: "call-1",
+          scope: "flags:write",
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("rejects an ID-only organization claim even when local metadata resolves it", async () => {
+    expect(
+      await verifyA2ATokenWithClaims(
+        await token({
+          aud: "https://content.example.com",
+          org_id: "org-1",
+          jti: "call-1",
+          scope: "flags:write",
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("does not create action claims when the shared verifier rejects the subject", async () => {
+    verifyA2ATokenMock.mockResolvedValue({ email: null, orgDomain: null });
+    expect(
+      await verifyA2ATokenWithClaims(
+        await token({
+          aud: "https://content.example.com",
+          org_id: "org-x",
+          jti: "call-1",
+          scope: "flags:write",
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("preserves unreadable identity evidence as a failed verification", async () => {
+    verifyA2ATokenMock.mockRejectedValue(
+      new Error("A2A identity verification is temporarily unavailable"),
+    );
+    await expect(
+      verifyA2ATokenWithClaims(
+        await token({
+          aud: "https://content.example.com",
+          org_id: "org-x",
+          jti: "call-1",
+          scope: "flags:write",
+        }),
+      ),
+    ).rejects.toThrow("A2A identity verification is temporarily unavailable");
+  });
+
+  it("does not trust a token org_id different from the verified org id", async () => {
+    verifyA2ATokenMock.mockResolvedValue({
+      email: "operator@example.com",
+      orgDomain: "builder.io",
+      orgId: "org-evil",
+    });
+    expect(
+      await verifyA2ATokenWithClaims(
+        await token({
+          aud: "https://content.example.com",
+          org_id: "org-1",
+          jti: "call-1",
+          scope: "flags:write",
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("rejects a malformed explicit organization ID", async () => {
+    expect(
+      await verifyA2ATokenWithClaims(
+        await token({
+          aud: "https://content.example.com",
+          org_id: null,
+          org_domain: "builder.io",
+          jti: "call-1",
+          scope: "flags:read",
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("rejects an organization domain different from the resolved target", async () => {
+    expect(
+      await verifyA2ATokenWithClaims(
+        await token({
+          aud: "https://content.example.com",
+          org_domain: "other.example",
+          jti: "call-1",
+          scope: "flags:read",
         }),
       ),
     ).toBeNull();

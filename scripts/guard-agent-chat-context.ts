@@ -136,6 +136,7 @@ export function analyzeAgentChatContextPolicy(
 }
 
 const FRAMEWORK_STARTER_TOOL_NAMES = new Set([
+  "ask-question",
   "call-agent",
   "create-extension",
   "describe-workspace-apps",

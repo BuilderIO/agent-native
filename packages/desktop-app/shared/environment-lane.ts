@@ -1,4 +1,4 @@
-import { ENVIRONMENT_BETA_HOSTS } from "@agent-native/core/shared";
+import { ENVIRONMENT_BETA_HOSTS } from "@agent-native/core/shared/environment-lanes";
 
 export type DesktopEnvironmentLane = "production" | "beta";
 export type DesktopEnvironmentLanePreference = "auto" | DesktopEnvironmentLane;

@@ -16,36 +16,20 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  assertMentionsInText,
+  submittedCommentMentions,
+} from "../server/lib/comment-mention-input.js";
 import { notifyDocumentComment } from "../server/lib/comment-notifications.js";
+import { commentSubmissionSource } from "../server/lib/comment-submission-source.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
-
-type Mention = { email: string; name: string };
-
-function parseMentions(value: unknown): Mention[] {
-  let raw: unknown = value;
-  if (typeof raw === "string") {
-    const trimmed = raw.trim();
-    if (!trimmed) return [];
-    try {
-      raw = JSON.parse(trimmed);
-    } catch {
-      return [];
-    }
-  }
-  if (!Array.isArray(raw)) return [];
-  const mentions: Mention[] = [];
-  for (const entry of raw) {
-    if (!entry || typeof entry !== "object") continue;
-    const email = (entry as Record<string, unknown>).email;
-    const name = (entry as Record<string, unknown>).name;
-    if (typeof email !== "string" || !email) continue;
-    mentions.push({
-      email,
-      name: typeof name === "string" ? name : "",
-    });
-  }
-  return mentions;
-}
+import {
+  personMentions,
+  readStoredCommentMentions,
+  serializeStoredCommentMentions,
+} from "../shared/comment-mentions.js";
+import { commentPropertyTarget } from "../shared/comment-property-target.js";
+import { listPropertiesForDocument } from "./_property-utils.js";
 
 function displayNameFromEmail(email: string): string {
   const localPart = email.split("@")[0] ?? "";
@@ -95,11 +79,25 @@ const commentSchema = z.object({
     .number()
     .optional()
     .describe("Character offset of the quote start within the document"),
+  propertyId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "Property ID, to start a thread on one Property value (such as Status) instead of body text. The Property's name and current value are recorded with the thread; relation, rollup, and formula values aren't, because they depend on who reads them. Not used with quotedText or on replies.",
+    ),
+  databaseId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "Collection ID that owns propertyId; omit to use the Page's Collection",
+    ),
   mentions: z
     .union([z.string(), z.array(z.unknown())])
     .optional()
     .describe(
-      'JSON-encoded array of {email, name} mentions, e.g. [{"email":"a@x.com","name":"A"}]',
+      'JSON-encoded mentions, one per @name in text order (one entry covers a person named again). People: {"email":"a@x.com","name":"A"}; agents: {"kind":"agent","model":"<model id>","name":"<label>"}. A malformed list, or an entry no @name in the text reaches, is rejected with a 400.',
     ),
 });
 
@@ -115,9 +113,42 @@ export function commentIdForIdempotency(
   return `${digest.slice(0, 8)}-${digest.slice(8, 12)}-4${digest.slice(13, 16)}-8${digest.slice(17, 20)}-${digest.slice(20)}`;
 }
 
+/**
+ * A retried submission may arrive from another run, or after its Property
+ * changed; these may differ.
+ */
+const RETRY_VARIABLE_KEYS = new Set([
+  "authorName",
+  "submissionSource",
+  "submissionRunId",
+  "submissionThreadId",
+  "authorModel",
+  "authorEffort",
+  "propertyName",
+  "propertyValue",
+]);
+
 type CommentTransaction = Parameters<
   Parameters<ReturnType<typeof getDb>["transaction"]>[0]
 >[0];
+
+async function resolveCommentPropertyTarget(
+  document: Parameters<typeof listPropertiesForDocument>[0],
+  propertyId: string,
+  databaseId: string | undefined,
+) {
+  const properties = await listPropertiesForDocument(document, databaseId);
+  const property = properties.find(
+    (candidate) => candidate.definition.id === propertyId,
+  );
+  if (!property) {
+    fail("That Property isn't on this Page", {
+      statusCode: 400,
+      errorCode: "comment_property_not_found",
+    });
+  }
+  return commentPropertyTarget(property);
+}
 
 export async function addCommentWithGuard(
   args: z.infer<typeof commentSchema>,
@@ -129,6 +160,12 @@ export async function addCommentWithGuard(
 
   if (Boolean(args.threadId) !== Boolean(args.parentId)) {
     throw new Error("Replies require both threadId and parentId");
+  }
+  if (args.propertyId && (args.threadId || args.quotedText)) {
+    fail(
+      "A Property comment starts its own thread and has no quoted text; omit threadId, parentId, and quotedText",
+      { statusCode: 400, errorCode: "comment_property_target_conflict" },
+    );
   }
 
   const access = await assertAccess("document", documentId, "commenter");
@@ -152,8 +189,12 @@ export async function addCommentWithGuard(
     ctx?.caller === "a2a"
       ? "agent"
       : "human";
-  const runModel = getRequestRunContext()?.model?.trim();
+  const runContext = getRequestRunContext();
+  const runModel = runContext?.model?.trim();
   const authorModel = actorKind === "agent" && runModel ? runModel : null;
+  const authorEffort = authorModel
+    ? (runContext?.reasoningEffort ?? null)
+    : null;
   const requestName =
     actorKind === "agent" ? undefined : getRequestUserName()?.trim();
   let name: string;
@@ -164,15 +205,22 @@ export async function addCommentWithGuard(
     name = derived || "AI Agent";
   }
 
-  const mentions = parseMentions(args.mentions);
-  const mentionsJson = mentions.length > 0 ? JSON.stringify(mentions) : null;
-  const submissionSource =
-    ctx?.caller === "mcp" || ctx?.caller === "webmcp"
-      ? "mcp"
-      : ctx?.caller === "tool"
-        ? "agent"
-        : (ctx?.caller ?? null);
+  const mentions = submittedCommentMentions(args.mentions ?? []);
+  assertMentionsInText(content, mentions);
+  const mentionsJson = serializeStoredCommentMentions(mentions);
+  const submissionSource = commentSubmissionSource(ctx?.caller);
   const submissionRunId = ctx?.runId ?? null;
+  const submissionThreadId =
+    actorKind === "agent"
+      ? (ctx?.threadId ?? runContext?.threadId ?? null)
+      : null;
+  const propertyTarget = args.propertyId
+    ? await resolveCommentPropertyTarget(
+        access.resource as Parameters<typeof listPropertiesForDocument>[0],
+        args.propertyId,
+        args.databaseId,
+      )
+    : null;
 
   const values = {
     id,
@@ -185,13 +233,18 @@ export async function addCommentWithGuard(
     anchorPrefix: args.anchorPrefix ?? null,
     anchorSuffix: args.anchorSuffix ?? null,
     anchorStartOffset: args.anchorStartOffset ?? null,
+    propertyId: propertyTarget?.propertyId ?? null,
+    propertyName: propertyTarget?.propertyName ?? null,
+    propertyValue: propertyTarget?.propertyValue ?? null,
     mentionsJson,
     authorEmail: email,
     authorName: name,
     submissionSource,
     submissionRunId,
+    submissionThreadId,
     actorKind,
     authorModel,
+    authorEffort,
   };
 
   const inserted = await db.transaction(async (tx) => {
@@ -209,13 +262,17 @@ export async function addCommentWithGuard(
         .limit(1);
       if (!existing) return false;
       if (
-        Object.entries(values).some(
-          ([key, value]) =>
-            key !== "authorName" &&
-            key !== "submissionSource" &&
-            key !== "submissionRunId" &&
-            existing[key as keyof typeof existing] !== value,
-        )
+        Object.entries(values).some(([key, value]) => {
+          if (RETRY_VARIABLE_KEYS.has(key)) return false;
+          if (key === "mentionsJson") {
+            return (
+              serializeStoredCommentMentions(
+                readStoredCommentMentions(existing.mentionsJson),
+              ) !== value
+            );
+          }
+          return existing[key as keyof typeof existing] !== value;
+        })
       ) {
         fail("Comment submission ID conflicts with another submission", {
           statusCode: 409,
@@ -305,7 +362,7 @@ export async function addCommentWithGuard(
     authorName: name,
     submissionSource,
     content,
-    mentions,
+    mentions: personMentions(mentions),
     isReply: Boolean(parentId ?? args.threadId),
   });
 

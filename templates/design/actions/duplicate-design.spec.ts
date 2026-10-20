@@ -42,6 +42,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestContext: () => undefined,
   getRequestUserEmail: mocks.getRequestUserEmail,
   getRequestOrgId: mocks.getRequestOrgId,
 }));
@@ -58,6 +59,9 @@ vi.mock("../server/db/index.js", () => ({
     designs: {},
   },
 }));
+
+const track = vi.hoisted(() => vi.fn());
+vi.mock("@agent-native/core/tracking", () => ({ track }));
 
 import action from "./duplicate-design.js";
 
@@ -175,5 +179,72 @@ describe("duplicate-design: fresh ids + node-id annotation", () => {
       }>
     )[0]!.id;
     expect(firstFileId).not.toBe(secondFileId);
+  });
+});
+
+describe("duplicate-design: design_created", () => {
+  const createdEvents = () =>
+    track.mock.calls.filter(([name]) => name === "design_created");
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    track.mockReset();
+    mocks.resolveAccess.mockReset();
+    mocks.getRequestUserEmail.mockReturnValue("user@example.com");
+    mocks.getRequestOrgId.mockReturnValue(null);
+    setSource({ id: "design-src", title: "Original" }, [
+      {
+        id: "file-src-1",
+        filename: "index.html",
+        fileType: "html",
+        content: "<main>Hi</main>",
+      },
+    ]);
+  });
+
+  it("fires once for the copy, naming its source", async () => {
+    const result = await action.run({ id: "design-src" }, {
+      caller: "frontend",
+      actionName: "duplicate-design",
+    } as never);
+
+    expect(createdEvents()).toHaveLength(1);
+    expect(createdEvents()[0]![1]).toMatchObject({
+      output_id: result.id,
+      output_type: "design",
+      creation_method: "duplicate",
+      project_type: "prototype",
+      source_design_id: "design-src",
+    });
+    expect(createdEvents()[0]![1]).not.toHaveProperty("design_system_id");
+  });
+
+  it("does not fire when the source design is not accessible", async () => {
+    mocks.resolveAccess.mockResolvedValue(null);
+
+    await expect(action.run({ id: "design-src" })).rejects.toThrow(
+      /not found/i,
+    );
+    expect(createdEvents()).toHaveLength(0);
+  });
+
+  it("does not fire when the copy transaction fails", async () => {
+    mocks.db.transaction.mockRejectedValueOnce(new Error("insert failed"));
+
+    await expect(action.run({ id: "design-src" })).rejects.toThrow(
+      "insert failed",
+    );
+    expect(createdEvents()).toHaveLength(0);
+  });
+
+  it("returns the copy when tracking throws", async () => {
+    track.mockImplementation(() => {
+      throw new Error("analytics down");
+    });
+
+    const result = await action.run({ id: "design-src" });
+
+    expect(result.fileCount).toBe(1);
+    expect(track).toHaveBeenCalledTimes(1);
   });
 });

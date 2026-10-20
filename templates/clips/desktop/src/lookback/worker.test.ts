@@ -1,0 +1,913 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { ClipsActionError } from "../lib/clips-action";
+import {
+  getRecordingContextItem,
+  type RecordingContextItem,
+  type RecordingContextUpdate,
+} from "./context-api";
+import {
+  LOOKBACK_NATIVE_UPLOAD_TIMEOUT_MS,
+  LOOKBACK_RECORDING_CREATE_TIMEOUT_MS,
+  processRecordingContextItem,
+  type LookbackWorkerDeps,
+} from "./worker";
+
+const target = { serverUrl: "https://clips.example.test", authToken: "" };
+
+function item(
+  overrides: Partial<RecordingContextItem> = {},
+): RecordingContextItem {
+  return {
+    id: "ctx1",
+    recordingId: "rec1",
+    capturedDeviceId: null,
+    kind: "screen_history",
+    label: null,
+    requestedSeconds: 30,
+    originalStartedAt: "2026-10-09T10:00:00.000Z",
+    originalEndedAt: "2026-10-09T10:00:00.000Z",
+    startedAt: "2026-10-09T09:59:30.000Z",
+    endedAt: "2026-10-09T10:00:00.000Z",
+    status: "pending",
+    mediaRecordingId: null,
+    pendingMediaRecordingId: null,
+    includeMicrophone: null,
+    includeSystemAudio: null,
+    durationMs: null,
+    width: null,
+    height: null,
+    error: null,
+    createdAt: "2026-10-09T10:00:00.000Z",
+    updatedAt: "2026-10-09T10:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function fakeDeps(
+  overrides: Partial<LookbackWorkerDeps> = {},
+): LookbackWorkerDeps & {
+  updates: RecordingContextUpdate[];
+  trashed: string[];
+  created: Array<{ hasAudio: boolean; startedAt: string }>;
+} {
+  const updates: RecordingContextUpdate[] = [];
+  const trashed: string[] = [];
+  const created: Array<{ hasAudio: boolean; startedAt: string }> = [];
+  return {
+    updates,
+    trashed,
+    created,
+    deviceId: "device-local",
+    originFor: vi.fn(() => ({
+      includeMicrophone: true,
+      includeSystemAudio: false,
+    })),
+    update: vi.fn(async (input: RecordingContextUpdate) => {
+      updates.push(input);
+      return input;
+    }),
+    createRecording: vi.fn(
+      async (input: {
+        hasAudio: boolean;
+        startedAt: string;
+        signal: AbortSignal;
+      }) => {
+        created.push({ hasAudio: input.hasAudio, startedAt: input.startedAt });
+        return { id: "media-1", uploadMode: "streaming" as const };
+      },
+    ),
+    uploadWindow: vi.fn(async () => ({
+      durationMs: 29_600.4,
+      width: 1280,
+      height: 720,
+    })),
+    // By default the claim landed and reserved the footage this worker created.
+    currentItem: vi.fn(async () =>
+      item({ status: "processing", pendingMediaRecordingId: "media-1" }),
+    ),
+    trashRecording: vi.fn(async (id: string) => {
+      trashed.push(id);
+    }),
+    cancelUpload: vi.fn(async () => undefined),
+    ...overrides,
+  };
+}
+
+describe("processRecordingContextItem", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("skips items whose footage was captured on another device", async () => {
+    const deps = fakeDeps({ originFor: vi.fn(() => null) });
+
+    await expect(
+      processRecordingContextItem(
+        item({
+          capturedDeviceId: "device-other",
+          includeMicrophone: false,
+          includeSystemAudio: true,
+        }),
+        deps,
+      ),
+    ).resolves.toBe("skipped");
+    expect(deps.update).not.toHaveBeenCalled();
+    expect(deps.createRecording).not.toHaveBeenCalled();
+  });
+
+  it("exports the window and marks the item ready with its media", async () => {
+    const deps = fakeDeps({
+      forgetOrigin: vi.fn(),
+      currentItem: vi.fn(async () =>
+        item({ status: "ready", mediaRecordingId: "media-1" }),
+      ),
+    });
+
+    await expect(processRecordingContextItem(item(), deps)).resolves.toBe(
+      "ready",
+    );
+    expect(deps.updates).toEqual([
+      { id: "ctx1", status: "processing", mediaRecordingId: "media-1" },
+      {
+        id: "ctx1",
+        status: "ready",
+        mediaRecordingId: "media-1",
+        durationMs: 29_600,
+        width: 1280,
+        height: 720,
+      },
+    ]);
+    expect(deps.created).toEqual([
+      { hasAudio: true, startedAt: "2026-10-09T09:59:30.000Z" },
+    ]);
+    // The claim names the recording, so the recording must exist before it.
+    const [created] = vi.mocked(deps.createRecording).mock.invocationCallOrder;
+    const [claimed] = vi.mocked(deps.update).mock.invocationCallOrder;
+    expect(created).toBeLessThan(claimed ?? 0);
+    expect(deps.uploadWindow).toHaveBeenCalledWith({
+      requestId: "handoff-lookback-media-1",
+      startedAt: "2026-10-09T09:59:30.000Z",
+      endedAt: "2026-10-09T10:00:00.000Z",
+      recordingId: "media-1",
+      uploadMode: "streaming",
+      includeMic: true,
+      includeSystemAudio: false,
+      signal: expect.any(AbortSignal),
+    });
+    expect(deps.trashed).toEqual([]);
+    expect(deps.forgetOrigin).not.toHaveBeenCalled();
+  });
+
+  it("leaves a recording creation timeout pending for retry", async () => {
+    vi.useFakeTimers();
+    let createSignal: AbortSignal | undefined;
+    const deps = fakeDeps({
+      forgetOrigin: vi.fn(),
+      currentItem: vi.fn(async () => item()),
+      createRecording: vi.fn(({ signal }) => {
+        createSignal = signal;
+        return new Promise(() => {});
+      }),
+    });
+
+    const processing = processRecordingContextItem(item(), deps);
+    await vi.advanceTimersByTimeAsync(LOOKBACK_RECORDING_CREATE_TIMEOUT_MS);
+
+    await expect(processing).resolves.toBe("failed");
+    expect(createSignal?.aborted).toBe(true);
+    expect(deps.update).not.toHaveBeenCalled();
+    expect(deps.currentItem).toHaveBeenCalledWith("rec1", "ctx1");
+    expect(deps.forgetOrigin).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["server unavailable", new Error("SERVER_UNAVAILABLE")],
+    ["session expired", new Error("SESSION_EXPIRED")],
+    ["network interruption", new TypeError("fetch failed")],
+  ])(
+    "leaves transient recording creation failures pending: %s",
+    async (_, error) => {
+      const deps = fakeDeps({
+        currentItem: vi.fn(async () => item()),
+        createRecording: vi.fn(async () => {
+          throw error;
+        }),
+      });
+
+      await expect(processRecordingContextItem(item(), deps)).resolves.toBe(
+        "failed",
+      );
+
+      expect(deps.update).not.toHaveBeenCalled();
+      expect(deps.trashed).toEqual([]);
+    },
+  );
+
+  it("keeps a timed out native upload claimed for retry", async () => {
+    vi.useFakeTimers();
+    const deps = fakeDeps({
+      currentItem: vi.fn(async () =>
+        item({ status: "processing", pendingMediaRecordingId: "media-1" }),
+      ),
+      uploadWindow: vi.fn(() => new Promise(() => {})),
+    });
+
+    const processing = processRecordingContextItem(item(), deps);
+    await vi.advanceTimersByTimeAsync(LOOKBACK_NATIVE_UPLOAD_TIMEOUT_MS);
+
+    await expect(processing).resolves.toBe("failed");
+    expect(deps.cancelUpload).toHaveBeenCalledWith("media-1");
+    expect(deps.trashed).toEqual([]);
+    expect(deps.updates).toEqual([
+      { id: "ctx1", status: "processing", mediaRecordingId: "media-1" },
+    ]);
+    expect(deps.currentItem).toHaveBeenCalledWith("rec1", "ctx1");
+  });
+
+  it("keeps an origin while a failed item can still be retried", async () => {
+    const terminal = fakeDeps({
+      forgetOrigin: vi.fn(),
+      createRecording: vi.fn(async () => {
+        throw new Error("disk full");
+      }),
+      currentItem: vi.fn(async () => item({ status: "failed" })),
+    });
+    await expect(processRecordingContextItem(item(), terminal)).resolves.toBe(
+      "failed",
+    );
+    expect(terminal.forgetOrigin).not.toHaveBeenCalled();
+
+    const retryable = fakeDeps({
+      forgetOrigin: vi.fn(),
+      uploadWindow: vi.fn(async () => {
+        throw new Error("network unavailable");
+      }),
+      currentItem: vi.fn(async () => item({ status: "processing" })),
+    });
+    await processRecordingContextItem(item(), retryable);
+    expect(retryable.forgetOrigin).not.toHaveBeenCalled();
+  });
+
+  it("clears a durable origin after a failed export can be retried from saved metadata", async () => {
+    const contextItem = item({
+      capturedDeviceId: "device-local",
+      includeMicrophone: true,
+      includeSystemAudio: false,
+    });
+    const deps = fakeDeps({
+      forgetOrigin: vi.fn(),
+      createRecording: vi.fn(async () => {
+        throw new Error("disk full");
+      }),
+      currentItem: vi.fn(async () => item({ status: "failed" })),
+    });
+
+    await expect(processRecordingContextItem(contextItem, deps)).resolves.toBe(
+      "failed",
+    );
+
+    expect(deps.forgetOrigin).toHaveBeenCalledExactlyOnceWith("rec1");
+  });
+
+  it("forgets an origin after the server confirms the item is gone", async () => {
+    const deps = fakeDeps({
+      forgetOrigin: vi.fn(),
+      currentItem: vi.fn(async () => null),
+    });
+
+    await processRecordingContextItem(item(), deps);
+
+    expect(deps.forgetOrigin).toHaveBeenCalledOnce();
+    expect(deps.forgetOrigin).toHaveBeenCalledWith("rec1");
+  });
+
+  it("does not treat stored audio details as proof of local capture", async () => {
+    const contextItem = item({
+      includeMicrophone: false,
+      includeSystemAudio: true,
+    });
+    const deps = fakeDeps({
+      originFor: vi.fn(() => null),
+    });
+
+    await expect(processRecordingContextItem(contextItem, deps)).resolves.toBe(
+      "skipped",
+    );
+
+    expect(deps.originFor).toHaveBeenCalledOnce();
+    expect(deps.created).toEqual([]);
+    expect(deps.update).not.toHaveBeenCalled();
+    expect(deps.uploadWindow).not.toHaveBeenCalled();
+  });
+
+  it("uses local capture settings when server metadata conflicts", async () => {
+    const contextItem = item({
+      includeMicrophone: false,
+      includeSystemAudio: true,
+    });
+    const deps = fakeDeps({
+      originFor: vi.fn(() => ({
+        includeMicrophone: true,
+        includeSystemAudio: false,
+      })),
+    });
+
+    await processRecordingContextItem(contextItem, deps);
+
+    expect(deps.created).toEqual([
+      { hasAudio: true, startedAt: "2026-10-09T09:59:30.000Z" },
+    ]);
+    expect(deps.uploadWindow).toHaveBeenCalledWith(
+      expect.objectContaining({ includeMic: true, includeSystemAudio: false }),
+    );
+  });
+
+  it("uses saved capture metadata after a same-device origin was cleared", async () => {
+    const contextItem = item({
+      capturedDeviceId: "device-local",
+      includeMicrophone: false,
+      includeSystemAudio: true,
+    });
+    const deps = fakeDeps({
+      originFor: vi.fn(() => null),
+      forgetOrigin: vi.fn(),
+      currentItem: vi.fn(async () =>
+        item({ status: "ready", mediaRecordingId: "media-1" }),
+      ),
+    });
+
+    await expect(processRecordingContextItem(contextItem, deps)).resolves.toBe(
+      "ready",
+    );
+
+    expect(deps.originFor).toHaveBeenCalledOnce();
+    expect(deps.created).toEqual([
+      { hasAudio: true, startedAt: "2026-10-09T09:59:30.000Z" },
+    ]);
+    expect(deps.uploadWindow).toHaveBeenCalledWith(
+      expect.objectContaining({ includeMic: false, includeSystemAudio: true }),
+    );
+    expect(deps.forgetOrigin).toHaveBeenCalledExactlyOnceWith("rec1");
+  });
+
+  it("uses saved same-device settings when local capture details are unreadable", async () => {
+    const contextItem = item({
+      capturedDeviceId: "device-local",
+      includeMicrophone: false,
+      includeSystemAudio: true,
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const deps = fakeDeps({
+      originFor: vi.fn(() => {
+        throw new Error("local storage unavailable");
+      }),
+      forgetOrigin: vi.fn(),
+      currentItem: vi.fn(async () =>
+        item({ status: "ready", mediaRecordingId: "media-1" }),
+      ),
+    });
+
+    await expect(processRecordingContextItem(contextItem, deps)).resolves.toBe(
+      "ready",
+    );
+
+    expect(warn).toHaveBeenCalledOnce();
+    expect(deps.created).toEqual([
+      { hasAudio: true, startedAt: contextItem.startedAt },
+    ]);
+    expect(deps.uploadWindow).toHaveBeenCalledWith(
+      expect.objectContaining({ includeMic: false, includeSystemAudio: true }),
+    );
+  });
+
+  it("preserves an unreadable-origin error when saved ownership is unavailable", async () => {
+    const storageError = new Error("local storage unavailable");
+    const deps = fakeDeps({
+      originFor: vi.fn(() => {
+        throw storageError;
+      }),
+    });
+
+    await expect(processRecordingContextItem(item(), deps)).rejects.toBe(
+      storageError,
+    );
+    expect(deps.createRecording).not.toHaveBeenCalled();
+    expect(deps.update).not.toHaveBeenCalled();
+  });
+
+  it("keeps a legacy origin after success so the saved item can be trimmed", async () => {
+    const deps = fakeDeps({
+      forgetOrigin: vi.fn(),
+      currentItem: vi.fn(async () =>
+        item({ status: "ready", mediaRecordingId: "media-1" }),
+      ),
+    });
+
+    await processRecordingContextItem(item(), deps);
+
+    expect(deps.forgetOrigin).not.toHaveBeenCalled();
+  });
+
+  it("creates a silent recording when the original had no audio", async () => {
+    const deps = fakeDeps({
+      originFor: vi.fn(() => ({
+        includeMicrophone: false,
+        includeSystemAudio: false,
+      })),
+    });
+
+    await processRecordingContextItem(item(), deps);
+    expect(deps.created[0]?.hasAudio).toBe(false);
+  });
+
+  it("trashes the previous footage after a re-export succeeds", async () => {
+    const deps = fakeDeps();
+
+    await expect(
+      processRecordingContextItem(
+        item({ status: "pending", mediaRecordingId: "media-old" }),
+        deps,
+      ),
+    ).resolves.toBe("ready");
+    expect(deps.trashed).toEqual(["media-old"]);
+  });
+
+  it("keeps reserved footage retryable when the upload fails", async () => {
+    const deps = fakeDeps({
+      uploadWindow: vi.fn(async () => {
+        throw new Error("disk full");
+      }),
+    });
+
+    await expect(
+      processRecordingContextItem(
+        item({ status: "pending", mediaRecordingId: "media-old" }),
+        deps,
+      ),
+    ).resolves.toBe("failed");
+    expect(deps.trashed).toEqual([]);
+    expect(deps.updates).toEqual([
+      { id: "ctx1", status: "processing", mediaRecordingId: "media-1" },
+    ]);
+  });
+
+  it("trashes the new footage and does not upload when another claim owns the item", async () => {
+    const deps = fakeDeps({
+      update: vi.fn(async (input: RecordingContextUpdate) => {
+        if (input.status === "processing") {
+          throw new ClipsActionError("Already claimed.", 409);
+        }
+        return input;
+      }),
+    });
+
+    await expect(
+      processRecordingContextItem(
+        item({ mediaRecordingId: "media-old" }),
+        deps,
+      ),
+    ).resolves.toBe("skipped");
+    expect(deps.uploadWindow).not.toHaveBeenCalled();
+    expect(deps.trashed).toEqual(["media-1"]);
+    expect(deps.update).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves the item pending and trashes its footage when the claim fails for another reason", async () => {
+    const deps = fakeDeps({
+      update: vi.fn(async (input: RecordingContextUpdate) => {
+        if (input.status === "processing") {
+          throw new ClipsActionError("Server unavailable.", 503);
+        }
+        return input;
+      }),
+      currentItem: vi.fn(async () => item()),
+    });
+
+    await expect(processRecordingContextItem(item(), deps)).resolves.toBe(
+      "failed",
+    );
+    expect(deps.uploadWindow).not.toHaveBeenCalled();
+    expect(deps.trashed).toEqual(["media-1"]);
+    expect(deps.update).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the claimed item retryable when its claim response was lost", async () => {
+    const deps = fakeDeps({
+      update: vi.fn(async (input: RecordingContextUpdate) => {
+        if (input.status === "processing") {
+          throw new Error("socket hang up");
+        }
+        return input;
+      }),
+    });
+
+    await expect(processRecordingContextItem(item(), deps)).resolves.toBe(
+      "failed",
+    );
+    expect(deps.trashed).toEqual([]);
+    expect(deps.update).toHaveBeenCalledTimes(1);
+  });
+
+  it("claims the item before failing it when creating its footage throws", async () => {
+    const deps = fakeDeps({
+      createRecording: vi.fn(async () => {
+        throw new Error("no disk");
+      }),
+    });
+
+    await expect(processRecordingContextItem(item(), deps)).resolves.toBe(
+      "failed",
+    );
+    expect(deps.updates).toEqual([
+      { id: "ctx1", status: "processing" },
+      { id: "ctx1", status: "failed", error: "no disk" },
+    ]);
+    expect(deps.uploadWindow).not.toHaveBeenCalled();
+    expect(deps.trashed).toEqual([]);
+  });
+
+  it("returns skipped without a failed write when another claim owns the item after its footage failed", async () => {
+    const deps = fakeDeps({
+      createRecording: vi.fn(async () => {
+        throw new Error("no disk");
+      }),
+      update: vi.fn(async () => {
+        throw new ClipsActionError("Already claimed.", 409);
+      }),
+    });
+
+    await expect(processRecordingContextItem(item(), deps)).resolves.toBe(
+      "skipped",
+    );
+    expect(deps.update).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns failed without a second write when claiming after a footage failure errors otherwise", async () => {
+    const deps = fakeDeps({
+      createRecording: vi.fn(async () => {
+        throw new Error("no disk");
+      }),
+      update: vi.fn(async () => {
+        throw new ClipsActionError("Server unavailable.", 503);
+      }),
+    });
+
+    await expect(processRecordingContextItem(item(), deps)).resolves.toBe(
+      "failed",
+    );
+    expect(deps.update).toHaveBeenCalledTimes(1);
+  });
+
+  it("trashes its footage and skips without marking the item failed when the ready write is rejected with 409", async () => {
+    const deps = fakeDeps({
+      update: vi.fn(async (input: RecordingContextUpdate) => {
+        if (input.status === "ready") {
+          throw new ClipsActionError("Footage is not reserved.", 409);
+        }
+        return input;
+      }),
+    });
+
+    await expect(processRecordingContextItem(item(), deps)).resolves.toBe(
+      "skipped",
+    );
+    expect(deps.trashed).toEqual(["media-1"]);
+    expect(deps.currentItem).not.toHaveBeenCalled();
+    expect(deps.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed" }),
+    );
+  });
+
+  it("keeps its footage and reports ready when the ready write committed before its response was lost", async () => {
+    const deps = fakeDeps({
+      update: vi.fn(async (input: RecordingContextUpdate) => {
+        if (input.status === "ready") throw new Error("socket hang up");
+        return input;
+      }),
+      currentItem: vi.fn(async () =>
+        item({
+          status: "ready",
+          mediaRecordingId: "media-1",
+          durationMs: 29_600,
+          width: 1280,
+          height: 720,
+        }),
+      ),
+    });
+
+    await expect(processRecordingContextItem(item(), deps)).resolves.toBe(
+      "ready",
+    );
+    expect(deps.trashed).toEqual([]);
+    expect(deps.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed" }),
+    );
+  });
+
+  it("never trashes footage the item links, even when the item has since moved on", async () => {
+    const deps = fakeDeps({
+      update: vi.fn(async (input: RecordingContextUpdate) => {
+        if (input.status === "ready") throw new Error("socket hang up");
+        return input;
+      }),
+      currentItem: vi.fn(async () =>
+        item({ status: "pending", mediaRecordingId: "media-1" }),
+      ),
+    });
+
+    await expect(processRecordingContextItem(item(), deps)).resolves.toBe(
+      "skipped",
+    );
+    expect(deps.trashed).toEqual([]);
+    expect(deps.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed" }),
+    );
+  });
+
+  it("keeps its footage and writes nothing when the item cannot be read back", async () => {
+    const deps = fakeDeps({
+      update: vi.fn(async (input: RecordingContextUpdate) => {
+        if (input.status === "ready") throw new Error("socket hang up");
+        return input;
+      }),
+      currentItem: vi.fn(async () => {
+        throw new Error("read offline");
+      }),
+    });
+
+    await expect(processRecordingContextItem(item(), deps)).resolves.toBe(
+      "failed",
+    );
+    expect(deps.trashed).toEqual([]);
+    // The claim and the rejected ready write only. Nothing is written blind.
+    expect(deps.update).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps its footage without trashing it when the read throws after an upload fails", async () => {
+    const deps = fakeDeps({
+      uploadWindow: vi.fn(async () => {
+        throw new Error("network down");
+      }),
+      currentItem: vi.fn(async () => {
+        throw new Error("read offline");
+      }),
+    });
+
+    await expect(processRecordingContextItem(item(), deps)).resolves.toBe(
+      "failed",
+    );
+    expect(deps.trashed).toEqual([]);
+    expect(deps.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed" }),
+    );
+  });
+
+  it("trashes its footage and skips without a failed write when the read finds the item absent", async () => {
+    const deps = fakeDeps({
+      update: vi.fn(async (input: RecordingContextUpdate) => {
+        if (input.status === "ready") throw new Error("socket hang up");
+        return input;
+      }),
+      currentItem: vi.fn(async () => null),
+    });
+
+    await expect(processRecordingContextItem(item(), deps)).resolves.toBe(
+      "skipped",
+    );
+    expect(deps.trashed).toEqual(["media-1"]);
+    expect(deps.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed" }),
+    );
+  });
+
+  it("treats a recording_not_found 404 from the context read as an absent item and trashes its footage", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              error: "Recording not found.",
+              errorCode: "recording_not_found",
+            }),
+            {
+              status: 404,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+      ),
+    );
+    const deps = fakeDeps({
+      update: vi.fn(async (input: RecordingContextUpdate) => {
+        if (input.status === "ready") throw new Error("socket hang up");
+        return input;
+      }),
+      currentItem: (recordingId, itemId) =>
+        getRecordingContextItem(target, recordingId, itemId),
+    });
+
+    await expect(processRecordingContextItem(item(), deps)).resolves.toBe(
+      "skipped",
+    );
+    expect(deps.trashed).toEqual(["media-1"]);
+    expect(deps.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed" }),
+    );
+  });
+
+  it("trashes its footage when a newer processing claim owns the item", async () => {
+    const deps = fakeDeps({
+      uploadWindow: vi.fn(async () => {
+        throw new Error("disk full");
+      }),
+      currentItem: vi.fn(async () =>
+        item({ status: "processing", pendingMediaRecordingId: "media-new" }),
+      ),
+    });
+
+    await expect(processRecordingContextItem(item(), deps)).resolves.toBe(
+      "failed",
+    );
+    expect(deps.trashed).toEqual(["media-1"]);
+    expect(deps.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed" }),
+    );
+  });
+
+  it("keeps reserved footage retryable when a ready write fails", async () => {
+    const deps = fakeDeps({
+      update: vi.fn(async (input: RecordingContextUpdate) => {
+        if (input.status === "ready") throw new Error("server 500");
+        return input;
+      }),
+    });
+
+    await expect(processRecordingContextItem(item(), deps)).resolves.toBe(
+      "failed",
+    );
+    expect(deps.trashed).toEqual([]);
+    expect(deps.update).toHaveBeenNthCalledWith(1, {
+      id: "ctx1",
+      status: "processing",
+      mediaRecordingId: "media-1",
+    });
+    expect(deps.update).toHaveBeenNthCalledWith(2, {
+      id: "ctx1",
+      status: "ready",
+      mediaRecordingId: "media-1",
+      durationMs: 29_600,
+      width: 1280,
+      height: 720,
+    });
+    expect(deps.update).toHaveBeenCalledTimes(2);
+  });
+
+  it("never sends an empty or non-Error failure as the error text", async () => {
+    const empty = fakeDeps({
+      createRecording: vi.fn(async () => {
+        throw new Error("");
+      }),
+    });
+    await processRecordingContextItem(item(), empty);
+    expect(empty.updates.slice(-1)[0]?.error).toBe(
+      "Earlier screen time couldn't be saved.",
+    );
+
+    const thrown = fakeDeps({
+      createRecording: vi.fn(async () => {
+        throw "boom";
+      }),
+    });
+    await processRecordingContextItem(item(), thrown);
+    expect(thrown.updates.slice(-1)[0]?.error).toBe(
+      "Earlier screen time couldn't be saved.",
+    );
+  });
+
+  it("still marks the item failed when cleaning up the media also fails", async () => {
+    const deps = fakeDeps({
+      uploadWindow: vi.fn(async () => {
+        throw new ClipsActionError("network down", 422);
+      }),
+      trashRecording: vi.fn(async () => {
+        throw new Error("trash offline");
+      }),
+    });
+
+    await expect(processRecordingContextItem(item(), deps)).resolves.toBe(
+      "failed",
+    );
+    expect(deps.updates.slice(-1)[0]).toEqual({
+      id: "ctx1",
+      status: "failed",
+      error: "network down",
+    });
+  });
+
+  it("fails the item when its footage claim is rejected with 400, trashing the footage before claiming without it", async () => {
+    const update = vi.fn(async (input: RecordingContextUpdate) => {
+      if (input.mediaRecordingId !== undefined) {
+        throw new ClipsActionError("Footage is not private.", 400);
+      }
+      return input;
+    });
+    const deps = fakeDeps({ update });
+
+    await expect(processRecordingContextItem(item(), deps)).resolves.toBe(
+      "failed",
+    );
+    expect(deps.trashed).toEqual(["media-1"]);
+    expect(update.mock.calls.map(([input]) => input)).toEqual([
+      { id: "ctx1", status: "processing", mediaRecordingId: "media-1" },
+      { id: "ctx1", status: "processing" },
+      { id: "ctx1", status: "failed", error: "Footage is not private." },
+    ]);
+    const [trashedAt] = vi.mocked(deps.trashRecording).mock.invocationCallOrder;
+    const [, claimedWithoutFootageAt] =
+      vi.mocked(update).mock.invocationCallOrder;
+    expect(trashedAt).toBeLessThan(claimedWithoutFootageAt ?? 0);
+    expect(deps.uploadWindow).not.toHaveBeenCalled();
+  });
+
+  it("skips the item without a failed write when the footage-less claim after a 400 is refused with 409", async () => {
+    const update = vi.fn(async (input: RecordingContextUpdate) => {
+      if (input.mediaRecordingId !== undefined) {
+        throw new ClipsActionError("Footage is not private.", 400);
+      }
+      throw new ClipsActionError("Already claimed.", 409);
+    });
+    const deps = fakeDeps({ update });
+
+    await expect(processRecordingContextItem(item(), deps)).resolves.toBe(
+      "skipped",
+    );
+    expect(deps.trashed).toEqual(["media-1"]);
+    expect(update).toHaveBeenCalledTimes(2);
+    expect(update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed" }),
+    );
+  });
+
+  it("fails a held claim whose upload is rejected with 422, without a second claim", async () => {
+    const update = vi.fn(async (input: RecordingContextUpdate) => input);
+    const message =
+      "native recording upload returned 422 Unprocessable Entity: bad chunk";
+    const deps = fakeDeps({
+      update,
+      uploadWindow: vi.fn(async () => {
+        throw new Error(message);
+      }),
+    });
+
+    await expect(processRecordingContextItem(item(), deps)).resolves.toBe(
+      "failed",
+    );
+    expect(deps.trashed).toEqual(["media-1"]);
+    // The claim that named the footage landed, so a footage-less claim would be refused.
+    expect(update.mock.calls.map(([input]) => input)).toEqual([
+      { id: "ctx1", status: "processing", mediaRecordingId: "media-1" },
+      { id: "ctx1", status: "failed", error: message },
+    ]);
+    // A rejection is definitive, so the item is not read back before failing.
+    expect(deps.currentItem).not.toHaveBeenCalled();
+  });
+
+  it("reads the item back before failing an upload rejected with a status other than 400 or 422", async () => {
+    const deps = fakeDeps({
+      uploadWindow: vi.fn(async () => {
+        throw new Error(
+          "native recording upload returned 500 Internal Server Error: boom",
+        );
+      }),
+    });
+
+    await expect(processRecordingContextItem(item(), deps)).resolves.toBe(
+      "failed",
+    );
+    expect(deps.currentItem).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails the item when its ready write is rejected with 400 and trashes its footage", async () => {
+    const update = vi.fn(async (input: RecordingContextUpdate) => {
+      if (input.status === "ready") {
+        throw new ClipsActionError("Duration must be positive.", 400);
+      }
+      return input;
+    });
+    const deps = fakeDeps({ update });
+
+    await expect(processRecordingContextItem(item(), deps)).resolves.toBe(
+      "failed",
+    );
+    expect(deps.trashed).toEqual(["media-1"]);
+    expect(deps.currentItem).not.toHaveBeenCalled();
+    expect(update.mock.calls.slice(-1)[0]?.[0]).toEqual({
+      id: "ctx1",
+      status: "failed",
+      error: "Duration must be positive.",
+    });
+  });
+});

@@ -1,35 +1,234 @@
 ---
 title: "Cloudflare"
-description: "انشر تطبيق agent-native على Cloudflare Workers باستخدام إعداد Nitro المسبق cloudflare_module."
+description: "انشر تطبيق Agent-Native مستقلًا على Cloudflare Workers باستخدام Wrangler."
 ---
 
 # Cloudflare
 
-## Cloudflare Workers {#cloudflare-workers}
+<a id="cloudflare-workers"></a>
 
-استخدم مخرجات الوحدة الأصلية لـ Nitro من أجل Cloudflare Worker. هذا يبقي
-SSR مُفعّلًا ويُصدر نقطة دخول الـ Worker بالإضافة إلى الأصول الثابتة تحت
-`.output/server` و`.output/public`:
+يشغّل Cloudflare Workers تطبيقك على شبكة Cloudflare، لذلك لا يوجد خادم تحتاج إلى
+إعداده أو إبقائه قيد التشغيل. يحوّل البناء التطبيق إلى Worker يتولى صفحات التطبيق
+وواجهته البرمجية، إضافةً إلى ملفات ثابتة يقدّمها Cloudflare مباشرةً. ويمنح
+Cloudflare التطبيق عنوانًا عامًا مع HTTPS.
 
-```ts filename="vite.config.ts"
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "cloudflare_module" } })],
-});
-```
+يشرح هذا الدليل نشر تطبيق مستقل واحد من البداية. ستنشئ التطبيق، وتمنحه قاعدة
+بيانات إنتاجية وسر مصادقة، وتجهّز قاعدة البيانات، وتبني Worker، وتحفظ الأسرار في
+Cloudflare، ثم تنشره.
 
-قم ببناء ونشر الـ Worker المُولَّد باستخدام Wrangler:
+<Callout tone="info">
+
+يلزم Node.js `22.22+`.
+
+</Callout>
+
+تحتاج أيضًا إلى حساب Cloudflare. شغّل الأوامر في هذا الدليل على حاسوبك الخاص.
+يرفع Wrangler، وهو أداة سطر الأوامر من Cloudflare، الـ Worker النهائي إلى
+Cloudflare نيابةً عنك.
+
+## الخطوة 1: إنشاء التطبيق {#step-1-create-the-app}
+
+أنشئ تطبيقك المستقل الجديد. ينشئ المثال أدناه تطبيقًا من قالب Chat، لكن يمكنك
+البدء من أي قالب. انتقل إلى مجلد التطبيق وثبّت تبعياته. يفعّل الأمر
+`corepack enable` إصدار `pnpm` الذي يتوقعه التطبيق، لذلك لا تحتاج إلى تثبيت
+`pnpm` بنفسك.
 
 ```bash
-pnpm build
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
+```
+
+استبدل `my-app` باسم تطبيقك إذا أردت. يفترض باقي هذا الدليل أنك داخل مجلد
+التطبيق.
+
+<Callout tone="info">
+
+إذا فشلت هذه الأوامر بأخطاء في التبعيات النظيرة، فقد يكون السبب نسخة قديمة من حزمة في ذاكرة npx المؤقتة. شغّل `npx clear-npx-cache` لمسح الذاكرة المؤقتة، ثم شغّل الأوامر مرة أخرى.
+
+</Callout>
+
+## الخطوة 2: ضبط أسرار البيئة {#step-2-configure-environment-secrets}
+
+يقرأ التطبيق إعدادات الإنتاج من متغيرات البيئة:
+
+| المتغير              | مطلوب | الغرض                                                   |
+| -------------------- | ----- | ------------------------------------------------------- |
+| `DATABASE_URL`       | نعم   | يربط التطبيق بقاعدة بيانات PostgreSQL الخاصة به         |
+| `BETTER_AUTH_SECRET` | نعم   | يوقّع جلسات المستخدمين                                  |
+| `BETTER_AUTH_URL`    | لا    | يحدد العنوان العام الذي يستخدمه الناس للوصول إلى تطبيقك |
+
+تجعل أوامر التصدير أدناه الأوامر التالية تعمل في هذه الصدفة. قبل النشر، احفظ
+المتغيرات نفسها في إعدادات بيئة المشروع أو الخدمة لدى موفر الاستضافة. توضح الخطوة
+5 كيفية حفظها في Cloudflare.
+
+### عنوان URL لقاعدة البيانات {#database-url}
+
+أثناء التطوير المحلي، يخزّن التطبيق البيانات في قاعدة بيانات محلية عندما يكون
+`DATABASE_URL` غير مضبوط. يحتاج التطبيق المنشور إلى قاعدة بيانات PostgreSQL
+حقيقية تحتفظ ببياناتها بين عمليات النشر. لا يستطيع Worker الاحتفاظ بالملفات بين
+الطلبات، لذلك يجب أن توجد قاعدة البيانات خارج Cloudflare Workers. انسخ سلسلة
+الاتصال من موفر قاعدة البيانات وصدّرها:
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+توضح [أدلة موفري قواعد البيانات](/docs/neon) مكان العثور على سلسلة الاتصال لدى
+كل موفر.
+
+<Callout tone="warning">
+
+اختر موفر PostgreSQL دائمًا: Neon أو Supabase أو Amazon RDS أو غيرها.
+
+</Callout>
+
+### سر المصادقة {#auth-secret}
+
+أنشئ هذه القيمة مرة واحدة وأبقها ثابتة عبر عمليات النشر.
+
+يستخدم التطبيق `BETTER_AUTH_SECRET` لتوقيع جلسات المستخدمين. إذا تغيّرت القيمة،
+يُسجَّل خروج كل مستخدم مسجّل الدخول. ينشئ الأمر أدناه قيمة عشوائية:
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+احفظ القيمة المُنشأة في مكان آمن، مثل مدير كلمات المرور. استخدم القيمة نفسها في
+كل مرة تنشر فيها.
+
+### عنوان URL العام {#public-url}
+
+اختياري. اضبطه عند استخدام نطاق مخصص، أو وكيل عكسي، أو تدفق مصادقة أو OAuth يحتاج
+إلى أصل عام ثابت.
+
+`BETTER_AUTH_URL` هو العنوان العام الذي يستخدمه الناس للوصول إلى تطبيقك. بدونه،
+يستنتج التطبيق عنوانه من كل طلب وارد. يكون ذلك مناسبًا عادةً على العنوان الذي
+يمنحك إياه Cloudflare، لكن اضبطه عندما تربط نطاقًا مخصصًا حتى تستخدم روابط تسجيل
+الدخول وعمليات إعادة توجيه OAuth ذلك النطاق.
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## الخطوة 3: الترحيل {#step-3-migrate}
+
+تنشئ عمليات الترحيل الجداول التي يحتاجها التطبيق في قاعدة البيانات وتحدّثها.
+شغّل هذا الأمر قبل أول عملية نشر:
+
+```bash
+pnpm migrate:production
+```
+
+يعمل الأمر على حاسوبك ويتصل بقاعدة بيانات الإنتاج باستخدام `DATABASE_URL` الذي
+صدّرته في الخطوة 2. شغّله مرة أخرى بعد ترقية التطبيق، وقبل نشر الإصدار الجديد.
+
+## الخطوة 4: البناء {#step-4-build}
+
+ابنِ التطبيق بصفته Cloudflare Worker:
+
+```bash
+NITRO_PRESET=cloudflare_module pnpm build
+```
+
+يبني `NITRO_PRESET=cloudflare_module` التطبيق بالتنسيق الذي يتوقعه Cloudflare
+Workers. يكتب البناء الـ Worker في المجلد `.output/server` والملفات الثابتة في
+المجلد `.output/public`.
+
+يكتب البناء أيضًا ملف إعدادات Wrangler في `.output/server/wrangler.json`. يخبر
+هذا الملف Wrangler بما يجب نشره ويمنح الـ Worker اسمه. يأتي الاسم من ملف
+`package.json` الخاص بالتطبيق، لذلك يحصل التطبيق الذي أُنشئ باسم `my-app` على
+Worker باسم `my-app`. إذا كان المجلد مستودع Git له مستودع بعيد، فيأتي
+الاسم من المستودع بدلًا من ذلك. يطبع البناء الاسم الذي اختاره.
+
+## الخطوة 5: تسجيل الدخول وحفظ الأسرار {#step-5-log-in-and-save-the-secrets}
+
+سجّل الدخول إلى Cloudflare من سطر الأوامر:
+
+```bash
+npx wrangler login
+```
+
+احفظ المتغيرين المطلوبين بصفتهما أسرارًا على الـ Worker:
+
+```bash
+printf '%s' "$DATABASE_URL" | npx wrangler secret put DATABASE_URL --config .output/server/wrangler.json
+```
+
+```bash
+printf '%s' "$BETTER_AUTH_SECRET" | npx wrangler secret put BETTER_AUTH_SECRET --config .output/server/wrangler.json
+```
+
+يقرأ كل أمر القيمة التي صدّرتها في الخطوة 2 ويحفظها في Cloudflare، لذلك لا تحتاج
+إلى لصق الأسرار يدويًا. يوجّه `--config` أداة Wrangler إلى ملف الإعدادات من
+الخطوة 4، حتى تذهب الأسرار إلى الـ Worker الذي يحمل الاسم الذي اختاره البناء. في المرة الأولى لا يكون الـ Worker موجودًا بعد. ولأن القيمة تُمرَّر عبر أنبوب، ينشئ Wrangler الـ Worker تلقائيًا دون أن يسألك.
+
+إذا ضبطت `BETTER_AUTH_URL`، فاحفظه بالطريقة نفسها. يمكنك أيضًا عرض هذه القيم
+وتغييرها لاحقًا في إعدادات الـ Worker على لوحة تحكم Cloudflare.
+
+## الخطوة 6: النشر {#step-6-deploy}
+
+ارفع الـ Worker وانشره:
+
+```bash
 npx wrangler deploy --config .output/server/wrangler.json
 ```
 
-يمكنك أيضًا تحديد الإعداد المسبق صراحةً باستخدام
-`NITRO_PRESET=cloudflare_module`. قم بتكوين قاعدة بيانات PostgreSQL خارجية دائمة
-قبل النشر. نظام ملفات الـ Worker ليس مخزنًا دائمًا للتطبيق.
+يوجّه `--config` أداة Wrangler إلى ملف الإعدادات من الخطوة 4، الذي يخبرها بمكان
+الـ Worker والملفات الثابتة.
 
-## ما هي الخطوة التالية
+عندما ينتهي الأمر، يطبع عنوان التطبيق، الذي ينتهي بـ `workers.dev`. افتحه وأنشئ
+الحساب الأول.
 
-- [**النشر**](/docs/deployment) — اختر قاعدة بيانات دائمة وإعدادًا مسبقًا قبل أول عملية نشر إنتاجي
-- [**نشر مساحة العمل**](/docs/workspace-deployment) — انشر كل تطبيق في مساحة العمل على أصل واحد باستخدام Netlify أو Vercel
-- [**Node.js**](/docs/node-js)، [**Docker**](/docs/docker)، [**Vercel**](/docs/vercel)، [**Netlify**](/docs/netlify)، [**AWS Lambda**](/docs/aws-lambda)، و[**Deno Deploy**](/docs/deno-deploy) — إعدادات Nitro المسبقة الأخرى
+## نشر التحديثات {#deploy-updates}
+
+لإصدار نسخة جديدة، شغّل أوامر الترحيل والبناء والنشر مرة أخرى من مجلد التطبيق:
+
+```bash
+pnpm migrate:production
+
+NITRO_PRESET=cloudflare_module pnpm build
+
+npx wrangler deploy --config .output/server/wrangler.json
+```
+
+تبقى الأسرار محفوظة على الـ Worker بين عمليات النشر، لذلك لا تحتاج إلى تكرار
+الخطوة 5.
+
+## العمل المجدول {#cloudflare-scheduled-work}
+
+تتم الأتمتة المجدولة، والأتمتة المُشغَّلة بالأحداث المنتظرة في قائمة الانتظار،
+وتنظيف عمليات التشغيل المنقطعة، جميعها عبر عملية مسح تعمل مرة كل دقيقة. يضيف
+البناء
+[Cron Trigger](https://developers.cloudflare.com/workers/configuration/cron-triggers/)
+بالتعبير `* * * * *` إلى ملف `wrangler.json` المُولَّد، ويحتفظ بأي Cron Triggers
+صرّحت بها مسبقًا. وعندما ينطلق، يستدعي معالج `scheduled` في الـ Worker عملية
+المسح مباشرةً برمز قصير العمر موقّع باستخدام `A2A_SECRET`، لذا اضبط هذا السر
+قبل النشر:
+
+```bash
+npx wrangler secret put A2A_SECRET --config .output/server/wrangler.json
+```
+
+- **وقت المعالج (CPU).** في خطة Workers Free، يحصل كل استدعاء لـ Cron Trigger
+  على 10 ms من وقت المعالج، بينما تحتاج عملية المسح التي تشغّل مهام الوكيل إلى
+  أكثر من ذلك. استخدم خطة Workers Paid للعمل المجدول.
+- **التوقيت.** تعمل Cron Triggers بتوقيت UTC، وقد يستغرق المُشغِّل الجديد أو
+  المُعدَّل ما يصل إلى 15 دقيقة حتى يبدأ بالانطلاق بعد النشر.
+- **الاختبار المحلي.** شغّل الـ Worker المبني باستخدام
+  `npx wrangler dev --test-scheduled --config .output/server/wrangler.json`، ثم
+  اطلب `/cdn-cgi/handler/scheduled?cron=*+*+*+*+*` لإطلاق عملية المسح مرة
+  واحدة.
+
+راجع [كيفية تشغيل المجدول](/docs/recurring-jobs#how-scheduler-runs) لمعرفة
+المضيفات الأخرى.
+
+## ما هي الخطوة التالية {#whats-next}
+
+- [**متغيرات بيئة النشر**](/docs/deployment-environment-variables) - القائمة الكاملة لإعدادات الإنتاج
+- [**التخزين المؤقت SSR**](/docs/ssr-caching) - كيف يعمل التخزين المؤقت للصفحات على أهداف الاستضافة
+- [**النشر**](/docs/deployment) - قارن بين أهداف الاستضافة ومتطلباتها الأساسية

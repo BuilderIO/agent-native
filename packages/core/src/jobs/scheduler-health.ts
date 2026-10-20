@@ -6,14 +6,26 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
-import { runMigrations, type MigrationEntry } from "../db/migrations.js";
+import type { MigrationEntry } from "../db/migrations.js";
+import { defineStore } from "../db/store-registry.js";
+import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
+import { automationRecoveryMessagesForLocale } from "../localization/automation-recovery-messages.js";
 
 const TABLE = "automation_scheduler_health";
 const DEFAULT_APP_ID = "default";
 const MAX_ERROR_LENGTH = 500;
 
-export const AUTOMATION_SCHEDULER_LEASE_MS = 10 * 60_000;
+export const AUTOMATION_SCHEDULER_LEASE_MS = 2 * 60_000;
 export const AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS = 60_000;
+
+export class AutomationSchedulerLeaseLostError extends Error {
+  readonly errorCode = "automation_scheduler_lease_lost";
+
+  constructor(cause?: unknown) {
+    super(automationRecoveryMessagesForLocale().leaseLost, { cause });
+    this.name = "AutomationSchedulerLeaseLostError";
+  }
+}
 
 export const AUTOMATION_SCHEDULER_HEALTH_MIGRATIONS: MigrationEntry[] = [
   {
@@ -50,12 +62,11 @@ export const AUTOMATION_SCHEDULER_HEALTH_MIGRATIONS: MigrationEntry[] = [
   },
 ];
 
+/** Kept for callers of the public export; the store owns these migrations. */
 export async function runAutomationSchedulerHealthMigrations(
-  nitroApp: unknown,
+  _nitroApp?: unknown,
 ): Promise<void> {
-  await runMigrations(AUTOMATION_SCHEDULER_HEALTH_MIGRATIONS, {
-    table: "_automation_scheduler_health_migrations",
-  })(nitroApp);
+  await schedulerHealthStore.ready();
 }
 
 function normalizeAppId(appId: string | undefined): string {
@@ -77,27 +88,27 @@ export interface AutomationSchedulerHealth {
   updatedAt: number | null;
 }
 
-let initPromise: Promise<void> | undefined;
-
-export async function ensureHealthTable(): Promise<void> {
-  if (!initPromise) {
-    initPromise = (async () => {
-      const createSql = `
-        CREATE TABLE IF NOT EXISTS ${TABLE} (
-          id TEXT PRIMARY KEY,
-          app_id TEXT NOT NULL DEFAULT 'default',
-          org_id TEXT,
-          last_checked_at BIGINT,
-          last_dispatched_at BIGINT,
-          last_error TEXT,
-          runtime TEXT,
-          updated_at BIGINT NOT NULL,
-          lease_owner TEXT,
-          lease_expires_at BIGINT
-        )
-      `;
-      const indexSql = `CREATE INDEX IF NOT EXISTS idx_${TABLE}_updated ON ${TABLE} (updated_at)`;
-      {
+export const schedulerHealthStore = defineStore({
+  id: "scheduler_health",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `
+          CREATE TABLE IF NOT EXISTS ${TABLE} (
+            id TEXT PRIMARY KEY,
+            app_id TEXT NOT NULL DEFAULT 'default',
+            org_id TEXT,
+            last_checked_at BIGINT,
+            last_dispatched_at BIGINT,
+            last_error TEXT,
+            runtime TEXT,
+            updated_at BIGINT NOT NULL,
+            lease_owner TEXT,
+            lease_expires_at BIGINT
+          )
+        `;
+        const indexSql = `CREATE INDEX IF NOT EXISTS idx_${TABLE}_updated ON ${TABLE} (updated_at)`;
         await ensureTableExists(TABLE, createSql);
         await ensureColumnExists(
           TABLE,
@@ -145,14 +156,17 @@ export async function ensureHealthTable(): Promise<void> {
           `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS lease_expires_at BIGINT`,
         );
         await ensureIndexExists(`idx_${TABLE}_updated`, indexSql);
-        return;
-      }
-    })().catch((error) => {
-      initPromise = undefined;
-      throw error;
-    });
-  }
-  return initPromise;
+      },
+    },
+    ...fromMigrationEntries(
+      "_automation_scheduler_health_migrations",
+      AUTOMATION_SCHEDULER_HEALTH_MIGRATIONS,
+    ),
+  ],
+});
+
+export function ensureHealthTable(): Promise<void> {
+  return schedulerHealthStore.ready();
 }
 
 function isUniqueViolation(error: unknown): boolean {
@@ -221,12 +235,13 @@ export async function renewAutomationSchedulerLease(input: {
   const result = await getDbExec().execute({
     sql: `UPDATE ${TABLE}
           SET lease_expires_at = ?, updated_at = ?
-          WHERE id = ? AND lease_owner = ?`,
+          WHERE id = ? AND lease_owner = ? AND lease_expires_at > ?`,
     args: [
       expiresAt,
       now,
       leaseRowId(normalizeAppId(input.appId)),
       input.owner,
+      now,
     ],
   });
   return Number(result.rowsAffected ?? 0) > 0;

@@ -16,7 +16,6 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 }));
 
 import {
-  buildAiRequestChatOptions,
   notifyAiRequestQueued,
   nextAutoTitleFallbackDelay,
   retryWorkflowAction,
@@ -31,51 +30,6 @@ describe("notifyAiRequestQueued", () => {
       "app-state:refresh-signal",
       expect.any(Number),
     );
-  });
-});
-
-describe("buildAiRequestChatOptions", () => {
-  it("keeps queued AI requests hidden by default", () => {
-    const options = buildAiRequestChatOptions({
-      kind: "regenerate-chapters",
-      recordingId: "rec_123",
-      message: "Generate chapters",
-    });
-
-    expect(options.newTab).toBe(true);
-    expect(options.background).toBe(true);
-    expect(options.openSidebar).toBe(false);
-  });
-
-  it("focuses requests that were explicitly opened from the UI", () => {
-    const options = buildAiRequestChatOptions({
-      kind: "regenerate-chapters",
-      recordingId: "rec_123",
-      message: "Generate chapters",
-      openInChat: true,
-    });
-
-    expect(options.newTab).toBe(true);
-    expect(options.background).toBe(false);
-    expect(options.openSidebar).toBe(true);
-  });
-
-  it("passes combined title and summary context to the agent", () => {
-    const options = buildAiRequestChatOptions({
-      kind: "generate-metadata",
-      recordingId: "rec_123",
-      currentDescription: "",
-      transcriptText: "The clip explains activity grouping by project.",
-      includeSummary: true,
-      message: "Generate recording metadata",
-    });
-
-    expect(JSON.parse(options.context ?? "{}")).toMatchObject({
-      recordingId: "rec_123",
-      currentDescription: "",
-      transcript: "The clip explains activity grouping by project.",
-      includeSummary: true,
-    });
   });
 });
 

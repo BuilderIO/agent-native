@@ -2,6 +2,7 @@ import { defineAction, fail } from "@agent-native/core/action";
 import {
   compareAndSetAppState,
   readAppState,
+  writeAppState,
 } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
@@ -21,7 +22,7 @@ export default defineAction({
       .datetime()
       .describe("Exact timestamp of the queued request being updated"),
     status: z
-      .enum(["working", "completed", "failed", "cancelled"])
+      .enum(["working", "completed", "failed", "truncated", "cancelled"])
       .describe("Current request status"),
     message: z
       .string()
@@ -29,6 +30,10 @@ export default defineAction({
       .max(500)
       .optional()
       .describe("Optional short status detail"),
+    operationId: z.string().optional(),
+    threadId: z.string().optional(),
+    turnId: z.string().optional(),
+    runId: z.string().optional(),
   }),
   run: async (args) => {
     await assertAccess("recording", args.recordingId, "editor");
@@ -59,7 +64,19 @@ export default defineAction({
         statusCode: 409,
       });
     }
-    const terminalStatuses = ["completed", "failed", "cancelled"];
+    if (args.operationId && current.operationId !== args.operationId) {
+      const queued = await readAppState(`clips-ai-request-${args.recordingId}`);
+      if (
+        queued?.kind !== args.kind ||
+        queued.requestedAt !== args.requestedAt
+      ) {
+        fail(`Cannot start a stale ${args.kind} request.`, {
+          errorCode: "request_conflict",
+          statusCode: 409,
+        });
+      }
+    }
+    const terminalStatuses = ["completed", "failed", "truncated", "cancelled"];
     if (terminalStatuses.includes(String(current.status))) {
       if (args.status === "cancelled") {
         return {
@@ -79,13 +96,27 @@ export default defineAction({
     let expected = current;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const next = {
+        ...current,
         kind: args.kind,
         status: args.status,
         message: args.message || null,
         requestedAt: args.requestedAt,
         updatedAt: new Date().toISOString(),
+        ...(args.operationId ? { operationId: args.operationId } : {}),
+        ...(args.threadId ? { threadId: args.threadId } : {}),
+        ...(args.turnId ? { turnId: args.turnId } : {}),
+        ...(args.runId ? { runId: args.runId } : {}),
       };
       if (await compareAndSetAppState(statusKey, expected, next)) {
+        try {
+          await writeAppState("refresh-signal", { ts: Date.now() });
+        } catch (error) {
+          console.warn("[clips] failed to publish AI request status refresh", {
+            recordingId: args.recordingId,
+            kind: args.kind,
+            error,
+          });
+        }
         return {
           recordingId: args.recordingId,
           kind: args.kind,

@@ -1,5 +1,6 @@
 import {
   AGENT_ACCESS_PARAM,
+  getForwardedRequestOrigin,
   verifyScopedAgentAccessToken,
 } from "@agent-native/core/server";
 import { createH3SSRHandler } from "@agent-native/core/server/ssr-handler";
@@ -98,7 +99,7 @@ async function buildAgentDiscoveryScript(
     const context = await buildSessionReplayAgentContext({
       recordingId,
       token,
-      origin: requestUrl.origin,
+      origin: getForwardedRequestOrigin(event),
       includeTimeline: false,
     }).catch(() => null);
     if (!context) return null;
@@ -134,7 +135,7 @@ async function buildAgentDiscoveryScript(
         contextEndpoint: isDashboard
           ? ANALYTICS_DASHBOARD_AGENT_CONTEXT_ENDPOINT
           : ANALYTICS_ANALYSIS_AGENT_CONTEXT_ENDPOINT,
-        origin: requestUrl.origin,
+        origin: getForwardedRequestOrigin(event),
         basePath: configuredAppBasePath(),
         token,
         instructions:

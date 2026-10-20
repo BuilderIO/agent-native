@@ -26,7 +26,14 @@ export async function verifyA2ATokenWithClaims(
         : [];
     if (audiences.length === 0 || audiences.some((value) => !value.trim()))
       return null;
-    const orgId = typeof raw.org_id === "string" ? raw.org_id.trim() : "";
+    const hasClaimedOrgId = Object.prototype.hasOwnProperty.call(raw, "org_id");
+    const claimedOrgId =
+      typeof raw.org_id === "string" ? raw.org_id.trim() : "";
+    const claimedOrgDomain =
+      typeof raw.org_domain === "string"
+        ? raw.org_domain.trim().toLowerCase()
+        : "";
+    const orgId = identity.orgId?.trim() ?? "";
     const jti = typeof raw.jti === "string" ? raw.jti.trim() : "";
     const scopes =
       typeof raw.scope === "string"
@@ -34,7 +41,14 @@ export async function verifyA2ATokenWithClaims(
         : [];
     const issuer = typeof raw.iss === "string" ? raw.iss.trim() : "";
     const orgDomain = identity.orgDomain?.trim().toLowerCase() ?? "";
-    return orgId && orgDomain && jti
+    // Independently hosted apps resolve their own organization ID from this verified domain.
+    const organizationScopeMatches = Boolean(
+      orgId &&
+      claimedOrgDomain &&
+      claimedOrgDomain === orgDomain &&
+      (!hasClaimedOrgId || claimedOrgId === orgId),
+    );
+    return organizationScopeMatches && jti
       ? {
           email: identity.email,
           orgId,

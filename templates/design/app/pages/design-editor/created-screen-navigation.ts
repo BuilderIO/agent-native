@@ -1,4 +1,13 @@
 import type { FrameBounds } from "@shared/canvas-math";
+import type { Dispatch, SetStateAction } from "react";
+
+export function clearOverviewInteractTarget(args: {
+  setOverviewInteractScreenId: Dispatch<SetStateAction<string | null>>;
+  overviewInteractScreenIdRef: { current: string | null };
+}): void {
+  args.setOverviewInteractScreenId(null);
+  args.overviewInteractScreenIdRef.current = null;
+}
 
 export interface CreatedScreenGeometry {
   x: number;
@@ -16,6 +25,13 @@ export interface CreatedScreenNavigationPlan {
     fitBounds: FrameBounds;
     paddingScreenPx: number;
   };
+}
+
+export interface FocusedScreenNavigationPlan extends CreatedScreenNavigationPlan {
+  editorMode: "edit";
+  tool: "move";
+  drawMode: false;
+  pinMode: false;
 }
 
 export function getCreatedScreenNavigationPlan(args: {
@@ -44,5 +60,19 @@ export function getCreatedScreenNavigationPlan(args: {
       },
       paddingScreenPx: args.paddingScreenPx ?? 96,
     },
+  };
+}
+
+export function getFocusedScreenNavigationPlan(args: {
+  screenId: string;
+  geometry: CreatedScreenGeometry;
+  paddingScreenPx?: number;
+}): FocusedScreenNavigationPlan {
+  return {
+    ...getCreatedScreenNavigationPlan(args),
+    editorMode: "edit",
+    tool: "move",
+    drawMode: false,
+    pinMode: false,
   };
 }

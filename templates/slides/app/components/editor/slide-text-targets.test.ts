@@ -10,6 +10,7 @@ import {
   isSlideCanvasShortcutTarget,
   isSlideTextEditingTarget,
   isTextLeaf,
+  isTransparentLayoutWrapper,
   preventSlideLinkNavigation,
   resolveRichTextEditingBlock,
   resolveSlideTextSelectionTarget,
@@ -40,6 +41,59 @@ describe("slide text targets", () => {
     expect(findSlideShapeOwner(byId("label"), root)).toBe(byId("row"));
     expect(findSlideShapeOwner(byId("note"), root)).toBe(byId("card"));
     expect(findSlideShapeOwner(byId("logo"), root)).toBeNull();
+    root.remove();
+  });
+
+  it("treats unpainted layout wrappers as transparent and every real object as not", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <div class="fmd-slide">
+        <div id="grid" style="display:grid">
+          <div id="column"><div id="chart"><div id="track" style="background:#222"></div><p id="caption">Caption</p></div></div>
+          <div id="spans"><span>A</span><span>B</span></div>
+          <div id="smart"><div>One</div><div>Two</div></div>
+          <div id="loose">Loose<div><i></i></div></div>
+          <div id="single"><p>Only paragraph</p></div>
+          <div id="id" data-slide-object-id="o1"><div><i></i></div></div>
+          <div id="group" class="fmd-slide-group"><div></div></div>
+          <div id="box" class="fmd-text-box"></div>
+          <div id="holder" style="border:1px solid #444"><div><i></i></div></div>
+          <div id="media"><svg></svg></div>
+          <div id="logos" style="display:flex;gap:24px"><img src="a.png"><img src="b.png"></div>
+          <ul id="list"><li>One</li></ul>
+          <table id="table"><tbody><tr><td>Cell</td></tr></tbody></table>
+        </div>
+      </div>
+    `;
+    document.body.append(root);
+    const byId = (id: string) => root.querySelector<HTMLElement>(`#${id}`)!;
+    const transparent = (id: string) =>
+      isTransparentLayoutWrapper(byId(id), { root });
+
+    for (const id of ["grid", "column", "chart", "logos"]) {
+      expect(transparent(id), id).toBe(true);
+    }
+    // A smart group's children are the objects; the group itself only lays them out.
+    expect(transparent("smart")).toBe(true);
+    for (const id of [
+      "track",
+      "caption",
+      "spans",
+      "loose",
+      "single",
+      "id",
+      "group",
+      "box",
+      "holder",
+      "media",
+      "list",
+      "table",
+    ]) {
+      expect(transparent(id), id).toBe(false);
+    }
+    expect(
+      isTransparentLayoutWrapper(root.firstElementChild as HTMLElement),
+    ).toBe(false);
     root.remove();
   });
 

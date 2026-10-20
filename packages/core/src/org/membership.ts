@@ -29,9 +29,13 @@ export function isMissingOrganizationTableError(error: unknown): boolean {
   return false;
 }
 
-export async function isOrgMember(
+async function isOrgMemberWithPolicy(
   orgId: string,
   email: string,
+  options: {
+    allowMissingOrganizationTable: boolean;
+    requireOrganizationRecord: boolean;
+  },
 ): Promise<boolean> {
   const normalized = email.trim().toLowerCase();
   if (!orgId || !normalized) return false;
@@ -57,10 +61,12 @@ export async function isOrgMember(
     ).rows;
   } catch (error) {
     if (!isMissingOrganizationTableError(error)) throw error;
-    return true;
+    if (options.allowMissingOrganizationTable) return true;
+    throw error;
   }
 
   const organization = organizationRows[0] as any;
+  if (!organization && options.requireOrganizationRecord) return false;
   const linked =
     String(organization?.identity_authority ?? "").trim() ||
     String(organization?.identity_id ?? "").trim();
@@ -84,4 +90,30 @@ export async function isOrgMember(
       email: normalized,
     });
   return validation.active;
+}
+
+export function isOrgMember(
+  orgId: string,
+  email: string,
+  options: { requireOrganizationMetadata?: boolean } = {},
+): Promise<boolean> {
+  return isOrgMemberWithPolicy(orgId, email, {
+    allowMissingOrganizationTable: !options.requireOrganizationMetadata,
+    requireOrganizationRecord: !!options.requireOrganizationMetadata,
+  });
+}
+
+/**
+ * Checks membership for an A2A identity authenticated by an organization
+ * secret. Unlike legacy callers, this requires readable organization metadata
+ * as well as the membership row before the token subject can become an owner.
+ */
+export function isOrgMemberForA2A(
+  orgId: string,
+  email: string,
+): Promise<boolean> {
+  return isOrgMemberWithPolicy(orgId, email, {
+    allowMissingOrganizationTable: false,
+    requireOrganizationRecord: true,
+  });
 }

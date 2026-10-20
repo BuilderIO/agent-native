@@ -1,6 +1,9 @@
 import { z } from "zod";
 
 export const analyticsConfig = z.object({
+  authSessionReplay: z.boolean().default(false).meta({
+    doc: "Opt in to privacy-masked session replay on hosted signup and login pages.",
+  }),
   agentNativePublicKey: z
     .string()
     .min(1)

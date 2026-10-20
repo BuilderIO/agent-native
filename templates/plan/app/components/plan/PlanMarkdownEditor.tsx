@@ -3,13 +3,19 @@ import {
   useCollaborativeDoc,
   type CollabUser,
 } from "@agent-native/core/client/collab";
+import { callAction } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   createImageSlashCommand,
   DEFAULT_SLASH_COMMANDS,
   RichMarkdownEditor,
   type RichMarkdownCollabUser,
 } from "@agent-native/toolkit/editor";
+import { createDocument, type Editor } from "@tiptap/core";
+import { prosemirrorToYDoc } from "@tiptap/y-tiptap";
 import { useCallback, useEffect, useMemo, useRef } from "react";
+import { toast } from "sonner";
+import { encodeStateAsUpdate } from "yjs";
 
 import { cn } from "@/lib/utils";
 
@@ -78,6 +84,52 @@ export function PlanMarkdownEditor({
   });
   const editorEditable =
     editable && (!collabEnabled || initialization.status === "ready");
+
+  // Two people opening a plan together would each seed this block's empty live
+  // document from its saved markdown, and the two copies merge into duplicated
+  // text. The server seeds it once and every editor adopts that copy.
+  const requestInitialSeed = useCallback(
+    async (seedEditor: Editor, markdown: string): Promise<Uint8Array> => {
+      if (!planId || !blockId)
+        throw new Error("A plan and block ID are required to seed the editor.");
+      const parser = (
+        seedEditor.storage as {
+          markdown?: { parser?: { parse(content: string): string } };
+        }
+      ).markdown?.parser;
+      if (!parser) throw new Error("The editor cannot read markdown.");
+      const seedDoc = prosemirrorToYDoc(
+        createDocument(parser.parse(markdown), seedEditor.schema),
+        "default",
+      );
+      try {
+        const update = encodeStateAsUpdate(seedDoc);
+        let binary = "";
+        for (const byte of update) binary += String.fromCharCode(byte);
+        const result = await callAction<{ stateBase64: string }>(
+          "seed-plan-collab",
+          { planId, blockId, seedUpdateBase64: btoa(binary) },
+        );
+        return Uint8Array.from(atob(result.stateBase64), (char) =>
+          char.charCodeAt(0),
+        );
+      } finally {
+        seedDoc.destroy();
+      }
+    },
+    [planId, blockId],
+  );
+  const t = useT();
+  const seedErrorShownRef = useRef(false);
+  const onInitialSeedError = useCallback(
+    (error: unknown) => {
+      console.error("Failed to open the plan block for live editing:", error);
+      if (seedErrorShownRef.current) return;
+      seedErrorShownRef.current = true;
+      toast.error(t("raw.content.openFailed"));
+    },
+    [t],
+  );
   const slashCommands = useMemo(() => {
     const imageCommand = createImageSlashCommand(uploadImage);
     return [
@@ -186,6 +238,10 @@ export function PlanMarkdownEditor({
         ydoc={collabEnabled ? ydoc : null}
         collabSynced={collabEnabled ? collabSynced : true}
         requestCollabSync={collabEnabled ? requestSync : undefined}
+        requestInitialSeed={
+          collabEnabled && editable ? requestInitialSeed : undefined
+        }
+        onInitialSeedError={onInitialSeedError}
         awareness={collabEnabled ? awareness : null}
         user={collabEnabled ? collabUser : null}
       />

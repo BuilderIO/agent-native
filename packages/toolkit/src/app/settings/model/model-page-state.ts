@@ -33,7 +33,10 @@ export interface ProviderModelsRead {
     provider: string;
     recommendedModels: string[];
     rows: Partial<
-      Record<ModelProviderKeyScope, { models: string[] | null } | undefined>
+      Record<
+        ModelProviderKeyScope,
+        { models: string[] | null; preserveCustomModels?: boolean } | undefined
+      >
     >;
   }>;
 }
@@ -47,6 +50,17 @@ export function selectedModelsAt(
   const entry = read?.providers.find((item) => item.provider === provider);
   if (!entry) return null;
   return entry.rows[scope]?.models ?? entry.recommendedModels;
+}
+
+function preservesCustomModelsAt(
+  read: ProviderModelsRead | undefined,
+  provider: string,
+  scope: ModelProviderKeyScope,
+): boolean {
+  return (
+    read?.providers.find((item) => item.provider === provider)?.rows[scope]
+      ?.preserveCustomModels === true
+  );
 }
 
 /** The models checked at `scope`, or null when nothing is chosen there. */
@@ -210,6 +224,7 @@ export interface DefaultModelGroup {
   provider: AgentProviderId | "builder" | "chatgpt";
   label: string;
   models: string[];
+  preserveCustomModels?: boolean;
   /** Names to show instead of the model ids, where the provider has them. */
   modelDisplayNames?: Record<string, string>;
 }
@@ -252,7 +267,7 @@ export function defaultModelGroups(input: {
   }
   for (const entry of listing.providers) {
     const key = scope === "org" ? entry.org : entry.personal;
-    if (!key || key.rejectedAt) continue;
+    if (key?.rejectedAt || (!key && !entry.deploymentConfigured)) continue;
     const checked = selectedModelsAt(models, entry.provider, scope) ?? [];
     if (checked.length === 0) continue;
     groups.push({
@@ -260,6 +275,10 @@ export function defaultModelGroups(input: {
       provider: entry.provider,
       label: entry.label,
       models: checked,
+      ...(entry.provider === "openai" &&
+      preservesCustomModelsAt(models, entry.provider, scope)
+        ? { preserveCustomModels: true }
+        : {}),
     });
   }
   if (

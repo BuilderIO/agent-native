@@ -1,20 +1,101 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  assertValidMotionEasingVariables,
+  createMotionEaseVariableId,
+  isMotionEaseVariableReference,
+  isValidMotionEase,
   MOTION_CURVE_PRESETS,
+  motionEaseVariableId,
+  motionEaseVariableName,
+  motionEaseVariableToken,
   MOTION_SPRING_DEFAULT_BOUNCE,
   MOTION_SPRING_PRESETS,
   evaluateCssLinear,
   motionEaseToCss,
   parseCssLinearStops,
   parseSpringToken,
+  resolveMotionEase,
   sampleSpring,
   springToCssLinear,
   springToken,
 } from "./motion-easing";
 
+describe("Motion easing variables", () => {
+  const variables = [
+    {
+      id: "ease-out",
+      name: "Ease out",
+      value: "cubic-bezier(0, 0, 0.58, 1)",
+      collection: "Motion",
+    },
+  ];
+
+  it("generates stable CSS-safe ids and canonical references", () => {
+    expect(createMotionEaseVariableId("Ease out")).toBe("ease-out");
+    expect(createMotionEaseVariableId("Ease out", ["ease-out"])).toBe(
+      "ease-out-2",
+    );
+    expect(
+      createMotionEaseVariableId("Ease out", ["ease-out", "ease-out-2"]),
+    ).toBe("ease-out-3");
+    expect(createMotionEaseVariableId("Élan / Bounce")).toBe("elan-bounce");
+    expect(motionEaseVariableName("ease-out")).toBe(
+      "--an-motion-ease-ease-out",
+    );
+    expect(motionEaseVariableToken("ease-out")).toBe(
+      "var(--an-motion-ease-ease-out)",
+    );
+    expect(motionEaseVariableId("var(--an-motion-ease-ease-out)")).toBe(
+      "ease-out",
+    );
+    expect(
+      isMotionEaseVariableReference("var(--an-motion-ease-ease-out)"),
+    ).toBe(true);
+    expect(isValidMotionEase("var(--an-motion-ease-ease-out)")).toBe(true);
+    expect(isValidMotionEase("var( --an-motion-ease-ease-out )")).toBe(false);
+    expect(isValidMotionEase("var(--custom-easing)")).toBe(false);
+    expect(
+      isMotionEaseVariableReference("var(--AN-MOTION-EASE-ease-out)"),
+    ).toBe(false);
+    expect(() => motionEaseVariableToken("../bad")).toThrow(/ids must be/);
+  });
+
+  it("resolves concrete values and rejects missing or nested references", () => {
+    expect(resolveMotionEase("var(--an-motion-ease-ease-out)", variables)).toBe(
+      variables[0]!.value,
+    );
+    expect(() =>
+      resolveMotionEase("var(--an-motion-ease-missing)", variables),
+    ).toThrow(/not defined/);
+    expect(() =>
+      resolveMotionEase("var(--an-motion-ease-ease-out)", [
+        { ...variables[0]!, value: "var(--an-motion-ease-other)" },
+      ]),
+    ).toThrow(/concrete supported easing/);
+  });
+
+  it("validates bounded definitions and rejects duplicate ids and unsafe values", () => {
+    expect(() => assertValidMotionEasingVariables(variables)).not.toThrow();
+    expect(() =>
+      assertValidMotionEasingVariables([
+        ...variables,
+        { ...variables[0]!, name: "Other" },
+      ]),
+    ).toThrow(/duplicated/);
+    expect(() =>
+      assertValidMotionEasingVariables([{ ...variables[0]!, id: "bad;id" }]),
+    ).toThrow(/invalid id/);
+    expect(() =>
+      assertValidMotionEasingVariables([
+        { ...variables[0]!, value: "var(--custom-easing)" },
+      ]),
+    ).toThrow(/concrete supported easing/);
+  });
+});
+
 describe("MOTION_CURVE_PRESETS", () => {
-  it("lists Figma Motion's Curve tab presets verbatim, in order", () => {
+  it("lists the supported curve presets in order", () => {
     expect(MOTION_CURVE_PRESETS.map((p) => p.label)).toEqual([
       "Hold",
       "Linear",
@@ -27,7 +108,7 @@ describe("MOTION_CURVE_PRESETS", () => {
     ]);
   });
 
-  it("uses the live-verified Ease in and out bezier (.42, 0, .58, 1)", () => {
+  it("uses the configured Ease in and out bezier (.42, 0, .58, 1)", () => {
     const preset = MOTION_CURVE_PRESETS.find(
       (p) => p.label === "Ease in and out",
     );
@@ -93,7 +174,7 @@ describe("spring token", () => {
 });
 
 describe("MOTION_SPRING_PRESETS", () => {
-  it("lists Figma Motion's Spring tab presets verbatim, in order", () => {
+  it("lists spring presets in order", () => {
     expect(MOTION_SPRING_PRESETS.map((p) => p.label)).toEqual([
       "Gentle",
       "Quick",
@@ -102,12 +183,12 @@ describe("MOTION_SPRING_PRESETS", () => {
     ]);
   });
 
-  it("uses the live-verified Bouncy bounce of 0.69", () => {
+  it("uses the configured Bouncy bounce of 0.69", () => {
     const bouncy = MOTION_SPRING_PRESETS.find((p) => p.label === "Bouncy");
     expect(bouncy?.spring.bounce).toBe(0.69);
   });
 
-  it("defaults Custom spring bounce to 0.25 (Figma default)", () => {
+  it("defaults Custom spring bounce to 0.25", () => {
     expect(MOTION_SPRING_DEFAULT_BOUNCE).toBe(0.25);
   });
 

@@ -24,6 +24,7 @@ import {
   documentPropertiesPlaceholder,
   documentPropertiesResponseMatchesScope,
   useConfigureDocumentProperty,
+  useDocumentProperties,
   useSetDocumentProperty,
   useUpdateDatabaseItems,
 } from "./use-document-properties";
@@ -94,6 +95,41 @@ describe("documentPropertiesPlaceholder", () => {
     expect(
       documentPropertiesPlaceholder("row-1", null, [field(null)]),
     ).toBeUndefined();
+  });
+});
+
+describe("useDocumentProperties", () => {
+  beforeEach(() => {
+    useActionQuery.mockReset();
+    useActionQuery.mockReturnValue({ data: undefined, isError: false });
+  });
+
+  it("can use the page read as the property snapshot without a second request", () => {
+    const placeholder = {
+      documentId: "doc-1",
+      databaseId: "database-1",
+      canEditValues: false,
+      canManageSchema: false,
+      properties: [],
+    };
+
+    useDocumentProperties("doc-1", "database-1", {
+      enabled: false,
+      placeholder,
+    });
+
+    const [actionName, args, options] = useActionQuery.mock.calls[0] as [
+      string,
+      Record<string, unknown>,
+      {
+        enabled: boolean;
+        placeholderData: (previous: unknown) => unknown;
+      },
+    ];
+    expect(actionName).toBe("list-document-properties");
+    expect(args).toEqual({ documentId: "doc-1", databaseId: "database-1" });
+    expect(options.enabled).toBe(false);
+    expect(options.placeholderData({ documentId: "stale" })).toBe(placeholder);
   });
 });
 
@@ -236,6 +272,36 @@ describe("useConfigureDocumentProperty", () => {
       });
     },
   );
+
+  it("leaves a Blocks field's options out of a rename", async () => {
+    const transport = vi.fn(async (_input: unknown) => undefined);
+    useQueryClient.mockReturnValue(new QueryClient());
+    useActionMutation.mockReturnValue({ mutateAsync: transport });
+    const configure = useConfigureDocumentProperty("row-page", "database-1");
+
+    await configure.mutateAsync({
+      id: "notes",
+      documentId: "row-page",
+      name: "Workshop notes",
+      type: "blocks",
+      description: "",
+      visibility: "always_show",
+      options: { blocks: { primary: false } },
+      icon: null,
+    });
+
+    expect(transport.mock.calls[0][0]).toEqual({
+      id: "notes",
+      documentId: "row-page",
+      databaseId: "database-1",
+      name: "Workshop notes",
+      type: "blocks",
+      description: "",
+      visibility: "always_show",
+      options: undefined,
+      icon: null,
+    });
+  });
 
   it("adapts a rendered ordinary option edit to the guarded setup contract", async () => {
     const transportMutateAsync = vi.fn(async () => undefined);

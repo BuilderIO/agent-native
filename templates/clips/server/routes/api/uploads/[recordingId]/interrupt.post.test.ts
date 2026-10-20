@@ -6,6 +6,7 @@ const mockCompareAndSetAppState = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 const mockIsFeatureFlagEnabled = vi.hoisted(() => vi.fn());
 const mockAbortUpload = vi.hoisted(() => vi.fn());
+const mockReconcileMeetingOnRecordingFailed = vi.hoisted(() => vi.fn());
 const mockSelectRows = vi.hoisted(() => ({
   rows: [] as Array<Record<string, unknown>>,
 }));
@@ -70,6 +71,16 @@ vi.mock("../../../../lib/recordings.js", () => ({
   }),
   ownerEmailMatches: () => "owner-match",
 }));
+vi.mock("../../../../lib/reconcile-meeting-on-finalize.js", () => ({
+  reconcileMeetingOnRecordingFailed: (...args: unknown[]) =>
+    mockReconcileMeetingOnRecordingFailed(...args),
+}));
+vi.mock("../../../../lib/upload-lease.js", () => ({
+  isParkedForStorage: (row: {
+    status: string;
+    failureReason?: string | null;
+  }) => row.status === "uploading" && Boolean(row.failureReason),
+}));
 vi.mock("./abort.post.js", () => ({
   default: (...args: unknown[]) => mockAbortUpload(...args),
 }));
@@ -127,6 +138,12 @@ describe("/api/uploads/:recordingId/interrupt route", () => {
           "Upload was interrupted. The local recording is safe; retry from the Clips desktop app. Last error: TypeError: Load failed",
       }),
     ]);
+    expect(mockReconcileMeetingOnRecordingFailed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recordingId: "rec-1",
+        ownerEmail: "owner@example.com",
+      }),
+    );
     expect(mockCompareAndSetAppState).toHaveBeenCalledWith(
       "recording-upload-rec-1",
       expect.objectContaining({ bytesReceived: 7_864_320 }),
@@ -137,6 +154,62 @@ describe("/api/uploads/:recordingId/interrupt route", () => {
         interruptionDetail: "TypeError: Load failed",
       }),
     );
+  });
+
+  it("publishes the failed resumable state before surfacing dispatch failure", async () => {
+    const dispatchError = new Error("meeting finalization dispatch failed");
+    mockReconcileMeetingOnRecordingFailed.mockRejectedValueOnce(dispatchError);
+
+    await expect(handler({} as any)).rejects.toBe(dispatchError);
+
+    expect(mockCompareAndSetAppState).toHaveBeenCalledWith(
+      "recording-upload-rec-1",
+      expect.objectContaining({ bytesReceived: 7_864_320 }),
+      expect.objectContaining({
+        status: "failed",
+        retryableInterruption: true,
+      }),
+    );
+    expect(mockWriteAppState).toHaveBeenCalledWith(
+      "refresh-signal",
+      expect.objectContaining({ ts: expect.any(Number) }),
+    );
+    expect(mockCompareAndSetAppState.mock.invocationCallOrder[0]).toBeLessThan(
+      mockReconcileMeetingOnRecordingFailed.mock.invocationCallOrder[0],
+    );
+    expect(mockWriteAppState.mock.invocationCallOrder[0]).toBeLessThan(
+      mockReconcileMeetingOnRecordingFailed.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("leaves a storage-parked upload untouched after a delayed interruption", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "uploading",
+        failureReason: "Waiting for storage setup",
+        videoUrl: null,
+        uploadAttemptId: "attempt-1",
+        uploadGenerationId: "generation-1",
+      },
+    ];
+    mockBody.value = {
+      detail: "Video storage status was unavailable (503)",
+      attemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    };
+
+    await expect(handler({} as any)).resolves.toEqual({
+      ok: true,
+      recordingId: "rec-1",
+      status: "uploading",
+      parkedForStorage: true,
+    });
+
+    expect(mockUpdateSets).toHaveLength(0);
+    expect(mockCompareAndSetAppState).not.toHaveBeenCalled();
+    expect(mockReadAppState).not.toHaveBeenCalled();
+    expect(mockWriteAppState).not.toHaveBeenCalled();
   });
 
   it("redacts HTML response bodies while preserving the failure code", async () => {

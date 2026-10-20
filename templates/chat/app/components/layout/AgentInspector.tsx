@@ -5,6 +5,7 @@ import { AgentSidebar } from "@agent-native/toolkit/app/chat";
 import { type ReactNode } from "react";
 import { useNavigate } from "react-router";
 
+import { chatThreadPath } from "@/lib/chat-paths";
 import { TAB_ID } from "@/lib/tab-id";
 
 interface AgentInspectorProps {
@@ -24,10 +25,7 @@ export function AgentInspector({
 
   function openAskAgentFullscreen(threadId?: string) {
     focusAgentChat();
-    navigateWithAgentChatViewTransition(
-      navigate,
-      threadId ? `/chat/${encodeURIComponent(threadId)}` : "/home",
-    );
+    navigateWithAgentChatViewTransition(navigate, chatThreadPath(threadId));
   }
 
   return (

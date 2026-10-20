@@ -1,11 +1,43 @@
-import { describe, expect, it } from "vitest";
+// @vitest-environment happy-dom
 
-import { isBareContentPath, isDeckEditorPath } from "./root";
+import { getEmbedAuthToken } from "@agent-native/core/client/host";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@agent-native/core/client/host", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/host")>()),
+  getEmbedAuthToken: vi.fn(() => null),
+}));
+
+import {
+  computeSessionBypass,
+  isBareContentPath,
+  isDeckEditorPath,
+} from "./root";
 
 describe("session and content route policy", () => {
+  beforeEach(() => {
+    sessionStorage.clear();
+    window.history.replaceState(null, "", "/");
+    vi.mocked(getEmbedAuthToken).mockReturnValue(null);
+  });
+
   it("requires a session for the editor while skipping startup onboarding", () => {
     expect(isBareContentPath("/deck/abc123")).toBe(false);
     expect(isDeckEditorPath("/deck/abc123")).toBe(true);
+    expect(computeSessionBypass("/deck/abc123")).toBe(false);
+  });
+
+  it("bypasses the session gate for a deck opened with a real embed token", () => {
+    vi.mocked(getEmbedAuthToken).mockReturnValue("scoped-embed-token");
+
+    expect(computeSessionBypass("/deck/abc123")).toBe(true);
+    expect(computeSessionBypass("/settings/agent")).toBe(false);
+  });
+
+  it("does not bypass the session gate for embedded=1 without an embed token", () => {
+    window.history.replaceState(null, "", "/deck/abc123?embedded=1");
+
+    expect(computeSessionBypass("/deck/abc123")).toBe(false);
   });
 
   it("classifies the full-screen presentation route as shareable content", () => {

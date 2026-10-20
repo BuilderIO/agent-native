@@ -303,9 +303,8 @@ function isSetEffect(value: string | undefined): boolean {
   return Boolean(trimmed) && trimmed !== "none";
 }
 
-// Figma disables corner radius on text because text has no box. HTML text can
-// paint one, and border-radius then visibly rounds it, so only boxless text
-// loses the control.
+// Border radius has no visible effect on text without a painted box, so keep
+// the control available when its background, border, or effects create one.
 export function isBoxlessText(element: ElementInfo): boolean {
   if (!isTextElement(element)) return false;
   const styles = element.computedStyles;

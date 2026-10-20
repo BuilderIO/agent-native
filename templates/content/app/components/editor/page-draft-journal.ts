@@ -40,7 +40,8 @@ export class PageDraftJournalError extends Error {
       | "unavailable"
       | "write_failed"
       | "read_failed"
-      | "invalid_entry",
+      | "invalid_entry"
+      | "rollback_failed",
     readonly cause?: unknown,
   ) {
     super(`Page draft journal ${code.replace(/_/g, " ")}.`);
@@ -51,6 +52,63 @@ export class PageDraftJournalError extends Error {
 const PREFIX = "content-page-draft-journal-v1:";
 // Retired: these markers kept a permanent "saved to History" banner on screen.
 const LEGACY_RETAINED_PREFIX = "content-page-draft-retained-v1:";
+const WRITER_LOCK_PREFIX = "content-page-draft-writer-v1:";
+
+function lockManager(): LockManager | null {
+  return typeof navigator === "undefined" ? null : (navigator.locks ?? null);
+}
+
+/**
+ * Holds a Web Lock named for this editor session until the returned release
+ * runs. Every tab shares the journal, so the lock is how another tab tells an
+ * entry whose editor is still open from one a closed or reloaded tab left
+ * behind; the browser drops it with the tab.
+ */
+export function holdPageDraftWriter(writerId: string): () => void {
+  const locks = lockManager();
+  if (!locks) return () => {};
+  let released = false;
+  let release: (() => void) | null = null;
+  locks
+    .request(
+      WRITER_LOCK_PREFIX + writerId,
+      () =>
+        new Promise<void>((resolve) => {
+          if (released) resolve();
+          else release = resolve;
+        }),
+    )
+    .catch((error: unknown) => {
+      // coercion-ok: A writer whose lock was refused reads as gone, so another
+      // tab may replay its journal, as it did before writer locks. Reading it
+      // as live instead would strand that journal once this tab closed.
+      console.warn(
+        "Could not hold the page draft writer lock; another tab may replay this editor's draft",
+        error,
+      );
+    });
+  return () => {
+    released = true;
+    release?.();
+  };
+}
+
+/**
+ * The writer IDs whose editors are open in some tab, or null when this
+ * browser has no Web Locks and cannot tell.
+ */
+export async function liveDraftWriterIds(): Promise<ReadonlySet<string> | null> {
+  const locks = lockManager();
+  if (!locks) return null;
+  const { held = [] } = await locks.query();
+  return new Set(
+    held.flatMap(({ name }) =>
+      name?.startsWith(WRITER_LOCK_PREFIX)
+        ? [name.slice(WRITER_LOCK_PREFIX.length)]
+        : [],
+    ),
+  );
+}
 
 function storage(): Storage {
   try {
@@ -153,7 +211,24 @@ function parseEntry(raw: string, expectedKey: string): PageDraftJournalEntry {
 export function writePageDraftJournal(input: {
   scope: PageDraftJournalScope;
   snapshot: PageDraftJournalSnapshot;
-}): PageDraftJournalEntry {
+}): PageDraftJournalEntry;
+export function writePageDraftJournal(input: {
+  scope: PageDraftJournalScope;
+  snapshot: PageDraftJournalSnapshot;
+  currentTitle: string;
+}): PageDraftJournalEntry | null;
+export function writePageDraftJournal(input: {
+  scope: PageDraftJournalScope;
+  snapshot: PageDraftJournalSnapshot;
+  currentTitle?: string;
+}): PageDraftJournalEntry | null {
+  // Peer title adoption does not advance editGeneration.
+  if (
+    input.currentTitle !== undefined &&
+    input.snapshot.title !== input.currentTitle
+  )
+    return null;
+
   const scope = normalizedScope(input.scope);
   if (
     !Number.isSafeInteger(input.snapshot.editGeneration) ||
@@ -175,6 +250,120 @@ export function writePageDraftJournal(input: {
     throw new PageDraftJournalError("write_failed", cause);
   }
   return entry;
+}
+
+export function updatePageDraftJournalTitle(
+  scope: PageDraftJournalScope,
+  title: string,
+): boolean {
+  const normalized = normalizedScope(scope);
+  const itemKey = key(normalized);
+  try {
+    const store = storage();
+    const raw = store.getItem(itemKey);
+    if (raw === null) return false;
+    const entry = parseEntry(raw, itemKey);
+    if (entry.snapshot.title === title && entry.snapshot.baseTitle === title)
+      return true;
+    if (entry.snapshot.title !== entry.snapshot.baseTitle) return false;
+    store.setItem(
+      itemKey,
+      JSON.stringify({
+        ...entry,
+        snapshot: { ...entry.snapshot, title, baseTitle: title },
+        writtenAt: Date.now(),
+      }),
+    );
+  } catch (cause) {
+    if (cause instanceof PageDraftJournalError) throw cause;
+    throw new PageDraftJournalError("write_failed", cause);
+  }
+  return true;
+}
+
+export async function syncPageDraftJournalBeforePersistingRecoveryDraft(input: {
+  persist: () => Promise<void>;
+  scope: PageDraftJournalScope | null;
+  title: string;
+  editGeneration: number;
+  content: string;
+}): Promise<boolean> {
+  const scope = input.scope;
+  let synchronized = false;
+  let journalWriteError: unknown;
+  let journalItemKey: string | null = null;
+  let previousRaw: string | null = null;
+  let writtenRaw: string | null = null;
+  if (scope) {
+    try {
+      const normalized = normalizedScope(scope);
+      journalItemKey = key(normalized);
+      const store = storage();
+      previousRaw = store.getItem(journalItemKey);
+      if (previousRaw !== null) {
+        const entry = parseEntry(previousRaw, journalItemKey);
+        if (
+          entry.snapshot.editGeneration === input.editGeneration &&
+          entry.snapshot.title === entry.snapshot.baseTitle
+        ) {
+          const contentChanged = entry.snapshot.content !== input.content;
+          const snapshot = {
+            ...entry.snapshot,
+            title: input.title,
+            baseTitle: input.title,
+            content: input.content,
+            ...(contentChanged
+              ? {
+                  authoredBaseRevision: undefined,
+                  authoredBaseContent: undefined,
+                  authoredCandidateContent: undefined,
+                  saveAttemptId: undefined,
+                  priorSaveAttemptIds: undefined,
+                  equivalentSaveAttemptIds: undefined,
+                }
+              : {}),
+          };
+          writtenRaw = JSON.stringify({
+            ...entry,
+            snapshot,
+            writtenAt: Date.now(),
+          });
+          store.setItem(journalItemKey, writtenRaw);
+          synchronized = true;
+        }
+      }
+    } catch (cause) {
+      journalWriteError =
+        cause instanceof PageDraftJournalError
+          ? cause
+          : new PageDraftJournalError("write_failed", cause);
+    }
+  }
+
+  try {
+    await input.persist();
+  } catch (persistError) {
+    if (
+      synchronized &&
+      journalItemKey !== null &&
+      previousRaw !== null &&
+      writtenRaw !== null
+    ) {
+      try {
+        const store = storage();
+        if (store.getItem(journalItemKey) === writtenRaw)
+          store.setItem(journalItemKey, previousRaw);
+      } catch (rollbackError) {
+        throw new PageDraftJournalError("rollback_failed", {
+          persistError,
+          rollbackError,
+        });
+      }
+    }
+    throw persistError;
+  }
+  if (journalWriteError !== undefined) throw journalWriteError;
+  return synchronized;
 }
 
 export function listPageDraftJournal(
@@ -205,10 +394,13 @@ export function listPageDraftJournal(
 
 export function readPageDraftJournal(
   scope: Omit<PageDraftJournalScope, "writerId">,
+  skipWriterIds: ReadonlySet<string> = new Set(),
 ): PageDraftJournalEntry | null {
   return (
     listPageDraftJournal(scope).find(
-      (entry) => entry.recoveryStatus !== "retained_in_history",
+      (entry) =>
+        entry.recoveryStatus !== "retained_in_history" &&
+        !skipWriterIds.has(entry.scope.writerId),
     ) ?? null
   );
 }

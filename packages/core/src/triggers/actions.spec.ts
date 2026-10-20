@@ -6,6 +6,7 @@ import { createAutomationToolEntries } from "./actions.js";
 const resourceListAllOwnersMock = vi.hoisted(() => vi.fn());
 const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const resourcePutMock = vi.hoisted(() => vi.fn());
+const resourcePutIfCurrentMock = vi.hoisted(() => vi.fn());
 const resourceDeleteMock = vi.hoisted(() => vi.fn());
 const refreshEventSubscriptionsMock = vi.hoisted(() => vi.fn());
 const emitMock = vi.hoisted(() => vi.fn());
@@ -26,6 +27,7 @@ vi.mock("../resources/store.js", () => ({
   resourceList: resourceListAllOwnersMock,
   resourceGetByPath: resourceGetByPathMock,
   resourcePut: resourcePutMock,
+  resourcePutIfCurrent: resourcePutIfCurrentMock,
   resourceDelete: resourceDeleteMock,
 }));
 
@@ -66,6 +68,14 @@ describe("manage-automations tool", () => {
     resourceListAllOwnersMock.mockResolvedValue([]);
     resourceGetByPathMock.mockResolvedValue(null);
     resourcePutMock.mockResolvedValue(undefined);
+    resourcePutIfCurrentMock.mockImplementation(
+      async (input: { owner: string; path: string; content: string }) => ({
+        id: "resource-1",
+        owner: input.owner,
+        path: input.path,
+        content: input.content,
+      }),
+    );
     resourceDeleteMock.mockResolvedValue(undefined);
     refreshEventSubscriptionsMock.mockResolvedValue(undefined);
     resolveUserSchedulingTimezoneMock.mockResolvedValue("America/Los_Angeles");
@@ -233,10 +243,12 @@ Record the QA signal.`,
       body: "Updated body.",
     });
 
-    expect(resourcePutMock).toHaveBeenLastCalledWith(
-      owner,
-      "jobs/qa-alert.md",
-      expect.stringContaining("enabled: false"),
+    expect(resourcePutIfCurrentMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        owner,
+        path: "jobs/qa-alert.md",
+        content: expect.stringContaining("enabled: false"),
+      }),
     );
 
     resourceGetByPathMock.mockResolvedValueOnce({
@@ -500,6 +512,56 @@ Record the QA signal.`,
     });
     expect(result).toContain("Invalid reasoning effort");
     expect(resourcePutMock).not.toHaveBeenCalled();
+  });
+
+  it("reports an updated card when only the body changed but a run paused the automation", async () => {
+    const entry = tool();
+    const initial = `---
+schedule: ""
+enabled: true
+triggerType: event
+event: test.event.fired
+mode: agentic
+createdBy: ${owner}
+---
+
+Record the QA signal.`;
+    const paused = initial.replace(
+      "enabled: true",
+      'enabled: false\nlastStatus: paused\npausedReason: "http_502"',
+    );
+    resourceGetByPathMock
+      .mockResolvedValueOnce({
+        id: "resource-1",
+        owner,
+        path: "jobs/qa-verb.md",
+        content: initial,
+      })
+      .mockResolvedValueOnce({
+        id: "resource-1",
+        owner,
+        path: "jobs/qa-verb.md",
+        content: paused,
+        updatedAt: 2,
+      });
+    resourcePutIfCurrentMock
+      .mockResolvedValueOnce(null)
+      .mockImplementationOnce(
+        async (input: { owner: string; path: string; content: string }) => ({
+          id: "resource-1",
+          owner: input.owner,
+          path: input.path,
+          content: input.content,
+        }),
+      );
+
+    const result = await entry.run({
+      action: "update",
+      name: "qa-verb",
+      body: "Updated QA instructions.",
+    });
+
+    expect(JSON.parse(result).change).toMatchObject({ verb: "updated" });
   });
 
   it("rejects define with mode: deterministic and persists nothing", async () => {

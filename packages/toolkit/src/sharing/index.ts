@@ -14,6 +14,10 @@ export {
   ShareModeTabs,
   type ShareModeTab,
   type ShareModeTabsProps,
+  ShareTabList,
+  type ShareTabListProps,
+  ShareTabs,
+  type ShareTabsProps,
 } from "./ShareControls.js";
 export {
   ShareAgentsSection,

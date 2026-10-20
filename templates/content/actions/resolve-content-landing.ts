@@ -7,7 +7,10 @@ import {
   readAppState,
 } from "@agent-native/core/application-state";
 import { runWithRequestContext } from "@agent-native/core/server";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
@@ -397,10 +400,17 @@ export default defineAction({
       } satisfies ContentSpaceLandingResult;
     }
 
+    // /home may ask before it knows its session, so the answer names the
+    // account it was resolved for and /home adopts it only for that account.
+    const account = { email: userEmail, orgId: getRequestOrgId() ?? null };
     const lastLocation = await readAppState(CONTENT_LAST_LOCATION_STATE_KEY);
     const lastDocumentId = savedDocumentId(lastLocation);
     if (lastDocumentId && (await resolveUsableDocument(lastDocumentId))) {
-      return { documentId: lastDocumentId, resolution: "restored" as const };
+      return {
+        documentId: lastDocumentId,
+        resolution: "restored" as const,
+        account,
+      };
     }
 
     const welcome = await resolveWelcome(userEmail);
@@ -410,8 +420,9 @@ export default defineAction({
         resolution: "fallback" as const,
         fallbackReason: "saved-document-unavailable" as const,
         ...welcomeCreated(welcome.resolution),
+        account,
       };
     }
-    return { ...welcome, ...welcomeCreated(welcome.resolution) };
+    return { ...welcome, ...welcomeCreated(welcome.resolution), account };
   },
 });

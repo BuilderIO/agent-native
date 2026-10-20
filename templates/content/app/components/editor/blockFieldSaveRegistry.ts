@@ -100,6 +100,19 @@ export function releaseBlockFieldSaveController(key: string): Promise<boolean> {
   return Promise.resolve(entry.controller.flush()).then(settle, settle);
 }
 
+/**
+ * Drops a deleted field's controller without saving it. The field is gone, so
+ * its unsaved text has nowhere to go, and a controller left dirty by a failed
+ * save would make every later flush for the page fail.
+ */
+export function forgetBlockFieldSaveController(key: string): void {
+  const entry = registry.get(key);
+  if (!entry) return;
+  entry.controller.cancel();
+  registry.delete(key);
+  saveImpls.delete(key);
+}
+
 type SaveImpl = (value: string) => Promise<unknown>;
 const saveImpls = new Map<string, { current: SaveImpl }>();
 

@@ -113,11 +113,12 @@ function relationGlyph(kind?: DataModelRelationKind): string {
 
 function effectiveRelations(data: DataModelData): DataModelRelation[] {
   if (data.relations && data.relations.length > 0) return data.relations;
+  const entities = data.entities ?? [];
   const inferred: DataModelRelation[] = [];
-  for (const entity of data.entities) {
+  for (const entity of entities) {
     for (const field of entity.fields) {
       if (!field.fk) continue;
-      const target = resolveEntity(data.entities, parseFk(field.fk).entity);
+      const target = resolveEntity(entities, parseFk(field.fk).entity);
       if (!target) continue;
       inferred.push({
         from: target.id,

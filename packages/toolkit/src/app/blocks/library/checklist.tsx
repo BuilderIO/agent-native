@@ -24,11 +24,12 @@ export function ChecklistBlock({
 }: BlockReadProps<ChecklistData> & {
   onToggle?: (itemId: string) => void;
 }) {
+  const items = data.items === undefined ? [] : data.items;
   return (
     <section className="plan-block" data-block-id={blockId}>
       {title && <div className="plan-block-label">{title}</div>}
       <div className="grid gap-2">
-        {data.items.map((item) =>
+        {items.map((item) =>
           onToggle ? (
             <button
               key={item.id}
@@ -86,7 +87,7 @@ export function ChecklistEditor({
   onChange,
   editable,
 }: BlockEditProps<ChecklistData>) {
-  const items = data.items;
+  const items = data.items === undefined ? [] : data.items;
 
   const update = (next: ChecklistItem[]) => onChange({ items: next });
 

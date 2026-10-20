@@ -1,6 +1,7 @@
 import { getAppConfig } from "../app-config/index.js";
 import { isLocalDatabase } from "../db/client.js";
 import { signInternalToken } from "../integrations/internal-token.js";
+import { parseRetryAfterMs } from "../shared/retry-after.js";
 import {
   SYNTHETIC_TRAFFIC_BETA_E2E,
   SYNTHETIC_TRAFFIC_HEADER,
@@ -115,10 +116,25 @@ export interface FireInternalDispatchOptions {
   responseTimeoutMs?: number;
 }
 
+/**
+ * A non-2xx answer from the dispatch target. Callers decide whether to back
+ * off from `httpStatus` and `retryAfterMs` instead of parsing the message.
+ */
+export class SelfDispatchHttpError extends Error {
+  readonly httpStatus: number;
+  readonly retryAfterMs?: number;
+  constructor(message: string, httpStatus: number, retryAfterMs?: number) {
+    super(message);
+    this.name = "SelfDispatchHttpError";
+    this.httpStatus = httpStatus;
+    this.retryAfterMs = retryAfterMs;
+  }
+}
+
 async function dispatchResponseError(
   path: string,
   res: Response,
-): Promise<Error> {
+): Promise<SelfDispatchHttpError> {
   let body = "";
   try {
     body = (await res.text()).trim();
@@ -126,8 +142,14 @@ async function dispatchResponseError(
     body = "";
   }
   const detail = body ? `: ${body.slice(0, 300)}` : "";
-  return new Error(
+  const retryAfter = res.headers?.get("retry-after");
+  const retryAfterMs = retryAfter
+    ? parseRetryAfterMs({ "retry-after": retryAfter })
+    : null;
+  return new SelfDispatchHttpError(
     `Self-dispatch to ${path} returned HTTP ${res.status} ${res.statusText}${detail}`,
+    res.status,
+    retryAfterMs ?? undefined,
   );
 }
 

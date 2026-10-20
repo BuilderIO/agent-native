@@ -5,19 +5,23 @@ import {
 import { getOrgContext } from "@agent-native/core/org";
 import {
   captureRouteError,
+  getForwardedRequestOrigin,
+  getForwardedRequestURL,
   getSession,
   runWithRequestContext,
   signShortLivedToken,
   verifyShortLivedToken,
 } from "@agent-native/core/server";
-import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "@agent-native/core/shared";
+import {
+  AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
+  parseDataUrl,
+} from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import {
   defineEventHandler,
   getCookie,
   getQuery,
-  getRequestURL,
   getRouterParam,
   setCookie,
   setResponseStatus,
@@ -25,12 +29,17 @@ import {
 } from "h3";
 
 import { getDb, schema } from "../../../db/index.js";
+import { contextClipIdForFootage } from "../../../lib/context-footage.js";
 import {
   isHeldForRedaction,
   REDACTION_HOLD_MESSAGE,
 } from "../../../lib/pending-redactions.js";
 import { isRecordingExpiredForViewer } from "../../../lib/recording-page-access.js";
 import { getOrganizationRoleForEmail } from "../../../lib/recordings.js";
+import {
+  fetchS3ObjectByUrl,
+  isUrlInS3Storage,
+} from "../../../lib/s3-upload-provider.js";
 import {
   getRecordingAccessTokenResourceId,
   verifySharePassword,
@@ -59,7 +68,10 @@ type ThumbnailRecording = {
   organizationId?: string | null;
   password?: string | null;
   sharePasswordVersion?: string | null;
+  trashedAt?: string | null;
   updatedAt?: string | null;
+  failureCode?: string | null;
+  storageMode?: "own" | "hosted" | null;
   visibility?: string | null;
 };
 
@@ -79,7 +91,7 @@ function cookiePath(recordingId: string): string {
 }
 
 function isHttpsRequest(event: H3Event): boolean {
-  const requestUrl = getRequestURL(event);
+  const requestUrl = getForwardedRequestURL(event);
   return (
     requestUrl.protocol === "https:" ||
     process.env.APP_URL?.startsWith("https://") === true
@@ -91,10 +103,11 @@ function renewProtectedMediaCookie(
   recordingId: string,
   password: string | null | undefined,
   sharePasswordVersion: string | null | undefined,
+  scopeId: string = recordingId,
 ): void {
   const token = signShortLivedToken({
     resourceId: getRecordingAccessTokenResourceId(
-      recordingId,
+      scopeId,
       password,
       sharePasswordVersion,
     ),
@@ -122,16 +135,14 @@ function isRecursiveThumbnailUrl(value: string, recordingId: string): boolean {
 }
 
 function dataUrlResponse(sourceUrl: string): Response | null {
-  const match = sourceUrl.match(/^data:(image\/[\w.+-]+)(;base64)?,(.*)$/s);
-  if (!match) return null;
-
-  const [, rawMimeType, encoding, payload] = match;
-  const mimeType = rawMimeType.toLowerCase();
+  const parsed = parseDataUrl(sourceUrl);
+  if (!parsed) return null;
+  const mimeType = parsed.mediaType;
   if (!SAFE_RASTER_IMAGE_TYPES.has(mimeType)) return null;
   try {
-    const bytes = encoding
-      ? decodeBase64(payload)
-      : new TextEncoder().encode(decodeURIComponent(payload));
+    const bytes = parsed.isBase64
+      ? decodeBase64(parsed.data)
+      : new TextEncoder().encode(decodeURIComponent(parsed.data));
     return imageResponse(bytes, mimeType);
   } catch {
     return null;
@@ -223,13 +234,45 @@ async function fetchThumbnail(sourceUrl: string): Promise<Response> {
   return imageResponse(null, "text/plain", 508);
 }
 
+async function fetchHostedThumbnail(
+  sourceUrl: string,
+  recordingId: string,
+): Promise<Response> {
+  const upstream = await fetchS3ObjectByUrl(sourceUrl, {
+    recordingId,
+    storageMode: "hosted",
+    timeoutMs: FETCH_TIMEOUT_MS,
+  });
+  if (!upstream) return imageResponse(null, "text/plain", 404);
+
+  const contentType =
+    upstream.headers
+      .get("content-type")
+      ?.split(";", 1)[0]
+      ?.trim()
+      .toLowerCase() ?? "";
+  if (!upstream.ok || !SAFE_RASTER_IMAGE_TYPES.has(contentType)) {
+    await upstream.body?.cancel().catch(() => {});
+    return imageResponse(
+      null,
+      "text/plain; charset=utf-8",
+      upstream.ok ? 415 : upstream.status,
+    );
+  }
+  return imageResponse(upstream.body, contentType, upstream.status);
+}
+
 async function loadRecording(recordingId: string, event: H3Event) {
-  const access = await resolveAccess("recording", recordingId);
-  let recording = (access?.resource as ThumbnailRecording | undefined) ?? null;
+  // Earlier-screen-time footage is served under its Clip's access, expiry,
+  // redaction, Trash, and password rules, never its own row's.
+  const clipId = await contextClipIdForFootage(recordingId);
+  const gateId = clipId ?? recordingId;
+  const access = await resolveAccess("recording", gateId);
+  let gate = (access?.resource as ThumbnailRecording | undefined) ?? null;
   const role = access?.role ?? null;
   const session = await getSession(event).catch(() => null);
 
-  if (!recording) {
+  if (!gate) {
     const [row] = await getDb()
       .select({
         id: schema.recordings.id,
@@ -237,15 +280,18 @@ async function loadRecording(recordingId: string, event: H3Event) {
         thumbnailUrl: schema.recordings.thumbnailUrl,
         animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
         baseImageUrl: schema.recordings.baseImageUrl,
+        storageMode: schema.recordings.storageMode,
         expiresAt: schema.recordings.expiresAt,
         organizationId: schema.recordings.organizationId,
         password: schema.recordings.password,
         sharePasswordVersion: schema.recordings.sharePasswordVersion,
+        trashedAt: schema.recordings.trashedAt,
         updatedAt: schema.recordings.updatedAt,
+        failureCode: schema.recordings.failureCode,
         visibility: schema.recordings.visibility,
       })
       .from(schema.recordings)
-      .where(eq(schema.recordings.id, recordingId))
+      .where(eq(schema.recordings.id, gateId))
       .limit(1);
 
     if (!row) return { error: "Not found", status: 404 } as const;
@@ -262,10 +308,38 @@ async function loadRecording(recordingId: string, event: H3Event) {
       return { error: "Not found", status: 404 } as const;
     }
 
-    recording = row;
+    gate = row;
   }
 
-  return { recording, role } as const;
+  if (!clipId) return { recording: gate, role, gateId } as const;
+
+  if (gate.trashedAt && role !== "owner") {
+    return { error: "Not found", status: 404 } as const;
+  }
+  const [footage] = await getDb()
+    .select({
+      thumbnailUrl: schema.recordings.thumbnailUrl,
+      animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
+      trashedAt: schema.recordings.trashedAt,
+    })
+    .from(schema.recordings)
+    .where(eq(schema.recordings.id, recordingId))
+    .limit(1);
+  if (!footage || footage.trashedAt) {
+    return { error: "Not found", status: 404 } as const;
+  }
+
+  return {
+    recording: {
+      ...gate,
+      id: recordingId,
+      thumbnailUrl: footage.thumbnailUrl,
+      animatedThumbnailUrl: footage.animatedThumbnailUrl,
+      baseImageUrl: null,
+    },
+    role,
+    gateId,
+  } as const;
 }
 
 export default defineEventHandler(async (event: H3Event) => {
@@ -288,6 +362,10 @@ export default defineEventHandler(async (event: H3Event) => {
       }
 
       const { recording } = loaded;
+      if (recording.failureCode === "taken_down") {
+        setResponseStatus(event, 404);
+        return { error: "Not found" };
+      }
       if (
         isRecordingExpiredForViewer({
           expiresAt: recording.expiresAt,
@@ -327,7 +405,7 @@ export default defineEventHandler(async (event: H3Event) => {
         const queryToken = typeof query.t === "string" ? query.t : "";
         const cookieToken = getCookie(event, cookieName(recordingId)) ?? "";
         const scopedRecordingId = getRecordingAccessTokenResourceId(
-          recordingId,
+          loaded.gateId,
           recording.password,
           recording.sharePasswordVersion,
         );
@@ -348,6 +426,7 @@ export default defineEventHandler(async (event: H3Event) => {
           recordingId,
           recording.password,
           recording.sharePasswordVersion,
+          loaded.gateId,
         );
       }
 
@@ -367,12 +446,21 @@ export default defineEventHandler(async (event: H3Event) => {
 
       let resolvedSourceUrl = sourceUrl;
       if (sourceUrl.startsWith("/")) {
-        resolvedSourceUrl = new URL(sourceUrl, getRequestURL(event).origin)
+        resolvedSourceUrl = new URL(sourceUrl, getForwardedRequestOrigin(event))
           .href;
       }
 
       try {
-        const response = await fetchThumbnail(resolvedSourceUrl);
+        // Imported thumbnails (e.g. Loom's) live outside the bucket, so only
+        // URLs inside it take the recording-bound private fetch.
+        const isHostedObject =
+          recording.storageMode === "hosted" &&
+          (await isUrlInS3Storage(resolvedSourceUrl, {
+            storageMode: "hosted",
+          })) !== false;
+        const response = isHostedObject
+          ? await fetchHostedThumbnail(resolvedSourceUrl, recordingId)
+          : await fetchThumbnail(resolvedSourceUrl);
         if (response.status >= 500) {
           captureRouteError(
             new Error(

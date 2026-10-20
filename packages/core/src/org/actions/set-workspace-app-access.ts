@@ -4,6 +4,7 @@ import { defineAction } from "../../action.js";
 import { orgAdminAudit } from "../../audit/org-admin.js";
 import { getDbExec } from "../../db/client.js";
 import { requireOrgMember } from "../actions.js";
+import { invalidateMemberOrgCaches } from "../request-org-cache.js";
 
 const modeSchema = z.enum(["all", "restricted", "disabled"]);
 
@@ -19,6 +20,10 @@ export default defineAction({
     targetId: (args) => args.appId,
     summary: (args) => `Set ${args.appId} workspace access to ${args.mode}`,
   }),
+  // It changes who may use an app or what they may do in it: every call
+  // needs the user's approval, and "always allow" is not offered.
+  needsApproval: true,
+  allowPersistentApproval: false,
   run: async ({ appId, mode }, ctx) => {
     const caller = await requireOrgMember(ctx, true);
     const db = getDbExec();
@@ -39,6 +44,7 @@ export default defineAction({
         caller.orgId,
       ],
     });
+    invalidateMemberOrgCaches();
     return { appId, mode };
   },
 });

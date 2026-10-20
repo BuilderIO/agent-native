@@ -12,6 +12,8 @@ import {
   type H3Event,
 } from "h3";
 
+import { mcpSettingsMessagesForLocale } from "../localization/mcp-settings-messages.js";
+import { resolveLocaleFromRequest } from "../localization/server.js";
 import { encryptSecretValue } from "../secrets/crypto.js";
 import {
   CredentialStoreUnavailableError,
@@ -26,6 +28,7 @@ import {
   oauthErrorPage,
   resolveOAuthRedirectUri,
 } from "../server/google-oauth.js";
+import { queryEchoSafeRedirect } from "../server/query-echo-safe-redirect.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { isWorkspaceOAuthCallbackRelayEnabled } from "../server/workspace-oauth.js";
 import { MCP_OAUTH_FLOW_TTL_SECONDS } from "../shared/mcp-oauth-flow-ttl.js";
@@ -67,7 +70,8 @@ const getOrgContext: (typeof import("../org/context.js"))["getOrgContext"] = (
   );
 
 function safeReturnPath(raw: string | null | undefined): string {
-  return normalizeAppPath(raw) ?? "/";
+  const basePath = getAppBasePath();
+  return normalizeAppPath(raw, basePath) ?? (basePath || "/");
 }
 
 async function getSessionForEvent(event: H3Event) {
@@ -370,11 +374,53 @@ async function handleMcpOAuthStart(
       "Workspace MCP OAuth is missing its app callback id.",
     );
   }
+  const requestContext = {
+    userEmail: session.email,
+    orgId: org?.orgId ?? undefined,
+  };
+  let clientInformation: StoredOAuthClientInformation | undefined;
+  try {
+    clientInformation = await runWithRequestContext(requestContext, () =>
+      resolveManagedMcpOAuthClient(urlCheck.url!),
+    );
+  } catch (error) {
+    return mcpOAuthStartFailureResponse(
+      event,
+      resolveMcpOAuthStartError(error),
+    );
+  }
+  if (
+    managedMcpOAuthClientFor(urlCheck.url!)?.requireClientCredentials &&
+    !clientInformation
+  ) {
+    return mcpOAuthStartFailureResponse(
+      event,
+      {
+        status: 400,
+        body: { error: MCP_OAUTH_MANAGED_CLIENT_MISSING_MESSAGE },
+      },
+      {
+        backHref: safeReturnPath(
+          returnUrl || `${getAppBasePath()}/settings/integrations`,
+        ),
+        backLabel: mcpSettingsMessagesForLocale(
+          resolveLocaleFromRequest({
+            acceptLanguage: getRequestHeader(event, "accept-language"),
+          }).locale,
+        ).mcpOAuthBackToApp,
+      },
+    );
+  }
+  // A pre-registered client has a fixed redirect URI on the shared workspace
+  // callback. A dynamically registered client registers whatever URI this
+  // flow sends, so keep it on this app's mount: the provider then returns the
+  // user straight to the app that owns the flow cookie.
   const redirectUri = resolveOAuthRedirectUri(
     event,
     useRootGoogleCallback
       ? "/_agent-native/google/callback"
       : "/_agent-native/mcp/servers/oauth/callback",
+    { appScopedCallback: !useRootGoogleCallback && !clientInformation },
   );
   if (!redirectUri) {
     return refuse(event, 400, "Invalid MCP OAuth redirect URI.");
@@ -395,21 +441,8 @@ async function handleMcpOAuthStart(
       })
     : crypto.randomUUID();
   const safeReturnUrl = returnUrl ? safeReturnPath(returnUrl) : undefined;
-  const requestContext = {
-    userEmail: session.email,
-    orgId: org?.orgId ?? undefined,
-  };
   try {
     const started = await runWithRequestContext(requestContext, async () => {
-      const clientInformation = await resolveManagedMcpOAuthClient(
-        urlCheck.url!,
-      );
-      if (
-        managedMcpOAuthClientFor(urlCheck.url!)?.requireClientCredentials &&
-        !clientInformation
-      ) {
-        return null;
-      }
       const storedCredentials =
         reconnectServer?.oauthSecretKey && reconnectScopeId
           ? await readMcpOAuthCredentials({
@@ -444,9 +477,6 @@ async function handleMcpOAuthStart(
           : {}),
       });
     });
-    if (!started) {
-      return refuse(event, 400, MCP_OAUTH_MANAGED_CLIENT_MISSING_MESSAGE);
-    }
     const flow: McpOAuthFlow = {
       name,
       url: urlCheck.url!.toString(),
@@ -552,6 +582,7 @@ function authorizationServerLabel(
 export function mcpOAuthStartFailureResponse(
   event: H3Event,
   failure: { status: number; body: McpOAuthStartErrorBody },
+  htmlOptions?: { backHref?: string; backLabel?: string },
 ): Response | Record<string, unknown> {
   if (!wantsHtmlResponse(event)) {
     setResponseStatus(event, failure.status);
@@ -559,7 +590,7 @@ export function mcpOAuthStartFailureResponse(
   }
   return withStagedCookies(
     event,
-    oauthErrorPage(failure.body.error, failure.status),
+    oauthErrorPage(failure.body.error, failure.status, htmlOptions),
   );
 }
 
@@ -760,9 +791,12 @@ async function handleMcpOAuthCallback(
     console.warn("[mcp-client/oauth] saved server did not reconnect:", error);
   }
   const returnPath = resolveMcpOAuthReturnPath(connected, flow);
-  return redirectWithStagedCookies(
+  return queryEchoSafeRedirect(
     event,
-    getAppUrl(event, stripMcpOAuthAppBasePath(returnPath, getAppBasePath())),
+    redirectWithStagedCookies(
+      event,
+      getAppUrl(event, stripMcpOAuthAppBasePath(returnPath, getAppBasePath())),
+    ),
   );
 }
 

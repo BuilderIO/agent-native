@@ -147,6 +147,7 @@ export default defineAction({
         label: provider.label,
         description: provider.description,
         credentialKeys: provider.credentialKeys,
+        configurationFields: provider.configurationFields ?? [],
         capabilities: provider.capabilities,
         recommendedTemplateUses: provider.recommendedTemplateUses,
         readiness: summarizeWorkspaceConnectionProviderReadiness({
@@ -199,6 +200,15 @@ export default defineAction({
               provider: ref.provider,
               scope: ref.scope,
             })),
+            configurationFields: (provider.configurationFields ?? []).map(
+              (field) => ({
+                ...field,
+                value:
+                  typeof connection.config[field.key] === "string"
+                    ? connection.config[field.key]
+                    : field.defaultValue,
+              }),
+            ),
             lastError: connection.lastError,
           }
         : null,

@@ -187,7 +187,46 @@ export default defineAction({
 
     const state = parsedState.data;
     if (state.status !== "generating") {
-      return { reconciled: false, reason: "terminal" as const };
+      if (operation !== "track") {
+        return { reconciled: false, reason: "terminal" as const };
+      }
+      // A run can finish or be failed by the session monitor before its
+      // request was consumed; without this the bridge re-tracks it forever.
+      const rawRequest = await readAppState(requestKey);
+      if (rawRequest === null) {
+        return {
+          reconciled: false,
+          tracked: false,
+          consumed: true,
+          reason: "terminal" as const,
+        };
+      }
+      const parsedRequest = WorkflowRequestSchema.safeParse(rawRequest);
+      if (!parsedRequest.success) {
+        // guard:allow-bare-error — invariant: generate-workflow writes this shape
+        throw new Error(`Invalid workflow request state for ${recordingId}`);
+      }
+      if (
+        !matchesWorkflowRequest(parsedRequest.data, { requestedAt, requestId })
+      ) {
+        return {
+          reconciled: false,
+          tracked: false,
+          consumed: true,
+          reason: "terminal" as const,
+        };
+      }
+      const consumed = await compareAndSetAppState(
+        requestKey,
+        rawRequest,
+        null,
+      );
+      return {
+        reconciled: false,
+        tracked: false,
+        consumed,
+        reason: consumed ? ("terminal" as const) : ("stale" as const),
+      };
     }
     if (!matchesWorkflowRequest(state, { requestedAt, requestId })) {
       return { reconciled: false, reason: "newer-request" as const };

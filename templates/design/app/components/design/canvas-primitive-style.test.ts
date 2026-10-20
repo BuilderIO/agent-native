@@ -87,7 +87,7 @@ describe("canvas rect/ellipse default tokens", () => {
   });
 });
 
-describe("canvas line/arrow/pen default stroke tokens (Figma parity)", () => {
+describe("canvas line/arrow/pen default stroke tokens", () => {
   it("defaults to solid black at 1px, not the theme accent color at 3px", () => {
     expect(DEFAULT_LINE_STROKE).toBe("#000000");
     expect(DEFAULT_LINE_STROKE_WIDTH_PX).toBe(1);
@@ -99,7 +99,7 @@ describe("canvas line/arrow/pen default stroke tokens (Figma parity)", () => {
     ).toBe("none");
   });
 
-  it("keeps a closed pen path stroke-only, like Figma", () => {
+  it("keeps a closed pen path stroke-only", () => {
     expect(canvasVectorPaint({ outline: "closed-path" })).toEqual({
       fill: "none",
       stroke: DEFAULT_LINE_STROKE,

@@ -216,7 +216,7 @@ function AssistantPart({
   embedded?: boolean;
   onApprove?: (approvalKey: string) => void;
   onDeny?: (approvalKey?: string) => void;
-  onOpenConnections?: () => void;
+  onOpenConnections?: (provider?: string) => void;
   onContinueAfterConnection?: (requestId: string, provider: string) => void;
   onInvokeWidgetAction?: (
     widgetId: string,
@@ -282,7 +282,7 @@ function AssistantPart({
             accessibilityRole="button"
             accessibilityLabel={`Connect ${provider}`}
             className="min-h-10 flex-1 items-center justify-center rounded-lg bg-primary px-3 active:opacity-75"
-            onPress={onOpenConnections}
+            onPress={() => onOpenConnections?.(provider)}
           >
             <Text className="text-primary-foreground text-[13px] font-bold">
               Connect
@@ -454,7 +454,7 @@ function WorkSummary({
   durationMs?: number | null;
   onApprove?: (approvalKey: string) => void;
   onDeny?: (approvalKey?: string) => void;
-  onOpenConnections?: () => void;
+  onOpenConnections?: (provider?: string) => void;
   onContinueAfterConnection?: (requestId: string, provider: string) => void;
   onInvokeWidgetAction?: (
     widgetId: string,
@@ -534,7 +534,7 @@ export const AssistantMessage = memo(function AssistantMessage({
   onApprove?: (approvalKey: string) => void;
   onDeny?: (approvalKey?: string) => void;
   onActions?: (message: ChatMessage) => void;
-  onOpenConnections?: () => void;
+  onOpenConnections?: (provider?: string) => void;
   onContinueAfterConnection?: (requestId: string, provider: string) => void;
   onInvokeWidgetAction?: (
     widgetId: string,

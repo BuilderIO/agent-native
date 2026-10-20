@@ -2,14 +2,13 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { getDbExec, safeJsonParse } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 import { recordChange } from "../server/poll.js";
 import type { Notification, NotificationSeverity } from "./types.js";
 
 function bumpPoll(owner: string): void {
   recordChange({ source: "notifications", type: "change", key: owner });
 }
-
-let _initPromise: Promise<void> | undefined;
 
 const DELIVERY_CLAIM_LEASE_MS = 2 * 60 * 1000;
 
@@ -18,10 +17,13 @@ function normalizeLimit(value: number | undefined, fallback = 50): number {
   return Math.min(Math.floor(value), 200);
 }
 
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const createSql = `
+export const notificationsStore = defineStore({
+  id: "notifications",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `
           CREATE TABLE IF NOT EXISTS notifications (
             id TEXT PRIMARY KEY,
             owner TEXT NOT NULL,
@@ -35,7 +37,6 @@ export async function ensureTable(): Promise<void> {
           )
         `;
 
-      {
         await ensureTableExists("notifications", createSql);
         await ensureIndexExists(
           "idx_notifications_owner_unread",
@@ -53,14 +54,13 @@ export async function ensureTable(): Promise<void> {
             PRIMARY KEY (notification_id, delivery_key)
           )`,
         );
-        return;
-      }
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+      },
+    },
+  ],
+});
+
+export function ensureTable(): Promise<void> {
+  return notificationsStore.ready();
 }
 
 function parseRow(row: Record<string, unknown>): Notification {
@@ -352,6 +352,44 @@ export interface ListNotificationsOptions {
   unreadOnly?: boolean;
   limit?: number;
   before?: string;
+}
+
+export async function hasNotificationWithMetadata(
+  owner: string,
+  expected: Record<string, string | number | boolean>,
+): Promise<boolean> {
+  const entries = Object.entries(expected);
+  if (entries.length === 0) return false;
+  await ensureTable();
+  const client = getDbExec();
+  const predicates = entries
+    .map(() => "metadata LIKE ? ESCAPE '\\'")
+    .join(" AND ");
+  const args = [
+    owner,
+    ...entries.map(([key, value]) => {
+      const fragment = `${JSON.stringify(key)}:${JSON.stringify(value)}`;
+      const escaped = fragment.replace(/[\\%_]/g, "\\$&");
+      return `%${escaped}%`;
+    }),
+    25,
+  ];
+  const { rows } = await client.execute({
+    sql: `SELECT metadata FROM notifications
+      WHERE owner = ? AND ${predicates}
+      ORDER BY created_at DESC LIMIT ?`,
+    args,
+  });
+  return rows.some((row) => {
+    const metadata = safeJsonParse<Record<string, unknown> | undefined>(
+      row.metadata,
+      undefined,
+    );
+    return (
+      metadata !== undefined &&
+      entries.every(([key, value]) => metadata[key] === value)
+    );
+  });
 }
 
 export async function listNotifications(

@@ -9,6 +9,7 @@ import { customAlphabet } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { requireFormsPermission } from "../server/lib/app-roles.js";
 import { assertIntegrationUrlsAllowed } from "../server/lib/integrations.js";
 import {
   assertValidFields,
@@ -45,6 +46,7 @@ function formDeepLink(formId: string): string {
 }
 
 export default defineAction({
+  authorize: requireFormsPermission("forms.edit"),
   description:
     "Create a draft or published form. Use this for every request that describes a form to build, including when another form is already open in <current-screen> or was created earlier in this conversation: each form the user describes is its own form. Set settings.completionMode to message, redirect, message_then_refresh, or refresh; use settings.completionRefreshSeconds for the message_then_refresh delay. Set settings.anonymous=true to suppress submitter IP, identity, and source metadata, or settings.emailOnNewResponses=true to email the form owner when responses arrive. Published results include a canonical publicUrl; copy it verbatim (it includes /f/<slug>) instead of deriving a URL from slug. Drafts return an editor URL.",
   schema: z.object({

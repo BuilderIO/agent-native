@@ -10,6 +10,7 @@ import {
   parseFirstAnimationDurationMs,
   parsePlaybackMode,
 } from "./motion-compiler";
+import { motionEaseVariableToken } from "./motion-easing";
 import type { MotionTimeline } from "./motion-timeline";
 
 function makeTimeline(property: string): MotionTimeline {
@@ -224,6 +225,68 @@ describe("compile — property is emitted safely", () => {
     expect(css).toContain("animation-fill-mode: both, both;");
   });
 
+  it("keeps repeated property animations uniquely named and in input order", () => {
+    const timeline = makeTimeline("opacity");
+    timeline.durationMs = 900;
+    timeline.tracks = [
+      {
+        id: "opacity-first",
+        targetNodeId: "node1",
+        property: "opacity",
+        delayMs: 100,
+        durationMs: 300,
+        keyframes: [
+          { t: 0, value: "0" },
+          { t: 1, value: "0.4" },
+        ],
+      },
+      {
+        id: "opacity-second",
+        targetNodeId: "node1",
+        property: "opacity",
+        delayMs: 250,
+        durationMs: 500,
+        keyframes: [
+          { t: 0, value: "0.4" },
+          { t: 1, value: "1" },
+        ],
+      },
+    ];
+
+    const { css } = compile(timeline);
+    const names = [...css.matchAll(/@keyframes\s+(\S+)/g)].map((match) =>
+      match[1]!.replace("{", ""),
+    );
+    const parsed = parse(css);
+
+    expect(names).toEqual([
+      "an-motion-node1--opacity--track-opacity-first",
+      "an-motion-node1--opacity--track-opacity-second",
+    ]);
+    expect(new Set(names).size).toBe(2);
+    expect(
+      parsed.map((track) => ({
+        id: track.id,
+        firstValue: track.keyframes[0]?.value,
+        delayMs: track.delayMs,
+        durationMs: track.durationMs,
+      })),
+    ).toEqual([
+      {
+        id: "opacity-first",
+        firstValue: "0",
+        delayMs: 100,
+        durationMs: 300,
+      },
+      {
+        id: "opacity-second",
+        firstValue: "0.4",
+        delayMs: 250,
+        durationMs: 500,
+      },
+    ]);
+  });
+
   it("rejects unsafe keyframe values and easing while compiling", () => {
     const unsafeValue = makeTimeline("opacity");
     unsafeValue.tracks[0].keyframes[0].value = "0; body { display: none }";
@@ -243,6 +306,21 @@ describe("compile — property is emitted safely", () => {
 });
 
 describe("parse — managed style fallback", () => {
+  it("round-trips a one-keyframe track through managed CSS", () => {
+    const timeline = makeTimeline("opacity");
+    timeline.tracks[0]!.keyframes = [{ t: 0, value: "0.5", ease: "linear" }];
+
+    const { css } = compile(timeline);
+
+    expect(parse(css)).toEqual([
+      {
+        targetNodeId: "node1",
+        property: "opacity",
+        keyframes: [{ t: 0, value: "0.5", ease: "linear" }],
+      },
+    ]);
+  });
+
   it("injects and replaces the managed style block with tolerant close tags", () => {
     const first = injectManagedMotionCss(
       "<html><head></head><body><button>Hi</button></body></html>",
@@ -348,6 +426,12 @@ describe("parse — managed style fallback", () => {
 });
 
 describe("compile — keyframe stop edge cases", () => {
+  it("rejects invalid easing rather than compiling a different browser curve", () => {
+    const timeline = makeTimeline("opacity");
+    timeline.tracks[0]!.keyframes[0]!.ease = "easee";
+    expect(() => compile(timeline)).toThrow(/valid timing function/);
+  });
+
   it("keeps a near-100% stop distinct from a real 100% stop", () => {
     const timeline = makeTimeline("opacity");
     timeline.tracks[0].keyframes = [
@@ -458,6 +542,14 @@ const fadeTrack = (nodeId = "node1"): MotionTimeline["tracks"][number] => ({
 });
 
 describe("compile — playback modes", () => {
+  it("omits disabled tracks from runnable CSS", () => {
+    const disabled = { ...fadeTrack(), enabled: false };
+    const css = compile(fullTimeline({ tracks: [disabled] })).css;
+
+    expect(css).toContain("/* no animations */");
+    expect(css).not.toContain("@keyframes an-motion-");
+  });
+
   it('emits no iteration/direction lines for "once" (legacy-identical output)', () => {
     const css = compile(
       fullTimeline({ tracks: [fadeTrack()], playbackMode: "once" }),
@@ -581,6 +673,218 @@ describe("compile — spring easing → CSS linear()", () => {
     ]);
     expect(parsed.keyframes[0].ease).toMatch(/^linear\(/);
     expect(parsed.keyframes[1].ease).toBe("cubic-bezier(0.42, 0, 0.58, 1)");
+  });
+});
+
+describe("compile — named easing variables", () => {
+  it("emits namespaced definitions and preserves resolved references in timing rules", () => {
+    const ease = motionEaseVariableToken("ease-out");
+    const timeline = fullTimeline({
+      defaultEase: ease,
+      tracks: [
+        {
+          targetNodeId: "node1",
+          property: "opacity",
+          keyframes: [
+            { t: 0, value: "0", ease },
+            { t: 1, value: "1" },
+          ],
+        },
+      ],
+    });
+    const css = compile(timeline, {
+      easingVariables: [
+        {
+          id: "ease-out",
+          name: "Ease out",
+          value: "spring(0.4, 0.7)",
+          collection: "Motion",
+        },
+      ],
+    }).css;
+
+    expect(css).toMatch(/:root\s*\{\s*--an-motion-ease-ease-out:\s*linear\(/);
+    expect(
+      css.match(
+        /animation-timing-function: var\(--an-motion-ease-ease-out\);/g,
+      ),
+    ).toHaveLength(3);
+    expect(css).not.toContain("spring(");
+  });
+
+  it("rejects unresolved references and definitions with unsafe easing tokens", () => {
+    const timeline = fullTimeline({
+      defaultEase: motionEaseVariableToken("missing"),
+      tracks: [],
+    });
+    expect(() => compile(timeline)).toThrow(/not defined/);
+
+    expect(() =>
+      compile(timeline, {
+        easingVariables: [
+          { id: "missing", name: "Missing", value: "var(--external-ease)" },
+        ],
+      }),
+    ).toThrow(/concrete supported easing/);
+  });
+});
+
+describe("compile — spatial cubic Position paths", () => {
+  it("writes native offset-path geometry and reads it back independently of easing", () => {
+    const timeline = makeTimeline("translate");
+    timeline.tracks[0]!.keyframes = [
+      {
+        t: 0,
+        value: "0px 0px",
+        ease: "ease-in",
+        motionPath: {
+          version: 1,
+          type: "cubic",
+          control1: { x: 0, y: 100 },
+          control2: { x: 0, y: 100 },
+        },
+      },
+      { t: 1, value: "100px 0px", ease: "linear" },
+    ];
+
+    const { css } = compile(timeline);
+    expect(css).toContain('offset-path: path("M 0 0 C 0 100 100 100 100 0");');
+    expect(css).toContain("offset-distance: 0%;");
+    expect(css).toContain("offset-distance: 100%;");
+    expect(css).toContain("animation-timing-function: ease-in;");
+    expect(css).toContain("translate: 0px 0px;");
+
+    const [parsed] = parse(css);
+    expect(parsed?.property).toBe("translate");
+    expect(parsed?.keyframes).toEqual(timeline.tracks[0]!.keyframes);
+  });
+
+  it("keeps uncurved segments straight when a neighboring segment is curved", () => {
+    const timeline = makeTimeline("translate");
+    timeline.tracks[0]!.keyframes = [
+      {
+        t: 0,
+        value: "0px 0px",
+        motionPath: {
+          version: 1,
+          type: "cubic",
+          control1: { x: 0, y: 60 },
+          control2: { x: 0, y: 60 },
+        },
+      },
+      { t: 0.5, value: "60px 0px", ease: "ease-out" },
+      { t: 1, value: "120px 0px" },
+    ];
+
+    const parsed = parse(compile(timeline).css)[0];
+    expect(parsed?.keyframes[0]?.motionPath).toEqual(
+      timeline.tracks[0]!.keyframes[0]?.motionPath,
+    );
+    expect(parsed?.keyframes[1]).toMatchObject({ t: 0.5, value: "60px 0px" });
+    expect(parsed?.keyframes[1]?.motionPath).toBeUndefined();
+  });
+
+  it("rejects non-px endpoints and paths on non-Position tracks", () => {
+    const timeline = makeTimeline("translate");
+    timeline.tracks[0]!.keyframes[0] = {
+      t: 0,
+      value: "0% 0px",
+      motionPath: {
+        version: 1,
+        type: "cubic",
+        control1: { x: 0, y: 20 },
+        control2: { x: 0, y: 20 },
+      },
+    };
+    expect(() => compile(timeline)).toThrow(/require finite px values/);
+
+    timeline.tracks[0]!.property = "opacity";
+    expect(() => compile(timeline)).toThrow(
+      /only supported for the "translate"/,
+    );
+  });
+
+  it("composes repeated Position tracks additively by stable id and axis order", () => {
+    const timeline = makeTimeline("translate");
+    timeline.durationMs = 1000;
+    timeline.tracks = [
+      {
+        id: "position-x",
+        targetNodeId: "node1",
+        property: "translate",
+        composition: "add",
+        keyframes: [
+          { t: 0, value: "0px 0px" },
+          { t: 1, value: "100px 0px" },
+        ],
+      },
+      {
+        id: "position-y",
+        targetNodeId: "node1",
+        property: "translate",
+        composition: "add",
+        keyframes: [
+          { t: 0, value: "0px 0px" },
+          { t: 1, value: "0px 50px" },
+        ],
+      },
+    ];
+
+    const { css } = compile(timeline);
+    const names = [...css.matchAll(/@keyframes\s+(\S+)/g)].map((match) =>
+      match[1]!.replace("{", ""),
+    );
+
+    expect(names).toEqual([
+      "an-motion-node1--translate--track-position-x",
+      "an-motion-node1--translate--track-position-y",
+    ]);
+    expect(css).toContain("animation-composition: add, add;");
+    expect(
+      parse(css).map((track) => ({
+        id: track.id,
+        composition: track.composition,
+        firstValue: track.keyframes[0]?.value,
+        lastValue: track.keyframes[1]?.value,
+      })),
+    ).toEqual([
+      {
+        id: "position-x",
+        composition: "add",
+        firstValue: "0px 0px",
+        lastValue: "100px 0px",
+      },
+      {
+        id: "position-y",
+        composition: "add",
+        firstValue: "0px 0px",
+        lastValue: "0px 50px",
+      },
+    ]);
+  });
+});
+
+describe("compile — normalized SVG Path trim", () => {
+  it("compiles a semantic trim pair to native stroke dashes and parses it losslessly", () => {
+    const timeline = makeTimeline("path-trim");
+    timeline.tracks[0]!.keyframes = [
+      { t: 0, value: "100% 20%", ease: "ease-out" },
+      { t: 1, value: "0% 100%", ease: "ease" },
+    ];
+
+    const css = compile(timeline).css;
+    expect(css).toContain("--an-motion-path-trim: 100% 20%;");
+    expect(css).toContain("stroke-dasharray: 20 80;");
+    expect(css).toContain("stroke-dashoffset: -100;");
+    expect(css).toContain("stroke-dasharray: 100 0;");
+    expect(css).toContain("stroke-dashoffset: 0;");
+    expect(parse(css)[0]?.keyframes).toEqual(timeline.tracks[0]!.keyframes);
+  });
+
+  it("rejects malformed semantic trim values", () => {
+    const timeline = makeTimeline("path-trim");
+    timeline.tracks[0]!.keyframes[1]!.value = "101% 0%";
+    expect(() => compile(timeline)).toThrow(/percentages between 0 and 100/);
   });
 });
 

@@ -68,6 +68,7 @@ vi.mock("@/hooks/use-comments", () => ({
   useEditComment: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useReactToComment: () => ({ mutate: vi.fn(), isPending: false }),
   useCreateComment: () => ({ mutate: vi.fn(), isPending: false }),
+  useDeleteComment: () => ({ mutateAsync: vi.fn() }),
   useResolveComment: () => ({ mutate: vi.fn() }),
 }));
 vi.mock("@/hooks/use-mention-members", () => ({
@@ -196,10 +197,10 @@ describe("saved reply Escape inside the real Comments Sheet", () => {
               <CommentComposer
                 value={text}
                 onChange={setText}
-                onMentionAdd={() => {}}
+                mentions={[]}
+                onMentionsChange={() => {}}
                 onSubmit={() => {}}
                 onEscape={() => {}}
-                members={[]}
               />
             ) : (
               <CommentsSidebar
@@ -458,6 +459,11 @@ describe("saved reply Escape inside the real Comments Sheet", () => {
     );
     expect(source).toContain(
       "const restoreTarget = utilityPanelSheetTriggerRef.current;",
+    );
+    expect(source).toContain("utilityPanelFocusFallbackRef.current");
+    expect(source).toContain("utilityPanelRegionWasOpenRef.current");
+    expect(source).toContain(
+      "utilityPanelFocusFallbackRef={utilityPanelFocusFallbackRef}",
     );
     expect(source).toContain(
       "utilityPanelFocusGenerationRef.current !== focusGeneration",

@@ -262,8 +262,10 @@ DeepSeek を使うには、`VISUAL_RECAP_AGENT=openai-compatible`、
 ができます。発行するには (組織のオーナー/管理者のみ):
 
 ```bash
-npx @agent-native/core@latest connect https://plan.agent-native.com --service-token pr-recap
+npx @agent-native/core@latest connect https://plan.agent-native.com --service-token pr-recap --ttl-days 3650
 ```
+
+この設定により CI トークンは 10 年間有効になり、いつでも取り消せます。
 
 このコマンドはブラウザであなたを認証し、その後サービストークンを一度だけ表示します —
 これを `PLAN_RECAP_TOKEN` シークレットとして保存してください。後から管理するには、Plans アプリ

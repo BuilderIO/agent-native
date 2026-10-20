@@ -26,7 +26,8 @@ actions do not expose, inspect the provider catalog/docs and call
 
 ## Actions
 
-- `account-deep-dive` — first choice for named account/deal deep dives. It
+- `account-deep-dive` — first choice for the CRM side of a named account/deal
+  deep dive (use `run-gong-native-insight` for what was said in calls). It
   searches matching HubSpot deals, loads associated companies, contacts,
   tickets, notes, and emails, then pairs that CRM context with Gong evidence.
 - `hubspot-deals` — deals with normalized stage, pipeline, owner, forecast, and
@@ -39,8 +40,16 @@ actions do not expose, inspect the provider catalog/docs and call
 - `hubspot-pipelines` / `hubspot-metrics` — pipeline definitions and aggregate
   sales metrics.
 - For HubSpot **property metadata** (available fields before requesting custom
-  ones) there is no first-class action — call `provider-api-request` (provider
-  `hubspot`, e.g. `/crm/v3/properties/deals`) via `provider-api-docs`.
+  ones), prefer the metadata cached internally by `hubspot-records` when the
+  needed field names are already known. If field discovery needs the properties
+  endpoint, call `provider-api-request` (provider `hubspot`, e.g.
+  `/crm/v3/properties/deals`) via `provider-api-docs` **without `stageAs`**.
+  Property definitions are read-only control metadata, not analysis rows; never
+  stage them. `stageAs` writes result rows to shared staged-dataset storage,
+  which can be at capacity and may evict existing datasets. Do not clear or
+  evict existing staged datasets to make room. If a metadata request cannot be
+  read without staging, narrow the request or return only the required property
+  names, labels, and types through a read-only path.
 - `provider-api-request` with `provider: "hubspot"` — arbitrary HubSpot HTTP
   API calls when first-class actions are too narrow.
 

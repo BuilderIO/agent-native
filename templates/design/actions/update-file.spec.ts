@@ -145,17 +145,50 @@ function seedFile(content: string, updatedAt = "2026-07-06T00:00:00.000Z") {
   });
 }
 
-type Predicate = ReturnType<typeof eq> | ReturnType<typeof and>;
+type Predicate = ReturnType<typeof eq> | ReturnType<typeof and> | undefined;
 
 function matchesDesignFile(row: FileRow, predicate: Predicate): boolean {
-  const asString = JSON.stringify(predicate);
-  if (asString.includes('"id"') && asString.includes(FILE_ID)) {
-    return row.id === FILE_ID;
-  }
-  if (asString.includes('"designId"') || asString.includes('"design_id"')) {
-    return row.designId === DESIGN_ID;
-  }
-  return true;
+  if (!predicate) return true;
+  const equalities: Array<{ column: string; value: unknown }> = [];
+  const seen = new WeakSet<object>();
+  const visit = (value: unknown) => {
+    if (!value || typeof value !== "object" || seen.has(value)) return;
+    seen.add(value);
+    const record = value as Record<string, unknown>;
+    const chunks = record.queryChunks;
+    if (Array.isArray(chunks)) {
+      for (let index = 0; index < chunks.length; index += 1) {
+        const candidate = chunks[index];
+        if (
+          candidate &&
+          typeof candidate === "object" &&
+          "name" in candidate &&
+          typeof candidate.name === "string"
+        ) {
+          const boundValue = chunks
+            .slice(index + 1)
+            .find(
+              (entry) =>
+                typeof entry === "string" ||
+                typeof entry === "number" ||
+                typeof entry === "boolean",
+            );
+          if (boundValue !== undefined) {
+            equalities.push({ column: candidate.name, value: boundValue });
+          }
+        }
+        visit(chunks[index]);
+      }
+      return;
+    }
+    for (const child of Object.values(record)) visit(child);
+  };
+  visit(predicate);
+  return equalities.every(({ column, value }) => {
+    if (column === "id") return row.id === value;
+    if (column === "designId") return row.designId === value;
+    return true;
+  });
 }
 
 vi.mock("../server/db/index.js", () => {
@@ -223,7 +256,10 @@ vi.mock("../server/db/index.js", () => {
 import { hasCollabState, applyText } from "@agent-native/core/collab";
 import { assertAccess } from "@agent-native/core/sharing";
 
-import { sourceContentHash } from "../shared/source-workspace.js";
+import {
+  sourceContentHash,
+  sourceContentPatch,
+} from "../shared/source-workspace.js";
 import updateFileAction from "./update-file.js";
 
 function buildDoc(bodyExtra = ""): string {
@@ -249,6 +285,15 @@ beforeEach(() => {
 });
 
 describe("update-file: expectedVersionHash / syncCollab regression baseline", () => {
+  const widgetWriteContext = {
+    caller: "mcp-widget-write" as const,
+    mcpDirectoryWidgetWrite: {
+      appId: "design",
+      resourceIds: { designId: DESIGN_ID },
+      actionNames: ["update-file"],
+    },
+  };
+
   it("rejects malformed managed-style HTML before SQL or collab mutation", async () => {
     const before = buildDoc();
     const malformed = before.replace(
@@ -306,6 +351,95 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
     });
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(next);
     expect(await hasCollabState(FILE_ID)).toBe(true);
+  });
+
+  it("requires expectedVersionHash for widget content writes", async () => {
+    const before = buildDoc();
+    const next = buildDoc(" widget-edit-");
+
+    await expect(
+      updateFileAction.run(
+        { id: FILE_ID, content: next } as never,
+        widgetWriteContext as never,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "mcp_widget_expected_version_required",
+      statusCode: 400,
+    });
+
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(before);
+    expect(await hasCollabState(FILE_ID)).toBe(false);
+  });
+
+  it("returns not found for a file outside the widget design before reading its row", async () => {
+    designFilesStore.rows.set("foreign-file", {
+      ...designFilesStore.rows.get(FILE_ID)!,
+      id: "foreign-file",
+      designId: "design-outside-scope",
+    });
+
+    await expect(
+      updateFileAction.run(
+        { id: "foreign-file", filename: "changed.html" } as never,
+        widgetWriteContext as never,
+      ),
+    ).rejects.toMatchObject({ statusCode: 404 });
+
+    expect(designFilesStore.rows.get("foreign-file")!.filename).toBe(
+      "index.html",
+    );
+  });
+
+  it("writes widget content normally when its current expectedVersionHash is provided", async () => {
+    const before = buildDoc();
+    const next = buildDoc(" widget-edit-");
+
+    const result = await updateFileAction.run(
+      {
+        id: FILE_ID,
+        content: next,
+        expectedVersionHash: sourceContentHash(before),
+      } as never,
+      widgetWriteContext as never,
+    );
+
+    expect(result).toEqual({
+      id: FILE_ID,
+      designId: DESIGN_ID,
+      updated: true,
+    });
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(next);
+    expect(await hasCollabState(FILE_ID)).toBe(true);
+  });
+
+  it("rejects syncCollab:false for widget content writes instead of reporting a skipped stale mirror as success", async () => {
+    const original = buildDoc();
+    await applyText(FILE_ID, buildDoc(" live-edit-"), "content", "agent");
+    designFilesStore.rows.get(FILE_ID)!.content = buildDoc(" mirror-advanced-");
+    const sqlContentBefore = designFilesStore.rows.get(FILE_ID)!.content;
+
+    await expect(
+      updateFileAction.run(
+        {
+          id: FILE_ID,
+          content: buildDoc(" caller-stale-mirror-"),
+          syncCollab: false,
+          expectedVersionHash: sourceContentHash(original),
+        } as never,
+        widgetWriteContext as never,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "mcp_widget_sync_required",
+      statusCode: 400,
+    });
+
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(sqlContentBefore);
+    expect(getOrCreateDoc(FILE_ID).getText("content").toString()).toContain(
+      "live-edit-",
+    );
+    expect(getOrCreateDoc(FILE_ID).getText("content").toString()).not.toContain(
+      "caller-stale-mirror-",
+    );
   });
 
   it("tags the live-document update with the saving tab so its own tab can ignore the echo and peers see a human edit", async () => {
@@ -638,6 +772,88 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
 
     expect((rejection as Error)?.message).toMatch(/file not found/i);
     expect((rejection as { statusCode?: number })?.statusCode).toBe(404);
+  });
+});
+
+describe("update-file: contentPatch", () => {
+  it("applies a patch to the live content it names and writes the whole document", async () => {
+    await applyText(FILE_ID, buildDoc(" live-"), "content", "agent");
+    const next = buildDoc(" live-patched-");
+
+    const result = await updateFileAction.run({
+      id: FILE_ID,
+      contentPatch: sourceContentPatch(buildDoc(" live-"), next),
+      expectedVersionHash: sourceContentHash(buildDoc(" live-")),
+      operationSource: "tab-a",
+      operationRevision: 1,
+    } as never);
+
+    expect(result).toMatchObject({
+      updated: true,
+      versionHash: sourceContentHash(next),
+    });
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(next);
+    expect(getOrCreateDoc(FILE_ID).getText("content").toString()).toBe(next);
+  });
+
+  it("rejects a patch whose base is no longer live with a 409 and writes nothing", async () => {
+    await applyText(FILE_ID, buildDoc(" someone-else-"), "content", "agent");
+
+    const rejection = await updateFileAction
+      .run({
+        id: FILE_ID,
+        contentPatch: sourceContentPatch(buildDoc(), buildDoc(" mine-")),
+        expectedVersionHash: sourceContentHash(buildDoc()),
+      } as never)
+      .catch((error: unknown) => error);
+
+    expect((rejection as { statusCode?: number }).statusCode).toBe(409);
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(buildDoc());
+    expect(getOrCreateDoc(FILE_ID).getText("content").toString()).toBe(
+      buildDoc(" someone-else-"),
+    );
+  });
+
+  it("accepts a patch whose result is already live, as a full write of that content would", async () => {
+    await applyText(FILE_ID, buildDoc(" arrived-early-"), "content", "agent");
+
+    const result = await updateFileAction.run({
+      id: FILE_ID,
+      contentPatch: sourceContentPatch(buildDoc(), buildDoc(" arrived-early-")),
+      expectedVersionHash: sourceContentHash(buildDoc()),
+    } as never);
+
+    expect(result).toMatchObject({ updated: true });
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(
+      buildDoc(" arrived-early-"),
+    );
+  });
+
+  it("rejects a patch that also disables collaboration sync", () => {
+    const parsed = updateFileAction.schema.safeParse({
+      id: FILE_ID,
+      contentPatch: sourceContentPatch(buildDoc(), buildDoc(" mine-")),
+      expectedVersionHash: sourceContentHash(buildDoc()),
+      syncCollab: false,
+    });
+
+    expect(parsed.success).toBe(false);
+    expect(parsed.error?.issues).toEqual([
+      expect.objectContaining({ path: ["syncCollab"] }),
+    ]);
+  });
+
+  it("fails loud when the patch does not rebuild its result hash", async () => {
+    const patch = sourceContentPatch(buildDoc(), buildDoc(" mine-"));
+
+    await expect(
+      updateFileAction.run({
+        id: FILE_ID,
+        contentPatch: { ...patch, text: `${patch.text}!` },
+        expectedVersionHash: sourceContentHash(buildDoc()),
+      } as never),
+    ).rejects.toThrow(/result hash/);
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(buildDoc());
   });
 });
 

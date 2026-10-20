@@ -6,7 +6,11 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { QuestionFormRead } from "./question-form.js";
+import {
+  QuestionFormEdit,
+  QuestionFormRead,
+  VisualQuestionsRead,
+} from "./question-form.js";
 
 function menuSurface({
   trigger,
@@ -94,6 +98,39 @@ describe("QuestionFormRead handoff state", () => {
       },
     ],
   };
+
+  it.each(["question-form", "visual-questions"] as const)(
+    "renders a fallback for malformed %s data",
+    async (blockType) => {
+      const malformedData = {
+        questions: {},
+      } as unknown as QuestionFormData;
+      await act(async () => {
+        root.render(
+          blockType === "question-form" ? (
+            <QuestionFormRead
+              blockId="questions-1"
+              data={malformedData}
+              ctx={{}}
+            />
+          ) : (
+            <VisualQuestionsRead
+              blockId="questions-1"
+              data={malformedData}
+              ctx={{}}
+            />
+          ),
+        );
+      });
+
+      expect(
+        container.querySelector("[data-block-render-error]"),
+      ).not.toBeNull();
+      expect(
+        container.querySelector(`[data-block-type="${blockType}"]`),
+      ).not.toBeNull();
+    },
+  );
 
   it("collapses answered questions after copying the prompt and can reopen them", async () => {
     const writeText = vi.fn(async () => undefined);
@@ -235,5 +272,35 @@ describe("QuestionFormRead handoff state", () => {
     expect(
       choices.map((choice) => choice.getAttribute("aria-pressed")),
     ).toEqual(["true", "false"]);
+  });
+
+  it("renders an empty legacy question form without questions", async () => {
+    await act(async () => {
+      root.render(
+        <QuestionFormRead
+          blockId="questions-legacy"
+          data={{} as unknown as QuestionFormData}
+          ctx={{}}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("0/0 answered");
+  });
+
+  it("opens an empty editor for a legacy question form without questions", async () => {
+    await act(async () => {
+      root.render(
+        <QuestionFormEdit
+          blockId="questions-legacy"
+          data={{} as unknown as QuestionFormData}
+          onChange={vi.fn()}
+          editable
+          ctx={{}}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Add question");
   });
 });

@@ -1,6 +1,8 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
 
-const ADHOC_ENDPOINT = agentNativePath("/_agent-native/secrets/adhoc");
+function adHocSecretsEndpoint(): string {
+  return agentNativePath("/_agent-native/secrets/adhoc");
+}
 
 /**
  * Names of ad-hoc keys stored at personal or workspace scope. Org rows are
@@ -8,7 +10,7 @@ const ADHOC_ENDPOINT = agentNativePath("/_agent-native/secrets/adhoc");
  * Throws when the list cannot be read, so callers can tell "none" apart.
  */
 export async function listRemovableSecretNames(): Promise<Set<string>> {
-  const res = await fetch(ADHOC_ENDPOINT);
+  const res = await fetch(adHocSecretsEndpoint());
   if (!res.ok) throw new Error(`Failed to load keys (${res.status})`);
   const rows = (await res.json()) as Array<{ name: string; scope: string }>;
   return new Set(
@@ -35,7 +37,7 @@ export async function removeManagedSecrets(
   const result: ManagedSecretRemoval = { removed: [], kept: [] };
   for (const key of keys) {
     const res = await fetch(
-      `${ADHOC_ENDPOINT}/${encodeURIComponent(key)}?managedBy=${encodeURIComponent(managerId)}`,
+      `${adHocSecretsEndpoint()}/${encodeURIComponent(key)}?managedBy=${encodeURIComponent(managerId)}`,
       { method: "DELETE" },
     );
     if (!res.ok) {

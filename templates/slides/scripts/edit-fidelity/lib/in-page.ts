@@ -36,6 +36,8 @@ export interface Rect {
 export interface TextTarget {
   index: number;
   builderId: string | null;
+  slideObjectId: string | null;
+  pptxParagraph: string | null;
   tag: string;
   className: string;
   text: string;
@@ -52,8 +54,20 @@ export interface TextTarget {
 export interface SnapRecord {
   key: string;
   stableKey?: string;
+  pptxRecordKey?: string;
+  slideObjectId?: string | null;
+  pptxParagraph?: string | null;
   kind: "text" | "box";
   inside: boolean;
+  /** Its appearance is preserved even when it shares the edited visual row. */
+  protectedStyle?: boolean;
+  /** Its marker box relative to the edited row, for measuring aligned reflow. */
+  protectedRect?: Rect;
+  /** Its presence is preserved when the authoring operation should keep the row. */
+  protectedStructure?: boolean;
+  /** A leading span that supplies the marker for a styled bullet row. */
+  styledBulletMarker?: boolean;
+  styledBulletMarkerText?: string;
   downstreamFlow?: boolean;
   flexCrossAlignment?: {
     context: string;
@@ -85,6 +99,15 @@ export interface Snapshot {
   inventory: Inventory;
   text: string;
   editedRect: Rect | null;
+  /** Border box of the edited element, without overflowing descendants. */
+  editedBoxRect: Rect | null;
+  editedObjectId?: string | null;
+  editedParagraphId?: string | null;
+  editedObjectRect?: Rect | null;
+  editedTargetRect?: Rect | null;
+  editedFlowAnchorRect?: Rect | null;
+  editedAuthoringFragmentRects?: Rect[];
+  editedObjectPosition?: string | null;
   /** The edited target moves siblings through normal document flow. */
   editedInFlow?: boolean;
   /** Rendered lines of the element the edit is matched to, in full. */
@@ -94,7 +117,16 @@ export interface Snapshot {
 
 export type OutsideSnapshot = Pick<
   Snapshot,
-  "records" | "editedRect" | "editedInFlow"
+  | "records"
+  | "editedRect"
+  | "editedInFlow"
+  | "editedObjectId"
+  | "editedParagraphId"
+  | "editedObjectRect"
+  | "editedTargetRect"
+  | "editedFlowAnchorRect"
+  | "editedAuthoringFragmentRects"
+  | "editedObjectPosition"
 >;
 
 export interface EditorState {
@@ -142,6 +174,7 @@ export interface InPageHelpers {
     gesture: string,
   ): Promise<string | null>;
   backgroundPoint(canvasSel: string): { x: number; y: number } | null;
+  customStyleProperties(element: Element): string[];
   canonical(html: string): string[];
   canonicalOutside(
     stored: string,
@@ -198,7 +231,15 @@ export function installInPageHelpers(chromeSelector: string) {
     "opacity",
     "visibility",
   ];
-  const customStylePropertiesByRoot = new WeakMap<Element, string[]>();
+  const customStylePropertiesByDocument = new WeakMap<
+    Document,
+    {
+      version: number;
+      propertiesVersion: number;
+      properties: string[] | null;
+      observer: MutationObserver;
+    }
+  >();
   const SIDES = ["top", "right", "bottom", "left"];
   const BOX_PROPS = [
     "display",
@@ -384,19 +425,134 @@ export function installInPageHelpers(chromeSelector: string) {
     return out;
   };
   const customPropertiesFor = (root: Element) => {
-    const names = new Set(customStylePropertiesByRoot.get(root));
-    for (const element of [root, ...root.querySelectorAll("*")]) {
-      const style = getComputedStyle(element);
-      for (let i = 0; i < style.length; i++) {
-        const property = style[i];
-        if (property?.startsWith("--") && !property.startsWith("--tw-")) {
-          names.add(property);
+    const document = root.ownerDocument;
+    let cache = customStylePropertiesByDocument.get(document);
+    if (!cache) {
+      cache = {
+        version: 0,
+        propertiesVersion: -1,
+        properties: null,
+        observer: new MutationObserver((records) => {
+          const isStyleSheet = (node: Node) => {
+            const element = node instanceof Element ? node : node.parentElement;
+            return !!element?.closest('style,link[rel~="stylesheet"]');
+          };
+          if (
+            records.some(
+              (record) =>
+                isStyleSheet(record.target) ||
+                Array.from(record.addedNodes).some(
+                  (node) =>
+                    node instanceof Element &&
+                    (node.matches('style,link[rel~="stylesheet"]') ||
+                      node.querySelector('style,link[rel~="stylesheet"]')),
+                ) ||
+                Array.from(record.removedNodes).some(
+                  (node) =>
+                    node instanceof Element &&
+                    (node.matches('style,link[rel~="stylesheet"]') ||
+                      node.querySelector('style,link[rel~="stylesheet"]')),
+                ),
+            )
+          ) {
+            cache!.version += 1;
+          }
+        }),
+      };
+      cache.observer.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ["disabled", "href", "media", "rel", "type"],
+        characterData: true,
+        childList: true,
+        subtree: true,
+      });
+      customStylePropertiesByDocument.set(document, cache);
+    }
+
+    const collectRuleProperties = () => {
+      const names = new Set<string>();
+      const visit = (rules: CSSRuleList) => {
+        for (const rule of Array.from(rules)) {
+          const style = (rule as CSSStyleRule).style;
+          if (style) {
+            for (let index = 0; index < style.length; index += 1) {
+              const property = style[index];
+              if (property?.startsWith("--")) names.add(property);
+            }
+          }
+          if (
+            "name" in rule &&
+            typeof rule.name === "string" &&
+            rule.name.startsWith("--") &&
+            "syntax" in rule
+          ) {
+            names.add(rule.name);
+          }
+          if ("cssRules" in rule) visit((rule as CSSGroupingRule).cssRules);
+          if ("styleSheet" in rule) {
+            const imported = (rule as CSSImportRule).styleSheet;
+            if (imported) visit(imported.cssRules);
+          }
+        }
+      };
+
+      try {
+        for (const stylesheet of Array.from(document.styleSheets)) {
+          // Slides only uses this remote sheet for @font-face declarations.
+          if (
+            stylesheet.href &&
+            new URL(stylesheet.href).hostname === "fonts.googleapis.com"
+          ) {
+            continue;
+          }
+          visit(stylesheet.cssRules);
+        }
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "SecurityError") {
+          return null;
+        }
+        throw error;
+      }
+      return [...names].sort();
+    };
+
+    if (cache.propertiesVersion !== cache.version) {
+      cache.properties = collectRuleProperties();
+      cache.propertiesVersion = cache.version;
+    }
+
+    const names = new Set(cache.properties ?? []);
+    if (cache.properties === null) {
+      for (const element of [root, ...root.querySelectorAll("*")]) {
+        const style = getComputedStyle(element);
+        for (let index = 0; index < style.length; index += 1) {
+          const property = style[index];
+          if (property?.startsWith("--")) names.add(property);
         }
       }
     }
-    const properties = [...names].sort();
-    customStylePropertiesByRoot.set(root, properties);
-    return properties;
+
+    const addInlineProperties = (element: Element) => {
+      const style = (element as HTMLElement | SVGElement).style;
+      if (!style) return;
+      for (let index = 0; index < style.length; index += 1) {
+        const property = style[index];
+        if (property?.startsWith("--")) names.add(property);
+      }
+    };
+    for (
+      let ancestor: Element | null = root;
+      ancestor;
+      ancestor = ancestor.parentElement
+    ) {
+      addInlineProperties(ancestor);
+    }
+    for (const element of root.querySelectorAll<HTMLElement | SVGElement>(
+      "[style]",
+    )) {
+      addInlineProperties(element);
+    }
+    return [...names].sort();
   };
   // getComputedStyle resolves an `auto` margin to its used length, which
   // moves whenever a flex sibling grows; the computed value stays `auto`.
@@ -547,6 +703,14 @@ export function installInPageHelpers(chromeSelector: string) {
       return {
         index,
         builderId: el.getAttribute("data-builder-id"),
+        slideObjectId:
+          el
+            .closest<HTMLElement>("[data-slide-object-id]")
+            ?.getAttribute("data-slide-object-id") ?? null,
+        pptxParagraph:
+          el
+            .closest<HTMLElement>("[data-pptx-paragraph]")
+            ?.getAttribute("data-pptx-paragraph") ?? null,
         tag: el.tagName,
         className: el.getAttribute("class") ?? "",
         text: norm(el.textContent),
@@ -919,6 +1083,11 @@ export function installInPageHelpers(chromeSelector: string) {
       text?: string;
       marker?: string;
       targetBuilderId?: string;
+      targetSlideObjectId?: string;
+      targetPptxParagraph?: string;
+      targetTextIncludes?: string;
+      authoringFragmentTexts?: string[];
+      preserveStyledBulletMarker?: boolean;
     },
     outsideOnly = false,
   ): Snapshot | OutsideSnapshot {
@@ -941,22 +1110,198 @@ export function installInPageHelpers(chromeSelector: string) {
     } else if (edited.text) {
       editedEl = findByText(root, edited.text);
     }
-    const stableEditedTarget = edited.targetBuilderId
-      ? (Array.from(
+    let stableEditedTarget: Element | null = null;
+    if (
+      edited.targetSlideObjectId !== undefined &&
+      edited.targetPptxParagraph !== undefined
+    ) {
+      const matches = Array.from(
+        root.querySelectorAll<HTMLElement>("[data-pptx-paragraph]"),
+      ).filter(
+        (el) =>
+          el.getAttribute("data-pptx-paragraph") ===
+            edited.targetPptxParagraph &&
+          el
+            .closest("[data-slide-object-id]")
+            ?.getAttribute("data-slide-object-id") ===
+            edited.targetSlideObjectId,
+      );
+      const paragraphTextMatches = edited.targetTextIncludes
+        ? matches.filter((el) =>
+            norm(el.textContent).includes(norm(edited.targetTextIncludes)),
+          )
+        : matches;
+      const targetObject = Array.from(
+        root.querySelectorAll<HTMLElement>("[data-slide-object-id]"),
+      ).find(
+        (el) =>
+          el.getAttribute("data-slide-object-id") ===
+          edited.targetSlideObjectId,
+      );
+      const fallbackTextMatches =
+        edited.targetTextIncludes && targetObject
+          ? Array.from(
+              targetObject.querySelectorAll<HTMLElement>(
+                "p,li,blockquote,h1,h2,h3,h4,h5,h6,div",
+              ),
+            ).filter((el) =>
+              norm(el.textContent).includes(norm(edited.targetTextIncludes)),
+            )
+          : [];
+      const fallbackTargets = fallbackTextMatches.filter(
+        (el) =>
+          !fallbackTextMatches.some(
+            (other) => other !== el && el.contains(other),
+          ),
+      );
+      const textMatches =
+        paragraphTextMatches.length > 0
+          ? paragraphTextMatches
+          : fallbackTargets;
+      const builderMatches = edited.targetBuilderId
+        ? textMatches.filter(
+            (el) =>
+              el
+                .closest<HTMLElement>("[data-builder-id]")
+                ?.getAttribute("data-builder-id") === edited.targetBuilderId,
+          )
+        : [];
+      const resolvedTargets =
+        builderMatches.length === 1 ? builderMatches : textMatches;
+      if (resolvedTargets.length !== 1) {
+        const candidates = textMatches.map((el) => {
+          const object = el.closest<HTMLElement>("[data-slide-object-id]");
+          const builder = el.closest<HTMLElement>("[data-builder-id]");
+          const rect = el.getBoundingClientRect();
+          const style = getComputedStyle(el);
+          return {
+            objectId: object?.getAttribute("data-slide-object-id") ?? null,
+            builderId: builder?.getAttribute("data-builder-id") ?? null,
+            editing: el.getAttribute("data-editing-block"),
+            rect: [rect.x, rect.y, rect.width, rect.height],
+            display: style.display,
+            visibility: style.visibility,
+            opacity: style.opacity,
+          };
+        });
+        throw new Error(
+          `expected one imported paragraph ${edited.targetPptxParagraph} in slide object ${edited.targetSlideObjectId}${edited.targetTextIncludes ? ` containing ${JSON.stringify(edited.targetTextIncludes)} for builder ${edited.targetBuilderId ?? "any"}` : ""}, found ${resolvedTargets.length}: ${JSON.stringify(candidates)}`,
+        );
+      }
+      stableEditedTarget = resolvedTargets[0]!;
+    } else if (edited.targetBuilderId) {
+      stableEditedTarget =
+        Array.from(
           root.querySelectorAll<HTMLElement>("[data-builder-id]"),
         ).find(
           (el) => el.getAttribute("data-builder-id") === edited.targetBuilderId,
-        ) ?? null)
-      : null;
+        ) ?? null;
+    }
     const editedOwner =
       stableEditedTarget ??
       (editedEl
         ? (editedEl.closest("[data-slide-object-id]") ??
+          editedEl.closest('[data-slide-text-block="true"]') ??
           editedEl.closest("ul, ol") ??
           editedEl)
         : null);
     const targetBlock = editingBlock ?? editedOwner;
     const editedBox = editingBlock ?? targetBlock;
+    const editedObject =
+      stableEditedTarget?.closest<HTMLElement>("[data-slide-object-id]") ??
+      editedBox?.closest<HTMLElement>("[data-slide-object-id]") ??
+      null;
+    const logicalObjectId =
+      edited.targetSlideObjectId ??
+      editedObject?.getAttribute("data-slide-object-id") ??
+      null;
+    const targetObjectIds = new Set(
+      [logicalObjectId].filter((id): id is string => !!id),
+    );
+    const targetParagraph =
+      edited.targetSlideObjectId !== undefined &&
+      edited.targetPptxParagraph !== undefined
+        ? Array.from(
+            root.querySelectorAll<HTMLElement>("[data-pptx-paragraph]"),
+          ).find(
+            (el) =>
+              el.getAttribute("data-pptx-paragraph") ===
+                edited.targetPptxParagraph &&
+              el
+                .closest("[data-slide-object-id]")
+                ?.getAttribute("data-slide-object-id") ===
+                edited.targetSlideObjectId,
+          )
+        : null;
+    const fragmentTexts = [
+      ...(edited.authoringFragmentTexts ?? []),
+      ...(edited.targetTextIncludes ? [edited.targetTextIncludes] : []),
+    ];
+    const authoringFragmentBlocks = new Set<HTMLElement>();
+    if (fragmentTexts.length > 0 && editedObject) {
+      for (const text of new Set(fragmentTexts)) {
+        const candidates = Array.from(
+          editedObject.querySelectorAll<HTMLElement>(
+            "p,li,blockquote,h1,h2,h3,h4,h5,h6,div",
+          ),
+        ).filter((el) => norm(el.textContent).includes(norm(text)));
+        const blocks = candidates.filter(
+          (el) =>
+            !candidates.some((other) => other !== el && el.contains(other)),
+        );
+        if (blocks.length !== 1) {
+          throw new Error(
+            `expected one authoring fragment block in slide object ${logicalObjectId} for marker ${JSON.stringify(text)}, found ${blocks.length}`,
+          );
+        }
+        const block = blocks[0]!;
+        authoringFragmentBlocks.add(block);
+        if (block.parentElement?.matches("ul,ol")) {
+          authoringFragmentBlocks.add(block.parentElement);
+        }
+      }
+    }
+    const isStyledBulletRow = (el: Element) => {
+      if (!/^(DIV|LI|P)$/.test(el.tagName)) return false;
+      const marker = el.firstElementChild;
+      if (!marker || marker.tagName !== "SPAN") return false;
+      const text = norm(marker.textContent);
+      if (/^[-*•●◦▪‣·⁃–—]+$/u.test(text)) return true;
+      const style = getComputedStyle(marker);
+      const width = Number.parseFloat(style.width);
+      const height = Number.parseFloat(style.height);
+      const background = style.backgroundColor;
+      const alpha = background.match(/[,/]\s*([\d.]+)%?\s*\)$/)?.[1];
+      const hasVisibleBackground =
+        background !== "transparent" &&
+        (alpha === undefined || Number(alpha) !== 0);
+      return (
+        !text &&
+        width > 0 &&
+        width <= 48 &&
+        height > 0 &&
+        height <= 48 &&
+        (Number.parseFloat(style.borderTopWidth) > 0 ||
+          Number.parseFloat(style.borderLeftWidth) > 0 ||
+          hasVisibleBackground ||
+          Number.parseFloat(style.borderRadius) > 0)
+      );
+    };
+    let visualEditBlock = targetBlock;
+    let protectedMarker: Element | null = null;
+    for (
+      let ancestor = targetBlock;
+      ancestor && ancestor !== root;
+      ancestor = ancestor.parentElement
+    ) {
+      if (isStyledBulletRow(ancestor)) {
+        visualEditBlock = ancestor;
+        if (edited.preserveStyledBulletMarker) {
+          protectedMarker = ancestor.firstElementChild;
+        }
+        break;
+      }
+    }
     const isInNormalFlow = (el: Element | null) => {
       if (!el) return false;
       for (
@@ -1083,7 +1428,11 @@ export function installInPageHelpers(chromeSelector: string) {
     };
     const insideEdited = (el: Element) =>
       (!!host && host.contains(el)) ||
-      (!!targetBlock && (targetBlock === el || targetBlock.contains(el)));
+      (!!visualEditBlock &&
+        (visualEditBlock === el || visualEditBlock.contains(el))) ||
+      Array.from(authoringFragmentBlocks).some(
+        (block) => block === el || block.contains(el),
+      );
 
     const records: SnapRecord[] = [];
     const seen = new Map<string, number>();
@@ -1098,8 +1447,9 @@ export function installInPageHelpers(chromeSelector: string) {
         const style = getComputedStyle(node);
         const rect = node.getBoundingClientRect();
         const object = node.closest("[data-slide-object-id]");
+        const paragraph = node.closest("[data-pptx-paragraph]");
         path.push(
-          `${node.tagName.toLowerCase()}[sameObject=${Boolean(object && object === editedObject)};block=${node.hasAttribute("data-slide-text-block")};editing=${node.hasAttribute("data-editing-block")};${style.display};${style.position};${style.top},${style.right},${style.bottom},${style.left};${style.transform};${style.alignSelf};${style.alignItems};${style.alignContent};${style.flexDirection};${style.justifyContent};${style.gridTemplateRows};${style.gridTemplateColumns};${style.gridRowStart},${style.gridRowEnd};${rect.x},${rect.y},${rect.width},${rect.height}]`,
+          `${node.tagName.toLowerCase()}[sameObject=${Boolean(object && object === editedObject)};object=${object?.getAttribute("data-slide-object-id") ?? ""};paragraph=${paragraph?.getAttribute("data-pptx-paragraph") ?? ""};block=${node.hasAttribute("data-slide-text-block")};editing=${node.hasAttribute("data-editing-block")};${style.display};${style.position};${style.top},${style.right},${style.bottom},${style.left};${style.transform};${style.alignSelf};${style.alignItems};${style.alignContent};${style.flexDirection};${style.justifyContent};${style.gridTemplateRows};${style.gridTemplateColumns};${style.gridRowStart},${style.gridRowEnd};${rect.x},${rect.y},${rect.width},${rect.height}]`,
         );
       }
       return path;
@@ -1122,13 +1472,79 @@ export function installInPageHelpers(chromeSelector: string) {
         : base.endsWith("::after")
           ? "after"
           : kind;
+      const recordObject = element?.closest("[data-slide-object-id]");
+      const recordParagraph = element?.closest("[data-pptx-paragraph]");
+      const objectId =
+        recordObject?.getAttribute("data-slide-object-id") ?? null;
+      const paragraphId =
+        recordParagraph?.getAttribute("data-pptx-paragraph") ?? null;
+      const path: string[] = [];
+      for (
+        let node: Element | null | undefined = element;
+        node && recordParagraph && node !== recordParagraph;
+        node = node.parentElement
+      ) {
+        const parent = node.parentElement;
+        path.unshift(
+          `${node.tagName.toLowerCase()}:${parent ? Array.from(parent.children).indexOf(node) : 0}`,
+        );
+      }
+      const logicalRecordObjectId =
+        objectId && targetObjectIds.has(objectId) ? logicalObjectId : objectId;
+      const protectedElement = Boolean(
+        element &&
+        protectedMarker &&
+        (protectedMarker === element || protectedMarker.contains(element)),
+      );
+      const markerParent = element?.parentElement;
+      const styledBulletMarker = Boolean(
+        element &&
+        markerParent &&
+        markerParent.firstElementChild === element &&
+        isStyledBulletRow(markerParent),
+      );
+      const visualBlockRect =
+        protectedElement && visualEditBlock
+          ? rectOf(visualEditBlock.getBoundingClientRect(), origin)
+          : null;
       records.push({
         key: `${base}#${n}`,
         ...(element
-          ? { stableKey: `${snapEpoch}:${snapId(element)}:${recordKind}` }
+          ? {
+              stableKey: `${snapEpoch}:${snapId(element)}:${recordKind}`,
+              slideObjectId: logicalRecordObjectId,
+              pptxParagraph: paragraphId,
+              ...(logicalRecordObjectId && paragraphId
+                ? {
+                    pptxRecordKey: `${logicalRecordObjectId}:${paragraphId}:${path.join("/")}:${recordKind}`,
+                  }
+                : {}),
+            }
           : {}),
         kind,
         inside,
+        ...(protectedElement
+          ? {
+              protectedStyle: true,
+              protectedStructure: true,
+              ...(visualBlockRect
+                ? {
+                    protectedRect: {
+                      x: rect.x - visualBlockRect.x,
+                      y: rect.y - visualBlockRect.y,
+                      width: rect.width,
+                      height: rect.height,
+                    },
+                  }
+                : {}),
+            }
+          : {}),
+        ...(styledBulletMarker
+          ? {
+              styledBulletMarker: true,
+              styledBulletMarkerText: norm(element?.textContent),
+            }
+          : {}),
         downstreamFlow: !!flow,
         ...(flow && flow.flexCrossAlignment
           ? { flexCrossAlignment: flow.flexCrossAlignment }
@@ -1238,8 +1654,45 @@ export function installInPageHelpers(chromeSelector: string) {
     const editedRect = editedBox
       ? rectOf(paintedRect(editedBox), origin)
       : null;
+    const editedBoxRect = editedBox
+      ? rectOf(editedBox.getBoundingClientRect(), origin)
+      : null;
+    const editedParagraph = stableEditedTarget?.closest<HTMLElement>(
+      "[data-pptx-paragraph]",
+    );
+    const editedTargetRect = stableEditedTarget
+      ? rectOf(stableEditedTarget.getBoundingClientRect(), origin)
+      : null;
+    const editedFlowAnchor =
+      targetParagraph ?? editedParagraph ?? stableEditedTarget;
+    const editedFlowAnchorRect = editedFlowAnchor
+      ? rectOf(editedFlowAnchor.getBoundingClientRect(), origin)
+      : null;
+    const editedAuthoringFragmentRects = Array.from(authoringFragmentBlocks)
+      .filter((block) => !block.matches("ul,ol"))
+      .map((block) => rectOf(block.getBoundingClientRect(), origin));
     const editedInFlow = isInNormalFlow(editedBox);
-    if (outsideOnly) return { records, editedRect, editedInFlow };
+    if (outsideOnly) {
+      return {
+        records,
+        editedRect,
+        editedInFlow,
+        editedObjectId: logicalObjectId,
+        editedParagraphId:
+          edited.targetPptxParagraph ??
+          editedParagraph?.getAttribute("data-pptx-paragraph") ??
+          null,
+        editedObjectRect: editedObject
+          ? rectOf(editedObject.getBoundingClientRect(), origin)
+          : null,
+        editedTargetRect,
+        editedFlowAnchorRect,
+        editedAuthoringFragmentRects,
+        editedObjectPosition: editedObject
+          ? getComputedStyle(editedObject).position
+          : null,
+      };
+    }
 
     const all = Array.from(root.querySelectorAll("*")).filter(
       (el) => el.tagName !== "STYLE" && !isChrome(el),
@@ -1263,6 +1716,21 @@ export function installInPageHelpers(chromeSelector: string) {
       inventory,
       text: norm((root as HTMLElement).innerText),
       editedRect,
+      editedBoxRect,
+      editedObjectId: logicalObjectId,
+      editedParagraphId:
+        edited.targetPptxParagraph ??
+        editedParagraph?.getAttribute("data-pptx-paragraph") ??
+        null,
+      editedObjectRect: editedObject
+        ? rectOf(editedObject.getBoundingClientRect(), origin)
+        : null,
+      editedTargetRect,
+      editedFlowAnchorRect,
+      editedAuthoringFragmentRects,
+      editedObjectPosition: editedObject
+        ? getComputedStyle(editedObject).position
+        : null,
       editedInFlow,
       editedText: editedEl ? lines(editedEl) : null,
       editedLayoutPath: editedBox ? layoutPathOf(editedBox) : undefined,
@@ -1276,6 +1744,11 @@ export function installInPageHelpers(chromeSelector: string) {
       text?: string;
       marker?: string;
       targetBuilderId?: string;
+      targetSlideObjectId?: string;
+      targetPptxParagraph?: string;
+      targetTextIncludes?: string;
+      authoringFragmentTexts?: string[];
+      preserveStyledBulletMarker?: boolean;
     },
   ): Snapshot {
     return captureSnapshot(canvasSel, edited) as Snapshot;
@@ -1495,6 +1968,7 @@ export function installInPageHelpers(chromeSelector: string) {
     editorState,
     entryCaretProblem,
     backgroundPoint,
+    customStyleProperties: customPropertiesFor,
     canonical,
     canonicalOutside,
   };

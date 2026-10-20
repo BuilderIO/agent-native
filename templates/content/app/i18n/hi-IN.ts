@@ -437,7 +437,6 @@ const editor = {
   pageBodySyncing: "इस पेज की सामग्री अभी भी सिंक हो रही है",
   pageBodySyncingDescription:
     "पेज का मुख्य भाग सिंक पूरा होने तक संपादन रोका गया है, ताकि मौजूदा सामग्री अधिलेखित न हो।",
-  createCollection: "संग्रह बनाएँ",
   creatingDatabase: "इनलाइन संग्रह बनाया जा रहा है...",
   databaseCreated: "संग्रह बनाया गया",
   emptyBlockPlaceholder: "कमांड के लिए '/' दबाएं",
@@ -792,6 +791,7 @@ const editor = {
     notifications: "सूचनाएं",
     notionSync: "धारणा सिंक",
     openInNotion: "धारणा में खोलें",
+    openInAgentNative: "Agent-Native में खोलें",
     orgCanFindAndView: "आपके संगठन का कोई भी व्यक्ति ढूंढ और देख सकता है",
     orgLinkCanView: "आपके संगठन का कोई भी व्यक्ति जिसके पास लिंक है, देख सकता है",
     pin: "पिन करें",
@@ -937,8 +937,6 @@ const rawLiterals = {
 const landing = {
   previousPageUnavailable:
     "आपका पिछला पेज अब उपलब्ध नहीं है, इसलिए हमने स्वागत पेज खोल दिया है।",
-  requestedPageUnavailable:
-    "वह पेज आपके खाते के लिए उपलब्ध नहीं है, इसलिए हमने स्वागत पेज खोल दिया है।",
   saveFailed: "आपकी जगह सेव नहीं की जा सकी",
   workspaceWelcomeUnavailableTitle: "यहाँ अभी कुछ भी खुला नहीं है",
   workspaceWelcomeUnavailableDescription:
@@ -962,6 +960,15 @@ const comments = {
   hideIndicators: "टिप्पणियाँ और हाइलाइट छिपाएँ",
   showIndicators: "टिप्पणियाँ और हाइलाइट दिखाएँ",
   unanchored: "हाइलाइट उपलब्ध नहीं है",
+  propertyEmpty: "खाली",
+  propertyRemoved: "{{name}} (हटाई गई)",
+  propertyWas: "पहले {{value}} था",
+  commentOnProperty: "{{name}} पर टिप्पणी करें",
+  openPropertyComments_one: "{{name}} पर {{count}} खुली टिप्पणी",
+  openPropertyComments_other: "{{name}} पर {{count}} खुली टिप्पणियाँ",
+  openRowComments_one: "{{title}} पर {{count}} खुली टिप्पणी",
+  openRowComments_other: "{{title}} पर {{count}} खुली टिप्पणियाँ",
+  openRow: "पंक्ति खोलें",
   suggestions: "सुझाव",
   suggestionAdd: "जोड़ें",
   suggestionDelete: "हटाएँ",
@@ -1048,6 +1055,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "अब भी {{stage}} का इंतज़ार हो रहा है। अनुरोध: {{action}}।",
+    widgetDocumentLoadStage: "सहेजे गए पेज का मुख्य भाग",
+    widgetDraftCheckStage: "पेज ड्राफ़्ट की बहाली",
+    widgetEditorInitStage: "रिच-टेक्स्ट एडिटर के शुरू होने",
     iconPickerIcons: "आइकन",
     iconPickerEmoji: "इमोजी",
     iconPickerRecent: "हाल के",
@@ -1057,6 +1068,10 @@ const exactEnglish = {
     iconPickerUploading: "अपलोड हो रहा है…",
     suggestionAmendmentEmpty:
       "यह संपादन मौजूदा पेज से मेल खाता है। इसे हटाने के लिए सुझाव को अस्वीकार करें।",
+    suggestionUnplaceable:
+      "इस सुझाव के आसपास का टेक्स्ट बदल गया है, इसलिए इसे लागू नहीं किया जा सकता। यह अभी भी लंबित है: इसे अस्वीकार करें, या बदलाव फिर से सुझाएँ।",
+    proposalUnplaceable:
+      "इनमें से एक सुझाव के आसपास का टेक्स्ट बदल गया है, इसलिए उसे लागू नहीं किया जा सकता और कोई भी सुझाव लागू नहीं हुआ। सभी अभी भी लंबित हैं: उन्हें एक-एक करके स्वीकार या अस्वीकार करें।",
     suggestionAmendmentFailed: "सुझाव सेव नहीं किया जा सका",
     suggestionAmendmentResolved:
       "यह सुझाव कहीं और बदल दिया गया है। आपका सेव न किया गया ड्राफ़्ट अभी भी यहाँ है।",
@@ -1090,6 +1105,8 @@ const exactEnglish = {
       openInClaude: "Claude में खोलें",
       openInClaudeCode: "Claude Code में खोलें",
       openInCodex: "Codex में खोलें",
+      connectContent: "Content कनेक्ट करें",
+      otherAgents: "अन्य एजेंट",
       agentCopyAccessNote:
         "एजेंट आपकी मौजूदा अनुमतियों के साथ Content MCP का उपयोग कर सकते हैं",
       temporaryAgentLink: "अस्थायी एजेंट लिंक",
@@ -1325,6 +1342,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "कोई page selected नहीं",
+    pageNoAccess: "आपके पास इस पेज का एक्सेस नहीं है",
+    pageMissing: "यह पेज मौजूद नहीं है",
+    pageInTrash: "यह पेज ट्रैश में है",
+    pageInTrashAskOwner: "मालिक से इसे रीस्टोर करने के लिए कहें।",
+    openTrash: "ट्रैश खोलें",
+    goToMyPages: "मेरे पेज पर जाएं",
     noPageDescription: "sidebar से page चुनें या नया बनाएं।",
     newPage: "नया page",
     createFailed: "page create नहीं हो सका",
@@ -1364,8 +1387,21 @@ const overrides = {
     plainText: "सादा टेक्स्ट",
     searchLanguages: "भाषाएं खोजें...",
     noBlocksFields: "कोई Blocks फ़ील्ड नहीं है। प्रॉपर्टी मेनू से एक जोड़ें।",
-    reorderField: "{{name}} को फिर से क्रमबद्ध करें",
-    toggleField: "{{name}} टॉगल करें",
+    addBlockField: "फ़ील्ड जोड़ें",
+    blockFieldChanged: "पिछली बार देखने के बाद से बदला गया",
+    blockFieldTabs: "फ़ील्ड",
+    blockFieldMenu: "{{name}} के विकल्प",
+    blockFieldMenuScope: "इस संग्रह की हर पंक्ति में साझा",
+    blockFieldName: "फ़ील्ड का नाम",
+    renameBlockField: "नाम बदलें",
+    renameBlockFieldFailed: "फ़ील्ड का नाम नहीं बदला जा सका",
+    deleteBlockField: "हटाएँ",
+    deleteBlockFieldFailed: "फ़ील्ड हटाया नहीं जा सका",
+    deleteBlockFieldQuestion: "“{{name}}” हटाएँ?",
+    deleteBlockFieldDescription:
+      "इससे इस संग्रह की हर पंक्ति से “{{name}}” और उसका टेक्स्ट हट जाएगा। इसे पूर्ववत नहीं किया जा सकता।",
+    deleteBlockFieldBodyWarning:
+      "“{{name}}” पेज का मुख्य भाग है, इसलिए हर पंक्ति का मुख्य टेक्स्ट भी हट जाएगा।",
   },
   comments: {
     add: "टिप्पणी जोड़ें...",
@@ -1377,7 +1413,17 @@ const overrides = {
     addEmoji: "इमोजी जोड़ें",
     mentionSomeone: "किसी का उल्लेख करें",
     mentionPeople: "लोग",
+    mentionPeopleLoadFailed: "लोगों को लोड नहीं किया जा सका।",
     mentionAgents: "एजेंट",
+    identityPerson: "व्यक्ति",
+    identityModel: "मॉडल",
+    identityEffort: "तर्क स्तर",
+    identityRan: "चलाया गया",
+    identityNotRecorded: "दर्ज नहीं",
+    identityOpenRun: "रन खोलें",
+    identityRoleOwner: "मालिक",
+    identityRoleAdmin: "एडमिन",
+    identityRoleMember: "सदस्य",
     commentTitle: "टिप्पणी",
     suggestionTitle: "सुझाव",
     close: "बंद करें",
@@ -1407,6 +1453,9 @@ const overrides = {
     aiUndo: "पूर्ववत करें",
     aiDone: "हो गया",
     aiMoreChanges: "+{{count}} और",
+    suggestionReplaced: "बदला गया",
+    suggestionWithdrawn: "वापस लिया गया",
+    suggestedChange: "सुझाया गया बदलाव",
     aiUndoUnavailable: "हटाया गया टेक्स्ट अपने-आप वापस नहीं लाया जा सकता",
     aiUndoFailed: "बदलाव पूर्ववत नहीं हो सका",
     aiResolvedByAi: "AI ने हल किया",
@@ -1448,6 +1497,11 @@ const overrides = {
     resize: "साइडबार का आकार बदलें",
     expand: "साइडबार फैलाएं",
     failedCreatePage: "पेज नहीं बन सका",
+    failedCreatePageDraftDescription:
+      "आपका ड्राफ़्ट इस ब्राउज़र में सेव है। आप पेज बनाने की फिर कोशिश कर सकते हैं या ड्राफ़्ट हटा सकते हैं।",
+    discardFailedCreatePageQuestion: "लंबित निर्माण छोड़ें?",
+    discardFailedCreatePageDescription:
+      "इससे लंबित निर्माण और कोई भी सहेजा नहीं गया ड्राफ़्ट साफ़ हो जाएगा। अगर पेज पहले से सहेजा गया है, तो वह आपके कार्यक्षेत्र में बना रहेगा।",
     failedDeletePage: "पेज हटाया नहीं जा सका",
     failedPermanentDeletePage: "पेज को स्थायी रूप से हटाया नहीं जा सका",
     failedRestorePage: "पेज पुनर्स्थापित नहीं किया जा सका",

@@ -4,6 +4,8 @@ export type DashboardVisibilityFilter = "all" | "private" | "shared";
 export type DashboardVisibilityItem = {
   visibility?: DashboardVisibility;
   ownerEmail?: string | null;
+  /** Sample content installed for the user; never theirs, never someone else's. */
+  demo?: boolean;
 };
 
 function normalizeEmail(email: string | null | undefined): string | null {
@@ -28,13 +30,26 @@ export function isDashboardMine(
   return true;
 }
 
+// Sidebar "Mine" means "I own it", whether or not I have shared it. The
+// Overview's personal/shared scope keeps `isDashboardMine`: it picks folders.
+function isOwnedByViewer(
+  item: DashboardVisibilityItem,
+  currentUserEmail?: string | null,
+): boolean {
+  if (!("ownerEmail" in item)) return item.visibility === "private";
+  const ownerEmail = normalizeEmail(item.ownerEmail);
+  const viewerEmail = normalizeEmail(currentUserEmail);
+  return Boolean(ownerEmail && viewerEmail && ownerEmail === viewerEmail);
+}
+
 export function matchesDashboardVisibilityFilter(
   item: DashboardVisibilityItem,
   filter: DashboardVisibilityFilter,
   currentUserEmail?: string | null,
 ): boolean {
   if (filter === "all") return true;
+  if (item.demo) return false;
   return filter === "private"
-    ? isDashboardMine(item, currentUserEmail)
-    : !isDashboardMine(item, currentUserEmail);
+    ? isOwnedByViewer(item, currentUserEmail)
+    : !isOwnedByViewer(item, currentUserEmail);
 }

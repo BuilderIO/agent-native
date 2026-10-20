@@ -37,10 +37,12 @@ Client code imports the command menu and route helpers from the client kit:
 ```tsx
 import {
   CommandMenu,
+  useCommandMenuShortcut,
+} from "@agent-native/toolkit/app/shared";
+import {
   buildResourceRoute,
   buildSettingsRoute,
-  useCommandMenuShortcut,
-} from "@agent-native/core/client/command-navigation";
+} from "@agent-native/core/navigation";
 
 const settingsUrl = buildSettingsRoute("integrations", "builder");
 const documentUrl = buildResourceRoute("documents", documentId);

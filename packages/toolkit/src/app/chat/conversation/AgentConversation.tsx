@@ -34,6 +34,10 @@ import {
 } from "../components/ui/message-scroller.js";
 import { HighlightedCodeBlock as SharedHighlightedCodeBlock } from "../HighlightedCodeBlock.js";
 import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
+import {
+  SESSION_REPLAY_BLOCK_PROPS,
+  SESSION_REPLAY_MASK_PROPS,
+} from "../session-replay-privacy.js";
 import type {
   AgentConversationAttachment,
   AgentConversationArtifact,
@@ -70,7 +74,7 @@ export function AgentConversation({
       {error && (
         <div className="agent-conversation__error" role="alert">
           <IconAlertTriangle size={15} strokeWidth={1.8} />
-          <span>{error}</span>
+          <span {...SESSION_REPLAY_MASK_PROPS}>{error}</span>
         </div>
       )}
       <MessageScrollerProvider autoScroll>
@@ -412,9 +416,11 @@ function ConversationToolCall({ tool }: { tool: AgentConversationToolCall }) {
     chatUI: tool.chatUI,
   };
   const NativeToolRenderer =
-    resolveBuiltinActionChatRenderer(nativeToolContext) ??
-    resolveToolRenderer(nativeToolContext) ??
-    resolveBuiltinFallbackToolRenderer(nativeToolContext);
+    tool.state === "errored"
+      ? null
+      : (resolveBuiltinActionChatRenderer(nativeToolContext) ??
+        resolveToolRenderer(nativeToolContext) ??
+        resolveBuiltinFallbackToolRenderer(nativeToolContext));
   if (NativeToolRenderer) {
     return (
       <ActionChatUiSurface
@@ -446,7 +452,12 @@ function ConversationToolCall({ tool }: { tool: AgentConversationToolCall }) {
         {toolLabel(t, tool.name)}
       </span>
       {tool.summary && (
-        <span className="agent-conversation-tool__summary">{tool.summary}</span>
+        <span
+          {...(tool.state === "errored" ? SESSION_REPLAY_MASK_PROPS : {})}
+          className="agent-conversation-tool__summary"
+        >
+          {tool.summary}
+        </span>
       )}
     </>
   );
@@ -468,7 +479,14 @@ function ConversationToolCall({ tool }: { tool: AgentConversationToolCall }) {
         />
       </summary>
       <div className="agent-conversation-tool__details">
-        {tool.mcpApp && <McpAppRenderer app={tool.mcpApp} />}
+        {tool.mcpApp && (
+          // The recorder keeps iframe attributes, and a snapshot's srcdoc can show the failure.
+          <div
+            {...(tool.state === "errored" ? SESSION_REPLAY_BLOCK_PROPS : {})}
+          >
+            <McpAppRenderer app={tool.mcpApp} />
+          </div>
+        )}
         {tool.input && (
           <pre>
             <strong>input</strong>
@@ -478,7 +496,11 @@ function ConversationToolCall({ tool }: { tool: AgentConversationToolCall }) {
         {tool.result && (
           <pre>
             <strong>result</strong>
-            {tool.result}
+            <span
+              {...(tool.state === "errored" ? SESSION_REPLAY_MASK_PROPS : {})}
+            >
+              {tool.result}
+            </span>
           </pre>
         )}
       </div>
@@ -497,7 +519,9 @@ function ConversationNotice({ notice }: { notice: AgentConversationNotice }) {
       <IconAlertTriangle size={15} />
       <div>
         {notice.title && <strong>{notice.title}</strong>}
-        <span>{notice.text}</span>
+        {/* Tone doesn't mark failures: a harness error that mentions approval
+            is classified as an approval and rendered with the warning tone. */}
+        <span {...SESSION_REPLAY_MASK_PROPS}>{notice.text}</span>
       </div>
       {notice.action}
     </div>

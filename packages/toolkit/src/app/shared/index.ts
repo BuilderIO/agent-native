@@ -1,6 +1,7 @@
 export * from "./AboutAgentNativeDialog.js";
 export * from "./AppShellSkeleton.js";
 export * from "./AgentNativeIcon.js";
+export * from "./AgentMark.js";
 export * from "./AppSidebar.js";
 export * from "./AppearancePicker.js";
 export * from "./ClientOnly.js";
@@ -16,4 +17,5 @@ export * from "./PrimitiveButton.js";
 export * from "./RouteTransitionIndicator.js";
 export * from "./RuntimeConfigNotice.js";
 export * from "./StarfieldBackground.js";
+export * from "./WaveBackground.js";
 export * from "./Turnstile.js";

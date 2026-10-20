@@ -1,6 +1,7 @@
 import {
   AGENT_ACCESS_PARAM,
   getConfiguredAppBasePath,
+  getForwardedRequestOrigin,
   verifyScopedAgentAccessToken,
 } from "@agent-native/core/server";
 import { createH3SSRHandler } from "@agent-native/core/server/ssr-handler";
@@ -94,7 +95,7 @@ export default defineEventHandler(async (event) => {
       resourceId: resource.id,
       path: planPathForKind(resource.id, resource.kind),
       contextEndpoint: PLAN_AGENT_CONTEXT_ENDPOINT,
-      origin: requestUrl.origin,
+      origin: getForwardedRequestOrigin(event),
       basePath: getConfiguredAppBasePath(),
       token,
       instructions:

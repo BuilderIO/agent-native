@@ -1,3 +1,5 @@
+import { CHUNK_RECOVERY_QUERY_PARAM } from "./route-chunk-recovery-bootstrap.js";
+
 export const DEFAULT_PUBLIC_CACHE_CONTROL =
   "public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600";
 
@@ -7,6 +9,9 @@ export const DEFAULT_SSR_CDN_CACHE_CONTROL = DEFAULT_SSR_CACHE_CONTROL;
 
 export const DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL =
   "public, durable, s-maxage=31536000, stale-while-revalidate=604800, stale-if-error=3600";
+
+export const CHUNK_RECOVERY_BROWSER_CACHE_CONTROL =
+  "public, max-age=0, must-revalidate";
 
 export const DEFAULT_SSR_CACHE_HEADERS = {
   "cache-control": DEFAULT_SSR_CACHE_CONTROL,
@@ -132,10 +137,37 @@ export function resolveSsrCacheHeaders(
   return memoizedHeaders;
 }
 
+export function resolveChunkRecoveryCacheHeaders(
+  cacheHeaders: Pick<
+    SsrCacheHeaders,
+    "cache-control"
+  > = resolveSsrCacheHeaders(),
+): Readonly<SsrCacheHeaders> {
+  return cacheHeaders["cache-control"] === DISABLED_SSR_CACHE_CONTROL
+    ? DISABLED_SSR_CACHE_HEADERS
+    : {
+        "cache-control": CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+        "cdn-cache-control": DISABLED_SSR_CACHE_CONTROL,
+        "netlify-cdn-cache-control": DISABLED_SSR_CACHE_CONTROL,
+      };
+}
+
+export function resolveSsrNetlifyQueryVary(
+  varyByQuery = false,
+  varyByLegacyRecovery = false,
+): string {
+  if (varyByQuery) return "query";
+  if (varyByLegacyRecovery) {
+    return `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`;
+  }
+  return "query=_routes|index";
+}
+
 export function resolveSsrCacheKeyHeaders(
   env: Record<string, string | undefined> = typeof process === "undefined"
     ? {}
     : process.env,
+  options: { varyByQuery?: boolean; varyByLegacyRecovery?: boolean } = {},
 ): Readonly<Record<string, string>> {
   const explicitlyNotNetlify =
     env.NETLIFY_LOCAL === "true" || env.NETLIFY === "false";
@@ -143,11 +175,13 @@ export function resolveSsrCacheKeyHeaders(
     !explicitlyNotNetlify && (Boolean(env.NETLIFY) || Boolean(env.SITE_ID)); // guard:allow-env-credential -- Netlify's public runtime host marker, not a credential.
   const none: Readonly<Record<string, string>> = Object.freeze({});
   if (!onNetlify) return none;
-  // This NARROWS the cache key rather than splitting it per user: it removes
-  // utm/fbclid/gclid so one entry serves everyone. The shapes the guard exists
-  // to stop are `private`, `no-store` and `Vary: Cookie`, none of which this is.
-  // guard:allow-ssr-shell-exception — narrows the shared key, never splits it
-  return Object.freeze({ "netlify-vary": "query=_routes|index" });
+  return Object.freeze({
+    // guard:allow-ssr-shell-exception — bounded public React Router query keys
+    "netlify-vary": resolveSsrNetlifyQueryVary(
+      options.varyByQuery,
+      options.varyByLegacyRecovery,
+    ),
+  });
 }
 
 export function isSsrCacheEnabled(

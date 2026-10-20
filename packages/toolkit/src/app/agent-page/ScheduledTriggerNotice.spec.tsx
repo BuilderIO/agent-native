@@ -8,7 +8,10 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT:
     () =>
     (key: string, options?: Record<string, string | undefined>): string =>
-      String(options?.defaultValue ?? key),
+      String(options?.defaultValue ?? key).replace(
+        /\{\{(\w+)\}\}/g,
+        (_match, name: string) => options?.[name] ?? "",
+      ),
 }));
 
 import type {
@@ -109,7 +112,41 @@ describe("ScheduledTriggerNotice", () => {
     });
 
     expect(notice?.textContent).toContain("Schedules won't run in this deploy");
-    expect(notice?.textContent).toContain("no durable scheduler");
+    expect(notice?.textContent).toContain("no scheduler");
+  });
+
+  // On a serverless host the scheduler's sweep is the only thing that drains
+  // the event-automation queue, so claiming event automations still work there
+  // is the bug this copy once shipped with.
+  it("says event automations stay queued when the deploy has no scheduler", () => {
+    const notice = render({
+      available: false,
+      reason: "no-platform-scheduler",
+    });
+
+    expect(notice?.textContent).toContain(
+      "event-triggered automations stay queued",
+    );
+    expect(notice?.textContent).not.toContain("Event- and webhook-triggered");
+  });
+
+  it("names the missing secret when the platform trigger cannot authenticate", () => {
+    const notice = render({
+      available: false,
+      reason: "missing-trigger-secret",
+      driver: "vercel-cron",
+      secret: "CRON_SECRET",
+    });
+
+    expect(notice?.getAttribute("data-reason")).toBe("missing-trigger-secret");
+    expect(notice?.textContent).toContain("Schedules won't run in this deploy");
+    expect(notice?.textContent).toContain("CRON_SECRET isn't set");
+    expect(notice?.textContent).toContain(
+      "event-triggered automations stay queued",
+    );
+    expect(notice?.querySelector("details")?.textContent).toContain(
+      "Set CRON_SECRET in this deployment's environment variables",
+    );
   });
 
   it("distinguishes local development and names the local opt-in", () => {
@@ -127,7 +164,12 @@ describe("ScheduledTriggerNotice", () => {
   it("tells the reader what still works, so the warning is actionable", () => {
     const notice = render({ available: false, reason: "disabled-by-env" });
 
-    expect(notice?.textContent).toContain("Event-triggered automations");
+    expect(notice?.textContent).toContain(
+      "Webhook-triggered automations and Run now still work",
+    );
+    // A Netlify build with recurring jobs off emits no scheduled function, so
+    // nothing drains the event queue there.
+    expect(notice?.textContent).not.toContain("Event-");
   });
 
   it("keeps the fix in a disclosure that starts closed", () => {

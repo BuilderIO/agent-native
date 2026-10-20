@@ -1,7 +1,13 @@
+import * as jose from "jose";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-import { MCP_APP_EXTENSION_ID, MCP_APP_MIME_TYPE } from "../action.js";
+import {
+  MCP_APP_EXTENSION_ID,
+  MCP_APP_MIME_TYPE,
+  type ActionRunContext,
+} from "../action.js";
 import { runWithRequestContext } from "../server/request-context.js";
+import { mcpToolsToActionEntries } from "./index.js";
 import {
   McpClientManager,
   parseMcpToolName,
@@ -33,6 +39,12 @@ const originalOrgDirectoryUrl = process.env.AGENT_NATIVE_ORG_DIRECTORY_URL;
 const originalConnectTimeout =
   process.env.AGENT_NATIVE_MCP_CLIENT_CONNECT_TIMEOUT_MS;
 const FIRST_A2A_SIGNING_TIMEOUT_MS = 15_000;
+const orgContextMocks = vi.hoisted(() => ({
+  getOrgDomain: vi.fn(),
+  getOrgA2ASecret: vi.fn(),
+}));
+
+vi.mock("../org/context.js", () => orgContextMocks);
 
 function decodeJwtPayload(token: string): Record<string, unknown> {
   const [, payload] = token.split(".");
@@ -162,6 +174,18 @@ vi.doMock("@modelcontextprotocol/client/stdio", () => ({
   StdioClientTransport: FakeStdio,
 }));
 
+const constBesideRef = {
+  type: "object",
+  definitions: {
+    ObjectInput: {
+      type: "object",
+      properties: { x: { type: "string" } },
+      required: ["x"],
+    },
+  },
+  allOf: [{ $ref: "#/definitions/ObjectInput", const: "ignored" }],
+};
+
 describe("parseMcpToolName", () => {
   it("splits on the double underscore after the prefix", () => {
     expect(parseMcpToolName("mcp__chrome__navigate")).toEqual({
@@ -184,6 +208,8 @@ describe("McpClientManager", () => {
     for (const k of Object.keys(serverFixtures)) delete serverFixtures[k];
     fakeClients.length = 0;
     httpCallHeaders.length = 0;
+    orgContextMocks.getOrgDomain.mockReset().mockResolvedValue(null);
+    orgContextMocks.getOrgA2ASecret.mockReset().mockResolvedValue(null);
     delete process.env.A2A_SECRET;
     delete process.env.AGENT_NATIVE_MCP_CLIENT_CONNECT_TIMEOUT_MS;
     process.env.AGENT_NATIVE_ORG_DIRECTORY_URL =
@@ -285,6 +311,120 @@ describe("McpClientManager", () => {
     expect(fakeClients[0]?.capabilities.versionNegotiation).toEqual({
       mode: "auto",
     });
+  });
+
+  it.each([
+    {
+      name: "a reference that does not resolve",
+      inputSchema: {
+        type: "object",
+        properties: { item: { $ref: "#/$defs/Missing" } },
+      },
+      reason:
+        'references "#/$defs/Missing", which does not resolve at /properties/item',
+    },
+    {
+      name: "an empty enum",
+      inputSchema: {
+        type: "object",
+        properties: { kind: { anyOf: [{ type: "number" }, { enum: [] }] } },
+      },
+      reason:
+        "declares an empty enum, so it accepts no value at /properties/kind/anyOf/1",
+    },
+    {
+      name: "an empty root oneOf",
+      inputSchema: {
+        type: "object",
+        properties: { id: { type: "string" } },
+        oneOf: [],
+      },
+      reason: "declares an empty oneOf, so it accepts no value at /",
+    },
+    {
+      name: "a const its enum does not list",
+      inputSchema: {
+        type: "object",
+        properties: { x: { const: "x", enum: [1] } },
+      },
+      reason:
+        "declares a const its enum does not list, so it accepts no value at /properties/x",
+    },
+    {
+      name: "a root no object satisfies",
+      inputSchema: { type: "object", anyOf: [{ type: "string" }] },
+      reason: "accepts no object at /",
+    },
+    {
+      name: "a const beside a $ref, under MCP's default 2020-12",
+      inputSchema: constBesideRef,
+      reason: "accepts no object at /",
+    },
+  ])(
+    "holds back a tool whose schema has $name and reports it",
+    async ({ inputSchema, reason }) => {
+      serverFixtures["docs-bin"] = {
+        tools: [
+          {
+            name: "search",
+            inputSchema: {
+              type: "object",
+              properties: { q: { type: "string" } },
+            },
+          },
+          { name: "broken", inputSchema },
+        ],
+        callImpl: (name) => ({ content: [{ type: "text", text: name }] }),
+      };
+
+      const mgr = new McpClientManager({
+        servers: { docs: { command: "docs-bin" } },
+      });
+      await mgr.start();
+
+      expect(mgr.connectedServers).toEqual(["docs"]);
+      expect(mgr.hasServer("docs")).toBe(true);
+      expect(mgr.getTools().map((tool) => tool.name)).toEqual([
+        "mcp__docs__search",
+      ]);
+      expect(mgr.getTool("mcp__docs__broken")).toBeNull();
+      expect(Object.keys(mcpToolsToActionEntries(mgr))).toEqual([
+        "mcp__docs__search",
+      ]);
+      const status = mgr.getStatus();
+      expect(status.totalTools).toBe(1);
+      expect(status.errors).toEqual({
+        docs: `Tool "broken" is unavailable: its input schema ${reason}.`,
+      });
+      await expect(
+        mgr.callTool("mcp__docs__search", { q: "x" }),
+      ).resolves.toMatchObject({ content: [{ type: "text", text: "search" }] });
+    },
+  );
+
+  it("keeps a draft-07 tool whose $ref has a const beside it", async () => {
+    serverFixtures["docs-bin"] = {
+      tools: [
+        {
+          name: "check",
+          inputSchema: {
+            $schema: "http://json-schema.org/draft-07/schema#",
+            ...constBesideRef,
+          },
+        },
+      ],
+      callImpl: (name) => ({ content: [{ type: "text", text: name }] }),
+    };
+
+    const mgr = new McpClientManager({
+      servers: { docs: { command: "docs-bin" } },
+    });
+    await mgr.start();
+
+    expect(mgr.getTools().map((tool) => tool.name)).toEqual([
+      "mcp__docs__check",
+    ]);
+    expect(mgr.getStatus().errors).toEqual({});
   });
 
   it("preserves full MCP tool metadata from listTools", async () => {
@@ -392,6 +532,114 @@ describe("McpClientManager", () => {
       { tool: "a:ping", args: { hello: 1 } },
       { tool: "b:ping", args: { hello: 2 } },
     ]);
+  });
+
+  it("enforces configured authorization before calling the remote tool", async () => {
+    const callImpl = vi.fn(() => ({
+      content: [{ type: "text", text: "updated" }],
+    }));
+    serverFixtures["secured-bin"] = {
+      tools: [{ name: "mutate" }],
+      callImpl,
+    };
+    let allowed = false;
+    const authorize = vi.fn(async () => allowed);
+    const mgr = new McpClientManager({
+      servers: { secured: { command: "secured-bin" } },
+    });
+    mgr.setToolAuthorizationResolver(() => authorize);
+    await mgr.start();
+    const args = { recordId: "record-1" };
+    const context = {
+      caller: "frontend",
+      userEmail: "owner@example.com",
+      orgId: "org-1",
+    } satisfies ActionRunContext;
+
+    await expect(
+      mgr.callTool("mcp__secured__mutate", args, { context }),
+    ).rejects.toMatchObject({
+      name: "ForbiddenError",
+      statusCode: 403,
+      message: "Not authorized",
+    });
+    expect(authorize).toHaveBeenCalledWith(args, context);
+    expect(callImpl).not.toHaveBeenCalled();
+
+    allowed = true;
+    await expect(
+      mgr.callTool("mcp__secured__mutate", args, { context }),
+    ).resolves.toEqual({ content: [{ type: "text", text: "updated" }] });
+    expect(authorize).toHaveBeenCalledTimes(2);
+    expect(callImpl).toHaveBeenCalledWith("mutate", args);
+  });
+
+  it("keeps a call's own authorization when the manager resolver has no policy", async () => {
+    const callImpl = vi.fn(() => ({ content: [] }));
+    serverFixtures["secured-bin"] = {
+      tools: [{ name: "mutate" }],
+      callImpl,
+    };
+    const mgr = new McpClientManager({
+      servers: { secured: { command: "secured-bin" } },
+    });
+    mgr.setToolAuthorizationResolver(() => undefined);
+    await mgr.start();
+
+    await expect(
+      mgr.callTool(
+        "mcp__secured__mutate",
+        {},
+        { authorize: async () => false },
+      ),
+    ).rejects.toMatchObject({ name: "ForbiddenError", statusCode: 403 });
+    expect(callImpl).not.toHaveBeenCalled();
+  });
+
+  it("does not call a stale server after asynchronous authorization", async () => {
+    const staleCall = vi.fn(() => ({
+      content: [{ type: "text", text: "stale" }],
+    }));
+    const replacementCall = vi.fn(() => ({
+      content: [{ type: "text", text: "replacement" }],
+    }));
+    serverFixtures["stale-bin"] = {
+      tools: [{ name: "mutate" }],
+      callImpl: staleCall,
+    };
+    serverFixtures["replacement-bin"] = {
+      tools: [{ name: "mutate" }],
+      callImpl: replacementCall,
+    };
+    let authorizationStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      authorizationStarted = resolve;
+    });
+    let resolveAuthorization!: (allowed: boolean) => void;
+    const authorize = vi.fn(async () => {
+      authorizationStarted();
+      return new Promise<boolean>((resolve) => {
+        resolveAuthorization = resolve;
+      });
+    });
+    const mgr = new McpClientManager({
+      servers: { secured: { command: "stale-bin" } },
+    });
+    mgr.setToolAuthorizationResolver(() => authorize);
+    await mgr.start();
+
+    const call = mgr.callTool("mcp__secured__mutate", {});
+    await started;
+    await mgr.reconfigure({
+      servers: { secured: { command: "replacement-bin" } },
+    });
+    resolveAuthorization(true);
+
+    await expect(call).rejects.toThrow(
+      'MCP server "secured" changed while authorizing tool "mutate"',
+    );
+    expect(staleCall).not.toHaveBeenCalled();
+    expect(replacementCall).not.toHaveBeenCalled();
   });
 
   it("reconnects once and replays concurrent calls after an HTTP session expires", async () => {
@@ -503,10 +751,66 @@ describe("McpClientManager", () => {
     expect(staleTransport.closed).toBe(true);
   });
 
+  it("re-authorizes a call before replaying it after an HTTP session expires", async () => {
+    let calls = 0;
+    serverFixtures["http https://example.com/mcp"] = {
+      tools: [{ name: "mutate" }],
+      callImpl: () => {
+        calls += 1;
+        if (calls === 1) {
+          throw Object.assign(new Error("session expired"), { status: 404 });
+        }
+        return { content: [{ type: "text", text: "updated" }] };
+      },
+    };
+    const authorize = vi.fn(async () => true);
+    const mgr = new McpClientManager({
+      servers: { remote: { type: "http", url: "https://example.com/mcp" } },
+    });
+    mgr.setToolAuthorizationResolver(() => authorize);
+    await mgr.start();
+
+    await expect(
+      mgr.callTool("mcp__remote__mutate", { recordId: "record-1" }),
+    ).resolves.toEqual({ content: [{ type: "text", text: "updated" }] });
+    expect(authorize).toHaveBeenCalledTimes(2);
+    expect(calls).toBe(2);
+    expect(fakeClients).toHaveLength(2);
+  });
+
+  it("does not replay an expired-session call after authorization is revoked", async () => {
+    let calls = 0;
+    serverFixtures["http https://example.com/mcp"] = {
+      tools: [{ name: "mutate" }],
+      callImpl: () => {
+        calls += 1;
+        throw Object.assign(new Error("session expired"), { status: 404 });
+      },
+    };
+    let allowed = true;
+    const authorize = vi.fn(async () => {
+      const verdict = allowed;
+      allowed = false;
+      return verdict;
+    });
+    const mgr = new McpClientManager({
+      servers: { remote: { type: "http", url: "https://example.com/mcp" } },
+    });
+    mgr.setToolAuthorizationResolver(() => authorize);
+    await mgr.start();
+
+    await expect(
+      mgr.callTool("mcp__remote__mutate", { recordId: "record-1" }),
+    ).rejects.toMatchObject({ name: "ForbiddenError", statusCode: 403 });
+    expect(authorize).toHaveBeenCalledTimes(2);
+    expect(calls).toBe(1);
+  });
+
   it(
     "injects per-request identity only for trusted org-scoped first-party HTTP servers",
     async () => {
       process.env.A2A_SECRET = "test-a2a-secret";
+      orgContextMocks.getOrgDomain.mockResolvedValue("acme.com");
       serverFixtures["http https://assets.example.com/_agent-native/mcp"] = {
         tools: [{ name: "generate-asset" }],
         callImpl: () => ({ content: [{ type: "text", text: "ok" }] }),
@@ -549,6 +853,8 @@ describe("McpClientManager", () => {
       const firstPartyPayload = decodeJwtPayload(
         httpCallHeaders[0].Authorization.replace(/^Bearer\s+/i, ""),
       );
+      expect(firstPartyPayload.sub).toBe("alice@example.com");
+      expect(firstPartyPayload.org_id).toBeUndefined();
       expect(firstPartyPayload.aud).toBe("https://assets.example.com/mcp");
       expect(httpCallHeaders[0]["x-agent-native-mcp-inline-apps"]).toBe("1");
       expect(httpCallHeaders[1].Authorization).toBe("Bearer third-party-token");
@@ -562,6 +868,35 @@ describe("McpClientManager", () => {
     },
     FIRST_A2A_SIGNING_TIMEOUT_MS,
   );
+
+  it("does not mint a first-party identity token when the org domain is unavailable", async () => {
+    process.env.A2A_SECRET = "test-a2a-secret";
+    orgContextMocks.getOrgDomain.mockResolvedValue(null);
+    serverFixtures["http https://assets.example.com/_agent-native/mcp"] = {
+      tools: [{ name: "generate-asset" }],
+      callImpl: () => ({ content: [{ type: "text", text: "ok" }] }),
+    };
+    const mgr = new McpClientManager({
+      servers: {
+        "org_org-no-domain_assets": {
+          type: "http",
+          url: "https://assets.example.com/_agent-native/mcp",
+          headers: { Authorization: "Bearer static-service-token" },
+          firstParty: true,
+          firstPartyOrgId: "org-no-domain",
+        },
+      },
+    });
+    await mgr.start();
+
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-no-domain" },
+      () => mgr.callTool("mcp__org_org-no-domain_assets__generate-asset", {}),
+    );
+
+    expect(httpCallHeaders[0]?.Authorization).toBeUndefined();
+    expect(httpCallHeaders[0]?.["x-agent-native-mcp-inline-apps"]).toBe("1");
+  });
 
   it("does not inject identity into user-scoped first-party HTTP servers", async () => {
     process.env.A2A_SECRET = "test-a2a-secret";
@@ -591,17 +926,19 @@ describe("McpClientManager", () => {
 
   it("mints a first-party org service identity without request context", async () => {
     process.env.A2A_SECRET = "test-a2a-secret";
+    orgContextMocks.getOrgDomain.mockResolvedValue("builder.io");
+    orgContextMocks.getOrgA2ASecret.mockResolvedValue("org-a2a-secret");
     serverFixtures["http https://assets.example.com/_agent-native/mcp"] = {
       tools: [{ name: "generate-asset" }],
       callImpl: () => ({ content: [{ type: "text", text: "ok" }] }),
     };
     const mgr = new McpClientManager({
       servers: {
-        "org_org-123_assets": {
+        "org_org-signing-test_assets": {
           type: "http",
           url: "https://assets.example.com/_agent-native/mcp",
           firstParty: true,
-          firstPartyOrgId: "org-123",
+          firstPartyOrgId: "org-signing-test",
         },
       },
     });
@@ -612,9 +949,17 @@ describe("McpClientManager", () => {
 
     const authorization = httpCallHeaders[0].Authorization;
     expect(authorization).toMatch(/^Bearer /);
-    const payload = decodeJwtPayload(authorization.replace(/^Bearer\s+/i, ""));
-    expect(payload.sub).toBe("svc-mcp-client@service.org-123");
-    expect(payload.org_id).toBe("org-123");
+    const token = authorization.replace(/^Bearer\s+/i, "");
+    const { payload } = await jose.jwtVerify(
+      token,
+      new TextEncoder().encode("org-a2a-secret"),
+    );
+    await expect(
+      jose.jwtVerify(token, new TextEncoder().encode("test-a2a-secret")),
+    ).rejects.toThrow();
+    expect(payload.sub).toBeUndefined();
+    expect(payload.org_domain).toBe("builder.io");
+    expect(payload.org_id).toBeUndefined();
     expect(payload.scope).toBe("mcp-connect");
     expect(payload.agent_native_first_party_mcp).toBe(true);
     expect(payload.aud).toBe("https://assets.example.com/mcp");
@@ -797,6 +1142,184 @@ describe("McpClientManager", () => {
     } finally {
       FakeClient.prototype.connect = origConnect;
     }
+  });
+
+  const brokenTool = {
+    name: "broken",
+    inputSchema: {
+      type: "object",
+      properties: { item: { $ref: "#/$defs/Missing" } },
+    },
+  };
+  const repairedTool = {
+    ...brokenTool,
+    inputSchema: {
+      ...brokenTool.inputSchema,
+      $defs: { Missing: { type: "string" } },
+    },
+  };
+
+  it("keeps a good call in flight when a server holding back tools gets the same config", async () => {
+    let entered!: () => void;
+    const callEntered = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let release!: () => void;
+    let abort!: (error: Error) => void;
+    serverFixtures["partial-bin"] = {
+      tools: [{ name: "good" }, brokenTool],
+      callImpl: () =>
+        new Promise((resolve, reject) => {
+          release = () =>
+            resolve({ content: [{ type: "text", text: "done" }] });
+          abort = reject;
+          entered();
+        }),
+    };
+    const config = { servers: { partial: { command: "partial-bin" } } };
+    const mgr = new McpClientManager(config);
+    await mgr.start();
+    // The SDK settles every pending request with "Connection closed" on close.
+    const client = fakeClients[0]!;
+    const close = client.close.bind(client);
+    client.close = async () => {
+      abort(new Error("Connection closed"));
+      await close();
+    };
+
+    const call = mgr.callTool("mcp__partial__good", {});
+    await callEntered;
+    // The 60-second configuration refresh in agent chat does exactly this.
+    const summary = await mgr.reconfigure(config);
+    release();
+
+    await expect(call).resolves.toEqual({
+      content: [{ type: "text", text: "done" }],
+    });
+    expect(summary).toEqual({
+      added: [],
+      removed: [],
+      unchanged: ["partial"],
+      reconnected: [],
+    });
+    await mgr.stop();
+  });
+
+  it("leaves a connected server alone when it gets the same config", async () => {
+    serverFixtures["fixed-bin"] = {
+      tools: [{ name: "search" }, brokenTool],
+      callImpl: (name) => ({ content: [{ type: "text", text: name }] }),
+    };
+    const config = { servers: { fixed: { command: "fixed-bin" } } };
+    const mgr = new McpClientManager(config);
+    await mgr.start();
+    const transport = fakeClients[0]!.getTransport() as FakeStdio;
+
+    serverFixtures["fixed-bin"].tools = [{ name: "search" }, repairedTool];
+    const summary = await mgr.reconfigure(config);
+
+    expect(summary.unchanged).toEqual(["fixed"]);
+    expect(summary.reconnected).toEqual([]);
+    expect(fakeClients).toHaveLength(1);
+    expect(transport.closed).toBe(false);
+    expect(mgr.getTools().map((tool) => tool.name)).toEqual([
+      "mcp__fixed__search",
+    ]);
+    expect(mgr.getStatus().errors.fixed).toContain('Tool "broken"');
+    await mgr.stop();
+  });
+
+  it("lists a connected server's tools again over the same connection", async () => {
+    serverFixtures["fixed-bin"] = {
+      tools: [{ name: "search" }, brokenTool],
+      callImpl: (name) => ({ content: [{ type: "text", text: name }] }),
+    };
+    const mgr = new McpClientManager({
+      servers: { fixed: { command: "fixed-bin" } },
+    });
+    let authorizing!: () => void;
+    const authorizationStarted = new Promise<void>((resolve) => {
+      authorizing = resolve;
+    });
+    let allow!: (allowed: boolean) => void;
+    mgr.setToolAuthorizationResolver(() => async () => {
+      authorizing();
+      return new Promise<boolean>((resolve) => {
+        allow = resolve;
+      });
+    });
+    await mgr.start();
+    const transport = fakeClients[0]!.getTransport() as FakeStdio;
+
+    await mgr.refreshTools("fixed");
+    expect(mgr.getTools().map((tool) => tool.name)).toEqual([
+      "mcp__fixed__search",
+    ]);
+    expect(mgr.getStatus().errors.fixed).toContain('Tool "broken"');
+
+    const call = mgr.callTool("mcp__fixed__search", {});
+    await authorizationStarted;
+    serverFixtures["fixed-bin"].tools = [{ name: "search" }, repairedTool];
+    await mgr.refreshTools("fixed");
+    allow(true);
+
+    await expect(call).resolves.toEqual({
+      content: [{ type: "text", text: "search" }],
+    });
+    expect(mgr.getTools().map((tool) => tool.name)).toEqual([
+      "mcp__fixed__search",
+      "mcp__fixed__broken",
+    ]);
+    expect(mgr.getStatus().errors).toEqual({});
+    expect(fakeClients).toHaveLength(1);
+    expect(transport.closed).toBe(false);
+    await mgr.stop();
+  });
+
+  it("keeps the newest tool list when an older one answers last", async () => {
+    serverFixtures["fixed-bin"] = {
+      tools: [{ name: "search" }, brokenTool],
+      callImpl: (name) => ({ content: [{ type: "text", text: name }] }),
+    };
+    const mgr = new McpClientManager({
+      servers: { fixed: { command: "fixed-bin" } },
+    });
+    await mgr.start();
+    // Each list answers with the tools the server had when it was asked,
+    // once the test releases it.
+    const answers: (() => void)[] = [];
+    const client = fakeClients[0]!;
+    client.listTools = () => {
+      const listed = { tools: [...serverFixtures["fixed-bin"]!.tools] };
+      return new Promise((resolve) => answers.push(() => resolve(listed)));
+    };
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+    const older = mgr.refreshTools("fixed");
+    await settle();
+    serverFixtures["fixed-bin"].tools = [{ name: "search" }, repairedTool];
+    const newer = mgr.refreshTools("fixed");
+    await settle();
+    // Newest first, so a list asked earlier would commit after a later one.
+    while (answers.length > 0) {
+      answers.pop()!();
+      await settle();
+    }
+    await Promise.all([older, newer]);
+
+    expect(mgr.getTools().map((tool) => tool.name)).toEqual([
+      "mcp__fixed__search",
+      "mcp__fixed__broken",
+    ]);
+    expect(mgr.getStatus().errors).toEqual({});
+    await mgr.stop();
+  });
+
+  it("refuses to list tools again for a server that is not connected", async () => {
+    const mgr = new McpClientManager({ servers: {} });
+    await expect(mgr.refreshTools("missing")).rejects.toThrow(
+      'MCP server "missing" is not connected',
+    );
   });
 
   it("formats non-MCP JSON HTTP handshakes without dumping raw validation output", async () => {

@@ -465,7 +465,6 @@ const editor = {
     "Le contenu de cette page est encore en cours de synchronisation",
   pageBodySyncingDescription:
     "La modification est suspendue jusqu'à la fin de la synchronisation du contenu de la page, afin de ne pas écraser le contenu existant.",
-  createCollection: "Créer une collection",
   creatingDatabase: "Création d'une collection intégrée...",
   databaseCreated: "Collection créée",
   emptyBlockPlaceholder: "Appuyez sur « / » pour afficher les commandes",
@@ -825,6 +824,7 @@ const editor = {
     notifications: "Notifications [fr-FR]",
     notionSync: "Synchronisation des notions",
     openInNotion: "Ouvrir dans Notion",
+    openInAgentNative: "Ouvrir dans Agent-Native",
     orgCanFindAndView:
       "Tout le monde dans votre organisation peut trouver et consulter",
     orgLinkCanView:
@@ -978,8 +978,6 @@ const rawLiterals = {
 const landing = {
   previousPageUnavailable:
     "Votre page précédente n’est plus disponible. Nous avons donc ouvert la page de bienvenue.",
-  requestedPageUnavailable:
-    "Cette page n’est pas accessible à votre compte. Nous avons donc ouvert la page de bienvenue.",
   saveFailed: "Votre emplacement n’a pas pu être enregistré",
   workspaceWelcomeUnavailableTitle: "Rien n’est encore ouvert ici",
   workspaceWelcomeUnavailableDescription:
@@ -1004,6 +1002,17 @@ const comments = {
   hideIndicators: "Masquer les commentaires et surlignages",
   showIndicators: "Afficher les commentaires et surlignages",
   unanchored: "Surlignage indisponible",
+  propertyEmpty: "Vide",
+  propertyRemoved: "{{name}} (supprimée)",
+  propertyWas: "avant : {{value}}",
+  commentOnProperty: "Commenter {{name}}",
+  openPropertyComments_one: "{{count}} commentaire ouvert sur {{name}}",
+  openPropertyComments_many: "{{count}} commentaires ouverts sur {{name}}",
+  openPropertyComments_other: "{{count}} commentaires ouverts sur {{name}}",
+  openRowComments_one: "{{count}} commentaire ouvert sur {{title}}",
+  openRowComments_many: "{{count}} commentaires ouverts sur {{title}}",
+  openRowComments_other: "{{count}} commentaires ouverts sur {{title}}",
+  openRow: "Ouvrir la ligne",
   suggestions: "Suggestions",
   suggestionAdd: "Ajouter",
   suggestionDelete: "Supprimer",
@@ -1091,6 +1100,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "En attente de {{stage}}. Requête : {{action}}.",
+    widgetDocumentLoadStage: "le contenu de la page enregistrée",
+    widgetDraftCheckStage: "la récupération du brouillon de page",
+    widgetEditorInitStage: "l’initialisation de l’éditeur de texte enrichi",
     iconPickerIcons: "Icônes",
     iconPickerEmoji: "Emoji",
     iconPickerRecent: "Récents",
@@ -1100,6 +1113,10 @@ const exactEnglish = {
     iconPickerUploading: "Importation…",
     suggestionAmendmentEmpty:
       "Cette modification correspond à la page actuelle. Refusez la suggestion pour la supprimer.",
+    suggestionUnplaceable:
+      "Le texte autour de cette suggestion a changé, elle ne peut donc pas être appliquée. Elle reste en attente : refusez-la ou proposez à nouveau la modification.",
+    proposalUnplaceable:
+      "L’une de ces suggestions ne peut pas être appliquée, car le texte autour d’elle a changé : aucune n’a donc été appliquée. Elles restent toutes en attente : acceptez-les ou refusez-les une par une.",
     suggestionAmendmentFailed: "Impossible d’enregistrer la suggestion",
     suggestionAmendmentResolved:
       "Cette suggestion a été modifiée ailleurs. Votre brouillon non enregistré est toujours ici.",
@@ -1134,6 +1151,8 @@ const exactEnglish = {
       openInClaude: "Ouvrir dans Claude",
       openInClaudeCode: "Ouvrir dans Claude Code",
       openInCodex: "Ouvrir dans Codex",
+      connectContent: "Connecter Content",
+      otherAgents: "Autres agents",
       agentCopyAccessNote:
         "Les agents peuvent utiliser Content MCP avec vos autorisations actuelles",
       temporaryAgentLink: "Lien temporaire pour agent",
@@ -1388,6 +1407,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "Aucune page sélectionnée",
+    pageNoAccess: "Vous n’avez pas accès à cette page",
+    pageMissing: "Cette page n’existe pas",
+    pageInTrash: "Cette page est dans la corbeille",
+    pageInTrashAskOwner: "Demandez au propriétaire de la restaurer.",
+    openTrash: "Ouvrir la corbeille",
+    goToMyPages: "Aller à mes pages",
     noPageDescription:
       "Sélectionnez une page dans la barre latérale ou créez-en une.",
     newPage: "Nouvelle page",
@@ -1429,8 +1454,21 @@ const overrides = {
     searchLanguages: "Rechercher des langages...",
     noBlocksFields:
       "Aucun champ Blocks. Ajoutez-en un depuis le menu des propriétés.",
-    reorderField: "Réordonner {{name}}",
-    toggleField: "Basculer {{name}}",
+    addBlockField: "Ajouter un champ",
+    blockFieldChanged: "Modifié depuis votre dernière consultation",
+    blockFieldTabs: "Champs",
+    blockFieldMenu: "Options de {{name}}",
+    blockFieldMenuScope: "Partagé par toutes les lignes de cette collection",
+    blockFieldName: "Nom du champ",
+    renameBlockField: "Renommer",
+    renameBlockFieldFailed: "Impossible de renommer le champ",
+    deleteBlockField: "Supprimer",
+    deleteBlockFieldFailed: "Impossible de supprimer le champ",
+    deleteBlockFieldQuestion: "Supprimer « {{name}} » ?",
+    deleteBlockFieldDescription:
+      "« {{name}} » et son texte seront supprimés de toutes les lignes de cette collection. Cette action est irréversible.",
+    deleteBlockFieldBodyWarning:
+      "« {{name}} » est le corps de la page : le texte principal de chaque ligne sera aussi supprimé.",
   },
   comments: {
     add: "Ajouter un commentaire...",
@@ -1442,7 +1480,17 @@ const overrides = {
     addEmoji: "Ajouter un emoji",
     mentionSomeone: "Mentionner quelqu’un",
     mentionPeople: "Personnes",
+    mentionPeopleLoadFailed: "Impossible de charger les personnes.",
     mentionAgents: "Agents",
+    identityPerson: "Personne",
+    identityModel: "Modèle",
+    identityEffort: "Effort",
+    identityRan: "Exécuté",
+    identityNotRecorded: "Non enregistré",
+    identityOpenRun: "Ouvrir l’exécution",
+    identityRoleOwner: "Propriétaire",
+    identityRoleAdmin: "Administrateur",
+    identityRoleMember: "Membre",
     commentTitle: "Commentaire",
     suggestionTitle: "Suggestion",
     close: "Fermer",
@@ -1473,6 +1521,9 @@ const overrides = {
     aiUndo: "Annuler",
     aiDone: "Terminé",
     aiMoreChanges: "+{{count}} de plus",
+    suggestionReplaced: "Remplacée",
+    suggestionWithdrawn: "Retirée",
+    suggestedChange: "Modification suggérée",
     aiUndoUnavailable:
       "Le texte supprimé ne peut pas être rétabli automatiquement",
     aiUndoFailed: "Impossible d’annuler la modification",
@@ -1515,6 +1566,11 @@ const overrides = {
     resize: "Redimensionner la barre latérale",
     expand: "Développer la barre latérale",
     failedCreatePage: "Échec de la création de la page",
+    failedCreatePageDraftDescription:
+      "Votre brouillon est enregistré dans ce navigateur. Vous pouvez réessayer de créer la page ou supprimer le brouillon.",
+    discardFailedCreatePageQuestion: "Annuler la création en attente ?",
+    discardFailedCreatePageDescription:
+      "Cela efface la création en attente et tout brouillon non enregistré. Si la page a déjà été enregistrée, elle restera dans votre espace de travail.",
     failedDeletePage: "Échec de la suppression de la page",
     failedPermanentDeletePage: "Échec de la suppression définitive de la page",
     failedRestorePage: "Échec de la restauration de la page",

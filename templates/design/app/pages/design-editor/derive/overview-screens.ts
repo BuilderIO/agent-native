@@ -93,6 +93,14 @@ export function deriveOverviewScreens({
       typeof metadata[key] === "number" && Number.isFinite(metadata[key])
         ? (metadata[key] as number)
         : undefined;
+    const screenBreakpointWidths = breakpointFramesHidden
+      ? undefined
+      : Array.isArray(metadata.breakpointWidths)
+        ? metadata.breakpointWidths.filter(
+            (width): width is number =>
+              typeof width === "number" && Number.isFinite(width) && width > 0,
+          )
+        : bpWidths;
     const rawBreakpointHeights = metadata.breakpointHeights;
     const heightMode = resolveScreenHeightMode(
       metadata.heightMode,
@@ -140,8 +148,8 @@ export function deriveOverviewScreens({
       previewUrl: stringValue("previewUrl"),
       bridgeUrl: stringValue("bridgeUrl"),
       previewToken: stringValue("previewToken"),
-      breakpointWidths: bpWidths,
-      activeBreakpointWidth: bpWidths?.includes(
+      breakpointWidths: screenBreakpointWidths,
+      activeBreakpointWidth: screenBreakpointWidths?.includes(
         activeBreakpointWidthState ?? -1,
       )
         ? activeBreakpointWidthState

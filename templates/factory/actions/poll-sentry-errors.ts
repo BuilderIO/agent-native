@@ -28,6 +28,7 @@ import { mergeTriageMetadata } from "../server/triage/metadata.js";
 import {
   hasTriageSourceChanged,
   statusAfterTriageSourceUpdate,
+  triageSourceUpsertGuard,
 } from "../server/triage/review-state.js";
 import { createSentryClient } from "../server/triage/sentry-client.js";
 
@@ -137,6 +138,7 @@ export default defineAction({
         }
         const metadata = mergeTriageMetadata(existing?.metadataJson ?? "{}", {
           kind: "sentry_issue",
+          sentryOrgSlug,
           sentryIssueId: issue.id,
           shortId: issue.shortId,
           culprit: issue.culprit,
@@ -199,6 +201,7 @@ export default defineAction({
               updatedAt,
               factoryId,
             },
+            setWhere: triageSourceUpsertGuard(existing, status, now),
           });
       }
 

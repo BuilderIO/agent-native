@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import {
   actionCallEmitsChange,
+  actionCallIsRetrySafe,
   actionChangeResource,
 } from "./action-call-classification.js";
 import { defineAction } from "./action.js";
@@ -76,6 +77,55 @@ describe("actionCallEmitsChange", () => {
 
   it("keeps publishing when changeEvents is explicitly true", () => {
     expect(emits({ changeEvents: true }, {})).toBe(true);
+  });
+});
+
+describe("actionCallIsRetrySafe", () => {
+  const replace = defineAction({
+    description: "replace",
+    schema: z.object({
+      overwrite: z.boolean().optional(),
+      ops: z.array(z.string()).optional(),
+    }),
+    retrySafe: (input) =>
+      input.overwrite !== true &&
+      (Array.isArray(input.ops) ? input.ops.length <= 1 : true),
+    run: async () => ({}),
+  });
+  const retrySafe = (params: unknown) => actionCallIsRetrySafe(replace, params);
+
+  it("accepts a call the predicate clears", () => {
+    expect(retrySafe({})).toBe(true);
+    expect(retrySafe({ overwrite: false })).toBe(true);
+    expect(retrySafe({ ops: ["a"] })).toBe(true);
+  });
+
+  it("refuses a call the predicate rejects", () => {
+    expect(retrySafe({ overwrite: true })).toBe(false);
+    expect(retrySafe({ ops: ["a", "b"] })).toBe(false);
+  });
+
+  it("evaluates the predicate on the input validation hands the handler", () => {
+    // A gateway that stringifies arguments still reaches the handler as
+    // `true` / an array, so the predicate must not see the strings.
+    expect(retrySafe({ overwrite: "true" })).toBe(false);
+    expect(retrySafe({ ops: '["a","b"]' })).toBe(false);
+    expect(retrySafe({ overwrite: "false" })).toBe(true);
+  });
+
+  it("keeps an undeclared or throwing declaration conservative", () => {
+    expect(actionCallIsRetrySafe({}, {})).toBe(false);
+    expect(actionCallIsRetrySafe({ retrySafe: true }, {})).toBe(true);
+    expect(
+      actionCallIsRetrySafe(
+        {
+          retrySafe: () => {
+            throw new Error("bad input");
+          },
+        },
+        {},
+      ),
+    ).toBe(false);
   });
 });
 

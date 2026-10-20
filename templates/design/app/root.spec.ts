@@ -31,9 +31,9 @@ describe("computeSessionBypass", () => {
     window.history.replaceState(
       null,
       "",
-      `/home?embedded=1&${EMBED_TOKEN_QUERY_PARAM}=signed-token`,
+      `/design/design-123?embedded=1&${EMBED_TOKEN_QUERY_PARAM}=signed-token`,
     );
-    expect(computeSessionBypass("/home")).toBe(true);
+    expect(computeSessionBypass("/design/design-123")).toBe(true);
   });
 
   it("still bypasses public design app routes with no embed credential", () => {

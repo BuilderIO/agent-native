@@ -1,16 +1,56 @@
 import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
-import type { ActionEntry } from "../../agent/production-agent.js";
+import { actionArgumentsHash } from "../../action-arguments-identity.js";
+import { defineAction } from "../../action.js";
+import { approvalKeyWithArguments } from "../../agent/approval-key.js";
+import {
+  toolCallCacheKey,
+  type ActionEntry,
+} from "../../agent/production-agent.js";
+import type { AgentChatEvent } from "../../agent/types.js";
+import type { AuditEvent } from "../../audit/types.js";
 import { CORE_ACTION_GROUPS } from "../../framework-tools.js";
+import {
+  getRequestRunContext,
+  runWithRequestContext,
+} from "../request-context.js";
 import {
   assembleA2AFinalResponse,
   buildAuthenticatedAgentA2ASkills,
   buildPublicAgentA2ASkills,
+  executeApprovedA2AToolCall,
   filterDelegatedA2ACapabilityActions,
   filterDirectA2AActions,
   filterMcpOnlyActions,
   resolveInitialToolNames,
+  runA2AAgentLoop,
+  runMCPAgentLoop,
 } from "./action-filters-a2a.js";
+
+const auditRows = vi.hoisted(() => [] as AuditEvent[]);
+const taskEvents = vi.hoisted(() => new Map<string, AgentChatEvent[]>());
+const runStoreReads = vi.hoisted(() => ({
+  journal: vi.fn(),
+  ledger: vi.fn(),
+}));
+
+vi.mock("../../audit/store.js", () => ({
+  insertAuditEvent: async (event: AuditEvent) => {
+    auditRows.push(event);
+  },
+}));
+vi.mock("../../agent/run-store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../agent/run-store.js")>()),
+  getCurrentTurnEventsForThread: async (threadId: string) => {
+    runStoreReads.journal(threadId);
+    return taskEvents.get(threadId) ?? [];
+  },
+  readLedgerEntry: async (threadId: string) => {
+    runStoreReads.ledger(threadId);
+    return null;
+  },
+}));
 
 function action(overrides: Partial<ActionEntry> = {}): ActionEntry {
   return {
@@ -27,6 +67,146 @@ function action(overrides: Partial<ActionEntry> = {}): ActionEntry {
     ...overrides,
   };
 }
+
+describe("executeApprovedA2AToolCall", () => {
+  it("runs the approved call once, under its lease rather than the paused task's journal, and links its row to the task", async () => {
+    const input = { to: "ceo@example.test" };
+    const approvalKey = toolCallCacheKey("send-email", input);
+    // The paused task already holds an identical completed call; read as the
+    // replay's journal, it would stand in for the approved one.
+    taskEvents.set("task-1", [
+      { type: "tool_start", id: "call-0", tool: "send-email", input },
+      {
+        type: "tool_done",
+        id: "call-0",
+        tool: "send-email",
+        input,
+        result: "sent earlier",
+        completedSideEffect: true,
+      },
+    ]);
+    auditRows.length = 0;
+    runStoreReads.journal.mockClear();
+    runStoreReads.ledger.mockClear();
+    const sent = vi.fn(async () => "sent");
+    const sendEmail = defineAction({
+      description: "Send an email",
+      schema: z.object({ to: z.string() }),
+      http: { method: "POST" },
+      needsApproval: true,
+      run: async (_args, ctx) => sent(ctx),
+    }) as ActionEntry;
+
+    const result = await executeApprovedA2AToolCall(
+      {
+        id: "approval-1",
+        taskId: "task-1",
+        ownerEmail: "owner@example.test",
+        orgId: "org-1",
+        tool: "send-email",
+        input,
+        // A paused A2A task stores the key bound to the arguments it approved.
+        approvalKey: approvalKeyWithArguments(
+          approvalKey,
+          actionArgumentsHash(input),
+        ),
+        callId: "call-1",
+      },
+      {
+        actions: { "send-email": sendEmail },
+        appId: "mail",
+        // The approval route's execution lease: its own thread, the task's turn.
+        signal: new AbortController().signal,
+        threadId: "a2a-task:task-1",
+        turnId: "task-1",
+      },
+    );
+
+    // The result says whether the call's side effect completed.
+    expect(result).toEqual({
+      status: "completed",
+      output: "sent",
+      completedSideEffect: true,
+    });
+    expect(sent).toHaveBeenCalledOnce();
+    const threadsRead = [
+      ...runStoreReads.journal.mock.calls,
+      ...runStoreReads.ledger.mock.calls,
+    ].map(([threadId]) => threadId);
+    expect(threadsRead).not.toContain("task-1");
+    const ctx = sent.mock.calls[0]![0] as Record<string, unknown>;
+    expect(ctx).toMatchObject({
+      userEmail: "owner@example.test",
+      orgId: "org-1",
+      caller: "tool",
+      approvedToolCallKey: approvalKey,
+      threadId: "a2a-task:task-1",
+      turnId: "task-1",
+    });
+    for (const key of [
+      "runId",
+      "networkProtocol",
+      "networkId",
+      "auditOverride",
+    ]) {
+      expect(ctx[key]).toBeUndefined();
+    }
+    expect(auditRows).toHaveLength(1);
+    // The same source as the paused task's own rows: its loop sets no caller.
+    expect(auditRows[0]).toMatchObject({
+      action: "send-email",
+      status: "success",
+      caller: "tool",
+      actorEmail: "owner@example.test",
+      threadId: "task-1",
+      turnId: "task-1",
+      runId: "task-1",
+      networkProtocol: "a2a",
+      networkId: "task-1",
+      networkPeer: null,
+      approval: "a2a-review",
+    });
+  });
+});
+
+describe("delegated agent loops", () => {
+  it.each([
+    ["A2A", runA2AAgentLoop],
+    ["ask_app", runMCPAgentLoop],
+  ])(
+    "keep the %s run context on the model and effort each call uses",
+    async (_name, runLoop) => {
+      const seen: unknown[] = [];
+      await runWithRequestContext(
+        { userEmail: "owner@example.test", run: { model: "claude-haiku-4-5" } },
+        () =>
+          runLoop(
+            {
+              model: "claude-haiku-4-5",
+              reasoningEffort: "high",
+              onModelSettings: (model, effort) => seen.push([model, effort]),
+            } as Parameters<typeof runLoop>[0],
+            {},
+            undefined,
+            {
+              runner: (async (loopOptions: Parameters<typeof runLoop>[0]) => {
+                loopOptions.onModelSettings?.("claude-haiku-4-5", "high");
+                loopOptions.onModelSettings?.("claude-sonnet-5", "medium");
+                const run = getRequestRunContext();
+                seen.push([run?.model, run?.reasoningEffort]);
+              }) as never,
+            },
+          ),
+      );
+
+      expect(seen).toEqual([
+        ["claude-haiku-4-5", "high"],
+        ["claude-sonnet-5", "medium"],
+        ["claude-sonnet-5", "medium"],
+      ]);
+    },
+  );
+});
 
 describe("assembleA2AFinalResponse", () => {
   it("preserves the agent loop error code as structured terminal data", () => {

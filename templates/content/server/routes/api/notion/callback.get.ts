@@ -30,7 +30,10 @@
 import crypto from "node:crypto";
 
 import { OAuthAccountOwnedByOtherUserError } from "@agent-native/core/oauth-tokens";
-import { safeReturnPath } from "@agent-native/core/server";
+import {
+  queryEchoSafeRedirect,
+  safeReturnPath,
+} from "@agent-native/core/server";
 import {
   defineEventHandler,
   deleteCookie,
@@ -155,5 +158,14 @@ export default defineEventHandler(async (event) => {
     throw err;
   }
 
-  return sendRedirect(event, target, 302);
+  // A bare redirect lets the edge copy the spent `code` and `state` onto the
+  // page, so a browser lands through core's clean-URL page instead.
+  const headers = new Headers({ Location: target });
+  for (const cookie of event.res?.headers?.getSetCookie?.() ?? []) {
+    headers.append("set-cookie", cookie);
+  }
+  return queryEchoSafeRedirect(
+    event,
+    new Response(null, { status: 302, headers }),
+  );
 });

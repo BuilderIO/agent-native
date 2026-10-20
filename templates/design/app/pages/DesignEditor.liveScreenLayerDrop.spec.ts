@@ -2,9 +2,9 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-const source = readFileSync(new URL("./DesignEditor.tsx", import.meta.url), {
-  encoding: "utf8",
-});
+import { readDesignEditorSource } from "./design-editor/read-design-editor-source";
+
+const source = readDesignEditorSource();
 const handlerModule = readFileSync(
   new URL("./design-editor/commands/layer-move-to-screen.ts", import.meta.url),
   { encoding: "utf8" },

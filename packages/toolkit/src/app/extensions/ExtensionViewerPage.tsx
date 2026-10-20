@@ -1,13 +1,17 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
 import { useParams } from "react-router";
 
 import { incrementExtensionView } from "./extension-popularity.js";
 import { ExtensionsListPage } from "./ExtensionsListPage.js";
 import { ExtensionViewer } from "./ExtensionViewer.js";
 
-export function ExtensionViewerPage() {
+export function ExtensionViewerPage({
+  headerActions,
+}: {
+  headerActions?: ReactNode;
+} = {}) {
   const { id } = useParams<{ id: string }>();
 
   useEffect(() => {
@@ -33,5 +37,5 @@ export function ExtensionViewerPage() {
     return <ExtensionsListPage />;
   }
   if (!id) return null;
-  return <ExtensionViewer extensionId={id} />;
+  return <ExtensionViewer extensionId={id} headerActions={headerActions} />;
 }

@@ -41,6 +41,7 @@ vi.mock("@agent-native/core/provider-api/staging", () => ({
 }));
 
 const { default: providerApiCatalog } = await import("./provider-api-catalog");
+const { default: providerApiDocs } = await import("./provider-api-docs");
 const { default: providerApiRequest } = await import("./provider-api-request");
 
 describe("provider API escape hatch", () => {
@@ -63,6 +64,29 @@ describe("provider API escape hatch", () => {
     createSsrfSafeDispatcher.mockResolvedValue(null);
     resolveCredential.mockResolvedValue(null);
     resolveAnalyticsProviderCredential.mockResolvedValue(null);
+  });
+
+  it("keeps dbt out of the generic request, catalog, and docs schemas", () => {
+    expect(
+      providerApiRequest.schema.safeParse({
+        provider: "dbt",
+        path: "/api/graphql",
+      }).success,
+    ).toBe(false);
+    expect(
+      providerApiCatalog.schema.safeParse({ provider: "dbt" }).success,
+    ).toBe(false);
+    expect(providerApiDocs.schema.safeParse({ provider: "dbt" }).success).toBe(
+      false,
+    );
+  });
+
+  it("omits dbt from the generic provider catalog", async () => {
+    const result = (await providerApiCatalog.run({})) as Record<string, any>;
+
+    expect(result.providers.map(({ id }: { id: string }) => id)).not.toContain(
+      "dbt",
+    );
   });
 
   it("lists provider docs, examples, and auth metadata without secrets", async () => {

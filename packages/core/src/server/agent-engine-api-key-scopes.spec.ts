@@ -21,6 +21,7 @@ vi.mock("../secrets/storage.js", () => ({
     store.set(refId(ref), ref.value);
   },
   deleteAppSecret: async (ref: Ref) => store.delete(refId(ref)),
+  hasAppSecret: async (ref: Ref) => store.has(refId(ref)),
   readAppSecret: async (ref: Ref) => {
     const value = store.get(refId(ref));
     return value ? { value } : null;

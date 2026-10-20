@@ -7,6 +7,7 @@ import {
   sessionUserColumn,
   type IdentityColumn,
 } from "./rekey.js";
+import { identityCredentialLockKey } from "./retired-emails.js";
 
 export type OffboardMemberOptions = {
   transferTo: string;
@@ -35,13 +36,16 @@ const ATTRIBUTION_COLUMNS = new Set([
  * What offboarding does to one registered column. App declarations state it;
  * framework entries derive it from their mode. `separate` columns have a
  * dedicated step in offboardMember (owner sweep, groups, OAuth, roles,
- * memberships) instead of the generic loop.
+ * memberships) instead of the generic loop. An `owner_email` column with a
+ * non-transfer policy (credentials, grants) leaves the owner sweep for it.
  */
 function offboardAction(
   entry: IdentityColumn,
-): "transfer" | "delete" | "retain" | "separate" {
+): "transfer" | "delete" | "revoke" | "retain" | "separate" {
   if (entry.column === "owner_email")
-    return entry.offboard === "delete" ? "delete" : "separate";
+    return entry.offboard && entry.offboard !== "transfer"
+      ? entry.offboard
+      : "separate";
   if (entry.offboard) return entry.offboard;
   if (
     entry.table === "user" ||
@@ -87,6 +91,12 @@ export async function offboardMember(
 
   const run = async (tx: DbExec): Promise<OffboardMemberResult> => {
     const orgId = options.orgId?.trim() || null;
+    // Personal issuance has no membership row to wait on; this lock makes an
+    // in-flight issuer commit before the sweep or find its grant swept.
+    await tx.execute({
+      sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+      args: [identityCredentialLockKey(oldEmail)],
+    });
     const successor = await tx.execute({
       sql: orgId
         ? `SELECT 1 FROM org_members
@@ -102,6 +112,14 @@ export async function offboardMember(
           ? "Transfer target must be an active member of the organization"
           : "Transfer target does not exist",
       );
+
+    // An earlier issuer may also prepare its credential tables. Take the
+    // authoritative schema snapshot only after its membership fence releases.
+    await tx.execute({
+      sql: `SELECT id FROM org_members WHERE LOWER(email) = ?${orgId ? " AND org_id = ?" : ""}
+            ORDER BY org_id, id FOR UPDATE`,
+      args: orgId ? [oldEmail, orgId] : [oldEmail],
+    });
 
     const schema = await tx.execute({
       sql: `SELECT table_name, column_name FROM information_schema.columns
@@ -267,6 +285,16 @@ export async function offboardMember(
           sql: `DELETE FROM ${quote(entry.table)} WHERE ${match.sql}${scope.sql}`,
           args: [...match.args, ...scope.args],
         });
+      } else if (action === "revoke") {
+        if (!columns.has("revoked_at"))
+          throw new Error(
+            `${entry.table}.revoked_at is missing; refusing an offboard that cannot revoke ${entry.table} credentials.`,
+          );
+        result = await tx.execute({
+          sql: `UPDATE ${quote(entry.table)} SET "revoked_at" = ?
+                WHERE LOWER(${column}) = ? AND "revoked_at" IS NULL${scope.sql}`,
+          args: [Date.now(), oldEmail, ...scope.args],
+        });
       } else if (
         entry.mode === "owner" ||
         entry.mode === "typed-scope" ||
@@ -382,5 +410,7 @@ export async function offboardMember(
     });
     return counts;
   };
-  return db.transaction ? db.transaction(run) : run(db);
+  if (!db.transaction)
+    throw new Error("Interactive transactions are unavailable");
+  return db.transaction(run);
 }

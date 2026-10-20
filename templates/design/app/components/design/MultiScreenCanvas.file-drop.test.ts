@@ -101,7 +101,7 @@ describe("findTopFrameEntryAtPoint (OS file drop-target resolution)", () => {
   });
 });
 
-describe("getCameraForBounds (Figma zoom-to-fit camera math, reused by cameraCommand)", () => {
+describe("getCameraForBounds (zoom-to-fit camera math, reused by cameraCommand)", () => {
   it("centers a single screen's bounds in the viewport at a fit zoom", () => {
     const bounds = {
       left: 0,

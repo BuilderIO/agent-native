@@ -12,14 +12,20 @@ import {
   getDbExec,
   isProductionServerlessFunctionRuntime,
   type DbExec,
+  type DbExecStatement,
 } from "./client.js";
-import { appMigratesAtRelease } from "./migration-policy.js";
+import {
+  appMigratesAtRelease,
+  schemaEnsureSkipRequested,
+} from "./migration-policy.js";
 import {
   isHostedFunctionInvocationRuntime,
   isMigrationExecutingRuntime,
   isMigrationAuthorizedRuntime,
   withMigrationExecutionRuntime,
 } from "./migration-runtime.js";
+import { retainRequestDbPoolScope } from "./request-pool-context.js";
+import { dbClientGeneration } from "./runtime-facts.js";
 
 const PLAIN_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -33,8 +39,7 @@ function schemaEnsureDisabled(): boolean {
   ) {
     return true;
   }
-  const raw = process.env.AGENT_NATIVE_SKIP_ENSURE_TABLES?.trim();
-  return !!raw && ["1", "true", "yes", "on"].includes(raw.toLowerCase());
+  return schemaEnsureSkipRequested();
 }
 
 async function withLegacyServerlessSchemaDdl<T>(
@@ -59,6 +64,7 @@ type SchemaSnapshot = {
 
 const injectedSnapshots = new WeakMap<DbExec, Promise<SchemaSnapshot | null>>();
 let globalSnapshot: Promise<SchemaSnapshot | null> | undefined;
+let globalSnapshotGeneration: number | undefined;
 
 export function invalidateSchemaSnapshot(injectedClient?: DbExec): void {
   globalSnapshot = undefined;
@@ -132,13 +138,20 @@ function schemaSnapshot(client: DbExec, injected: boolean) {
   if (injected) {
     let pending = injectedSnapshots.get(client);
     if (!pending) {
-      pending = loadSchemaSnapshot(client);
+      pending = retainRequestDbPoolScope(loadSchemaSnapshot(client));
       injectedSnapshots.set(client, pending);
     }
     return pending;
   }
+  // The snapshot describes one database; closing the clients may reconnect
+  // this process to another.
+  const generation = dbClientGeneration();
+  if (globalSnapshotGeneration !== generation) {
+    globalSnapshot = undefined;
+    globalSnapshotGeneration = generation;
+  }
   if (!globalSnapshot) {
-    globalSnapshot = loadSchemaSnapshot(client);
+    globalSnapshot = retainRequestDbPoolScope(loadSchemaSnapshot(client));
   }
   return globalSnapshot;
 }
@@ -266,9 +279,10 @@ export async function ensureSchemaObject(options: {
   ddl: string;
   label: string;
   lockTimeout?: string;
+  timeoutMs?: number;
   injectedClient?: DbExec;
 }): Promise<boolean> {
-  const { probe, ddl, label, lockTimeout, injectedClient } = options;
+  const { probe, ddl, label, lockTimeout, timeoutMs, injectedClient } = options;
   const initiallyExists = await probe();
   if (initiallyExists === true) return false;
   if (initiallyExists === undefined) {
@@ -277,7 +291,7 @@ export async function ensureSchemaObject(options: {
     );
   }
   const ran = await withLegacyServerlessSchemaDdl(() =>
-    runGuardedDdl(ddl, { lockTimeout, injectedClient }),
+    runGuardedDdl(ddl, { lockTimeout, timeoutMs, injectedClient }),
   );
   invalidateSchemaSnapshot(injectedClient);
   if (ran) return true;
@@ -358,6 +372,7 @@ export async function ensureIndexExists(
   createIndexSql: string,
   options: {
     lockTimeout?: string;
+    timeoutMs?: number;
     injectedClient?: DbExec;
   } = {},
 ): Promise<boolean> {
@@ -372,6 +387,7 @@ export async function ensureIndexExists(
     ddl: createIndexSql,
     label: `index ${indexName}`,
     lockTimeout: options.lockTimeout,
+    timeoutMs: options.timeoutMs,
     injectedClient: options.injectedClient,
   });
 }
@@ -429,6 +445,8 @@ export async function runGuardedDdl(
   options: {
     lockTimeout?: string;
     idleInTransactionTimeout?: string;
+    /** Per-statement budget for the DDL itself, in place of the default. */
+    timeoutMs?: number;
     injectedClient?: DbExec;
   } = {},
 ): Promise<boolean> {
@@ -436,6 +454,10 @@ export async function runGuardedDdl(
 
   const lockTimeout = options.lockTimeout ?? "3s";
   const idleInTransactionTimeout = options.idleInTransactionTimeout ?? "30s";
+  const statement: DbExecStatement =
+    options.timeoutMs === undefined
+      ? ddl
+      : { sql: ddl, timeoutMs: options.timeoutMs };
   try {
     if (typeof client.transaction === "function") {
       await client.transaction(async (tx) => {
@@ -443,12 +465,12 @@ export async function runGuardedDdl(
         await tx.execute(
           `SET LOCAL idle_in_transaction_session_timeout = '${idleInTransactionTimeout}'`,
         );
-        await tx.execute(ddl);
+        await tx.execute(statement);
       });
     } else {
       try {
         await client.execute(`SET lock_timeout = '${lockTimeout}'`);
-        await client.execute(ddl);
+        await client.execute(statement);
       } finally {
         await client.execute(`RESET lock_timeout`).catch(() => {});
       }

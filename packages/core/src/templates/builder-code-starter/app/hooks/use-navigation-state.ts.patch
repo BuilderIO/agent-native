@@ -1,0 +1,79 @@
+===================================================================
+--- a/app/hooks/use-navigation-state.ts
++++ b/app/hooks/use-navigation-state.ts
+@@ -7,7 +6,0 @@
+-import {
+-  chatThreadPath,
+-  HOME_PATH,
+-  isChatPathname,
+-  NEW_CHAT_PATH,
+-  threadIdFromPath,
+-} from "@/lib/chat-paths";
+@@ -20,1 +12,0 @@
+-  threadId?: string;
+@@ -27,1 +19,5 @@
+-    getNavigationState: ({ pathname }) => navigationStateForPath(pathname),
++    getNavigationState: ({ pathname }) => ({
++      view: viewForPath(pathname),
++      path: pathname,
++      publicPath: appPathFromLocalRoute(pathname),
++    }),
+@@ -33,1 +29,1 @@
+-  const fallbackPath = pathForCommand(command);
++  const fallbackPath = pathForView(command?.view);
+@@ -52,10 +47,0 @@
+-export function navigationStateForPath(pathname: string): NavigationState {
+-  const threadId = threadIdFromPath(pathname);
+-  return {
+-    view: viewForPath(pathname),
+-    path: pathname,
+-    publicPath: appPathFromLocalRoute(pathname),
+-    ...(threadId ? { threadId } : {}),
+-  };
+-}
+-
+@@ -63,11 +49,2 @@
+-  if (isChatPathname(pathname)) return "chat";
+-  if (pathname === HOME_PATH) return "home";
+-  if (pathname.startsWith("/database")) return "database";
+-  if (pathname.startsWith("/extensions")) return "extensions";
+-  if (pathname.startsWith("/observability")) return "observability";
+-  if (pathname.startsWith("/settings/agent") || pathname.startsWith("/agent")) {
+-    return "agent";
+-  }
+-  if (pathname.startsWith("/settings")) return "settings";
+-  if (pathname.startsWith("/team")) return "settings";
+-  return "chat";
++  if (pathname === "/") return "home";
++  return "home";
+@@ -78,3 +54,0 @@
+-    case "chat":
+-    case "ask":
+-      return NEW_CHAT_PATH;
+@@ -82,13 +56,1 @@
+-      return HOME_PATH;
+-    case "database":
+-      return "/database";
+-    case "extensions":
+-      return "/extensions";
+-    case "observability":
+-      return "/observability";
+-    case "agent":
+-      return "/settings/agent";
+-    case "settings":
+-      return "/settings";
+-    case "team":
+-      return "/settings/organization";
++      return "/";
+@@ -96,1 +58,1 @@
+-      return HOME_PATH;
++      return "/";
+@@ -99,8 +60,0 @@
+-
+-export function pathForCommand(command: any): string {
+-  const path = pathForView(command?.view);
+-  if (command?.view !== "chat" && command?.view !== "ask") return path;
+-  const threadId =
+-    typeof command?.threadId === "string" ? command.threadId.trim() : "";
+-  return threadId ? chatThreadPath(threadId) : path;
+-}

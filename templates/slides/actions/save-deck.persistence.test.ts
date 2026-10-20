@@ -7,6 +7,11 @@ const state = vi.hoisted(() => ({
   updatedFields: undefined as Record<string, unknown> | undefined,
 }));
 const mockNotifyClients = vi.hoisted(() => vi.fn());
+const mockTrack = vi.hoisted(() => vi.fn());
+
+vi.mock("@agent-native/core/tracking", () => ({
+  track: (...args: unknown[]) => mockTrack(...args),
+}));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestOrgId: () => "org-1",
@@ -32,6 +37,7 @@ vi.mock("../server/db/index.js", () => ({
     });
     return {
       update,
+      insert: () => ({ values: async () => undefined }),
       transaction: async (callback: (tx: unknown) => Promise<unknown>) =>
         callback({ update }),
     };
@@ -255,5 +261,129 @@ describe("save-deck design-system relation persistence", () => {
       title: "Newest",
       slides: [{ content: "newest" }],
     });
+  });
+});
+
+describe("save-deck tracking", () => {
+  const ctx = { caller: "frontend", runId: "run-1" } as never;
+
+  beforeEach(() => {
+    state.access = { role: "owner", resource: existingResource() };
+    state.updatedFields = undefined;
+    mockNotifyClients.mockClear();
+    mockTrack.mockClear();
+  });
+
+  function trackedNames() {
+    return mockTrack.mock.calls.map(([name]) => name);
+  }
+
+  it("emits nothing for a metadata-only save", async () => {
+    await saveDeckAction.run(
+      {
+        deckId: "deck-1",
+        deck: {
+          title: "Renamed",
+          designSystemId: "brand-1",
+          aspectRatio: "4:3",
+          slides: [
+            { id: "slide-1", content: "old", layoutFitRevision: "fit-1" },
+          ],
+        },
+      },
+      ctx,
+    );
+
+    expect(state.updatedFields).toBeDefined();
+    expect(mockTrack).not.toHaveBeenCalled();
+  });
+
+  it("records nothing when a save re-inserts a deleted deck (undo restore)", async () => {
+    state.access = undefined;
+    await saveDeckAction.run(
+      {
+        deckId: "deck-restored",
+        deck: {
+          title: "Restored deck",
+          slides: [{ id: "slide-1", content: "<p>Hello</p>" }],
+          generationContext: { generationAttemptId: "attempt-1", mode: "new" },
+        },
+      },
+      ctx,
+    );
+
+    expect(mockTrack).not.toHaveBeenCalled();
+  });
+
+  it("emits one deck_edited with the caller for a content save", async () => {
+    await saveDeckAction.run(
+      {
+        deckId: "deck-1",
+        deck: {
+          title: "Existing",
+          designSystemId: "brand-1",
+          slides: [
+            { id: "slide-1", content: "new" },
+            { id: "slide-2", content: "added" },
+          ],
+        },
+      },
+      ctx,
+    );
+
+    expect(trackedNames()).toEqual(["deck_edited"]);
+    expect(mockTrack.mock.calls[0]?.[1]).toMatchObject({
+      app_name: "slides",
+      template_name: "slides",
+      caller: "frontend",
+      run_id: "run-1",
+      output_id: "deck-1",
+      output_type: "deck",
+      edit_mode: "save_deck",
+      change_kinds: ["content", "add_slide"],
+      slides_changed: 2,
+      slide_count: 2,
+    });
+  });
+
+  it("emits deck_creation_started when a retry persists a new attempt id", async () => {
+    state.access!.resource.data = JSON.stringify({
+      ...JSON.parse(state.access!.resource.data as string),
+      generationContext: {
+        originalPrompt: "Quarterly review",
+        generationAttemptId: "attempt-1",
+        mode: "new",
+        files: [],
+      },
+    });
+
+    await saveDeckAction.run(
+      {
+        deckId: "deck-1",
+        deck: {
+          title: "Existing",
+          designSystemId: "brand-1",
+          slides: [
+            { id: "slide-1", content: "old", layoutFitRevision: "fit-1" },
+          ],
+          generationContext: {
+            originalPrompt: "Quarterly review",
+            generationAttemptId: "attempt-2",
+            mode: "new",
+            files: [],
+          },
+        },
+      },
+      ctx,
+    );
+
+    expect(trackedNames()).toEqual(["deck_creation_started"]);
+    const properties = mockTrack.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(properties).toMatchObject({
+      generation_attempt_id: "attempt-2",
+      is_retry: true,
+      caller: "frontend",
+    });
+    expect(JSON.stringify(properties)).not.toContain("Quarterly");
   });
 });

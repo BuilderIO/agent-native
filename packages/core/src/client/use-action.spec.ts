@@ -14,6 +14,7 @@ import {
   recordActionFailure,
   resetActionFailureCircuits,
 } from "./action-failure-circuit.js";
+import { recordSessionIdentity } from "./session-identity.js";
 import {
   ACTION_KEEPALIVE_BODY_BUDGET_BYTES,
   actionErrorMessage,
@@ -21,6 +22,7 @@ import {
   callActionBlob,
   callActionWithRetry,
   computePageHidden,
+  forgetUiActionCapability,
   defaultActionQueryRetry,
   defaultActionQueryRetryDelay,
   guardActionQueryRefetchInterval,
@@ -37,6 +39,9 @@ function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
 }
 
 afterEach(() => {
+  forgetUiActionCapability();
+  recordSessionIdentity(undefined);
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   vi.clearAllMocks();
@@ -231,6 +236,34 @@ describe("callAction", () => {
     });
     expect(replace).toHaveBeenCalledWith(
       "https://content.example/page/one?__an_build=server-build",
+    );
+  });
+
+  it("attributes the response to the route template the request started on", async () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_ACTION_TELEMETRY_SAMPLE_RATE", "1");
+    const location = { pathname: "/sessions/rec_42", href: "" };
+    vi.stubGlobal("window", {
+      location,
+      __reactRouterManifest: {
+        routes: {
+          root: { id: "root", path: "" },
+          detail: { id: "detail", parentId: "root", path: "sessions/:id" },
+        },
+      },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        location.pathname = "/sessions";
+        return jsonResponse({ ok: true }, { status: 200 });
+      }),
+    );
+
+    await callAction("list-plans", {}, { method: "GET" });
+
+    expect(analyticsMocks.trackEvent).toHaveBeenCalledWith(
+      "action.response",
+      expect.objectContaining({ route: "/sessions/:id" }),
     );
   });
 
@@ -567,6 +600,145 @@ describe("callAction", () => {
         cache: "no-store",
       }),
     );
+  });
+
+  it("mints the UI capability before the first request of a uiOnly action", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ ok: true }))
+      .mockResolvedValueOnce(
+        new Response(new Blob(["png-bytes"], { type: "image/png" })),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await callActionBlob("render-export-png", {}, { uiOnly: true });
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "/_agent-native/ui-capability",
+      "/_agent-native/actions/render-export-png",
+    ]);
+  });
+
+  it("fails loudly when the UI capability cannot be minted", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({ error: "Authentication required" }, { status: 401 }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      callActionBlob("render-export-png", {}, { uiOnly: true }),
+    ).rejects.toThrow("Could not establish the browser UI capability.");
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("times out a uiOnly action whose UI capability mint hangs", async () => {
+    vi.useFakeTimers();
+    let settleMint = () => {};
+    try {
+      const fetchMock = vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            settleMint = () => resolve(jsonResponse({ ok: true }));
+          }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const promise = callActionBlob(
+        "render-export-png",
+        {},
+        { timeoutMs: 1_000, uiOnly: true },
+      );
+      const assertion = expect(promise).rejects.toMatchObject({
+        message: expect.stringContaining(
+          "render-export-png timed out after 1s",
+        ),
+        timedOut: true,
+      });
+      await vi.advanceTimersByTimeAsync(1_001);
+      await assertion;
+      expect(fetchMock).toHaveBeenCalledOnce();
+    } finally {
+      settleMint();
+      vi.useRealTimers();
+    }
+  });
+
+  it("cancels a uiOnly action while its UI capability mint is pending", async () => {
+    let settleMint = () => {};
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          settleMint = () => resolve(jsonResponse({ ok: true }));
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const controller = new AbortController();
+    try {
+      const promise = callActionBlob(
+        "render-export-png",
+        {},
+        { signal: controller.signal, uiOnly: true },
+      );
+      controller.abort();
+      await expect(promise).rejects.toMatchObject({ name: "AbortError" });
+      expect(fetchMock).toHaveBeenCalledOnce();
+    } finally {
+      settleMint();
+    }
+  });
+
+  it("mints and retries once when an action answers ui_capability_required", async () => {
+    vi.stubGlobal("window", {});
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({ errorCode: "ui_capability_required" }, { status: 403 }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ ok: true }))
+      .mockResolvedValueOnce(jsonResponse({ done: true }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(callAction("confirm-email")).resolves.toEqual({ done: true });
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "/_agent-native/actions/confirm-email",
+      "/_agent-native/ui-capability",
+      "/_agent-native/actions/confirm-email",
+    ]);
+  });
+
+  it("times out a ui_capability_required retry whose mint hangs", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", {});
+    let settleMint = () => {};
+    try {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(
+          jsonResponse(
+            { errorCode: "ui_capability_required" },
+            { status: 403 },
+          ),
+        )
+        .mockImplementationOnce(
+          () =>
+            new Promise<Response>((resolve) => {
+              settleMint = () => resolve(jsonResponse({ ok: true }));
+            }),
+        );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const promise = callAction("confirm-email", {}, { timeoutMs: 1_000 });
+      const assertion = expect(promise).rejects.toMatchObject({
+        timedOut: true,
+      });
+      await vi.advanceTimersByTimeAsync(1_001);
+      await assertion;
+    } finally {
+      settleMint();
+      vi.useRealTimers();
+    }
   });
 
   it("passes scoped capability headers through imperative action calls", async () => {
@@ -1420,5 +1592,198 @@ describe("computePageHidden", () => {
 
   it("is true when the call started already hidden even if no transition fires and it is visible again by completion", () => {
     expect(computePageHidden(true, 4, 4, "visible")).toBe(true);
+  });
+});
+
+describe("the UI capability on writes from the signed-in app", () => {
+  const MINT = "/_agent-native/ui-capability";
+
+  function routeFetch(mint: () => Promise<Response> | Response) {
+    const fetchMock = vi.fn(async (url: string) =>
+      url === MINT ? mint() : jsonResponse({ ok: true }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  function signIn(identity = "user-1") {
+    vi.stubGlobal("window", {});
+    recordSessionIdentity(identity);
+  }
+
+  it("presents the capability on the first write", async () => {
+    signIn();
+    const fetchMock = routeFetch(() => jsonResponse({ ok: true }));
+
+    await callAction("delete-file", { id: "file-1" });
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      MINT,
+      "/_agent-native/actions/delete-file",
+    ]);
+  });
+
+  it("shares one mint across concurrent writes and reuses it", async () => {
+    signIn();
+    let settleMint: (response: Response) => void = () => {};
+    const fetchMock = routeFetch(
+      () => new Promise<Response>((resolve) => (settleMint = resolve)),
+    );
+
+    const first = callAction("delete-file", { id: "file-1" });
+    const second = callAction("rename-file", { id: "file-2" });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    settleMint(jsonResponse({ ok: true }));
+    await Promise.all([first, second]);
+    await callAction("delete-file", { id: "file-3" });
+
+    expect(fetchMock.mock.calls.filter(([url]) => url === MINT)).toHaveLength(
+      1,
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("mints again once the capability is about to expire", async () => {
+    signIn();
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    const fetchMock = routeFetch(() => jsonResponse({ ok: true }));
+
+    await callAction("delete-file", { id: "file-1" });
+    now.mockReturnValue(1_000_000 + 8 * 60_000);
+    await callAction("delete-file", { id: "file-2" });
+    now.mockReturnValue(1_000_000 + 9 * 60_000);
+    await callAction("delete-file", { id: "file-3" });
+
+    expect(fetchMock.mock.calls.filter(([url]) => url === MINT)).toHaveLength(
+      2,
+    );
+  });
+
+  it("mints again for a different signed-in user", async () => {
+    signIn("user-1");
+    const fetchMock = routeFetch(() => jsonResponse({ ok: true }));
+
+    await callAction("delete-file", { id: "file-1" });
+    recordSessionIdentity("user-2");
+    await callAction("delete-file", { id: "file-2" });
+
+    expect(fetchMock.mock.calls.filter(([url]) => url === MINT)).toHaveLength(
+      2,
+    );
+  });
+
+  it("still sends the write when the mint fails", async () => {
+    signIn();
+    const fetchMock = routeFetch(() =>
+      jsonResponse({ error: "Authentication required" }, { status: 401 }),
+    );
+
+    await expect(callAction("rename-file", { id: "file-1" })).resolves.toEqual({
+      ok: true,
+    });
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      MINT,
+      "/_agent-native/actions/rename-file",
+    ]);
+  });
+
+  it("never mints for a read, or without a signed-in session", async () => {
+    vi.stubGlobal("window", {});
+    const fetchMock = routeFetch(() => jsonResponse({ ok: true }));
+
+    recordSessionIdentity("user-1");
+    await callAction("list-files", {}, { method: "GET" });
+    recordSessionIdentity(null);
+    await callAction("submit-form", { id: "form-1" });
+    recordSessionIdentity(undefined);
+    await callAction("submit-form", { id: "form-1" });
+
+    expect(fetchMock.mock.calls.some(([url]) => url === MINT)).toBe(false);
+  });
+
+  it("stops waiting on a mint that never answers", async () => {
+    signIn();
+    vi.useFakeTimers();
+    let mints = 0;
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url !== MINT) return Promise.resolve(jsonResponse({ ok: true }));
+      mints += 1;
+      if (mints > 1) return Promise.resolve(jsonResponse({ ok: true }));
+      return new Promise<Response>((_resolve, reject) =>
+        init?.signal?.addEventListener("abort", () =>
+          reject(new DOMException("Aborted", "AbortError")),
+        ),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const stalled = callAction("delete-file", { id: "file-1" });
+    await vi.advanceTimersByTimeAsync(10_000);
+    await expect(stalled).resolves.toEqual({ ok: true });
+    await callAction("delete-file", { id: "file-2" });
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      MINT,
+      "/_agent-native/actions/delete-file",
+      MINT,
+      "/_agent-native/actions/delete-file",
+    ]);
+    expect(fetchMock.mock.calls[0][1]?.signal?.aborted).toBe(true);
+  });
+
+  it("sends a keepalive write at once instead of waiting on a mint", async () => {
+    signIn();
+    const fetchMock = routeFetch(() => new Promise<Response>(() => {}));
+
+    const attempt = tryCallActionKeepalive("save-draft", { id: "draft-1" });
+
+    expect(attempt.accepted).toBe(true);
+    await vi.waitFor(() =>
+      expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+        "/_agent-native/actions/save-draft",
+      ]),
+    );
+    await expect(attempt.completion).resolves.toEqual({ ok: true });
+  });
+
+  it("drops a write when the signed-in user changes during its mint", async () => {
+    signIn("user-1");
+    let settleMint: (response: Response) => void = () => {};
+    const fetchMock = routeFetch(
+      () => new Promise<Response>((resolve) => (settleMint = resolve)),
+    );
+
+    const write = callAction("delete-file", { id: "file-1" });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    recordSessionIdentity(null);
+    recordSessionIdentity("user-2");
+    settleMint(jsonResponse({ ok: true }));
+
+    await expect(write).rejects.toThrow(/signed-in user changed/);
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([MINT]);
+  });
+
+  it("re-mints when the server rejects a remembered capability", async () => {
+    signIn();
+    let actionCalls = 0;
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === MINT) return jsonResponse({ ok: true });
+      actionCalls += 1;
+      return actionCalls === 2
+        ? jsonResponse({ errorCode: "ui_capability_required" }, { status: 403 })
+        : jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await callAction("delete-file", { id: "file-1" });
+    await callAction("delete-file", { id: "file-2" });
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      MINT,
+      "/_agent-native/actions/delete-file",
+      "/_agent-native/actions/delete-file",
+      MINT,
+      "/_agent-native/actions/delete-file",
+    ]);
   });
 });

@@ -49,6 +49,18 @@ describe("applyWrapNodes (Cmd+G group)", () => {
     expect(ungrouped.content).toContain("left: 60px");
   });
 
+  it("sizes the group around children positioned with a unitless 0", () => {
+    const patch = applyVisualEdit(
+      `<body><div data-agent-native-node-id="image" style="position:absolute;left:0;top:0;width:320px;height:180px"></div><div data-agent-native-node-id="body" style="position:absolute;left:0;top:180px;width:320px;height:180px"></div></body>`,
+      { kind: "wrapNodes", targetIds: ["image", "body"] },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain(
+      'style="position: absolute; left: 0px; top: 0px; width: 320px; height: 360px;"',
+    );
+  });
+
   it("places the group at the TOPMOST selected child's z-position, not the bottommost, for a non-adjacent selection", () => {
     const patch = applyVisualEdit(THREE_SIBLINGS, {
       kind: "wrapNodes",
@@ -173,7 +185,7 @@ describe("applyWrapNodes (Cmd+G group)", () => {
 describe("applyWrapNodes (Shift+A selection background promotion)", () => {
   const OVERLAPPING_TEXT = `<body>
   <div data-agent-native-node-id="rectangle" data-agent-native-layer-name="Rectangle" data-an-primitive="rectangle" style="position:absolute;left:80px;top:80px;width:240px;height:140px;background-color:#D9D9D9"></div>
-  <div data-agent-native-node-id="text" data-agent-native-layer-name="Oracle Text" data-an-primitive="text" style="position:absolute;left:104px;top:132px;width:187px;height:38px">Oracle Text</div>
+  <div data-agent-native-node-id="text" data-agent-native-layer-name="Layer Text" data-an-primitive="text" style="position:absolute;left:104px;top:132px;width:187px;height:38px">Layer Text</div>
 </body>`;
 
   it("promotes a containing painted rectangle in place and preserves exact geometry", () => {
@@ -391,6 +403,58 @@ describe("applyWrapNodes (Shift+A auto-layout wrap)", () => {
 
     expect(patch.result.status).toBe("applied");
     expect(patch.content).toContain('data-agent-native-layer-name="Group"');
+  });
+
+  it("keeps intrinsic widths while preserving explicit fill and alignment", () => {
+    const content = `<body>
+  <div data-agent-native-node-id="title" style="position:absolute;left:20px;top:20px;width:max-content;height:auto">A longer title</div>
+  <div data-agent-native-node-id="creator" style="position:absolute;left:20px;top:48px;width:30px;height:20px;align-self:center">Ada</div>
+  <div data-agent-native-node-id="fill" style="position:absolute;left:20px;top:76px;width:100%;height:20px">Details</div>
+</body>`;
+    const patch = applyVisualEdit(content, {
+      kind: "wrapNodes",
+      targetIds: ["title", "creator", "fill"],
+      autoLayout: true,
+      sizeHints: {
+        title: { width: 117, height: 20, left: 20, top: 20 },
+        creator: { width: 30, height: 20, left: 20, top: 48 },
+        fill: { width: 240, height: 20, left: 20, top: 76 },
+      },
+    });
+
+    expect(patch.result.status).toBe("applied");
+    const projection = buildCodeLayerProjection(patch.content);
+    const wrapper = projection.nodes.find(
+      (node) =>
+        node.dataAttributes["data-agent-native-group-wrapper"] === "true",
+    );
+    const title = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "title",
+    );
+    const creator = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "creator",
+    );
+    const fill = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "fill",
+    );
+
+    expect(wrapper?.style).toMatchObject({
+      display: "flex",
+      "flex-direction": "column",
+      "align-items": "flex-start",
+      gap: "8px",
+    });
+    expect(title?.style).toMatchObject({
+      width: "max-content",
+      height: "auto",
+    });
+    expect(title?.style.width).not.toBe("117px");
+    expect(creator?.style).toMatchObject({
+      width: "30px",
+      height: "20px",
+      "align-self": "center",
+    });
+    expect(fill?.style).toMatchObject({ width: "100%", height: "20px" });
   });
 });
 

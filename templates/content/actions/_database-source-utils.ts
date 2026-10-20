@@ -1904,11 +1904,13 @@ async function enqueueEmptyHydratedBuilderBodiesFromStoredRows(args: {
         or(
           isNull(schema.documents.content),
           inArray(schema.documents.content, ["", "<empty-block/>"]),
+          sql`${schema.documents.content} LIKE ${"%<empty-block%"}`,
           eq(sql<string>`TRIM(${schema.documents.content})`, ""),
         ),
       ),
     );
   for (const row of rows) {
+    if (!isEffectivelyEmptyDocumentContent(row.document.content)) continue;
     const entry = builderEntryFromSourceRow({
       row: row.sourceRow,
       sourceTable: args.source.sourceTable,
@@ -2375,7 +2377,9 @@ async function processBuilderBodyHydrationJob(
       const contentCas =
         isEffectivelyEmptyDocumentContent(currentContent) &&
         isEffectivelyEmptyDocumentContent(previousContent)
-          ? inArray(schema.documents.content, ["", "<empty-block/>"])
+          ? documentContent === null || documentContent === undefined
+            ? isNull(schema.documents.content)
+            : eq(schema.documents.content, documentContent)
           : eq(schema.documents.content, currentContent);
       const [updatedDocument] = await tx
         .update(schema.documents)

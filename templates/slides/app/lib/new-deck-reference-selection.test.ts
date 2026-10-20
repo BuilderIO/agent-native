@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   findPromptReferenceDeckId,
-  resolveNewDeckReferenceSelection,
+  getAutomaticReferenceDeckIdToRemove,
   resolveRetryReferenceDeckSelection,
+  withoutAutomaticReferenceDeck,
 } from "./new-deck-reference-selection";
 
 describe("findPromptReferenceDeckId", () => {
@@ -38,53 +39,123 @@ describe("findPromptReferenceDeckId", () => {
   });
 });
 
-describe("resolveNewDeckReferenceSelection", () => {
-  it("uses defaults while the picker is still auto-managed", () => {
-    expect(
-      resolveNewDeckReferenceSelection({
-        designSystemAuto: true,
-        selectedDesignSystemId: null,
-        defaultDesignSystemId: "ds-default",
-        referenceDeckAuto: true,
-        selectedReferenceDeckId: null,
-        defaultReferenceDeckId: "deck-default",
-      }),
-    ).toEqual({
-      designSystemId: "ds-default",
-      referenceDeckId: "deck-default",
+describe("withoutAutomaticReferenceDeck", () => {
+  it("removes legacy automatic deck state but keeps explicit references", () => {
+    const selection = {
+      referenceDeckId: "recent-deck",
+      referenceDeckIdSource: "automatic" as const,
+      composerContext: {
+        designSystemId: null,
+        references: [
+          { source: "slides" as const, id: "recent-deck", title: "Recent" },
+          { source: "slides" as const, id: "chosen-deck", title: "Chosen" },
+          {
+            source: "website" as const,
+            id: "https://example.com",
+            title: "Example",
+            url: "https://example.com",
+          },
+        ],
+      },
+      contextItems: [
+        {
+          key: "slides:recent-deck:",
+          title: "Recent",
+          context: "",
+          status: "ready" as const,
+        },
+        {
+          key: "slides:chosen-deck:",
+          title: "Chosen",
+          context: "",
+          status: "ready" as const,
+        },
+      ],
+    };
+
+    expect(withoutAutomaticReferenceDeck(selection)).toEqual({
+      composerContext: {
+        designSystemId: null,
+        references: [
+          { source: "slides", id: "chosen-deck", title: "Chosen" },
+          {
+            source: "website",
+            id: "https://example.com",
+            title: "Example",
+            url: "https://example.com",
+          },
+        ],
+      },
+      contextItems: [
+        {
+          key: "slides:chosen-deck:",
+          title: "Chosen",
+          context: "",
+          status: "ready",
+        },
+      ],
     });
   });
 
-  it("lets explicit removals override the defaults", () => {
+  it("clears empty automatic provenance without changing explicit state", () => {
     expect(
-      resolveNewDeckReferenceSelection({
-        designSystemAuto: false,
-        selectedDesignSystemId: null,
-        defaultDesignSystemId: "ds-default",
-        referenceDeckAuto: false,
-        selectedReferenceDeckId: null,
-        defaultReferenceDeckId: "deck-default",
+      withoutAutomaticReferenceDeck({
+        referenceDeckId: null,
+        referenceDeckIdSource: "automatic",
+        designSystemId: "system-1",
       }),
-    ).toEqual({
+    ).toEqual({ designSystemId: "system-1" });
+  });
+
+  it("keeps a selected deck when a stale automatic marker has the same id", () => {
+    const composerContext = {
       designSystemId: null,
-      referenceDeckId: null,
+      references: [
+        { source: "slides" as const, id: "selected", title: "Selected" },
+      ],
+    };
+    const contextItems = [
+      {
+        key: "slides:selected:",
+        title: "Selected",
+        context: "Explicitly selected deck",
+        status: "ready" as const,
+      },
+    ];
+
+    expect(
+      withoutAutomaticReferenceDeck({
+        automaticReferenceDeckId: "selected",
+        referenceDeckId: "selected",
+        referenceDeckIdSource: "selection",
+        composerContext,
+        contextItems,
+      }),
+    ).toEqual({
+      referenceDeckId: "selected",
+      referenceDeckIdSource: "selection",
+      composerContext,
+      contextItems,
     });
   });
 
-  it("keeps explicit picks even when defaults are present", () => {
+  it("uses selection provenance when the automatic id comes from the composer", () => {
     expect(
-      resolveNewDeckReferenceSelection({
-        designSystemAuto: false,
-        selectedDesignSystemId: "ds-picked",
-        defaultDesignSystemId: "ds-default",
-        referenceDeckAuto: false,
-        selectedReferenceDeckId: "deck-picked",
-        defaultReferenceDeckId: "deck-default",
-      }),
-    ).toEqual({
-      designSystemId: "ds-picked",
-      referenceDeckId: "deck-picked",
-    });
+      getAutomaticReferenceDeckIdToRemove(
+        {
+          referenceDeckId: "selected",
+          referenceDeckIdSource: "selection",
+        },
+        "selected",
+      ),
+    ).toBeNull();
+
+    expect(
+      getAutomaticReferenceDeckIdToRemove(
+        { referenceDeckId: "selected" },
+        "selected",
+      ),
+    ).toBeNull();
   });
 });
 

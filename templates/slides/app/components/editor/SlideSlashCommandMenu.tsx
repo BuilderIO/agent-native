@@ -55,6 +55,7 @@ const BLOCK_TAGS = new Set([
 
 const ZERO_WIDTH_SPACE = "\u200b";
 const NO_MATCH_CLOSE_LENGTH = 3;
+const PENDING_SLASH_FRAME_RETRIES = 3;
 
 const COMMANDS: {
   kind: InPlaceTextAuthoringCommand;
@@ -289,6 +290,7 @@ export function SlideSlashCommandMenu({
   const menuRef = useRef(menu);
   menuRef.current = menu;
   const pendingSlash = useRef(false);
+  const pendingSlashRetries = useRef(0);
   const [popoverContent, setPopoverContent] = useState<HTMLDivElement | null>(
     null,
   );
@@ -324,6 +326,7 @@ export function SlideSlashCommandMenu({
     textSession?.commands.applyAuthoringCommand(kind, range);
     menuRef.current = null;
     pendingSlash.current = false;
+    pendingSlashRetries.current = 0;
     setMenu(null);
   };
   const matches = useMemo(() => {
@@ -356,11 +359,16 @@ export function SlideSlashCommandMenu({
       : COMMANDS;
   const selectedIndex = filtered.length ? activeIndex % filtered.length : 0;
   const activeCommand = filtered[selectedIndex];
+  const activeCommandRef = useRef(activeCommand);
+  activeCommandRef.current = activeCommand;
+  const filteredLengthRef = useRef(filtered.length);
+  filteredLengthRef.current = filtered.length;
 
   useEffect(() => {
     if (!editingEl || !textSession?.isActive) {
       menuRef.current = null;
       pendingSlash.current = false;
+      pendingSlashRetries.current = 0;
       setMenu(null);
       return;
     }
@@ -391,8 +399,35 @@ export function SlideSlashCommandMenu({
       ) {
         return;
       }
+      if (current.query !== next.query) setActiveIndex(0);
       menuRef.current = next;
       setMenu(next);
+    };
+    let pendingSlashFrame: number | null = null;
+    const publishPendingSlash = () => {
+      if (!pendingSlash.current) return false;
+      const next = findMenu(editingEl);
+      if (!next) return false;
+      pendingSlash.current = false;
+      pendingSlashRetries.current = 0;
+      setActiveIndex(0);
+      menuRef.current = next;
+      setMenu(next);
+      return true;
+    };
+    const retryPendingSlashOnNextFrame = () => {
+      if (pendingSlashFrame !== null) return;
+      pendingSlashFrame = window.requestAnimationFrame(() => {
+        pendingSlashFrame = null;
+        if (!pendingSlash.current) return;
+        if (publishPendingSlash()) return;
+        pendingSlashRetries.current -= 1;
+        if (pendingSlashRetries.current > 0) {
+          retryPendingSlashOnNextFrame();
+        } else {
+          pendingSlash.current = false;
+        }
+      });
     };
     const onBeforeInput = (event: Event) => {
       const input = event as InputEvent;
@@ -401,15 +436,13 @@ export function SlideSlashCommandMenu({
         input.data === "/" &&
         !input.isComposing &&
         canStartSlash(editingEl);
-      if (startsSlash) pendingSlash.current = true;
+      if (startsSlash) {
+        pendingSlash.current = true;
+        pendingSlashRetries.current = PENDING_SLASH_FRAME_RETRIES;
+      }
       if (startsSlash) {
         window.setTimeout(() => {
-          if (!pendingSlash.current) return;
-          const next = findMenu(editingEl);
-          pendingSlash.current = false;
-          if (!next) return;
-          menuRef.current = next;
-          setMenu(next);
+          if (!publishPendingSlash()) retryPendingSlashOnNextFrame();
         }, 0);
       }
     };
@@ -420,11 +453,8 @@ export function SlideSlashCommandMenu({
         input.inputType === "insertText" &&
         input.data === "/" &&
         !input.isComposing;
-      if (opensMenu) pendingSlash.current = false;
       if (opensMenu) {
-        const next = findMenu(editingEl);
-        menuRef.current = next;
-        setMenu(next);
+        if (!publishPendingSlash()) retryPendingSlashOnNextFrame();
       } else {
         refreshOpenMenu(true);
       }
@@ -438,6 +468,11 @@ export function SlideSlashCommandMenu({
     window.addEventListener("scroll", refreshGeometry, true);
     window.addEventListener("resize", refreshGeometry);
     return () => {
+      pendingSlash.current = false;
+      pendingSlashRetries.current = 0;
+      if (pendingSlashFrame !== null) {
+        window.cancelAnimationFrame(pendingSlashFrame);
+      }
       editingEl.removeEventListener("beforeinput", onBeforeInput, true);
       editingEl.removeEventListener("input", onInput);
       document.removeEventListener("selectionchange", refreshGeometry);
@@ -445,8 +480,6 @@ export function SlideSlashCommandMenu({
       window.removeEventListener("resize", refreshGeometry);
     };
   }, [editingEl, textSession]);
-
-  useEffect(() => setActiveIndex(0), [menu?.query]);
 
   useEffect(() => {
     if (
@@ -534,37 +567,49 @@ export function SlideSlashCommandMenu({
     [editingEl],
   );
 
-  useEffect(() => {
-    if (!editingEl || !menu) return;
+  useLayoutEffect(() => {
+    if (!editingEl) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.isComposing || event.keyCode === 229) return;
+      const currentMenu = menuRef.current;
+      if (!currentMenu) return;
+      const currentCommand = activeCommandRef.current;
+      const currentFilteredLength = filteredLengthRef.current;
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
         event.stopImmediatePropagation();
+        if (currentFilteredLength === 0) return;
         setActiveIndex((index) =>
           event.key === "ArrowDown"
-            ? (index + 1) % filtered.length
-            : (index + filtered.length - 1) % filtered.length,
+            ? (index + 1) % currentFilteredLength
+            : (index + currentFilteredLength - 1) % currentFilteredLength,
         );
-      } else if (event.key === "Enter" && activeCommand) {
+      } else if (event.key === "Enter" && currentCommand) {
         event.preventDefault();
         event.stopImmediatePropagation();
-        applyAuthoringCommand(activeCommand.kind, menu.range.cloneRange());
-      } else if (event.key === "Tab" && activeCommand) {
+        applyAuthoringCommand(
+          currentCommand.kind,
+          currentMenu.range.cloneRange(),
+        );
+      } else if (event.key === "Tab" && currentCommand) {
         event.preventDefault();
         event.stopImmediatePropagation();
-        applyAuthoringCommand(activeCommand.kind, menu.range.cloneRange());
+        applyAuthoringCommand(
+          currentCommand.kind,
+          currentMenu.range.cloneRange(),
+        );
       } else if (event.key === "Escape") {
         event.preventDefault();
         event.stopImmediatePropagation();
         pendingSlash.current = false;
+        pendingSlashRetries.current = 0;
         menuRef.current = null;
         setMenu(null);
       }
     };
     editingEl.addEventListener("keydown", onKeyDown, true);
     return () => editingEl.removeEventListener("keydown", onKeyDown, true);
-  }, [activeCommand, editingEl, filtered.length, menu, textSession]);
+  }, [editingEl, textSession]);
 
   if (!editingEl || !menu) return null;
 
@@ -600,19 +645,20 @@ export function SlideSlashCommandMenu({
               const index = filtered.findIndex((item) => item.kind === value);
               if (index >= 0) setActiveIndex(index);
             }}
+            disablePointerSelection
             shouldFilter={false}
           >
             <CommandList label={t("slideSlashMenu.blocks")}>
               <CommandGroup heading={t("slideSlashMenu.blocks")}>
-                {filtered.map((item, index) => {
+                {filtered.map((item) => {
                   const Icon = item.icon;
                   return (
                     <CommandItem
                       key={item.kind}
                       value={item.kind}
-                      onMouseEnter={() => setActiveIndex(index)}
                       onMouseDown={(event) => event.preventDefault()}
                       onPointerDown={(event) => event.preventDefault()}
+                      className="hover:bg-foreground/20 hover:text-foreground"
                       onSelect={() => {
                         applyAuthoringCommand(
                           item.kind,

@@ -1,6 +1,7 @@
 import { appBasePath } from "@agent-native/core/client/api-path";
 import { useAgentRouteState } from "@agent-native/core/client/navigation";
 
+import { isFormsAskPath } from "@/lib/chat-route";
 import {
   formsRoutePath,
   normalizeFormBuilderTab,
@@ -76,7 +77,7 @@ export function useNavigationState() {
     getNavigationState: ({ pathname, searchParams }) => {
       const state: NavigationState = { view: "forms" };
 
-      if (pathname === "/home" || pathname === "/ask") {
+      if (pathname === "/home" || isFormsAskPath(pathname)) {
         state.view = "ask";
       } else if (pathname.startsWith("/forms")) {
         const formMatch = pathname.match(/\/forms\/([^/]+)/);

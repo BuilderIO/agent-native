@@ -83,7 +83,9 @@ export default defineAction({
     }
 
     try {
-      await parsePlanMdxFolder(args.mdx);
+      await parsePlanMdxFolder(args.mdx, {
+        validateAuthoringChangesAgainst: null,
+      });
       return { valid: true as const, issues: [] as ValidationIssue[] };
     } catch (error) {
       return { valid: false as const, issues: toValidationIssues(error) };

@@ -6,6 +6,11 @@ import type {
 import { applyContentPersonalNavigationPatch } from "@shared/content-personal-navigation-patch";
 import { useQueryClient } from "@tanstack/react-query";
 
+import {
+  contentPersonalViewSaveKey,
+  refreshAfterPersonalViewSave,
+} from "./use-content-database";
+
 export function useUpdateContentPersonalNavigation(
   databaseId: string | null,
   sharedViews?: ContentDatabaseView[],
@@ -16,7 +21,7 @@ export function useUpdateContentPersonalNavigation(
     "get-content-database-personal-view",
     { databaseId },
   ];
-  const mutationKey = ["content-personal-navigation", databaseId];
+  const mutationKey = [...contentPersonalViewSaveKey(databaseId), "navigation"];
   return useActionMutation("update-content-database-personal-view", {
     mutationKey,
     scope: { id: JSON.stringify(mutationKey) },
@@ -52,8 +57,7 @@ export function useUpdateContentPersonalNavigation(
       queryClient.setQueryData(queryKey, data);
     },
     onSettled: () => {
-      if (queryClient.isMutating({ mutationKey }) > 1) return;
-      void queryClient.invalidateQueries({ queryKey });
+      if (databaseId) refreshAfterPersonalViewSave(queryClient, databaseId);
     },
   });
 }

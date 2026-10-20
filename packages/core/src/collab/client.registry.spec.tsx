@@ -47,7 +47,14 @@ class FakeEventSource {
 
 function emptyStateResponse(): Response {
   return new Response(
-    JSON.stringify({ state: "AQGw+tWiDgAEAQdjb250ZW50BHNlZWQA" }),
+    JSON.stringify({
+      state: "AQGw+tWiDgAEAQdjb250ZW50BHNlZWQA",
+      activityBaseline: {
+        status: "ready",
+        version: 1,
+        cursor: "1.baseline",
+      },
+    }),
   );
 }
 
@@ -158,6 +165,11 @@ describe("useCollaborativeDoc connection registry", () => {
                 state: Buffer.from(Y.encodeStateAsUpdate(server)).toString(
                   "base64",
                 ),
+                activityBaseline: {
+                  status: "ready",
+                  version: 1,
+                  cursor: "1.baseline",
+                },
               }),
             );
           }
@@ -236,6 +248,11 @@ describe("useCollaborativeDoc connection registry", () => {
                 state: Buffer.from(Y.encodeStateAsUpdate(server)).toString(
                   "base64",
                 ),
+                activityBaseline: {
+                  status: "ready",
+                  version: 1,
+                  cursor: "1.baseline",
+                },
               }),
             );
           if (!url.endsWith("/update")) return fallback(input);
@@ -322,6 +339,11 @@ describe("useCollaborativeDoc connection registry", () => {
                 state: Buffer.from(Y.encodeStateAsUpdate(server)).toString(
                   "base64",
                 ),
+                activityBaseline: {
+                  status: "ready",
+                  version: 1,
+                  cursor: "1.baseline",
+                },
               }),
             );
           if (!url.endsWith("/update")) return fallback(input);
@@ -408,6 +430,69 @@ describe("useCollaborativeDoc connection registry", () => {
     expect(_collabDocRegistrySizeForTests()).toBe(1);
     expect(a?.isSynced).toBe(true);
     expect(b?.isSynced).toBe(true);
+  });
+
+  it("reconciles state before accepting the first poll watermark without a baseline", async () => {
+    const server = new Y.Doc();
+    server.getText("content").insert(0, "seed");
+    const initialState = Buffer.from(Y.encodeStateAsUpdate(server)).toString(
+      "base64",
+    );
+    let stateVectorFetches = 0;
+    const pollUrls: string[] = [];
+    const mock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (/\/collab\/[^/]+\/state$/.test(url)) {
+        return new Response(
+          JSON.stringify({
+            state: initialState,
+            activityBaseline: { status: "unavailable" },
+          }),
+        );
+      }
+      if (/\/collab\/[^/]+\/state\?/.test(url)) {
+        stateVectorFetches++;
+        server.getText("content").insert(4, " updated");
+        const stateVector = Buffer.from(
+          new URL(url, window.location.href).searchParams.get("stateVector")!,
+          "base64",
+        );
+        const update = Y.encodeStateAsUpdate(server, stateVector);
+        return new Response(
+          JSON.stringify({ state: Buffer.from(update).toString("base64") }),
+        );
+      }
+      if (url.includes("/_agent-native/poll")) {
+        pollUrls.push(url);
+        return new Response(JSON.stringify({ version: 100, events: [] }));
+      }
+      if (url.includes("/awareness")) {
+        return new Response(JSON.stringify({ states: [] }));
+      }
+      return new Response(JSON.stringify({}));
+    });
+    vi.stubGlobal("fetch", mock);
+
+    let result: UseCollaborativeDocResult | undefined;
+    mount(
+      <Probe
+        docId="unavailable-baseline"
+        onResult={(next) => {
+          result = next;
+        }}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(pollUrls[0]).toContain("since=0");
+    expect(stateVectorFetches).toBe(1);
+    expect(result?.ydoc?.getText("content").toString()).toBe("seed updated");
+
+    server.destroy();
   });
 
   it("returns a fresh sync receipt after an older transport fetch completes", async () => {
@@ -774,6 +859,65 @@ describe("useCollaborativeDoc connection registry", () => {
     expect(_collabDocRegistrySizeForTests()).toBe(1);
   });
 
+  it("sends nothing for a document whose last subscriber left before its state arrived", async () => {
+    const state = deferredResponse();
+    const requests: string[] = [];
+    const { mock: fallback } = makeFetchMock();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        requests.push(url);
+        if (url.endsWith("/collab/deleted-screen/state")) return state.promise;
+        return fallback(input);
+      }),
+    );
+
+    const root = mount(
+      <Probe
+        docId="deleted-screen"
+        onResult={() => {}}
+        user={{ name: "Ada", email: "ada@example.com", color: "#000" }}
+      />,
+    );
+    act(() => root.unmount());
+    roots = roots.filter((r) => r !== root);
+    await act(async () => {
+      state.resolve(emptyStateResponse());
+      await vi.advanceTimersByTimeAsync(900);
+    });
+
+    expect(
+      requests.filter((url) => url.includes("/collab/deleted-screen/")),
+    ).toEqual(["/_agent-native/collab/deleted-screen/state"]);
+  });
+
+  it("resumes polling when a subscriber returns within the linger window", async () => {
+    const { mock } = makeFetchMock();
+    vi.stubGlobal("fetch", mock);
+    const polls = () =>
+      mock.mock.calls.filter(([input]) =>
+        String(input).includes("/_agent-native/poll"),
+      ).length;
+
+    const root = mount(<Probe docId="doc-1" onResult={() => {}} />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    act(() => root.unmount());
+    roots = roots.filter((r) => r !== root);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    const pollsBeforeRemount = polls();
+    mount(<Probe docId="doc-1" onResult={() => {}} />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2500);
+    });
+
+    expect(polls()).toBeGreaterThan(pollsBeforeRemount);
+  });
+
   it("keeps one shared connection under StrictMode double-mounting", async () => {
     const { mock, stateFetches } = makeFetchMock();
     vi.stubGlobal("fetch", mock);
@@ -944,5 +1088,172 @@ describe("useCollaborativeDoc connection registry", () => {
         (init as RequestInit | undefined)?.method === "POST",
     ).length;
     expect(awarenessPostsAfterDispose).toBe(awarenessPostsBeforeDispose);
+  });
+
+  it("does not post awareness after the last subscriber leaves during a poll, and resumes on remount", async () => {
+    const pollResponses: ReturnType<typeof deferredResponse>[] = [];
+    const awarenessPosts: string[] = [];
+    const mock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (/\/collab\/[^/]+\/state$/.test(url)) {
+        return emptyStateResponse();
+      }
+      if (url.includes("/_agent-native/poll")) {
+        const response = deferredResponse();
+        pollResponses.push(response);
+        return response.promise;
+      }
+      if (url.endsWith("/awareness")) {
+        awarenessPosts.push(url);
+        return new Response("missing", { status: 404 });
+      }
+      return new Response(JSON.stringify({}));
+    });
+    vi.stubGlobal("fetch", mock);
+
+    const user = {
+      name: "Local",
+      email: "local@example.com",
+      color: "#111",
+    };
+    let first: UseCollaborativeDocResult | undefined;
+    const firstRoot = mount(
+      <Probe
+        docId="doc-poll-unmount"
+        onResult={(next) => (first = next)}
+        user={user}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(pollResponses.length).toBeGreaterThan(0);
+    const initialPollCount = pollResponses.length;
+    expect(first?.awareness?.getLocalState()?.user).toMatchObject(user);
+    act(() => firstRoot.unmount());
+    roots = roots.filter((candidate) => candidate !== firstRoot);
+    await act(async () => {
+      for (const response of pollResponses.slice(0, initialPollCount)) {
+        response.resolve(
+          new Response(JSON.stringify({ version: 1, events: [] })),
+        );
+      }
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(awarenessPosts).toEqual([]);
+
+    let second: UseCollaborativeDocResult | undefined;
+    mount(
+      <Probe
+        docId="doc-poll-unmount"
+        onResult={(next) => (second = next)}
+        user={user}
+      />,
+    );
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(second?.ydoc).toBe(first?.ydoc);
+    const resumedPolls = pollResponses.slice(initialPollCount);
+    expect(resumedPolls.length).toBeGreaterThan(0);
+    await act(async () => {
+      for (const response of resumedPolls) {
+        response.resolve(
+          new Response(JSON.stringify({ version: 2, events: [] })),
+        );
+      }
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(awarenessPosts.length).toBeGreaterThan(0);
+    expect(
+      awarenessPosts.every((url) => url.endsWith("doc-poll-unmount/awareness")),
+    ).toBe(true);
+  });
+
+  it("does not let an old in-flight poll schedule another chain after remount", async () => {
+    const pollResponses: ReturnType<typeof deferredResponse>[] = [];
+    const mock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (/\/collab\/[^/]+\/state$/.test(url)) return emptyStateResponse();
+      if (url.includes("/_agent-native/poll")) {
+        const response = deferredResponse();
+        pollResponses.push(response);
+        return response.promise;
+      }
+      if (url.endsWith("/awareness")) {
+        return new Response(JSON.stringify({ states: [] }));
+      }
+      return new Response(JSON.stringify({}));
+    });
+    vi.stubGlobal("fetch", mock);
+
+    const firstRoot = mount(
+      <Probe docId="doc-poll-remount" onResult={() => {}} />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const initialPollCount = pollResponses.length;
+    expect(initialPollCount).toBeGreaterThan(0);
+
+    act(() => firstRoot.unmount());
+    roots = roots.filter((candidate) => candidate !== firstRoot);
+
+    const secondRoot = mount(
+      <Probe docId="doc-poll-remount" onResult={() => {}} />,
+    );
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const remountedPollCount = pollResponses.length;
+    expect(remountedPollCount).toBeGreaterThan(initialPollCount);
+
+    await act(async () => {
+      for (const response of pollResponses.slice(0, initialPollCount)) {
+        response.resolve(
+          new Response(JSON.stringify({ version: 2, events: [] })),
+        );
+      }
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(
+      mock.mock.calls.filter(([input]) =>
+        String(input).includes("/_agent-native/poll"),
+      ),
+    ).toHaveLength(remountedPollCount);
+
+    act(() => secondRoot.unmount());
+    roots = roots.filter((candidate) => candidate !== secondRoot);
+    await act(async () => {
+      for (const response of pollResponses.slice(initialPollCount)) {
+        response.resolve(
+          new Response(JSON.stringify({ version: 3, events: [] })),
+        );
+      }
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
   });
 });

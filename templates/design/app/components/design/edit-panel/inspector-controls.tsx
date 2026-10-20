@@ -186,23 +186,31 @@ export function RowDragHandle({
   onDragStart: (event: DragEvent<HTMLSpanElement>) => void;
   onDragEnd: () => void;
 }) {
+  // The handle fills the row's gutter column. Neither it nor its cell is
+  // positioned, so the drop line measures against the whole row and stays
+  // visible while the handle is faded. The icon's box is wider than the
+  // column, so it must not take pointer events from the field beside it.
   return (
-    <span
-      draggable={draggable}
-      onDragStart={onDragStart}
-      onDragEnd={onDragEnd}
-      role="button"
-      aria-label={label}
-      className="relative flex size-6 shrink-0 cursor-grab items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 active:cursor-grabbing"
-    >
-      <IconGripVertical className="size-3.5" />
-      {dropIndicator === "before" ? (
-        <span className="pointer-events-none absolute -top-[3px] left-0 right-0 h-px bg-[var(--design-editor-accent-color)]" />
+    <>
+      <span
+        draggable={draggable}
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
+        role="button"
+        aria-label={label}
+        className="flex h-6 w-full cursor-grab items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 active:cursor-grabbing"
+      >
+        <IconGripVertical className="pointer-events-none size-3.5 shrink-0" />
+      </span>
+      {dropIndicator ? (
+        <span
+          className={cn(
+            "pointer-events-none absolute inset-x-0 h-px bg-[var(--design-editor-accent-color)]",
+            dropIndicator === "before" ? "-top-[3px]" : "-bottom-[3px]",
+          )}
+        />
       ) : null}
-      {dropIndicator === "after" ? (
-        <span className="pointer-events-none absolute -bottom-[3px] left-0 right-0 h-px bg-[var(--design-editor-accent-color)]" />
-      ) : null}
-    </span>
+    </>
   );
 }
 

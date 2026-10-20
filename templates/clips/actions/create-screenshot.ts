@@ -32,12 +32,12 @@ import {
   requireOrganizationAccess,
   stringifySpaceIds,
 } from "../server/lib/recordings.js";
-import { STORAGE_SETUP_REQUIRED_REASON } from "../server/lib/video-storage.js";
 import { validateRecordingScope } from "./lib/recording-scope.js";
 import {
   decodeScreenshotDataUrl,
   MAX_SCREENSHOT_BYTES,
 } from "./lib/screenshot-image.js";
+import { failStorageSetupRequired } from "./lib/storage-setup-error.js";
 
 export { MAX_SCREENSHOT_BYTES } from "./lib/screenshot-image.js";
 
@@ -146,7 +146,7 @@ export default defineAction({
     // fallback: image bytes never belong in an app table, so a deployment
     // without file storage cannot take screenshots at all.
     if (!uploaded?.url) {
-      throw new Error(STORAGE_SETUP_REQUIRED_REASON);
+      failStorageSetupRequired();
     }
     const imageUrl = uploaded.url;
 

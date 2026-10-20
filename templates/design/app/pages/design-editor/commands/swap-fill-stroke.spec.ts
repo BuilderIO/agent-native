@@ -21,6 +21,7 @@ function swap(selectedElement: ElementInfo) {
     canEditDesign: true,
     selectedElement,
     handleStylesChange,
+    onUnsupportedFillPaint: vi.fn(),
   });
   return handleStylesChange.mock.calls[0]?.[0] as
     | Record<string, string>
@@ -98,17 +99,38 @@ describe("runSwapFillStroke", () => {
     });
   });
 
-  it("swaps a box's background and border colours", () => {
+  it("carries a partial opacity into a wide-gamut colour without flattening it", () => {
+    const patch = swap(
+      element("path", {
+        fill: "oklch(70% 0.3 150)",
+        fillOpacity: "0.5",
+        stroke: "none",
+        strokeWidth: "0px",
+      }),
+    );
+
+    expect(patch?.stroke).toBe("oklch(70% 0.3 150 / 50%)");
+  });
+
+  it("turns a fill-only box into a 1px Inside stroke that keeps its size", () => {
     const patch = swap(
       element("div", {
         backgroundColor: "rgb(255, 0, 0)",
         borderColor: "rgb(0, 0, 0)",
+        borderWidth: "0px",
+        borderStyle: "none",
+        outlineWidth: "3px",
+        outlineStyle: "none",
+        boxSizing: "content-box",
       }),
     );
 
     expect(patch).toEqual({
-      backgroundColor: "rgb(0, 0, 0)",
+      backgroundColor: "transparent",
       borderColor: "rgb(255, 0, 0)",
+      borderWidth: "1px",
+      borderStyle: "solid",
+      boxSizing: "border-box",
     });
   });
 });

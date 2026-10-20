@@ -1,8 +1,9 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { AgentAskPopover } from "@agent-native/toolkit/app/chat";
+import { Button } from "@agent-native/toolkit/ui/button";
 import { IconCheck, IconCopy, IconMessage, IconX } from "@tabler/icons-react";
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 
+import { useAssistantReady } from "../shell-ready";
 import {
   Tooltip,
   TooltipContent,
@@ -15,6 +16,59 @@ interface TocItem {
   label: string;
   level?: number;
   indent?: boolean;
+}
+
+const LazyAgentAskPopover = lazy(() =>
+  import("@agent-native/toolkit/app/chat").then(({ AgentAskPopover }) => ({
+    default: AgentAskPopover,
+  })),
+);
+
+function DocsAskPopover() {
+  const t = useT();
+  const [requested, setRequested] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const ensureAssistantReady = useAssistantReady();
+  const className =
+    "mt-4 w-full cursor-pointer border border-[var(--docs-border)] bg-transparent text-[var(--fg-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--fg)]";
+  const icon = <IconMessage aria-hidden="true" size={16} stroke={1.5} />;
+  const trigger = (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      className={className}
+      aria-busy={loading || requested}
+      disabled={loading}
+      onClick={async () => {
+        setLoading(true);
+        await ensureAssistantReady();
+        setRequested(true);
+        setOpen(true);
+        setLoading(false);
+      }}
+    >
+      {icon}
+      {t("header.askAssistant")}
+    </Button>
+  );
+  if (!requested) return trigger;
+  return (
+    <Suspense fallback={trigger}>
+      <LazyAgentAskPopover
+        label={t("header.askAssistant")}
+        title={t("header.askAssistant")}
+        icon={icon}
+        placeholder={t("agent.emptyState")}
+        prompt=""
+        draftScope="docs:table-of-contents-ask"
+        className={className}
+        open={open}
+        onOpenChange={setOpen}
+      />
+    </Suspense>
+  );
 }
 
 function findScrollParent(el: HTMLElement | null): HTMLElement | Window {
@@ -229,15 +283,7 @@ export default function TableOfContents({
             );
           })}
         </ul>
-        <AgentAskPopover
-          label={t("header.askAssistant")}
-          title={t("header.askAssistant")}
-          icon={<IconMessage aria-hidden="true" size={16} stroke={1.5} />}
-          placeholder={t("agent.emptyState")}
-          prompt=""
-          draftScope="docs:table-of-contents-ask"
-          className="mt-4 w-full cursor-pointer border border-[var(--docs-border)] bg-transparent text-[var(--fg-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--fg)]"
-        />
+        <DocsAskPopover />
       </nav>
     </aside>
   );

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockAssertAccess = vi.fn();
 const mockNotifyClients = vi.fn();
+const mockTrack = vi.fn();
 const mockGetCurrentRequestBrowserTabId = vi.fn(() => null);
 const mockReadAppStateForCurrentTab = vi.fn(async () => null);
 
@@ -87,6 +88,10 @@ vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
 }));
 
+vi.mock("@agent-native/core/tracking", () => ({
+  track: (...args: unknown[]) => mockTrack(...args),
+}));
+
 vi.mock("@agent-native/creative-context/server", () => ({
   getGenerationCreativeContext: (...args: unknown[]) =>
     mockGetGenerationCreativeContext(...args),
@@ -153,7 +158,6 @@ async function runSlideActionWithCurrentHash(args: any, context?: any) {
   const needsHash =
     args.fullContent !== undefined ||
     args.objectId !== undefined ||
-    args.styleOnly === true ||
     elementEdit;
   if (needsHash && args.baseContentHash === undefined) {
     const deck = JSON.parse(String(mockDeckRow?.data ?? "{}"));
@@ -214,14 +218,6 @@ describe("update-slide", () => {
           id: "slide-1",
           content: "<div>Old</div>",
           layoutWarningDismissed: true,
-          animations: [
-            {
-              id: "old-reveal",
-              elementIndex: 0,
-              elementPath: [0],
-              type: "fade",
-            },
-          ],
         },
       ],
     });
@@ -247,13 +243,24 @@ describe("update-slide", () => {
     const deck = JSON.parse(lastUpdateSet!.data as string);
     expect(deck.slides[0].content).toBe("<div>New</div>");
     expect(deck.slides[0].layoutWarningDismissed).toBeUndefined();
-    expect(deck.slides[0].animations).toBeUndefined();
     expect(deck.updatedAt).not.toBe("2026-01-01T00:00:00.000Z");
     expect(lastUpdateSet!.updatedAt).toBe(deck.updatedAt);
     expect(mockNotifyClients).toHaveBeenCalledWith("deck-1", {
       slideId: "slide-1",
       actor: "agent",
     });
+    expect(mockTrack).toHaveBeenCalledWith(
+      "deck_edited",
+      expect.objectContaining({
+        output_id: "deck-1",
+        slide_id: "slide-1",
+        edit_mode: "update_slide",
+        started_at_ms: expect.any(Number),
+        ended_at_ms: expect.any(Number),
+        duration_ms: expect.any(Number),
+      }),
+      { caller: "tool" },
+    );
     // A deterministic focused edit without an existing or explicit Creative
     // Context scope must not enter the generation-context gate.
     expect(mockValidateGenerationCreativeContext).not.toHaveBeenCalled();
@@ -267,6 +274,74 @@ describe("update-slide", () => {
         }),
       }),
     );
+  });
+
+  it("reports only the hygiene problems an edit introduced", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [{ id: "slide-1", content: "<div><svg></svg><p>Old</p></div>" }],
+    });
+    const result = (await runSlideActionWithCurrentHash(
+      {
+        deckId: "deck-1",
+        slideId: "slide-1",
+        edits: [{ find: "Old", replace: "New" }],
+      },
+      { caller: "tool" },
+    )) as Record<string, unknown>;
+    // The svg was already there: not this edit's doing.
+    expect(result).not.toHaveProperty("hygieneWarnings");
+
+    const added = (await runSlideActionWithCurrentHash(
+      {
+        deckId: "deck-1",
+        slideId: "slide-1",
+        edits: [{ find: "<p>New</p>", replace: "<button>Go</button>" }],
+      },
+      { caller: "tool" },
+    )) as { hygieneWarnings?: { warnings: Array<Record<string, unknown>> } };
+    expect(added.hygieneWarnings?.warnings).toEqual([
+      expect.objectContaining({
+        code: "stripped-element",
+        count: 1,
+        slideIds: ["slide-1"],
+      }),
+    ]);
+    expect(JSON.parse(lastUpdateSet!.data as string).slides[0].content).toBe(
+      "<div><svg></svg><button>Go</button></div>",
+    );
+  });
+
+  it("reports deck_edited with the slide count, attempt id and run keys", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      generationContext: { generationAttemptId: "attempt-1" },
+      slides: [
+        { id: "slide-1", content: "<div>Old</div>" },
+        { id: "slide-2", content: "<div>Two</div>" },
+      ],
+    });
+
+    await runSlideActionWithCurrentHash(
+      { deckId: "deck-1", slideId: "slide-1", find: "Old", replace: "New" },
+      { caller: "tool", runId: "run-1", turnId: "turn-1" },
+    );
+
+    const edited = mockTrack.mock.calls.find(
+      ([name]) => name === "deck_edited",
+    );
+    expect(edited?.[1]).toMatchObject({
+      app_name: "slides",
+      output_id: "deck-1",
+      edit_mode: "update_slide",
+      slide_count: 2,
+      generation_attempt_id: "attempt-1",
+      run_id: "run-1",
+      turn_id: "turn-1",
+      caller: "tool",
+    });
   });
 
   it("requires a source hash for full-slide and selected-object replacements", async () => {
@@ -545,165 +620,6 @@ describe("update-slide", () => {
     expect(mockNotifyClients).not.toHaveBeenCalled();
   });
 
-  it("answers a styleOnly legacy find/replace with the edits call that would work", async () => {
-    mockDeckRow!.data = JSON.stringify({
-      title: "Deck",
-      slides: [
-        {
-          id: "slide-1",
-          content:
-            '<div class="fmd-slide" style="background:#111111"><h1>Headline</h1></div>',
-        },
-      ],
-    });
-
-    const rejection = await runSlideActionWithCurrentHash({
-      deckId: "deck-1",
-      slideId: "slide-1",
-      styleOnly: true,
-      find: "background:#111111",
-      replace: "background:#f4f0e8",
-    }).then(
-      () => undefined,
-      (error: Error) => error,
-    );
-
-    expect(rejection?.message).toContain('must use the structured "edits"');
-    expect(rejection?.message).toContain(
-      '[{"find":"background:#111111","replace":"background:#f4f0e8","occurrence":1}]',
-    );
-    expect(lastUpdateSet).toBeUndefined();
-
-    const suggested = JSON.parse(
-      rejection!.message.slice(
-        rejection!.message.indexOf('[{"find"'),
-        rejection!.message.lastIndexOf("]") + 1,
-      ),
-    );
-    const result = await runSlideActionWithCurrentHash({
-      deckId: "deck-1",
-      slideId: "slide-1",
-      styleOnly: true,
-      edits: suggested,
-    });
-
-    expect(result).toMatchObject({ ok: true, applied: true });
-    expect(JSON.parse(lastUpdateSet!.data as string).slides[0].content).toBe(
-      '<div class="fmd-slide" style="background:#f4f0e8"><h1>Headline</h1></div>',
-    );
-  });
-
-  it("suggests an edits call that still works when the declaration repeats", async () => {
-    mockDeckRow!.data = JSON.stringify({
-      title: "Deck",
-      slides: [
-        {
-          id: "slide-1",
-          content:
-            '<div class="fmd-slide" style="background:#111111"><div style="background:#111111"><h1>Headline</h1></div></div>',
-        },
-      ],
-    });
-
-    const rejection = await runSlideActionWithCurrentHash({
-      deckId: "deck-1",
-      slideId: "slide-1",
-      styleOnly: true,
-      find: "background:#111111",
-      replace: "background:#f4f0e8",
-    }).then(
-      () => undefined,
-      (error: Error) => error,
-    );
-
-    const suggested = JSON.parse(
-      rejection!.message.slice(
-        rejection!.message.indexOf('[{"find"'),
-        rejection!.message.lastIndexOf("]") + 1,
-      ),
-    );
-    const result = await runSlideActionWithCurrentHash({
-      deckId: "deck-1",
-      slideId: "slide-1",
-      styleOnly: true,
-      edits: suggested,
-    });
-
-    expect(result).toMatchObject({ ok: true, applied: true });
-    expect(JSON.parse(lastUpdateSet!.data as string).slides[0].content).toBe(
-      '<div class="fmd-slide" style="background:#f4f0e8"><div style="background:#111111"><h1>Headline</h1></div></div>',
-    );
-  });
-
-  it("refuses to route a styleOnly change through objectId", async () => {
-    const rejection = await runSlideActionWithCurrentHash({
-      deckId: "deck-1",
-      slideId: "slide-1",
-      styleOnly: true,
-      objectId: "slide-object-7",
-      replace: "<span>x</span>",
-    }).then(
-      () => undefined,
-      (error: Error) => error,
-    );
-
-    expect(rejection?.message).toContain('cannot go through "objectId"');
-    expect(rejection?.message).not.toContain('"objectId":"slide-object-7"');
-    expect(rejection?.message).toContain("get-deck (slideId, compact=false)");
-    expect(lastUpdateSet).toBeUndefined();
-  });
-
-  it("points a styleOnly fullContent attempt at a targeted read instead of echoing it", async () => {
-    const rejection = await runSlideActionWithCurrentHash({
-      deckId: "deck-1",
-      slideId: "slide-1",
-      styleOnly: true,
-      fullContent: '<div class="fmd-slide">rewritten</div>',
-    }).then(
-      () => undefined,
-      (error: Error) => error,
-    );
-
-    expect(rejection?.message).toContain("get-deck (slideId, compact=false)");
-    expect(rejection?.message).not.toContain("rewritten");
-    expect(lastUpdateSet).toBeUndefined();
-  });
-
-  it("does not echo an oversized legacy payload back into the rejection", async () => {
-    const huge = "a".repeat(5000);
-    const rejection = await runSlideActionWithCurrentHash({
-      deckId: "deck-1",
-      slideId: "slide-1",
-      styleOnly: true,
-      find: huge,
-      replace: "background:#f4f0e8",
-    }).then(
-      () => undefined,
-      (error: Error) => error,
-    );
-
-    expect(rejection?.message).not.toContain(huge);
-    expect(rejection?.message).toContain("get-deck (slideId, compact=false)");
-    expect(rejection!.message.length).toBeLessThan(1000);
-  });
-
-  it("does not suggest an unusable edits entry for an empty legacy find", async () => {
-    const rejection = await runSlideActionWithCurrentHash({
-      deckId: "deck-1",
-      slideId: "slide-1",
-      styleOnly: true,
-      find: "",
-      replace: "background:#f4f0e8",
-    }).then(
-      () => undefined,
-      (error: Error) => error,
-    );
-
-    expect(rejection?.message).not.toContain('"find":""');
-    expect(rejection?.message).toContain("get-deck (slideId, compact=false)");
-    expect(lastUpdateSet).toBeUndefined();
-  });
-
   it("tells the agent which fields to drop when an edit mixes find and objectId", () => {
     const parsed = (
       action.schema as unknown as {
@@ -733,51 +649,7 @@ describe("update-slide", () => {
     expect(mixed).toContain("ONLY find");
   });
 
-  it("teaches styleOnly and the edits requirement in the agent-facing schema", () => {
-    const styleOnly = (
-      action.schema as unknown as {
-        shape: Record<string, { description?: string }>;
-      }
-    ).shape.styleOnly;
-
-    expect(styleOnly.description).toContain("edits");
-    expect(styleOnly.description).toContain('"occurrence":1');
-    expect(styleOnly.description).not.toContain('"expectedMatches":1');
-
-    const advertised = action.tool.description ?? "";
-    expect(advertised).toContain("styleOnly=true");
-    expect(advertised).toContain('"occurrence":1');
-    expect(advertised).not.toContain('"expectedMatches":1');
-    expect(advertised).toContain("match slide 1");
-    expect(advertised).toContain(".fmd-slide");
-  });
-
-  it("rejects style-only edits that change slide structure", async () => {
-    mockDeckRow!.data = JSON.stringify({
-      title: "Deck",
-      slides: [
-        {
-          id: "slide-1",
-          content:
-            '<div class="fmd-slide" style="padding: 80px;"><div style="border-width: 1px; border-style: solid; border-color: blue; padding: 20px;"><h1>Headline</h1></div></div>',
-        },
-      ],
-    });
-
-    await expect(
-      runSlideActionWithCurrentHash({
-        deckId: "deck-1",
-        slideId: "slide-1",
-        styleOnly: true,
-        edits: [{ find: "Headline", replace: "Changed", expectedMatches: 1 }],
-      }),
-    ).rejects.toThrow("Style-only slide edits must preserve");
-
-    expect(lastUpdateSet).toBeUndefined();
-    expect(mockNotifyClients).not.toHaveBeenCalled();
-  });
-
-  it("accepts style-only CSS edits without changing slide structure", async () => {
+  it("applies CSS edits without changing slide structure", async () => {
     mockDeckRow!.data = JSON.stringify({
       title: "Deck",
       slides: [
@@ -792,7 +664,6 @@ describe("update-slide", () => {
     const result = await runSlideActionWithCurrentHash({
       deckId: "deck-1",
       slideId: "slide-1",
-      styleOnly: true,
       edits: [
         {
           find: "border-color: blue",
@@ -808,45 +679,18 @@ describe("update-slide", () => {
     );
   });
 
-  it("validates formatted style-only edits against the formatted source", async () => {
+  it("keeps reveals across a content edit that leaves them resolvable", async () => {
+    const animations = [
+      { id: "reveal-title", elementIndex: 0, elementPath: [0], type: "fade" },
+      { id: "reveal-body", elementIndex: 1, elementPath: [1], type: "zoom" },
+    ];
     mockDeckRow!.data = JSON.stringify({
       title: "Deck",
       slides: [
         {
           id: "slide-1",
-          content:
-            '<style>.fmd-slide { background: #000; }</style><div class="fmd-slide"><p>Headline</p><div style="white-space: pre-wrap">  keep  these\n    spaces   </div><pre>  alpha\n    beta   \ngamma  </pre></div>',
-        },
-      ],
-    });
-
-    const result = await runSlideActionWithCurrentHash({
-      deckId: "deck-1",
-      slideId: "slide-1",
-      styleOnly: true,
-      format: true,
-      edits: [{ find: "background: #000", replace: "background: #fff" }],
-    });
-
-    expect(result).toMatchObject({ ok: true, applied: true });
-    const savedContent = JSON.parse(lastUpdateSet!.data as string).slides[0]
-      .content as string;
-    expect(savedContent).toContain("background: #fff");
-    expect(savedContent).toContain("Headline");
-    expect(savedContent).toContain(
-      '<div style="white-space: pre-wrap">  keep  these\n    spaces   </div>',
-    );
-    expect(savedContent).toContain("<pre>  alpha\n    beta   \ngamma  </pre>");
-  });
-
-  it("does not add default slide padding during a style-only edit", async () => {
-    mockDeckRow!.data = JSON.stringify({
-      title: "Deck",
-      slides: [
-        {
-          id: "slide-1",
-          content:
-            '<div class="fmd-slide"><div style="border-width: 1px; border-style: solid; border-color: blue;"><h1>Headline</h1></div></div>',
+          content: '<div class="fmd-slide"><h1>Title</h1><p>Body</p></div>',
+          animations,
         },
       ],
     });
@@ -854,29 +698,30 @@ describe("update-slide", () => {
     await runSlideActionWithCurrentHash({
       deckId: "deck-1",
       slideId: "slide-1",
-      styleOnly: true,
-      edits: [
-        {
-          find: "border-color: blue",
-          replace: "border-color: red",
-          expectedMatches: 1,
-        },
-      ],
+      fullContent: '<div class="fmd-slide"><h1>Retitled</h1><p>Body</p></div>',
     });
 
-    expect(JSON.parse(lastUpdateSet!.data as string).slides[0].content).toBe(
-      '<div class="fmd-slide"><div style="border-width: 1px; border-style: solid; border-color: red;"><h1>Headline</h1></div></div>',
-    );
+    expect(
+      JSON.parse(lastUpdateSet!.data as string).slides[0].animations,
+    ).toEqual(animations);
   });
 
-  it("rejects style-only edits that change protected layout CSS", async () => {
+  it("refuses a content edit that inserts a sibling before a stored reveal's target, with a typed error and no write", async () => {
     mockDeckRow!.data = JSON.stringify({
       title: "Deck",
       slides: [
         {
           id: "slide-1",
           content:
-            '<div class="fmd-slide" style="padding: 80px;"><div style="border: 1px solid blue; padding: 20px;"><h1>Headline</h1></div></div>',
+            '<div class="fmd-slide"><h1>Title</h1><div class="text-box"><p>One</p><p>Two</p></div></div>',
+          animations: [
+            {
+              id: "reveal-two",
+              elementIndex: 1,
+              elementPath: [1, 1],
+              type: "fade",
+            },
+          ],
         },
       ],
     });
@@ -885,29 +730,36 @@ describe("update-slide", () => {
       runSlideActionWithCurrentHash({
         deckId: "deck-1",
         slideId: "slide-1",
-        styleOnly: true,
-        edits: [
-          {
-            find: "padding: 20px",
-            replace: "padding: 4px",
-            expectedMatches: 1,
-          },
-        ],
+        fullContent:
+          '<div class="fmd-slide"><h1>Title</h1><div class="text-box"><p>New</p><p>One</p><p>Two</p></div></div>',
       }),
-    ).rejects.toThrow("protected layout CSS");
-
+    ).rejects.toMatchObject({
+      errorCode: "slide_animation_retargeted",
+      statusCode: 400,
+      details: {
+        reason: "retargeted",
+        slideId: "slide-1",
+        animationId: "reveal-two",
+      },
+    });
     expect(lastUpdateSet).toBeUndefined();
-    expect(mockNotifyClients).not.toHaveBeenCalled();
   });
 
-  it("keeps protected stylesheet declarations attached to their selectors", async () => {
+  it("refuses a content edit that strands a reveal, with a typed error and no write", async () => {
     mockDeckRow!.data = JSON.stringify({
       title: "Deck",
       slides: [
         {
           id: "slide-1",
-          content:
-            '<style>.left { padding: 10px; } .right { padding: 20px; }</style><div class="left">Left</div><div class="right">Right</div>',
+          content: '<div class="fmd-slide"><h1>Title</h1><p>Body</p></div>',
+          animations: [
+            {
+              id: "reveal-body",
+              elementIndex: 1,
+              elementPath: [1],
+              type: "fade",
+            },
+          ],
         },
       ],
     });
@@ -916,51 +768,47 @@ describe("update-slide", () => {
       runSlideActionWithCurrentHash({
         deckId: "deck-1",
         slideId: "slide-1",
-        styleOnly: true,
-        edits: [
-          {
-            find: ".left { padding: 10px; } .right { padding: 20px; }",
-            replace: ".left { padding: 20px; } .right { padding: 10px; }",
-            expectedMatches: 1,
-          },
-        ],
+        fullContent: '<div class="fmd-slide"><h1>Title</h1></div>',
       }),
-    ).rejects.toThrow("protected layout CSS");
-
+    ).rejects.toMatchObject({
+      errorCode: "slide_animation_stale_path",
+      statusCode: 400,
+      details: {
+        reason: "stale-path",
+        slideId: "slide-1",
+        animationId: "reveal-body",
+      },
+    });
     expect(lastUpdateSet).toBeUndefined();
   });
 
-  it("rejects style-only edits that change layout custom properties", async () => {
+  it("does not block a content edit on a reveal that was already unresolved", async () => {
+    const animations = [
+      { id: "reveal-body", elementIndex: 1, elementPath: [4], type: "fade" },
+    ];
     mockDeckRow!.data = JSON.stringify({
       title: "Deck",
       slides: [
         {
           id: "slide-1",
-          content:
-            '<div class="fmd-slide" style="--card-padding: 20px; padding: var(--card-padding);"><h1>Headline</h1></div>',
+          content: '<div class="fmd-slide"><h1>Title</h1><p>Body</p></div>',
+          animations,
         },
       ],
     });
 
-    await expect(
-      runSlideActionWithCurrentHash({
-        deckId: "deck-1",
-        slideId: "slide-1",
-        styleOnly: true,
-        edits: [
-          {
-            find: "--card-padding: 20px",
-            replace: "--card-padding: 4px",
-            expectedMatches: 1,
-          },
-        ],
-      }),
-    ).rejects.toThrow("protected layout CSS");
+    await runSlideActionWithCurrentHash({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      fullContent: '<div class="fmd-slide"><h1>Retitled</h1><p>Body</p></div>',
+    });
 
-    expect(lastUpdateSet).toBeUndefined();
+    expect(
+      JSON.parse(lastUpdateSet!.data as string).slides[0].animations,
+    ).toEqual(animations);
   });
 
-  it("preserves animations for style-only CSS edits", async () => {
+  it("preserves animations for CSS edits", async () => {
     mockDeckRow!.data = JSON.stringify({
       title: "Deck",
       slides: [
@@ -976,7 +824,6 @@ describe("update-slide", () => {
     await runSlideActionWithCurrentHash({
       deckId: "deck-1",
       slideId: "slide-1",
-      styleOnly: true,
       edits: [
         {
           find: "border-color: blue",

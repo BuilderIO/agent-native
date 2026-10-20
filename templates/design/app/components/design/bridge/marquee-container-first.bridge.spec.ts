@@ -27,39 +27,98 @@ const FIXTURE = `<!doctype html><html><body style="margin:0">
        style="position:absolute;left:40px;top:300px;width:120px;height:80px;background:#a855f7"></div>
 </body></html>`;
 
+const WRAPPED_CONTAINER_FIXTURE = `<!doctype html><html><body style="margin:0">
+  <div data-agent-native-node-id="wrapper" data-agent-native-layer-name="Wrapper"
+       style="position:absolute;left:40px;top:40px;width:420px;height:280px;background:#1f2937">
+    <div data-agent-native-node-id="card" data-agent-native-layer-name="Card"
+         style="position:absolute;left:40px;top:40px;width:280px;height:200px;background:#111827">
+      <div data-agent-native-node-id="kid-a" data-agent-native-layer-name="Kid A"
+           style="position:absolute;left:16px;top:16px;width:110px;height:80px;background:#3b82f6"></div>
+    </div>
+  </div>
+  <div data-agent-native-node-id="outside-container" data-agent-native-layer-name="Outside"
+       style="position:absolute;left:500px;top:80px;width:180px;height:200px;background:#0f766e">
+    <div data-agent-native-node-id="outside-kid" data-agent-native-layer-name="Outside Kid"
+         style="position:absolute;left:16px;top:16px;width:100px;height:80px;background:#f97316"></div>
+  </div>
+</body></html>`;
+
+type MarqueeIntent = {
+  additive?: boolean;
+  ctrlKey?: boolean;
+  final?: boolean;
+  metaKey?: boolean;
+  range?: boolean;
+  shiftKey?: boolean;
+};
+
+type MarqueeMessage = {
+  intent?: MarqueeIntent;
+  payload?: Array<{ sourceId?: string }>;
+};
+
+async function waitForFinalMarqueeMessage(
+  finalMessage: Promise<void>,
+): Promise<void> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      finalMessage,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () =>
+            reject(new Error("Timed out waiting for final marquee message")),
+          5_000,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+  }
+}
+
 async function marqueeSelectedIds(
   page: import("@playwright/test").Page,
   from: { x: number; y: number },
   to: { x: number; y: number },
-  modifiers: { metaKey?: boolean } = {},
-): Promise<string[]> {
+  modifiers: { ctrlKey?: boolean; metaKey?: boolean; shiftKey?: boolean } = {},
+): Promise<{ intent?: MarqueeIntent; selected: string[] }> {
   const selected: string[] = [];
-  await page.exposeFunction("__pushMarquee", (ids: string[]) => {
+  let finalIntent: MarqueeIntent | undefined;
+  let resolveFinalMessage!: () => void;
+  const finalMessage = new Promise<void>((resolve) => {
+    resolveFinalMessage = resolve;
+  });
+  await page.exposeFunction("__pushMarquee", (message: MarqueeMessage) => {
     selected.length = 0;
-    selected.push(...ids);
+    selected.push(
+      ...(message.payload ?? []).map((item) => item.sourceId ?? ""),
+    );
+    if (message.intent?.final) {
+      finalIntent = message.intent;
+      resolveFinalMessage();
+    }
   });
   await page.evaluate(() => {
     window.addEventListener("message", (e: MessageEvent) => {
-      const data = e.data as {
-        type?: string;
-        payload?: Array<{ sourceId?: string }>;
-      };
+      const data = e.data as { type?: string } & MarqueeMessage;
       if (data?.type === "agent-native:layer-marquee-selection") {
-        (window as any).__pushMarquee(
-          (data.payload ?? []).map((p) => p.sourceId ?? ""),
-        );
+        (window as any).__pushMarquee(data);
       }
     });
   });
   await page.mouse.move(from.x, from.y);
   if (modifiers.metaKey) await page.keyboard.down("Meta");
+  if (modifiers.ctrlKey) await page.keyboard.down("Control");
+  if (modifiers.shiftKey) await page.keyboard.down("Shift");
   await page.mouse.down();
   await page.mouse.move(to.x, to.y, { steps: 8 });
-  await page.waitForTimeout(30);
   await page.mouse.up();
+  if (modifiers.shiftKey) await page.keyboard.up("Shift");
+  if (modifiers.ctrlKey) await page.keyboard.up("Control");
   if (modifiers.metaKey) await page.keyboard.up("Meta");
-  await page.waitForTimeout(30);
-  return selected;
+  await waitForFinalMarqueeMessage(finalMessage);
+  return { intent: finalIntent, selected };
 }
 
 describe("marquee selects at the current container level", () => {
@@ -72,7 +131,7 @@ describe("marquee selects at the current container level", () => {
       await page.setContent(FIXTURE);
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
 
-      const selected = await marqueeSelectedIds(
+      const { selected } = await marqueeSelectedIds(
         page,
         { x: 20, y: 20 },
         { x: 340, y: 260 },
@@ -88,6 +147,28 @@ describe("marquee selects at the current container level", () => {
     }
   });
 
+  it("keeps a background-origin marquee scoped when it crosses the container boundary", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(WRAPPED_CONTAINER_FIXTURE);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+
+      const { selected } = await marqueeSelectedIds(
+        page,
+        { x: 50, y: 50 },
+        { x: 520, y: 260 },
+      );
+
+      expect(
+        selected,
+        "a background-origin marquee should select only direct children within its gesture scope",
+      ).toEqual(["card"]);
+    } finally {
+      await browser.close();
+    }
+  });
+
   it("Cmd-held marquee still reaches into nested descendants", async () => {
     const browser = await chromium.launch({ headless: true });
     try {
@@ -95,7 +176,7 @@ describe("marquee selects at the current container level", () => {
       await page.setContent(FIXTURE);
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
 
-      const selected = await marqueeSelectedIds(
+      const { intent, selected } = await marqueeSelectedIds(
         page,
         { x: 300, y: 220 },
         { x: 45, y: 45 },
@@ -106,6 +187,56 @@ describe("marquee selects at the current container level", () => {
         selected,
         "Cmd-held marquee must deep-select, including Kid A",
       ).toContain("kid-a");
+      expect(intent).toMatchObject({
+        additive: false,
+        metaKey: true,
+        shiftKey: false,
+      });
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("keeps Ctrl deep-only and Shift range-additive intents distinct", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const cases = [
+        {
+          modifiers: { ctrlKey: true },
+          expected: { additive: false, ctrlKey: true, shiftKey: false },
+        },
+        {
+          modifiers: { metaKey: true, shiftKey: true },
+          expected: { additive: true, metaKey: true, shiftKey: true },
+        },
+        {
+          modifiers: { ctrlKey: true, shiftKey: true },
+          expected: { additive: true, ctrlKey: true, shiftKey: true },
+        },
+        {
+          modifiers: { shiftKey: true },
+          expected: { additive: true, shiftKey: true },
+        },
+      ];
+
+      for (const { modifiers, expected } of cases) {
+        const page = await browser.newPage();
+        await page.setContent(FIXTURE);
+        await page.addScriptTag({
+          content: hydratedEditorChromeBridgeScript(),
+        });
+
+        const result = await marqueeSelectedIds(
+          page,
+          { x: 300, y: 220 },
+          { x: 45, y: 45 },
+          modifiers,
+        );
+
+        expect(result.selected).toContain("kid-a");
+        expect(result.intent).toMatchObject(expected);
+        await page.close();
+      }
     } finally {
       await browser.close();
     }
@@ -123,10 +254,33 @@ describe("marquee selects at the current container level", () => {
         }>;
         intent?: { final?: boolean };
       }> = [];
+      let resolveFinalMessage!: () => void;
+      const finalMessage = new Promise<void>((resolve) => {
+        resolveFinalMessage = resolve;
+      });
       await page.exposeFunction("__captureMarquee", (message: unknown) => {
-        messages.push(message as (typeof messages)[number]);
+        const captured = message as (typeof messages)[number];
+        messages.push(captured);
+        if (captured.intent?.final) resolveFinalMessage();
       });
       await page.setContent(FIXTURE);
+      await page.evaluate(() => {
+        const originalPostMessage = window.postMessage.bind(window);
+        window.postMessage = ((message: unknown) => {
+          const data = message as {
+            intent?: { final?: boolean };
+            type?: string;
+          };
+          if (
+            data?.type === "agent-native:layer-marquee-selection" &&
+            data.intent?.final
+          ) {
+            window.setTimeout(() => originalPostMessage(message, "*"), 50);
+            return;
+          }
+          originalPostMessage(message, "*");
+        }) as typeof window.postMessage;
+      });
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await page.evaluate(() => {
         window.addEventListener("message", (event) => {
@@ -142,7 +296,7 @@ describe("marquee selects at the current container level", () => {
       await page.mouse.move(341, 391);
       await page.mouse.move(342, 392);
       await page.mouse.up();
-      await page.waitForTimeout(30);
+      await waitForFinalMarqueeMessage(finalMessage);
 
       expect(messages).toHaveLength(2);
       expect(messages[0]?.intent?.final).toBe(false);
@@ -164,4 +318,47 @@ describe("marquee selects at the current container level", () => {
       await browser.close();
     }
   });
+});
+
+it("the size badge measures visible selection members and returns to the primary layer", async () => {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.setContent(`<!doctype html><html><body style="margin:0">
+      <div data-agent-native-node-id="a" style="position:absolute;left:40px;top:40px;width:120px;height:80px"></div>
+      <div data-agent-native-node-id="b" style="position:absolute;left:40px;top:200px;width:120px;height:80px"></div>
+      <div data-agent-native-node-id="hidden" style="display:none;width:500px;height:500px"></div>
+    </body></html>`);
+    await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+    await page.evaluate(() => {
+      window.postMessage(
+        { type: "select-element", selector: '[data-agent-native-node-id="b"]' },
+        "*",
+      );
+      window.postMessage(
+        {
+          type: "select-elements",
+          selectorGroups: [
+            ['[data-agent-native-node-id="a"]'],
+            ['[data-agent-native-node-id="hidden"]'],
+          ],
+        },
+        "*",
+      );
+    });
+    const badge = page.locator('[data-agent-native-edit-overlay="size-badge"]');
+    await expect.poll(() => badge.textContent()).toBe("120 × 240");
+    await expect(
+      badge.evaluate((element) => ({
+        left: (element as HTMLElement).style.left,
+        top: (element as HTMLElement).style.top,
+      })),
+    ).resolves.toEqual({ left: "100px", top: "286px" });
+    await page.evaluate(() =>
+      window.postMessage({ type: "select-elements", selectorGroups: [] }, "*"),
+    );
+    await expect.poll(() => badge.textContent()).toBe("120 × 80");
+  } finally {
+    await browser.close();
+  }
 });

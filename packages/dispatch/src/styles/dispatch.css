@@ -5,10 +5,12 @@
 
 :root {
   --dispatch-brand-blue: 200 97% 39%;
+  --dispatch-search-match: 50 100% 66%;
 }
 
 .dark {
   --dispatch-brand-blue: 197 100% 50%;
+  --dispatch-search-match: 40 85% 30%;
 }
 
 .dispatch-chat-first-chats .an-chat-history-rail__new-chat {

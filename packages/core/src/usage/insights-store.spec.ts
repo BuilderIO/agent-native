@@ -38,6 +38,8 @@ async function seedUsage(row: {
   id: number;
   runId: string | null;
   threadId: string;
+  engineName?: string | null;
+  builderCredits?: number | null;
   taskId?: string;
   owner?: string;
   model?: string;
@@ -50,9 +52,12 @@ async function seedUsage(row: {
 }) {
   await pglite.exec(`INSERT INTO token_usage
     (id, owner_email, input_tokens, output_tokens, cache_read_tokens,
-     cache_write_tokens, cost_cents_x100, cost_source, model, app, run_id, thread_id, task_id, created_at)
+     cache_write_tokens, cost_cents_x100, builder_credits_used, engine_name,
+     cost_source, model, app, run_id, thread_id, task_id, created_at)
     VALUES (${row.id}, '${row.owner ?? OWNER}', ${row.input}, ${row.output},
      ${row.read}, ${row.write}, ${row.costX100 ?? 100},
+     ${row.builderCredits == null ? "NULL" : row.builderCredits},
+     ${row.engineName === null ? "NULL" : `'${row.engineName ?? "external"}'`},
      '${row.costSource ?? "reported"}', '${row.model ?? MODEL}',
      'design', ${row.runId === null ? "NULL" : `'${row.runId}'`},
      '${row.threadId}', ${row.taskId ? `'${row.taskId}'` : "NULL"}, ${Date.now()})`);
@@ -99,6 +104,8 @@ beforeAll(async () => {
     input_tokens BIGINT NOT NULL DEFAULT 0, output_tokens BIGINT NOT NULL DEFAULT 0,
     cache_read_tokens BIGINT NOT NULL DEFAULT 0, cache_write_tokens BIGINT NOT NULL DEFAULT 0,
     cost_cents_x100 BIGINT NOT NULL DEFAULT 0,
+    builder_credits_used DOUBLE PRECISION,
+    engine_name TEXT,
     cost_source TEXT NOT NULL DEFAULT 'estimated', model TEXT NOT NULL DEFAULT '',
     label TEXT NOT NULL DEFAULT 'chat', app TEXT NOT NULL DEFAULT '', org_id TEXT,
     run_id TEXT, thread_id TEXT, task_id TEXT, created_at BIGINT NOT NULL)`);
@@ -116,6 +123,64 @@ afterAll(async () => {
 });
 
 describe("getUsageRun", () => {
+  it("leaves billing unknown for legacy rows without engine metadata", async () => {
+    await seedUsage({
+      id: 100,
+      runId: "run-legacy-billing",
+      threadId: "thread-legacy-billing",
+      engineName: null,
+      input: 1_000,
+      output: 100,
+      read: 0,
+      write: 0,
+    });
+
+    const run = await getUsageRun({ runId: "run-legacy-billing" }, ACCESS);
+
+    expect(run!.billing).toEqual({
+      providerCostUsd: null,
+      providerCostSource: null,
+      builderCredits: null,
+      builderCreditsSource: null,
+      incomplete: true,
+    });
+  });
+
+  it("hides per-run totals when any usage row cannot be classified", async () => {
+    await seedUsage({
+      id: 101,
+      runId: "run-partial-billing",
+      threadId: "thread-partial-billing",
+      engineName: "openai",
+      costX100: 100,
+      input: 1_000,
+      output: 100,
+      read: 0,
+      write: 0,
+    });
+    await seedUsage({
+      id: 102,
+      runId: "run-partial-billing",
+      threadId: "thread-partial-billing",
+      engineName: null,
+      costX100: 50,
+      input: 500,
+      output: 50,
+      read: 0,
+      write: 0,
+    });
+
+    const run = await getUsageRun({ runId: "run-partial-billing" }, ACCESS);
+
+    expect(run!.billing).toEqual({
+      providerCostUsd: null,
+      providerCostSource: null,
+      builderCredits: null,
+      builderCreditsSource: null,
+      incomplete: true,
+    });
+  });
+
   it("prices a context restart after a tool lookup and groups tools with their errors", async () => {
     await seedUsage({
       id: 1,
@@ -366,6 +431,51 @@ describe("getUsageRun", () => {
         100,
       2,
     );
+  });
+
+  it("marks per-run billing as mixed when reported and estimated rows are combined", async () => {
+    await seedUsage({
+      id: 24,
+      runId: "run-mixed-billing",
+      threadId: "thread-mixed-billing",
+      costX100: 100,
+      costSource: "reported",
+      input: 1_000,
+      output: 10,
+      read: 0,
+      write: 0,
+    });
+    await seedUsage({
+      id: 25,
+      runId: "run-mixed-billing",
+      threadId: "thread-mixed-billing",
+      costX100: 50,
+      costSource: "estimated",
+      input: 1_000,
+      output: 10,
+      read: 0,
+      write: 0,
+    });
+
+    const run = await getUsageRun({ runId: "run-mixed-billing" }, ACCESS);
+
+    expect(run!.billing.providerCostSource).toBe("mixed");
+  });
+
+  it("marks Builder credits as mixed when reported and estimated rows are combined", async () => {
+    await pglite.exec(`INSERT INTO token_usage
+      (id, owner_email, input_tokens, output_tokens, cache_read_tokens,
+       cache_write_tokens, cost_cents_x100, cost_source, builder_credits_used,
+       engine_name, model, app, run_id, thread_id, created_at)
+      VALUES
+      (26, '${OWNER}', 1000, 10, 0, 0, 100, 'reported', 2, 'builder', '${MODEL}',
+       'design', 'run-mixed-credits', 'thread-mixed-credits', ${Date.now()}),
+      (27, '${OWNER}', 1000, 10, 0, 0, 50, 'estimated', NULL, 'builder', '${MODEL}',
+       'design', 'run-mixed-credits', 'thread-mixed-credits', ${Date.now()})`);
+
+    const run = await getUsageRun({ runId: "run-mixed-credits" }, ACCESS);
+
+    expect(run!.billing.builderCreditsSource).toBe("mixed");
   });
 
   it("prices calls with no recorded cost from their tokens instead of as free", async () => {

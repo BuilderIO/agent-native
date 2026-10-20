@@ -34,6 +34,24 @@ How to export designs and generate handoff documentation for developers converti
   failure instead of pretending that a downloadable image exists. The editor's
   Download PNG remains the faithful client-side path for localhost/fusion
   screens that are not stored HTML.
+  PNG and PDF are sRGB: a color written as `oklch()` or `color(display-p3 ...)`
+  that sRGB cannot show is rendered as its CSS Color 4 gamut-mapped sRGB
+  fallback (lightness and hue kept, chroma reduced), not the browser's clip.
+  HTML and SVG exports keep such colors as written.
+  Saved native shader scenes use the live editor's PNG path so GPU fills and
+  Liquid Glass keep their rendered appearance. The inspector exports selected
+  authored layers with transparent unselected surroundings. For agent exports,
+  discover the live tab with `get-native-render-contexts`, obtain the exact source
+  `versionHash` from `get-shader`, then call `request-native-local-export` with
+  that `targetTabId` and source hash. Its `export.viewport` is the unchanged CSS
+  layout viewport. Optional `cropRect: { x, y, width, height }` bounds the output
+  in that viewport's world coordinates; `selectedNodeIds` additionally isolates
+  those authored subtrees while backdrop inputs still sample the full scene.
+  Omitting `selectedNodeIds` captures the full composition inside the crop.
+  Output dimensions are the crop size times `pixelRatio`, bounded to 4096 pixels
+  per edge and 8,388,608 pixels total. Poll `get-native-local-export` with the
+  exact request and tab IDs; only `completed` provides the protected PNG URL.
+
 - **Deploy preview**: `deploy-design-preview` triggers a preview deploy for a
   fusion-backed design branch. It requires the design's source to advertise
   the `deployPreview` capability (fusion tier) and Builder.io to be connected;
@@ -141,11 +159,10 @@ fall back to `export-svg` or `export-html`.
 type, but its SVG importer reads only font family, size and a coarse bold
 weight. Letter spacing is dropped, and weights above 700 resolve to Bold,
 so tracked or extra-bold text arrives at a different width than the design.
-Measured against Figma directly: `textLength`/`lengthAdjust`, multi-value
-and sibling `tspan` `x`, `word-spacing` and family-encoded weights are
-ignored too. Everything else in the document is geometry-exact. This is a
-Figma import limitation, not a defect in the export; the report's
-`vectorizedTextCaveat` field carries this note for the agent/user.
+Additional SVG text fields, including `textLength`, `lengthAdjust`, `word-spacing`,
+and sibling `tspan` positions, are not preserved by the destination importer.
+The export report's `vectorizedTextCaveat` field carries this limitation for
+the agent and user.
 
 **Getting it into Figma**: two supported paths —
 

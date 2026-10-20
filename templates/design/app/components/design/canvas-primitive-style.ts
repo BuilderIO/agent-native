@@ -18,7 +18,7 @@ export interface CanvasPrimitiveVisual {
 // Canonical tokens
 // ---------------------------------------------------------------------------
 
-/** Default fill — a soft Figma-like neutral gray. */
+/** Default fill — a soft neutral gray. */
 // guard:allow-raw-color — a drawn shape must not retint with the document theme.
 export const DEFAULT_SHAPE_FILL = "rgb(217 217 217)";
 

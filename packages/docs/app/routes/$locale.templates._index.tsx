@@ -1,1 +1,1 @@
-export { default, loader } from "./templates._index";
+export { default, loader, meta } from "./templates._index";

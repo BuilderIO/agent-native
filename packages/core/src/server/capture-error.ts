@@ -1,3 +1,7 @@
+import {
+  runErrorTelemetryProperties,
+  runTelemetryException,
+} from "../agent/engine/error-telemetry.js";
 import { isTransientDatabaseError } from "../db/client.js";
 import { withFailureContext } from "../observability/failure-context.js";
 import type { FailureContext } from "../shared/failure-report.js";
@@ -6,6 +10,7 @@ import { getRequestContext } from "./request-context.js";
 import { isTestIdentity } from "./test-identity.js";
 
 export interface CaptureErrorContext {
+  errorMessagePolicy?: "omit";
   route?: string;
   method?: string;
   userAgent?: string;
@@ -196,12 +201,18 @@ function emit(
 }
 
 function errorLabel(error: unknown): string {
-  const { name, message } = (error ?? {}) as {
+  const { name, message, errorCode } = (error ?? {}) as {
     name?: unknown;
     message?: unknown;
+    errorCode?: unknown;
   };
   const text = typeof message === "string" ? message : String(error);
-  return `${typeof name === "string" ? name : "Error"}: ${text}`.slice(0, 120);
+  // An omitted run failure's message is fixed text, so its code is what tells it apart.
+  const code = typeof errorCode === "string" ? ` [${errorCode}]` : "";
+  return `${typeof name === "string" ? name : "Error"}${code}: ${text}`.slice(
+    0,
+    120,
+  );
 }
 
 function recordSuppressed(state: FloodState, error: unknown): void {
@@ -388,6 +399,7 @@ export function captureError(
       }
     : callerContext;
   let outgoing = context;
+  let reportedError = error;
   try {
     const verdict = classifyError(error, { tags: context.tags });
     if (verdict.drop) {
@@ -399,18 +411,41 @@ export function captureError(
     if (errorCode && context.tags?.errorCode === undefined) {
       outgoing = { ...context, tags: { ...context.tags, errorCode } };
     }
+    // The failure packet copies the code tag, so it must be sanitized first.
+    if (context.errorMessagePolicy === "omit") {
+      const properties = runErrorTelemetryProperties(
+        outgoing.tags?.errorCode,
+        error instanceof Error ? error.message : undefined,
+      );
+      reportedError = runTelemetryException(error, properties.error_code);
+      outgoing = {
+        ...outgoing,
+        tags: {
+          ...outgoing.tags,
+          errorCode: properties.error_code,
+          errorCause: properties.error_cause,
+        },
+      };
+    }
     const cls = classifyFloodClass(error, outgoing);
     outgoing = withPacket(outgoing, { errorCode, failureClass: cls });
     if (cls) {
-      const admitted = admitFloodEvent(cls, error, outgoing);
+      const admitted = admitFloodEvent(cls, reportedError, outgoing);
       if (!admitted) return undefined;
       outgoing = admitted;
     }
     // coercion-ok: an error we could not classify is captured as-is, never dropped.
   } catch {
     outgoing = context;
+    if (context.errorMessagePolicy === "omit") {
+      reportedError = runTelemetryException(error, "unknown");
+      outgoing = {
+        ...context,
+        tags: { ...context.tags, errorCode: "unknown" },
+      };
+    }
   }
-  return emit(error, outgoing);
+  return emit(reportedError, outgoing);
 }
 
 export const captureServerError = captureError;

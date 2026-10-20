@@ -1,7 +1,21 @@
 import type { AgentThreadState } from "@agent-native/agentkit";
 import type { AgentEvent } from "@agent-native/agentkit/protocol";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { AppState } from "react-native";
+import {
+  ensureAgentEngineReadiness,
+  getAgentEngineReadiness,
+  invalidateAgentEngineReadiness,
+  subscribeAgentEngineReadiness,
+  type AgentEngineConfiguredState,
+} from "@agent-native/core/client/agent-engine-readiness";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import { AppState, DeviceEventEmitter } from "react-native";
 
 import { trackMobileEvent } from "@/lib/analytics";
 
@@ -18,9 +32,10 @@ import {
   AgentChatError,
   DEFAULT_CHAT_BASE_URL,
   deleteNavigateCommand,
-  fetchMobileChatEligibility,
   fetchNavigateCommand,
+  getMobileAgentChatHeaders,
   newThreadId,
+  AGENT_ENGINE_CONFIGURED_CHANGED_EVENT,
   type MobileChatEligibility,
 } from "./api";
 import {
@@ -50,7 +65,6 @@ const NAVIGATE_POLL_TIMEOUT_MS = Math.max(
   10_000,
   NAVIGATE_POLL_INTERVAL_MS * 4,
 );
-
 /**
  * Bounds `call` so a hung request can't pin the poll's `inFlight` guard
  * forever. `call` keeps running if it loses the race, but nothing awaits it
@@ -91,7 +105,7 @@ export interface AgentChatController {
     text: string,
     attachments?: ChatAttachment[],
     references?: ChatReference[],
-  ) => void;
+  ) => Promise<boolean>;
   stop: () => void;
   approve: (approvalKey: string) => void;
   deny: (approvalKey?: string) => void;
@@ -142,6 +156,34 @@ interface PendingApproval {
   resolving: boolean;
 }
 
+class MobileChatSetupRequiredError extends Error {
+  readonly code: "missing_api_key" | "chat_setup_unavailable";
+
+  constructor(readonly state: "missing" | "unavailable") {
+    super(
+      state === "missing"
+        ? "No Builder AI or custom provider API key is connected."
+        : "Chat setup could not be confirmed. Retry to check again.",
+    );
+    this.name = "MobileChatSetupRequiredError";
+    this.code =
+      state === "missing" ? "missing_api_key" : "chat_setup_unavailable";
+  }
+}
+
+function toMobileChatEligibility(
+  state: AgentEngineConfiguredState,
+): MobileChatEligibility {
+  switch (state) {
+    case "unknown":
+      return "checking";
+    case "configured":
+      return "eligible";
+    default:
+      return state;
+  }
+}
+
 function eventTurnId(event: AgentEvent): string | undefined {
   const metadata = event.metadata as Record<string, unknown> | undefined;
   const mobile = metadata?.[MOBILE_CHAT_METADATA];
@@ -187,8 +229,41 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
   const [authRequired, setAuthRequired] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [baseUrl, setBaseUrl] = useState(DEFAULT_CHAT_BASE_URL);
-  const [chatEligibility, setChatEligibility] =
-    useState<MobileChatEligibility>("checking");
+  const readinessSource = useMemo(
+    () => ({
+      statusUrl: `${baseUrl.replace(/\/+$/, "")}/_agent-native/agent-engine/status`,
+      headers: async () => {
+        try {
+          return await getMobileAgentChatHeaders();
+        } catch (error) {
+          if (error instanceof AgentChatError && error.authRequired) {
+            setAuthRequired(true);
+          }
+          throw error;
+        }
+      },
+      fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+        const response = await fetch(input, init);
+        if (response.status === 401) setAuthRequired(true);
+        return response;
+      },
+    }),
+    [baseUrl],
+  );
+  const readChatEligibility = useCallback(
+    () => toMobileChatEligibility(getAgentEngineReadiness(readinessSource)),
+    [readinessSource],
+  );
+  const subscribeToChatEligibility = useCallback(
+    (listener: () => void) =>
+      subscribeAgentEngineReadiness(listener, { source: readinessSource }),
+    [readinessSource],
+  );
+  const chatEligibility = useSyncExternalStore(
+    subscribeToChatEligibility,
+    readChatEligibility,
+    readChatEligibility,
+  );
 
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -207,6 +282,14 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
   const lastExtraRef = useRef<
     Pick<ChatSendOptions, "attachments" | "references">
   >({});
+  const pendingForkRetryRef = useRef<{
+    messageId: string;
+    text?: string;
+  } | null>(null);
+  const retryPendingForkRef = useRef<
+    ((pending: { messageId: string; text?: string }) => Promise<void>) | null
+  >(null);
+  const pendingForkRetryInFlightRef = useRef(false);
   const runIdsRef = useRef(new Map<string, string>());
   const assistantIdsByRunRef = useRef(new Map<string, string>());
   const processedEventIdsRef = useRef(new Map<string, Set<string>>());
@@ -218,32 +301,20 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
   const lastProcessedWriteIdRef = useRef<string | null>(null);
   const chatEligibilityRef = useRef(chatEligibility);
   chatEligibilityRef.current = chatEligibility;
-  const readinessRequestRef = useRef(0);
-  const readinessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const readinessRetryCountRef = useRef(0);
+  const dispatchCheckInFlightRef = useRef<string | null>(null);
 
-  const refreshChatEligibility = useCallback(async () => {
-    if (readinessTimerRef.current) clearTimeout(readinessTimerRef.current);
-    readinessTimerRef.current = null;
-    const requestId = ++readinessRequestRef.current;
-    chatEligibilityRef.current = "checking";
-    setChatEligibility("checking");
-    let nextState: MobileChatEligibility = "unavailable";
-    try {
-      const eligible = await fetchMobileChatEligibility(baseUrlRef.current);
-      nextState = eligible ? "eligible" : "missing";
-    } catch (error) {
-      if (readinessRequestRef.current !== requestId) return;
-      if (error instanceof AgentChatError && error.status === 401) {
-        setAuthRequired(true);
-      }
-    }
-    if (readinessRequestRef.current !== requestId) return;
-    chatEligibilityRef.current = nextState;
-    setChatEligibility(nextState);
-    if (nextState === "eligible") {
-      readinessRetryCountRef.current = 0;
-      if (stateRef.current.errorCode === "missing_api_key") {
+  const checkChatEligibility = useCallback(
+    async (force = false): Promise<MobileChatEligibility> => {
+      const state = await ensureAgentEngineReadiness({
+        source: readinessSource,
+        fresh: force,
+        timeoutMs: 10_000,
+      });
+      const eligibility = toMobileChatEligibility(state);
+      if (
+        eligibility === "eligible" &&
+        stateRef.current.errorCode === "missing_api_key"
+      ) {
         const recovered = {
           ...stateRef.current,
           error: null,
@@ -252,30 +323,60 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
         stateRef.current = recovered;
         setState(recovered);
       }
-    } else {
-      readinessRetryCountRef.current += 1;
-    }
-    const delay =
-      nextState === "eligible"
-        ? 30_000
-        : Math.min(
-            2_000 * 2 ** Math.min(readinessRetryCountRef.current, 4),
-            30_000,
-          );
-    readinessTimerRef.current = setTimeout(
-      () => void refreshChatEligibility(),
-      delay,
-    );
+      return eligibility;
+    },
+    [readinessSource],
+  );
+
+  const refreshChatEligibility = useCallback(() => {
+    invalidateAgentEngineReadiness(readinessSource);
+    void checkChatEligibility(true);
+  }, [checkChatEligibility, readinessSource]);
+
+  const requireChatEligibility = useCallback(
+    async (force = false) => {
+      const eligibility = await checkChatEligibility(force);
+      if (eligibility === "eligible") return;
+      throw new MobileChatSetupRequiredError(
+        eligibility === "missing" ? "missing" : "unavailable",
+      );
+    },
+    [checkChatEligibility],
+  );
+
+  const showSetupRequiredError = useCallback((error: unknown) => {
+    if (!(error instanceof MobileChatSetupRequiredError)) return;
+    const nextState = {
+      ...stateRef.current,
+      isStreaming: false,
+      activity: null,
+      error: error.message,
+      errorCode: error.code,
+    };
+    stateRef.current = nextState;
+    setState(nextState);
   }, []);
 
   useEffect(() => {
-    void refreshChatEligibility();
+    void checkChatEligibility(true);
+  }, [baseUrl, checkChatEligibility]);
+
+  useEffect(() => {
+    const setupChangedSubscription = DeviceEventEmitter.addListener(
+      AGENT_ENGINE_CONFIGURED_CHANGED_EVENT,
+      refreshChatEligibility,
+    );
+    const appStateSubscription = AppState.addEventListener(
+      "change",
+      (nextState) => {
+        if (nextState === "active") refreshChatEligibility();
+      },
+    );
     return () => {
-      readinessRequestRef.current += 1;
-      if (readinessTimerRef.current) clearTimeout(readinessTimerRef.current);
-      readinessTimerRef.current = null;
+      setupChangedSubscription.remove();
+      appStateSubscription.remove();
     };
-  }, [baseUrl, refreshChatEligibility]);
+  }, [refreshChatEligibility]);
 
   const getSession = useCallback(
     (targetBaseUrl: string, scope?: { type: string; id: string }) => {
@@ -381,8 +482,8 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
             wire.type === "missing_api_key" ||
             wire.errorCode === "missing_api_key"
           ) {
-            chatEligibilityRef.current = "missing";
-            setChatEligibility("missing");
+            invalidateAgentEngineReadiness(readinessSource);
+            void checkChatEligibility(true);
           }
           if (isTerminalWireEvent(wire)) active.sawTerminal = true;
           active.state = annotateAssistantMessage(
@@ -403,7 +504,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
       sessionsRef.current.set(sessionKey, session);
       return session;
     },
-    [],
+    [checkChatEligibility, readinessSource],
   );
   getSession(baseUrl);
 
@@ -432,13 +533,61 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
       text: string,
       extra: Pick<ChatSendOptions, "attachments" | "references"> = {},
       currentThreadId?: string,
+      options?: {
+        forceReadiness?: boolean;
+        replaceFailedAttempt?: boolean;
+        onDispatchResult?: (accepted: boolean) => void;
+      },
     ) => {
-      if (chatEligibilityRef.current !== "eligible") return;
-      lastPromptRef.current = text;
-      lastExtraRef.current = extra;
-      const currentGeneration = ++activeGenerationRef.current;
+      let dispatchResultReported = false;
+      const reportDispatchResult = (accepted: boolean) => {
+        if (dispatchResultReported) return;
+        dispatchResultReported = true;
+        options?.onDispatchResult?.(accepted);
+      };
+      if (stateRef.current.isStreaming) {
+        reportDispatchResult(false);
+        return;
+      }
       const activeThreadId = currentThreadId ?? threadIdRef.current;
       const targetBaseUrl = baseUrlRef.current;
+      const dispatchKey = JSON.stringify([targetBaseUrl, activeThreadId]);
+      if (dispatchCheckInFlightRef.current === dispatchKey) {
+        reportDispatchResult(false);
+        return;
+      }
+      lastPromptRef.current = text;
+      lastExtraRef.current = extra;
+      dispatchCheckInFlightRef.current = dispatchKey;
+      try {
+        await requireChatEligibility(
+          options?.forceReadiness ??
+            chatEligibilityRef.current === "unavailable",
+        );
+      } catch (error) {
+        if (
+          mountedRef.current &&
+          threadIdRef.current === activeThreadId &&
+          baseUrlRef.current === targetBaseUrl
+        ) {
+          showSetupRequiredError(error);
+        }
+        reportDispatchResult(false);
+        return;
+      } finally {
+        if (dispatchCheckInFlightRef.current === dispatchKey) {
+          dispatchCheckInFlightRef.current = null;
+        }
+      }
+      if (
+        !mountedRef.current ||
+        threadIdRef.current !== activeThreadId ||
+        baseUrlRef.current !== targetBaseUrl
+      ) {
+        reportDispatchResult(false);
+        return;
+      }
+      const currentGeneration = ++activeGenerationRef.current;
       let session = getSession(targetBaseUrl);
       let currentAgentKit = session.client;
       pendingApprovalRef.current = null;
@@ -453,6 +602,26 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
         },
         baseUrlRef.current,
       );
+      if (options?.replaceFailedAttempt) {
+        const messages = [...stateRef.current.messages];
+        const last = messages[messages.length - 1];
+        if (last?.role === "assistant") messages.pop();
+        const secondLast = messages[messages.length - 1];
+        if (
+          secondLast?.role === "user" &&
+          messageText(secondLast).trim() === text
+        ) {
+          messages.pop();
+        }
+        const recovered = {
+          ...stateRef.current,
+          messages,
+          error: null,
+          errorCode: null,
+        };
+        stateRef.current = recovered;
+        setState(recovered);
+      }
       const committed = stateRef.current.messages;
       const userMessage: ChatMessage = {
         id: nextLocalId("user"),
@@ -581,6 +750,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
           },
           { signal: controller.signal },
         );
+        reportDispatchResult(true);
 
         if (activeGenerationRef.current !== currentGeneration) {
           return;
@@ -628,6 +798,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
           turnBuffer.state = buffered;
         }
       } catch (error) {
+        reportDispatchResult(false);
         if (activeGenerationRef.current !== currentGeneration) {
           return;
         }
@@ -636,8 +807,11 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
           if (mountedRef.current) setAuthRequired(true);
         }
         if (error instanceof AgentChatError && error.status === 403) {
-          chatEligibilityRef.current = "missing";
-          setChatEligibility("missing");
+          invalidateAgentEngineReadiness(readinessSource);
+          void checkChatEligibility(true);
+        } else if (error instanceof AgentChatError && error.status === 503) {
+          invalidateAgentEngineReadiness(readinessSource);
+          void checkChatEligibility(true);
         }
         buffered = turnBuffer.state;
         buffered = aborted
@@ -653,10 +827,13 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
                   ? "auth"
                   : error instanceof AgentChatError && error.status === 403
                     ? "missing_api_key"
-                    : null,
+                    : error instanceof AgentChatError && error.status === 503
+                      ? "chat_setup_unavailable"
+                      : null,
             };
         turnBuffer.state = buffered;
       } finally {
+        reportDispatchResult(false);
         clearInterval(flushTimer);
         if (activeGenerationRef.current === currentGeneration) {
           if (activeTurnBufferRef.current === turnBuffer) {
@@ -668,7 +845,14 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
         }
       }
     },
-    [getSession, markThreadEventsSeen],
+    [
+      getSession,
+      markThreadEventsSeen,
+      checkChatEligibility,
+      readinessSource,
+      requireChatEligibility,
+      showSetupRequiredError,
+    ],
   );
 
   const send = useCallback(
@@ -676,19 +860,27 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
       text: string,
       attachments?: ChatAttachment[],
       references?: ChatReference[],
-    ) => {
+    ): Promise<boolean> => {
       const trimmed = text.trim();
       if ((!trimmed && !attachments?.length) || stateRef.current.isStreaming) {
-        return;
+        return Promise.resolve(false);
       }
+      pendingForkRetryRef.current = null;
       lastPromptRef.current = trimmed;
       lastExtraRef.current = {
         ...(attachments?.length ? { attachments } : {}),
         ...(references?.length ? { references } : {}),
       };
-      void runTurn(trimmed, {
-        ...(attachments?.length ? { attachments } : {}),
-        ...(references?.length ? { references } : {}),
+      return new Promise<boolean>((resolve) => {
+        void runTurn(
+          trimmed,
+          {
+            ...(attachments?.length ? { attachments } : {}),
+            ...(references?.length ? { references } : {}),
+          },
+          undefined,
+          { onDispatchResult: resolve },
+        ).catch(() => resolve(false));
       });
     },
     [runTurn],
@@ -852,7 +1044,6 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
 
   const continueAfterConnection = useCallback(
     (requestId: string, provider: string) => {
-      if (chatEligibilityRef.current !== "eligible") return;
       const currentThreadId = threadIdRef.current;
       const pending = connectionSessionByRequestRef.current.get(requestId);
       if (pending) {
@@ -933,9 +1124,10 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
 
   const invokeWidgetAction = useCallback(
     async (widgetId: string, action: string, payload?: unknown) => {
-      if (chatEligibilityRef.current !== "eligible") {
-        throw new Error("Connect an AI provider before using chat actions.");
-      }
+      await requireChatEligibility().catch((error: unknown) => {
+        showSetupRequiredError(error);
+        throw error;
+      });
       const result = await getSession(baseUrlRef.current).client.invokeAction({
         id: nextLocalId("widget-action"),
         action,
@@ -949,10 +1141,34 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
         );
       }
     },
-    [getSession],
+    [getSession, requireChatEligibility, showSetupRequiredError],
   );
 
   const retry = useCallback(() => {
+    const pendingFork = pendingForkRetryRef.current;
+    if (pendingFork && !stateRef.current.isStreaming) {
+      const retryPendingFork = retryPendingForkRef.current;
+      if (!retryPendingFork) return;
+      void retryPendingFork(pendingFork).catch((error: unknown) => {
+        if (error instanceof MobileChatSetupRequiredError) {
+          showSetupRequiredError(error);
+          return;
+        }
+        const nextState = {
+          ...stateRef.current,
+          isStreaming: false,
+          activity: null,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Could not retry that message.",
+          errorCode: null,
+        };
+        stateRef.current = nextState;
+        setState(nextState);
+      });
+      return;
+    }
     const prompt = lastPromptRef.current;
     const extra = lastExtraRef.current;
     if (
@@ -962,22 +1178,11 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
     ) {
       return;
     }
-    setState((current) => {
-      const messages = [...current.messages];
-      const last = messages[messages.length - 1];
-      if (last?.role === "assistant") messages.pop();
-      const secondLast = messages[messages.length - 1];
-      if (
-        secondLast?.role === "user" &&
-        messageText(secondLast).trim() === prompt
-      ) {
-        messages.pop();
-      }
-      return { ...current, messages, error: null, errorCode: null };
+    void runTurn(prompt, extra, undefined, {
+      forceReadiness: true,
+      replaceFailedAttempt: true,
     });
-    // Let the removal state land before re-sending so history is correct.
-    setTimeout(() => void runTurn(prompt, extra), 0);
-  }, [runTurn]);
+  }, [runTurn, showSetupRequiredError]);
 
   const newChat = useCallback(
     (nextBaseUrl = DEFAULT_CHAT_BASE_URL) => {
@@ -987,6 +1192,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
       const nextThreadId = newThreadId();
       threadIdRef.current = nextThreadId;
       baseUrlRef.current = nextBaseUrl;
+      pendingForkRetryRef.current = null;
       void refreshChatEligibility();
       setThreadId(nextThreadId);
       setBaseUrl(nextBaseUrl);
@@ -1140,6 +1346,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
       // before the state update commits.
       baseUrlRef.current = resolvedBaseUrl;
       threadIdRef.current = nextThreadId;
+      pendingForkRetryRef.current = null;
       void refreshChatEligibility();
       setBaseUrl(resolvedBaseUrl);
       setThreadId(nextThreadId);
@@ -1293,9 +1500,6 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
       if (stateRef.current.isStreaming) {
         throw new Error("Wait for the current response to finish first.");
       }
-      if (chatEligibilityRef.current !== "eligible") {
-        throw new Error("Connect an AI provider before resending a message.");
-      }
       const source = stateRef.current.messages.find(
         (message) => message.id === messageId,
       );
@@ -1304,6 +1508,8 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
           "The message is no longer available in this conversation.",
         );
       }
+      const prompt = text ?? messageText(source);
+      pendingForkRetryRef.current = { messageId, text };
       const targetBaseUrl = baseUrlRef.current;
       const session = getSession(
         targetBaseUrl,
@@ -1313,14 +1519,35 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
         session.client,
         threadIdRef.current,
         messageId,
+        async () => {
+          await requireChatEligibility(true).catch((error: unknown) => {
+            showSetupRequiredError(error);
+            throw error;
+          });
+        },
         text,
       );
       openThread(forkedThread.id, targetBaseUrl);
-      lastPromptRef.current = text ?? messageText(source);
+      pendingForkRetryRef.current = null;
+      lastPromptRef.current = prompt;
       lastExtraRef.current = {};
     },
-    [getSession, openThread],
+    [getSession, openThread, requireChatEligibility, showSetupRequiredError],
   );
+
+  const retryPendingFork = useCallback(
+    async (pending: { messageId: string; text?: string }) => {
+      if (pendingForkRetryInFlightRef.current) return;
+      pendingForkRetryInFlightRef.current = true;
+      try {
+        await forkResubmitForMessage(pending.messageId, pending.text);
+      } finally {
+        pendingForkRetryInFlightRef.current = false;
+      }
+    },
+    [forkResubmitForMessage],
+  );
+  retryPendingForkRef.current = retryPendingFork;
 
   const editMessage = useCallback(
     (messageId: string, text: string) => {

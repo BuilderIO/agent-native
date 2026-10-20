@@ -179,6 +179,8 @@ interface PromptPopoverProps {
   submissionDisabled?: boolean;
   showModelSelector?: boolean;
   modelStatusChecksEnabled?: boolean;
+  requireAgentEngine?: boolean;
+  showMissingApiKeySetup?: boolean;
   anchorRef?: React.RefObject<HTMLElement | null>;
   centered?: boolean;
   presentation?: "popover" | "inline";
@@ -219,6 +221,8 @@ export default function PromptPopover({
   submissionDisabled = false,
   showModelSelector,
   modelStatusChecksEnabled,
+  requireAgentEngine,
+  showMissingApiKeySetup,
   anchorRef,
   centered = false,
   presentation = "popover",
@@ -800,6 +804,8 @@ export default function PromptPopover({
                 attachmentAdapter={slidesPromptAttachmentAdapter}
                 showModelSelector={showModelSelector}
                 modelStatusChecksEnabled={modelStatusChecksEnabled}
+                requireAgentEngine={requireAgentEngine}
+                showMissingApiKeySetup={showMissingApiKeySetup}
                 submissionDisabled={submissionDisabled}
                 maxDocumentAttachmentBytes={MAX_REFERENCE_FILE_BYTES}
                 documentAttachmentLimitLabel="Slides reference files"

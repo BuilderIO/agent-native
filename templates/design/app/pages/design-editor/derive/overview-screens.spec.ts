@@ -103,6 +103,26 @@ describe("deriveOverviewScreens", () => {
     ).toBeUndefined();
   });
 
+  it("lets an exact-size screen suppress global responsive frames", () => {
+    const screens = deriveOverviewScreens({
+      ...base,
+      designDataJson: {
+        breakpointSet: {
+          id: "s",
+          breakpoints: [{ id: "m", widthPx: 390 }],
+        },
+        screenMetadata: { static: { breakpointWidths: [] } },
+      },
+      files: [file({ id: "static" }), file({ id: "responsive" })],
+      activeBreakpointWidthState: 390,
+    });
+
+    expect(screens[0]?.breakpointWidths).toEqual([]);
+    expect(screens[0]?.activeBreakpointWidth).toBeUndefined();
+    expect(screens[1]?.breakpointWidths).toEqual([390]);
+    expect(screens[1]?.activeBreakpointWidth).toBe(390);
+  });
+
   it("only reports an active breakpoint width that exists in the set", () => {
     const args = {
       ...base,

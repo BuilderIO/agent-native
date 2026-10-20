@@ -47,10 +47,6 @@ function renderBreadcrumb(
   const queryClient = new QueryClient({
     defaultOptions: { queries: { staleTime: Infinity, retry: false } },
   });
-  queryClient.setQueryData(
-    ["action", "get-content-database-personal-view", { databaseId: "files" }],
-    { databaseId: "files", overrides: null },
-  );
   for (const { cursor, page } of pages) {
     queryClient.setQueryData(
       [
@@ -59,8 +55,6 @@ function renderBreadcrumb(
         filesNavigationPageParams({
           databaseId: "files",
           parentId: "parent",
-          sort: "custom",
-          viewId: "default",
           cursor,
         }),
       ],
@@ -126,7 +120,54 @@ function menuLabels() {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
   document.body.innerHTML = "";
+});
+
+describe("narrow breadcrumbs", () => {
+  it("keeps every ancestor reachable from the fold menu", async () => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+      DOMRect.fromRect({ width: 120, height: 32 }),
+    );
+    const onOpen = vi.fn();
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    act(() =>
+      root.render(
+        <ToolbarBreadcrumb
+          items={[
+            { id: "files", title: "Personal" },
+            { id: "parent", title: "Parent" },
+            { id: "current", title: "Current" },
+          ]}
+          currentDocumentId="current"
+          ariaLabel="Page breadcrumb"
+          untitledLabel="Untitled"
+          onOpen={onOpen}
+        />,
+      ),
+    );
+
+    const nav = container.querySelector("nav")!;
+    expect(nav.textContent).toBe("…/Current");
+    const fold = nav.querySelector<HTMLButtonElement>('button[aria-label="…"]');
+    expect(fold).not.toBeNull();
+    await act(async () => {
+      fold!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+    expect(menuLabels()).toEqual(["Personal", "Parent"]);
+
+    const parent = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.includes("Parent"));
+    await act(async () => parent!.click());
+    expect(onOpen).toHaveBeenCalledWith("parent", undefined);
+
+    act(() => root.unmount());
+  });
 });
 
 describe("breadcrumb peer menus", () => {

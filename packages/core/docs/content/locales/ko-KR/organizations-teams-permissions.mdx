@@ -17,6 +17,34 @@ description: 조직 컨텍스트, 팀 및 앱 역할, 리소스 액세스를 관
 
 초대와 설정은 [관리 배포](/docs/administered-deployments), 데이터 액세스는 [데이터 범위 지정](/docs/security#data-scoping)을 참고하세요.
 
+## 선택적으로 적용하는 권한 정책
+
+기본적으로 권한 검사를 통과하려면 앱 역할이 할당되어 있어야 합니다. `defineAppRoles`의 선택적 두 번째 인수로 서버 정책을 바꿀 수 있습니다. Forms는 다음 설정을 사용합니다.
+
+```ts
+const formsAccess = defineAppRoles(
+  {
+    appId: "forms",
+    roles: ["editor", "reviewer"] as const,
+    defaultRole: "editor",
+    permissions: {
+      "forms.edit": ["editor"],
+      "forms.review": ["editor", "reviewer"],
+    },
+  },
+  { unassignedRole: "editor", allowOrgAdmins: true },
+);
+```
+
+- `unassignedRole`은 앱 역할 할당이 없는 활성 구성원에게 선언된 역할의 권한을 적용합니다. 권한 재정의는 계속 적용됩니다. 역할 할당을 생성하지 않으며, 제거된 구성원이나 폐기된 역할만 포함하는 할당에는 적용되지 않습니다. 모든 할당을 지우면 이 기본 동작으로 돌아갑니다.
+- `allowOrgAdmins: true`는 활성 조직 소유자와 관리자가 앱 역할이나 권한 재정의와 관계없이 선언된 앱 권한 검사를 통과하도록 합니다. 앱 관리자에게 조직 관리 권한을 부여하지는 않습니다.
+
+이 옵션은 `requirePermission`과 `assertPermission`에만 영향을 줍니다. `resolve`, `requireAny`, `assertAny`는 명시적 할당을 사용하는 동작을 유지하며, `defaultRole`은 표시 전용입니다. 옵션을 생략하면 엄격한 정책이 유지됩니다. 어느 옵션도 리소스 권한 검사를 대체하지 않습니다. `accessFilter`와 `assertAccess` 검사를 유지하세요.
+
+Forms는 역할이 할당되지 않은 기존 구성원의 편집 권한을 유지합니다. 명시적으로 할당된 Reviewer는 제출 내용을 검토할 수 있지만 폼을 편집할 수는 없습니다. Editor는 둘 다 할 수 있습니다. 접근 가능한 폼과 제출 내용은 계속 리소스 공유로 결정됩니다.
+
+조직 소유 폼을 편집하거나 제출 내용을 검토하려면 해당 폼의 조직에 활성 구성원으로 속해 있어야 합니다. 단, 공유 시스템이 호출자를 폼 소유자로 인식하는 경우는 예외입니다. 직접 공유만으로는 이 앱 권한 검사를 통과할 수 없습니다.
+
 ## 사용자 그룹 {#user-groups}
 
 조직은 현재 구성원으로 재사용 가능한 사용자 그룹을 만들 수 있습니다. 소유자와 관리자가 그룹 구성원을 관리하며, 한 사람이 여러 그룹에 속할 수 있습니다. 앱은 그룹 공유를 지원하는 리소스에 접근 권한을 주거나 워크스페이스 연결 사용자를 제한할 때 그룹을 사용할 수 있습니다.

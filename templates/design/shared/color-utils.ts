@@ -1,3 +1,16 @@
+import {
+  formatDisplayP3Css,
+  formatLinearAsOklchCss,
+  formatOklchCss,
+  formatSrgbColorCss,
+  linearToRgbaGamutMapped,
+  linearToSrgbTriple,
+  parseWideColor,
+  rgbaToLinearSrgb,
+  srgbTripleToLinear,
+  type WideColor,
+} from "./color-spaces";
+
 export interface RgbaColor {
   r: number;
   g: number;
@@ -16,6 +29,8 @@ const RGB_PATTERN =
   /^rgba?\(\s*([0-9.]+)\s*,\s*([0-9.]+)\s*,\s*([0-9.]+)(?:\s*,\s*([0-9.]+%?))?\s*\)$/i;
 const HSL_PATTERN =
   /^hsla?\(\s*([0-9.]+)(?:deg)?\s*,\s*([0-9.]+)%\s*,\s*([0-9.]+)%(?:\s*,\s*([0-9.]+%?))?\s*\)$/i;
+
+const WIDE_NOTATION_PREFIX = /^(?:oklch|color)\(/i;
 
 const NAMED_COLOR_HEX: Record<string, string> = {
   aliceblue: "#f0f8ff",
@@ -168,11 +183,26 @@ const NAMED_COLOR_HEX: Record<string, string> = {
   yellowgreen: "#9acd32",
 };
 
+/**
+ * Reads a CSS color into 8-bit sRGB. Wide-gamut notations (`oklch()`,
+ * `color(display-p3 …)`, `color(srgb …)`) resolve to their CSS Color 4
+ * gamut-mapped sRGB FALLBACK (lightness and hue kept, chroma reduced), not a
+ * per-channel clip: that is what an sRGB-only surface shows for them. The
+ * original is still the source of truth; use `parseWideColor` to learn
+ * whether a color is outside sRGB and `normalizeCssColor` /
+ * `withCssColorAlpha` to rewrite a color without flattening it. A malformed
+ * or unsupported color function returns null.
+ */
 export function parseCssColor(value: string): RgbaColor | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
 
   if (trimmed.startsWith("#")) return hexToRgba(trimmed);
+
+  if (WIDE_NOTATION_PREFIX.test(trimmed)) {
+    const wide = readWideColor(trimmed);
+    return wide ? linearToRgbaGamutMapped(wide.linear, wide.alpha) : null;
+  }
 
   const rgb = trimmed.match(RGB_PATTERN);
   if (rgb) {
@@ -257,6 +287,90 @@ export function parseCssColorExtended(value: string): RgbaColor | null {
   } catch {
     return null;
   }
+}
+
+/** The reading of an `oklch()` / `color(display-p3|srgb …)` string, or null for any other string. */
+function readWideColor(value: string): WideColor | null {
+  const parsed = parseWideColor(value);
+  return parsed?.kind === "ok" ? parsed.color : null;
+}
+
+/** Whether the string is written in a wide-gamut notation the editor can read. */
+export function isWideGamutNotation(value: string): boolean {
+  return readWideColor(value.trim()) !== null;
+}
+
+/**
+ * The spelling to use when the editor writes a color it just read: sRGB
+ * colors as hex or a translucent rgb color, wide-gamut colors as authored. null when
+ * the string is not a color the editor can read.
+ */
+export function normalizeCssColor(value: string): string | null {
+  const trimmed = value.trim();
+  if (readWideColor(trimmed)) return trimmed.replace(/\s+/g, " ");
+  const parsed = parseCssColor(trimmed);
+  return parsed ? rgbaToCss(parsed) : null;
+}
+
+/**
+ * The same color at a new alpha (0..1), in the notation it was authored in:
+ * a wide-gamut color stays wide, so changing opacity never flattens it to
+ * sRGB. null when the string is not a color the editor can read.
+ */
+export function withCssColorAlpha(value: string, alpha: number): string | null {
+  const wide = readWideColor(value.trim());
+  if (wide) {
+    if (wide.notation === "oklch") return formatOklchCss(wide.oklch, alpha);
+    if (wide.notation === "display-p3")
+      return formatDisplayP3Css(wide.p3, alpha);
+    return formatSrgbColorCss(wide.srgb, alpha);
+  }
+  const parsed = parseCssColor(value);
+  return parsed ? rgbaToCss({ ...parsed, a: alpha }) : null;
+}
+
+/** `withCssColorAlpha` for a 0..100 opacity, as `withColorOpacity` takes. */
+export function withCssColorOpacity(
+  value: string,
+  opacity: number,
+): string | null {
+  return withCssColorAlpha(value, opacityToAlpha(opacity));
+}
+
+/**
+ * The color `amount` (0..1) of the way from `first` to `second`, mixed the way
+ * a CSS gradient mixes: channel by channel in gamma-encoded sRGB. Two sRGB
+ * colors mix to an sRGB color; if either is wide-gamut the mix is written as
+ * `oklch()` so a color outside sRGB is not clipped on the way. null when
+ * either string is not a color the editor can read.
+ */
+export function mixCssColors(
+  first: string,
+  second: string,
+  amount: number,
+): string | null {
+  const a = parseCssColor(first);
+  const b = parseCssColor(second);
+  if (!a || !b) return null;
+  const wideA = readWideColor(first.trim());
+  const wideB = readWideColor(second.trim());
+  const alpha = a.a + amount * (b.a - a.a);
+  if (!wideA && !wideB) {
+    return rgbaToCss({
+      r: Math.round(a.r + amount * (b.r - a.r)),
+      g: Math.round(a.g + amount * (b.g - a.g)),
+      b: Math.round(a.b + amount * (b.b - a.b)),
+      a: alpha,
+    });
+  }
+  const encodedA = linearToSrgbTriple(wideA?.linear ?? rgbaToLinearSrgb(a));
+  const encodedB = linearToSrgbTriple(wideB?.linear ?? rgbaToLinearSrgb(b));
+  const mixed = srgbTripleToLinear([
+    encodedA[0] + amount * (encodedB[0] - encodedA[0]),
+    encodedA[1] + amount * (encodedB[1] - encodedA[1]),
+    encodedA[2] + amount * (encodedB[2] - encodedA[2]),
+  ]);
+  return formatLinearAsOklchCss(mixed, alpha);
 }
 
 export function hexToRgba(value: string): RgbaColor | null {

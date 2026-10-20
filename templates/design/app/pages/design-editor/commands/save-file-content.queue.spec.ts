@@ -60,6 +60,7 @@ function setup() {
   const saved: Array<{
     pending: FileContentSaveRequest;
     journalPromise?: Promise<boolean>;
+    onPersistedContent?: (acceptedContent: string) => void;
     completion: ReturnType<typeof runSaveFileContent>;
   }> = [];
   const saveArgs: SaveFileContentArgs = {
@@ -106,9 +107,14 @@ function setup() {
     markPendingLocalFileContent: vi.fn(),
     operationSource: "tab-a",
     pendingFileSavesRef,
-    saveFileContent: (pending, journalPromise) => {
-      const completion = runSaveFileContent(saveArgs, pending, journalPromise);
-      saved.push({ pending, journalPromise, completion });
+    saveFileContent: (pending, journalPromise, onPersistedContent) => {
+      const completion = runSaveFileContent(
+        saveArgs,
+        pending,
+        journalPromise,
+        onPersistedContent,
+      );
+      saved.push({ pending, journalPromise, onPersistedContent, completion });
       return completion;
     },
     setTimer: (callback) => {
@@ -156,6 +162,38 @@ it("immediate saves receive and wait for their queued journal promise", async ()
 
   state.journals[0]!.resolve(true);
   await expect(completion).resolves.toBe("persisted");
+});
+
+it("keeps deferred source local to the queue and reports only accepted content", async () => {
+  const state = setup();
+  const onPersistedContent = vi.fn();
+  const completion = runQueueFileContentSave(
+    state.args,
+    "screen-1",
+    "<main>upload candidate</main>",
+    {
+      ...options,
+      immediate: true,
+      deferCollabReconcile: true,
+      onPersistedContent,
+    },
+  );
+
+  expect(state.saved[0]?.pending.deferCollabReconcile).toBe(true);
+  expect(state.saved[0]?.onPersistedContent).toBe(onPersistedContent);
+  expect(state.args.createFileSaveOutboxEntry).toHaveBeenCalledWith(
+    expect.objectContaining({ deferCollabReconcile: true }),
+  );
+  expect(
+    (state.args.createFileSaveOutboxEntry as ReturnType<typeof vi.fn>).mock
+      .results[0]?.value.payload,
+  ).not.toHaveProperty("deferCollabReconcile");
+  state.journals[0]!.resolve(true);
+  await expect(completion).resolves.toBe("persisted");
+  expect(onPersistedContent).toHaveBeenCalledOnce();
+  expect(onPersistedContent).toHaveBeenCalledWith(
+    "<main>upload candidate</main>",
+  );
 });
 
 it("debounced saves use the newest request's matching journal promise", async () => {

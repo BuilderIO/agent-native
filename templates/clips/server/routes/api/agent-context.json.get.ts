@@ -10,6 +10,8 @@ import { getDb, schema } from "../../db/index.js";
 import {
   applyAgentJsonHeaders,
   buildPublicAgentContext,
+  canReadAppActivityEvents,
+  describeAgentAccessFailure,
   loadAgentBugReport,
   loadAgentBrowserDiagnostics,
   loadAgentCtas,
@@ -33,8 +35,9 @@ export default defineEventHandler(async (event: H3Event) => {
   });
 
   if (!accessResult.ok) {
-    setResponseStatus(event, accessResult.failure.status);
-    return accessResult.failure.body;
+    const failure = describeAgentAccessFailure(accessResult.failure);
+    setResponseStatus(event, failure.status);
+    return failure.body;
   }
 
   const recording = accessResult.access.recording;
@@ -113,6 +116,10 @@ export default defineEventHandler(async (event: H3Event) => {
   const commentCount = Number(commentCountRows[0]?.count ?? comments.length);
   const reactionCount = Number(reactionCountRows[0]?.count ?? reactions.length);
 
+  const appActivityEventsReadable = await canReadAppActivityEvents(
+    accessResult.access,
+  );
+
   return buildPublicAgentContext({
     event,
     access: accessResult.access,
@@ -132,5 +139,6 @@ export default defineEventHandler(async (event: H3Event) => {
     ctas,
     browserDiagnostics,
     bugReport,
+    appActivityEventsReadable,
   });
 });

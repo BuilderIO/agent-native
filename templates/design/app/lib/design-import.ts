@@ -38,6 +38,8 @@ export interface ImportResult {
   unresolvedImages?: number;
   unresolvedImageRefCount?: number;
   skippedEmbeddedImageCount?: number;
+  /** Names of .fig frames left out because their generated HTML was too large. */
+  skippedFrames?: string[];
   matchStatus?: "matched" | "ambiguous" | "none" | "error";
   rateLimitRetryAfter?: number;
   rateLimitPlanTier?: string;
@@ -52,6 +54,11 @@ export interface ImportResultNotification {
   variant: "success" | "warning";
   title: string;
   description?: string;
+}
+
+export interface RelativePositionOffset {
+  x: number;
+  y: number;
 }
 
 export function readFigmaImportFailure(
@@ -94,6 +101,7 @@ export function figmaHydrationErrorMessage(
   error: unknown,
   fallbackMessage: string,
   forbiddenMessage: string,
+  fileUrlTokenMessage = fallbackMessage,
 ): string {
   const { result } = readFigmaImportFailure(error, fallbackMessage);
   const source = error as
@@ -107,6 +115,9 @@ export function figmaHydrationErrorMessage(
     source?.errorCode === "figma_request_failed" &&
     (source.statusCode === 403 || source.details?.figmaStatus === 403);
 
+  if (error instanceof Error && error.name === "FigmaFileUrlUsedAsTokenError") {
+    return fileUrlTokenMessage;
+  }
   if (isFigmaForbidden) return forbiddenMessage;
   return /internal server error/i.test(result.error)
     ? fallbackMessage
@@ -176,11 +187,12 @@ export function importResultNotification(
   options?: { fidelityWarnings?: string[] },
 ): ImportResultNotification {
   const title = importResultSummary(result, fallback);
+  const fidelityWarnings = options?.fidelityWarnings ?? [];
   const actionableWarnings = [
-    ...(result?.warnings ?? []).filter(
-      (warning) => !isGenericFigFormatCaveat(warning),
-    ),
-    ...(options?.fidelityWarnings ?? []),
+    ...(result?.warnings ?? [])
+      .filter((warning) => !isGenericFigFormatCaveat(warning))
+      .slice(0, Math.max(0, 3 - fidelityWarnings.length)),
+    ...fidelityWarnings,
   ].slice(0, 3);
 
   if (actionableWarnings.length === 0) {
@@ -243,6 +255,7 @@ export interface DesignClipboardLayerEntry {
   rootNodeId?: string;
   sourceParentNodeId?: string;
   sourceFileId: string;
+  sourceRelativeOffset?: RelativePositionOffset | null;
   portableStyleSnapshot?: PortableStyleSnapshot;
   styleSnapshotCaptureFailed?: boolean;
   managedStyleSnapshot?: DesignClipboardManagedStyleSnapshot;
@@ -252,6 +265,7 @@ export interface DesignClipboardScreenEntry {
   filename: string;
   fileType?: string;
   content: string;
+  sourceScreenId?: string;
   canvasFrame?: {
     x?: number;
     y?: number;
@@ -274,6 +288,24 @@ const MAX_CLIPBOARD_SCREEN_ENTRIES = 100;
 
 function clipboardString(value: unknown, max = 1_024): value is string {
   return typeof value === "string" && value.length <= max;
+}
+
+export function isValidRelativePositionOffset(
+  value: unknown,
+): value is RelativePositionOffset | null {
+  if (value === null) return true;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const offset = value as Record<string, unknown>;
+  return (
+    typeof offset.x === "number" &&
+    Number.isFinite(offset.x) &&
+    Math.abs(offset.x) <= 10_000_000 &&
+    typeof offset.y === "number" &&
+    Number.isFinite(offset.y) &&
+    Math.abs(offset.y) <= 10_000_000
+  );
 }
 
 function isPortableClipboardStyleSnapshot(value: unknown): boolean {
@@ -340,6 +372,8 @@ function validateDesignClipboardPayload(
       (entry.rootNodeId !== undefined && !clipboardString(entry.rootNodeId)) ||
       (entry.sourceParentNodeId !== undefined &&
         !clipboardString(entry.sourceParentNodeId)) ||
+      (entry.sourceRelativeOffset !== undefined &&
+        !isValidRelativePositionOffset(entry.sourceRelativeOffset)) ||
       (entry.styleSnapshotCaptureFailed !== undefined &&
         typeof entry.styleSnapshotCaptureFailed !== "boolean") ||
       (entry.portableStyleSnapshot !== undefined &&
@@ -366,7 +400,10 @@ function validateDesignClipboardPayload(
       screen.filename.includes("/") ||
       screen.filename.includes("\\") ||
       !clipboardString(screen.content, MAX_CLIPBOARD_CONTENT_CHARS) ||
-      (screen.fileType !== undefined && !clipboardString(screen.fileType, 32))
+      (screen.fileType !== undefined &&
+        !clipboardString(screen.fileType, 32)) ||
+      (screen.sourceScreenId !== undefined &&
+        !clipboardString(screen.sourceScreenId))
     ) {
       return null;
     }
@@ -417,6 +454,15 @@ export function serializeDesignClipboardPayload(
   payload: DesignClipboardPayload,
   trustToken?: string,
 ): string {
+  if (
+    payload.entries.some(
+      (entry) =>
+        entry.sourceRelativeOffset !== undefined &&
+        !isValidRelativePositionOffset(entry.sourceRelativeOffset),
+    )
+  ) {
+    throw new TypeError("Cannot serialize invalid relative position metadata");
+  }
   const trustedPrefix = trustToken ? `${trustToken}.` : "";
   const marker = `<!--${CLIPBOARD_MARKER_PREFIX}${trustedPrefix}${encodeClipboardMarkerData(payload)}-->`;
   return `${visibleText}\n${marker}`;

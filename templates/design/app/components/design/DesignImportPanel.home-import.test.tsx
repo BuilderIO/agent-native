@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  claimFigImportToast,
   clearPendingDesignImport,
   readPendingDesignImport,
   setPendingDesignImport,
@@ -20,6 +21,8 @@ const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
   error: vi.fn(),
   success: vi.fn(),
+  loading: vi.fn(),
+  dismiss: vi.fn(),
   onImport: vi.fn(),
   queryClient: { invalidateQueries: vi.fn().mockResolvedValue(undefined) },
   fileStorageStatus: {
@@ -52,7 +55,13 @@ vi.mock("@agent-native/toolkit/app/chat/FileStorageSetupPopover", () => ({
 }));
 vi.mock("react-router", () => ({ useNavigate: () => mocks.navigate }));
 vi.mock("sonner", () => ({
-  toast: { error: mocks.error, success: mocks.success, warning: vi.fn() },
+  toast: {
+    error: mocks.error,
+    success: mocks.success,
+    warning: vi.fn(),
+    loading: mocks.loading,
+    dismiss: mocks.dismiss,
+  },
 }));
 vi.mock("@/lib/fig-client-import", () => ({
   prepareFigImport: (...args: unknown[]) => mocks.prepare(...args),
@@ -71,16 +80,27 @@ vi.mock("@/lib/figma-connection", () => ({
 let root: Root;
 let container: HTMLDivElement;
 let file: File;
-function prepared() {
+function prepared(
+  pages: Array<{ id: string; name: string; frameCount: number }> = [
+    { id: "page-1", name: "Page", frameCount: 1 },
+  ],
+) {
   return {
     file,
     summary: {
-      frameCount: 1,
+      pageCount: pages.length,
+      frameCount: pages.reduce((sum, page) => sum + page.frameCount, 0),
       nodeCount: 2,
-      frames: [{ id: "frame-1", name: "Frame", nodeCount: 2 }],
+      imageCount: 0,
+      pages,
     },
     dispose: mocks.dispose,
   };
+}
+function button(label: string) {
+  return Array.from(container.querySelectorAll("button")).find(
+    (item) => item.textContent === label,
+  );
 }
 async function render(designId = "home-design") {
   await act(async () =>
@@ -150,6 +170,64 @@ describe("home-picked .fig handoff", () => {
     await remount();
     expect(mocks.prepare).toHaveBeenCalledOnce();
   });
+  it("shows a loading toast for the whole import and dismisses it when the import finishes", async () => {
+    let finishDecode!: () => void;
+    mocks.prepare.mockImplementation(async (_file, onProgress) => {
+      onProgress({ phase: "decoding" });
+      await new Promise<void>((resolve) => (finishDecode = resolve));
+      return prepared();
+    });
+    await render();
+    await vi.waitFor(() =>
+      expect(mocks.loading).toHaveBeenLastCalledWith(
+        "designEditor.import.figImportAnalyzing",
+        { id: "design-fig-import-progress", description: "picked.fig" },
+      ),
+    );
+    expect(mocks.dismiss).not.toHaveBeenCalled();
+    await act(async () => finishDecode());
+    await vi.waitFor(() => expect(mocks.onImport).toHaveBeenCalledOnce());
+    expect(mocks.dismiss).toHaveBeenCalledWith("design-fig-import-progress");
+  });
+  it("keeps the toast current after the panel unmounts and never dismisses a newer import's toast", async () => {
+    let report!: (progress: Record<string, unknown>) => void;
+    let finishImport!: () => void;
+    mocks.import.mockImplementation(async ({ onProgress }) => {
+      report = onProgress;
+      await new Promise<void>((resolve) => (finishImport = resolve));
+      return { designId: "home-design", files: [] };
+    });
+    await render();
+    await vi.waitFor(() => expect(report).toBeTypeOf("function"));
+    await act(async () => root.unmount());
+
+    report({ phase: "saving", ratio: 0.5, saved: 2, total: 4 });
+    expect(mocks.loading).toHaveBeenLastCalledWith(
+      "designEditor.import.figImportSaving",
+      { id: "design-fig-import-progress", description: "picked.fig" },
+    );
+
+    claimFigImportToast();
+    mocks.loading.mockClear();
+    report({ phase: "saving", ratio: 0.9, saved: 4, total: 4 });
+    await act(async () => finishImport());
+    await vi.waitFor(() => expect(mocks.success).toHaveBeenCalled());
+    expect(mocks.loading).not.toHaveBeenCalled();
+    expect(mocks.dismiss).not.toHaveBeenCalled();
+
+    root = createRoot(container);
+  });
+  it("rejects files over the browser limit before decoding with the translated size message", async () => {
+    const huge = new File(["fig"], "huge.fig");
+    Object.defineProperty(huge, "size", { value: 3 * 1024 ** 3 });
+    setPendingDesignImport("home-design", { kind: "file", file: huge });
+    await render();
+    expect(mocks.error).toHaveBeenCalledWith(
+      "designEditor.import.errors.uploadFailed",
+      { description: "designEditor.import.errors.figFileTooLarge" },
+    );
+    expect(mocks.prepare).not.toHaveBeenCalled();
+  });
   it("does not auto-repeat a failed import after rerender or remount and retries the same file only on request", async () => {
     mocks.import.mockRejectedValueOnce(
       Object.assign(new Error("Save failed"), { remoteMutationStarted: true }),
@@ -179,8 +257,151 @@ describe("home-picked .fig handoff", () => {
     await click("designEditor.import.figImportAll");
     await vi.waitFor(() => expect(mocks.onImport).toHaveBeenCalledOnce());
     expect(mocks.import).toHaveBeenCalledWith(
-      expect.objectContaining({ selection: new Set(["frame-1"]), file }),
+      expect.objectContaining({ selection: new Set(["page-1"]), file }),
     );
+  });
+  it("picks pages and blocks a selection over the frame limit before converting", async () => {
+    mocks.shouldWarn.mockReturnValue(true);
+    mocks.prepare.mockImplementation(async () =>
+      prepared([
+        { id: "campaigns", name: "Campaigns", frameCount: 1_500 },
+        { id: "brand", name: "Brand", frameCount: 900 },
+      ]),
+    );
+    await render();
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain("Campaigns"),
+    );
+    expect(container.textContent).toContain("Brand");
+    expect(button("designEditor.import.figImportSelected")?.disabled).toBe(
+      true,
+    );
+
+    await click("designEditor.import.figImportSelectAll");
+    expect(container.textContent).toContain(
+      "designEditor.import.figImportFrameLimit",
+    );
+    expect(button("designEditor.import.figImportAll")?.disabled).toBe(true);
+
+    await click("designEditor.import.figImportClearAll");
+    const brand = container.querySelector<HTMLButtonElement>(
+      '[role="checkbox"][aria-label="Brand"]',
+    );
+    await act(async () => brand!.click());
+    expect(button("designEditor.import.figImportSelected")?.disabled).toBe(
+      false,
+    );
+    await click("designEditor.import.figImportSelected");
+    await vi.waitFor(() => expect(mocks.onImport).toHaveBeenCalledOnce());
+    expect(mocks.import).toHaveBeenCalledWith(
+      expect.objectContaining({ selection: new Set(["brand"]) }),
+    );
+  });
+  it("explains the frame limit for a single page that is over it", async () => {
+    mocks.shouldWarn.mockReturnValue(true);
+    mocks.prepare.mockImplementation(async () =>
+      prepared([{ id: "huge", name: "Huge page", frameCount: 2_400 }]),
+    );
+    await render();
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain("Huge page"),
+    );
+    expect(container.textContent).toContain(
+      "designEditor.import.figImportFrameLimit",
+    );
+    expect(button("designEditor.import.figImportSelected")?.disabled).toBe(
+      true,
+    );
+  });
+  it("hands a still-decoded file to the remounted panel when conversion fails", async () => {
+    mocks.shouldWarn.mockReturnValue(true);
+    let failRender!: () => void;
+    mocks.import.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          failRender = () =>
+            reject(
+              Object.assign(new Error("Too much editable HTML."), {
+                preparedReusable: true,
+                remoteMutationStarted: false,
+              }),
+            );
+        }),
+    );
+    await render();
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain(
+        "designEditor.import.figImportWarningTitle",
+      ),
+    );
+    await click("designEditor.import.figImportAll");
+    await vi.waitFor(() => expect(failRender).toBeTypeOf("function"));
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await render();
+    await act(async () => failRender());
+
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain(
+        "designEditor.import.figImportWarningTitle",
+      ),
+    );
+    expect(mocks.dispose).not.toHaveBeenCalled();
+    expect(mocks.error).toHaveBeenCalledWith(
+      "designEditor.import.errors.uploadFailed",
+      { description: "Too much editable HTML." },
+    );
+  });
+  it("resumes the page picker when the editor remounts the panel mid-analysis", async () => {
+    mocks.shouldWarn.mockReturnValue(true);
+    let finishDecode!: () => void;
+    mocks.prepare.mockImplementation(async () => {
+      await new Promise<void>((resolve) => (finishDecode = resolve));
+      return prepared();
+    });
+    await render();
+    await vi.waitFor(() => expect(finishDecode).toBeTypeOf("function"));
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await render();
+    await act(async () => finishDecode());
+
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain(
+        "designEditor.import.figImportWarningTitle",
+      ),
+    );
+    expect(mocks.dispose).not.toHaveBeenCalled();
+    expect(mocks.prepare).toHaveBeenCalledOnce();
+    await click("designEditor.import.figImportAll");
+    await vi.waitFor(() => expect(mocks.onImport).toHaveBeenCalledOnce());
+  });
+  it("reopens the page picker with the reason when a selection fails to convert", async () => {
+    mocks.shouldWarn.mockReturnValue(true);
+    mocks.import.mockRejectedValueOnce(
+      Object.assign(new Error("Too much editable HTML."), {
+        preparedReusable: true,
+        remoteMutationStarted: false,
+      }),
+    );
+    await render();
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain(
+        "designEditor.import.figImportWarningTitle",
+      ),
+    );
+    await click("designEditor.import.figImportAll");
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain("Too much editable HTML."),
+    );
+    expect(mocks.dispose).not.toHaveBeenCalled();
+    expect(mocks.error).not.toHaveBeenCalled();
+    expect(mocks.upload).not.toHaveBeenCalled();
+
+    await click("designEditor.import.figImportAll");
+    await vi.waitFor(() => expect(mocks.onImport).toHaveBeenCalledOnce());
+    expect(mocks.import).toHaveBeenCalledTimes(2);
+    expect(mocks.prepare).toHaveBeenCalledOnce();
   });
   it("cancels the preview without importing or automatically restoring it", async () => {
     mocks.shouldWarn.mockReturnValue(true);

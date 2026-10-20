@@ -19,6 +19,10 @@ import {
   getActiveFileUploadProviderForRequest,
   listFileUploadProviders,
 } from "./registry.js";
+import {
+  getPrivateStorageReadinessForUser,
+  type PrivateStorageReadinessStatus,
+} from "./storage-readiness.js";
 
 export const FILE_STORAGE_SECRET_KEYS = {
   endpoint: "S3_ENDPOINT",
@@ -80,6 +84,8 @@ export interface FileStorageStatus {
   activeProvider: { id: string; name: string } | null;
   /** Whether Builder.io storage would take uploads after a clear; null when the check failed. */
   builderUploadConfigured: boolean | null;
+  /** Private-blob readiness in the caller's strict selected-storage context. */
+  privateStorageReadiness: PrivateStorageReadinessStatus;
 }
 
 export interface SaveFileStorageInput {
@@ -197,10 +203,12 @@ export async function getFileStorageStatus(
   const access = await resolveFileStorageAccess(ctx);
   const publicUrlRequired = isFileStoragePublicUrlRequired();
   const values = await readWorkspaceValues(access.scopeId);
-  const [active, builderUploadConfigured] = await Promise.all([
-    getActiveFileUploadProviderForRequest(),
-    readBuilderUploadConfigured(),
-  ]);
+  const [active, builderUploadConfigured, privateStorageReadiness] =
+    await Promise.all([
+      getActiveFileUploadProviderForRequest(),
+      readBuilderUploadConfigured(),
+      getPrivateStorageReadinessForUser(ctx?.userEmail),
+    ]);
   const saved = {} as Record<FileStorageField, boolean>;
   for (const field of FIELDS) {
     saved[field] = access.canManage && values[field] !== null;
@@ -220,6 +228,7 @@ export async function getFileStorageStatus(
     publicUrlRequired,
     activeProvider: active ? { id: active.id, name: active.name } : null,
     builderUploadConfigured,
+    privateStorageReadiness,
   };
 }
 

@@ -225,6 +225,49 @@ describe("integration pending task store", () => {
     expect(insert?.args.at(-1)).toBe("channel-7");
   });
 
+  it.each(["insert", "stage", "retry"] as const)(
+    "rejects inline image bytes before SQL during %s",
+    async (operation) => {
+      const {
+        insertPendingTask,
+        markTaskDeliveryRetryable,
+        PendingTaskPayloadNotPersistableError,
+        stageTaskDeliveryPayload,
+      } = await loadStore();
+      const payload = JSON.stringify({
+        attachments: [
+          {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: "image/png",
+              data: "aW1hZ2UtYnl0ZXM=",
+            },
+          },
+        ],
+      });
+
+      const write = {
+        insert: () =>
+          insertPendingTask({
+            id: "unsafe-task",
+            platform: "slack",
+            externalThreadId: "thread-unsafe",
+            payload,
+            ownerEmail: "member@example.com",
+          }),
+        stage: () => stageTaskDeliveryPayload("unsafe-task", payload),
+        retry: () =>
+          markTaskDeliveryRetryable("unsafe-task", payload, "delivery failed"),
+      }[operation];
+
+      await expect(write()).rejects.toBeInstanceOf(
+        PendingTaskPayloadNotPersistableError,
+      );
+      expect(executeMock).not.toHaveBeenCalled();
+    },
+  );
+
   it("resolves valid Slack provenance from the caller's stored task", async () => {
     executeMock.mockImplementation(async (query: string | { sql: string }) => {
       const sql = typeof query === "string" ? query : query.sql;

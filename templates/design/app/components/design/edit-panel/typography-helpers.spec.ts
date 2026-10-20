@@ -210,7 +210,7 @@ describe("line-height field values", () => {
     });
   });
 
-  it("uses computed pixels for Auto scrub steps and accepts Figma input units", () => {
+  it("uses computed pixels for Auto scrub steps and accepts pixel or percent input", () => {
     const auto = resolveLineHeightFieldValue("normal", "19.2px", "16px");
     expect(auto).toEqual({ text: "Auto", value: 19.2, unit: "px" });
     expect(parseLineHeightInput("30", auto)).toMatchObject({

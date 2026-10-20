@@ -6,7 +6,10 @@ import {
 import { z } from "zod";
 
 import { queueDashboardCollabSync } from "../server/lib/dashboard-collab-sync";
-import { upsertDashboardWithRetry } from "../server/lib/dashboards-store";
+import {
+  getDashboard,
+  upsertDashboardWithRetry,
+} from "../server/lib/dashboards-store";
 
 function resolveScope() {
   const orgId = getRequestOrgId() || null;
@@ -29,9 +32,10 @@ export default defineAction({
     const updated = await upsertDashboardWithRetry(args.id, ctx, (existing) => {
       return { kind: existing.kind, body: { ...existing.config, name } };
     });
-    queueDashboardCollabSync(
+    void queueDashboardCollabSync(
       args.id,
-      updated.config,
+      updated.updatedAt,
+      () => getDashboard(args.id, ctx),
       actionContext?.caller === "frontend" ? undefined : "agent",
     );
     return { id: updated.id, name: updated.title };

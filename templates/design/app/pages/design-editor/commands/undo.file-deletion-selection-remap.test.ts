@@ -100,7 +100,11 @@ function commonArgs(refs: ReturnType<typeof sharedRefs>) {
     pendingVisualStyleUndoStackRef: { current: [] },
     performDeleteFiles: vi.fn(),
     publishAuthoritativeClipboardMutation: vi.fn(),
-    queryClient: { invalidateQueries: vi.fn(), setQueryData: vi.fn() },
+    queryClient: {
+      cancelQueries: vi.fn(async () => []),
+      invalidateQueries: vi.fn(),
+      setQueryData: vi.fn(),
+    },
     queueFileContentSave: vi.fn(),
     redoOrderRef: refs.redoOrderRef,
     replacePreviewContent: vi.fn(() => "applied"),

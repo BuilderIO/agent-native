@@ -10,7 +10,14 @@ import { TemplatePreview } from "./TemplatePreview";
 
 let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
+let intersectionObservers: Array<{
+  callback: IntersectionObserverCallback;
+  observe: ReturnType<typeof vi.fn>;
+  disconnect: ReturnType<typeof vi.fn>;
+  options?: IntersectionObserverInit;
+}>;
 beforeEach(() => {
+  intersectionObservers = [];
   (
     globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
   ).IS_REACT_ACT_ENVIRONMENT = true;
@@ -26,14 +33,46 @@ beforeEach(() => {
       disconnect() {}
     },
   );
+  vi.stubGlobal(
+    "IntersectionObserver",
+    class {
+      observe = vi.fn();
+      disconnect = vi.fn();
+      constructor(
+        public callback: IntersectionObserverCallback,
+        public options?: IntersectionObserverInit,
+      ) {
+        intersectionObservers.push(this);
+      }
+    },
+  );
 });
 afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 describe("template artboard preview", () => {
+  it("does not request private screenshots without a design scope", async () => {
+    const route = "/api/design-board-replay-screenshots/jcs_e2e_fixture";
+    await act(async () =>
+      root.render(
+        <TemplatePreview
+          html={`<img src="${route}">`}
+          title="Unscoped template"
+        />,
+      ),
+    );
+
+    const frame = container.querySelector("iframe")!;
+    expect(frame.srcdoc).not.toContain(`src="${route}"`);
+    expect(frame.srcdoc).not.toContain(
+      "design-private-replay-screenshot:connect",
+    );
+  });
+
   it.each([
     [1080, 1080],
     [612, 792],
@@ -60,13 +99,188 @@ describe("template artboard preview", () => {
         "translate(-50%, -50%) scale(var(--design-template-scale))",
       );
       expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
+      expect(frame.hasAttribute("data-agent-native-session-replay")).toBe(
+        false,
+      );
+      expect(frame.srcdoc).not.toContain("agent-native-session-replay:probe");
       expect(frame.style.getPropertyValue("--design-template-width")).toBe(
         `${width}px`,
       );
     },
   );
 
-  it("allows isolated prototype interactions without account origin or editor bridge", async () => {
+  it("does not carry replay visibility across preview documents", async () => {
+    const previewHtml = "<h1>Same preview</h1>";
+    const render = (html: string) =>
+      root.render(
+        <TemplatePreview
+          title="Replay fixture"
+          html={html}
+          recordSessionReplay
+        />,
+      );
+    await act(async () => render(previewHtml));
+    const firstFrame = container.querySelector("iframe")!;
+    act(() =>
+      intersectionObservers[0]!.callback(
+        [
+          {
+            isIntersecting: true,
+            intersectionRatio: 1,
+            intersectionRect: { width: 320, height: 180 },
+          } as IntersectionObserverEntry,
+        ],
+        {} as IntersectionObserver,
+      ),
+    );
+    expect(firstFrame.hasAttribute("data-agent-native-session-replay")).toBe(
+      true,
+    );
+
+    await act(async () => render(""));
+    expect(container.querySelector("iframe")).toBeNull();
+    await act(async () => render(previewHtml));
+    const replacementFrame = container.querySelector("iframe")!;
+    expect(replacementFrame.srcdoc).toContain("Same preview");
+    expect(intersectionObservers).toHaveLength(2);
+    expect(
+      replacementFrame.hasAttribute("data-agent-native-session-replay"),
+    ).toBe(false);
+    act(() =>
+      intersectionObservers[1]!.callback(
+        [
+          {
+            isIntersecting: false,
+            intersectionRatio: 0,
+            intersectionRect: { width: 0, height: 0 },
+          } as IntersectionObserverEntry,
+        ],
+        {} as IntersectionObserver,
+      ),
+    );
+    expect(
+      replacementFrame.hasAttribute("data-agent-native-session-replay"),
+    ).toBe(false);
+  });
+
+  it("rechecks an intersecting preview after ancestor styles change", async () => {
+    await act(async () =>
+      root.render(
+        <TemplatePreview
+          title="Replay fixture"
+          html="<h1>Visible after fade in</h1>"
+          recordSessionReplay
+        />,
+      ),
+    );
+    const frame = container.querySelector("iframe")!;
+    const previewContainer = container.firstElementChild as HTMLElement;
+    previewContainer.style.opacity = "0";
+    await act(async () => Promise.resolve());
+
+    act(() =>
+      intersectionObservers[0]!.callback(
+        [
+          {
+            isIntersecting: true,
+            intersectionRatio: 1,
+            intersectionRect: { width: 320, height: 180 },
+          } as IntersectionObserverEntry,
+        ],
+        {} as IntersectionObserver,
+      ),
+    );
+    expect(frame.hasAttribute("data-agent-native-session-replay")).toBe(false);
+
+    await act(async () => {
+      previewContainer.style.opacity = "1";
+      await Promise.resolve();
+    });
+    expect(frame.hasAttribute("data-agent-native-session-replay")).toBe(true);
+  });
+
+  it.each(["iframe", "ancestor"] as const)(
+    "does not start replay for a preview hidden by a zero-opacity filter on the %s",
+    async (target) => {
+      await act(async () =>
+        root.render(
+          <TemplatePreview
+            title="Replay fixture"
+            html="<h1>Hidden by filter</h1>"
+            recordSessionReplay
+          />,
+        ),
+      );
+      const frame = container.querySelector("iframe")!;
+      const previewContainer = container.firstElementChild as HTMLElement;
+      const hiddenElement = target === "iframe" ? frame : previewContainer;
+      hiddenElement.style.filter = "opacity(0)";
+
+      act(() =>
+        intersectionObservers[0]!.callback(
+          [
+            {
+              isIntersecting: true,
+              intersectionRatio: 1,
+              intersectionRect: { width: 320, height: 180 },
+            } as IntersectionObserverEntry,
+          ],
+          {} as IntersectionObserver,
+        ),
+      );
+
+      expect(frame.hasAttribute("data-agent-native-session-replay")).toBe(
+        false,
+      );
+    },
+  );
+
+  it("rechecks visibility when an opacity transition completes", async () => {
+    await act(async () =>
+      root.render(
+        <TemplatePreview
+          title="Replay fixture"
+          html="<h1>Visible after transition</h1>"
+          recordSessionReplay
+        />,
+      ),
+    );
+    const frame = container.querySelector("iframe")!;
+    const getComputedStyle = vi
+      .spyOn(window, "getComputedStyle")
+      .mockReturnValue({
+        contentVisibility: "visible",
+        display: "block",
+        opacity: "0",
+        visibility: "visible",
+      } as CSSStyleDeclaration);
+    act(() =>
+      intersectionObservers[0]!.callback(
+        [
+          {
+            isIntersecting: true,
+            intersectionRatio: 1,
+            intersectionRect: { width: 320, height: 180 },
+          } as IntersectionObserverEntry,
+        ],
+        {} as IntersectionObserver,
+      ),
+    );
+    expect(frame.hasAttribute("data-agent-native-session-replay")).toBe(false);
+
+    getComputedStyle.mockReturnValue({
+      contentVisibility: "visible",
+      display: "block",
+      opacity: "1",
+      visibility: "visible",
+    } as CSSStyleDeclaration);
+    act(() =>
+      frame.dispatchEvent(new Event("transitionend", { bubbles: true })),
+    );
+    expect(frame.hasAttribute("data-agent-native-session-replay")).toBe(true);
+  });
+
+  it("keeps one replay recorder across viewport changes while preserving isolation", async () => {
     const onNavigate = vi.fn();
     const onEscape = vi.fn();
     await act(async () =>
@@ -75,19 +289,139 @@ describe("template artboard preview", () => {
           title="Interactive fixture"
           html='<main x-data="{count:0}"><button @click="count++">Increment</button><span x-text="count"></span></main>'
           interactive
+          recordSessionReplay
           onNavigate={onNavigate}
           onEscape={onEscape}
         />,
       ),
     );
     const frame = container.querySelector("iframe")!;
+    const getComputedStyle = vi.spyOn(window, "getComputedStyle");
     expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
+    expect(frame.hasAttribute("data-agent-native-session-replay")).toBe(false);
+    expect(intersectionObservers[0]?.options?.threshold).toEqual([
+      0,
+      Number.MIN_VALUE,
+    ]);
+    act(() =>
+      intersectionObservers[0]!.callback(
+        [
+          {
+            isIntersecting: true,
+            intersectionRatio: 0,
+            intersectionRect: { width: 0, height: 0 },
+          } as IntersectionObserverEntry,
+        ],
+        {} as IntersectionObserver,
+      ),
+    );
+    expect(frame.hasAttribute("data-agent-native-session-replay")).toBe(false);
+    frame.style.visibility = "hidden";
+    act(() =>
+      intersectionObservers[0]!.callback(
+        [
+          {
+            isIntersecting: true,
+            intersectionRatio: 1,
+            intersectionRect: { width: 320, height: 180 },
+          } as IntersectionObserverEntry,
+        ],
+        {} as IntersectionObserver,
+      ),
+    );
+    expect(frame.hasAttribute("data-agent-native-session-replay")).toBe(false);
+    frame.style.removeProperty("visibility");
+    const previewContainer = container.firstElementChild as HTMLElement;
+    previewContainer.style.opacity = "0";
+    act(() =>
+      intersectionObservers[0]!.callback(
+        [
+          {
+            isIntersecting: true,
+            intersectionRatio: 1,
+            intersectionRect: { width: 320, height: 180 },
+          } as IntersectionObserverEntry,
+        ],
+        {} as IntersectionObserver,
+      ),
+    );
+    expect(frame.hasAttribute("data-agent-native-session-replay")).toBe(false);
+    previewContainer.style.removeProperty("opacity");
+    act(() =>
+      intersectionObservers[0]!.callback(
+        [
+          {
+            isIntersecting: true,
+            intersectionRatio: 1,
+            intersectionRect: { width: 320, height: 180 },
+          } as IntersectionObserverEntry,
+        ],
+        {} as IntersectionObserver,
+      ),
+    );
+    expect(frame.hasAttribute("data-agent-native-session-replay")).toBe(true);
+    const visibilityStyleChecks = getComputedStyle.mock.calls.length;
+    act(() => {
+      intersectionObservers[0]!.callback(
+        [
+          {
+            isIntersecting: true,
+            intersectionRatio: 1,
+            intersectionRect: { width: 320, height: 180 },
+          } as IntersectionObserverEntry,
+        ],
+        {} as IntersectionObserver,
+      );
+      frame.dispatchEvent(new Event("transitionend", { bubbles: true }));
+    });
+    expect(getComputedStyle).toHaveBeenCalledTimes(visibilityStyleChecks);
+    act(() =>
+      intersectionObservers[0]!.callback(
+        [
+          {
+            isIntersecting: false,
+            intersectionRatio: 0,
+            intersectionRect: { width: 0, height: 0 },
+          } as IntersectionObserverEntry,
+        ],
+        {} as IntersectionObserver,
+      ),
+    );
+    expect(frame.hasAttribute("data-agent-native-session-replay")).toBe(true);
+    act(() =>
+      intersectionObservers[0]!.callback(
+        [
+          {
+            isIntersecting: true,
+            intersectionRatio: 1e-20,
+            intersectionRect: { width: 0.00001, height: 0.00001 },
+          } as IntersectionObserverEntry,
+        ],
+        {} as IntersectionObserver,
+      ),
+    );
+    expect(frame.hasAttribute("data-agent-native-session-replay")).toBe(true);
+    expect(intersectionObservers).toHaveLength(1);
+    act(() =>
+      intersectionObservers[0]!.callback(
+        [
+          {
+            isIntersecting: false,
+            intersectionRatio: 0,
+            intersectionRect: { width: 0, height: 0 },
+          } as IntersectionObserverEntry,
+        ],
+        {} as IntersectionObserver,
+      ),
+    );
+    expect(frame.hasAttribute("data-agent-native-session-replay")).toBe(true);
+    expect(intersectionObservers).toHaveLength(1);
     expect(frame.hasAttribute("credentialless")).toBe(true);
     expect(frame.tabIndex).toBe(0);
     expect(frame.getAttribute("aria-hidden")).toBeNull();
     expect(frame.srcdoc).toContain('x-data="{count:0}"');
     expect(frame.srcdoc).not.toContain("editor-chrome");
-    expect(frame.srcdoc).not.toContain("session-replay");
+    expect(frame.srcdoc).toContain("agent-native-session-replay:probe");
     window.dispatchEvent(
       new MessageEvent("message", {
         origin: "null",

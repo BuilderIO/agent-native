@@ -1,15 +1,230 @@
 ---
 title: "Render"
-description: "Localized pointer to the the Nitro render-com preset."
+description: "Stellen Sie eine eigenständige Agent-Native-App als Node.js-Webdienst auf Render bereit."
 ---
-
-<!-- i18n-docs-ignore -->
 
 # Render
 
-Read the [English Render guide](/docs/render) for the build steps and
-provider-specific production configuration.
+<Badge label="Beta" color="orange" icon="rocket" />
 
-The deployment must use a persistent PostgreSQL database. Configure `DATABASE_URL`
-and `BETTER_AUTH_SECRET` in the provider environment. The Nitro preset is
-`render-com`.
+Render hostet Ihre App als Webdienst. Sie müssen also keinen Server einrichten
+oder am Laufen halten. Render betreibt denselben Node.js-Server, der in der
+[Node.js-Anleitung](/docs/node-js) beschrieben ist, baut ihn aus Ihrem
+Git-Repository und gibt der App eine öffentliche Adresse mit HTTPS.
+
+Diese Anleitung führt Sie Schritt für Schritt durch das Deployment einer
+eigenständigen App. Sie erstellen die App und pushen sie in ein Git-Repository,
+geben ihr eine Produktionsdatenbank und ein Auth-Secret, bereiten die Datenbank
+vor und erstellen dann einen Render-Webdienst, der sie baut und ausführt.
+
+<Callout tone="info">
+
+Node.js `22.22+` ist erforderlich.
+
+</Callout>
+
+Außerdem brauchen Sie ein Render-Konto und ein Repository auf GitHub, GitLab
+oder Bitbucket. Führen Sie die Befehle dieser Anleitung auf Ihrem eigenen
+Computer aus. Render baut und betreibt die App aus Ihrem Repository.
+
+## Schritt 1: Die App erstellen {#step-1-create-the-app}
+
+Erstellen Sie Ihre neue eigenständige App. Das folgende Beispiel erstellt eine
+App aus dem Chat-Template, Sie können aber mit jedem Template beginnen. Wechseln
+Sie in den Ordner der App und installieren Sie ihre Abhängigkeiten.
+`corepack enable` aktiviert die `pnpm`-Version, die die App erwartet. Sie müssen
+`pnpm` also nicht selbst installieren.
+
+```bash
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
+```
+
+Ersetzen Sie `my-app` bei Bedarf durch Ihren eigenen App-Namen. Der Rest dieser
+Anleitung geht davon aus, dass Sie sich im Ordner der App befinden.
+
+Render baut die App aus einem Git-Repository. Pushen Sie den Ordner der App
+daher in ein neues Repository auf GitHub, GitLab oder Bitbucket, bevor Sie
+fortfahren. Committen Sie auch die Datei `pnpm-lock.yaml`, denn der Build
+installiert genau die Versionen, die darin aufgeführt sind.
+
+<Callout tone="info">
+
+Wenn diese Befehle mit Fehlern zu Peer-Abhängigkeiten fehlschlagen, liegt das möglicherweise an einer veralteten Kopie eines Pakets in Ihrem npx-Cache. Führen Sie `npx clear-npx-cache` aus, um den Cache zu leeren, und führen Sie die Befehle dann erneut aus.
+
+</Callout>
+
+## Schritt 2: Umgebungs-Secrets konfigurieren {#step-2-configure-environment-secrets}
+
+Die App liest ihre Produktionseinstellungen aus Umgebungsvariablen:
+
+| Variable             | Erforderlich | Zweck                                                               |
+| -------------------- | ------------ | ------------------------------------------------------------------- |
+| `DATABASE_URL`       | Ja           | Verbindet die App mit ihrer PostgreSQL-Datenbank                    |
+| `BETTER_AUTH_SECRET` | Ja           | Signiert Benutzersitzungen                                          |
+| `BETTER_AUTH_URL`    | Nein         | Legt die öffentliche Adresse fest, über die Ihre App erreichbar ist |
+
+Mit den folgenden Exporten funktionieren die nächsten Befehle in dieser Shell.
+Speichern Sie vor dem Deployment dieselben Variablen in den Umgebungseinstellungen
+des Projekts oder Dienstes bei Ihrem Hoster. Schritt 4 zeigt, wie Sie sie in
+Render speichern.
+
+### Datenbank-URL {#database-url}
+
+Während der lokalen Entwicklung speichert die App ihre Daten in einer lokalen
+Datenbank, wenn `DATABASE_URL` nicht gesetzt ist. Eine bereitgestellte App
+braucht eine echte PostgreSQL-Datenbank, die ihre Daten über Deployments hinweg
+behält. Render ersetzt die Dateien des Dienstes bei jedem Deployment und
+Neustart. Die Datenbank muss sich daher außerhalb des Webdienstes befinden.
+Kopieren Sie den Verbindungsstring von Ihrem Anbieter und exportieren Sie ihn:
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+Die [Anleitungen zu Datenbankanbietern](/docs/neon) zeigen, wo Sie den
+Verbindungsstring für jeden Anbieter finden. Render Postgres funktioniert
+ebenfalls. Verwenden Sie hier seinen externen Verbindungsstring und in den
+Einstellungen des Webdienstes seinen internen Verbindungsstring.
+
+<Callout tone="warning">
+
+Wählen Sie einen persistenten PostgreSQL-Anbieter, zum Beispiel Neon, Supabase oder Amazon RDS.
+
+</Callout>
+
+### Auth-Secret {#auth-secret}
+
+Erzeugen Sie diesen Wert einmal und lassen Sie ihn über alle Deployments hinweg
+unverändert.
+
+Die App verwendet `BETTER_AUTH_SECRET`, um Benutzersitzungen zu signieren. Wenn
+sich der Wert ändert, werden alle angemeldeten Benutzer abgemeldet. Der folgende
+Befehl erzeugt einen zufälligen Wert:
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+Bewahren Sie den erzeugten Wert an einem sicheren Ort auf, zum Beispiel in einem
+Passwort-Manager. Verwenden Sie bei jedem Deployment denselben Wert.
+
+### Öffentliche URL {#public-url}
+
+Optional. Setzen Sie sie, wenn Sie eine eigene Domain, einen Reverse Proxy oder
+einen Auth- bzw. OAuth-Ablauf verwenden, der einen festen öffentlichen Origin
+benötigt.
+
+`BETTER_AUTH_URL` ist die öffentliche Adresse, über die Ihre App erreichbar ist.
+Ohne diese Variable ermittelt die App ihre Adresse aus jeder eingehenden
+Anfrage. Auf der Adresse, die Render Ihnen gibt, funktioniert das meistens.
+Setzen Sie die Variable aber, wenn Sie eine eigene Domain verbinden, damit
+Anmeldelinks und OAuth-Weiterleitungen diese Domain verwenden.
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## Schritt 3: Migrieren {#step-3-migrate}
+
+Migrationen erstellen und aktualisieren die Tabellen, die die App in Ihrer
+Datenbank braucht. Führen Sie dies vor dem ersten Deployment aus:
+
+```bash
+pnpm migrate:production
+```
+
+Der Befehl läuft auf Ihrem Computer und verbindet sich über die
+`DATABASE_URL`, die Sie in Schritt 2 exportiert haben, mit der
+Produktionsdatenbank. Führen Sie ihn nach einem Upgrade der App erneut aus,
+bevor Sie die neue Version deployen.
+
+Auf einer kostenpflichtigen Render-Instanz können Sie stattdessen den
+**Pre-Deploy Command** des Dienstes auf `pnpm migrate:production` setzen. Render
+führt die Migrationen dann vor jedem Deployment aus, bevor es live geht. Der
+Pre-Deploy Command ist beim Instanztyp Free nicht verfügbar.
+
+## Schritt 4: Den Webdienst erstellen {#step-4-create-the-web-service}
+
+Erstellen Sie im Render-Dashboard einen neuen **Web Service** und verbinden Sie
+das Repository aus Schritt 1. Verwenden Sie diese Einstellungen:
+
+| Einstellung   | Wert                                                                                      |
+| ------------- | ----------------------------------------------------------------------------------------- |
+| Language      | `Node`                                                                                    |
+| Branch        | Der Branch, von dem Sie deployen, zum Beispiel `main`                                     |
+| Build Command | `corepack enable && pnpm install --frozen-lockfile && NITRO_PRESET=render_com pnpm build` |
+| Start Command | `node .output/server/index.mjs`                                                           |
+
+Der Build Command aktiviert die `pnpm`-Version der App, installiert die in
+`pnpm-lock.yaml` aufgeführten Abhängigkeiten und baut die App.
+`NITRO_PRESET=render_com` baut denselben Node.js-Server wie in der
+Node.js-Anleitung, eingerichtet für die Auslieferung seiner eigenen statischen
+Dateien. Der Start Command startet diesen Server. Render teilt dem Server über
+die Umgebungsvariable `PORT` mit, welchen Port er verwenden soll, und der Server
+liest sie automatisch.
+
+Fügen Sie unter **Environment Variables** `DATABASE_URL` und
+`BETTER_AUTH_SECRET` mit den Werten hinzu, die Sie in Schritt 2 exportiert
+haben. Wenn Sie `BETTER_AUTH_URL` gesetzt haben, fügen Sie die Variable auf
+dieselbe Weise hinzu.
+
+Render wählt die Node.js-Version in dieser Reihenfolge aus einer
+Umgebungsvariable `NODE_VERSION`, einer Datei `.node-version` oder `.nvmrc` oder
+dem Feld `engines` in `package.json`. Neue Dienste verwenden standardmäßig eine
+Version, die die obige Anforderung erfüllt. Um eine Version festzulegen, fügen
+Sie `NODE_VERSION` hinzu, zum Beispiel mit dem Wert `24`.
+
+## Schritt 5: Bereitstellen {#step-5-deploy}
+
+<Steps>
+
+### Einen Instanztyp wählen
+
+Wählen Sie den Instanztyp für den Webdienst. Der Instanztyp Free eignet sich, um
+die App auszuprobieren. Wählen Sie einen kostenpflichtigen Instanztyp, wenn die
+App sofort antworten soll oder Sie den Pre-Deploy Command aus Schritt 3
+verwenden möchten.
+
+### Den Webdienst erstellen
+
+Erstellen Sie den Webdienst. Render baut die App aus Ihrem Repository und
+startet sie. Der erste Build dauert einige Minuten, und Sie können ihn in den
+Logs des Dienstes verfolgen.
+
+### Die App öffnen
+
+Wenn das Deployment fertig ist, zeigt das Dashboard die Adresse der App an, die
+auf `onrender.com` endet. Öffnen Sie sie und erstellen Sie das erste Konto.
+
+</Steps>
+
+Beim Instanztyp Free pausiert Render den Dienst nach 15 Minuten ohne
+Datenverkehr. Der nächste Besuch wartet dann etwa eine Minute, bis der Dienst
+wieder startet.
+
+## Updates bereitstellen {#deploy-updates}
+
+Render deployt jedes Mal erneut, wenn Sie in den Branch pushen, den Sie in
+Schritt 4 gewählt haben. Um eine neue Version auszuliefern, führen Sie zuerst
+die Migrationen aus und pushen Sie dann:
+
+```bash
+pnpm migrate:production
+
+git push
+```
+
+Die Einstellungen des Dienstes und die gespeicherten Variablen bleiben erhalten.
+Sie müssen Schritt 4 also nicht wiederholen.
+
+## Was kommt als nächstes? {#whats-next}
+
+- [**Node.js**](/docs/node-js) - denselben Server auf einer Maschine betreiben, die Sie selbst verwalten
+- [**Umgebungsvariablen für das Deployment**](/docs/deployment-environment-variables) - die vollständige Liste der Produktionseinstellungen
+- [**Deployment**](/docs/deployment) - Hosting-Ziele und Voraussetzungen vergleichen

@@ -16,6 +16,13 @@ const COMMENT_MUTATIONS = new Set([
   "update-comment",
 ]);
 
+/** Changes that open, resolve, or remove a Comment thread. */
+const COMMENT_COUNT_MUTATIONS = new Set([
+  ...COMMENT_MUTATIONS,
+  "apply-comment-ai-request",
+  "undo-comment-ai-request",
+]);
+
 const DOCUMENT_MUTATIONS = new Set([
   "create-and-link-notion-page",
   "decide-resource-suggestion",
@@ -52,6 +59,7 @@ const DOCUMENT_MUTATIONS = new Set([
   "sync-local-folder-source",
   "sync-manifest-local-folder-source",
   "transcribe-media",
+  "undo-content-import",
   "update-document",
 ]);
 
@@ -96,7 +104,10 @@ const DATABASE_LIFECYCLE_MUTATIONS = new Set([
   "restore-document",
 ]);
 
-const DOCUMENT_DISCOVERY_MUTATIONS = new Set(["create-document"]);
+const DOCUMENT_DISCOVERY_MUTATIONS = new Set([
+  "create-document",
+  "import-content",
+]);
 
 const PREVIEW_DRAFT_MUTATIONS = new Set([
   "resolve-preview-document-draft",
@@ -253,12 +264,19 @@ function queryTargetsDatabase(query: ActionQuery, documentId: string): boolean {
   );
 }
 
+// The Files tree is ordered by the stored personal view but not keyed by it,
+// so it reads again with that view.
 function queryTargetsActiveDatabasePresentation(query: ActionQuery): boolean {
-  return (
-    query.queryKey[0] === "action" &&
-    query.queryKey[1] === "get-content-database-personal-view" &&
-    query.isActive?.() === true
-  );
+  if (query.queryKey[0] !== "action" || query.isActive?.() !== true)
+    return false;
+  if (query.queryKey[1] === "get-content-database-personal-view") return true;
+  if (query.queryKey[1] !== "query-content-database-items") return false;
+  return queryReadsFilesNavigation(query);
+}
+
+function queryReadsFilesNavigation(query: ActionQuery): boolean {
+  const args = query.queryKey[2];
+  return !!args && typeof args === "object" && "navigation" in args;
 }
 
 function queryTargetsActiveNavigationOrRecent(query: ActionQuery): boolean {
@@ -270,8 +288,7 @@ function queryTargetsActiveNavigationOrRecent(query: ActionQuery): boolean {
   )
     return true;
   if (query.queryKey[1] !== "query-content-database-items") return false;
-  const args = query.queryKey[2];
-  return !!args && typeof args === "object" && "navigation" in args;
+  return queryReadsFilesNavigation(query);
 }
 
 function isDatabaseLifecycleQuery(query: ActionQuery): boolean {
@@ -411,20 +428,22 @@ export function contentActionInvalidatePredicate(
           eventRefreshesDocumentQuery(event.key, query.queryKey[1]),
       );
     }
-    if (queryTargetsDatabase(query, documentId)) {
-      return events.some(
-        (event) =>
-          event.source === "action" &&
-          typeof event.key === "string" &&
-          DATABASE_RESULT_MUTATIONS.has(event.key),
-      );
+    if (
+      queryTargetsActiveDatabasePresentation(query) &&
+      eventsIncludeMutation(events, DATABASE_PRESENTATION_MUTATIONS)
+    ) {
+      return true;
     }
-    if (queryTargetsActiveDatabasePresentation(query)) {
+    if (queryTargetsDatabase(query, documentId)) {
+      // Table rows carry their open-Comment counts, so a Comment change
+      // refreshes them too. The Files tree shows no counts.
+      const readsCommentCounts = !queryReadsFilesNavigation(query);
       return events.some(
         (event) =>
           event.source === "action" &&
           typeof event.key === "string" &&
-          DATABASE_PRESENTATION_MUTATIONS.has(event.key),
+          (DATABASE_RESULT_MUTATIONS.has(event.key) ||
+            (readsCommentCounts && COMMENT_COUNT_MUTATIONS.has(event.key))),
       );
     }
     return false;

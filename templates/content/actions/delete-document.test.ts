@@ -94,6 +94,10 @@ const { schema } = vi.hoisted(() => ({
     documentBlocks: {
       fieldId: "documentBlocks.fieldId",
     },
+    documentImports: {
+      documentId: "documentImports.documentId",
+      originalBlob: "documentImports.originalBlob",
+    },
     documentSyncLinks: {
       documentId: "documentSyncLinks.documentId",
       ownerEmail: "documentSyncLinks.ownerEmail",
@@ -122,7 +126,7 @@ vi.mock("../server/db/index.js", () => ({
   schema,
 }));
 
-import { deleteDocumentRecursive } from "./delete-document";
+import deleteDocument, { deleteDocumentRecursive } from "./delete-document";
 
 type DeleteCall = { table: string; cond: unknown };
 
@@ -420,5 +424,22 @@ describe("deleteDocumentRecursive", () => {
     expect(
       documentDeletes.map((c: any) => c.cond.__and[0].__inArray[1].length),
     ).toEqual([90, 6]);
+  });
+
+  it("tells every collaborator who can read the page that it moved to Trash", () => {
+    expect(
+      deleteDocument.changeResource?.({ id: "doc-1" }, {
+        success: true,
+      } as never),
+    ).toEqual({ resourceType: "document", resourceId: "doc-1" });
+  });
+
+  it("does not announce a change when the page was only removed from Favorites", () => {
+    expect(
+      deleteDocument.changeResource?.(
+        { id: "doc-1", databaseDocumentId: "favorites-doc" },
+        { success: true, deleted: 0, removed: 1 } as never,
+      ),
+    ).toBeNull();
   });
 });

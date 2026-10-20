@@ -163,6 +163,12 @@ function resolveView(
     return "extensions";
   }
   if (pathname === "/admin") return "admin";
+  if (
+    pathname === "/admin/integrations" ||
+    pathname.startsWith("/admin/integrations/")
+  ) {
+    return "integrations";
+  }
   if (pathname.startsWith("/admin/")) {
     const adminView = resolveView(pathname.slice("/admin".length), extensions);
     return adminView === "overview" ? "admin" : adminView;
@@ -173,7 +179,6 @@ function resolveView(
   if (pathname.startsWith("/metrics")) return "metrics";
   if (pathname.startsWith("/new-app")) return "new-app";
   if (pathname.startsWith("/vault")) return "vault";
-  if (pathname.startsWith("/integrations")) return "integrations";
   if (pathname.startsWith("/workspace")) return "workspace";
   if (pathname.startsWith("/agents")) return "agents";
   if (pathname.startsWith("/messaging")) return "messaging";

@@ -14,6 +14,7 @@ import type { AgentChatRichEventEnvelope } from "../agent/types.js";
 import type { ArtifactReceipt } from "../artifacts/detect.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import { normalizeConnectRequiredResult } from "../shared/connect-required.js";
+import { toolInputsMatch } from "../shared/tool-inputs.js";
 import { emitChatFirstOpenApp } from "./chat-first-state.js";
 import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 import {
@@ -43,6 +44,9 @@ export type ContentPart =
       args: Record<string, string>;
       result?: string;
       isError?: boolean;
+      approvalPause?: true;
+      approvalPauseCandidate?: true;
+      approvalResumeCandidate?: true;
       /**
        * Set when the stream ended while this tool was still in flight. We know
        * it started and NOT whether its side effect landed, so it is deliberately
@@ -107,6 +111,7 @@ export interface SSEEvent {
   result?: string;
   isError?: boolean;
   completedSideEffect?: boolean;
+  approvalPause?: boolean;
   artifacts?: ArtifactReceipt[];
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
@@ -554,7 +559,7 @@ function findPendingToolCallIndex(
 }
 
 function findPendingToolCallIndexById(
-  content: ContentPart[],
+  content: readonly ContentPart[],
   toolCallId: string,
 ): number {
   for (let i = content.length - 1; i >= 0; i--) {
@@ -578,23 +583,61 @@ function findPendingToolCallIndexById(
  * `tool_done` resolves the call right after the gate fires, so a replayed or
  * reordered approval would otherwise miss on id and silently attach this call's
  * approvalKey to a *different* in-flight call of the same action — putting the
- * wrong key behind a visible Approve button.
+ * wrong key behind a visible Approve button. A resumed paused call is eligible
+ * only after its exact `tool_start` marks it as an approval-resume candidate.
  *
- * The only tolerated fallback mirrors `findPendingActivityToolCallIndex`: a
- * single unambiguous reader-local (`tc_N`) placeholder, which is how a call
- * looks when an older server omitted the id on `tool_start`.
+ * Without an event id, the required input must identify one pending call or
+ * explicitly resumed pause by itself. A name-only match can attach a stale
+ * approval to a different same-name call. With an event id, the only tolerated
+ * fallback is a single unambiguous reader-local (`tc_N`) placeholder, which is
+ * how a call looks when an older server omitted the id on `tool_start`.
  */
-function findApprovalToolCallIndex(
-  content: ContentPart[],
+export function findApprovalToolCallIndex(
+  content: readonly ContentPart[],
   toolName: string,
   toolCallId?: string,
+  approvalInput?: unknown,
 ): number {
   if (!toolCallId) {
-    return findPendingToolCallIndex(content, toolName);
+    if (!approvalInput) return -1;
+    const matchingInputCandidates: number[] = [];
+    for (let i = 0; i < content.length; i += 1) {
+      const part = content[i];
+      if (
+        part.type === "tool-call" &&
+        part.toolName === toolName &&
+        (part.result === undefined ||
+          (part.approvalPause === true &&
+            part.approvalResumeCandidate === true)) &&
+        toolInputsMatch(part.args, approvalInput)
+      ) {
+        matchingInputCandidates.push(i);
+      }
+    }
+    return matchingInputCandidates.length === 1
+      ? matchingInputCandidates[0]!
+      : -1;
   }
 
   const exactIndex = findPendingToolCallIndexById(content, toolCallId);
   if (exactIndex >= 0) return exactIndex;
+
+  const resumedCandidates: number[] = [];
+  for (let i = 0; i < content.length; i += 1) {
+    const part = content[i];
+    if (
+      part.type === "tool-call" &&
+      part.toolCallId === toolCallId &&
+      part.toolName === toolName &&
+      part.result !== undefined &&
+      part.approvalPause === true &&
+      part.approvalResumeCandidate === true &&
+      (approvalInput === undefined || toolInputsMatch(part.args, approvalInput))
+    ) {
+      resumedCandidates.push(i);
+    }
+  }
+  if (resumedCandidates.length === 1) return resumedCandidates[0]!;
 
   const readerLocalCandidates: number[] = [];
   for (let i = 0; i < content.length; i += 1) {
@@ -603,6 +646,7 @@ function findApprovalToolCallIndex(
       part.type === "tool-call" &&
       part.toolName === toolName &&
       part.result === undefined &&
+      toolInputsMatch(part.args, approvalInput) &&
       /^tc_\d+$/.test(part.toolCallId)
     ) {
       readerLocalCandidates.push(i);
@@ -872,16 +916,20 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
   const code = String(ev.errorCode ?? "").toLowerCase();
   const msg = errMsg.toLowerCase();
 
-  // An explicit `recoverable: false` outranks EVERY inference below — the code
-  // list as well as the message sniff — matching the server's own precedence in
-  // `isRecoverableContinuationError`. The repeat guards stop a turn with a
+  // Explicit terminal classifications outrank EVERY inference below — the
+  // code list as well as the message sniff — matching the server's precedence
+  // in `isRecoverableContinuationError`. The repeat guards stop a turn with a
   // message that names the looping tool, so a stop on
   // `list-workspace-connections` matched the "connection" sniff and
   // auto-continued the very loop it was emitted to break; the background
   // no-progress breaker stops one while PRESERVING the underlying transient
   // code (so the failure stays diagnosable), so reading the code instead of the
   // flag re-POSTs the exact chain the server just refused to continue.
-  if (ev.recoverable === false) return false;
+  if (ev.providerRetryable === false || ev.recoverable === false) return false;
+
+  // A recoverable server timeout is a continuation boundary, even though its
+  // visitor-facing message sounds terminal.
+  if (code === "run_timeout" && ev.recoverable === true) return true;
 
   // These messages can carry `recoverable: true` for banner rendering, but
   // repeating the request would retry the same rejected credential or a run
@@ -913,6 +961,7 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
     code === "gateway_not_enabled" ||
     code === "missing_api_key" ||
     code === "missing_credentials" ||
+    code === "invalid_request" ||
     code === "invalid_request_error" ||
     code === "request_too_large" ||
     code === "not_found_error" ||
@@ -1798,7 +1847,15 @@ export function processEvent(
   if (ev.type === "tool_start") {
     const args = (ev.input ?? {}) as Record<string, string>;
     const tool = ev.tool ?? "unknown";
-    if (findCompletedToolCallIndex(content, ev.id) >= 0) {
+    const completedIndex = findCompletedToolCallIndex(content, ev.id);
+    if (completedIndex >= 0) {
+      const completedPart = content[completedIndex];
+      if (completedPart?.type === "tool-call") {
+        if (completedPart.approvalPause === true) {
+          completedPart.approvalResumeCandidate = true;
+        }
+        delete completedPart.approvalPauseCandidate;
+      }
       return { action: "continue" };
     }
     if (typeof window !== "undefined") {
@@ -1882,6 +1939,7 @@ export function processEvent(
         content,
         approvalTool,
         ev.toolCallId ?? ev.id,
+        ev.input,
       );
       if (idx >= 0) {
         const part = content[idx];
@@ -1893,6 +1951,8 @@ export function processEvent(
               ? { allowPersistentApproval: false }
               : {}),
           };
+          part.approvalPauseCandidate = true;
+          delete part.approvalResumeCandidate;
         }
       }
     }
@@ -1907,8 +1967,32 @@ export function processEvent(
     // so a tool_done frame with an undefined tool name still matches its
     // pending tool-call entry instead of leaving it forever unresolved.
     const doneTool = ev.tool ?? "unknown";
-    if (findCompletedToolCallIndex(content, ev.id) >= 0) {
-      return { action: "continue" };
+    const completedIndex = findCompletedToolCallIndex(content, ev.id);
+    let approvedResumeIndex = -1;
+    if (completedIndex >= 0) {
+      const completedPart = content[completedIndex];
+      if (completedPart?.type !== "tool-call") {
+        return { action: "continue" };
+      }
+      const legacyApprovalPause =
+        ev.approvalPause === undefined &&
+        completedPart.approvalPauseCandidate === true;
+      const renewedApprovalPause =
+        ev.approvalPause === true &&
+        completedPart.approvalPause === true &&
+        completedPart.approvalPauseCandidate === true;
+      if (
+        (ev.approvalPause === true && completedPart.approvalPause !== true) ||
+        legacyApprovalPause ||
+        renewedApprovalPause ||
+        (completedPart.approvalPause === true &&
+          completedPart.approvalResumeCandidate === true &&
+          ev.approvalPause !== true)
+      ) {
+        approvedResumeIndex = completedIndex;
+      } else {
+        return { action: "continue" };
+      }
     }
     emitFirstPartyOpenAppHandoff(ev);
     if (typeof window !== "undefined") {
@@ -1931,11 +2015,25 @@ export function processEvent(
     dispatchActivityClear(tabId);
     // Use id-based lookup when available so parallel same-name tool calls
     // get their results correctly assigned; fall back to name-matching.
-    const doneIdx = findPendingToolCallIndex(content, doneTool, ev.id);
+    const doneIdx =
+      approvedResumeIndex >= 0
+        ? approvedResumeIndex
+        : findPendingToolCallIndex(content, doneTool, ev.id);
     if (doneIdx >= 0) {
       const part = content[doneIdx];
       if (part.type === "tool-call") {
         part.result = ev.result ?? "";
+        const legacyApprovalPause =
+          ev.approvalPause === undefined &&
+          part.approvalPauseCandidate === true;
+        if (ev.approvalPause === true || legacyApprovalPause) {
+          part.approvalPause = true;
+        } else {
+          delete part.approvalPause;
+          delete part.approval;
+        }
+        delete part.approvalPauseCandidate;
+        delete part.approvalResumeCandidate;
         if (ev.isError !== undefined) part.isError = ev.isError;
         if (ev.completedSideEffect !== undefined) {
           part.completedSideEffect = ev.completedSideEffect;
@@ -2194,10 +2292,7 @@ export function processEvent(
 
   if (ev.type === "error") {
     const errMsg = ev.error ?? "Unknown error";
-    if (
-      (ev.errorCode === "run_timeout" && ev.recoverable) ||
-      isAutoRecoverableError(ev, errMsg)
-    ) {
+    if (isAutoRecoverableError(ev, errMsg)) {
       const normalized = normalizeChatError(errMsg, ev.errorCode);
       return {
         action: "auto_continue",

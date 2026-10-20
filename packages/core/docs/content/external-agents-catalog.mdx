@@ -236,6 +236,25 @@ from the request origin, so deployments should not hard-code a production
 
 Once an agent is connected, it sees the [compact catalog](#catalog-tiers) by default: template-declared app actions plus the builtin cross-app verbs (`list_apps`, `open_app`, `ask_app`, and the app-only embed helper). Use `ask_app` to route a natural-language task through an app agent (the same cross-app entry point [A2A](/docs/a2a-protocol) uses).
 
+### Tool annotations {#tool-annotations}
+
+Every catalog advertises an action's declared `mcpAnnotations`, including the
+optional `idempotentHint`. Declare them wherever the derived hints would
+misstate the effect: moving an item to recoverable Trash still removes it from
+view, so it is `destructiveHint: true`, and a call guarded by an idempotency
+key is `idempotentHint: true`. Without a declaration, `/mcp` derives
+`readOnlyHint` from `readOnly` and `destructiveHint` from `needsApproval` or
+`publicAgent.isConsequential`.
+
+```ts
+mcpAnnotations: {
+  readOnlyHint: false,
+  destructiveHint: true,
+  idempotentHint: true,
+  openWorldHint: false,
+},
+```
+
 ### MCP Apps compatibility {#mcp-apps-compatibility}
 
 Agent-Native apps also speak the official MCP Apps extension. When any action

@@ -241,6 +241,47 @@ describe("getRuntimeSkills", () => {
       .sort();
     expect(names).toEqual(["b", "r"]);
   });
+
+  it.each([
+    "templates/analytics",
+    "templates/assets",
+    "templates/brain",
+    "templates/calendar",
+    "templates/chat",
+    "templates/clips",
+    "templates/content",
+    "templates/crm",
+    "templates/design",
+    "templates/dispatch",
+    "templates/factory",
+    "templates/forms",
+    "templates/mail",
+    "templates/plan",
+    "templates/slides",
+    "templates/tasks",
+    "packages/core/src/templates/chat",
+    "packages/core/src/templates/default",
+    "packages/core/src/templates/factory",
+    "packages/core/src/templates/headless",
+    "packages/core/src/templates/workspace-core",
+    "packages/core/src/templates/workspace-root",
+  ])("keeps implementation guidance out of runtime skills for %s", (root) => {
+    const implementationSkills = [
+      "delegate-to-agent",
+      "performance",
+      "reliable-mutations",
+      "secrets",
+      "security",
+      "shadcn-ui",
+    ];
+    const runtimeNames = getRuntimeSkills(
+      readAgentsBundleFromFs(repoPath(root)),
+    ).map((item) => item.meta.name);
+
+    expect(runtimeNames).not.toEqual(
+      expect.arrayContaining(implementationSkills),
+    );
+  });
 });
 
 describe("getDevelopmentSkills", () => {
@@ -268,7 +309,7 @@ describe("generateSkillsPromptBlock scope filtering", () => {
     expect(block).not.toContain("dev-one");
     expect(block).toContain("[skill-runtime-one]");
     expect(block).toContain('docs-search --slug "<slug>"');
-    expect(block).toContain("reuse it for subsequent steps");
+    expect(block).toContain("once per conversation and reuse it");
     expect(block).not.toContain('bash(command="cat <skill-dir>/SKILL.md")');
   });
 
@@ -657,40 +698,33 @@ describe("readAgentsBundleFromFs", () => {
     expect(promptBlock).toContain("[skill-visual-edit]");
   });
 
-  it("exposes workflow packaging skills to the app runtime skill picker", () => {
+  it("exposes build-an-app to the Chat runtime skill picker", () => {
     const bundle = readAgentsBundleFromFs(repoPath("templates", "chat"));
     const runtimeSkills = getRuntimeSkills(bundle);
 
-    for (const name of ["turn-into-app", "turn-into-skill"]) {
-      const skill = runtimeSkills.find(
-        (candidate) => candidate.meta.name === name,
-      );
-      expect(skill, `expected runtime skill ${name}`).toBeDefined();
-      expect(skill!.meta.scope).toBe("both");
-      expect(skill!.meta.description).toContain("Use when");
-    }
-
-    const turnIntoApp = runtimeSkills.find(
-      (candidate) => candidate.meta.name === "turn-into-app",
+    const skill = runtimeSkills.find(
+      (candidate) => candidate.meta.name === "build-an-app",
     );
-    expect(turnIntoApp!.content).toContain(
-      "A fresh Claude or ChatGPT Project is a valid source",
-    );
-    expect(turnIntoApp!.content).toContain(
-      "MCP connector does not read hidden",
-    );
-    expect(turnIntoApp!.content).toContain("Spreadsheet sources");
-    expect(turnIntoApp!.content).toContain(
-      "A Google Sheets URL is not proof the sheet is readable",
-    );
-    expect(turnIntoApp!.content).toContain("Never use a public export URL");
-    expect(turnIntoApp!.extraFiles).toContain("references/fresh-project.md");
-    expect(turnIntoApp!.extraFiles).toContain(
-      "references/spreadsheet-source.md",
-    );
+    expect(skill, "expected runtime skill build-an-app").toBeDefined();
+    expect(skill!.meta.scope).toBe("both");
+    expect(skill!.meta.description).toContain("Use when");
 
     const promptBlock = generateSkillsPromptBlock(bundle);
-    expect(promptBlock).toContain("`turn-into-app`");
-    expect(promptBlock).toContain("`turn-into-skill`");
+    expect(promptBlock).not.toContain("`turn-into-app`");
+    expect(promptBlock).not.toContain("`turn-into-skill`");
+    expect(promptBlock).toContain("`build-an-app`");
+  });
+
+  it("keeps app-creation skills in Dispatch and Factory", () => {
+    for (const template of ["dispatch", "factory"]) {
+      const bundle = readAgentsBundleFromFs(repoPath("templates", template));
+      const runtimeSkills = getRuntimeSkills(bundle);
+
+      expect(
+        runtimeSkills.some(
+          (candidate) => candidate.meta.name === "turn-into-app",
+        ),
+      ).toBe(true);
+    }
   });
 });

@@ -4,6 +4,7 @@ import {
   exceedsPlanBlockDepth,
   migratePlanContent,
   planContentSchema,
+  storedPlanContentSchema,
   type PlanArtboard,
   type PlanAnnotation,
   type PlanBlock,
@@ -44,7 +45,7 @@ export function parsePlanContent(value: unknown): PlanContent | null {
   if (!parsedValue) return null;
   try {
     const migrated = migratePlanContent(parsedValue);
-    const result = planContentSchema.safeParse(
+    const result = storedPlanContentSchema.safeParse(
       preSanitizePlanContentInput(migrated),
     );
     if (result.success) return result.data;
@@ -59,7 +60,10 @@ export function parsePlanContent(value: unknown): PlanContent | null {
   }
 }
 
-function parsePlanContentWithSalvage(migrated: unknown): PlanContent | null {
+function parsePlanContentWithSalvage(
+  migrated: unknown,
+  schema: typeof storedPlanContentSchema = storedPlanContentSchema,
+): PlanContent | null {
   if (!migrated || typeof migrated !== "object") return null;
   const raw = migrated as Record<string, unknown>;
 
@@ -68,7 +72,7 @@ function parsePlanContentWithSalvage(migrated: unknown): PlanContent | null {
     return null;
   }
 
-  const envelopeResult = planContentSchema.safeParse(
+  const envelopeResult = schema.safeParse(
     preSanitizePlanContentInput({ ...raw, blocks: [] }),
   );
   const envelope = envelopeResult.success
@@ -93,7 +97,7 @@ function parsePlanContentWithSalvage(migrated: unknown): PlanContent | null {
   const salvaged: PlanBlock[] = rawBlocks
     .slice(0, 200)
     .map((rawBlock: unknown) => {
-      const singleResult = planContentSchema.safeParse(
+      const singleResult = schema.safeParse(
         preSanitizePlanContentInput({ ...raw, blocks: [rawBlock] }),
       );
       if (singleResult.success && singleResult.data.blocks[0]) {
@@ -175,31 +179,90 @@ function validationHintForIssues(issues: unknown[], originalType: string) {
 }
 
 export function serializePlanContent(content: PlanContentInput): string {
-  return JSON.stringify(
-    sanitizePlanContent(
-      planContentSchema.parse(preSanitizePlanContentInput(content)),
-    ),
-  );
+  const parsed = normalizeStoredPlanContent(omitEmptyLegacyDefaults(content));
+  return JSON.stringify(omitEmptyLegacyDefaults(parsed));
+}
+
+// Reapply read-time defaults without relaxing validation for explicitly empty data.
+function omitEmptyLegacyDefaults(content: PlanContentInput): PlanContentInput {
+  const cloned = cloneJson(content) as Record<string, unknown>;
+  const omitFromBlocks = (blocks: unknown) => {
+    if (!Array.isArray(blocks)) return;
+    for (const block of blocks) {
+      if (!block || typeof block !== "object") continue;
+      const record = block as Record<string, unknown>;
+      const data = record.data as Record<string, unknown> | undefined;
+      if (!data) continue;
+
+      if (
+        (record.type === "question-form" ||
+          record.type === "visual-questions") &&
+        Array.isArray(data.questions) &&
+        data.questions.length === 0
+      ) {
+        delete data.questions;
+      }
+      if (record.type === "tabs" && Array.isArray(data.tabs)) {
+        if (data.tabs.length === 0) {
+          delete data.tabs;
+        } else {
+          for (const tab of data.tabs) {
+            if (tab && typeof tab === "object") {
+              omitFromBlocks((tab as Record<string, unknown>).blocks);
+            }
+          }
+        }
+      }
+      if (
+        record.type === "data-model" &&
+        Array.isArray(data.entities) &&
+        data.entities.length === 0
+      ) {
+        delete data.entities;
+      }
+      if (record.type === "columns" && Array.isArray(data.columns)) {
+        for (const column of data.columns) {
+          if (column && typeof column === "object") {
+            omitFromBlocks((column as Record<string, unknown>).blocks);
+          }
+        }
+      }
+    }
+  };
+
+  omitFromBlocks(cloned.blocks);
+  return cloned as PlanContentInput;
 }
 
 export function normalizePlanContent(
   content: PlanContentInput | undefined,
-  options: { salvageInvalidBlocks?: boolean } = {},
+  options: {
+    allowStoredLegacyDefaults?: boolean;
+    salvageInvalidBlocks?: boolean;
+  } = {},
 ): PlanContent | null {
   if (!content) return null;
   const migrated = migratePlanContent(content);
+  const schema = options.allowStoredLegacyDefaults
+    ? storedPlanContentSchema
+    : planContentSchema;
   if (options.salvageInvalidBlocks) {
-    const result = planContentSchema.safeParse(
-      preSanitizePlanContentInput(migrated),
-    );
+    const result = schema.safeParse(preSanitizePlanContentInput(migrated));
     if (result.success) return sanitizePlanContent(result.data);
     console.warn(
       "[plan-content] recap import: full parse failed; salvaging per-block so the rest publishes:",
       result.error.issues.slice(0, 4),
     );
-    return parsePlanContentWithSalvage(migrated);
+    return parsePlanContentWithSalvage(migrated, schema);
   }
-  return sanitizePlanContent(planContentSchema.parse(migrated));
+  return sanitizePlanContent(schema.parse(migrated));
+}
+
+export function normalizeStoredPlanContent(content: unknown): PlanContent {
+  const migrated = migratePlanContent(content);
+  return sanitizePlanContent(
+    storedPlanContentSchema.parse(preSanitizePlanContentInput(migrated)),
+  );
 }
 
 export function normalizePlanDesignContent(

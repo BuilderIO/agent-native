@@ -67,6 +67,11 @@ function assertSafeCredentialRefKey(key: string) {
 }
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   description:
     "Apply a planned workspace integration setup or repair using credential reference names only.",
   chatUI: {
@@ -86,8 +91,14 @@ export default defineAction({
     accountId: z.string().nullable().optional(),
     accountLabel: z.string().nullable().optional(),
     status: statusSchema.default("connected"),
-    scopes: z.array(z.string()).default([]),
+    scopes: z.array(z.string()).optional(),
     credentialRefs: z.array(credentialRefSchema).default([]),
+    config: z
+      .record(z.string(), z.unknown())
+      .optional()
+      .describe(
+        "Non-secret provider configuration fields from the setup plan.",
+      ),
     grantMode: z.enum(["all-apps", "selected-apps"]).default("selected-apps"),
     selectedApps: z.array(z.string()).default([]),
     userGrantMode: z
@@ -107,6 +118,10 @@ export default defineAction({
       .optional()
       .describe("Workspace user group IDs allowed to use the connection."),
   }),
+  // It creates, changes, or revokes a credential or who may use one: every
+  // call needs the user's approval, and "always allow" is not offered.
+  needsApproval: true,
+  allowPersistentApproval: false,
   run: async (args, ctx) => {
     const provider = getWorkspaceConnectionProvider(args.provider);
     if (!provider) {
@@ -210,7 +225,9 @@ export default defineAction({
         accountId: args.accountId?.trim() || null,
         accountLabel: args.accountLabel?.trim() || null,
         status: args.status,
-        scopes: uniqueStrings(args.scopes),
+        scopes:
+          args.scopes === undefined ? undefined : uniqueStrings(args.scopes),
+        config: args.config,
         credentialRefs,
         allowedApps,
         allowedUsers: validatedAllowedUsers,

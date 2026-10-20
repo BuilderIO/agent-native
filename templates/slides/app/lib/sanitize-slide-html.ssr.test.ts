@@ -153,4 +153,52 @@ describe("sanitizeSlideHtml regex fallback, verified against the SSR path", () =
     expect(html).toContain("Growth");
     expect(html).toContain("<li>One</li>");
   });
+
+  it("preserves video sources and removes unsafe source URLs", () => {
+    const html = sanitizeSlideHtml(
+      '<video controls><source src="https://media.example.com/clip.mp4" type="video/mp4"><source src="javascript:alert(1)" type="video/webm"><source src="data:video/webm;base64,AQID" type="video/webm"></video>',
+    );
+
+    expect(html).toContain('src="https://media.example.com/clip.mp4"');
+    expect(html).not.toContain("javascript:");
+    expect(html).not.toContain("data:video");
+  });
+
+  it("does not remove false-looking text inside quoted video attributes", () => {
+    const html = sanitizeSlideHtml(
+      `<video aria-label='Use autoplay="false" literally' title="Keep loop='false' as text" controls="false" muted='false'></video>`,
+    );
+
+    expect(html).toContain(`aria-label='Use autoplay="false" literally'`);
+    expect(html).toContain(`title="Keep loop='false' as text"`);
+    expect(html).not.toContain('controls="false"');
+    expect(html).not.toContain("muted='false'");
+  });
+
+  it("keeps video tag matching through greater-than signs in quoted values", () => {
+    const html = sanitizeSlideHtml(
+      '<video title="Use > as text" autoplay="false" controls="false"></video>',
+    );
+
+    expect(html).toContain('title="Use > as text"');
+    expect(html).not.toContain('autoplay="false"');
+    expect(html).not.toContain('controls="false"');
+    expect(html).not.toContain("muted");
+  });
+
+  it("gates blob videos and keeps autoplay disabled in thumbnails", () => {
+    const input = '<video src="blob:preview" autoplay></video>';
+    expect(sanitizeSlideHtml(input)).not.toContain("blob:preview");
+
+    const thumbnail = sanitizeSlideHtml(input, {
+      allowBlobVideos: true,
+      disableVideoAutoplay: true,
+    });
+    expect(thumbnail).toContain('src="blob:preview"');
+    expect(thumbnail).not.toMatch(/\sautoplay(?:="")?/);
+    expect(thumbnail).toContain('data-video-autoplay="true"');
+    expect(thumbnail).toContain("muted");
+    expect(thumbnail).toContain("playsinline");
+    expect(sanitizeSlideHtml(thumbnail)).toContain("autoplay");
+  });
 });

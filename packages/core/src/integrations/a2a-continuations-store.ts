@@ -1,18 +1,58 @@
 import type { A2AArtifactIdentity } from "../a2a/artifact-response.js";
+import {
+  A2APersistencePayloadError,
+  assertA2APersistablePayload,
+} from "../a2a/persistence-safety.js";
 import { getDbExec } from "../db/client.js";
 import {
   ensureTableExists,
   ensureColumnExists,
   ensureIndexExists,
 } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 import type { IncomingMessage, PlatformRunProgressRef } from "./types.js";
 
-let _initPromise: Promise<void> | undefined;
 const PROCESSING_STUCK_AFTER_MS = 5 * 60 * 1000;
 const PROCESSING_NEXT_CHECK_STALE_AFTER_MS = 60 * 1000;
 const TERMINAL_HISTORY_FINALIZATION_LEASE_MS = 60 * 1000;
 const MAX_VERIFIED_ARTIFACT_CHECKPOINT_CHARS = 16_000;
 const MAX_TERMINAL_HISTORY_PAYLOAD_CHARS = 64_000;
+const MAX_TERMINAL_HISTORY_TEXT_CHARS = 32_000;
+const MAX_TERMINAL_HISTORY_MESSAGE_REFS = 32;
+const MAX_TERMINAL_HISTORY_ARTIFACTS = 16;
+const MAX_TERMINAL_HISTORY_FIELD_CHARS = 256;
+const MAX_CONTINUATION_ERROR_CHARS = 2_000;
+const TERMINAL_HISTORY_OMISSION_NOTE =
+  "Delivered output omitted from retained history because it exceeded storage limits or contained inline file data.";
+const CONTINUATION_ERROR_OMISSION_NOTE =
+  "Continuation failure details omitted because they contained inline file data.";
+
+type PersistabilityCheck =
+  | { safe: true }
+  | { safe: false; reason: "inline_file_bytes" | "invalid_payload" };
+
+type BoundedStringResult =
+  | { kind: "value"; value: string }
+  | { kind: "absent" }
+  | { kind: "omitted"; reason: "inline_file_bytes" | "invalid_payload" };
+
+function checkA2APersistability(
+  value: unknown,
+  label: string,
+): PersistabilityCheck {
+  try {
+    assertA2APersistablePayload(value, label);
+    return { safe: true };
+  } catch (error) {
+    return {
+      safe: false,
+      reason:
+        error instanceof A2APersistencePayloadError
+          ? "inline_file_bytes"
+          : "invalid_payload",
+    };
+  }
+}
 
 function buildCreateSql(): string {
   return `
@@ -47,84 +87,100 @@ function buildCreateSql(): string {
 `;
 }
 
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const client = getDbExec();
-      const createSql = buildCreateSql();
-      await ensureTableExists("integration_a2a_continuations", createSql);
-      await ensureIndexExists(
-        "idx_a2a_continuations_status_next",
-        `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_status_next ON integration_a2a_continuations(status, next_check_at)`,
-      );
-      await ensureIndexExists(
-        "idx_a2a_continuations_integration_task",
-        `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_integration_task ON integration_a2a_continuations(integration_task_id)`,
-      );
-      await ensureIndexExists(
-        "idx_a2a_continuations_remote_task",
-        `CREATE UNIQUE INDEX IF NOT EXISTS idx_a2a_continuations_remote_task ON integration_a2a_continuations(integration_task_id, agent_url, a2a_task_id)`,
-      );
-      await ensureColumnExists(
-        "integration_a2a_continuations",
-        "a2a_auth_token",
-        `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS a2a_auth_token TEXT`,
-      );
-      await ensureColumnExists(
-        "integration_a2a_continuations",
-        "dedupe_key",
-        `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS dedupe_key TEXT`,
-      );
-      await ensureColumnExists(
-        "integration_a2a_continuations",
-        "progress_ref",
-        `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS progress_ref TEXT`,
-      );
-      await ensureColumnExists(
-        "integration_a2a_continuations",
-        "progress_ref_claimed",
-        `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS progress_ref_claimed BIGINT NOT NULL DEFAULT 0`,
-      );
-      await ensureColumnExists(
-        "integration_a2a_continuations",
-        "verified_artifact_checkpoint",
-        `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS verified_artifact_checkpoint TEXT`,
-      );
-      await ensureColumnExists(
-        "integration_a2a_continuations",
-        "terminal_delivery_kind",
-        `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS terminal_delivery_kind TEXT`,
-      );
-      await ensureColumnExists(
-        "integration_a2a_continuations",
-        "terminal_delivery_confirmed_at",
-        `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS terminal_delivery_confirmed_at BIGINT`,
-      );
-      await ensureColumnExists(
-        "integration_a2a_continuations",
-        "terminal_history_payload",
-        `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS terminal_history_payload TEXT`,
-      );
-      await backfillLegacyCompletedDeliveries(client);
-      await backfillProgressRefOwners(client);
-      await ensureIndexExists(
-        "idx_a2a_continuations_dedupe_key",
-        `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_dedupe_key ON integration_a2a_continuations(integration_task_id, agent_url, dedupe_key)`,
-      );
-      await ensureIndexExists(
-        "idx_a2a_continuations_one_progress_owner",
-        `CREATE UNIQUE INDEX IF NOT EXISTS idx_a2a_continuations_one_progress_owner ON integration_a2a_continuations(integration_task_id) WHERE progress_ref_claimed = 1`,
-      );
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+export const a2aContinuationsStore = defineStore({
+  id: "a2a_continuations",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = buildCreateSql();
+        await ensureTableExists("integration_a2a_continuations", createSql);
+        await ensureIndexExists(
+          "idx_a2a_continuations_status_next",
+          `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_status_next ON integration_a2a_continuations(status, next_check_at)`,
+        );
+        await ensureIndexExists(
+          "idx_a2a_continuations_integration_task",
+          `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_integration_task ON integration_a2a_continuations(integration_task_id)`,
+        );
+        await ensureIndexExists(
+          "idx_a2a_continuations_remote_task",
+          `CREATE UNIQUE INDEX IF NOT EXISTS idx_a2a_continuations_remote_task ON integration_a2a_continuations(integration_task_id, agent_url, a2a_task_id)`,
+        );
+        await ensureColumnExists(
+          "integration_a2a_continuations",
+          "a2a_auth_token",
+          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS a2a_auth_token TEXT`,
+        );
+        await ensureColumnExists(
+          "integration_a2a_continuations",
+          "dedupe_key",
+          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS dedupe_key TEXT`,
+        );
+        await ensureColumnExists(
+          "integration_a2a_continuations",
+          "progress_ref",
+          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS progress_ref TEXT`,
+        );
+        await ensureColumnExists(
+          "integration_a2a_continuations",
+          "progress_ref_claimed",
+          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS progress_ref_claimed BIGINT NOT NULL DEFAULT 0`,
+        );
+        await ensureColumnExists(
+          "integration_a2a_continuations",
+          "verified_artifact_checkpoint",
+          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS verified_artifact_checkpoint TEXT`,
+        );
+        await ensureColumnExists(
+          "integration_a2a_continuations",
+          "terminal_delivery_kind",
+          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS terminal_delivery_kind TEXT`,
+        );
+        await ensureColumnExists(
+          "integration_a2a_continuations",
+          "terminal_delivery_confirmed_at",
+          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS terminal_delivery_confirmed_at BIGINT`,
+        );
+        await ensureColumnExists(
+          "integration_a2a_continuations",
+          "terminal_history_payload",
+          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS terminal_history_payload TEXT`,
+        );
+      },
+    },
+    {
+      name: "backfill-legacy-completed-deliveries",
+      kind: "data",
+      run: backfillLegacyCompletedDeliveries,
+    },
+    {
+      name: "backfill-progress-ref-owners",
+      kind: "data",
+      run: backfillProgressRefOwners,
+    },
+    {
+      name: "indexes-after-backfill",
+      run: async () => {
+        await ensureIndexExists(
+          "idx_a2a_continuations_dedupe_key",
+          `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_dedupe_key ON integration_a2a_continuations(integration_task_id, agent_url, dedupe_key)`,
+        );
+        await ensureIndexExists(
+          "idx_a2a_continuations_one_progress_owner",
+          `CREATE UNIQUE INDEX IF NOT EXISTS idx_a2a_continuations_one_progress_owner ON integration_a2a_continuations(integration_task_id) WHERE progress_ref_claimed = 1`,
+        );
+      },
+    },
+  ],
+});
+
+export function ensureTable(): Promise<void> {
+  return a2aContinuationsStore.ready();
 }
 
-export async function ensureA2AContinuationsTable(): Promise<void> {
-  await ensureTable();
+export function ensureA2AContinuationsTable(): Promise<void> {
+  return a2aContinuationsStore.ready();
 }
 
 async function backfillProgressRefOwners(
@@ -329,6 +385,122 @@ function parseTerminalHistoryPayload(
   }
 }
 
+function sanitizeTerminalHistoryText(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const check = checkA2APersistability(value, "A2A terminal history text");
+  if (!check.safe) {
+    return TERMINAL_HISTORY_OMISSION_NOTE;
+  }
+  if (value.length <= MAX_TERMINAL_HISTORY_TEXT_CHARS) return value;
+  const marker = "\n[truncated]";
+  return `${value.slice(0, MAX_TERMINAL_HISTORY_TEXT_CHARS - marker.length)}${marker}`;
+}
+
+function boundedPersistableString(
+  value: unknown,
+  maxChars: number,
+): BoundedStringResult {
+  if (typeof value !== "string") return { kind: "absent" };
+  const check = checkA2APersistability(value, "A2A terminal history field");
+  if (!check.safe) {
+    return { kind: "omitted", reason: check.reason };
+  }
+  return { kind: "value", value: value.slice(0, maxChars) };
+}
+
+function sanitizeTerminalHistoryPayload(
+  input: A2ATerminalHistoryPayload,
+): A2ATerminalHistoryPayload {
+  const deliveredAtResult = boundedPersistableString(input?.deliveredAt, 128);
+  const deliveredAt =
+    deliveredAtResult.kind === "value"
+      ? deliveredAtResult.value
+      : new Date().toISOString();
+  const messageRefs = Array.isArray(input?.messageRefs)
+    ? input.messageRefs
+        .slice(0, MAX_TERMINAL_HISTORY_MESSAGE_REFS)
+        .flatMap((ref) => {
+          const safe = boundedPersistableString(
+            ref,
+            MAX_TERMINAL_HISTORY_FIELD_CHARS,
+          );
+          return safe.kind === "value" ? [safe.value] : [];
+        })
+    : [];
+  const artifacts = Array.isArray(input?.artifacts)
+    ? input.artifacts
+        .slice(0, MAX_TERMINAL_HISTORY_ARTIFACTS)
+        .flatMap((artifact): A2AArtifactIdentity[] => {
+          if (!artifact || typeof artifact !== "object") return [];
+          const artifactCheck = checkA2APersistability(
+            artifact,
+            "A2A terminal history artifact",
+          );
+          if (!artifactCheck.safe) {
+            return [];
+          }
+          const candidate = artifact as A2AArtifactIdentity;
+          const id = boundedPersistableString(
+            candidate.id,
+            MAX_TERMINAL_HISTORY_FIELD_CHARS,
+          );
+          const sourceAction = boundedPersistableString(
+            candidate.sourceAction,
+            MAX_TERMINAL_HISTORY_FIELD_CHARS,
+          );
+          const resourceType = boundedPersistableString(
+            candidate.resourceType,
+            MAX_TERMINAL_HISTORY_FIELD_CHARS,
+          );
+          if (
+            id.kind !== "value" ||
+            sourceAction.kind !== "value" ||
+            resourceType.kind !== "value"
+          ) {
+            return [];
+          }
+          const safe: A2AArtifactIdentity = {
+            id: id.value,
+            resourceType:
+              resourceType.value as A2AArtifactIdentity["resourceType"],
+            sourceAction: sourceAction.value,
+          };
+          if (candidate.titleAtAction != null) {
+            const titleAtAction = boundedPersistableString(
+              candidate.titleAtAction,
+              MAX_TERMINAL_HISTORY_FIELD_CHARS,
+            );
+            if (titleAtAction.kind !== "value") return [];
+            safe.titleAtAction = titleAtAction.value;
+          }
+          if (candidate.url != null) {
+            const url = boundedPersistableString(
+              candidate.url,
+              MAX_TERMINAL_HISTORY_FIELD_CHARS,
+            );
+            if (url.kind !== "value") return [];
+            safe.url = url.value;
+          }
+          return [safe];
+        })
+    : [];
+  let payload: A2ATerminalHistoryPayload = {
+    text: sanitizeTerminalHistoryText(input?.text),
+    deliveredAt,
+    messageRefs,
+    artifacts,
+  };
+  if (JSON.stringify(payload).length > MAX_TERMINAL_HISTORY_PAYLOAD_CHARS) {
+    payload = {
+      text: TERMINAL_HISTORY_OMISSION_NOTE,
+      deliveredAt,
+      messageRefs: [],
+      artifacts: [],
+    };
+  }
+  return payload;
+}
+
 export async function insertA2AContinuation(input: {
   integrationTaskId: string;
   platform: string;
@@ -344,6 +516,7 @@ export async function insertA2AContinuation(input: {
   a2aTaskId: string;
   a2aAuthToken?: string | null;
 }): Promise<A2AContinuation> {
+  assertA2APersistablePayload(input.incoming, "A2A incoming message");
   await ensureTable();
   const client = getDbExec();
   const now = Date.now();
@@ -532,6 +705,7 @@ export async function failA2AContinuationsForIntegrationTask(
   integrationTaskId: string,
   errorMessage: string,
 ): Promise<void> {
+  const safeErrorMessage = safeContinuationFailureMessage(errorMessage);
   await ensureTable();
   const now = Date.now();
   await getDbExec().execute({
@@ -541,7 +715,7 @@ export async function failA2AContinuationsForIntegrationTask(
           WHERE integration_task_id = ?
             AND status IN ('pending', 'processing', 'delivering')
             AND terminal_delivery_confirmed_at IS NULL`,
-    args: [errorMessage.slice(0, 2000), now, now, integrationTaskId],
+    args: [safeErrorMessage, now, now, integrationTaskId],
   });
 }
 
@@ -871,6 +1045,7 @@ export async function saveA2AVerifiedArtifactCheckpoint(
   await ensureTable();
   const normalized = checkpoint.trim();
   if (!normalized) return null;
+  assertA2APersistablePayload(normalized, "A2A artifact checkpoint");
   if (normalized.length > MAX_VERIFIED_ARTIFACT_CHECKPOINT_CHARS) {
     throw new Error(
       `Verified artifact checkpoint exceeds ${MAX_VERIFIED_ARTIFACT_CHECKPOINT_CHARS} characters`,
@@ -895,13 +1070,19 @@ export async function recordA2ATerminalDeliveryReceipt(
   historyPayload: A2ATerminalHistoryPayload,
   errorMessage?: string,
 ): Promise<A2AContinuation> {
-  await ensureTable();
-  const serializedPayload = JSON.stringify(historyPayload);
-  if (serializedPayload.length > MAX_TERMINAL_HISTORY_PAYLOAD_CHARS) {
-    throw new Error(
-      `Terminal A2A history payload exceeds ${MAX_TERMINAL_HISTORY_PAYLOAD_CHARS} characters`,
+  const safeHistoryPayload = sanitizeTerminalHistoryPayload(historyPayload);
+  let safeErrorMessage = errorMessage?.slice(0, 2000) ?? null;
+  if (safeErrorMessage) {
+    const errorCheck = checkA2APersistability(
+      safeErrorMessage,
+      "A2A terminal error",
     );
+    if (!errorCheck.safe) {
+      safeErrorMessage = "The remote agent reported a delivery failure.";
+    }
   }
+  await ensureTable();
+  const serializedPayload = JSON.stringify(safeHistoryPayload);
   const now = Date.now();
   await getDbExec().execute({
     sql: `UPDATE integration_a2a_continuations
@@ -919,7 +1100,7 @@ export async function recordA2ATerminalDeliveryReceipt(
       serializedPayload,
       now + TERMINAL_HISTORY_FINALIZATION_LEASE_MS,
       now,
-      errorMessage?.slice(0, 2000) ?? null,
+      safeErrorMessage,
       id,
       kind,
     ],
@@ -996,6 +1177,7 @@ export async function failA2AContinuation(
   id: string,
   errorMessage: string,
 ): Promise<void> {
+  const safeErrorMessage = safeContinuationFailureMessage(errorMessage);
   await ensureTable();
   const client = getDbExec();
   const now = Date.now();
@@ -1005,6 +1187,16 @@ export async function failA2AContinuation(
               incoming_payload = ?, a2a_auth_token = NULL, progress_ref = NULL,
               verified_artifact_checkpoint = NULL
           WHERE id = ? AND status <> 'completed'`,
-    args: ["failed", now, errorMessage.slice(0, 2000), "{}", id],
+    args: ["failed", now, safeErrorMessage, "{}", id],
   });
+}
+
+function safeContinuationFailureMessage(errorMessage: string): string {
+  const bounded = errorMessage.slice(0, MAX_CONTINUATION_ERROR_CHARS);
+  try {
+    assertA2APersistablePayload(bounded, "A2A continuation failure");
+    return bounded;
+  } catch {
+    return CONTINUATION_ERROR_OMISSION_NOTE;
+  }
 }

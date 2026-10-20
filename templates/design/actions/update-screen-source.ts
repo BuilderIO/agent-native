@@ -406,7 +406,9 @@ export default defineAction({
               nextData: next,
             })
           : Promise.resolve(null),
-      afterCommit: (blobHandle) => deleteVisualEditSnapshotBlobs([blobHandle]),
+      afterCommit: async (blobHandle) => {
+        await deleteVisualEditSnapshotBlobs([blobHandle]);
+      },
       lockSourceMutation: true,
     });
 

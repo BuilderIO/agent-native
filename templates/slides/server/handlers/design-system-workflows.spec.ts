@@ -16,6 +16,7 @@ vi.mock("@agent-native/core/server", async () => {
       status === 502 || status === 504 ? 503 : status,
     runWithRequestContext: context.runWithRequestContext,
     getSession: mocks.session,
+    isCredentialMembershipUnavailable: () => false,
     getMcpOAuthBearerSession: async () => null,
     startBuilderDesignSystemUpload: mocks.upload,
     indexBuilderDesignSystem: mocks.index,

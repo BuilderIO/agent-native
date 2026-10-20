@@ -1,5 +1,6 @@
 // i18n-raw-literal-disable-file -- Static Content artwork, not interactive UI.
 import "./ContentLandingMock.css";
+import { AgentMark } from "@agent-native/toolkit/app/shared";
 import {
   IconChevronDown,
   IconClock,
@@ -115,25 +116,27 @@ export function ContentLandingMock({
           </div>
         </nav>
         <main className="content-app-main">
-          <header className="content-app-toolbar">
-            <div className="content-breadcrumb">
-              Projects <span>/</span>{" "}
-              {variant === "track-work-with-agents"
-                ? "Product roadmap"
-                : variant === "collect-project-requests"
-                  ? "Design requests"
-                  : "Q4 launch brief"}
-            </div>
-            <div className="content-toolbar-actions">
-              <span>Edited 2m ago</span>
-              <span>Share</span>
-              <i>JM</i>
-            </div>
-          </header>
+          {variant === undefined ? null : (
+            <header className="content-app-toolbar">
+              <div className="content-breadcrumb">
+                Projects <span>/</span>{" "}
+                {variant === "track-work-with-agents"
+                  ? "Product roadmap"
+                  : variant === "collect-project-requests"
+                    ? "Design requests"
+                    : "Q4 launch brief"}
+              </div>
+              <div className="content-toolbar-actions">
+                <span>Edited 2m ago</span>
+                <span>Share</span>
+                <i>JM</i>
+              </div>
+            </header>
+          )}
           {variant === "track-work-with-agents" ? <TaskWorkspace /> : null}
           {variant === "collect-project-requests" ? <RequestWorkspace /> : null}
           {variant === undefined || variant === "write-and-review-content" ? (
-            <DocumentWorkspace />
+            <DocumentWorkspace hero={variant === undefined} />
           ) : null}
         </main>
         <aside className="content-agent-sidebar">
@@ -150,24 +153,26 @@ export function ContentLandingMock({
   );
 }
 
-function DocumentWorkspace() {
+function DocumentWorkspace({ hero = false }: { hero?: boolean }) {
   return (
     <article className="content-document">
-      <div className="content-doc-toolbar">
-        <span>↶</span>
-        <span>↷</span>
-        <i />
-        <span>Normal text ⌄</span>
-        <span>B</span>
-        <span>
-          <em>I</em>
-        </span>
-        <span>↗</span>
-        <span className="content-doc-toolbar-spacer" />
-        <span className="content-comment-control">
-          Comments <b>2</b>
-        </span>
-      </div>
+      {hero ? null : (
+        <div className="content-doc-toolbar">
+          <span>↶</span>
+          <span>↷</span>
+          <i />
+          <span>Normal text ⌄</span>
+          <span>B</span>
+          <span>
+            <em>I</em>
+          </span>
+          <span>↗</span>
+          <span className="content-doc-toolbar-spacer" />
+          <span className="content-comment-control">
+            Comments <b>2</b>
+          </span>
+        </div>
+      )}
       <div className="content-doc-layout">
         <div className="content-doc-body">
           <div className="content-doc-cover">
@@ -177,57 +182,47 @@ function DocumentWorkspace() {
             <i />
           </div>
           <div className="content-doc-content">
-            <div className="content-doc-icon">↗</div>
+            <div className="content-doc-icon">
+              <IconFileText size={17} stroke={1.7} />
+            </div>
             <h2>Q4 launch brief</h2>
             <div className="content-doc-byline">
               <span>Jamie Morgan</span>
               <i /> Edited today <i /> 6 min read
             </div>
-            <div className="content-doc-toc">
-              <small>ON THIS PAGE</small>
-              <span>Launch goals</span>
-              <span>What we learned</span>
-              <span>First week rollout</span>
+            <div className="content-doc-grid">
+              <div className="content-doc-copy">
+                <h3>Launch goals</h3>
+                <p>
+                  Help new teams reach their first shared workspace faster. The
+                  invite flow is the first moment where the product starts to
+                  feel collaborative.
+                </p>
+                <blockquote>
+                  Make the next step obvious, especially when a teammate joins
+                  from a link.
+                </blockquote>
+                <h3>What we learned</h3>
+                <p>
+                  Teams with two or more members are{" "}
+                  <mark>18% more likely to complete setup</mark> in their first
+                  session.
+                </p>
+                <div className="content-doc-inline-comment">
+                  <span>2</span>
+                  <p>
+                    <b>Codex · Suggested edit</b>Clarify whether invited
+                    teammates inherit the owner's role.
+                  </p>
+                </div>
+              </div>
+              <nav className="content-doc-toc" aria-label="On this page">
+                <small>ON THIS PAGE</small>
+                <span>Launch goals</span>
+                <span>What we learned</span>
+                <span>First week rollout</span>
+              </nav>
             </div>
-            <h3>Launch goals</h3>
-            <p>
-              Help new teams reach their first shared workspace faster. The
-              invite flow is the first moment where the product starts to feel
-              collaborative.
-            </p>
-            <blockquote>
-              Make the next step obvious, especially when a teammate joins from
-              a link.
-            </blockquote>
-            <h3>What we learned</h3>
-            <p>
-              Teams with two or more members are{" "}
-              <mark>18% more likely to complete setup</mark> in their first
-              session.
-            </p>
-            <div className="content-doc-inline-comment">
-              <span>2</span>
-              <p>
-                <b>Codex · Suggested edit</b>Clarify whether invited teammates
-                inherit the owner's role.
-              </p>
-            </div>
-          </div>
-        </div>
-        <div className="content-doc-outline">
-          <small>DOCUMENT</small>
-          <b>Q4 launch brief</b>
-          <span>Launch goals</span>
-          <span>What we learned</span>
-          <span>First week rollout</span>
-          <div className="content-doc-outline-meta">
-            <small>PAGE DETAILS</small>
-            <span>
-              Owner <b>Jamie</b>
-            </span>
-            <span>
-              Updated <b>Oct 6</b>
-            </span>
           </div>
         </div>
       </div>
@@ -318,7 +313,9 @@ function TaskWorkspace() {
         <div className="content-table-empty">＋ Add a task</div>
       </div>
       <div className="content-database-instruction">
-        <span>✧</span>
+        <span>
+          <AgentMark size={8} />
+        </span>
         <b>Agent instructions</b>
         <p>
           When marking a task complete, add a short result to its page and link

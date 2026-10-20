@@ -3,7 +3,8 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
+import { schema } from "../server/db/index.js";
+import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 import { isSameOriginVisualEditBrowserRequest } from "./visual-edit-browser-request.js";
 
 const MAX_PROMPT_LENGTH = 64 * 1024;
@@ -52,88 +53,93 @@ export default defineAction({
       });
     }
 
-    const access = await assertAccess("design", designId, "editor");
-    const design = access.resource as typeof schema.designs.$inferSelect;
-    const now = new Date().toISOString();
-    const canEditDesign = ["owner", "admin", "editor"].includes(access.role);
-    const canClearOtherPublisher = access.role === "owner";
-    const values = {
-      designId,
-      revision: 1,
-      publisherId,
-      clientRevision: revision,
-      pendingEditCount: pending?.pendingEditCount ?? 0,
-      status: pending?.status ?? ("empty" as const),
-      prompt: pending?.prompt ?? "",
-      updatedAt: now,
-      visibility: design.visibility,
-      ownerEmail: design.ownerEmail,
-      orgId: design.orgId,
-    };
+    return withDesignSourceMutationTransaction(designId, async (tx) => {
+      const access = await assertAccess("design", designId, "editor");
+      const design = access.resource as typeof schema.designs.$inferSelect;
+      const now = new Date().toISOString();
+      const canEditDesign = ["owner", "admin", "editor"].includes(access.role);
+      const canClearOtherPublisher = access.role === "owner";
+      const values = {
+        designId,
+        revision: 1,
+        publisherId,
+        clientRevision: revision,
+        pendingEditCount: pending?.pendingEditCount ?? 0,
+        status: pending?.status ?? ("empty" as const),
+        prompt: pending?.prompt ?? "",
+        updatedAt: now,
+        visibility: design.visibility,
+        ownerEmail: design.ownerEmail,
+        orgId: design.orgId,
+      };
 
-    const samePublisherIsNewer = sql`${schema.designVisualEditPending.publisherId} = excluded.publisher_id AND ${schema.designVisualEditPending.clientRevision} < excluded.client_revision`;
-    const fromNewPublisher = sql`${schema.designVisualEditPending.publisherId} IS DISTINCT FROM excluded.publisher_id`;
-    const fromNewPublisherToReady = sql`(${fromNewPublisher} AND ${schema.designVisualEditPending.status} <> 'ready')`;
-    const updated = await getDb()
-      .insert(schema.designVisualEditPending)
-      .values(values)
-      .onConflictDoUpdate({
-        target: schema.designVisualEditPending.designId,
-        set: {
-          pendingEditCount: values.pendingEditCount,
-          status: values.status,
-          prompt: values.prompt,
-          revision: sql`${schema.designVisualEditPending.revision} + 1`,
-          publisherId: values.publisherId,
-          clientRevision: values.clientRevision,
-          updatedAt: values.updatedAt,
-          visibility: values.visibility,
-          ownerEmail: values.ownerEmail,
-          orgId: values.orgId,
-        },
-        setWhere:
-          pending === null
-            ? sql`(${samePublisherIsNewer} OR ${canClearOtherPublisher ? fromNewPublisher : fromNewPublisherToReady})`
-            : sql`(${samePublisherIsNewer} OR ${fromNewPublisherToReady})`,
-      })
-      .returning({ revision: schema.designVisualEditPending.revision });
-
-    if (!updated.length && (pending !== null || !canEditDesign)) {
-      const [current] = await getDb()
-        .select({
-          status: schema.designVisualEditPending.status,
-          publisherId: schema.designVisualEditPending.publisherId,
-        })
-        .from(schema.designVisualEditPending)
-        .where(eq(schema.designVisualEditPending.designId, designId))
-        .limit(1);
-
-      if (current?.status === "ready" && current.publisherId !== publisherId) {
-        if (pending === null) {
-          return {
-            designId,
-            pendingEditCount: null,
-            status: "stale" as const,
-            revision: null,
-            updatedAt: null,
-          };
-        }
-        fail(
-          "Another collaborator has visual edits waiting to be applied. Apply or clear those edits before publishing new ones.",
-          {
-            errorCode: "visual_edit_pending_conflict",
-            statusCode: 409,
+      const samePublisherIsNewer = sql`${schema.designVisualEditPending.publisherId} = excluded.publisher_id AND ${schema.designVisualEditPending.clientRevision} < excluded.client_revision`;
+      const fromNewPublisher = sql`${schema.designVisualEditPending.publisherId} IS DISTINCT FROM excluded.publisher_id`;
+      const fromNewPublisherToReady = sql`(${fromNewPublisher} AND ${schema.designVisualEditPending.status} <> 'ready')`;
+      const updated = await tx
+        .insert(schema.designVisualEditPending)
+        .values(values)
+        .onConflictDoUpdate({
+          target: schema.designVisualEditPending.designId,
+          set: {
+            pendingEditCount: values.pendingEditCount,
+            status: values.status,
+            prompt: values.prompt,
+            revision: sql`${schema.designVisualEditPending.revision} + 1`,
+            publisherId: values.publisherId,
+            clientRevision: values.clientRevision,
+            updatedAt: values.updatedAt,
+            visibility: values.visibility,
+            ownerEmail: values.ownerEmail,
+            orgId: values.orgId,
           },
-        );
-      }
-    }
+          setWhere:
+            pending === null
+              ? sql`(${samePublisherIsNewer} OR ${canClearOtherPublisher ? fromNewPublisher : fromNewPublisherToReady})`
+              : sql`(${samePublisherIsNewer} OR ${fromNewPublisherToReady})`,
+        })
+        .returning({ revision: schema.designVisualEditPending.revision });
 
-    return {
-      designId,
-      pendingEditCount: updated.length ? values.pendingEditCount : null,
-      status: updated.length ? values.status : "stale",
-      revision: updated[0]?.revision ?? null,
-      updatedAt: updated.length ? now : null,
-    };
+      if (!updated.length && (pending !== null || !canEditDesign)) {
+        const [current] = await tx
+          .select({
+            status: schema.designVisualEditPending.status,
+            publisherId: schema.designVisualEditPending.publisherId,
+          })
+          .from(schema.designVisualEditPending)
+          .where(eq(schema.designVisualEditPending.designId, designId))
+          .limit(1);
+
+        if (
+          current?.status === "ready" &&
+          current.publisherId !== publisherId
+        ) {
+          if (pending === null) {
+            return {
+              designId,
+              pendingEditCount: null,
+              status: "stale" as const,
+              revision: null,
+              updatedAt: null,
+            };
+          }
+          fail(
+            "Another collaborator has visual edits waiting to be applied. Apply or clear those edits before publishing new ones.",
+            {
+              errorCode: "visual_edit_pending_conflict",
+              statusCode: 409,
+            },
+          );
+        }
+      }
+
+      return {
+        designId,
+        pendingEditCount: updated.length ? values.pendingEditCount : null,
+        status: updated.length ? values.status : "stale",
+        revision: updated[0]?.revision ?? null,
+        updatedAt: updated.length ? now : null,
+      };
+    });
   },
 });

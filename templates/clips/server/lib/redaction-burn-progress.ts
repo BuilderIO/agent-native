@@ -5,6 +5,7 @@ interface BurnState {
   percent: number;
   updatedAt: number;
   error?: string;
+  errorCode?: string;
 }
 
 const STALE_MS = 30 * 60 * 1000;
@@ -46,12 +47,17 @@ export function finishBurn(recordingId: string): void {
   });
 }
 
-export function failBurn(recordingId: string, error: string): void {
+export function failBurn(
+  recordingId: string,
+  error: string,
+  errorCode?: string,
+): void {
   burns.set(recordingId, {
     status: "failed",
     percent: 0,
     updatedAt: Date.now(),
     error,
+    ...(errorCode ? { errorCode } : {}),
   });
 }
 
@@ -59,6 +65,7 @@ export interface BurnProgressReport {
   status: BurnStatus | "idle";
   percent: number;
   error?: string;
+  errorCode?: string;
 }
 
 export function getBurnProgress(recordingId: string): BurnProgressReport {
@@ -69,5 +76,6 @@ export function getBurnProgress(recordingId: string): BurnProgressReport {
     status: entry.status,
     percent: entry.percent,
     ...(entry.error ? { error: entry.error } : {}),
+    ...(entry.errorCode ? { errorCode: entry.errorCode } : {}),
   };
 }

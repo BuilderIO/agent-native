@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   detectExternalAgentHost,
   isExternalAgentNudgeSurfaceVisible,
+  shouldShowExternalAgentNudge,
 } from "./external-agent-host.js";
 
 describe("external agent host detection", () => {
@@ -51,6 +52,21 @@ describe("external agent host detection", () => {
     expect(
       detectExternalAgentHost({ hostname: "localhost", referrer: null }),
     ).toBeNull();
+  });
+});
+
+describe("external agent nudge eligibility", () => {
+  it("skips ChatGPT while retaining Claude and Codex nudges", () => {
+    expect(
+      shouldShowExternalAgentNudge({ id: "chatgpt", label: "ChatGPT" }),
+    ).toBe(false);
+    expect(
+      shouldShowExternalAgentNudge({ id: "claude", label: "Claude" }),
+    ).toBe(true);
+    expect(shouldShowExternalAgentNudge({ id: "codex", label: "Codex" })).toBe(
+      true,
+    );
+    expect(shouldShowExternalAgentNudge(null)).toBe(false);
   });
 });
 

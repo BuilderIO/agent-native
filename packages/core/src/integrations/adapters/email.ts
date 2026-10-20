@@ -3,8 +3,10 @@ import { timingSafeEqual } from "node:crypto";
 import type { H3Event } from "h3";
 import { getHeader, readRawBody as h3ReadRawBody } from "h3";
 
+import { fail } from "../../action.js";
 import { getAppConfig } from "../../app-config/index.js";
 import { getDbExec } from "../../db/client.js";
+import { automationOutcomeMessagesForUser } from "../../localization/automation-outcome-messages.js";
 import type { EnvKeyConfig } from "../../server/create-server.js";
 import { resolveSecret } from "../../server/credential-provider.js";
 import {
@@ -12,6 +14,7 @@ import {
   isEmailConfigured,
   getEmailProvider,
 } from "../../server/email.js";
+import { getRequestUserEmail } from "../../server/request-context.js";
 import { getIntegrationConfig } from "../config-store.js";
 import type {
   PlatformAdapter,
@@ -273,8 +276,9 @@ export function emailAdapter(): PlatformAdapter {
     ): Promise<void> {
       const agentAddress = await resolveSecret("EMAIL_AGENT_ADDRESS");
       if (!agentAddress) {
-        console.error("[email] EMAIL_AGENT_ADDRESS not configured");
-        return;
+        fail("[email] EMAIL_AGENT_ADDRESS not configured", {
+          errorCode: "config_invalid",
+        });
       }
 
       const config = await getIntegrationConfig("email");
@@ -282,7 +286,7 @@ export function emailAdapter(): PlatformAdapter {
         (config?.configData?.displayName as string) || "Dispatch Agent";
 
       try {
-        await sendEmail({
+        const outcome = await sendEmail({
           to: target.destination,
           from: `${displayName} <${agentAddress}>`,
           subject: target.label || "Message from Dispatch Agent",
@@ -295,6 +299,12 @@ export function emailAdapter(): PlatformAdapter {
               }
             : {}),
         });
+        if (outcome.status !== "sent" || outcome.provider === "dev") {
+          const messages = await automationOutcomeMessagesForUser(
+            getRequestUserEmail(),
+          );
+          fail(messages.emailNotSent, { errorCode: "email_delivery_not_sent" });
+        }
       } catch (err) {
         console.error("[email] Failed to send proactive message:", err);
         throw err;

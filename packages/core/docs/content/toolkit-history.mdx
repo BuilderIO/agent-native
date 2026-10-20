@@ -1,13 +1,11 @@
 ---
 title: "History Kit"
-description: "Version history, audit log, undo/redo, restore flows, and what-changed surfaces."
+description: "Version and audit APIs, undo/redo foundations, and app-owned history UI."
 ---
 
 # History Kit
 
-The History Kit helps users answer the questions that matter after humans and
-agents edit together: what changed, who changed it, can I undo it, and can I
-restore an older version?
+The History Kit provides versioning, access-scoped history actions, and undo/redo foundations. Apps compose their own timelines, previews, diffs, and restore controls around these APIs; Toolkit does not ship a drop-in history panel.
 
 <WireframeBlock id="doc-block-toolkit-history">
   <Screen
@@ -18,19 +16,20 @@ restore an older version?
   />
 </WireframeBlock>
 
+This mock shows one app-owned history interface built from the APIs below. The timeline, diff summary, and restore button are examples, not exported Toolkit components.
+
 ## Pieces {#pieces}
 
 | Piece                         | Purpose                                                                                                                               |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | `registerVersionedResource()` | Register a resource type, access resolver, optional `getSnapshot()`, and optional `restoreSnapshot()` handler.                        |
 | Version actions               | `create-resource-version`, `list-resource-versions`, `get-resource-version`, `restore-resource-version`, and `list-resource-history`. |
-| `VersionHistoryPanel`         | Drop-in React panel for listing versions and restoring a selected version.                                                            |
-| `HistoryTimeline`             | Controlled presentational timeline for custom history layouts.                                                                        |
+| App-owned history UI          | Compose a timeline, preview, diff, or restore flow with the history APIs.                                                             |
 | History hooks                 | `useResourceVersions()`, `useResourceHistory()`, `useCreateResourceVersion()`, and `useRestoreResourceVersion()`.                     |
 | Audit log                     | Durable record of human and agent actions, scoped by access, included by `list-resource-history`.                                     |
 | `useCollabUndo()`             | CRDT undo/redo for collaborative document edits.                                                                                      |
 | `useLocalOpUndo()`            | App-local inverse operations for commands outside the Yjs document.                                                                   |
-| What-changed views            | Diff summaries, changed sections, and reviewer-friendly explanations.                                                                 |
+| Diff and compare UI           | App-owned presentation built from version snapshots and domain-specific comparison rules.                                             |
 
 ## Register A Resource {#register-resource}
 
@@ -60,24 +59,13 @@ When a resource is already registered with the Sharing Kit, History can reuse
 that access model. Register a History adapter when the app wants automatic
 snapshot capture or restore behavior.
 
-## UI Usage {#ui-usage}
+## Compose an app-specific history surface {#ui-usage}
 
-```tsx
-import { VersionHistoryPanel } from "@agent-native/core/client/history";
-
-export function DocumentHistory({ documentId }: { documentId: string }) {
-  return (
-    <VersionHistoryPanel
-      resourceType="document"
-      resourceId={documentId}
-      onRestored={() => refreshDocument()}
-    />
-  );
-}
-```
-
-Agents and UI call the same actions. Apps can also use the hooks directly when
-they need a custom timeline, preview, or compare view.
+The Core client exports `useResourceVersions()`, `useResourceHistory()`,
+`useCreateResourceVersion()`, and `useRestoreResourceVersion()` from
+`@agent-native/core/client/history`. Use these hooks or the corresponding
+actions to build the interface your resource needs. The app decides how to
+present diffs, identify authors, and confirm restores.
 
 ## UX Standard {#ux-standard}
 
@@ -96,5 +84,4 @@ they need a custom timeline, preview, or compare view.
   timeline's audit view reads from.
 - [**Realtime Collaboration**](/docs/real-time-collaboration) — the CRDT
   editing surface `useCollabUndo()` wraps.
-- [**Component API**](/docs/components#collab-presence) — the full prop
-  reference for history and presence components.
+- [**Component API**](/docs/components) — the generated reference for public React exports.

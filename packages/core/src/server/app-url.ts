@@ -1,11 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { getRequestURL, type H3Event } from "h3";
+import type { H3Event } from "h3";
 
 import { getAppConfig } from "../app-config/index.js";
 import { TEMPLATES } from "../cli/templates-meta.js";
 import { resolveDeployEnvironment } from "./deploy-environment.js";
+import { getForwardedRequestOrigin } from "./request-origin.js";
 
 let cachedPkgName: string | undefined | null = null;
 
@@ -154,8 +155,7 @@ export function getAppProductionUrl(
 
   if (event) {
     try {
-      const url = getRequestURL(event);
-      return `${url.protocol}//${url.host}`;
+      return getForwardedRequestOrigin(event);
     } catch {
       // fall through
     }

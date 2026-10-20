@@ -70,14 +70,6 @@ export function shouldBeginCanvasPan(args: { button: number; tool: string }) {
   );
 }
 
-export function shouldShowFrameFullViewButton(args: {
-  emphasized: boolean;
-  showFullView?: boolean;
-  childHoverActive?: boolean;
-}) {
-  return args.emphasized || !!args.showFullView || !!args.childHoverActive;
-}
-
 export function shouldShowBreakpointMenuAffordance(args: {
   canEdit: boolean;
   hasRemoveOrChangeWidth: boolean;

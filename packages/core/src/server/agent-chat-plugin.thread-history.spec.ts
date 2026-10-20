@@ -1,3 +1,4 @@
+import { MAX_AGENT_REQUEST_ATTACHMENTS } from "@agent-native/agentkit/protocol";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -28,6 +29,64 @@ describe("AgentKit thread history", () => {
       id: "queued-options",
       options: { reasoningEffort: "high" },
     });
+  });
+
+  it("rejects data URLs before a queued message can be persisted", () => {
+    const queued = {
+      id: "queued-data-url",
+      threadId: "thread-1",
+      text: "Inspect this image",
+      requestAttachments: [
+        {
+          type: "image",
+          name: "screen.png",
+          url: "data:image/png;base64,iVBORw==",
+        },
+      ],
+    };
+
+    expect(parseQueuedMessageForThread(queued, "thread-1")).toBeNull();
+    expect(
+      parseQueuedMessageForThread(
+        {
+          ...queued,
+          requestAttachments: [
+            {
+              type: "image",
+              name: "screen.png",
+              url: "https://files.example.test/screen.png",
+            },
+          ],
+        },
+        "thread-1",
+      ),
+    ).toMatchObject({
+      id: "queued-data-url",
+      requestAttachments: [{ url: "https://files.example.test/screen.png" }],
+    });
+  });
+
+  it("preserves legacy queued rows with more attachments than new writes allow", () => {
+    const attachments = Array.from(
+      { length: MAX_AGENT_REQUEST_ATTACHMENTS + 1 },
+      (_, index) => ({
+        type: "file",
+        name: `file-${index}.pdf`,
+        url: `https://files.example.test/file-${index}.pdf`,
+      }),
+    );
+
+    expect(
+      parseQueuedMessageForThread(
+        {
+          id: "queued-legacy-many-attachments",
+          threadId: "thread-1",
+          text: "Read these files",
+          attachments,
+        },
+        "thread-1",
+      )?.attachments,
+    ).toHaveLength(MAX_AGENT_REQUEST_ATTACHMENTS + 1);
   });
 
   it("deduplicates plain replies across thread snapshot saves", () => {

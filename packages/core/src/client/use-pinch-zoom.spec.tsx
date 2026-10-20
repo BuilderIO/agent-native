@@ -199,7 +199,7 @@ describe("usePinchZoom", () => {
     expect(scrollEl.scrollTop).toBeCloseTo(expectedDy, 6);
   });
 
-  it("moves one mouse notch by a Figma-sized step, not the saturated pinch curve", async () => {
+  it("moves one mouse notch by a configured step, not the saturated pinch curve", async () => {
     const { scrollEl, setZoom } = await renderHarness(100);
     scrollEl.scrollLeft = 0;
     scrollEl.scrollTop = 0;

@@ -9,6 +9,8 @@ const mockBuildSessionReplayAgentContext = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/server", () => ({
   AGENT_ACCESS_PARAM: "agent_access",
+  getForwardedRequestOrigin: (event: { url: string }) =>
+    new URL(event.url).origin,
   verifyScopedAgentAccessToken: (token: unknown, options: unknown) =>
     mockVerifyScopedAgentAccessToken(token, options),
 }));

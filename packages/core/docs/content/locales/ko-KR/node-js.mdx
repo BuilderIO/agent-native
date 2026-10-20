@@ -1,17 +1,137 @@
 ---
 title: "Node.js"
-description: "Localized pointer to the the default Nitro Node.js server preset."
+description: "독립 실행형 Agent-Native 앱을 직접 운영하는 Node.js 서버로 배포합니다."
 ---
-
-<!-- i18n-docs-ignore -->
 
 # Node.js
 
-Read the [English Node.js guide](/docs/node-js) for the build steps and
-provider-specific production configuration.
+Node.js는 Agent-Native 앱을 프로덕션에서 실행하는 가장 간단한 방법입니다. 빌드하면 앱의 페이지와 API를 모두 제공하는 단일 Node.js 서버가 만들어집니다. 이 서버는 가상 머신, 관리형 Node.js 호스트, 자체 하드웨어 등 Node.js가 실행되는 곳이라면 어디에서나 실행할 수 있습니다.
 
-Use the generated app's `pnpm build` script for the build step.
+이 가이드는 독립 실행형 앱 하나를 처음부터 배포하는 과정을 안내합니다. 앱을 만들고, 프로덕션 데이터베이스와 인증 시크릿을 지정하고, 데이터베이스를 준비한 다음, 서버를 빌드하고 시작합니다.
 
-The deployment must use a persistent PostgreSQL database. Configure `DATABASE_URL`
-and `BETTER_AUTH_SECRET` in the provider environment. The Nitro preset is
-`node`.
+<Callout tone="info">
+
+Node.js `22.22+`가 필요합니다.
+
+</Callout>
+
+이 가이드의 모든 명령은 앱을 호스팅할 서버에서 실행하세요. 가상 머신이라면 보통 먼저 SSH로 접속해야 합니다. 앱 폴더, 환경 변수, 실행 중인 서버는 모두 해당 머신에 있습니다.
+
+## 1단계: 앱 만들기 {#step-1-create-the-app}
+
+새 독립 실행형 앱을 만듭니다. 아래 예시는 Chat 템플릿으로 앱을 만들지만, 어떤 템플릿으로든 시작할 수 있습니다. 앱 폴더로 이동한 뒤 의존성을 설치하세요. `corepack enable`은 앱이 기대하는 `pnpm` 버전을 활성화하므로 `pnpm`을 직접 설치할 필요가 없습니다.
+
+```bash
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
+```
+
+원한다면 `my-app`을 원하는 앱 이름으로 바꾸세요. 이 가이드의 나머지 부분은 앱 폴더 안에 있다고 가정합니다.
+
+<Callout tone="info">
+
+이 명령이 피어 종속성 오류로 실패한다면 npx 캐시에 있는 오래된 패키지가 원인일 수 있습니다. `npx clear-npx-cache`를 실행해 캐시를 지운 다음 명령을 다시 실행하세요.
+
+</Callout>
+
+## 2단계: 환경 시크릿 구성하기 {#step-2-configure-environment-secrets}
+
+앱은 프로덕션 설정을 환경 변수에서 읽습니다.
+
+| 변수                 | 필수   | 용도                                          |
+| -------------------- | ------ | --------------------------------------------- |
+| `DATABASE_URL`       | 예     | 앱을 PostgreSQL 데이터베이스에 연결합니다     |
+| `BETTER_AUTH_SECRET` | 예     | 사용자 세션에 서명합니다                      |
+| `BETTER_AUTH_URL`    | 아니요 | 사용자가 앱에 접속하는 공개 주소를 설정합니다 |
+
+아래의 export 명령을 실행하면 이 셸에서 이후 명령이 동작합니다. 배포하기 전에 같은 변수를 호스트의 프로젝트 또는 서비스 환경 설정에도 저장하세요. 그래야 재시작하거나 새로 배포한 뒤에도 서버가 이 값을 유지합니다.
+
+### 데이터베이스 URL {#database-url}
+
+로컬 개발 중에는 `DATABASE_URL`이 설정되지 않으면 앱이 로컬 데이터베이스에 데이터를 저장합니다. 배포된 앱에는 재시작 후에도 데이터를 유지하는 실제 PostgreSQL 데이터베이스가 필요합니다. 프로바이더에서 연결 문자열을 복사해 export하세요.
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+[데이터베이스 프로바이더 가이드](/docs/neon)에서 프로바이더별로 연결 문자열을 찾는 위치를 확인할 수 있습니다.
+
+<Callout tone="warning">
+
+Neon, Supabase, Amazon RDS 등 영구적인 PostgreSQL 프로바이더를 선택하세요.
+
+</Callout>
+
+### 인증 시크릿 {#auth-secret}
+
+이 값은 한 번만 생성하고 배포할 때마다 바꾸지 마세요.
+
+앱은 `BETTER_AUTH_SECRET`을 사용해 사용자 세션에 서명합니다. 이 값이 바뀌면 로그인한 모든 사용자가 로그아웃됩니다. 아래 명령은 임의의 값을 생성합니다.
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+생성한 값은 호스트의 시크릿 설정이나 비밀번호 관리자처럼 안전한 곳에 저장하세요. 배포할 때마다 같은 값을 사용합니다.
+
+### 공개 URL {#public-url}
+
+선택 사항입니다. 사용자 지정 도메인, 리버스 프록시, 또는 고정된 공개 origin이 필요한 인증이나 OAuth 흐름을 사용할 때 설정하세요.
+
+`BETTER_AUTH_URL`은 사용자가 앱에 접속하는 공개 주소입니다. 이 값이 없으면 앱은 들어오는 요청마다 자신의 주소를 판단합니다. 대개는 문제가 없지만, 앱이 프록시나 사용자 지정 도메인 뒤에 있으면 로그인 링크와 OAuth 리디렉션이 잘못된 곳을 가리킬 수 있습니다.
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## 3단계: 마이그레이션 {#step-3-migrate}
+
+마이그레이션은 앱에 필요한 테이블을 데이터베이스에 만들고 업데이트합니다.
+
+첫 방문 전에 호스트에서 프로덕션 `DATABASE_URL`을 대상으로 이 명령을 실행하세요.
+
+```bash
+pnpm migrate:production
+```
+
+이 명령은 이전 단계에서 export한 환경에서 `DATABASE_URL`을 읽습니다. 앱을 업그레이드한 뒤에는 새 버전을 시작하기 전에 다시 실행하세요.
+
+## 4단계: 빌드 및 시작 {#step-4-build-and-start}
+
+Node.js 대상으로 명시적으로 빌드합니다.
+
+```bash
+NITRO_PRESET=node pnpm build
+```
+
+빌드는 완성된 서버를 `.output` 폴더에 씁니다. `NITRO_PRESET=node`를 지정하면 다른 호스팅 대상이 감지되는 머신에서도 출력이 일반 Node.js 서버가 됩니다.
+
+export한 환경 변수와 함께 생성된 서버를 시작합니다.
+
+```bash
+NODE_ENV=production \
+DATABASE_URL="$DATABASE_URL" \
+BETTER_AUTH_SECRET="$BETTER_AUTH_SECRET" \
+pnpm start
+```
+
+`NODE_ENV=production`은 서버를 프로덕션 모드로 실행합니다. 변수를 미리 export했기 때문에 `BETTER_AUTH_URL`을 설정한 경우 서버도 그 값을 받습니다.
+
+서버는 포트 `3000`에서 수신합니다. 호스트가 다른 포트를 할당한다면 서버를 시작하기 전에 `PORT` 환경 변수를 설정하세요.
+
+인터넷에서 앱에 접속하려면 서버 방화벽에서 포트 `3000`을 열거나, Nginx나 Caddy 같은 리버스 프록시를 앞에 두고 도메인을 HTTPS로 제공하세요. 그런 다음 앱의 공개 주소를 열고 첫 계정을 만듭니다.
+
+## 서버 계속 실행하기 {#keep-the-server-running}
+
+`pnpm start` 명령은 터미널을 닫거나 서버가 재시작되면 중지됩니다. 앱을 계속 실행하려면 `systemd` 같은 프로세스 관리자나 서비스에서 같은 명령을 시작하고, 그 서비스에도 같은 환경 변수를 전달하세요.
+
+## 다음 단계 {#whats-next}
+
+- [**Docker**](/docs/docker) - 이 Node.js 서버를 컨테이너로 패키징합니다
+- [**배포 환경 변수**](/docs/deployment-environment-variables) - 전체 프로덕션 설정 목록
+- [**배포**](/docs/deployment) - 호스팅 대상과 사전 요구 사항을 비교합니다

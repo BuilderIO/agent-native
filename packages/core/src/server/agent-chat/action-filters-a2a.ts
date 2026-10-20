@@ -8,15 +8,21 @@ import {
   type A2AToolResultSummary,
 } from "../../a2a/artifact-response.js";
 import { collectFinalResponseTextFromAgentEvents } from "../../a2a/response-text.js";
-import type { AgentSkill } from "../../a2a/types.js";
+import type {
+  A2AActionExecutionResult,
+  A2AApprovalExecution,
+  AgentSkill,
+} from "../../a2a/types.js";
 import { isActionExposedToExternalAgents } from "../../action.js";
 import { resolveMainChatMaxOutputTokens } from "../../agent/engine/output-tokens.js";
 import type { EngineTool } from "../../agent/engine/types.js";
 import {
+  executeAgentToolCall,
   filterInitialEngineTools,
   resolveAgentRequestReasoningEffort,
   type ActionEntry,
   type AgentLoopOutcome,
+  type AgentToolCallExecutionResult,
 } from "../../agent/production-agent.js";
 import { runAgentLoopDirectWithSoftTimeout } from "../../agent/run-loop-with-resume.js";
 import { resolveRunSoftTimeoutMs } from "../../agent/run-manager.js";
@@ -28,7 +34,9 @@ import {
   isAutoReadExcludedActionName,
 } from "../../mcp/build-server.js";
 import type { ExternalAgentPolicy } from "../../mcp/external-agent-policy.js";
+import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
 import { withConfiguredAppBasePath } from "../app-base-path.js";
+import { ensureRequestRunContext } from "../request-context.js";
 import type { AgentChatPluginOptions } from "./plugin-options.js";
 
 export function filterReadOnlyActions(
@@ -302,6 +310,25 @@ class A2ATerminalResponseError extends Error {
   }
 }
 
+/**
+ * A call with no verified user cannot succeed on retry: the secrets between the
+ * two apps have to be fixed by an admin. The wording follows the receiver's own
+ * verification result; caller-supplied metadata, such as a claimed email, is
+ * never read, echoed, or treated as identity.
+ */
+export function unverifiedA2AUserError(event?: unknown): Error {
+  const verifiedAsOrganization =
+    (event as { context?: { __a2aIdentityAssurance?: unknown } } | undefined)
+      ?.context?.__a2aIdentityAssurance === "organization";
+  return new A2ATerminalResponseError(
+    (verifiedAsOrganization
+      ? "This call was verified as an organization, not as a user. If the caller meant to act for a user, the A2A secrets are misaligned between the apps."
+      : "This call arrived without a verified user.") +
+      " This needs an admin fix: do not retry, and continue without this app.\ncode: permanent_precondition",
+    "permanent_precondition",
+  );
+}
+
 function terminalErrorFromOutcome(
   outcome: AgentLoopOutcome,
 ): Extract<AgentChatEvent, { type: "error" }> | null {
@@ -485,6 +512,19 @@ async function runDelegatedAgentLoop(
           : delegatedHardToolResultCap,
     },
     finalResponseGuard: pluginOptions.finalResponseGuard,
+    // Actions this run calls record the model and effort from the run
+    // context, which a rate-limit fallback or an effort step-down changes.
+    onModelSettings: (
+      model: string,
+      reasoningEffort: ReasoningEffort | undefined,
+    ) => {
+      runOptions.onModelSettings?.(model, reasoningEffort);
+      const runContext = ensureRequestRunContext();
+      if (runContext) {
+        runContext.model = model;
+        runContext.reasoningEffort = reasoningEffort;
+      }
+    },
   };
   const execute = (loopOptions = resolvedRunOptions) =>
     runner(loopOptions, pluginOptions.runSoftTimeoutMs, timeoutOptions);
@@ -518,7 +558,23 @@ async function runDelegatedAgentLoop(
   return execute();
 }
 
-export function runA2AAgentLoop(
+// The A2A task failure carries `agentNativeErrorCode`; an engine failure thrown
+// out of the loop only has `errorCode`. Without this the caller gets the prose
+// ("No LLM provider is connected") but not the typed cause, so it cannot tell a
+// peer that will never answer from one worth retrying.
+function withAgentNativeErrorCode(error: unknown): unknown {
+  if (!(error instanceof Error)) return error;
+  const typed = error as {
+    errorCode?: unknown;
+    agentNativeErrorCode?: unknown;
+  };
+  if (typed.agentNativeErrorCode) return error;
+  const code =
+    typeof typed.errorCode === "string" ? typed.errorCode.trim() : "";
+  return code ? Object.assign(error, { agentNativeErrorCode: code }) : error;
+}
+
+export async function runA2AAgentLoop(
   runOptions: Parameters<A2AAgentLoopRunner>[0],
   pluginOptions: Pick<
     AgentChatPluginOptions,
@@ -527,12 +583,83 @@ export function runA2AAgentLoop(
   timeoutOptions: Parameters<A2AAgentLoopRunner>[2],
   options: DelegatedAgentLoopOptions = {},
 ) {
-  return runDelegatedAgentLoop(
-    runOptions,
-    pluginOptions,
-    timeoutOptions,
-    options,
-  );
+  try {
+    return await runDelegatedAgentLoop(
+      runOptions,
+      pluginOptions,
+      timeoutOptions,
+      options,
+    );
+  } catch (error) {
+    throw withAgentNativeErrorCode(error);
+  }
+}
+
+/** A direct A2A call's result, with the effect a failed call can still report. */
+export function a2aActionResult(
+  result: Exclude<
+    AgentToolCallExecutionResult,
+    { status: "approval_required" }
+  >,
+): A2AActionExecutionResult {
+  return {
+    status: result.status,
+    output: result.output,
+    ...(result.completedSideEffect === undefined
+      ? {}
+      : { completedSideEffect: result.completedSideEffect }),
+  };
+}
+
+/**
+ * Runs the tool call an A2A task paused on, once its owner approved it, under
+ * the approval's execution lease: its thread, its turn, and its signal.
+ */
+export async function executeApprovedA2AToolCall(
+  approval: A2AApprovalExecution,
+  options: {
+    actions: Record<string, ActionEntry>;
+    appId?: string;
+    signal?: AbortSignal;
+    threadId?: string;
+    turnId?: string;
+  },
+): Promise<A2AActionExecutionResult> {
+  const result = await executeAgentToolCall({
+    actions: options.actions,
+    name: approval.tool,
+    input: approval.input,
+    signal: options.signal,
+    threadId: options.threadId,
+    turnId: options.turnId,
+    callId: approval.callId,
+    ownerEmail: approval.ownerEmail,
+    orgId: approval.orgId ?? null,
+    appId: options.appId,
+    approvedToolCalls: [approval.approvalKey],
+    // The replay runs under the lease's thread and turn, never the task's
+    // own: as the replay's thread and turn, the task id would load the task's
+    // journal and ledger, where an earlier identical call could stand in for
+    // this approved one. So the task id reaches the approved call's own audit
+    // rows only. Its caller app is not stored with the approval, so
+    // `networkPeer` stays empty.
+    auditOverride: {
+      networkProtocol: "a2a",
+      networkId: approval.taskId,
+      runId: approval.taskId,
+      threadId: approval.taskId,
+      turnId: approval.taskId,
+      approval: "a2a-review",
+    },
+  });
+  if (result.status === "approval_required") {
+    return {
+      status: "failed",
+      output:
+        "The approved action was unexpectedly gated again and did not run.",
+    };
+  }
+  return a2aActionResult(result);
 }
 
 export function runMCPAgentLoop(

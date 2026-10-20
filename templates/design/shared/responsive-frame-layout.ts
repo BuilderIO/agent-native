@@ -1,6 +1,7 @@
 export const BREAKPOINT_FRAME_GAP = 24;
 
 export const MAX_SANE_FRAME_DIMENSION_PX = 100_000;
+export const MAX_SANE_FRAME_ASPECT_RATIO = 50;
 
 export function visibleBreakpointWidths(
   breakpointWidths: readonly number[] | undefined,

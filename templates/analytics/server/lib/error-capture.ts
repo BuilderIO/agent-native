@@ -15,6 +15,7 @@ import {
 } from "@agent-native/core/shared/error-noise";
 import { accessFilter } from "@agent-native/core/sharing";
 import {
+  asc,
   and,
   desc,
   eq,
@@ -25,9 +26,11 @@ import {
   or,
   sql,
 } from "drizzle-orm";
+import { unionAll } from "drizzle-orm/pg-core";
 
 import { ANALYTICS_USER_PREFS_KEY } from "../../shared/analytics-user-prefs";
 import { getDb, schema } from "../db/index.js";
+import { sessionRecordingAssociationsReady } from "./session-recording-associations.js";
 
 export type ExceptionLevel = "fatal" | "error" | "warning" | "info" | "debug";
 export type IssueStatus = "unresolved" | "resolved" | "ignored";
@@ -1495,6 +1498,363 @@ async function sparklinesForIssues(
     if (series && index !== undefined) series[index] = Number(row.count ?? 0);
   }
   return result;
+}
+
+export interface RecordingErrorIssueInput {
+  id: string;
+  clientRecordingId: string;
+  ownerEmail: string;
+  orgId: string | null;
+  errorCount: number;
+  /**
+   * Of those errors, the ones Monitoring could have made an issue of. Null
+   * when not measured, so every error counts.
+   */
+  issueErrorCount?: number | null;
+}
+
+export interface RecordingErrorIssue {
+  id: string;
+  title: string;
+  /** Null when the recording's occurrences of the issue are no longer kept. */
+  count: number | null;
+}
+
+const MAX_RECORDING_ISSUE_ROWS = 500;
+const RECORDING_ASSOCIATION_PAGE_SIZE = 500;
+
+async function recordingSessionAssociations(
+  db: any,
+  recordingIds: readonly string[],
+): Promise<Array<{ recordingId: string; sessionId: string }>> {
+  if (
+    recordingIds.length === 0 ||
+    !(await sessionRecordingAssociationsReady(db))
+  ) {
+    return [];
+  }
+  const association = schema.sessionRecordingSessionAssociations;
+  const result: Array<{ recordingId: string; sessionId: string }> = [];
+  let offset = 0;
+  while (true) {
+    const page = await db
+      .select({
+        recordingId: association.recordingId,
+        sessionId: association.sessionId,
+      })
+      .from(association)
+      .where(inArray(association.recordingId, [...recordingIds]))
+      .orderBy(asc(association.recordingId), asc(association.sessionId))
+      .limit(RECORDING_ASSOCIATION_PAGE_SIZE)
+      .offset(offset);
+    result.push(...page);
+    if (page.length < RECORDING_ASSOCIATION_PAGE_SIZE) return result;
+    offset += page.length;
+  }
+}
+
+async function accessibleRecordingSessions(
+  db: any,
+  scope: ErrorReadScope,
+  recordings: readonly RecordingErrorIssueInput[],
+): Promise<Array<{ recordingId: string; sessionId: string }>> {
+  const recording = schema.sessionRecordings;
+  const inputById = new Map(recordings.map((entry) => [entry.id, entry]));
+  const rows: Array<{
+    recordingId: string;
+    sessionId: string;
+    ownerEmail: string;
+    orgId: string | null;
+  }> = await db
+    .select({
+      recordingId: recording.id,
+      sessionId: recording.sessionId,
+      ownerEmail: recording.ownerEmail,
+      orgId: recording.orgId,
+    })
+    .from(recording)
+    .where(
+      and(
+        accessFilter(
+          recording,
+          schema.sessionRecordingShares,
+          accessCtx(scope),
+        ),
+        inArray(
+          recording.id,
+          recordings.map((entry) => entry.id),
+        ),
+      ),
+    );
+
+  return rows
+    .filter((row) => {
+      const input = inputById.get(row.recordingId);
+      return (
+        input !== undefined &&
+        row.ownerEmail === input.ownerEmail &&
+        (row.orgId ?? null) === (input.orgId ?? null)
+      );
+    })
+    .map(({ recordingId, sessionId }) => ({ recordingId, sessionId }));
+}
+
+/**
+ * The Monitoring issues each recording's captured errors belong to, most
+ * frequent first. An occurrence matches by recording id, within the
+ * recording's own owner scope. One captured before its recording existed has
+ * only the client recording id, which matches only within an observed session.
+ * `error_events` keeps only each
+ * issue's newest occurrences, so a recording with none left falls back to the
+ * issues whose last recording it is, with no count. A recording still without
+ * an issue maps to null when it has errors Monitoring could have made an
+ * issue of and the read was truncated, the viewer can't read every issue in
+ * its owner scope, or that scope has issues they could belong to; never to
+ * "no issues". A plain `console.error` never
+ * becomes an issue, and an owner scope without a single issue does not
+ * capture errors as issues, so such recordings truly have none.
+ */
+export async function listRecordingErrorIssues(
+  scope: ErrorReadScope,
+  recordings: readonly RecordingErrorIssueInput[],
+  perRecording = 2,
+): Promise<Map<string, RecordingErrorIssue[] | null>> {
+  const result = new Map<string, RecordingErrorIssue[] | null>();
+  if (!recordings.length) return result;
+  const db = getDb() as any;
+  const e = schema.errorEvents;
+  const i = schema.errorIssues;
+  const accessibleSessions = await accessibleRecordingSessions(
+    db,
+    scope,
+    recordings,
+  );
+  const associationRows = await recordingSessionAssociations(
+    db,
+    accessibleSessions.map((recording) => recording.recordingId),
+  );
+  const sessionsByRecording = new Map<string, Set<string>>();
+  for (const row of associationRows) {
+    const sessions = sessionsByRecording.get(row.recordingId) ?? new Set();
+    sessions.add(row.sessionId);
+    sessionsByRecording.set(row.recordingId, sessions);
+  }
+  for (const row of accessibleSessions) {
+    if (sessionsByRecording.has(row.recordingId) || !row.sessionId) continue;
+    sessionsByRecording.set(row.recordingId, new Set([row.sessionId]));
+  }
+  const rows: Array<{
+    sessionRecordingId: string | null;
+    clientRecordingId: string | null;
+    sessionId: string | null;
+    ownerEmail: string;
+    orgId: string | null;
+    issueId: string;
+    title: string;
+    count: number | string;
+  }> = await db
+    .select({
+      sessionRecordingId: e.sessionRecordingId,
+      clientRecordingId: e.clientRecordingId,
+      sessionId: e.sessionId,
+      ownerEmail: e.ownerEmail,
+      orgId: e.orgId,
+      issueId: i.id,
+      title: i.title,
+      count: sql<number>`count(*)`,
+    })
+    .from(e)
+    .innerJoin(
+      i,
+      and(
+        eq(e.issueId, i.id),
+        eq(e.ownerEmail, i.ownerEmail),
+        or(eq(e.orgId, i.orgId), and(isNull(e.orgId), isNull(i.orgId))),
+      ),
+    )
+    .where(
+      and(
+        issuesAccessFilter(scope),
+        or(
+          inArray(
+            e.sessionRecordingId,
+            recordings.map((recording) => recording.id),
+          ),
+          and(
+            isNull(e.sessionRecordingId),
+            inArray(
+              e.clientRecordingId,
+              recordings.map((recording) => recording.clientRecordingId),
+            ),
+          ),
+        ),
+      ),
+    )
+    .groupBy(
+      e.sessionRecordingId,
+      e.clientRecordingId,
+      e.sessionId,
+      e.ownerEmail,
+      e.orgId,
+      i.id,
+      i.title,
+    )
+    .orderBy(desc(sql`count(*)`), i.id)
+    .limit(MAX_RECORDING_ISSUE_ROWS);
+  const truncated = rows.length >= MAX_RECORDING_ISSUE_ROWS;
+  const sameScope = (
+    row: { ownerEmail: string; orgId: string | null },
+    recording: RecordingErrorIssueInput,
+  ) =>
+    row.ownerEmail === recording.ownerEmail &&
+    (row.orgId ?? null) === (recording.orgId ?? null);
+  // A client recording id is unique only per public key, and occurrences keep
+  // no key, so an unlinked occurrence needs a non-null observed session too.
+  const belongsTo = (
+    row: (typeof rows)[number],
+    recording: RecordingErrorIssueInput,
+  ) =>
+    sameScope(row, recording) &&
+    (row.sessionRecordingId === recording.id ||
+      (row.sessionRecordingId === null &&
+        row.clientRecordingId === recording.clientRecordingId &&
+        row.sessionId !== null &&
+        sessionsByRecording.get(recording.id)?.has(row.sessionId) === true));
+  const unlinked = truncated
+    ? []
+    : recordings.filter(
+        (recording) => !rows.some((row) => belongsTo(row, recording)),
+      );
+  const lastRecordingRows: Array<{
+    id: string;
+    title: string;
+    lastSessionRecordingId: string;
+    ownerEmail: string;
+    orgId: string | null;
+  }> = unlinked.length
+    ? await db
+        .select({
+          id: i.id,
+          title: i.title,
+          lastSessionRecordingId: i.lastSessionRecordingId,
+          ownerEmail: i.ownerEmail,
+          orgId: i.orgId,
+        })
+        .from(i)
+        .where(
+          and(
+            issuesAccessFilter(scope),
+            inArray(
+              i.lastSessionRecordingId,
+              unlinked.map((recording) => recording.id),
+            ),
+          ),
+        )
+        .orderBy(desc(i.lastSeenAt), i.id)
+        .limit(MAX_RECORDING_ISSUE_ROWS)
+    : [];
+  const lastRecordingTruncated =
+    lastRecordingRows.length >= MAX_RECORDING_ISSUE_ROWS;
+  const erroringWithoutIssue: RecordingErrorIssueInput[] = [];
+  for (const recording of recordings) {
+    const issues = new Map<string, RecordingErrorIssue & { count: number }>();
+    for (const row of rows) {
+      if (!belongsTo(row, recording)) continue;
+      const existing = issues.get(row.issueId);
+      if (existing) existing.count += Number(row.count);
+      else
+        issues.set(row.issueId, {
+          id: row.issueId,
+          title: row.title,
+          count: Number(row.count),
+        });
+    }
+    if (issues.size) {
+      if (truncated) {
+        result.set(recording.id, null);
+        continue;
+      }
+      result.set(
+        recording.id,
+        [...issues.values()]
+          .sort((a, b) => b.count - a.count || a.id.localeCompare(b.id))
+          .slice(0, perRecording),
+      );
+      continue;
+    }
+    const lastRecordingIssues = lastRecordingRows
+      .filter(
+        (row) =>
+          row.lastSessionRecordingId === recording.id &&
+          sameScope(row, recording),
+      )
+      .slice(0, perRecording)
+      .map((row) => ({ id: row.id, title: row.title, count: null }));
+    if (lastRecordingIssues.length) {
+      result.set(
+        recording.id,
+        lastRecordingTruncated ? null : lastRecordingIssues,
+      );
+      continue;
+    }
+    if ((recording.issueErrorCount ?? recording.errorCount) === 0) {
+      result.set(recording.id, []);
+    } else if (
+      truncated ||
+      lastRecordingTruncated ||
+      !readsWholeScope(scope, recording)
+    ) {
+      result.set(recording.id, null);
+    } else {
+      erroringWithoutIssue.push(recording);
+    }
+  }
+  const scopeKey = (row: { ownerEmail: string; orgId: string | null }) =>
+    JSON.stringify([row.ownerEmail, row.orgId ?? null]);
+  const scopes = new Map<string, RecordingErrorIssueInput>();
+  for (const recording of erroringWithoutIssue) {
+    scopes.set(scopeKey(recording), recording);
+  }
+  // One statement, but still one indexed probe that stops at the first issue
+  // per scope; a single filter over every scope would read all their issues.
+  const probes = [...scopes.values()].map((recording) =>
+    db
+      .select({ ownerEmail: i.ownerEmail, orgId: i.orgId })
+      .from(i)
+      .where(
+        and(
+          issuesAccessFilter(scope),
+          eq(i.ownerEmail, recording.ownerEmail),
+          recording.orgId ? eq(i.orgId, recording.orgId) : isNull(i.orgId),
+        ),
+      )
+      .limit(1),
+  );
+  const scopesWithIssues: Array<{ ownerEmail: string; orgId: string | null }> =
+    probes.length > 1
+      ? await unionAll(probes[0], probes[1], ...probes.slice(2))
+      : probes.length
+        ? await probes[0]
+        : [];
+  const hasIssues = new Set(scopesWithIssues.map(scopeKey));
+  for (const recording of erroringWithoutIssue) {
+    result.set(recording.id, hasIssues.has(scopeKey(recording)) ? null : []);
+  }
+  return result;
+}
+
+/**
+ * Whether the viewer can read every issue in the recording's owner scope:
+ * issues are org-visible in an org and private otherwise. Elsewhere, such as
+ * on a recording shared from another scope, finding no issue proves nothing.
+ */
+function readsWholeScope(
+  scope: ErrorReadScope,
+  recording: { ownerEmail: string; orgId: string | null },
+): boolean {
+  return recording.orgId
+    ? recording.orgId === scope.orgId
+    : recording.ownerEmail === scope.userEmail;
 }
 
 export async function listErrorIssues(

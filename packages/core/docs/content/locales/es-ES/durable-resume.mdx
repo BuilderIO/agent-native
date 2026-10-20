@@ -1,6 +1,6 @@
 ---
 title: "Currículum vitae duradero"
-description: "Cuando la ejecución de un agente alojado se interrumpe y se reanuda, las llamadas de herramientas de efectos secundarios completadas no se vuelven a ejecutar: un diario de llamadas de herramientas derivado del libro mayor duradero bloquea envíos, cargos y tickets duplicados."
+description: "Cuando la ejecución de un agente alojado se interrumpe y se reanuda en el mismo turno, un diario de llamadas de herramientas derivado del libro mayor duradero bloquea las repeticiones exactas de llamadas de escritura que ya se completaron."
 ---
 
 # Currículum vitae duradero
@@ -94,9 +94,15 @@ Propiedades clave:
 - **Consume una vez.** Cada entrada completada se reclama cuando coincide, por lo que dos llamadas nuevas idénticas genuinamente distintas en el mismo turno no provocan un cortocircuito en una finalización registrada.
 - **Nuevas llamadas intactas.** Una llamada de primer turno ve un diario vacío; nada cambia para ejecuciones normales.
 
-<Callout id="doc-block-fjhhyg" tone="success">
+<Callout id="doc-block-fjhhyg" tone="warning">
 
-Together the two layers mean an interrupted run that already had a real side effect resumes **without repeating it** — no duplicate emails, charges, or tickets — while genuinely new work still runs. Read-only actions are never blocked; re-reading is always safe.
+El bloque duro solo detiene una **repetición exacta**: la misma herramienta de escritura con la misma entrada, después de que un intento anterior en el mismo turno terminara y registrara su resultado. No descarta que se dupliquen correos electrónicos, cargos o tickets:
+
+- **Un reintento reformulado no coincide.** Si el modelo cambia cualquier argumento, como el cuerpo del correo electrónico, la llamada deja de coincidir con una llamada completada, así que el bloque duro no la detiene.
+- **Un fallo a mitad del envío puede provocar una repetición.** Si el proceso se cae después de que el efecto secundario se produzca, pero antes de que se registre su resultado, la llamada cuenta como interrumpida, y el bloque duro solo cubre las llamadas completadas. Otra protección rechaza un reintento idéntico de una escritura interrumpida, pero solo cuando el historial de la ejecución reanudada muestra la interrupción.
+- **Tras un fallo, una ejecución puede reanudarse en el mismo turno por dos vías distintas.** Una es una [ejecución duradera en segundo plano](/docs/durable-background-runs). La otra es un fragmento posterior de un turno normal en primer plano que usa el [autoencadenamiento en primer plano](/docs/durable-background-runs#foreground-self-chain). Cualquier otra ejecución que falle termina con un error. Elegir **Continuar** en ella reanuda el mismo turno, así que se aplican las dos capas.
+
+Una acción cuyo efecto secundario nunca deba repetirse necesita su propia comprobación de idempotencia. El bloque duro nunca se aplica a las acciones de solo lectura.
 
 </Callout>
 
@@ -105,6 +111,8 @@ Together the two layers mean an interrupted run that already had a real side eff
 Cuando el servidor detiene un turno en su límite de tiempo de ejecución y nada en el servidor lo retoma, el chat lo continúa por sí mismo, en el **mismo turno**. La ejecución reanudada recibe las llamadas a herramientas y los resultados del hilo junto con la nota de diario anterior, de modo que los pasos terminados se reutilizan, y una repetición idéntica de una escritura —incluida una delegación `call-agent` entre aplicaciones, cuya clave de idempotencia se deriva del turno— devuelve el resultado registrado en lugar de enviarse de nuevo. El chat muestra el estado _Reanudando_ y Detener sigue funcionando.
 
 Un turno continúa automáticamente **como máximo tres veces**. El recuento se guarda con las ejecuciones del turno, así que recargar la página no lo reinicia y una segunda pestaña no puede duplicarlo. Después de eso, o tras cualquier error, detención, cancelación o límite de credenciales o de tasa, el turno termina con **Continuar** disponible y te espera.
+
+Elegir **Continuar** reanuda el propio turno de la ejecución detenida de la misma manera, sin límite de veces, así que se aplican las dos capas, igual que en una continuación automática. Solo se ofrece para la detención más reciente de la conversación. Si en su lugar envías un mensaje nuevo, primero se le indica al agente lo que ya hizo el turno sin terminar, pero ninguna de las dos capas impide que se repita.
 
 ## Relacionado
 

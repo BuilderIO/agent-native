@@ -4,6 +4,11 @@ import { toast } from "sonner";
 import type { ExportSettingsValue } from "@/components/design/inspector";
 import type { ElementInfo } from "@/components/design/types";
 import {
+  browserDesignExportErrorType,
+  trackBrowserDesignExported,
+  type BrowserDesignExportContext,
+} from "@/lib/design-export-tracking";
+import {
   PDF_MIN_PRINT_RASTER_SCALE,
   createSinglePageRasterPdf,
 } from "@/pages/design-editor/export-capture";
@@ -17,6 +22,8 @@ import {
 } from "@/pages/design-editor/png-export-render";
 
 export interface DownloadPdfArgs {
+  /** Join keys for the `design_exported` this command reports. */
+  exportTracking?: BrowserDesignExportContext;
   fallbackExportName: (extension: string, suffix?: string) => string;
   pngExportingRef: RefObject<boolean>;
   renderPngBlob: (arg0: {
@@ -34,7 +41,7 @@ export interface DownloadPdfArgs {
           cropSelection: ElementInfo | readonly ElementInfo[] | null;
         }
       >;
-  releaseScreenFromExport?: () => void;
+  releaseScreenFromExport?: (lease: symbol) => void;
   setPngExporting: Dispatch<SetStateAction<boolean>>;
   showRasterCaptureError: (error: unknown, format?: "png" | "pdf") => void;
   t: (key: string, options?: Record<string, unknown>) => string;
@@ -43,6 +50,7 @@ export interface DownloadPdfArgs {
 
 export async function runDownloadPdf(
   {
+    exportTracking,
     fallbackExportName,
     pngExportingRef,
     renderPngBlob,
@@ -70,8 +78,11 @@ export async function runDownloadPdf(
       pageHeight = Math.max(1, selectedScreensBounds.height);
     } else {
       const target = await resolvePngCaptureTarget(scope);
-      const prepared = await prepareExportCaptureTarget(target);
+      let prepared: Awaited<
+        ReturnType<typeof prepareExportCaptureTarget>
+      > | null = null;
       try {
+        prepared = await prepareExportCaptureTarget(target);
         const crop = resolveExportCropRect(prepared.doc, target.cropSelection);
         const pageCrop =
           crop ?? resolveBoardExportCropRect(prepared.doc, prepared.iframe);
@@ -94,7 +105,10 @@ export async function runDownloadPdf(
             ),
         );
       } finally {
-        prepared.dispose();
+        prepared?.dispose();
+        if (target.screenLease) {
+          releaseScreenFromExport?.(target.screenLease);
+        }
       }
     }
     const pdfScale = Math.max(
@@ -121,10 +135,18 @@ export async function runDownloadPdf(
     });
     triggerBlobDownload(pdf, fallbackExportName("pdf", settings?.suffix));
     toast.success(t("designEditor.toasts.pdfDownloaded"));
+    trackBrowserDesignExported("pdf", {
+      ...exportTracking,
+      status: "completed",
+    });
   } catch (error) {
+    trackBrowserDesignExported("pdf", {
+      ...exportTracking,
+      status: "failed",
+      errorType: browserDesignExportErrorType(error),
+    });
     showRasterCaptureError(error, "pdf");
   } finally {
-    releaseScreenFromExport?.();
     pngExportingRef.current = false;
     setPngExporting(false);
   }

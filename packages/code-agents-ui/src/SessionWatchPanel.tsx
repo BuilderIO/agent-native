@@ -1,4 +1,5 @@
 import { mergeCodeAgentTranscriptEvents } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
 import {
   IconEye,
@@ -6,9 +7,10 @@ import {
   IconMessageCircle,
   IconX,
 } from "@tabler/icons-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { createCodeAgentAiReadinessGate } from "./ai-readiness.js";
 import type { CodeAgentsHost } from "./CodeAgentsApp.js";
 import type { CodeAgentRun, CodeAgentTranscriptEvent } from "./types.js";
 
@@ -34,11 +36,14 @@ export function SessionWatchPanel({
   sourceRunId?: string | null;
   onClose: () => void;
 }) {
+  const t = useT();
   const [events, setEvents] = useState<CodeAgentTranscriptEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [, setPrompt] = useState("");
+  const selectedEngine =
+    typeof run.metadata?.engine === "string" ? run.metadata.engine : undefined;
   const transcriptGenerationRef = useRef(0);
 
   const loadTranscript = useCallback(
@@ -146,6 +151,28 @@ export function SessionWatchPanel({
     }
   }
 
+  const verifyAiBeforeSubmit = useMemo(
+    () =>
+      createCodeAgentAiReadinessGate(
+        host.getHostMetadata,
+        selectedEngine,
+        (readiness) => {
+          toast(
+            readiness === "missing"
+              ? t("agentChat.setup.connectToChat", {
+                  defaultValue: "Connect AI before sending.",
+                })
+              : t("agentChat.composer.submitFailed", {
+                  defaultValue:
+                    "Could not verify the AI connection. Try again.",
+                }),
+            { duration: 3200 },
+          );
+        },
+      ),
+    [host.getHostMetadata, selectedEngine],
+  );
+
   return (
     <section className="code-agents-session-watch" aria-label="Watched session">
       <div className="code-agents-session-watch__header">
@@ -198,6 +225,8 @@ export function SessionWatchPanel({
         <PromptComposer
           className="code-agents-standard-composer code-agents-session-watch__composer"
           layoutVariant="compact"
+          onBeforeSubmit={verifyAiBeforeSubmit}
+          selectedEngine={selectedEngine}
           draftScope={`agent-native-code:watch:${run.id}`}
           disabled={sending}
           placeholder="Message this session…"

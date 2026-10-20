@@ -49,7 +49,12 @@ import {
   getEventDateKey,
   getEventSegmentForCalendarDay,
 } from "@/lib/calendar-timezone";
-import { normalizeNumberOfDays } from "@/lib/calendar-view-preferences";
+import {
+  MAX_ALL_DAY_MAX_HEIGHT,
+  MIN_ALL_DAY_MAX_HEIGHT,
+  normalizeAllDayMaxHeight,
+  normalizeNumberOfDays,
+} from "@/lib/calendar-view-preferences";
 import { getEventDisplayColor, allOtherDeclined } from "@/lib/event-colors";
 import {
   computeTimedEventLayout,
@@ -73,6 +78,7 @@ import {
   getWorkingLocationTitle,
 } from "@/lib/working-location";
 
+import { handleAllDayResizeKeyDown } from "./all-day-resize";
 import { EventDetailPopover } from "./EventDetailPopover";
 import { OutOfOfficeEvent } from "./OutOfOfficeEvent";
 import { shouldRenderWeekDragSegment } from "./week-drag-segment";
@@ -581,7 +587,17 @@ export const WeekView = memo(function WeekView({
     }
   }, []);
 
-  const { prefs } = useViewPreferences();
+  const { prefs, update: updateViewPreferences } = useViewPreferences();
+  const [allDayResizeDraft, setAllDayResizeDraft] = useState<number | null>(
+    null,
+  );
+  const allDayResizeRef = useRef<{
+    pointerId: number;
+    startY: number;
+    startHeight: number;
+    currentHeight: number;
+  } | null>(null);
+  const allDayMaxHeight = allDayResizeDraft ?? prefs.allDayMaxHeight;
   const displayedDayCount = normalizeNumberOfDays(numberOfDays);
   const periodStart = useMemo(
     () =>
@@ -731,6 +747,14 @@ export const WeekView = memo(function WeekView({
     regularAllDayEventLaneHeight;
   const allDaySectionHeight =
     workingLocationLaneHeight + laneSeparatorHeight + regularAllDayLaneHeight;
+  const canResizeAllDaySection =
+    (hasWorkingLocations || hasRegularAllDayEvents) &&
+    allDaySectionHeight >= MIN_ALL_DAY_MAX_HEIGHT;
+  const allDayResizeHandleHeight = canResizeAllDaySection ? 8 : 0;
+  const visibleAllDaySectionHeight = Math.min(
+    allDaySectionHeight,
+    allDayMaxHeight,
+  );
   const calendarScrollbarWidth = Math.max(
     timeGridScrollbarWidth,
     allDayScrollbarWidth,
@@ -738,6 +762,53 @@ export const WeekView = memo(function WeekView({
   const allDayHeaderSpacerWidth = calendarScrollbarWidth - allDayScrollbarWidth;
   const timeGridContentSpacerWidth =
     calendarScrollbarWidth - timeGridScrollbarWidth;
+
+  const startAllDayResize = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    allDayResizeRef.current = {
+      pointerId: event.pointerId,
+      startY: event.clientY,
+      startHeight: prefs.allDayMaxHeight,
+      currentHeight: prefs.allDayMaxHeight,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setAllDayResizeDraft(prefs.allDayMaxHeight);
+  };
+
+  const moveAllDayResize = (event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = allDayResizeRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const currentHeight = normalizeAllDayMaxHeight(
+      drag.startHeight + Math.round(event.clientY - drag.startY),
+    );
+    allDayResizeRef.current = { ...drag, currentHeight };
+    setAllDayResizeDraft(currentHeight);
+  };
+
+  const finishAllDayResize = (
+    event: React.PointerEvent<HTMLDivElement>,
+    commit: boolean,
+  ) => {
+    const drag = allDayResizeRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    allDayResizeRef.current = null;
+    const nextHeight = drag.currentHeight;
+    setAllDayResizeDraft(null);
+    if (commit && nextHeight !== prefs.allDayMaxHeight) {
+      updateViewPreferences({ allDayMaxHeight: nextHeight });
+    }
+  };
+
+  const resizeAllDayWithKeyboard = (
+    event: React.KeyboardEvent<HTMLDivElement>,
+  ) => {
+    handleAllDayResizeKeyDown(
+      event,
+      allDayResizeDraft ?? prefs.allDayMaxHeight,
+      (allDayMaxHeight) => updateViewPreferences({ allDayMaxHeight }),
+    );
+  };
 
   useEffect(() => {
     const measureScrollbars = () => {
@@ -1002,7 +1073,9 @@ export const WeekView = memo(function WeekView({
         {hasAnyAllDay && (
           <div
             className="relative flex min-h-0 flex-col overflow-hidden border-t border-border"
-            style={{ height: `${Math.min(allDaySectionHeight, 88)}px` }}
+            style={{
+              height: `${visibleAllDaySectionHeight + allDayResizeHandleHeight}px`,
+            }}
           >
             {hasAllDayCreateSurface && (
               <div className="flex shrink-0 border-b border-border/60">
@@ -1053,6 +1126,7 @@ export const WeekView = memo(function WeekView({
 
             <div
               ref={allDayContainerRef}
+              id="calendar-all-day-events"
               className="min-h-0 flex-1 overflow-y-auto"
             >
               {/* All-day columns container (relative, for absolute-positioned spans) */}
@@ -1314,6 +1388,32 @@ export const WeekView = memo(function WeekView({
                 )}
               </div>
             </div>
+            {canResizeAllDaySection && (
+              <div
+                role="separator"
+                aria-orientation="horizontal"
+                aria-label={t("calendarView.resizeAllDaySection")}
+                aria-controls="calendar-all-day-events"
+                aria-valuemin={MIN_ALL_DAY_MAX_HEIGHT}
+                aria-valuemax={MAX_ALL_DAY_MAX_HEIGHT}
+                aria-valuenow={allDayMaxHeight}
+                tabIndex={0}
+                className={cn(
+                  "flex h-2 shrink-0 cursor-row-resize touch-none items-center justify-center border-t border-border bg-background/60 outline-none hover:bg-muted/60 focus-visible:bg-muted/60",
+                  allDayResizeDraft !== null && "bg-muted/70",
+                )}
+                onPointerDown={startAllDayResize}
+                onPointerMove={moveAllDayResize}
+                onPointerUp={(event) => finishAllDayResize(event, true)}
+                onPointerCancel={(event) => finishAllDayResize(event, false)}
+                onKeyDown={resizeAllDayWithKeyboard}
+              >
+                <span
+                  aria-hidden="true"
+                  className="h-1 w-8 rounded-full bg-muted-foreground/40"
+                />
+              </div>
+            )}
           </div>
         )}
       </div>

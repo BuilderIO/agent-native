@@ -45,6 +45,21 @@ describe("slides app URLs", () => {
     );
   });
 
+  it("scopes hosted PPTX links to the deck and note preference", () => {
+    vi.stubEnv("APP_URL", "https://workspace.example.test/slides");
+    vi.stubEnv("APP_BASE_PATH", "/slides");
+
+    expect(
+      getExportUrl("quarterly-review.pptx", {
+        deckId: "deck 1",
+        includeNotes: false,
+        exportRevision: "a".repeat(64),
+      }),
+    ).toBe(
+      `https://workspace.example.test/slides/api/exports/quarterly-review.pptx?deckId=deck+1&includeNotes=false&exportRevision=${"a".repeat(64)}`,
+    );
+  });
+
   it("falls back to the first-party Slides host when no app URL is configured", () => {
     expect(getDeckUrl("deck-3")).toBe(
       "https://slides.agent-native.com/deck/deck-3",

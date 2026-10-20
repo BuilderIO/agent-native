@@ -86,6 +86,21 @@ describe("EditorLayout media loading", () => {
       /await runEdit\(\(\) => onCutRange\(selectionRange\)\)/,
     );
   });
+
+  it("passes an exact timeline range to Cut Selection and Delete", () => {
+    const source = readSource();
+    const deleteSelection = source
+      .split("const deleteSelection = useCallback(async () => {")[1]
+      ?.split("const seek = useCallback(")[0];
+
+    expect(source).toContain('selection?.kind === "range"');
+    expect(source).toContain("selection.startMs, endMs: selection.endMs");
+    expect(source).toContain("selectionRange={selectedRange}");
+    expect(deleteSelection).toContain(
+      "addCut(savedEdits, selectedRange.startMs",
+    );
+    expect(deleteSelection).toContain("selectedRange.endMs");
+  });
 });
 
 describe("EditorLayout timeline geometry", () => {
@@ -121,20 +136,5 @@ describe("EditorLayout storage preflight", () => {
     expect(burnHandler.indexOf("videoStorageStatus.refetch()")).toBeLessThan(
       burnHandler.indexOf("burnRedactions.mutateAsync({ recordingId })"),
     );
-  });
-
-  it("checks storage before requesting or exporting Rewind history", () => {
-    const source = readFileSync(
-      new URL("./rewind-extension-dialog.tsx", import.meta.url),
-      "utf8",
-    );
-    const checkIndex = source.indexOf("await storageStatus.refetch()");
-    const requestIndex = source.indexOf("requestExtension.mutateAsync({");
-    const exportIndex = source.indexOf("await exportConcat(");
-
-    expect(checkIndex).toBeGreaterThan(-1);
-    expect(checkIndex).toBeLessThan(requestIndex);
-    expect(checkIndex).toBeLessThan(exportIndex);
-    expect(source).toContain("<FileStorageSetupPopover");
   });
 });

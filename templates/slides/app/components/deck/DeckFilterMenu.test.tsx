@@ -2,38 +2,28 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { TooltipProvider } from "@/components/ui/tooltip";
+import type { DeckFilter } from "@/lib/deck-filter";
 
 import { DeckFilterMenu } from "./DeckFilterMenu";
 
-function renderMenu(value: "all" | "mine") {
-  return render(
-    <TooltipProvider>
-      <DeckFilterMenu value={value} onChange={() => {}} />
-    </TooltipProvider>,
-  );
+function renderMenu(value: DeckFilter) {
+  return render(<DeckFilterMenu value={value} onChange={() => {}} />);
 }
 
 afterEach(cleanup);
 
 describe("DeckFilterMenu", () => {
-  it("marks the trigger while Mine narrows the deck list", () => {
+  it("shows the selected ownership scope in the trigger", () => {
     renderMenu("mine");
 
-    const indicator = screen
-      .getByRole("button")
-      .querySelector("[data-filter-active]");
-    expect(indicator?.getAttribute("data-filter-active")).toBe("true");
-    expect(indicator?.querySelector("[data-filter-active-dot]")).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Owned by me" })).toBeDefined();
   });
 
-  it("leaves the trigger unmarked while All shows every deck", () => {
+  it("labels the unfiltered state by owner", () => {
     renderMenu("all");
 
-    const indicator = screen
-      .getByRole("button")
-      .querySelector("[data-filter-active]");
-    expect(indicator?.getAttribute("data-filter-active")).toBe("false");
-    expect(indicator?.querySelector("[data-filter-active-dot]")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Owned by anyone" }),
+    ).toBeDefined();
   });
 });

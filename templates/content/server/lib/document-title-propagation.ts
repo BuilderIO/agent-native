@@ -13,7 +13,9 @@ export async function propagateDocumentTitle(args: {
   title: string;
   updatedAt: string;
   organizationIds: readonly string[];
+  databaseId: string | null;
 }): Promise<void> {
+  if (args.databaseId === null) return;
   const userEmail = getRequestUserEmail();
   const orgIds = new Set([
     ...args.organizationIds,
@@ -37,7 +39,13 @@ export async function propagateDocumentTitle(args: {
       systemRole: schema.contentDatabases.systemRole,
     })
     .from(schema.contentDatabases)
-    .where(eq(schema.contentDatabases.documentId, args.documentId));
+    .where(
+      and(
+        eq(schema.contentDatabases.id, args.databaseId),
+        eq(schema.contentDatabases.documentId, args.documentId),
+      ),
+    )
+    .limit(1);
   if (!database) return;
 
   const title =

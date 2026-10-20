@@ -2,6 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import { buildFigmaLinkChatPrompt, extractFigmaLink } from "./figma-url";
 
+const prompts = {
+  importFrame: "Import frame into current Design: {{url}}",
+  importFile: "Open file and list frames: {{url}}",
+  inspectFrame: "Inspect frame: {{url}}",
+  inspectFile: "Inspect file: {{url}}",
+  exportSvg: "Export the current Design screen as SVG.",
+};
+
 describe("extractFigmaLink", () => {
   it("detects a Figma frame link inside ordinary composer text", () => {
     expect(
@@ -42,9 +50,8 @@ describe("buildFigmaLinkChatPrompt", () => {
     const link = extractFigmaLink(
       "https://www.figma.com/design/FileKey1/Name?node-id=1-2",
     )!;
-    expect(buildFigmaLinkChatPrompt("import", link, "design-1")).toEqual({
-      message:
-        "Import this Figma frame into the current Design and report any fidelity differences: https://www.figma.com/design/FileKey1/Name?node-id=1-2",
+    expect(buildFigmaLinkChatPrompt("import", link, prompts)).toEqual({
+      message: prompts.importFrame,
     });
   });
 
@@ -52,18 +59,36 @@ describe("buildFigmaLinkChatPrompt", () => {
     const link = extractFigmaLink(
       "https://www.figma.com/design/FileKey1/Name",
     )!;
-    expect(buildFigmaLinkChatPrompt("import", link).message).toContain(
-      "list its top-level frames",
+    expect(buildFigmaLinkChatPrompt("import", link, prompts).message).toBe(
+      prompts.importFile,
     );
   });
 
-  it("describes the honest SVG export fidelity boundary", () => {
+  it("selects a translated inspection prompt for the link kind", () => {
+    const frame = extractFigmaLink(
+      "https://www.figma.com/design/FileKey1/Name?node-id=1-2",
+    )!;
+    const file = extractFigmaLink(
+      "https://www.figma.com/design/FileKey1/Name",
+    )!;
+
+    expect(buildFigmaLinkChatPrompt("inspect", frame, prompts).message).toBe(
+      prompts.inspectFrame,
+    );
+    expect(buildFigmaLinkChatPrompt("inspect", file, prompts).message).toBe(
+      prompts.inspectFile,
+    );
+  });
+
+  it("describes what the SVG export turns into static content", () => {
     const link = extractFigmaLink(
       "https://www.figma.com/design/FileKey1/Name",
     )!;
-    const prompt = buildFigmaLinkChatPrompt("export-svg", link).message;
-    expect(prompt).toContain("Figma-compatible SVG");
-    expect(prompt).toContain("auto-layout");
-    expect(prompt).toContain("will not stay live");
+    const prompt = buildFigmaLinkChatPrompt(
+      "export-svg",
+      link,
+      prompts,
+    ).message;
+    expect(prompt).toBe(prompts.exportSvg);
   });
 });

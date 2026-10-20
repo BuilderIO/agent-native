@@ -20,6 +20,7 @@ import {
 } from "@/lib/design-file-upload";
 import { figmaHydrationErrorMessage } from "@/lib/design-import";
 import {
+  FigmaFileUrlUsedAsTokenError,
   getFigmaConnectionStatus,
   saveFigmaAccessToken,
 } from "@/lib/figma-connection";
@@ -95,6 +96,10 @@ export function FigmaHydrationDialog({
         ),
       });
     } catch (err) {
+      if (err instanceof FigmaFileUrlUsedAsTokenError) {
+        setError(t("designEditor.import.errors.figmaTokenMustBeToken"));
+        return;
+      }
       setError(
         err instanceof Error
           ? err.message
@@ -138,6 +143,7 @@ export function FigmaHydrationDialog({
           err,
           t("common.genericError"),
           'Token rejected (403). In Figma\'s token settings, enable the "File content" and "Current user" scopes, then generate a new token.',
+          t("designEditor.import.errors.figmaTokenMustBeToken"),
         ),
       );
     } finally {

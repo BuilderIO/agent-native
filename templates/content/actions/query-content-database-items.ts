@@ -6,7 +6,11 @@ import type {
   ContentDatabaseNavigationPageResponse,
   ContentDatabaseUnavailableResponse,
 } from "../shared/api.js";
-import { getContentDatabaseNavigationPage } from "./_database-navigation.js";
+import { readPersonalDatabaseViewOverrides } from "./_content-database-personal-view.js";
+import {
+  getContentDatabaseNavigationPage,
+  MAX_NAVIGATION_EXPAND_IDS,
+} from "./_database-navigation.js";
 import {
   CONTENT_DATABASE_MAX_READ_LIMIT,
   contentDatabaseTableQuerySchema,
@@ -49,6 +53,13 @@ export default defineAction({
           .min(1)
           .optional()
           .describe("Opaque cursor returned by the previous matching page"),
+        expand: z
+          .array(z.string().min(1))
+          .max(MAX_NAVIGATION_EXPAND_IDS)
+          .optional()
+          .describe(
+            "Expanded document IDs, most important first; each one this read returns comes back with its first child page in branches, and branchesTruncated is true when the cap left any out",
+          ),
       })
       .optional()
       .describe(
@@ -84,22 +95,38 @@ export default defineAction({
         statusCode: 400,
       });
     }
-    const resolved = await resolveContentDatabaseRead({
-      databaseId,
-      documentId,
-    });
+    // A person's saved order is theirs alone, so it is read while the
+    // database's access check runs; it is used only if that check passes.
+    // The check answers first: an unavailable database returns its typed
+    // response even when the saved order cannot be read.
+    const [resolved, [earlyOverrides]] = await Promise.all([
+      resolveContentDatabaseRead({ databaseId, documentId }),
+      Promise.allSettled(
+        navigation && userEmail && databaseId
+          ? [readPersonalDatabaseViewOverrides(userEmail, databaseId)]
+          : [],
+      ),
+    ]);
     if (!resolved.available) return resolved;
 
     if (navigation) {
       if (!userEmail) throw new Error("Not authenticated.");
+      if (earlyOverrides?.status === "rejected") throw earlyOverrides.reason;
       return getContentDatabaseNavigationPage({
         database: resolved.database,
         userEmail,
+        overrides: earlyOverrides
+          ? earlyOverrides.value
+          : await readPersonalDatabaseViewOverrides(
+              userEmail,
+              resolved.database.id,
+            ),
         parentId: navigation.parentId,
         sort: navigation.sort,
         viewId: navigation.viewId,
         limit: limit ?? 20,
         cursor: navigation.cursor,
+        expand: navigation.expand,
       });
     }
 

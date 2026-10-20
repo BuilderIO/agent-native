@@ -9,6 +9,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { requireFormsPermission } from "../server/lib/app-roles.js";
 import { applyFieldOps } from "../server/lib/merge-fields.js";
 import { invalidatePublicFormCache } from "../server/lib/public-form-ssr.js";
 import {
@@ -73,6 +74,7 @@ const fieldOpSchema = z.discriminatedUnion("op", [
 ]);
 
 export default defineAction({
+  authorize: requireFormsPermission("forms.edit", "id"),
   description:
     "Apply granular field operations (upsert/remove/reorder) to a form using a server-side read-modify-write merge. Concurrent edits to different fields both survive. Before adding or restyling a field, read the form with `get-form` and follow its theme and the other fields' label, required, and help-text conventions so the new field matches its siblings.",
   schema: z.object({

@@ -16,7 +16,7 @@ import {
 } from "h3";
 
 import { buildMarkdownResponseHeaders } from "../../../core/src/agent-web/index";
-import { wrapDocumentResponse } from "../../lib/analytics";
+import { isLegacyChunkRecoveryRequest } from "../../../core/src/shared/route-chunk-recovery-bootstrap.js";
 import {
   applyCommunityAppSsrCacheHeaders,
   applyDocsSsrCacheKeyHeaders,
@@ -24,6 +24,7 @@ import {
 } from "../../lib/ssr-cache";
 import {
   acceptsMarkdown,
+  agentWebAssetContentType,
   appendVary,
   buildMarkdownNotFoundResponse,
 } from "../lib/agent-web-responses";
@@ -70,7 +71,7 @@ export default async function docsPageHandler(event: H3Event) {
     throw createError({ statusCode: 404, statusMessage: "Markdown not found" });
   }
 
-  const response = wrapDocumentResponse(await ssrHandler(event));
+  const response = await ssrHandler(event);
   if (
     acceptsMarkdown(getRequestHeader(event, "accept")) &&
     response.status === 404
@@ -78,11 +79,7 @@ export default async function docsPageHandler(event: H3Event) {
     return buildMarkdownNotFoundResponse();
   }
   const requestUrl = getRequestURL(event);
-  return responseWithVaryAccept(
-    response,
-    requestUrl.pathname,
-    isCloudGettingStartedPath(requestUrl),
-  );
+  return responseWithVaryAccept(response, requestUrl);
 }
 
 function setSsrCacheHeaders(event: H3Event) {
@@ -94,15 +91,20 @@ function setSsrCacheHeaders(event: H3Event) {
   }
 }
 
-function responseWithVaryAccept(
-  response: Response,
-  pathname: string,
-  varyByQuery = false,
-): Response {
+function responseWithVaryAccept(response: Response, requestUrl: URL): Response {
   const headers = new Headers(response.headers);
   appendVary(headers, ["Accept", "Accept-Encoding"]);
-  applyDocsSsrCacheKeyHeaders(headers, { varyByQuery });
-  applyCommunityAppSsrCacheHeaders(headers, pathname, response.status);
+  const isLegacyRecovery = isLegacyChunkRecoveryRequest(requestUrl);
+  applyDocsSsrCacheKeyHeaders(headers, {
+    varyByQuery: isCloudGettingStartedPath(requestUrl),
+    varyByLegacyRecovery: isLegacyRecovery,
+  });
+  applyCommunityAppSsrCacheHeaders(
+    headers,
+    requestUrl.pathname,
+    response.status,
+    { isLegacyRecovery },
+  );
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -114,14 +116,7 @@ function readAgentWebAssetForRequest(
   event: H3Event,
 ): { content: string; contentType: string } | undefined {
   const pathname = getRequestURL(event).pathname.replace(/\/+$/, "") || "/";
-  const contentTypeByPath: Record<string, string> = {
-    "/llms.txt": "text/plain; charset=utf-8",
-    "/llms-full.txt": "text/plain; charset=utf-8",
-    "/robots.txt": "text/plain; charset=utf-8",
-    "/sitemap.xml": "application/xml; charset=utf-8",
-    "/openapi.json": "application/json; charset=utf-8",
-  };
-  const contentType = contentTypeByPath[pathname];
+  const contentType = agentWebAssetContentType(pathname);
   if (!contentType) return undefined;
 
   const relativePath = pathname.replace(/^\//, "");
