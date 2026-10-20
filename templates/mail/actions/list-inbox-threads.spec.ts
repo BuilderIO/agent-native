@@ -53,7 +53,10 @@ vi.mock("../server/lib/mail-settings.js", () => ({
 vi.mock("../server/lib/inbox-store.js", () => ({
   readInboxThreads: mocks.readInboxThreads,
   readInboxTabWindows: mocks.readInboxTabWindows,
-  aiImportantLabelIds: () => [],
+  aiImportantLabelIds: (labelMap?: Map<string, string>) =>
+    [...(labelMap?.entries() ?? [])]
+      .filter(([, name]) => name === "agent-native-important")
+      .map(([id]) => id),
   readCachedLabels: mocks.readCachedLabels,
   readSyncAccounts: mocks.readSyncAccounts,
   readInboxPushGeneration: mocks.readInboxPushGeneration,
@@ -547,6 +550,55 @@ describe("list-inbox-threads action", () => {
     expect(
       result.tabs.find((tab) => tab.id === "__inbox_all__")?.totalIsLowerBound,
     ).toBeUndefined();
+  });
+
+  it("counts an AI-important Gmail label as Important through the account label map", async () => {
+    mocks.readCachedLabels.mockResolvedValue({
+      labels: [],
+      labelMapByAccount: new Map([
+        [OWNER, new Map([["Label_ai", "agent-native-important"]])],
+      ]),
+    });
+    mocks.readInboxThreads.mockResolvedValue([
+      row({
+        threadId: "ai-auto",
+        latestMessageId: "m-ai-auto",
+        latestDate: 3000,
+        labelIds: ["Label_ai"],
+        isAutomated: true,
+      }),
+      row({
+        threadId: "plain",
+        latestMessageId: "m-plain",
+        latestDate: 2000,
+        labelIds: [],
+      }),
+      row({
+        threadId: "auto",
+        latestMessageId: "m-auto",
+        latestDate: 1000,
+        labelIds: [],
+        isAutomated: true,
+      }),
+    ]);
+
+    const result = await action.run(
+      { tab: "important", limit: 50, offset: 0 } as any,
+      undefined as any,
+    );
+
+    const windowsInput = mocks.readInboxTabWindows.mock.calls.at(-1)?.[0];
+    expect(windowsInput.aiLabelIdsByAccount.get(OWNER)).toEqual(["Label_ai"]);
+    expect(result.activeTabId).toBe("important");
+    expect(result.tabs.find((t) => t.id === "important")).toMatchObject({
+      total: 2,
+      unread: 2,
+    });
+    expect(result.tabs.find((t) => t.id === "other")?.total).toBe(1);
+    expect(result.items.map((item) => item.threadId)).toEqual([
+      "ai-auto",
+      "plain",
+    ]);
   });
 });
 

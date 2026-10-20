@@ -1163,17 +1163,6 @@ export function EmailList({
     );
   }, []);
 
-  const neighbourPrefetchRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
-  useEffect(
-    () => () => {
-      if (neighbourPrefetchRef.current)
-        clearTimeout(neighbourPrefetchRef.current);
-    },
-    [],
-  );
-
   const moveFocus = useCallback(
     (delta: number) => {
       setSelectedIds(new Set());
@@ -1190,20 +1179,10 @@ export function EmailList({
       );
       setFocusedId(threads[next].latestMessage.id);
       focusedIndexRef.current = next;
-      // Holding J/K must not fetch every row it passes: only the row that
-      // rests under focus prefetches its neighbours.
-      if (neighbourPrefetchRef.current)
-        clearTimeout(neighbourPrefetchRef.current);
-      neighbourPrefetchRef.current = setTimeout(() => {
-        neighbourPrefetchRef.current = null;
-        for (const neighbour of [threads[next - 1], threads[next + 1]]) {
-          if (neighbour) prefetchThread(neighbour);
-        }
-      }, THREAD_PREFETCH_INTENT_MS);
       // Scrolling the focused row into view is handled by the effect that
       // watches `focusedIndex` and calls `rowVirtualizer.scrollToIndex`.
     },
-    [threads, setFocusedId, setSelectedIds, prefetchThread],
+    [threads, setFocusedId, setSelectedIds],
   );
 
   const extendSelection = useCallback(
@@ -1937,15 +1916,20 @@ export function EmailList({
     if (!focusedId || threads.length === 0) return;
     const idx = threads.findIndex((t) => t.latestMessage.id === focusedId);
     if (idx === -1) return;
-    const windowIdx = [idx - 1, idx, idx + 1].filter(
-      (i) => i >= 0 && i < threads.length,
-    );
-    warmThreads(
-      windowIdx.map((i) => ({
-        id: threads[i].latestMessage.threadId || threads[i].latestMessage.id,
-        accountEmail: threads[i].latestMessage.accountEmail,
-      })),
-    );
+    // Warm only once focus rests, so holding J/K does not fetch every row it
+    // passes. Each focus change restarts the timer.
+    const timer = setTimeout(() => {
+      const windowIdx = [idx - 1, idx, idx + 1].filter(
+        (i) => i >= 0 && i < threads.length,
+      );
+      warmThreads(
+        windowIdx.map((i) => ({
+          id: threads[i].latestMessage.threadId || threads[i].latestMessage.id,
+          accountEmail: threads[i].latestMessage.accountEmail,
+        })),
+      );
+    }, THREAD_PREFETCH_INTENT_MS);
+    return () => clearTimeout(timer);
   }, [focusedId, threads]);
 
   const [rowHeightEstimate, setRowHeightEstimate] = useState(() =>

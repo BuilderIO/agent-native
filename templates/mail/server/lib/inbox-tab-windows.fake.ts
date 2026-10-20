@@ -1,3 +1,4 @@
+import { AI_IMPORTANT_LABEL } from "@shared/ai-priority.js";
 import type { InboxThreadItem } from "@shared/inbox-threads.js";
 
 import type { InboxTabWindows, InboxThreadRow } from "./inbox-store.js";
@@ -8,14 +9,16 @@ import {
 
 /**
  * Test double for `readInboxTabWindows`: the same windows computed in memory
- * from rows a spec already holds. Equivalence with the SQL is asserted by
- * inbox-store.tab-windows-pglite.spec.ts, so specs using this only check how
- * the action assembles its result.
+ * from rows a spec already holds. A row counts as AI-important when one of its
+ * raw Gmail label ids is in `aiLabelIdsByAccount`, as the SQL decides it, so
+ * the action's label wiring is exercised. Equivalence with the SQL is asserted
+ * by inbox-store.tab-windows-pglite.spec.ts.
  */
 export function inMemoryTabWindows(
   rows: InboxThreadRow[],
   params: {
     tabs: readonly ResolvedInboxTab[];
+    aiLabelIdsByAccount: ReadonlyMap<string, readonly string[]>;
     pageTabId: string;
     pageOffset: number;
     pageLimit: number;
@@ -27,8 +30,13 @@ export function inMemoryTabWindows(
   const rowByItem = new Map<InboxThreadItem, InboxThreadRow>();
   const items = rows.map((row) => {
     const item = toItem(row);
-    rowByItem.set(item, row);
-    return item;
+    const aiIds = params.aiLabelIdsByAccount.get(row.accountEmail) ?? [];
+    const aiImportant = row.labelIds.some((id) => aiIds.includes(id));
+    const shaped = aiImportant
+      ? { ...item, labelIds: [...item.labelIds, AI_IMPORTANT_LABEL] }
+      : item;
+    rowByItem.set(shaped, row);
+    return shaped;
   });
   const byTab = partitionInboxItems(items, [...params.tabs]);
   const rowsOf = (tabId: string) =>

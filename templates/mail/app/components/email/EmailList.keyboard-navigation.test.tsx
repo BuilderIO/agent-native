@@ -236,6 +236,8 @@ vi.mock("@/lib/thread-cache", () => ({
   warmThreads: vi.fn(),
 }));
 
+import { warmThreads } from "@/lib/thread-cache";
+
 import { EmailList, rememberPriorityScore } from "./EmailList";
 
 const messages = ["first", "middle", "last"].map((id, index) => ({
@@ -1434,6 +1436,37 @@ describe("EmailList keyboard navigation interactions", () => {
     );
     expect(focusedRows).toHaveLength(1);
     expect(focusedRows[0].textContent).toContain("Subject row-7");
+  });
+
+  it("warms only the resting row and its neighbours after fast j presses", () => {
+    vi.useFakeTimers();
+    const manyMessages = Array.from({ length: 10 }, (_, index) => ({
+      ...messages[index % messages.length],
+      id: `row-${index}`,
+      threadId: `thread-row-${index}`,
+      date: new Date(Date.UTC(2026, 0, 20 - index)).toISOString(),
+      subject: `Subject row-${index}`,
+    }));
+    render(<Harness emails={manyMessages} />);
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+    vi.mocked(warmThreads).mockClear();
+
+    for (let index = 0; index < 5; index += 1) press("j");
+    expect(warmThreads).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.advanceTimersByTime(75);
+    });
+    expect(warmThreads).toHaveBeenCalledTimes(1);
+    expect(
+      vi
+        .mocked(warmThreads)
+        .mock.calls[0][0].map((target) =>
+          typeof target === "string" ? target : target.id,
+        ),
+    ).toEqual(["thread-row-4", "thread-row-5", "thread-row-6"]);
   });
 
   it("does not consume navigation shortcuts while an input is focused", () => {
