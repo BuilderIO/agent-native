@@ -41,6 +41,7 @@ const mockAbortResumableUploadSession = vi.hoisted(() => vi.fn());
 const mockDeleteS3ObjectByUrl = vi.hoisted(() => vi.fn());
 const mockReleaseHostedClipRecording = vi.hoisted(() => vi.fn());
 const mockReleaseHostedClipAllowanceAfterCleanup = vi.hoisted(() => vi.fn());
+const mockReleaseOrphanedHostedClipAllowance = vi.hoisted(() => vi.fn());
 const mockReconcileMeetingOnRecordingFailed = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/db", () => ({
@@ -60,6 +61,8 @@ vi.mock("./hosted-clip-allowance.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./hosted-clip-allowance.js")>()),
   releaseHostedClipAllowanceAfterCleanup: (...args: unknown[]) =>
     mockReleaseHostedClipAllowanceAfterCleanup(...args),
+  releaseOrphanedHostedClipAllowance: (...args: unknown[]) =>
+    mockReleaseOrphanedHostedClipAllowance(...args),
 }));
 vi.mock("./reconcile-meeting-on-finalize.js", () => ({
   reconcileMeetingOnRecordingFailed: (...args: unknown[]) =>
@@ -163,6 +166,7 @@ describe("upload lease", () => {
     mockDeleteS3ObjectByUrl.mockClear();
     mockReleaseHostedClipRecording.mockClear();
     mockReleaseHostedClipAllowanceAfterCleanup.mockClear();
+    mockReleaseOrphanedHostedClipAllowance.mockClear();
     mockReconcileMeetingOnRecordingFailed.mockClear();
     mockReconcileMeetingOnRecordingFailed.mockResolvedValue(undefined);
     await execute(
@@ -205,6 +209,7 @@ describe("upload lease", () => {
         user_id TEXT NOT NULL,
         status TEXT NOT NULL,
         quota_bytes BIGINT NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT '${iso(-60_000)}',
         updated_at TEXT NOT NULL,
         released_at TEXT
       )`,
@@ -265,6 +270,70 @@ describe("upload lease", () => {
         return true;
       },
     );
+    mockReleaseOrphanedHostedClipAllowance.mockImplementation(
+      async (input: {
+        recordingId: string;
+        userId: string;
+        createdBefore: Date;
+        now: Date;
+      }) => {
+        const { rows } = await execute(client, {
+          sql: `UPDATE clips_hosted_clip_allowances
+                SET status = 'released', quota_bytes = 0, released_at = ?, updated_at = ?
+                WHERE recording_id = ? AND user_id = ? AND status = 'reserved'
+                  AND created_at < ?
+                  AND NOT EXISTS (
+                    SELECT 1 FROM recordings
+                    WHERE recordings.id = clips_hosted_clip_allowances.recording_id
+                  )
+                RETURNING recording_id`,
+          args: [
+            input.now.toISOString(),
+            input.now.toISOString(),
+            input.recordingId,
+            input.userId,
+            input.createdBefore.toISOString(),
+          ],
+        });
+        return rows.length > 0;
+      },
+    );
+  });
+
+  it("releases only stale hosted reservations without a recording row", async () => {
+    for (const [id, createdAt] of [
+      ["orphaned", iso(-UPLOAD_LEASE_MS - 1)],
+      ["recent", iso(-UPLOAD_LEASE_MS + 1)],
+      ["attached", iso(-UPLOAD_LEASE_MS - 1)],
+    ]) {
+      await execute(client, {
+        sql: `INSERT INTO clips_hosted_clip_allowances
+              (recording_id, identity_key, user_id, status, quota_bytes, created_at, updated_at)
+              VALUES (?, ?, ?, 'reserved', ?, ?, ?)`,
+        args: [id, "owner@example.com", "user-1", 250, createdAt, createdAt],
+      });
+    }
+    await insertRecording({ id: "attached", status: "uploading" });
+
+    const result = await reapExpiredUploads({ now: NOW });
+
+    expect(result.hostedReservationsReleased).toBe(1);
+    expect(result.hostedCleanupFailed).toBe(0);
+    expect(mockReleaseOrphanedHostedClipAllowance).toHaveBeenCalledOnce();
+    expect(mockReleaseOrphanedHostedClipAllowance).toHaveBeenCalledWith({
+      recordingId: "orphaned",
+      userId: "user-1",
+      createdBefore: new Date(NOW - UPLOAD_LEASE_MS),
+      now: new Date(NOW),
+    });
+    const { rows } = await execute(client, {
+      sql: `SELECT recording_id, status FROM clips_hosted_clip_allowances ORDER BY recording_id`,
+    });
+    expect(rows).toEqual([
+      { recording_id: "attached", status: "reserved" },
+      { recording_id: "orphaned", status: "released" },
+      { recording_id: "recent", status: "reserved" },
+    ]);
   });
 
   it("renews only the owned processing Loom claim", async () => {
