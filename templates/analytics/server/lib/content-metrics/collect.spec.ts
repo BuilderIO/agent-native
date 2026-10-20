@@ -658,6 +658,31 @@ describe("content collection", () => {
     ]);
   });
 
+  it("advances query coverage after an empty successful Search Console run", async () => {
+    await onlySteps({ searchConsole: true }, [
+      { siteUrl: "sc-domain:example.test" },
+    ]);
+    mocks.querySearchAnalytics.mockResolvedValue([]);
+    await collectContentForAllTenants({
+      now: new Date("2026-10-15T07:00:00Z"),
+    });
+    expect(
+      await rows(
+        "SELECT window_end FROM analytics_content_collection_runs WHERE step = 'search_console'",
+      ),
+    ).toEqual([{ window_end: "2026-10-14" }]);
+    await collectContentForAllTenants({
+      now: new Date("2026-10-16T07:00:00Z"),
+    });
+    expect(mocks.querySearchAnalytics).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        startDate: "2026-10-11",
+        endDate: "2026-10-15",
+      }),
+    );
+    expect(await snapshots("search_console_clicks")).toEqual([]);
+  });
+
   it("fails the entire step if any Search Console property denies access", async () => {
     await onlySteps({ searchConsole: true }, [
       { siteUrl: "sc-domain:example.test" },
