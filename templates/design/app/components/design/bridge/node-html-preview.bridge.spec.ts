@@ -1,4 +1,4 @@
-import { chromium } from "@playwright/test";
+import { chromium, type Page } from "@playwright/test";
 import { describe, expect, it } from "vitest";
 
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
@@ -17,7 +17,164 @@ function hydratedEditorChromeBridgeScript(): string {
     .replace(/__INITIAL_SOURCE_HEAD__/g, '""');
 }
 
+async function postNodeHtmlPreview(
+  page: Page,
+  proposalId: string,
+  target: Record<string, string>,
+): Promise<void> {
+  await page.evaluate(
+    ({ proposalId, target }) =>
+      new Promise<void>((resolve) => {
+        const onMessage = (event: MessageEvent) => {
+          if (
+            event.data?.type !== "node-html-preview" ||
+            event.data.proposalId !== proposalId
+          ) {
+            return;
+          }
+          window.removeEventListener("message", onMessage);
+          resolve();
+        };
+        window.addEventListener("message", onMessage);
+        window.postMessage(
+          {
+            type: "node-html-preview",
+            operation: "preview",
+            proposalId,
+            target,
+            html: `<button id="preview-${proposalId}">Preview</button>`,
+          },
+          "*",
+        );
+      }),
+    { proposalId, target },
+  );
+}
+
 describe("node-html-preview iframe bridge", () => {
+  it(
+    "falls back from a missing versioned selector to a unique node id",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      const pageErrors: string[] = [];
+
+      try {
+        const page = await browser.newPage();
+        page.on("pageerror", (error) => pageErrors.push(error.message));
+        await page.setContent(`<!doctype html><html><body>
+          <main><section data-agent-native-node-id="hero">Original hero</section></main>
+        </body></html>`);
+        await page.addScriptTag({
+          content: hydratedEditorChromeBridgeScript(),
+        });
+
+        await postNodeHtmlPreview(page, "stale-selector", {
+          nodeId: "hero",
+          selector:
+            "source-equivalent:v1:body > main:nth-of-type(1) > section:nth-of-type(2)",
+        });
+
+        expect(
+          await page
+            .locator(
+              '[data-agent-native-node-rewrite-proposal="stale-selector"]',
+            )
+            .textContent(),
+        ).toBe("Preview");
+        expect(
+          await page.locator('[data-agent-native-node-id="hero"]').count(),
+        ).toBe(0);
+        expect(pageErrors).toEqual([]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
+    "resolves unique node-id-only targets across supported identity attributes",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      const pageErrors: string[] = [];
+
+      try {
+        const page = await browser.newPage();
+        page.on("pageerror", (error) => pageErrors.push(error.message));
+        await page.setContent(`<!doctype html><html><body><main>
+          <button data-agent-native-node-id="agent-native">Agent-native</button>
+          <button data-code-layer-id="code-layer">Code layer</button>
+          <button data-layer-id="layer">Layer</button>
+          <button data-builder-id="builder">Builder</button>
+          <button data-loc="source-location">Source location</button>
+          <button id="plain-id">Plain id</button>
+        </main></body></html>`);
+        await page.addScriptTag({
+          content: hydratedEditorChromeBridgeScript(),
+        });
+        const identities = [
+          ["data-agent-native-node-id", "agent-native", "Agent-native"],
+          ["data-code-layer-id", "code-layer", "Code layer"],
+          ["data-layer-id", "layer", "Layer"],
+          ["data-builder-id", "builder", "Builder"],
+          ["data-loc", "source-location", "Source location"],
+          ["id", "plain-id", "Plain id"],
+        ] as const;
+
+        for (const [attribute, nodeId, originalText] of identities) {
+          const proposalId = `identity-${nodeId}`;
+          await postNodeHtmlPreview(page, proposalId, { nodeId });
+
+          expect(
+            await page
+              .locator(
+                `[data-agent-native-node-rewrite-proposal="${proposalId}"]`,
+              )
+              .textContent(),
+          ).toBe("Preview");
+          expect(await page.locator(`[${attribute}="${nodeId}"]`).count()).toBe(
+            0,
+          );
+          expect(await page.locator("main").textContent()).not.toContain(
+            originalText,
+          );
+        }
+
+        for (const [attribute, nodeId] of [
+          ["data-loc", "repeated-location"],
+          ["id", "repeated-id"],
+        ] as const) {
+          await page.locator("main").evaluate(
+            (main, values) => {
+              for (const text of values.text) {
+                const element = document.createElement("button");
+                element.setAttribute(values.attribute, values.nodeId);
+                element.textContent = text;
+                main.appendChild(element);
+              }
+            },
+            { attribute, nodeId, text: ["First", "Second"] },
+          );
+          const repeated = page.locator(`[${attribute}="${nodeId}"]`);
+
+          await postNodeHtmlPreview(page, `ambiguous-${nodeId}`, { nodeId });
+
+          expect(await repeated.allTextContents()).toEqual(["First", "Second"]);
+          expect(
+            await page
+              .locator("[data-agent-native-node-rewrite-proposal]")
+              .count(),
+          ).toBe(0);
+        }
+
+        expect(pageErrors).toEqual([]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
   it(
     "switches variants without re-resolving the replaced target and restores the exact original node",
     { timeout: 30_000 },

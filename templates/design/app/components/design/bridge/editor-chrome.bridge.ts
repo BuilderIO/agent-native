@@ -15132,38 +15132,62 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
   function resolveNodeHtmlPreviewTarget(target: unknown): Element | null {
     if (!target || typeof target !== "object") return null;
     var selector = (target as { selector?: unknown }).selector;
-    if (
+    var isSourceEquivalentSelector =
       typeof selector === "string" &&
-      selector.indexOf(SOURCE_EQUIVALENT_SELECTOR_PREFIX) === 0
-    ) {
+      selector.indexOf(SOURCE_EQUIVALENT_SELECTOR_PREFIX) === 0;
+    if (isSourceEquivalentSelector) {
       var sourceSelectorMatch = resolveSourceEquivalentSelector(
         document,
-        selector,
+        selector as string,
       );
-      return sourceSelectorMatch &&
+      if (
+        sourceSelectorMatch &&
         !isLayerInteractionBlocked(sourceSelectorMatch)
-        ? sourceSelectorMatch
-        : null;
+      ) {
+        return sourceSelectorMatch;
+      }
     }
     var nodeId = (target as { nodeId?: unknown }).nodeId;
     if (typeof nodeId === "string" && nodeId) {
-      try {
-        var nodeMatch = document.querySelector(
+      var nodeMatches = document.querySelectorAll(
+        [
           '[data-agent-native-node-id="' + escapeAttribute(nodeId) + '"]',
-        );
-        if (nodeMatch && !isLayerInteractionBlocked(nodeMatch)) {
-          return nodeMatch;
-        }
-      } catch (_err) {}
+          '[data-code-layer-id="' + escapeAttribute(nodeId) + '"]',
+          '[data-layer-id="' + escapeAttribute(nodeId) + '"]',
+          '[data-builder-id="' + escapeAttribute(nodeId) + '"]',
+          '[data-loc="' + escapeAttribute(nodeId) + '"]',
+          '[id="' + escapeAttribute(nodeId) + '"]',
+        ].join(","),
+      );
+      if (
+        nodeMatches.length === 1 &&
+        !isLayerInteractionBlocked(nodeMatches[0])
+      ) {
+        return nodeMatches[0];
+      }
     }
-    if (typeof selector !== "string" || !selector) return null;
+    if (
+      typeof selector !== "string" ||
+      !selector ||
+      isSourceEquivalentSelector
+    ) {
+      return null;
+    }
     try {
       var selectorMatch = document.querySelector(selector);
       return selectorMatch && !isLayerInteractionBlocked(selectorMatch)
         ? selectorMatch
         : null;
-    } catch (_err) {
-      return null;
+    } catch (error) {
+      if (
+        typeof error === "object" &&
+        error !== null &&
+        "name" in error &&
+        error.name === "SyntaxError"
+      ) {
+        return null;
+      }
+      throw error;
     }
   }
 

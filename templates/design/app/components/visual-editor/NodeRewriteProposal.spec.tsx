@@ -254,6 +254,89 @@ describe("NodeRewriteProposal overview positioning", () => {
     );
   });
 
+  it("positions the proposal from a data-loc target when the preview marker is absent", async () => {
+    iframe
+      .contentDocument!.querySelector(
+        '[data-agent-native-node-rewrite-proposal="proposal-1"]',
+      )
+      ?.remove();
+    Object.defineProperty(iframe, "clientWidth", { value: 500 });
+    Object.defineProperty(iframe, "clientHeight", { value: 300 });
+    const target = iframe.contentDocument!.createElement("section");
+    target.setAttribute("data-loc", "hero");
+    target.getBoundingClientRect = () => rect(20, 30, 100, 40);
+    iframe.contentDocument!.body.appendChild(target);
+    proposalSnapshot = {
+      ...proposalSnapshot,
+      target: { nodeId: "hero" },
+      resolvedTarget: { nodeId: "hero", selector: "[data-absent]" },
+    };
+
+    await act(async () => {
+      root.render(
+        <NodeRewriteProposal
+          designId="design-1"
+          fileId="screen-1"
+          canvasSelector=".proposal-test-canvas"
+          proposalSnapshot={proposalSnapshot}
+        />,
+      );
+    });
+
+    const proposal = document.querySelector<HTMLElement>(
+      '[data-node-rewrite-proposal="proposal-1"]',
+    );
+    expect(proposal?.style.left).toBe("12px");
+    expect(proposal?.style.top).toBe("168px");
+    expect(proposal?.getAttribute("data-side")).toBe("below");
+  });
+
+  it("does not anchor to the first match when a data-loc target is ambiguous", async () => {
+    iframe
+      .contentDocument!.querySelector(
+        '[data-agent-native-node-rewrite-proposal="proposal-1"]',
+      )
+      ?.remove();
+    Object.defineProperty(iframe, "clientWidth", { value: 500 });
+    Object.defineProperty(iframe, "clientHeight", { value: 300 });
+    for (const [left, top] of [
+      [20, 30],
+      [300, 150],
+    ] as const) {
+      const target = iframe.contentDocument!.createElement("section");
+      target.setAttribute("data-loc", "hero");
+      target.getBoundingClientRect = () => rect(left, top, 100, 40);
+      iframe.contentDocument!.body.appendChild(target);
+    }
+    proposalSnapshot = {
+      ...proposalSnapshot,
+      target: { nodeId: "hero" },
+      resolvedTarget: { nodeId: "hero", selector: '[data-loc="hero"]' },
+    };
+
+    await act(async () => {
+      root.render(
+        <NodeRewriteProposal
+          designId="design-1"
+          fileId="screen-1"
+          canvasSelector=".proposal-test-canvas"
+          proposalSnapshot={proposalSnapshot}
+        />,
+      );
+    });
+
+    const proposal = document.querySelector<HTMLElement>(
+      '[data-node-rewrite-proposal="proposal-1"]',
+    );
+    const fallbackPosition = placeNodeRewritePopover(
+      { centerX: 330, top: 106, bottom: 106 },
+      { width: 320, height: 176 },
+      { width: window.innerWidth, height: window.innerHeight },
+    );
+    expect(proposal?.style.left).toBe(`${fallbackPosition.left}px`);
+    expect(proposal?.style.top).toBe(`${fallbackPosition.top}px`);
+  });
+
   it("does not erase a newer pending refinement when delivery fails", async () => {
     mocks.sendToAgent.mockResolvedValue({
       delivered: false,

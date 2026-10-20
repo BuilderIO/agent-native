@@ -81,12 +81,21 @@ function findProposalElement(
       );
       if (bySourceSelector) return bySourceSelector;
     }
+    let ambiguousNodeId = false;
     if (target.nodeId) {
       const id = escapeSelectorValue(target.nodeId);
-      const byId = document.querySelector(
-        `[data-agent-native-node-id="${id}"],[data-code-layer-id="${id}"],[data-layer-id="${id}"],[data-builder-id="${id}"],#${id}`,
+      const byId = document.querySelectorAll(
+        `[data-agent-native-node-id="${id}"],[data-code-layer-id="${id}"],[data-layer-id="${id}"],[data-builder-id="${id}"],[data-loc="${id}"],#${id}`,
       );
-      if (byId) return byId;
+      if (byId.length === 1) return byId[0] ?? null;
+      ambiguousNodeId = byId.length > 1;
+    }
+    if (ambiguousNodeId && target.selector) {
+      if (target.selector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)) {
+        return resolveSourceEquivalentSelector(document, target.selector);
+      }
+      const selectorMatches = document.querySelectorAll(target.selector);
+      return selectorMatches.length === 1 ? (selectorMatches[0] ?? null) : null;
     }
     return target.selector
       ? resolveSourceEquivalentSelector(document, target.selector)

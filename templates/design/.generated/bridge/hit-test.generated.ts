@@ -1458,10 +1458,17 @@ export const hitTestBridgeScript: string = `"use strict";
         if (!reviewSelectorCorrelationId || typeof reviewSelector !== "string") {
           return;
         }
-        var reviewSelectorElement = resolveSourceEquivalentSelector(
-          document,
-          reviewSelector
-        );
+        var reviewSelectorElement = null;
+        try {
+          reviewSelectorElement = resolveSourceEquivalentSelector(
+            document,
+            reviewSelector
+          );
+        } catch (error) {
+          if (typeof error !== "object" || error === null || !("name" in error) || error.name !== "SyntaxError") {
+            throw error;
+          }
+        }
         if (reviewSelectorElement === document.body) reviewSelectorElement = null;
         var reviewSelectorBox = reviewSelectorElement ? reviewSelectorElement.getBoundingClientRect() : null;
         window.parent.postMessage(

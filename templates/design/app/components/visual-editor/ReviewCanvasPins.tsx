@@ -306,9 +306,8 @@ function findNodeElement(canvas: HTMLElement, nodeId: string): Element | null {
             "id",
           ].some((attribute) => element.getAttribute(attribute) === nodeId),
         );
-    // A source location (data-loc and kin) is shared by every instance rendered from it.
-    // Picking one would move the pin to the wrong instance, so a repeated one resolves to
-    // nothing. A plain id remains the fallback when it is the only matching identity kind.
+    // Repeated identities are ambiguous; returning null lets the click-specific selector
+    // keep the pin on the instance the bridge actually hit.
     const sourceMatches = matches.filter((element) =>
       isSourceLocationMatch(element, nodeId),
     );
@@ -316,6 +315,7 @@ function findNodeElement(canvas: HTMLElement, nodeId: string): Element | null {
     if (sourceMatches.length > 0 && matches.length > sourceMatches.length) {
       return null;
     }
+    if (matches.length > 1) return null;
     return sourceMatches[0] ?? matches[0] ?? null;
   } catch {
     return null;
@@ -383,6 +383,24 @@ interface ReviewHoverTarget {
   nodeId: string | null;
   selector: string | null;
   box: ReviewFrameNodeGeometry | null;
+}
+
+function sameHoverTarget(
+  left: ReviewHoverTarget | null,
+  right: ReviewHoverTarget | null,
+): boolean {
+  if (left === right) return true;
+  if (!left || !right || left.nodeId !== right.nodeId) return false;
+  if (left.selector !== right.selector) return false;
+  if (!left.box || !right.box) return left.box === right.box;
+  return (
+    left.box.viewportWidth === right.box.viewportWidth &&
+    left.box.viewportHeight === right.box.viewportHeight &&
+    left.box.rect.left === right.box.rect.left &&
+    left.box.rect.top === right.box.rect.top &&
+    left.box.rect.width === right.box.rect.width &&
+    left.box.rect.height === right.box.rect.height
+  );
 }
 
 /** The box a bridge reply carries, or null when the element was not found. */
@@ -2109,7 +2127,9 @@ export function ReviewCanvasPins({
           // A newer move or a leave has superseded this reply.
           if (request !== hoverRequestRef.current) return;
           const target = hoverTargetFromPayload(payload);
+          const unchanged = sameHoverTarget(hoverTargetRef.current, target);
           hoverTargetRef.current = target;
+          if (unchanged) return;
           setHoverTarget(target);
         });
         window.setTimeout(

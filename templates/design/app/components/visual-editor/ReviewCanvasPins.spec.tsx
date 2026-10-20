@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import type { ReviewComment, ReviewMention } from "@agent-native/core/review";
-import { act } from "react";
+import { act, Profiler } from "react";
 import type { TextareaHTMLAttributes } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -1135,6 +1135,97 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       );
     });
     expect(document.body.textContent).not.toContain("Keep this popover open");
+  });
+
+  it("skips rerendering when a hover reply leaves the target unchanged", async () => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    iframe.getBoundingClientRect = () =>
+      ({
+        x: 0,
+        y: 0,
+        left: 0,
+        top: 0,
+        right: 800,
+        bottom: 600,
+        width: 800,
+        height: 600,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    Object.defineProperty(iframe, "clientWidth", { value: 800 });
+    Object.defineProperty(iframe, "clientHeight", { value: 600 });
+    canvas.appendChild(iframe);
+    iframe.contentDocument!.body.innerHTML = "<button>Hover target</button>";
+    const postMessage = vi.fn();
+    Object.defineProperty(iframe.contentWindow, "postMessage", {
+      configurable: true,
+      value: postMessage,
+    });
+    const onRender = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <Profiler id="review-pins" onRender={onRender}>
+          <ReviewCanvasPins
+            active
+            onClose={vi.fn()}
+            canvasSelector=".review-test-canvas"
+            resourceType="design"
+            resourceId="design-1"
+            targetId="screen-1"
+            canPost
+            canResolve
+          />
+        </Profiler>,
+      );
+    });
+    const clickPlane = document.querySelector<HTMLElement>(
+      "[data-review-click-plane]",
+    );
+    expect(clickPlane).not.toBeNull();
+    const sendHoverReply = async () => {
+      await act(async () => {
+        clickPlane?.dispatchEvent(
+          new PointerEvent("pointermove", {
+            bubbles: true,
+            clientX: 100,
+            clientY: 100,
+          }),
+        );
+        await new Promise<void>((resolve) => {
+          window.requestAnimationFrame(() => resolve());
+        });
+      });
+      const requests = postMessage.mock.calls
+        .map(([message]) => message as Record<string, unknown>)
+        .filter(
+          (message) => message.type === "agent-native:review-anchor-at-point",
+        );
+      const request = requests[requests.length - 1];
+      expect(request?.correlationId).toBeTruthy();
+      await act(async () => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: iframe.contentWindow,
+            data: {
+              type: "agent-native:review-anchor-at-point-result",
+              correlationId: request?.correlationId,
+              nodeId: "hover-target",
+              hitSelector: "source-equivalent:v1:body > button:nth-of-type(1)",
+              rect: { left: 10, top: 20, width: 50, height: 30 },
+              viewportWidth: 800,
+              viewportHeight: 600,
+            },
+          }),
+        );
+      });
+    };
+
+    await sendHoverReply();
+    const renderCount = onRender.mock.calls.length;
+    expect(renderCount).toBeGreaterThan(1);
+    await sendHoverReply();
+    expect(onRender).toHaveBeenCalledTimes(renderCount);
   });
 
   it("persists drag and keyboard relocation for an editable pin", async () => {
@@ -2275,7 +2366,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       identityCase: "only repeated plain ids match",
       html: '<main><section id="hero">First</section><section id="hero">Second</section></main>',
       hitSelector: "body > main > section:nth-of-type(2)",
-      expectedSelector: false,
+      expectedSelector: true,
     },
   ])(
     "keeps bridge selector behavior when $identityCase",

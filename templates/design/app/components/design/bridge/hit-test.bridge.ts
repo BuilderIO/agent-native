@@ -1950,10 +1950,22 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
         return;
       }
       // Unversioned selectors retain native CSS matching; new source paths use the filtered walk.
-      var reviewSelectorElement = resolveSourceEquivalentSelector(
-        document,
-        reviewSelector,
-      );
+      var reviewSelectorElement: Element | null = null;
+      try {
+        reviewSelectorElement = resolveSourceEquivalentSelector(
+          document,
+          reviewSelector,
+        );
+      } catch (error) {
+        if (
+          typeof error !== "object" ||
+          error === null ||
+          !("name" in error) ||
+          error.name !== "SyntaxError"
+        ) {
+          throw error;
+        }
+      }
       if (reviewSelectorElement === document.body) reviewSelectorElement = null;
       var reviewSelectorBox = reviewSelectorElement
         ? reviewSelectorElement.getBoundingClientRect()

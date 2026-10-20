@@ -14521,6 +14521,14 @@ it(
           },
           "agent-native:review-selector-rects-result",
         );
+        const malformedSelectorRects = await request(
+          {
+            type: "agent-native:review-selector-rects",
+            correlationId: "review-malformed-selector-rects",
+            selector: "[",
+          },
+          "agent-native:review-selector-rects-result",
+        );
         const focus = await request(
           {
             type: "agent-native:review-focus",
@@ -14536,6 +14544,7 @@ it(
           sourceLocationAnchor,
           rects,
           selectorRects,
+          malformedSelectorRects,
           focus,
         };
       });
@@ -14571,6 +14580,7 @@ it(
       expect(result.selectorRects).toMatchObject({
         rect: { left: 40, top: 40, width: 320, height: 80 },
       });
+      expect(result.malformedSelectorRects.rect).toBeUndefined();
       expect(result.focus).toMatchObject({ focused: true });
       expect(pageErrors).toEqual([]);
     } finally {
