@@ -73,6 +73,7 @@ type SidebarDashboard = {
   visibility?: Visibility;
   ownerEmail?: string | null;
   demo?: boolean;
+  builtin?: boolean;
   /** Owner label, set only when another dashboard shares this title. */
   ownerHint?: string;
   parentId?: string;
@@ -167,8 +168,11 @@ import {
   sqlDashboardPrefetchKey,
   type PrefetchSnapshot,
 } from "@/lib/prefetch-keys";
-import type { ResourceAccess } from "@/lib/resource-access";
 import { useAutoFocusSelect } from "@/lib/use-auto-focus-select";
+import {
+  fetchDashboard,
+  type FetchedDashboard,
+} from "@/pages/adhoc/sql-dashboard/fetch-dashboard";
 
 import { resolveAskNavigationAction } from "./layout-route-policy";
 import { NewDashboardDialog } from "./NewDashboardDialog";
@@ -535,6 +539,7 @@ function SortableRow({
   isActive,
   favoriteIds,
   onToggleFavorite,
+  readOnly,
   onDelete,
   onRename,
   onArchive,
@@ -554,6 +559,8 @@ function SortableRow({
   isActive: boolean;
   favoriteIds: Set<string>;
   onToggleFavorite: (key: string) => void;
+  /** Built-ins are not saved rows, so every mutating menu item would fail. */
+  readOnly?: boolean;
   onDelete: () => Promise<void> | void;
   onRename: (name: string) => Promise<void> | void;
   onArchive?: () => Promise<void> | void;
@@ -839,95 +846,104 @@ function SortableRow({
                 setIsRenaming(true);
               }}
             >
-              <DropdownMenuItem
-                onSelect={() => {
-                  setRenameValue(name);
-                  pendingRenameRef.current = true;
-                  setMenuOpen(false);
-                }}
-              >
-                <IconPencil className="me-2 h-3.5 w-3.5" />
-                {t("sidebar.rename")}
-              </DropdownMenuItem>
-              {onSetVisibility && visibility !== undefined && (
-                <DropdownMenuItem
-                  onSelect={(e) => {
-                    e.preventDefault();
-                    void runSetVisibility(
-                      visibility === "private" ? "org" : "private",
-                    );
-                  }}
-                >
-                  {visibility === "private" ? (
-                    <IconUsersGroup className="me-2 h-3.5 w-3.5" />
-                  ) : (
-                    <IconLock className="me-2 h-3.5 w-3.5" />
-                  )}
-                  {visibility === "private"
-                    ? t("sidebar.shareWithOrg")
-                    : t("sidebar.makePrivate")}
+              {readOnly ? (
+                <DropdownMenuItem onSelect={copyLink}>
+                  <IconLink className="me-2 h-3.5 w-3.5" />
+                  {t("sidebar.copyLink")}
                 </DropdownMenuItem>
-              )}
-              <DropdownMenuItem onSelect={copyLink}>
-                <IconLink className="me-2 h-3.5 w-3.5" />
-                {t("sidebar.copyLink")}
-              </DropdownMenuItem>
-              {onUnhide && hidden ? (
-                <DropdownMenuItem
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    void runUnhide();
-                  }}
-                >
-                  <IconEye className="me-2 h-3.5 w-3.5" />
-                  {t("sidebar.unhide")}
-                </DropdownMenuItem>
-              ) : onHide ? (
-                <DropdownMenuItem
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    void runHide();
-                  }}
-                >
-                  <IconEyeOff className="me-2 h-3.5 w-3.5" />
-                  {t("sidebar.hide")}
-                </DropdownMenuItem>
-              ) : null}
-              <DropdownMenuSeparator />
-              {onArchive ? (
+              ) : (
                 <>
                   <DropdownMenuItem
-                    onSelect={(event) => {
-                      event.preventDefault();
-                      void runArchive();
+                    onSelect={() => {
+                      setRenameValue(name);
+                      pendingRenameRef.current = true;
+                      setMenuOpen(false);
                     }}
                   >
-                    <IconArchive className="me-2 h-3.5 w-3.5" />
-                    {t("sidebar.archive")}
+                    <IconPencil className="me-2 h-3.5 w-3.5" />
+                    {t("sidebar.rename")}
                   </DropdownMenuItem>
+                  {onSetVisibility && visibility !== undefined && (
+                    <DropdownMenuItem
+                      onSelect={(e) => {
+                        e.preventDefault();
+                        void runSetVisibility(
+                          visibility === "private" ? "org" : "private",
+                        );
+                      }}
+                    >
+                      {visibility === "private" ? (
+                        <IconUsersGroup className="me-2 h-3.5 w-3.5" />
+                      ) : (
+                        <IconLock className="me-2 h-3.5 w-3.5" />
+                      )}
+                      {visibility === "private"
+                        ? t("sidebar.shareWithOrg")
+                        : t("sidebar.makePrivate")}
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem onSelect={copyLink}>
+                    <IconLink className="me-2 h-3.5 w-3.5" />
+                    {t("sidebar.copyLink")}
+                  </DropdownMenuItem>
+                  {onUnhide && hidden ? (
+                    <DropdownMenuItem
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        void runUnhide();
+                      }}
+                    >
+                      <IconEye className="me-2 h-3.5 w-3.5" />
+                      {t("sidebar.unhide")}
+                    </DropdownMenuItem>
+                  ) : onHide ? (
+                    <DropdownMenuItem
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        void runHide();
+                      }}
+                    >
+                      <IconEyeOff className="me-2 h-3.5 w-3.5" />
+                      {t("sidebar.hide")}
+                    </DropdownMenuItem>
+                  ) : null}
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onSelect={(event) => {
-                      event.preventDefault();
-                      requestDashboardDelete();
-                    }}
-                    className="text-destructive focus:text-destructive"
-                  >
-                    <IconTrash className="me-2 h-3.5 w-3.5" />
-                    {t("sidebar.delete")}
-                  </DropdownMenuItem>
+                  {onArchive ? (
+                    <>
+                      <DropdownMenuItem
+                        onSelect={(event) => {
+                          event.preventDefault();
+                          void runArchive();
+                        }}
+                      >
+                        <IconArchive className="me-2 h-3.5 w-3.5" />
+                        {t("sidebar.archive")}
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onSelect={(event) => {
+                          event.preventDefault();
+                          requestDashboardDelete();
+                        }}
+                        className="text-destructive focus:text-destructive"
+                      >
+                        <IconTrash className="me-2 h-3.5 w-3.5" />
+                        {t("sidebar.delete")}
+                      </DropdownMenuItem>
+                    </>
+                  ) : (
+                    <DropdownMenuItem
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        requestDashboardDelete();
+                      }}
+                      className="text-destructive focus:text-destructive"
+                    >
+                      <IconTrash className="me-2 h-3.5 w-3.5" />
+                      {t("sidebar.delete")}
+                    </DropdownMenuItem>
+                  )}
                 </>
-              ) : (
-                <DropdownMenuItem
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    requestDashboardDelete();
-                  }}
-                  className="text-destructive focus:text-destructive"
-                >
-                  <IconTrash className="me-2 h-3.5 w-3.5" />
-                  {t("sidebar.delete")}
-                </DropdownMenuItem>
               )}
             </DropdownMenuContent>
           </DropdownMenu>
@@ -1039,6 +1055,7 @@ function SortableDashboardItem({
       isActive={isActive}
       favoriteIds={favoriteIds}
       onToggleFavorite={onToggleFavorite}
+      readOnly={d.builtin}
       onDelete={() => onDelete(d)}
       onRename={(name) => onRename(d, name)}
       onArchive={
@@ -1237,6 +1254,7 @@ type SqlDashboardListItem = {
   visibility?: Visibility;
   ownerEmail?: string | null;
   demo?: boolean;
+  builtin?: boolean;
   parentId?: string;
   folderId?: string;
 };
@@ -1270,6 +1288,7 @@ async function fetchSqlDashboards(
             : t("sidebar.untitledDashboard"),
         visibility: d.visibility as Visibility,
         ...(d.demo === true ? { demo: true } : {}),
+        ...(d.builtin === true ? { builtin: true } : {}),
         ...(ownerEmail ? { ownerEmail } : {}),
         parentId:
           typeof d.parentId === "string" && d.parentId.trim().length > 0
@@ -1324,65 +1343,29 @@ async function fetchSidebarAnalyses(t: (key: string) => string): Promise<
     }));
 }
 
-type PrefetchedSqlDashboard = {
-  id: string;
-  config: {
-    name: string;
-    description?: string;
-    filters?: unknown;
-    variables?: unknown;
-    columns?: number;
-    panels: unknown[];
-  };
-  archivedAt: string | null;
-  hiddenAt: string | null;
-  hiddenBy: string | null;
-  visibility: Visibility;
-  ownerEmail: string | null;
-  updatedAt: string | null;
-} & ResourceAccess;
-
-async function fetchSqlDashboardForPrefetch(
+/**
+ * Seeds the dashboard page's query. The page saves edits from what it holds,
+ * so this must be the page's own fetch: a field a copy left out, a save removes.
+ */
+export function prefetchSqlDashboard(
+  queryClient: QueryClient,
   id: string,
-  t: (key: string) => string,
-): Promise<PrefetchedSqlDashboard | null> {
-  try {
-    const data: any = await callAction(
-      "get-sql-dashboard",
-      { id, includeConfig: true },
-      { method: "GET" },
+  scope: string,
+  syncVersion: number,
+): Promise<void> {
+  const queryKey = sqlDashboardPrefetchKey(id, scope);
+  const cached =
+    queryClient.getQueryData<PrefetchSnapshot<FetchedDashboard | null>>(
+      queryKey,
     );
-    if (!data || data.error) return null;
-    return {
-      id,
-      config: {
-        name:
-          typeof data.name === "string" && data.name.trim().length > 0
-            ? data.name
-            : t("sidebar.untitledDashboard"),
-        description: data.description,
-        filters: data.filters,
-        variables: data.variables,
-        columns: typeof data.columns === "number" ? data.columns : undefined,
-        panels: Array.isArray(data.panels) ? data.panels : [],
-      },
-      archivedAt: typeof data.archivedAt === "string" ? data.archivedAt : null,
-      hiddenAt: typeof data.hiddenAt === "string" ? data.hiddenAt : null,
-      hiddenBy: typeof data.hiddenBy === "string" ? data.hiddenBy : null,
-      visibility:
-        data.visibility === "org" || data.visibility === "public"
-          ? data.visibility
-          : "private",
-      ownerEmail: typeof data.ownerEmail === "string" ? data.ownerEmail : null,
-      updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : null,
-      role: typeof data.role === "string" ? data.role : undefined,
-      canEdit: typeof data.canEdit === "boolean" ? data.canEdit : undefined,
-      canManage:
-        typeof data.canManage === "boolean" ? data.canManage : undefined,
-    };
-  } catch {
-    return null;
-  }
+  return queryClient.prefetchQuery({
+    queryKey,
+    queryFn: async (): Promise<PrefetchSnapshot<FetchedDashboard | null>> => ({
+      data: await fetchDashboard(id),
+      syncVersion,
+    }),
+    staleTime: cached?.syncVersion === syncVersion ? 30_000 : 0,
+  });
 }
 
 function formatThreadAge(updatedAt: number) {
@@ -1889,22 +1872,15 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const prefetchDashboard = useCallback(
     (d: SidebarDashboard) => {
       if (d.source !== "sql") return;
-      const queryKey = sqlDashboardPrefetchKey(d.id, dashboardScope);
-      const cached =
-        queryClient.getQueryData<
-          PrefetchSnapshot<PrefetchedSqlDashboard | null>
-        >(queryKey);
       void import("@/pages/adhoc/sql-dashboard");
-      void queryClient.prefetchQuery({
-        queryKey,
-        queryFn: async () => ({
-          data: await fetchSqlDashboardForPrefetch(d.id, t),
-          syncVersion: dashboardsSync,
-        }),
-        staleTime: cached?.syncVersion === dashboardsSync ? 30_000 : 0,
-      });
+      void prefetchSqlDashboard(
+        queryClient,
+        d.id,
+        dashboardScope,
+        dashboardsSync,
+      );
     },
-    [dashboardScope, dashboardsSync, queryClient, t],
+    [dashboardScope, dashboardsSync, queryClient],
   );
 
   const visibleDashboards = useMemo<SidebarDashboard[]>(() => {
@@ -1923,6 +1899,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       visibility: d.visibility,
       ownerEmail: d.ownerEmail,
       demo: d.demo,
+      builtin: d.builtin,
       parentId: d.parentId,
       folderId: d.folderId,
     }));
@@ -2472,24 +2449,26 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
             brandHref="/home"
             collapsed={true}
           />
-          <nav className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto px-2 py-3">
-            {collapsedNavItems.map((item) => {
-              const Icon = item.icon;
-              return (
-                <Tooltip key={item.href}>
-                  <TooltipTrigger asChild>
-                    <Link
-                      to={item.href}
-                      onClick={item.onClick}
-                      aria-label={item.label}
-                    >
-                      <Icon className="size-4 text-primary" />
-                    </Link>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">{item.label}</TooltipContent>
-                </Tooltip>
-              );
-            })}
+          <nav className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-2 py-3">
+            <div className="flex flex-col items-center gap-3">
+              {collapsedNavItems.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <Tooltip key={item.href}>
+                    <TooltipTrigger asChild>
+                      <Link
+                        to={item.href}
+                        onClick={item.onClick}
+                        aria-label={item.label}
+                      >
+                        <Icon className="size-4 text-primary" />
+                      </Link>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">{item.label}</TooltipContent>
+                  </Tooltip>
+                );
+              })}
+            </div>
           </nav>
           <AppSidebarFooter
             collapsed={true}

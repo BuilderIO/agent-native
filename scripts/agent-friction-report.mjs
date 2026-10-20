@@ -75,6 +75,25 @@ const RESOURCE_CLEANUP_REGEX_CASES = [
   [false, "Agents are leaving browser tabs for the next session."],
   [false, "Open a browser tab for a quick check."],
 ];
+const MOUNTED_NAVIGATION_PATH_REGEX_CASES = [
+  [
+    true,
+    "The path-only /chat/thread-one command was incorrectly stripped to /thread-one under the /chat mount.",
+  ],
+  [
+    true,
+    "Don't strip the mount prefix from a path-only local navigation command.",
+  ],
+  [
+    true,
+    "Keep navigation.path router-local and put the mounted URL in publicPath.",
+  ],
+  [false, "The app is mounted under /chat."],
+  [false, "Navigate to the new chat thread."],
+  [false, "The public URL for the share page is /chat/share/abc."],
+];
+const MOUNTED_NAVIGATION_PATH_RE =
+  /\b(?:path[- ]only|navigation\.path)\b[^.!?\n]{0,140}\b(?:strip(?:ped|ping)?|normaliz(?:e|ed|ing)|rewrit(?:e|es|ten|ing)|infer(?:red|ring)?|treat(?:ed|ing)?)\b[^.!?\n]{0,120}\b(?:mount|prefix|public|local)\b|\b(?:mount|prefix|public)\b[^.!?\n]{0,100}\b(?:path[- ]only|navigation\.path)\b[^.!?\n]{0,120}\b(?:strip(?:ped|ping)?|normaliz(?:e|ed|ing)|rewrit(?:e|s|ten|ing)|infer(?:red|ring)?|treat(?:ed|ing)?)\b|\b(?:keep|use)\s+(?:`?navigation\.path`?\s+)?router[- ]local\b[^.!?\n]{0,100}\bpublicPath\b|\b(?:don['’]?t|do not|never|must not)\s+strip\b[^.!?\n]{0,100}\b(?:mount|prefix)\b[^.!?\n]{0,60}\bpath[- ]only\b/i;
 
 const SHIPPING_CHURN_RE =
   /\b(?:don['’]?t|do not|stop)\b(?!\s+(?:forget|remember)\b)(?=[^.!?\n]{0,220}\b(?:(?:routin\w*|generic|maintenance|chore|repeated|again|100\s+times|clean|behind|timer)\b|unless[^.!?\n]{0,60}\b(?:conflict\w*|necessary|routin\w*|chore|clear)\b))[^.!?\n]{0,220}\b(?:merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push|(?:generic|routine|maintenance|unnecessary)\s+(?:ship|publish)?\s*(?:commits?|changes?)|(?:ship|publish)\s+(?:(?:a|the|generic|routine|maintenance)\s+)?(?:commits?|changes?)|(?:push|commit)(?:ting|ing)?\s+(?:up\s+)?(?:(?:generic|routine|maintenance|unnecessary)\s+)?(?:commits?|changes?)|(?:updat(?:e|ing|ed)|sync(?:e|ing)|refresh(?:e|ing))\b[^.!?\n]{0,80}\b(?:from|with|against)\s+`?(?:origin\/)?main`?)\b|\bonly\s+(?:push(?:\s+up)?|merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?)\b[^.!?\n]{0,220}\b(?:CI\s+errors?|PR\s+feedback|merge\s+conflicts?|clear\s+(?:CI|merge)|prevent(?:s|ing)?\s+merge)\b/i;
@@ -701,7 +720,7 @@ const FEEDBACK_EYES_REGEX_CASES = [
 ];
 
 const FEEDBACK_STATUS_REACTIONS_RE =
-  /(?=.*(?:\beyes?\b|👀))(?=.*(?:checkmark|check mark|✅))(?=.*(?:ticket(?: emoji)?|🎫))(?=.*(?:not fixed|don['’]?t fix|didn['’]?t fix|we didn['’]?t|unfixed|not addressed|opposite of (?:a )?checkmark))/is;
+  /(?=.*(?:\beyes?\b|\beyeballs?\b|👀))(?=.*(?:checkmark|check mark|checks? off|check off|✅))(?=.*(?:ticket(?: emoji)?|🎫|repl(?:y|ies)))((?=.*(?:not fixed|don['’]?t fix|didn['’]?t fix|we didn['’]?t|unfixed|not addressed|opposite of (?:a )?checkmark))|(?=.*(?:\bno\b|\bnot\b|\bmissing\b|\bwhy\b)))/is;
 const FEEDBACK_STATUS_REACTIONS_REGEX_CASES = [
   [true, "Keep 👀; use ✅ when fixed and 🎫 when not fixed."],
   [
@@ -712,8 +731,27 @@ const FEEDBACK_STATUS_REACTIONS_REGEX_CASES = [
     true,
     "Keep 👀. Some things we fixed and some things we didn't; add ✅ and 🎫.",
   ],
+  [
+    true,
+    "I see a lot of eyeballs but not a lot of checkmarks; why no checks, replies, or ticket emojis?",
+  ],
   [false, "Keep 👀 and ✅ on fixed reports; ask about anything unfixed."],
   [false, "A ticket emoji is already on the issue."],
+];
+
+const FEEDBACK_SWEEP_LIFETIME_RE =
+  /(?=.*\b(?:slack|feedback)\b)(?=.*\b(?:sweep|triag\w*|scan)\b)(?=.*\b(?:forever|perpetual|open[- ]ended|endless|(?:3|three)\s+days?|every few hours)\b)(?=.*\b(?:stop|not supposed to|should(?:n['’]?t| not)\s+(?:go|continue|run)|do not|don['’]?t)\b)/is;
+const FEEDBACK_SWEEP_LIFETIME_REGEX_CASES = [
+  [
+    true,
+    "You've been sweeping Slack for 3 days; stop, this should not go forever because separate agents sweep every few hours.",
+  ],
+  [
+    true,
+    "Stop the open-ended feedback triage at its cutoff; scheduled agents handle later windows.",
+  ],
+  [false, "A scheduled Slack sweep runs every few hours."],
+  [false, "Please triage this bounded feedback window."],
 ];
 
 const POST_MERGE_FEEDBACK_FOLLOWUP_RE =
@@ -2866,6 +2904,42 @@ const FEEDBACK_REPLY_DETAIL_PATTERN = {
 const FEEDBACK_OPEN_WITHOUT_QUESTION_RE =
   /\b(?:why (?:are you )?(?:saying|replying|marking)[\s\S]{0,80}\b(?:open|in progress)\b|should be asking for what you need(?: for each)?|ask for clarification when needed)\b/i;
 
+const COMMUNITY_PR_CONTEXT_RE =
+  /\b(?:community|outside|external|open[- ]source|first[- ]time)\s+(?:prs?|pull requests?|contribut\w*)\b|\bcontributors?'?s?\b(?!\s+(?:guide|guidelines|docs?|covenant|agreement|license))|\bcommunity-prs\b/i;
+const COMMUNITY_PR_CORRECTION_RE =
+  /\b(?:why (?:did|would|are|were) you|you (?:forgot|didn't|did not|rebased|force[- ]pushed|closed|tagged|pinged|@-?mentioned|mentioned|dropped|lost|removed)|forgot to|should(?:n't| not) have|sounds? (?:harsh|curt|cold|demanding|rude|robotic|bossy)|too (?:harsh|curt|cold|demanding|bossy|blunt)|(?:no ?one|nobody) (?:has |had )?(?:replied|responded|answered)|(?:has|have)(?:n't| not) (?:had|gotten|got) (?:a |any )?(?:reply|response))/gi;
+
+// "You closed it correctly, thanks" uses the same verbs as a correction.
+const COMMUNITY_PR_PRAISE_RE =
+  /\b(?:correctly|right call|good call|well done|nice work|great job)\b/i;
+
+/** A correction about handling an outside PR: the cue and the context sit close together. */
+function hasCommunityPrCorrection(message) {
+  const input = textForPattern(message);
+  if (!COMMUNITY_PR_CONTEXT_RE.test(input)) return false;
+  return [...input.matchAll(COMMUNITY_PR_CORRECTION_RE)].some((match) => {
+    const sentenceStart =
+      Math.max(
+        input.lastIndexOf(".", match.index),
+        input.lastIndexOf("!", match.index),
+        input.lastIndexOf("?", match.index),
+        input.lastIndexOf("\n", match.index),
+      ) + 1;
+    const sentenceEnd = input.slice(match.index).search(/[.!?\n]/);
+    const sentence = input.slice(
+      sentenceStart,
+      sentenceEnd < 0 ? undefined : match.index + sentenceEnd,
+    );
+    return (
+      !COMMUNITY_PR_PRAISE_RE.test(sentence) &&
+      COMMUNITY_PR_CONTEXT_RE.test(
+        input.slice(Math.max(0, match.index - 200), match.index + 200),
+      )
+    );
+  });
+}
+const COMMUNITY_PR_HANDLING_PATTERN = { matches: hasCommunityPrCorrection };
+
 function matchesPattern(pattern, text) {
   return pattern.matches
     ? pattern.matches(text)
@@ -3233,6 +3307,109 @@ const FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES = [
   [false, "I asked which Figma file link to use."],
 ];
 
+const COMMUNITY_PR_HANDLING_REGEX_CASES = [
+  [
+    true,
+    "Why did you rebase the contributor's branch? Merge main into it instead.",
+  ],
+  [true, "That reply on the community PR sounds harsh. Thank them first."],
+  [true, "You forgot to credit the contributor in the squash commit."],
+  [true, "The outside PR from last week still hasn't had a reply."],
+  [
+    true,
+    "You tagged Steve on the external PR again; his review arrives on its own.",
+  ],
+  [true, "nobody replied to that community PR for two weeks"],
+  [true, "Why are you asking this contributor to rerun CI again?"],
+  [
+    true,
+    `The outside PR is ready. ${"x".repeat(150)} You forgot to say what shipped.`,
+  ],
+  [false, "Don't post on any outside PR or issue."],
+  [false, "You closed the contributor's duplicate PR correctly, thanks."],
+  [
+    true,
+    "Thanks, but you forgot to credit the contributor in the squash commit.",
+  ],
+  [false, "You forgot to update the contributor guide."],
+  [
+    false,
+    `You forgot to run the linter. ${"x".repeat(250)} The outside PR is fine.`,
+  ],
+  [false, "Never @-mention or request Builder reviewers on outside PRs."],
+  [false, "The contributor's PR looks good; merge it."],
+  [false, "You forgot to run the tests."],
+  [false, "Why did you close the Linear issue?"],
+];
+
+const FEEDBACK_CHANNEL_COVERAGE_RE =
+  /\b(?:also|add|include|check|scan|review)\b[^.!?\n]{0,120}\b(?:the\s+)?#?[\w-]*feedback(?:[-\s]+channel)?\b|\b(?:missed|skipped|ignored|excluded)\b[^.!?\n]{0,100}\b#?[\w-]*feedback\b|\b(?:missed|skipped|ignored|excluded)\b[^.!?\n]{0,140}\b(?:reports?|parent(?:\s+messages?)?|messages?)\b[^.!?\n]{0,100}\b(?:in|from|within)\s+(?:the\s+)?#?[\w-]+/i;
+const FEEDBACK_CHANNEL_COVERAGE_REGEX_CASES = [
+  [true, "you missed TONS of reports in #qa-agent-native"],
+  [
+    true,
+    "The scan skipped parent messages within #product-agent-native-feedback.",
+  ],
+  [true, "Please also include #dev-agent-native-feedback."],
+  [false, "The report artifact lists seven failed CI shards."],
+  [false, "All channel pages were exhausted and every parent was inventoried."],
+];
+const FEEDBACK_ATTACHMENT_COVERAGE_RE =
+  /\b(?:missed|skipped|ignored|overlooked|dropped|didn['’]?t\s+read|did\s+not\s+read)\b[^.!?\n]{0,100}\b(?:attachments?|screenshots?|images?|files?)\b|\b(?:attachment|file)[- ]only\s+(?:reply|message)\b[^.!?\n]{0,100}\b(?:treated|recorded|coerced|counted|handled|seen)\b[^.!?\n]{0,60}\b(?:empty|missing|absent|no|nothing)\b/i;
+const FEEDBACK_ATTACHMENT_COVERAGE_REGEX_CASES = [
+  [true, "The checker ignored the attachment-only reply and called it empty."],
+  [true, "You missed the screenshots in the thread."],
+  [true, "The file-only message was treated as missing evidence."],
+  [false, "I attached a screenshot to the report."],
+  [false, "Please inspect the image before reproducing the bug."],
+];
+const A2A_NEGATION_RE = String.raw`\b(?:don['’]?t|do not|shouldn['’]?t|should not|never|stop)\s+`;
+const A2A_NEGATED_DIRECT_PEER_RE = String.raw`(?:delegate\w*\s+(?:to\s+)?|call\w*\s+)(?:the\s+)?(?:assets|design|analytics|slides|content|another|different|peer)\s+(?:app|agent)\b(?!['’]s)`;
+const A2A_NEGATED_USE_PEER_RE = String.raw`use\s+(?:the\s+)?(?:assets|design|analytics|slides|content)\s+(?:app|agent)\b(?!['’]s)`;
+const A2A_OVERDELEGATION_RE = new RegExp(
+  [
+    String.raw`\b(?:way too|too|so|overly)\s+(?:eager|quick|frequent|often|ready|inclined)\b[^.!?\n]{0,80}\b(?:a2a|call-agent|(?:delegat\w*|handoff\w*)\s+(?:to\s+)?(?:another|different|peer)\s+(?:app|agent))\b`,
+    String.raw`\b(?:a2a|call-agent)\b[^.!?\n]{0,35}\b(?:delegat\w*|handoff\w*)\b[^.!?\n]{0,40}\b(?:irrelevant|unnecessary|not relevant|too eager|too much)\b`,
+    `${A2A_NEGATION_RE}use\\s+(?:a2a|call-agent)\\b`,
+    `${A2A_NEGATION_RE}${A2A_NEGATED_DIRECT_PEER_RE}`,
+    `${A2A_NEGATION_RE}${A2A_NEGATED_USE_PEER_RE}`,
+  ].join("|"),
+  "i",
+);
+const A2A_OVERDELEGATION_REGEX_CASES = [
+  [true, "We are being way too eager to use A2A when it is not relevant."],
+  [true, "Slides should not delegate to the Design app for slide generation."],
+  [true, "A2A delegation is unnecessary for work this app can do."],
+  [true, "The A2A handoff is unnecessary for this local action."],
+  [true, "Don't call the Assets app for this."],
+  [true, "Stop calling the Design app."],
+  [true, "Never use A2A for this."],
+  [true, "Do not delegate to the peer app for this request."],
+  [false, "Call a peer when it owns the credentials required for the task."],
+  [false, "The Design app is available in this workspace."],
+  [false, "Design system corrections are unrelated to app handoffs."],
+  [false, "A2A is too slow for this generation task."],
+  [false, "The A2A response has too much verbosity."],
+  [false, "A2A has unnecessary latency."],
+  [false, "The Assets app is not available in this workspace."],
+  [false, "Never use stock assets for this slide."],
+  [false, "Never use the Design color system for this slide."],
+  [false, "Never use the Design app's color palette on this slide."],
+  [
+    false,
+    "Don't use local image generation; use the Assets app for the brand library.",
+  ],
+  [
+    false,
+    "Use the Assets app for this image because the user asked for its brand library.",
+  ],
+  [true, "Don't use the Assets app; generate this image locally."],
+  [
+    false,
+    "Delegate coding tasks to sub-agents when the user asks for parallel work.",
+  ],
+];
+
 if (process.argv.includes("--self-test")) {
   const failures = FEEDBACK_REGEX_CASES.filter(
     ([expected, message]) =>
@@ -3241,6 +3418,12 @@ if (process.argv.includes("--self-test")) {
   failures.push(
     ...RESOURCE_CLEANUP_REGEX_CASES.filter(
       ([expected, message]) => RESOURCE_CLEANUP_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
+    ...MOUNTED_NAVIGATION_PATH_REGEX_CASES.filter(
+      ([expected, message]) =>
+        MOUNTED_NAVIGATION_PATH_RE.test(message) !== expected,
     ),
   );
   failures.push(
@@ -3253,6 +3436,35 @@ if (process.argv.includes("--self-test")) {
     ...FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES.filter(
       ([expected, message]) =>
         FEEDBACK_OPEN_WITHOUT_QUESTION_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
+    ...COMMUNITY_PR_HANDLING_REGEX_CASES.filter(
+      ([expected, message]) =>
+        matchesPattern(COMMUNITY_PR_HANDLING_PATTERN, message) !== expected,
+    ),
+  );
+  failures.push(
+    ...FEEDBACK_CHANNEL_COVERAGE_REGEX_CASES.filter(
+      ([expected, message]) =>
+        FEEDBACK_CHANNEL_COVERAGE_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
+    ...FEEDBACK_SWEEP_LIFETIME_REGEX_CASES.filter(
+      ([expected, message]) =>
+        FEEDBACK_SWEEP_LIFETIME_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
+    ...FEEDBACK_ATTACHMENT_COVERAGE_REGEX_CASES.filter(
+      ([expected, message]) =>
+        FEEDBACK_ATTACHMENT_COVERAGE_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
+    ...A2A_OVERDELEGATION_REGEX_CASES.filter(
+      ([expected, message]) => A2A_OVERDELEGATION_RE.test(message) !== expected,
     ),
   );
   const stressMessage = "reply and but ".repeat(7_000);
@@ -3544,7 +3756,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length + FEEDBACK_REPLY_DETAIL_REGEX_CASES.length + FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES.length + 1} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + MOUNTED_NAVIGATION_PATH_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length + FEEDBACK_REPLY_DETAIL_REGEX_CASES.length + FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES.length + FEEDBACK_CHANNEL_COVERAGE_REGEX_CASES.length + FEEDBACK_SWEEP_LIFETIME_REGEX_CASES.length + A2A_OVERDELEGATION_REGEX_CASES.length + COMMUNITY_PR_HANDLING_REGEX_CASES.length + 1} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -3649,6 +3861,14 @@ const PATTERNS = [
     re: /\b(?:cache|caching|cache-control|stale-while-revalidate|SWR|CDN)\b[^.!?]{0,140}\b(?:wrong|broken|slow|again|regression|revert|reverted|no-cache|no-store|max-age=0|must-revalidate|fire|every few weeks)\b/i,
   },
   {
+    key: "request-path-schema",
+    label:
+      "Reported schema work on the request path, a missing framework table, or migration drift",
+    fixedBy:
+      "defineStore registry + store-migrations.lock.json in guard:release-schema-complete + framework-stores skill (2026-10-15)",
+    re: /\b(?:migrations?|ensure\w*Table|schema|ddl|CREATE TABLE)\b[^.!?]{0,80}\b(?:every (?:cold start|request|boot)|on cold start|hundreds of|not migrated|SchemaNotMigrated|relation [^ ]+ does not exist|missing (?:table|column)|drift(?:ed)?)\b|\b(?:hundreds of|every cold start|each cold start)\b[^.!?]{0,40}\b(?:migrations?|schema checks?|ddl)\b/i,
+  },
+  {
     key: "slow-list-query",
     label: "Reported a list/read that is slow in production",
     fixedBy:
@@ -3700,6 +3920,13 @@ const PATTERNS = [
     label: "Had to ask whether sibling call sites were swept",
     fixedBy: ".agents/skills/fix-at-the-boundary (2026-07-31)",
     re: /\b(any other (apps?|providers?|templates?|places?)|other (apps?|templates?) (that )?do(es)? this|same (bug|issue|thing) (in|across)|sweep of other|fix that too)\b/i,
+  },
+  {
+    key: "mounted-navigation-path",
+    label: "Had to correct mounted vs router-local navigation paths",
+    fixedBy:
+      ".agents/skills/context-awareness (local path and publicPath contract, 2026-10-19)",
+    re: MOUNTED_NAVIGATION_PATH_RE,
   },
   {
     key: "ai-gate-bypass",
@@ -3800,6 +4027,13 @@ const PATTERNS = [
     re: FEEDBACK_OPEN_WITHOUT_QUESTION_RE,
   },
   {
+    key: "community-pr-handling",
+    label: "Had to correct how an outside contributor's PR was handled",
+    fixedBy:
+      ".agents/skills/community-prs (owner, time limits, credit, and reply voice, 2026-10-15)",
+    ...COMMUNITY_PR_HANDLING_PATTERN,
+  },
+  {
     key: "pr-review-handoff",
     label: "Had to correct PR merge handoffs or repeated external follow-ups",
     fixedBy:
@@ -3810,14 +4044,15 @@ const PATTERNS = [
     key: "feedback-eyes-missed",
     label: "Had to demand correct 👀 ownership and release",
     fixedBy:
-      ".agents/skills/review-latest-feedback + address-feedback-with-replies (active ownership lifecycle, 2026-09-23)",
+      ".agents/skills/review-latest-feedback + feedback:inventory-check exact-root and owned-mark reconciliation (2026-10-16)",
     re: FEEDBACK_EYES_RE,
   },
   {
     key: "feedback-status-reactions",
     label:
       "Had to ask for checkmark/ticket reactions matching feedback outcomes",
-    fixedBy: ".agents/skills/review-latest-feedback (2026-09-30)",
+    fixedBy:
+      ".agents/skills/review-latest-feedback + feedback:inventory-check per-scope ✅, owned-mark, completed-handoff, and exact status checks (2026-10-16)",
     re: FEEDBACK_STATUS_REACTIONS_RE,
   },
   {
@@ -3850,10 +4085,24 @@ const PATTERNS = [
   },
   {
     key: "feedback-channel-coverage",
-    label: "Had to ask for another feedback channel to be scanned",
+    label: "Had to ask for feedback-channel or parent-report coverage",
     fixedBy:
-      ".agents/skills/review-latest-feedback (default channel coverage, 2026-10-05)",
-    re: /\b(?:also|add|include|check|scan|review)\b[^.!?\n]{0,120}\b(?:the\s+)?#?[\w-]*feedback(?:[-\s]+channel)?\b|\b(?:missed|skipped|ignored|excluded)\b[^.!?\n]{0,100}\b#?[\w-]*feedback\b/i,
+      "feedback:inventory-check required independent source-receipt parity + review-latest-feedback channel-inventory procedure (2026-10-17)",
+    re: FEEDBACK_CHANNEL_COVERAGE_RE,
+  },
+  {
+    key: "feedback-sweep-unbounded",
+    label: "Had to stop an open-ended feedback sweep",
+    fixedBy:
+      ".agents/skills/review-latest-feedback/references/channel-inventory.md + feedback:inventory-check fixed window and bounded retry (2026-10-20)",
+    re: FEEDBACK_SWEEP_LIFETIME_RE,
+  },
+  {
+    key: "feedback-attachment-coverage",
+    label: "Had to ask the feedback sweep to preserve attachment-only evidence",
+    fixedBy:
+      "feedback:inventory-check thread attachment metadata + review-latest-feedback attachment inspection guidance (2026-10-16)",
+    re: FEEDBACK_ATTACHMENT_COVERAGE_RE,
   },
   {
     key: "feedback-release-coverage",
@@ -3883,6 +4132,13 @@ const PATTERNS = [
     fixedBy:
       "external-agents skill + initialToolNames→MCP instructions (2026-09-05)",
     re: /\b(?:use|call) (?:the )?(?:right |correct |named )?tool\b|\bwrong tool\b|\bdon['’]t (?:use|call) ask_app\b|\b(?:write|author) (?:it|the (?:content|copy|text|deck|slide|design)) yourself\b|\bdon['’]t delegate (?:this|that|authoring)\b|\bstop waiting (?:on|for) the (?:in-app agent|app['’]s agent)\b/i,
+  },
+  {
+    key: "a2a-overdelegation",
+    label: "Had to turn down unnecessary A2A delegation",
+    fixedBy:
+      "local-first A2A threshold in runtime prompts, app instructions, and A2A skills (2026-10-19)",
+    re: A2A_OVERDELEGATION_RE,
   },
   {
     key: "text-heavy-ui",

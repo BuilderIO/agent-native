@@ -94,9 +94,14 @@ describe("TemplateShowcase", () => {
     expect(
       within(card).getByRole("heading", { name: "Build from scratch" }),
     ).toBeTruthy();
-    expect(
-      within(card).getByRole("button", { name: "Build online" }),
-    ).toBeTruthy();
+    const buildOnline = within(card).getByRole("link", {
+      name: "Build online",
+    });
+    const buildOnlineUrl = new URL(buildOnline.getAttribute("href") ?? "");
+    expect(buildOnlineUrl.searchParams.get("initialPrompt")).toBe(
+      "Create a new Agent-Native app.",
+    );
+    expect(buildOnlineUrl.searchParams.get("useFusion")).toBe("true");
     expect(
       within(card).getByRole("link", { name: "Read the docs" }),
     ).toBeTruthy();

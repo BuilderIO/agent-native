@@ -1,6 +1,4 @@
 import {
-  expect,
-  test,
   type APIRequestContext,
   type FrameLocator,
   type Page,
@@ -16,6 +14,7 @@ import {
   installBridge,
   waitForBridge,
 } from "./helpers";
+import { expect, test, type App } from "./rails";
 
 const PRIMARY = process.platform === "darwin" ? "Meta" : "Control";
 const FIXTURE = `<!doctype html><html><body style="margin:0;padding:20px">
@@ -58,54 +57,23 @@ async function action(
   return response.json();
 }
 
-async function createDesign(request: APIRequestContext): Promise<string> {
-  const created = await action(request, "create-design", {
-    title: `Z-order behavior ${Date.now()}`,
-    projectType: "prototype",
-  });
-  const designId = created.id ?? created.data?.id ?? created.design?.id;
-  if (!designId) throw new Error("create-design returned no id");
-  await action(request, "create-file", {
-    designId,
-    filename: "index.html",
-    content: FIXTURE,
-    fileType: "html",
-  });
-  return designId;
+async function createDesign(app: App): Promise<string> {
+  return app.seed(FIXTURE);
 }
 
-async function createBoardDesign(request: APIRequestContext): Promise<string> {
-  const created = await action(request, "create-design", {
-    title: `Board z-order behavior ${Date.now()}`,
-    projectType: "prototype",
+async function createBoardDesign(app: App): Promise<string> {
+  const designId = await app.seed(BOARD_SCREEN_FIXTURE, {
+    files: {
+      "second.html": BOARD_SCREEN_FIXTURE,
+      "__board__.html": BOARD_FIXTURE,
+    },
   });
-  const designId = created.id ?? created.data?.id ?? created.design?.id;
-  if (!designId) throw new Error("create-design returned no id");
-  const screen = await action(request, "create-file", {
-    designId,
-    filename: "index.html",
-    content: BOARD_SCREEN_FIXTURE,
-    fileType: "html",
-  });
-  const screenId = screen.id ?? screen.data?.id;
-  const secondScreen = await action(request, "create-file", {
-    designId,
-    filename: "second.html",
-    content: BOARD_SCREEN_FIXTURE,
-    fileType: "html",
-  });
-  const secondScreenId = secondScreen.id ?? secondScreen.data?.id;
-  const board = await action(request, "create-file", {
-    designId,
-    filename: "__board__.html",
-    content: BOARD_FIXTURE,
-    fileType: "html",
-  });
-  const boardFileId = board.id ?? board.data?.id;
-  if (!screenId || !secondScreenId || !boardFileId) {
-    throw new Error("board fixture files returned no ids");
-  }
-  await action(request, "update-design", {
+  const { files } = await app.savedRecord(designId);
+  const fileId = (filename: string) =>
+    files.find((file) => file.filename === filename)!.id;
+  const screenId = fileId("index.html");
+  const secondScreenId = fileId("second.html");
+  await action(app.page.request, "update-design", {
     id: designId,
     dataOperations: [
       {
@@ -128,7 +96,7 @@ async function createBoardDesign(request: APIRequestContext): Promise<string> {
         path: ["canvasFrames", secondScreenId],
         value: { x: 1200, y: 0, width: 800, height: 600, z: 0 },
       },
-      { op: "set", path: ["boardFileId"], value: boardFileId },
+      { op: "set", path: ["boardFileId"], value: fileId("__board__.html") },
     ],
   });
   return designId;
@@ -214,10 +182,7 @@ async function selectLayer(
 ): Promise<void> {
   const button = layerButton(page, name);
   await expect(button).toBeVisible();
-  await button.click({
-    force: true,
-    ...(additive ? { modifiers: [PRIMARY] } : {}),
-  });
+  await button.click(additive ? { modifiers: [PRIMARY] } : {});
   await expect(
     button.locator('xpath=ancestor::*[@role="treeitem"][1]'),
   ).toHaveAttribute("aria-selected", "true");
@@ -298,69 +263,90 @@ async function pressZ(page: Page, undo = false): Promise<void> {
 }
 
 test("group ordering multi-selection preserves source order, painted order, and one-step undo", async ({
+  app,
   page,
   request,
 }) => {
-  const designId = await createDesign(request);
-  try {
-    await gotoEditor(page, designId);
-    await expandAllLayers(page);
-    await enterDirectMode(page);
-    await installBridge(page);
-    await selectLayer(page, "A");
-    await selectLayer(page, "C", true);
-    const expectedSelection = await Promise.all(
-      ["A", "C"].map(async (name) => {
-        const id = await layerButton(page, name).getAttribute(
-          "data-layer-node-id",
-        );
-        if (!id) throw new Error(`selected layer ${name} has no node id`);
-        return id;
-      }),
-    );
-    expectedSelection.sort();
-    await expect.poll(() => selectedLayerIds(page)).toEqual(expectedSelection);
+  const designId = await createDesign(app);
+  await gotoEditor(page, designId);
+  await expandAllLayers(page);
+  await enterDirectMode(page);
+  await installBridge(page);
+  await selectLayer(page, "A");
+  await selectLayer(page, "C", true);
+  const expectedSelection = await Promise.all(
+    ["A", "C"].map(async (name) => {
+      const id = await layerButton(page, name).getAttribute(
+        "data-layer-node-id",
+      );
+      if (!id) throw new Error(`selected layer ${name} has no node id`);
+      return id;
+    }),
+  );
+  expectedSelection.sort();
+  await expect.poll(() => selectedLayerIds(page)).toEqual(expectedSelection);
 
-    await page.keyboard.press("]");
+  await page.keyboard.press("]");
+  await expect
+    .poll(() =>
+      indexHtml(request, designId).then((html) => childNodeIds(html, "stack")),
+    )
+    .toEqual(["S", "B", "D", "A", "C"]);
+  await expect
+    .poll(() => paintedOrder(page, "stack"))
+    .toEqual(["S", "B", "D", "A", "C"]);
+  await expect.poll(() => topNodeAt(page, "stack")).toBe("C");
+  await expect.poll(() => selectedLayerIds(page)).toEqual(expectedSelection);
+
+  await page.keyboard.press("[");
+  await expect
+    .poll(() =>
+      indexHtml(request, designId).then((html) => childNodeIds(html, "stack")),
+    )
+    .toEqual(["A", "C", "S", "B", "D"]);
+  await expect
+    .poll(() => paintedOrder(page, "stack"))
+    .toEqual(["A", "C", "S", "B", "D"]);
+  await expect.poll(() => topNodeAt(page, "stack")).toBe("D");
+  await expect.poll(() => selectedLayerIds(page)).toEqual(expectedSelection);
+
+  await pressZ(page, true);
+  await expect
+    .poll(() =>
+      indexHtml(request, designId).then((html) => childNodeIds(html, "stack")),
+    )
+    .toEqual(["S", "B", "D", "A", "C"]);
+  await expect
+    .poll(() => paintedOrder(page, "stack"))
+    .toEqual(["S", "B", "D", "A", "C"]);
+  await expect.poll(() => topNodeAt(page, "stack")).toBe("C");
+  await expect.poll(() => selectedLayerIds(page)).toEqual(expectedSelection);
+
+  await pressZ(page, true);
+  await expect
+    .poll(() =>
+      indexHtml(request, designId).then((html) => childNodeIds(html, "stack")),
+    )
+    .toEqual(["S", "A", "B", "C", "D"]);
+  await expect
+    .poll(() => paintedOrder(page, "stack"))
+    .toEqual(["S", "A", "B", "C", "D"]);
+  await expect.poll(() => topNodeAt(page, "stack")).toBe("D");
+  await expect.poll(() => selectedLayerIds(page)).toEqual(expectedSelection);
+
+  for (const step of [
+    { key: `${PRIMARY}+BracketRight`, expected: ["S", "B", "A", "D", "C"] },
+    { key: `${PRIMARY}+BracketLeft`, expected: ["A", "S", "C", "B", "D"] },
+  ]) {
+    await page.keyboard.press(step.key);
     await expect
       .poll(() =>
         indexHtml(request, designId).then((html) =>
           childNodeIds(html, "stack"),
         ),
       )
-      .toEqual(["S", "B", "D", "A", "C"]);
-    await expect
-      .poll(() => paintedOrder(page, "stack"))
-      .toEqual(["S", "B", "D", "A", "C"]);
-    await expect.poll(() => topNodeAt(page, "stack")).toBe("C");
-    await expect.poll(() => selectedLayerIds(page)).toEqual(expectedSelection);
-
-    await page.keyboard.press("[");
-    await expect
-      .poll(() =>
-        indexHtml(request, designId).then((html) =>
-          childNodeIds(html, "stack"),
-        ),
-      )
-      .toEqual(["A", "C", "S", "B", "D"]);
-    await expect
-      .poll(() => paintedOrder(page, "stack"))
-      .toEqual(["A", "C", "S", "B", "D"]);
-    await expect.poll(() => topNodeAt(page, "stack")).toBe("D");
-    await expect.poll(() => selectedLayerIds(page)).toEqual(expectedSelection);
-
-    await pressZ(page, true);
-    await expect
-      .poll(() =>
-        indexHtml(request, designId).then((html) =>
-          childNodeIds(html, "stack"),
-        ),
-      )
-      .toEqual(["S", "B", "D", "A", "C"]);
-    await expect
-      .poll(() => paintedOrder(page, "stack"))
-      .toEqual(["S", "B", "D", "A", "C"]);
-    await expect.poll(() => topNodeAt(page, "stack")).toBe("C");
+      .toEqual(step.expected);
+    await expect.poll(() => paintedOrder(page, "stack")).toEqual(step.expected);
     await expect.poll(() => selectedLayerIds(page)).toEqual(expectedSelection);
 
     await pressZ(page, true);
@@ -374,96 +360,54 @@ test("group ordering multi-selection preserves source order, painted order, and 
     await expect
       .poll(() => paintedOrder(page, "stack"))
       .toEqual(["S", "A", "B", "C", "D"]);
-    await expect.poll(() => topNodeAt(page, "stack")).toBe("D");
     await expect.poll(() => selectedLayerIds(page)).toEqual(expectedSelection);
-
-    for (const step of [
-      { key: `${PRIMARY}+BracketRight`, expected: ["S", "B", "A", "D", "C"] },
-      { key: `${PRIMARY}+BracketLeft`, expected: ["A", "S", "C", "B", "D"] },
-    ]) {
-      await page.keyboard.press(step.key);
-      await expect
-        .poll(() =>
-          indexHtml(request, designId).then((html) =>
-            childNodeIds(html, "stack"),
-          ),
-        )
-        .toEqual(step.expected);
-      await expect
-        .poll(() => paintedOrder(page, "stack"))
-        .toEqual(step.expected);
-      await expect
-        .poll(() => selectedLayerIds(page))
-        .toEqual(expectedSelection);
-
-      await pressZ(page, true);
-      await expect
-        .poll(() =>
-          indexHtml(request, designId).then((html) =>
-            childNodeIds(html, "stack"),
-          ),
-        )
-        .toEqual(["S", "A", "B", "C", "D"]);
-      await expect
-        .poll(() => paintedOrder(page, "stack"))
-        .toEqual(["S", "A", "B", "C", "D"]);
-      await expect
-        .poll(() => selectedLayerIds(page))
-        .toEqual(expectedSelection);
-    }
-  } finally {
-    await action(request, "delete-design", { id: designId }).catch(() => {});
   }
 });
 
 test("group ordering Bring to Front reorders an auto-layout child and undo restores it", async ({
+  app,
   page,
   request,
 }) => {
-  const designId = await createDesign(request);
-  try {
-    await gotoEditor(page, designId);
-    await expandAllLayers(page);
-    await enterDirectMode(page);
-    await selectLayer(page, "First");
-    expect((await renderedRect(page, "first")).x).toBe(12);
-    expect((await renderedRect(page, "second")).x).toBe(124);
+  const designId = await createDesign(app);
+  await gotoEditor(page, designId);
+  await expandAllLayers(page);
+  await enterDirectMode(page);
+  await selectLayer(page, "First");
+  expect((await renderedRect(page, "first")).x).toBe(12);
+  expect((await renderedRect(page, "second")).x).toBe(124);
 
-    await page.keyboard.press("]");
-    await expect
-      .poll(async () => (await renderedRect(page, "first")).x)
-      .toBe(124);
-    await expect
-      .poll(async () => (await renderedRect(page, "second")).x)
-      .toBe(12);
-    await expect
-      .poll(() =>
-        indexHtml(request, designId).then((html) => childNodeIds(html, "auto")),
-      )
-      .toEqual(["second", "first"]);
+  await page.keyboard.press("]");
+  await expect
+    .poll(async () => (await renderedRect(page, "first")).x)
+    .toBe(124);
+  await expect
+    .poll(async () => (await renderedRect(page, "second")).x)
+    .toBe(12);
+  await expect
+    .poll(() =>
+      indexHtml(request, designId).then((html) => childNodeIds(html, "auto")),
+    )
+    .toEqual(["second", "first"]);
 
-    await pressZ(page, true);
-    await expect
-      .poll(async () => (await renderedRect(page, "first")).x)
-      .toBe(12);
-    await expect
-      .poll(async () => (await renderedRect(page, "second")).x)
-      .toBe(124);
-    await expect
-      .poll(() =>
-        indexHtml(request, designId).then((html) => childNodeIds(html, "auto")),
-      )
-      .toEqual(["first", "second"]);
-  } finally {
-    await action(request, "delete-design", { id: designId }).catch(() => {});
-  }
+  await pressZ(page, true);
+  await expect.poll(async () => (await renderedRect(page, "first")).x).toBe(12);
+  await expect
+    .poll(async () => (await renderedRect(page, "second")).x)
+    .toBe(124);
+  await expect
+    .poll(() =>
+      indexHtml(request, designId).then((html) => childNodeIds(html, "auto")),
+    )
+    .toEqual(["first", "second"]);
 });
 
 test("Bring to Front on a block-flow layer paints above its sibling without moving it", async ({
+  app,
   page,
   request,
 }) => {
-  const designId = await createDesign(request);
+  const designId = await createDesign(app);
   const rect = { x: 0, y: 0, width: 160, height: 160 };
   const persisted = async () => {
     const html = await indexHtml(request, designId);
@@ -475,37 +419,34 @@ test("Bring to Front on a block-flow layer paints above its sibling without movi
       zIndex: /z-index:\s*(-?\d+)/.exec(tag)?.[1] ?? null,
     };
   };
-  try {
-    await gotoEditor(page, designId);
-    await expandAllLayers(page);
-    await enterDirectMode(page);
-    await expect.poll(() => topNodeAt(page, "flow")).toBe("over");
-    expect(await renderedRect(page, "under")).toEqual(rect);
-    await selectLayer(page, "Under");
+  await gotoEditor(page, designId);
+  await expandAllLayers(page);
+  await enterDirectMode(page);
+  await expect.poll(() => topNodeAt(page, "flow")).toBe("over");
+  expect(await renderedRect(page, "under")).toEqual(rect);
+  await selectLayer(page, "Under");
 
-    await page.keyboard.press("]");
-    await expect.poll(() => topNodeAt(page, "flow")).toBe("under");
-    expect(await renderedRect(page, "under")).toEqual(rect);
-    await expect
-      .poll(persisted)
-      .toEqual({ order: ["under", "over"], relative: true, zIndex: "1" });
+  await page.keyboard.press("]");
+  await expect.poll(() => topNodeAt(page, "flow")).toBe("under");
+  expect(await renderedRect(page, "under")).toEqual(rect);
+  await expect
+    .poll(persisted)
+    .toEqual({ order: ["under", "over"], relative: true, zIndex: "1" });
 
-    await pressZ(page, true);
-    await expect.poll(() => topNodeAt(page, "flow")).toBe("over");
-    expect(await renderedRect(page, "under")).toEqual(rect);
-    await expect
-      .poll(persisted)
-      .toEqual({ order: ["under", "over"], relative: false, zIndex: null });
-  } finally {
-    await action(request, "delete-design", { id: designId }).catch(() => {});
-  }
+  await pressZ(page, true);
+  await expect.poll(() => topNodeAt(page, "flow")).toBe("over");
+  expect(await renderedRect(page, "under")).toEqual(rect);
+  await expect
+    .poll(persisted)
+    .toEqual({ order: ["under", "over"], relative: false, zIndex: null });
 });
 
 test("arrangement keyboard commands use physical brackets and persist across reload", async ({
+  app,
   page,
   request,
 }) => {
-  const designId = await createDesign(request);
+  const designId = await createDesign(app);
   const initialOrder = ["S", "A", "B", "C", "D"];
   const cases = [
     { node: "A", key: "]", expected: ["S", "B", "C", "D", "A"] },
@@ -521,52 +462,49 @@ test("arrangement keyboard commands use physical brackets and persist across rel
       expected: ["S", "A", "C", "B", "D"],
     },
   ] as const;
-  try {
-    await gotoEditor(page, designId);
-    await expandAllLayers(page);
-    await enterDirectMode(page);
-    await installBridge(page);
+  await gotoEditor(page, designId);
+  await expandAllLayers(page);
+  await enterDirectMode(page);
+  await installBridge(page);
 
-    for (const [index, testCase] of cases.entries()) {
-      await selectLayer(page, testCase.node);
-      await page.keyboard.press(testCase.key);
+  for (const [index, testCase] of cases.entries()) {
+    await selectLayer(page, testCase.node);
+    await page.keyboard.press(testCase.key);
+    await expect
+      .poll(() =>
+        indexHtml(request, designId).then((html) =>
+          childNodeIds(html, "stack"),
+        ),
+      )
+      .toEqual(testCase.expected);
+    if (index === cases.length - 1) {
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await expect(
+        page.getByRole("button", { name: "Move", exact: true }),
+      ).toBeVisible({ timeout: 30_000 });
+      await enterDirectMode(page);
+      await expect
+        .poll(() => renderedOrder(page, "stack"))
+        .toEqual(testCase.expected);
+    } else {
+      await page.keyboard.press(`${PRIMARY}+z`);
       await expect
         .poll(() =>
           indexHtml(request, designId).then((html) =>
             childNodeIds(html, "stack"),
           ),
         )
-        .toEqual(testCase.expected);
-      if (index === cases.length - 1) {
-        await page.reload({ waitUntil: "domcontentloaded" });
-        await expect(
-          page.getByRole("button", { name: "Move", exact: true }),
-        ).toBeVisible({ timeout: 30_000 });
-        await enterDirectMode(page);
-        await expect
-          .poll(() => renderedOrder(page, "stack"))
-          .toEqual(testCase.expected);
-      } else {
-        await page.keyboard.press(`${PRIMARY}+z`);
-        await expect
-          .poll(() =>
-            indexHtml(request, designId).then((html) =>
-              childNodeIds(html, "stack"),
-            ),
-          )
-          .toEqual(initialOrder);
-      }
+        .toEqual(initialOrder);
     }
-  } finally {
-    await action(request, "delete-design", { id: designId }).catch(() => {});
   }
 });
 
 test("overview board arrange commands measure, persist, and support context menus", async ({
+  app,
   page,
   request,
 }) => {
-  const designId = await createBoardDesign(request);
+  const designId = await createBoardDesign(app);
   const initialOrder = ["red", "blue", "green"];
   const cases = [
     { node: "Red", key: "]", expected: ["blue", "green", "red"] },
@@ -582,111 +520,111 @@ test("overview board arrange commands measure, persist, and support context menu
     },
     { node: "Green", key: "[", expected: ["green", "red", "blue"] },
   ] as const;
-  try {
-    await gotoEditor(page, designId);
-    await expandAllLayers(page);
-    await enterDirectMode(page);
-    await installBridge(page);
-    await expect(
-      page.locator(
-        "[data-board-surface-layer] iframe[data-design-preview-iframe]",
-      ),
-    ).toBeVisible();
+  await gotoEditor(page, designId);
+  await expandAllLayers(page);
+  await enterDirectMode(page);
+  await installBridge(page);
+  await expect(
+    page.locator(
+      "[data-board-surface-layer] iframe[data-design-preview-iframe]",
+    ),
+  ).toBeVisible();
 
-    for (const [index, testCase] of cases.entries()) {
-      await selectLayer(page, testCase.node);
-      await page.keyboard.press(testCase.key);
+  for (const [index, testCase] of cases.entries()) {
+    await selectLayer(page, testCase.node);
+    await page.keyboard.press(testCase.key);
+    await expect
+      .poll(() =>
+        indexHtml(request, designId, "__board__.html").then((html) =>
+          childNodeIds(html, "board-stage"),
+        ),
+      )
+      .toEqual(testCase.expected);
+    await expect
+      .poll(() => boardTreeOrder(page))
+      .toEqual(
+        testCase.expected
+          .slice()
+          .reverse()
+          .map((id) => id[0]!.toUpperCase() + id.slice(1)),
+      );
+
+    if (index === cases.length - 1) {
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await expect(
+        page.getByRole("button", { name: "Move", exact: true }),
+      ).toBeVisible({ timeout: 30_000 });
+      await expect(
+        page.locator(
+          "[data-board-surface-layer] iframe[data-design-preview-iframe]",
+        ),
+      ).toBeVisible();
+      await installBridge(page);
+      await expandAllLayers(page);
+      await expect
+        .poll(() =>
+          boardFrame(page)
+            .locator('[data-agent-native-node-id="board-stage"]')
+            .evaluate((parent) =>
+              Array.from(parent.children)
+                .map((el) => el.getAttribute("data-agent-native-node-id"))
+                .filter((id): id is string => Boolean(id)),
+            ),
+        )
+        .toEqual(testCase.expected);
+    } else {
+      await page.keyboard.press(`${PRIMARY}+z`);
       await expect
         .poll(() =>
           indexHtml(request, designId, "__board__.html").then((html) =>
             childNodeIds(html, "board-stage"),
           ),
         )
-        .toEqual(testCase.expected);
-      await expect
-        .poll(() => boardTreeOrder(page))
-        .toEqual(
-          testCase.expected
-            .slice()
-            .reverse()
-            .map((id) => id[0]!.toUpperCase() + id.slice(1)),
-        );
-
-      if (index === cases.length - 1) {
-        await page.reload({ waitUntil: "domcontentloaded" });
-        await expect(
-          page.getByRole("button", { name: "Move", exact: true }),
-        ).toBeVisible({ timeout: 30_000 });
-        await enterDirectMode(page);
-        await installBridge(page);
-        await expandAllLayers(page);
-        await expect
-          .poll(() =>
-            boardFrame(page)
-              .locator('[data-agent-native-node-id="board-stage"]')
-              .evaluate((parent) =>
-                Array.from(parent.children)
-                  .map((el) => el.getAttribute("data-agent-native-node-id"))
-                  .filter((id): id is string => Boolean(id)),
-              ),
-          )
-          .toEqual(testCase.expected);
-      } else {
-        await page.keyboard.press(`${PRIMARY}+z`);
-        await expect
-          .poll(() =>
-            indexHtml(request, designId, "__board__.html").then((html) =>
-              childNodeIds(html, "board-stage"),
-            ),
-          )
-          .toEqual(initialOrder);
-      }
+        .toEqual(initialOrder);
     }
-
-    await rightClickBoardNode(page, "blue");
-    await page
-      .getByRole("menu")
-      .last()
-      .getByRole("menuitem", { name: "Arrange" })
-      .hover();
-    await page
-      .getByRole("menu")
-      .last()
-      .getByText("Send to back", { exact: true })
-      .click();
-    await expect
-      .poll(() =>
-        indexHtml(request, designId, "__board__.html").then((html) =>
-          childNodeIds(html, "board-stage"),
-        ),
-      )
-      .toEqual(["blue", "green", "red"]);
-    await expect
-      .poll(() => boardTreeOrder(page))
-      .toEqual(["Red", "Green", "Blue"]);
-
-    await rightClickBoardNode(page, "blue");
-    await page
-      .getByRole("menu")
-      .last()
-      .getByRole("menuitem", { name: "Arrange" })
-      .hover();
-    await page
-      .getByRole("menu")
-      .last()
-      .getByText("Bring to front", { exact: true })
-      .click();
-    await expect
-      .poll(() =>
-        indexHtml(request, designId, "__board__.html").then((html) =>
-          childNodeIds(html, "board-stage"),
-        ),
-      )
-      .toEqual(["green", "red", "blue"]);
-    await expect
-      .poll(() => boardTreeOrder(page))
-      .toEqual(["Blue", "Red", "Green"]);
-  } finally {
-    await action(request, "delete-design", { id: designId }).catch(() => {});
   }
+
+  await rightClickBoardNode(page, "blue");
+  await page
+    .getByRole("menu")
+    .last()
+    .getByRole("menuitem", { name: "Arrange" })
+    .hover();
+  await page
+    .getByRole("menu")
+    .last()
+    .getByText("Send to back", { exact: true })
+    .click();
+  await expect
+    .poll(() =>
+      indexHtml(request, designId, "__board__.html").then((html) =>
+        childNodeIds(html, "board-stage"),
+      ),
+    )
+    .toEqual(["blue", "green", "red"]);
+  await expect
+    .poll(() => boardTreeOrder(page))
+    .toEqual(["Red", "Green", "Blue"]);
+
+  await rightClickBoardNode(page, "blue");
+  await page
+    .getByRole("menu")
+    .last()
+    .getByRole("menuitem", { name: "Arrange" })
+    .hover();
+  await page
+    .getByRole("menu")
+    .last()
+    .getByText("Bring to front", { exact: true })
+    .click();
+  await expect
+    .poll(() =>
+      indexHtml(request, designId, "__board__.html").then((html) =>
+        childNodeIds(html, "board-stage"),
+      ),
+    )
+    .toEqual(["green", "red", "blue"]);
+  await expect
+    .poll(() => boardTreeOrder(page))
+    .toEqual(["Blue", "Red", "Green"]);
 });

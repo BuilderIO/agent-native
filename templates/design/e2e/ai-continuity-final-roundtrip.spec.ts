@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 
-import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import type { Page, TestInfo } from "@playwright/test";
 
 import { sourceContentHash } from "../shared/source-workspace.js";
 import {
@@ -10,6 +10,7 @@ import {
   resetPersistedCanvasState,
   selectByText,
 } from "./helpers";
+import { expect, test } from "./rails";
 
 const LUNA_ORBIT_SOURCE = readFileSync(
   new URL("./fixtures/luna-orbit-after-ai.html", import.meta.url),
@@ -111,8 +112,39 @@ function uniqueElementMarkup(
   return markup;
 }
 
+// An edit can send a splice against the version it expects instead of the whole file.
+function submittedContent(
+  payload: Record<string, unknown>,
+  sourceByHash: ReadonlyMap<string, string>,
+): string | null {
+  if (typeof payload.content === "string") return payload.content;
+  const patch = payload.contentPatch as
+    | { start?: unknown; deleteCount?: unknown; text?: unknown }
+    | undefined;
+  const base =
+    typeof payload.expectedVersionHash === "string"
+      ? sourceByHash.get(payload.expectedVersionHash)
+      : undefined;
+  if (
+    base === undefined ||
+    typeof patch?.start !== "number" ||
+    typeof patch.deleteCount !== "number" ||
+    typeof patch.text !== "string"
+  ) {
+    return null;
+  }
+  return (
+    base.slice(0, patch.start) +
+    patch.text +
+    base.slice(patch.start + patch.deleteCount)
+  );
+}
+
 function captureUpdateFileTrace(page: Page) {
   const updateFileTrace: UpdateFileTrace[] = [];
+  const sourceByHash = new Map<string, string>();
+  const rememberSource = (content: string) =>
+    sourceByHash.set(sourceContentHash(content), content);
   const tracesByRequest = new WeakMap<object, UpdateFileTrace>();
   const responseTraceTasks: Promise<void>[] = [];
   page.on("request", (request) => {
@@ -129,8 +161,7 @@ function captureUpdateFileTrace(page: Page) {
         payload = parsed as Record<string, unknown>;
       }
     } catch {}
-    const submittedHtml =
-      typeof payload.content === "string" ? payload.content : null;
+    const submittedHtml = submittedContent(payload, sourceByHash);
     const trace: UpdateFileTrace = {
       requestedAt: new Date().toISOString(),
       requestUrl: request.url(),
@@ -175,7 +206,7 @@ function captureUpdateFileTrace(page: Page) {
     trace.error =
       request.failure()?.errorText ?? "Request failed without a response";
   });
-  return { updateFileTrace, responseTraceTasks };
+  return { updateFileTrace, responseTraceTasks, rememberSource };
 }
 
 async function postAction(
@@ -449,6 +480,7 @@ async function attachEvidence(args: {
 }
 
 test("captured Luna Orbit source survives deterministic Screen-scoped and visual edits", async ({
+  app,
   page,
 }, testInfo) => {
   const sourceB = LUNA_ORBIT_SOURCE.replace("Launch overview", "Team overview");
@@ -456,8 +488,10 @@ test("captured Luna Orbit source survives deterministic Screen-scoped and visual
     page,
     sourceB,
   );
+  app.adopt(designId);
   const consoleErrors: string[] = [];
-  const { updateFileTrace, responseTraceTasks } = captureUpdateFileTrace(page);
+  const { updateFileTrace, responseTraceTasks, rememberSource } =
+    captureUpdateFileTrace(page);
   const persistedSourceSnapshots: PersistedSourceSnapshot[] = [];
   let stage = "open editor";
   let expectedOwner: string | null = null;
@@ -711,6 +745,7 @@ test("captured Luna Orbit source survives deterministic Screen-scoped and visual
         .filter((trace) => trace.fileId === secondScreenId),
     ).toHaveLength(0);
     const noteTraceStart = updateFileTrace.length;
+    rememberSource(currentAiSource);
 
     const noteSize = page.locator('input[aria-label="Size" i]').first();
     await expect(noteSize).toBeVisible();
@@ -871,15 +906,16 @@ test("captured Luna Orbit source survives deterministic Screen-scoped and visual
       updateFileTrace,
       persistedSourceSnapshots,
     });
-    await actionJson(page, "delete-design", { id: designId });
   }
 });
 
 test("captured Luna Orbit inspector Size edit survives immediate reload after Enter", async ({
+  app,
   page,
 }, testInfo) => {
   const sourceB = LUNA_ORBIT_SOURCE.replace("Launch overview", "Team overview");
   const { designId, secondScreenId } = await createDesign(page, sourceB);
+  app.adopt(designId);
   const { updateFileTrace, responseTraceTasks } = captureUpdateFileTrace(page);
   const unloadTraceKey = `design-reload-save-${Date.now()}-${testInfo.testId}`;
   // Journal unload saves before navigation can hide their network events.
@@ -1047,6 +1083,5 @@ test("captured Luna Orbit inspector Size edit survives immediate reload after En
       (storageKey) => localStorage.removeItem(storageKey),
       unloadTraceKey,
     );
-    await actionJson(page, "delete-design", { id: designId });
   }
 });

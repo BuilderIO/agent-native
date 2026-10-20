@@ -13,6 +13,7 @@ import {
 const mockNotifyActionChange = vi.hoisted(() => vi.fn());
 const mockMarkerLanded = vi.hoisted(() => vi.fn(() => true));
 const mockResolveOrgIdForEmail = vi.hoisted(() => vi.fn());
+const mockResolveOrgScopeForEmail = vi.hoisted(() => vi.fn());
 const mockResolveOrgByDomain = vi.hoisted(() => vi.fn());
 const mockGetSession = vi.hoisted(() => vi.fn(async () => null));
 const mockGetOrgContext = vi.hoisted(() =>
@@ -88,8 +89,12 @@ vi.mock("./action-change.js", () => ({
 }));
 
 vi.mock("../org/context.js", () => ({
+  hasOrgScopeResolutionUnavailable: (event: any) =>
+    event.context?.__anOrgScopeResolutionUnavailable === true,
   resolveOrgIdForEmail: (...args: unknown[]) =>
     mockResolveOrgIdForEmail(...args),
+  resolveOrgScopeForEmail: (...args: unknown[]) =>
+    mockResolveOrgScopeForEmail(...args),
   getOrgContext: (...args: unknown[]) => mockGetOrgContext(...args),
   resolveOrgByDomain: (...args: unknown[]) => mockResolveOrgByDomain(...args),
   isFederationMembershipValidatedForEvent: () => false,
@@ -140,6 +145,8 @@ describe("mountActionRoutes", () => {
     mockMarkerLanded.mockReset();
     mockMarkerLanded.mockReturnValue(true);
     mockResolveOrgIdForEmail.mockReset();
+    mockResolveOrgScopeForEmail.mockReset();
+    mockResolveOrgScopeForEmail.mockResolvedValue({ status: "unknown" });
     mockResolveOrgByDomain.mockReset();
     mockResolveOrgByDomain.mockResolvedValue({
       orgId: "receiver-org",
@@ -2955,7 +2962,7 @@ describe("mountActionRoutes", () => {
     vi.resetModules();
     const workspaceAccess = vi.fn(async () => false);
     vi.doMock("../org/workspace-app-access.js", () => ({
-      isWorkspaceAppAccessAllowed: workspaceAccess,
+      checkWorkspaceAppAccess: workspaceAccess,
       WORKSPACE_APP_ACCESS_UNAVAILABLE: "unavailable",
       WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE:
         "Workspace app access is temporarily unavailable.",
@@ -3042,11 +3049,17 @@ describe("mountActionRoutes", () => {
         access === "denied"
           ? false
           : access === "unavailable"
-            ? "unavailable"
+            ? {
+                status: "unavailable",
+                reason: "registry-http-error",
+                upstreamStatus: 401,
+                audience: "https://slides.agent-native.test/dispatch",
+                detail: "Unauthorized",
+              }
             : true,
       );
       vi.doMock("../org/workspace-app-access.js", () => ({
-        isWorkspaceAppAccessAllowed: workspaceAccess,
+        checkWorkspaceAppAccess: workspaceAccess,
         WORKSPACE_APP_ACCESS_UNAVAILABLE: "unavailable",
         WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE:
           "Workspace app access is temporarily unavailable.",
@@ -3154,6 +3167,10 @@ describe("mountActionRoutes", () => {
       expect(event._status).toBe(503);
       expect(result).toEqual({
         error: "Workspace app access is temporarily unavailable.",
+        code: "registry-http-error",
+        upstreamStatus: 401,
+        audience: "https://slides.agent-native.test/dispatch",
+        detail: "Unauthorized",
       });
       expect(run).not.toHaveBeenCalled();
     });
@@ -3174,7 +3191,7 @@ describe("mountActionRoutes", () => {
     vi.resetModules();
     const workspaceAccess = vi.fn(async () => false);
     vi.doMock("../org/workspace-app-access.js", () => ({
-      isWorkspaceAppAccessAllowed: workspaceAccess,
+      checkWorkspaceAppAccess: workspaceAccess,
       WORKSPACE_APP_ACCESS_UNAVAILABLE: "unavailable",
       WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE:
         "Workspace app access is temporarily unavailable.",
@@ -4395,6 +4412,217 @@ describe("mountActionRoutes", () => {
     ).toEqual(["poll-engine", "undeclared-write"]);
   });
 
+  it("publishes the change of a write whose result broke its output contract", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { defineAction } = await import("../action.js");
+    const { z } = await import("zod");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const strictPublish = (name: string, rewritesArgs = false) =>
+      defineAction({
+        description: name,
+        schema: z.object({ apply: z.boolean().default(true) }),
+        outputSchema: z.object({ ok: z.literal(true) }),
+        outputErrorStrategy: "strict",
+        planMode: { effect: (args) => (args.apply ? "write" : "read") },
+        run: async (args) => {
+          if (rewritesArgs) args.apply = false;
+          return { ok: false } as any;
+        },
+      });
+    const readTitle = defineAction({
+      description: "read-title",
+      schema: z.object({}),
+      outputSchema: z.object({ title: z.string() }),
+      outputErrorStrategy: "strict",
+      readOnly: true,
+      run: async () => ({ title: 7 }) as any,
+    });
+    const actions = {
+      "publish-default": strictPublish("publish-default"),
+      "publish-preview": strictPublish("publish-preview"),
+      "publish-rewrite": strictPublish("publish-rewrite", true),
+      // A write whose nested read, on the same context, broke its contract.
+      "rename-and-read": defineAction({
+        description: "rename-and-read",
+        schema: z.object({}),
+        run: async (_args, ctx) => readTitle.run({}, ctx),
+      }),
+    } as unknown as Record<string, ActionEntry>;
+    mountActionRoutes(nitroApp, actions);
+    const call = (name: string, body: Record<string, unknown>) => {
+      const mount = mounted.find((entry) => entry.path.endsWith(`/${name}`))!;
+      const event = {
+        _method: "POST",
+        _headers: {},
+        req: {
+          url: `http://app.test/_agent-native/actions/${name}`,
+          json: async () => body,
+        },
+      };
+      return mount.handler(event);
+    };
+
+    const committed = await call("publish-default", {});
+    const preview = await call("publish-preview", { apply: false });
+    // Classified before run, which then rewrites its arguments.
+    const rewritten = await call("publish-rewrite", {});
+    expect(committed).toMatchObject({
+      errorCode: "output_contract_violation",
+    });
+    expect(preview).toMatchObject({ errorCode: "output_contract_violation" });
+    expect(rewritten).toMatchObject({
+      errorCode: "output_contract_violation",
+      details: { effect: "committed" },
+    });
+    const nested = await call("rename-and-read", {});
+    expect(nested).toMatchObject({
+      errorCode: "output_contract_violation",
+      details: { effect: "committed" },
+    });
+    expect(
+      mockNotifyActionChange.mock.calls.map(([arg]) => arg.actionName),
+    ).toEqual(["publish-default", "publish-rewrite", "rename-and-read"]);
+  });
+
+  it("follows a nested write and keeps a connection's routing when a result check fails", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { AgentConnectionRequiredError, defineAction } =
+      await import("../action.js");
+    const { z } = await import("zod");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const saveRow = defineAction({
+      description: "save-row",
+      schema: z.object({}),
+      run: async () => ({ ok: true }),
+    });
+    mountActionRoutes(
+      {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      },
+      {
+        "check-and-save": defineAction({
+          description: "check-and-save",
+          schema: z.object({}),
+          outputSchema: z.object({ ok: z.literal(true) }),
+          outputErrorStrategy: "strict",
+          readOnly: true,
+          run: async (_args, ctx) => {
+            await saveRow.run({}, ctx);
+            return { ok: false } as any;
+          },
+        }),
+        "assign-and-connect": defineAction({
+          description: "assign-and-connect",
+          schema: z.object({}),
+          outputSchema: z.object({ owner: z.string() }).transform((value) => {
+            throw new AgentConnectionRequiredError(
+              `Connect Slack to message ${value.owner}`,
+              {
+                provider: "slack",
+                reason: "grant",
+                appId: "mail",
+                source: { id: "slack-workspace", label: "Slack" },
+              },
+            );
+          }),
+          run: async () => ({ owner: "kai@example.com" }),
+        }),
+      } as unknown as Record<string, ActionEntry>,
+    );
+    const call = (name: string) =>
+      mounted
+        .find((entry) => entry.path.endsWith(`/${name}`))!
+        .handler({
+          _method: "POST",
+          _headers: {},
+          req: {
+            url: `http://app.test/_agent-native/actions/${name}`,
+            json: async () => ({}),
+          },
+        });
+
+    const nested = await call("check-and-save");
+    expect(nested).toMatchObject({
+      errorCode: "output_contract_violation",
+      details: { effect: "committed" },
+    });
+    const connection = await call("assign-and-connect");
+    expect(connection).toMatchObject({
+      errorCode: "connection_required",
+      details: {
+        effect: "committed",
+        provider: "slack",
+        reason: "grant",
+        appId: "mail",
+        source: { id: "slack-workspace", label: "Slack" },
+      },
+    });
+    expect(connection.error).toContain('provider "slack"');
+    expect(JSON.stringify(connection)).not.toContain("kai@example.com");
+    expect(
+      mockNotifyActionChange.mock.calls.map(([arg]) => arg.actionName),
+    ).toEqual(["check-and-save", "assign-and-connect"]);
+  });
+
+  it("audits and tracks a call whose arguments fail validation", async () => {
+    vi.resetModules();
+    const recordActionAudit = vi.fn();
+    const track = vi.fn();
+    vi.doMock("../audit/record.js", () => ({ recordActionAudit }));
+    vi.doMock("../tracking/registry.js", () => ({ track }));
+    try {
+      const { mountActionRoutes } = await import("./action-routes.js");
+      const { defineAction } = await import("../action.js");
+      const { z } = await import("zod");
+      const mounted: Array<{ path: string; handler: any }> = [];
+      mountActionRoutes(
+        {
+          use: vi.fn((path: string, handler: any) =>
+            mounted.push({ path, handler }),
+          ),
+        },
+        {
+          "rename-title": defineAction({
+            description: "Rename a title.",
+            schema: z.object({ title: z.string() }),
+            run: async () => ({ ok: true }),
+          }),
+        } as unknown as Record<string, ActionEntry>,
+      );
+      const result = await mounted[0].handler({
+        _method: "POST",
+        _headers: {},
+        req: {
+          url: "http://app.test/_agent-native/actions/rename-title",
+          json: async () => ({ title: 5 }),
+        },
+      });
+      expect(result).toMatchObject({
+        error: expect.stringMatching(/^Invalid action parameters/),
+      });
+      expect(recordActionAudit).toHaveBeenCalledTimes(1);
+      expect(recordActionAudit.mock.calls[0]![0]).toMatchObject({
+        status: "error",
+        args: { title: 5 },
+        ctx: { actionName: "rename-title" },
+      });
+      expect(
+        track.mock.calls.map(([, properties]) => properties.status),
+      ).toEqual(["started", "failed"]);
+    } finally {
+      vi.doUnmock("../audit/record.js");
+      vi.doUnmock("../tracking/registry.js");
+      vi.resetModules();
+    }
+  });
+
   it("refuses extension tools-bridge calls to provider-api-request", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];
@@ -5444,6 +5672,165 @@ describe("mountActionRoutes", () => {
     expect(received.requestOrgId).toBe("org-stored-active");
   });
 
+  it("marks a confirmed personal cookie scope when no org is resolved", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestContext } = await import("./request-context.js");
+    mockResolveOrgIdForEmail.mockResolvedValue(null);
+    mockResolveOrgScopeForEmail.mockResolvedValue({ status: "personal" });
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    let received: any;
+    mountActionRoutes(
+      nitroApp,
+      {
+        "do-thing": {
+          run: vi.fn(async (_params, ctx) => {
+            received = { ctx, requestContext: getRequestContext() };
+            return { ok: true };
+          }),
+        } as any,
+      },
+      {
+        getOwnerFromEvent: async () => "steve@example.com",
+        resolveOrgId: async () => null,
+      },
+    );
+
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: { "x-agent-native-frontend": "1" },
+      req: { json: async () => ({}) },
+    });
+
+    expect(mockResolveOrgScopeForEmail).toHaveBeenCalledWith(
+      "steve@example.com",
+    );
+    expect(received.ctx.orgId).toBeNull();
+    expect(received.requestContext.orgScope).toBe("personal");
+  });
+
+  it("does not mark unavailable org resolution as personal scope", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestContext } = await import("./request-context.js");
+    mockResolveOrgIdForEmail.mockResolvedValue(null);
+    mockResolveOrgScopeForEmail.mockResolvedValue({ status: "personal" });
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    let received: any;
+    mountActionRoutes(
+      nitroApp,
+      {
+        "do-thing": {
+          run: vi.fn(async (_params, ctx) => {
+            received = { ctx, requestContext: getRequestContext() };
+            return { ok: true };
+          }),
+        } as any,
+      },
+      {
+        getOwnerFromEvent: async () => "steve@example.com",
+        resolveOrgId: async () => null,
+      },
+    );
+
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: { "x-agent-native-frontend": "1" },
+      context: { __anOrgScopeResolutionUnavailable: true },
+      req: { json: async () => ({}) },
+    });
+
+    expect(received.ctx.orgId).toBeNull();
+    expect(received.requestContext.orgScope).toBeUndefined();
+  });
+
+  it("keeps an unresolved cookie scope unknown", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestContext } = await import("./request-context.js");
+    mockResolveOrgIdForEmail.mockResolvedValue(null);
+    mockResolveOrgScopeForEmail.mockResolvedValue({ status: "unknown" });
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    let received: any;
+    mountActionRoutes(
+      nitroApp,
+      {
+        "do-thing": {
+          run: vi.fn(async (_params, ctx) => {
+            received = { ctx, requestContext: getRequestContext() };
+            return { ok: true };
+          }),
+        } as any,
+      },
+      {
+        getOwnerFromEvent: async () => "steve@example.com",
+        resolveOrgId: async () => null,
+      },
+    );
+
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: { "x-agent-native-frontend": "1" },
+      req: { json: async () => ({}) },
+    });
+
+    expect(received.ctx.orgId).toBeNull();
+    expect(received.requestContext.orgScope).toBeUndefined();
+  });
+
+  it("preserves organization scope resolved for a cookie session", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestContext } = await import("./request-context.js");
+    mockResolveOrgIdForEmail.mockResolvedValue(null);
+    mockResolveOrgScopeForEmail.mockResolvedValue({
+      status: "organization",
+      orgId: "org-membership",
+    });
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    let received: any;
+    mountActionRoutes(
+      nitroApp,
+      {
+        "do-thing": {
+          run: vi.fn(async (_params, ctx) => {
+            received = { ctx, requestContext: getRequestContext() };
+            return { ok: true };
+          }),
+        } as any,
+      },
+      {
+        getOwnerFromEvent: async () => "steve@example.com",
+        resolveOrgId: async () => null,
+      },
+    );
+
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: { "x-agent-native-frontend": "1" },
+      req: { json: async () => ({}) },
+    });
+
+    expect(received.ctx.orgId).toBe("org-membership");
+    expect(received.requestContext.orgScope).toBeUndefined();
+  });
+
   it("keeps an explicit Personal selection personal", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     mockResolveOrgIdForEmail.mockResolvedValue(null);
@@ -5982,6 +6369,72 @@ describe("action boundary error classification", () => {
     });
     expect(captured).not.toHaveBeenCalled();
   });
+
+  it.each(
+    [true, false].flatMap((readOnly) =>
+      ["http", "a2a"].map((surface) => ({ readOnly, surface })),
+    ),
+  )(
+    "answers a $surface call whose thrown value cannot be classified with a 500 (readOnly: $readOnly)",
+    async ({ readOnly, surface }) => {
+      const { defineAction } = await import("../action.js");
+      const { mountActionRoutes } = await import("./action-routes.js");
+      const thrown = Object.defineProperty(
+        new Error("Handler failed"),
+        "actionContractError",
+        {
+          get() {
+            throw new Error("Classification accessor failed");
+          },
+        },
+      );
+      const mounted: any[] = [];
+      mockNotifyActionChange.mockClear();
+      mockResolveOrgByDomain.mockResolvedValue({
+        orgId: "receiver-org",
+        orgName: "Builder.io",
+      });
+      mountActionRoutes(
+        { use: (_path: string, handler: any) => mounted.push(handler) },
+        {
+          probe: defineAction({
+            description: "Fail.",
+            schema: z.object({}),
+            readOnly,
+            requiresAuth: false,
+            run: async () => {
+              throw thrown;
+            },
+          }) as any,
+        },
+        surface === "a2a"
+          ? {
+              actionRouteAuth: {
+                resolveCaller: async () => ({
+                  owner: "caller@example.test",
+                  anonymous: false,
+                  orgId: null,
+                }),
+              },
+            }
+          : undefined,
+      );
+      const event: any = {
+        _method: "POST",
+        _headers: {},
+        req: {
+          url: "http://app.test/_agent-native/actions/probe",
+          json: async () => ({}),
+        },
+      };
+
+      await expect(mounted[0](event)).resolves.toEqual({
+        error: "Internal server error",
+      });
+      expect(event._status).toBe(500);
+      expect(mockNotifyActionChange).toHaveBeenCalledTimes(readOnly ? 0 : 1);
+    },
+  );
 });
 
 describe("mountWebMcpActionRoutes", () => {

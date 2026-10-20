@@ -627,6 +627,53 @@ it("does not auto-attach the default design system to a fresh prompt", async () 
 });
 
 describe("Index skip to editor", () => {
+  it("hides home suggestions when AI is unavailable and restores them after connection", async () => {
+    expect(
+      container.querySelector('[data-agent-suggestion-bar="true"]'),
+    ).not.toBeNull();
+
+    mocks.agentEngine = { state: "missing", missing: true, canChat: false };
+    await act(async () => root.render(<Index />));
+    expect(
+      container.querySelector('[data-agent-suggestion-bar="true"]'),
+    ).toBeNull();
+    expect(mocks.suggestionQueryOptions?.enabled).toBe(false);
+    expect(container.textContent).toContain("Connect AI");
+
+    mocks.agentEngine = { state: "configured", missing: false, canChat: true };
+    await act(async () => root.render(<Index />));
+    expect(
+      container.querySelector('[data-agent-suggestion-bar="true"]'),
+    ).not.toBeNull();
+    const actionsRow = container.querySelector("[data-home-prompt-actions]");
+    const skipButton = container.querySelector(
+      '[data-testid="design-home-skip-prompt"]',
+    );
+    expect(actionsRow).toBeTruthy();
+    expect(skipButton).toBeTruthy();
+    expect(
+      actionsRow?.querySelector('[data-agent-suggestion-bar="true"]'),
+    ).not.toBeNull();
+    expect(skipButton?.closest("[data-home-prompt-actions]")).toBe(actionsRow);
+    expect(container.textContent).toContain("Generated dashboard");
+  });
+
+  it("does not reserve quick actions space for a selected template without suggestions", async () => {
+    mocks.agentEngine = { state: "missing", missing: true, canChat: false };
+    await act(async () => root.render(<Index />));
+    await act(async () =>
+      mocks.promptProps?.onTemplateChange("saved-template"),
+    );
+
+    expect(mocks.promptProps?.selectedTemplateId).toBe("saved-template");
+    expect(container.querySelector("[data-home-prompt-actions]")).toBeNull();
+    expect(
+      container.querySelectorAll(
+        ".agent-prompt-home-hero > .agent-prompt-home-composer",
+      ),
+    ).toHaveLength(1);
+  });
+
   it("explains an unaccepted quick start without replacing the draft or creating a design", async () => {
     mocks.submitWithText.mockResolvedValueOnce(false);
     const suggestion = Array.from(container.querySelectorAll("button")).find(
@@ -677,11 +724,21 @@ describe("Index skip to editor", () => {
     );
 
     expect(mocks.promptProps?.skipLabel).toBe("Skip prompt");
-    expect(mocks.promptProps?.showInlineSkip).toBe(true);
+    expect(mocks.promptProps?.showInlineSkip).toBe(false);
     expect(mocks.promptProps?.selectedDesignSystemId).toBeNull();
-    let skipPromise: Promise<void> | undefined;
+    const skipButton = container.querySelector<HTMLButtonElement>(
+      '[data-testid="design-home-skip-prompt"]',
+    );
+    const actionsRow = skipButton?.closest("[data-home-prompt-actions]");
+    expect(actionsRow).toBeTruthy();
+    expect(skipButton).toBeTruthy();
+    expect(
+      actionsRow?.querySelector('[data-agent-suggestion-bar="true"]'),
+    ).toBeNull();
+    expect(actionsRow?.className).toContain("justify-between");
+    expect(skipButton?.className).toContain("font-normal");
     await act(async () => {
-      skipPromise = mocks.promptProps?.onSkip();
+      skipButton?.click();
       await Promise.resolve();
     });
 
@@ -699,7 +756,7 @@ describe("Index skip to editor", () => {
 
     await act(async () => {
       resolveCreate?.();
-      await skipPromise;
+      await Promise.resolve();
     });
 
     expect(mocks.navigate).toHaveBeenCalledTimes(1);
@@ -773,8 +830,8 @@ describe("Index skip to editor", () => {
     expect(mocks.promptProps).toMatchObject({
       requireAgentEngine: true,
       showMissingApiKeySetup: false,
-      showModelSelector: false,
-      modelStatusChecksEnabled: false,
+      showModelSelector: true,
+      modelStatusChecksEnabled: true,
     });
     expect(mocks.promptProps?.onBeforeSubmit).toBeUndefined();
     expect(mocks.promptProps?.composerComponent).toBeDefined();
@@ -834,8 +891,8 @@ describe("Index skip to editor", () => {
     expect(mocks.promptProps).toMatchObject({
       requireAgentEngine: true,
       showMissingApiKeySetup: false,
-      showModelSelector: false,
-      modelStatusChecksEnabled: false,
+      showModelSelector: true,
+      modelStatusChecksEnabled: true,
     });
     expect(mocks.promptProps?.onBeforeSubmit).toBeUndefined();
     expect(
@@ -859,16 +916,13 @@ describe("Index skip to editor", () => {
     ).toBe(false);
   });
 
-  it("reserves the suggestion slot while provider setup is missing", async () => {
+  it("hides the suggestion slot while provider setup is missing", async () => {
     mocks.agentEngine = { state: "missing", missing: true, canChat: false };
     await act(async () => root.render(<Index />));
     const bar = container.querySelector<HTMLElement>(
       '[aria-label="home.suggestedPrompts"]',
     );
-    expect(bar?.getAttribute("aria-busy")).toBe("true");
-    expect(
-      bar?.querySelectorAll('[data-agent-suggestion-placeholder="true"]'),
-    ).toHaveLength(3);
+    expect(bar).toBeNull();
     expect(container.textContent).not.toContain("Generated dashboard");
     expect(container.textContent).not.toContain("chat.suggestionLandingPage");
   });
@@ -967,7 +1021,7 @@ describe("Index skip to editor", () => {
     expect(container.textContent).not.toContain("chat.suggestionLandingPage");
   });
 
-  it("keeps the suggestion slot while readiness recovers", async () => {
+  it("shows the suggestion slot only after readiness recovers", async () => {
     await act(async () => root.render(null));
     mocks.agentEngine = {
       state: "unavailable",
@@ -977,10 +1031,8 @@ describe("Index skip to editor", () => {
     await act(async () => root.render(<Index />));
 
     expect(
-      container
-        .querySelector('[aria-label="home.suggestedPrompts"]')
-        ?.getAttribute("aria-busy"),
-    ).toBe("true");
+      container.querySelector('[aria-label="home.suggestedPrompts"]'),
+    ).toBeNull();
     expect(mocks.suggestionPending).toBe(false);
 
     mocks.agentEngine = { state: "configured", missing: false, canChat: true };
@@ -1105,7 +1157,7 @@ describe("Index skip to editor", () => {
     const bar = container.querySelector<HTMLElement>(
       '[aria-label="home.suggestedPrompts"]',
     );
-    expect(bar?.getAttribute("aria-busy")).toBe("true");
+    expect(bar).toBeNull();
     expect(container.textContent).not.toContain("Cached dashboard");
 
     mocks.agentEngine = { state: "configured", missing: false, canChat: true };
@@ -1162,7 +1214,7 @@ describe("Index skip to editor", () => {
     { state: "configured", missing: false, ready: true },
     { state: "configured", missing: true, ready: false },
   ])(
-    "keeps the suggestion slot reserved for $state (missing=$missing)",
+    "shows the suggestion slot only when chat is ready for $state (missing=$missing)",
     async ({ state, missing, ready }) => {
       await act(async () => root.render(null));
       mocks.agentEngine = { state, missing, canChat: ready };
@@ -1171,8 +1223,8 @@ describe("Index skip to editor", () => {
       expect(mocks.promptProps).toMatchObject({
         requireAgentEngine: true,
         showMissingApiKeySetup: false,
-        showModelSelector: ready,
-        modelStatusChecksEnabled: ready,
+        showModelSelector: true,
+        modelStatusChecksEnabled: true,
       });
       expect(mocks.promptProps?.onBeforeSubmit).toBeUndefined();
       expect(
@@ -1185,11 +1237,8 @@ describe("Index skip to editor", () => {
       const suggestionBar = container.querySelector<HTMLElement>(
         '[aria-label="home.suggestedPrompts"]',
       );
-      const loading = !ready;
-      expect(Boolean(suggestionBar)).toBe(true);
-      expect(suggestionBar?.getAttribute("aria-busy") ?? null).toBe(
-        loading ? "true" : null,
-      );
+      expect(Boolean(suggestionBar)).toBe(ready);
+      expect(suggestionBar?.getAttribute("aria-busy") ?? null).toBeNull();
       expect(container.textContent?.includes("Generated dashboard")).toBe(
         ready,
       );
@@ -1732,7 +1781,7 @@ describe("home funnel tracking", () => {
         {
           output_id: "design-1",
           output_type: "design",
-          source: "composer",
+          prompt_source: "composer",
           has_text: true,
           prompt_length_bucket: "1-50",
           reference_types: ["figma", "image"],
@@ -1767,7 +1816,7 @@ describe("home funnel tracking", () => {
     await act(async () => suggestion?.click());
     expect(promptEvents()).toHaveLength(1);
     expect(promptEvents()[0][1]).toMatchObject({
-      source: "suggestion_chip",
+      prompt_source: "suggestion_chip",
       output_id: "design-1",
     });
   });

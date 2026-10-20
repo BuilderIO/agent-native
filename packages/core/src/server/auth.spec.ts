@@ -6,6 +6,7 @@ import {
   defineAppConfig,
   resetAppConfigForTests,
 } from "../app-config/index.js";
+import { storeLedgerResult } from "../db/store-ledger.test-helpers.js";
 import { encryptSecretValue } from "../secrets/crypto.js";
 import type { AuthPageProps } from "../shared/auth-page-types.js";
 import {
@@ -493,7 +494,10 @@ describe("server/auth", () => {
 
       expect(landingResponse.status).toBe(200);
       expect(html).toContain('lang="fr-FR"');
-      expect(html).toContain("Continuer avec le lien reçu par e-mail");
+      expect(html).toContain("Confirmez ce lien d’e-mail");
+      expect(html).toContain(
+        "Certains contrôles de sécurité des e-mails ouvrent les liens automatiquement.",
+      );
       expect(html).toContain('method="post"');
       expect(html).toContain('name="token" value="one-time-token"');
       expect(authHandler).not.toHaveBeenCalled();
@@ -1451,7 +1455,12 @@ describe("server/auth", () => {
       let failLegacySessionRemoval = false;
       let transactionSessions: Map<string, string> | undefined;
       const execute = vi.fn(
-        async (query: { sql: string; args?: unknown[] }) => {
+        async (query: string | { sql: string; args?: unknown[] }) => {
+          const ledger = storeLedgerResult(
+            typeof query === "string" ? query : query.sql,
+          );
+          if (ledger) return ledger;
+          if (typeof query === "string") return { rows: [] };
           const token = query.args?.[0] as string | undefined;
           const sessions = transactionSessions ?? legacySessions;
           if (query.sql.includes("SELECT email, created_at FROM sessions")) {
@@ -3605,7 +3614,13 @@ describe("server/auth", () => {
       vi.stubEnv("NODE_ENV", "production");
       defineAppConfig({ app: { id: "analytics", workspaceId: "analytics" } });
       vi.doMock("../org/workspace-app-access.js", () => ({
-        isWorkspaceAppAccessAllowed: vi.fn(async () => "unavailable"),
+        checkWorkspaceAppAccess: vi.fn(async () => ({
+          status: "unavailable",
+          reason: "registry-http-error",
+          upstreamStatus: 401,
+          audience: "https://workspace.example.test/dispatch",
+          detail: "Unauthorized",
+        })),
         WORKSPACE_APP_ACCESS_UNAVAILABLE: "unavailable",
         WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE:
           "Workspace app access is temporarily unavailable.",
@@ -3624,6 +3639,10 @@ describe("server/auth", () => {
 
       await expect(guard(event)).resolves.toEqual({
         error: "Workspace app access is temporarily unavailable.",
+        code: "registry-http-error",
+        upstreamStatus: 401,
+        audience: "https://workspace.example.test/dispatch",
+        detail: "Unauthorized",
       });
       expect(event.res.status).toBe(503);
     });
@@ -3636,7 +3655,7 @@ describe("server/auth", () => {
       defineAppConfig({ app: { id: "analytics", workspaceId: "analytics" } });
       const checkAppAccess = vi.fn(async () => false);
       vi.doMock("../org/workspace-app-access.js", () => ({
-        isWorkspaceAppAccessAllowed: checkAppAccess,
+        checkWorkspaceAppAccess: checkAppAccess,
         WORKSPACE_APP_ACCESS_UNAVAILABLE: "unavailable",
         WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE:
           "Workspace app access is temporarily unavailable.",
@@ -3700,7 +3719,7 @@ describe("server/auth", () => {
       });
       const checkAppAccess = vi.fn(async () => false);
       vi.doMock("../org/workspace-app-access.js", () => ({
-        isWorkspaceAppAccessAllowed: checkAppAccess,
+        checkWorkspaceAppAccess: checkAppAccess,
         WORKSPACE_APP_ACCESS_UNAVAILABLE: "unavailable",
         WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE:
           "Workspace app access is temporarily unavailable.",
@@ -3753,6 +3772,17 @@ describe("server/auth", () => {
     it("allows standalone Dispatch APIs for organization members", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("AGENT_NATIVE_APP_ID", "dispatch");
+      // Mocked because the worker's shared database may or may not already
+      // hold the org tables, and the real check allows Dispatch when they are
+      // missing — so an unmocked run passes or fails on earlier specs.
+      const isWorkspaceAppAccessAllowed = vi.fn(async () => true);
+      vi.doMock("../org/workspace-app-access.js", async (importOriginal) => ({
+        ...(await importOriginal<
+          typeof import("../org/workspace-app-access.js")
+        >()),
+        isWorkspaceAppAccessAllowed,
+        checkWorkspaceAppAccess: isWorkspaceAppAccessAllowed,
+      }));
       const { autoMountAuth } = await import("./auth.js");
 
       const app = createMockApp();
@@ -3772,6 +3802,10 @@ describe("server/auth", () => {
 
       await expect(guard(event)).resolves.toBeUndefined();
       expect(event.res.status).not.toBe(403);
+      expect(isWorkspaceAppAccessAllowed).toHaveBeenCalledWith("dispatch", {
+        email: "member@example.com",
+        orgId: "org-1",
+      });
     });
 
     it("does not apply Dispatch access to a renamed Dispatch scaffold", async () => {
@@ -5577,7 +5611,11 @@ describe("server/auth", () => {
       ]);
       expect(signUpEmail).toHaveBeenCalledTimes(1);
       expect(signInEmail).toHaveBeenCalledTimes(2);
-      expect(logSpy).toHaveBeenCalledTimes(1);
+      expect(
+        logSpy.mock.calls.filter((call) =>
+          String(call[0]).includes("Local dev auto-login ready"),
+        ),
+      ).toHaveLength(1);
       const generatedPassword = signUpEmail.mock.calls[0]?.[0]?.body?.password;
       const logOutput = logSpy.mock.calls.flat().join(" ");
       expect(generatedPassword).toBeTypeOf("string");
@@ -9724,6 +9762,63 @@ describe("server/auth", () => {
       consoleError.mockRestore();
     });
 
+    it("answers an action route with a retryable 503 when the bearer org domain cannot be resolved", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("BETTER_AUTH_SECRET", "test-secret-for-mcp-oauth-bearer");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      delete process.env.A2A_SECRET;
+
+      const mockExecute = vi.fn(
+        async ({ sql }: { sql: string; args?: unknown[] }) => {
+          if (/FROM organizations/.test(sql)) {
+            throw new Error("connection terminated");
+          }
+          return { rows: [] };
+        },
+      );
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        getBetterAuth: async () => undefined,
+        getBetterAuthSync: () => null,
+      }));
+
+      const { signMcpOAuthAccessToken, MCP_OAUTH_DEFAULT_SCOPE } =
+        await import("../mcp/oauth-token.js");
+      const token = await signMcpOAuthAccessToken({
+        ownerEmail: "owner@plans.test",
+        orgDomain: "plans.test",
+        clientId: "client-123",
+        scope: MCP_OAUTH_DEFAULT_SCOPE,
+        resource: "http://localhost/_agent-native/mcp",
+        issuer: "http://localhost",
+        jti: "jti-connect-domain-unavailable-test",
+        expiresIn: "30d",
+      });
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      const event = createMockEvent({
+        path: "/_agent-native/actions/import-visual-plan-source",
+        headers: { authorization: `Bearer ${token}` },
+      });
+
+      await expect(guard(event)).resolves.toEqual({
+        error: "Organization membership could not be verified. Retry shortly.",
+      });
+      expect(event.res.status).toBe(503);
+      expect(event.res.headers.get("retry-after")).toBe("5");
+    });
+
     it("answers an action route with a 401 naming why a connect token was refused", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("BETTER_AUTH_SECRET", "test-secret-for-mcp-oauth-bearer");
@@ -12202,6 +12297,7 @@ describe("server/auth", () => {
     async function resolveLegacySession(userRows: {
       combined: Record<string, unknown> | undefined;
       verification?: Record<string, unknown>;
+      canonicalEmail?: string;
     }) {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
@@ -12237,7 +12333,11 @@ describe("server/auth", () => {
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       const resolveCanonicalUserForLegacySession = vi.fn(async () => ({
-        user: { id: "user-1", email: "person@example.com", name: "Canonical" },
+        user: {
+          id: "user-1",
+          email: userRows.canonicalEmail ?? "person@example.com",
+          name: "Canonical",
+        },
         accounts: [],
       }));
       vi.doMock("./legacy-auth-migration.js", () => ({
@@ -12268,6 +12368,8 @@ describe("server/auth", () => {
 
       expect(session).toEqual({
         email: "person@example.com",
+        authUserId: "user-1",
+        userId: "user-1",
         emailVerified: true,
         token: "legacy-token",
         name: "Person",
@@ -12291,6 +12393,8 @@ describe("server/auth", () => {
 
       expect(session).toEqual({
         email: "person@example.com",
+        authUserId: "user-1",
+        userId: "user-1",
         emailVerified: false,
         token: "legacy-token",
         name: "Canonical",
@@ -12307,12 +12411,28 @@ describe("server/auth", () => {
 
       expect(session).toEqual({
         email: "person@example.com",
+        authUserId: "user-1",
+        userId: "user-1",
         token: "legacy-token",
         name: "Canonical",
       });
       expect(resolveCanonicalUserForLegacySession).toHaveBeenCalledWith(
         "person@example.com",
       );
+    });
+
+    it("does not attach a canonical ID for a different email", async () => {
+      const { session } = await resolveLegacySession({
+        combined: undefined,
+        verification: { email_verified: true },
+        canonicalEmail: "another-person@example.com",
+      });
+
+      expect(session).toEqual({
+        email: "person@example.com",
+        emailVerified: true,
+        token: "legacy-token",
+      });
     });
   });
 });

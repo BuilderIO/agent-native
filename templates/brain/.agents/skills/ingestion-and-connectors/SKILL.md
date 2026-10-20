@@ -60,9 +60,9 @@ additionally needs `cloud_recording:read:list_user_recordings:admin`.
 whose owners opted in; spaces are allowed, as Zoom displays them, and every
 occurrence of a series keeps its ID. The S2S `:admin` scopes are account-wide
 and Zoom cannot narrow them to a series, so this allowlist is the only
-boundary: Brain lists recording and summary metadata, discards every
-unapproved meeting, and fetches recording details, transcript files, and
-summaries only for approved IDs. A detail response naming an unapproved
+boundary: Brain lists recording metadata, discards every unapproved meeting,
+and fetches recording details and transcript files only for approved IDs. A
+detail response naming an unapproved
 meeting is dropped. With no approved IDs the sync fails before contacting
 Zoom. Titles are never matched (any host can reuse one); create/update reject
 `meetingTopics`. An approved personal meeting ID would admit every meeting in
@@ -82,8 +82,8 @@ with `/meetings/{uuid}/recordings`
 (`cloud_recording:read:list_recording_files:admin`) to get the transcript URL.
 
 Only Brain admins (organization owners and admins) can create a Zoom source or
-change a Zoom source's `config` (including `meetingIds`, `includeSummaries`,
-`lookbackDays`, `userIds`, `pollMinutes`, and `autoSync`) or cursor; anyone
+change a Zoom source's `config` (including `meetingIds`, `lookbackDays`,
+`userIds`, `pollMinutes`, and `autoSync`) or cursor; anyone
 else gets `brain_admin_required` (403). Other editors can still change a Zoom
 source's title, status, or trusted-answer policy. A sync refuses to run when
 the source owner is not a Brain admin, which also covers sources created
@@ -91,45 +91,27 @@ before this rule. When a non-admin asks to set up or change Zoom, tell them an
 organization owner or admin has to do it.
 
 `brain_zoom_audit_events` records: Zoom source creation, and edits that add or
-remove `meetingIds` or change `includeSummaries`, `lookbackDays`, or `userIds`
+remove `meetingIds` or change `lookbackDays` or `userIds`
 (actor, series added/removed, settings changed; an edit to only `pollMinutes`
 or `autoSync` is not recorded); an allow record for each approved meeting whose
-recording details or transcripts a sync fetches, and for each new approved
-summary it requests; a deny record when Zoom's response names an unapproved
+recording details or transcripts a sync fetches; a deny record when Zoom's
+response names an unapproved
 meeting; refused syncs; and sync completion. Meetings the allowlist excludes
 are only counted in run stats (`meetingsSkippedByFilter`), never recorded
-individually. It never stores transcript or summary text, and no action reads
-it yet.
+individually. It never stores transcript text, and no action reads it yet.
 
 The complete scope set Brain uses is
 `cloud_recording:read:list_account_recordings:admin`,
 `cloud_recording:read:list_recording_files:admin`,
 `cloud_recording:read:recording:admin`, `cloud_recording:read:list_user_recordings:admin`
-(only with `userIds`), and, with summaries on, `meeting:read:list_summaries:admin`
-and `meeting:read:summary:admin`. Remove every other scope from the app.
+(only with `userIds`). Remove every other scope from the app. Brain does not
+import Zoom AI Companion summaries or call Zoom's summary endpoints, so it
+needs no `meeting:read:*` scope; a stored `includeSummaries` is ignored.
 Sources auto-sync hourly; each run overlaps the previous one by one day to
 catch late-processed transcripts, and captures dedupe by `zoom:<meeting uuid>`.
-Captures use the organization audience. There are no Zoom webhooks.
-
-`"includeSummaries": true` also imports AI Companion meeting summaries, which
-exist for meetings that were never recorded. It is off by default because it
-needs two more scopes, `meeting:read:list_summaries:admin` and
-`meeting:read:summary:admin`; without them the sync fails with Zoom's
-missing-scope error after importing that run's transcripts. Summaries are listed
-account-wide from `/meetings/meeting_summaries`, narrowed to approved
-`meetingIds` and by `userIds` (matched against the host ID or email), then fetched from
-`/meetings/{uuid}/meeting_summary`. Each becomes a `note` capture deduped by
-`zoom-summary:<meeting uuid>`, separate from that meeting's transcript, and goes
-through the same sensitivity check. A summary edited in Zoom after import is not
-re-imported. Turning the flag on rewinds the next sync to the `lookbackDays`
-window; every rewind keeps an older cursor that is held back for a pending
-transcript. A summary Zoom refuses (trashed, deleted) is recorded in
-`summaryFetchFailures` and the rest still import; the run ends as an error
-with `lastError` naming the first failure, and the cursor advances. Auth,
-missing-scope, timeout, and server errors (401, code 4711, 408, 5xx) instead
-fail the whole run and keep the cursor, so the next sync retries them. Run stats report `summariesListed`, `summariesSkippedByFilter`,
-`summariesAlreadyImported`, `summariesFetched`, `emptySummaries`,
-`summaryCapturesCreated`, and `summaryFetchFailures`.
+Captures use the organization audience. There are no Zoom webhooks. Only
+meetings cloud-recorded with audio transcript on reach Brain; Brain cannot
+read local recordings, live captions, or AI Companion transcripts.
 
 ## Blessed FAQ And Docs Publishers
 

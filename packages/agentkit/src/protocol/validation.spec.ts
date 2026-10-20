@@ -16,6 +16,7 @@ import {
   parseAgentProtocolEnvelope,
   parseAgentQueuedMessage,
   parseInvokeActionInput,
+  parseQueueMessageResult,
   parseQueueMessageInput,
   parseSteerQueuedMessageResult,
   parseSubmitFeedbackInput,
@@ -73,6 +74,28 @@ describe("AgentKit protocol validation", () => {
     expect(() =>
       parseSteerQueuedMessageResult({ alreadyRemoved: true, runId: "run-1" }),
     ).toThrow("alreadyRemoved");
+  });
+
+  it("validates queued-message submission receipts", () => {
+    const message = {
+      id: "queued-1",
+      threadId: "thread-1",
+      text: "Run once",
+      createdAt: "2026-10-01T00:00:00.000Z",
+    };
+    expect(
+      parseQueueMessageResult({
+        message,
+        alreadySubmitted: true,
+        submittedRunId: "run-1",
+      }),
+    ).toMatchObject({ alreadySubmitted: true, submittedRunId: "run-1" });
+    expect(() =>
+      parseQueueMessageResult({ message, alreadySubmitted: true }),
+    ).toThrow("queueMessageResult.submittedRunId");
+    expect(() =>
+      parseQueueMessageResult({ message, submittedRunId: "run-1" }),
+    ).toThrow("queueMessageResult.submittedRunId");
   });
 
   it("keeps custom choice responses distinct from predefined option ids", () => {
@@ -350,12 +373,14 @@ describe("AgentKit protocol validation", () => {
         feedback: true,
         multiAgentActivity: true,
         widgets: true,
+        "x-agent-native-submission-deadlines": true,
         "x-host-preview": { version: 2 },
       }),
     ).toMatchObject({
       connectionRequests: true,
       feedback: true,
       widgets: true,
+      "x-agent-native-submission-deadlines": true,
     });
     expect(() => parseAgentCapabilities({ widgets: "yes" })).toThrow(
       AgentProtocolValidationError,
@@ -398,6 +423,66 @@ describe("AgentKit protocol validation", () => {
     expect(() =>
       parseQueueMessageInput({ threadId: "thread-1", text: 42 }),
     ).toThrow(AgentProtocolValidationError);
+  });
+
+  it("validates compact submission identities without accepting file bodies", () => {
+    const submissionPayload = {
+      threadId: "thread-1",
+      id: "message-1",
+      text: "Inspect the workspace",
+      attachments: [
+        {
+          type: "file",
+          name: "brief.pdf",
+          mediaType: "application/pdf",
+          fingerprint: "a".repeat(64),
+        },
+      ],
+      requestAttachments: [
+        {
+          type: "image",
+          name: "reference.png",
+          contentType: "image/png",
+          fingerprint: "b".repeat(64),
+        },
+      ],
+    };
+    expect(
+      parseStartRunInput({
+        threadId: "thread-1",
+        messages: [
+          {
+            id: "message-1",
+            role: "user",
+            parts: [{ type: "text", text: submissionPayload.text }],
+          },
+        ],
+        submissionPayload,
+      }).submissionPayload,
+    ).toEqual(submissionPayload);
+    expect(
+      parseQueueMessageInput({
+        threadId: "thread-1",
+        id: "message-1",
+        text: submissionPayload.text,
+        submissionPayload,
+      }).submissionPayload,
+    ).toEqual(submissionPayload);
+    expect(() =>
+      parseStartRunInput({
+        threadId: "thread-1",
+        messages: [],
+        submissionPayload: {
+          ...submissionPayload,
+          requestAttachments: [
+            {
+              ...submissionPayload.requestAttachments[0],
+              data: "data:image/png;base64,SGVsbG8=",
+            },
+          ],
+        },
+      }),
+    ).toThrow("is not defined by this protocol version");
   });
 
   it("keeps inline image bytes request-only and allows URL references in queues", () => {

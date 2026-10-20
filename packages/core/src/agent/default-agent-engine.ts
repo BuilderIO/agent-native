@@ -7,9 +7,10 @@
  * goes through this module so the scope rules live in one place.
  */
 
-import type { ActionCaller } from "../action.js";
+import type { AuditAttribution } from "../audit/attribution.js";
 import { recordOrgAdminAuditEvent } from "../audit/org-admin.js";
 import {
+  getRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
@@ -39,6 +40,8 @@ export type DefaultAgentEngineSource =
 export interface DefaultAgentEngineContext {
   userEmail?: string | null;
   orgId?: string | null;
+  orgScope?: "personal";
+  defaultAgentEngineScope?: "deployment";
 }
 
 export interface DefaultAgentEngineRead {
@@ -52,17 +55,14 @@ export type DefaultAgentEngineAuthority =
   | { allowed: true; scope: "user"; userEmail: string }
   | {
       allowed: false;
-      reason: "unauthenticated" | "not-admin";
+      reason: "unauthenticated" | "not-admin" | "scope-unavailable";
       message: string;
     };
 
 export interface DefaultAgentEngineChangeMeta {
   /** Action or route name recorded on the audit event. */
   actionName: string;
-  caller?: ActionCaller;
-  threadId?: string;
-  turnId?: string;
-  runId?: string;
+  attribution: AuditAttribution;
 }
 
 export interface DefaultAgentEngineSelection {
@@ -71,7 +71,15 @@ export interface DefaultAgentEngineSelection {
 }
 
 function requestContext(): DefaultAgentEngineContext {
-  return { userEmail: getRequestUserEmail(), orgId: getRequestOrgId() };
+  const context = getRequestContext();
+  return {
+    userEmail: getRequestUserEmail(),
+    orgId: getRequestOrgId(),
+    ...(context?.orgScope === "personal" ? { orgScope: "personal" } : {}),
+    ...(context?.defaultAgentEngineScope === "deployment"
+      ? { defaultAgentEngineScope: "deployment" }
+      : {}),
+  };
 }
 
 function normalizedContext(ctx: DefaultAgentEngineContext): {
@@ -90,8 +98,8 @@ function hasEngine(value: Record<string, unknown>): boolean {
 
 /**
  * Read the default that applies to `ctx` (the current request when omitted):
- * the organization's row, else a no-org user's own row, else the legacy
- * deployment-wide row.
+ * the organization's row, else an explicitly personal user's own row, else
+ * the legacy deployment-wide row. An unresolved scope throws before fallback.
  *
  * A scoped row with no engine is an explicit "cleared" marker. It answers for
  * that scope instead of falling through to the legacy row, so clearing the
@@ -101,12 +109,19 @@ export async function readDefaultAgentEngineSettingDetailed(
   ctx: DefaultAgentEngineContext = requestContext(),
 ): Promise<DefaultAgentEngineRead> {
   const { userEmail, orgId } = normalizedContext(ctx);
+  if (
+    !orgId &&
+    ctx.orgScope !== "personal" &&
+    ctx.defaultAgentEngineScope !== "deployment"
+  ) {
+    throw new Error("Organization scope could not be resolved.");
+  }
   if (orgId) {
     const scoped = await getOrgSetting(orgId, DEFAULT_AGENT_ENGINE_SETTING_KEY);
     if (scoped) {
       return { value: hasEngine(scoped) ? scoped : null, source: "org" };
     }
-  } else if (userEmail) {
+  } else if (userEmail && ctx.orgScope === "personal") {
     const scoped = await getUserSetting(
       userEmail,
       DEFAULT_AGENT_ENGINE_SETTING_KEY,
@@ -147,8 +162,17 @@ export async function resolveDefaultAgentEngineAuthority(
       message: "Sign in to change the default model.",
     };
   }
+  if (!orgId && ctx.orgScope !== "personal") {
+    return {
+      allowed: false,
+      reason: "scope-unavailable",
+      message: "Organization scope could not be resolved.",
+    };
+  }
   if (!orgId) return { allowed: true, scope: "user", userEmail };
-  if (await canUpdateAgentAppModelDefaultSettings(userEmail, orgId)) {
+  if (
+    await canUpdateAgentAppModelDefaultSettings(userEmail, orgId, ctx.orgScope)
+  ) {
     return { allowed: true, scope: "org", orgId, userEmail };
   }
   return {
@@ -187,7 +211,12 @@ export async function writeDefaultAgentEngineSelection(
   selection: DefaultAgentEngineSelection,
   meta: DefaultAgentEngineChangeMeta,
 ): Promise<void> {
-  const previous = await readDefaultAgentEngineSettingDetailed(authority);
+  const previous = await readDefaultAgentEngineSettingDetailed({
+    userEmail: authority.userEmail,
+    ...(authority.scope === "org"
+      ? { orgId: authority.orgId }
+      : { orgScope: "personal" }),
+  });
   await writeScopedRow(authority, {
     engine: selection.engine,
     model: selection.model,
@@ -228,7 +257,12 @@ export async function clearDefaultAgentEngineSelection(
   authority: Extract<DefaultAgentEngineAuthority, { allowed: true }>,
   meta: DefaultAgentEngineChangeMeta,
 ): Promise<void> {
-  const previous = await readDefaultAgentEngineSettingDetailed(authority);
+  const previous = await readDefaultAgentEngineSettingDetailed({
+    userEmail: authority.userEmail,
+    ...(authority.scope === "org"
+      ? { orgId: authority.orgId }
+      : { orgScope: "personal" }),
+  });
   await writeScopedRow(authority, {
     cleared: true,
     updatedAt: Date.now(),
@@ -303,14 +337,11 @@ async function recordDefaultAgentEngineAudit(input: {
     userEmail,
     orgId,
     status,
-    caller: meta.caller,
+    attribution: meta.attribution,
     args: {
       operation,
       ...(selection ?? {}),
       ...(input.reason ? { reason: input.reason } : {}),
     },
-    threadId: meta.threadId,
-    turnId: meta.turnId,
-    runId: meta.runId,
   });
 }

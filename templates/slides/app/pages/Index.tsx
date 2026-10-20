@@ -121,11 +121,13 @@ import {
 } from "@/lib/composer-context";
 import { savePromptToComposerDraft } from "@/lib/composer-draft";
 import {
+  BLANK_AND_FOLLOW_UP_SCOPE_INSTRUCTION,
   describeUploadedFilesForAgent,
   getUploadedImageAgentOptions,
   isSourceImprovementRequest,
   persistDeckGenerationContext,
   requestedSlideCount,
+  SLIDE_AUTHORING_OWNERSHIP_INSTRUCTION,
   SLIDE_COUNT_COMPLETION_INSTRUCTION,
   type DeckGenerationContext,
   WEBSITE_STYLE_REFERENCE_DIRECTIVE,
@@ -787,15 +789,7 @@ export default function Index({ active = true }: { active?: boolean }) {
     fallbackHomeSuggestions,
   ]);
   const homeSuggestions =
-    homeSuggestionsSnapshot ??
-    readyHomeSuggestions ??
-    (homeSuggestionsUnavailable ? fallbackHomeSuggestions : []);
-  const homeSuggestionsLoading =
-    isHome &&
-    showNewDeckPrompt &&
-    homeSuggestionsSnapshot === null &&
-    readyHomeSuggestions === null &&
-    (homeSuggestionsQuery.isFetching || !homeSuggestionsUnavailable);
+    homeSuggestionsSnapshot ?? readyHomeSuggestions ?? fallbackHomeSuggestions;
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [deckToDelete, setDeckToDelete] = useState<string | null>(null);
@@ -1305,6 +1299,11 @@ export default function Index({ active = true }: { active?: boolean }) {
     const filesForSourceImprovement = filesForGeneration.filter(
       (file) => !referenceFilePaths.has(file.path),
     );
+    const sourceImprovementRequest = isSourceImprovementRequest(
+      prompt,
+      filesForSourceImprovement,
+    );
+    const trimmedPrompt = prompt.trim();
     const selectedDesignSystem = designSystemId
       ? designSystems.find((ds) => ds.id === designSystemId)
       : undefined;
@@ -1327,9 +1326,30 @@ export default function Index({ active = true }: { active?: boolean }) {
     const deckId = deck.id;
     const generationAttemptId = nanoid();
     const generationStartedAt = Date.now();
+    const generationSubmitMessageId = nanoid();
+    const initialGenerationContext: DeckGenerationContext = {
+      originalPrompt: trimmedPrompt,
+      additionalContext,
+      files: filesForGeneration.map((file) => ({
+        path: file.path,
+        ...(file.url ? { url: file.url } : {}),
+        originalName: file.originalName,
+        type: file.type,
+      })),
+      designSystemId,
+      referenceDeckId,
+      composerContext: referenceSelection.composerContext,
+      contextItems: referenceSelection.contextItems,
+      ...(referenceSelection.referenceSource
+        ? { referenceSource: referenceSelection.referenceSource }
+        : {}),
+      mode: "new",
+      targetSlideCount: requestedSlideCount(trimmedPrompt),
+      generationAttemptId,
+      generationStartedAt,
+    };
     let generationFailureTracked = false;
     let sourceImportMayHaveWrittenSlides = false;
-    const generationSubmitMessageId = nanoid();
     trackEvent("generation_started", {
       app_name: "slides",
       template_name: "slides",
@@ -1340,14 +1360,6 @@ export default function Index({ active = true }: { active?: boolean }) {
       source: "new_deck_prompt",
     });
     setNewDeckPromptOpen(false);
-
-    void navigate(
-      `/deck/${deck.id}?generating=1&generation_attempt_id=${encodeURIComponent(generationAttemptId)}&generationSubmitId=${encodeURIComponent(generationSubmitMessageId)}`,
-      {
-        flushSync: true,
-        state: { generationOriginalPrompt: prompt },
-      },
-    );
 
     const recoverFromGenerationSetupFailure = (
       description: string,
@@ -1404,14 +1416,47 @@ export default function Index({ active = true }: { active?: boolean }) {
           } satisfies DeckGenerationRetryState,
           flushSync: true,
         });
+      } else if (isHome) {
+        setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
+        setNewDeckPromptOpen(true, { clearInitialPrompt: false });
       }
     };
 
-    let importedSourceDeck: ImportedSourceDeck | null = null;
-    const sourceImprovementRequest = isSourceImprovementRequest(
-      prompt,
-      filesForSourceImprovement,
+    if (!sourceImprovementRequest) {
+      updateDeck(deckId, {
+        generationContext: { ...initialGenerationContext },
+      });
+      let persisted: Awaited<ReturnType<typeof ensureDeckPersisted>>;
+      try {
+        persisted = await ensureDeckPersisted(deckId);
+      } catch {
+        recoverFromGenerationSetupFailure(
+          t("home.generationStartFailedDescription"),
+          "deck_persistence_failed",
+        );
+        return;
+      }
+      if (!persisted.persisted) {
+        recoverFromGenerationSetupFailure(
+          describeDeckPersistenceFailure(
+            persisted,
+            t("home.generationStartFailedDescription"),
+          ),
+          "deck_persistence_failed",
+        );
+        return;
+      }
+    }
+
+    void navigate(
+      `/deck/${deck.id}?generating=1&generation_attempt_id=${encodeURIComponent(generationAttemptId)}&generationSubmitId=${encodeURIComponent(generationSubmitMessageId)}`,
+      {
+        flushSync: true,
+        state: { generationOriginalPrompt: prompt },
+      },
     );
+
+    let importedSourceDeck: ImportedSourceDeck | null = null;
     let sourceDeckPaths: string[] = [];
     if (sourceImprovementRequest) {
       try {
@@ -1427,8 +1472,6 @@ export default function Index({ active = true }: { active?: boolean }) {
         return;
       }
     }
-    let deckPersisted = false;
-
     let referenceHydration: Awaited<
       ReturnType<typeof hydrateReferenceDocuments>
     >;
@@ -1460,7 +1503,6 @@ export default function Index({ active = true }: { active?: boolean }) {
       referenceHydration.status === "hydrated" &&
       referenceHydration.measuredDesignCount > 0;
 
-    const trimmedPrompt = prompt.trim();
     const hasImportedGoogleDocContext = [additionalContext, trimmedPrompt].some(
       (value) => value.includes("<google-doc "),
     );
@@ -1534,8 +1576,6 @@ export default function Index({ active = true }: { active?: boolean }) {
         );
         return;
       }
-      deckPersisted = true;
-
       try {
         importedSourceDeck = await importUploadedDeckIntoDeck(
           filesForSourceImprovement,
@@ -1622,7 +1662,7 @@ export default function Index({ active = true }: { active?: boolean }) {
           "Source-preserving improvement mode:",
           `- The target deck already contains ${importedSourceDeck.slideCount} imported source slides. Treat those slides as the user's complete source, not as inspiration for a new deck.`,
           "- Keep the exact source slide count, order, IDs, factual meaning, notes, images, charts, tables, diagrams, and freeform objects unless the user explicitly asks to change one of them.",
-          "- Read the full deck once with get-deck compact=false to get sourceImport.slideIds, every slide's HTML and contentHash, and the linked design context; call get-design-system once for its full tokens, assets, and instructions. Make the deck-wide restyle in one patch-deck call using requireAllSourceSlides=true, with each patch-slide's matching contentHash as baseContentHash; use styleOnly=true for CSS-only changes that preserve slide structure. Do not split a full-deck restyle into arbitrary batches or fall back to one-by-one update-slide calls; use update-slide only for a targeted one-slide edit. Keep every original image source and enough original factual copy for each slide; for PDF slides, use restrained design-system chrome around the page without obscuring it.",
+          "- Read the full deck once with get-deck compact=false to get sourceImport.slideIds, every slide's HTML and contentHash, and the linked design context; call get-design-system once for its full tokens, assets, and instructions. Make the deck-wide restyle in one patch-deck call using requireAllSourceSlides=true, with each patch-slide's matching contentHash as baseContentHash. Do not split a full-deck restyle into arbitrary batches or fall back to one-by-one update-slide calls; use update-slide only for a targeted one-slide edit. Keep every original image source and enough original factual copy for each slide; for PDF slides, use restrained design-system chrome around the page without obscuring it.",
           "- For this restyle, keep the source slide structure and do not replace source images with generic cards. If the user explicitly asks to add, delete, or reorder slides, use the corresponding operation normally; it clears source-import provenance, so verify the edited slide count and order instead of waiting for sourceCoverage.",
           "- After a source-preserving patch that leaves sourceImport present, verify once with get-deck using slideIds=sourceImport.slideIds and compact=false. Confirm the full source reflects the request and sourceCoverage.complete is true with expectedSlideIds and actualSlideIds matching in order. If structural operations cleared sourceImport, verify the resulting slide count and order instead and do not require sourceCoverage.complete. Do not report an initial or partial pass, and do not leave any source slides for a later run.",
           "- If get-deck reports partial source fidelity or skipped images, stop and report the exact warning instead of claiming a reliable restyle.",
@@ -1655,11 +1695,13 @@ export default function Index({ active = true }: { active?: boolean }) {
         : `The user just created a new empty deck (id: "${deckId}") and wants to create a presentation or standalone visual.`,
       `The browser owns this deck's generation lifecycle. Its exact generationAttemptId is "${generationAttemptId}". If a tool call for this deck accepts generationAttemptId, pass this exact value unchanged; never create a substitute ID.`,
       "The visible user message above contains the user's request and/or pasted source material for the deck. Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
+      BLANK_AND_FOLLOW_UP_SCOPE_INSTRUCTION,
       googleDocContext,
       fileContext,
       referenceDocumentContext,
       referenceDeckContext,
       designSystemContext,
+      SLIDE_AUTHORING_OWNERSHIP_INSTRUCTION,
       visualStyleContext,
       referenceSourceContext,
       WEBSITE_STYLE_REFERENCE_DIRECTIVE,
@@ -1670,7 +1712,7 @@ export default function Index({ active = true }: { active?: boolean }) {
       SLIDE_COUNT_COMPLETION_INSTRUCTION,
       "Add each generated slide through sequential add-slide calls, preserving the established deck contract and using a targeted get-deck read with slideId and compact=false after the first slide to verify it.",
       "If no explicit count was given (including when the guided slide-count question was skipped), infer the count from the distinct topics/sections implied by the request — one slide per section plus a title and closing slide — and add slides for every section before considering the deck done. Do not stop at an arbitrary round number (e.g. 10) if sections remain uncovered, and never call `generate-slides-ai` for this flow; it is a legacy single-shot helper capped at 10 slides.",
-      "The original brief and uploaded/reference handles are persisted on the deck as generationContext. On every continuation or follow-up, call get-deck first and treat that context as the canonical brief. Continue the original slide sequence from the current slide count; do not replace it with a fresh topic inferred only from the follow-up message.",
+      "The original brief and uploaded/reference handles are persisted on the deck as generationContext. When continuing this generation (guided-question answers, or a request to keep going or finish the deck), call get-deck first and treat that context as the canonical brief. Continue the original slide sequence from the current slide count; do not replace it with a fresh topic inferred only from the follow-up message. A targeted edit is not a continuation.",
       "An explicit theme or brand instruction in the original brief overrides the background, palette, and styling of an uploaded/reference image or source page. Preserve source content and imagery, but do not copy a white wireframe background when the requested theme is dark.",
       "Do not report completion until the persisted generationContext targetSlideCount is reached, or, when sourceCoverage is present for source-preserving mode, get-deck compact=true reports it complete for the ordered source manifest. If the current deck is short, finish the missing requested slides before adding unrelated content.",
       "Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels, with 800x412px available inside standard 64px 80px padding). Keep the main content within that fit budget; split dense source material across more slides instead of packing it tightly. Never use zoom, transform: scale(), clipping, or scroll overflow to hide content overflow, and keep body text at least 16px.",
@@ -1678,41 +1720,16 @@ export default function Index({ active = true }: { active?: boolean }) {
       "Do NOT use create-deck (the deck already exists). Do NOT call db-schema, the resources tool, or search-files.",
     ].join("\n");
 
-    const generationContext: DeckGenerationContext = {
-      originalPrompt: trimmedPrompt,
-      additionalContext,
-      files: filesForGeneration.map((file) => ({
-        path: file.path,
-        ...(file.url ? { url: file.url } : {}),
-        originalName: file.originalName,
-        type: file.type,
-      })),
-      designSystemId,
-      referenceDeckId,
-      composerContext: referenceSelection.composerContext,
-      contextItems: referenceSelection.contextItems,
-      ...(referenceSource ? { referenceSource } : {}),
-      mode: importedSourceDeck ? "source-preserving" : "new",
-      targetSlideCount:
-        importedSourceDeck?.slideCount ?? requestedSlideCount(trimmedPrompt),
-      generationAttemptId,
-      generationStartedAt,
-    };
+    const generationContext: DeckGenerationContext = importedSourceDeck
+      ? {
+          ...initialGenerationContext,
+          mode: "source-preserving",
+          targetSlideCount: importedSourceDeck.slideCount,
+        }
+      : initialGenerationContext;
 
     try {
-      if (!deckPersisted) {
-        updateDeck(deckId, { generationContext: { ...generationContext } });
-        const persisted = await ensureDeckPersisted(deckId);
-        if (!persisted.persisted) {
-          recoverFromGenerationSetupFailure(
-            describeDeckPersistenceFailure(
-              persisted,
-              t("home.generationStartFailedDescription"),
-            ),
-          );
-          return;
-        }
-      } else {
+      if (sourceImprovementRequest) {
         await persistDeckGenerationContext(deckId, generationContext);
       }
     } catch (error) {
@@ -2843,14 +2860,9 @@ export default function Index({ active = true }: { active?: boolean }) {
         </div>
       }
       quickActions={
-        isHome &&
-        showNewDeckPrompt &&
-        (homeSuggestionsLoading ||
-          homeSuggestionsUnavailable ||
-          readyHomeSuggestions !== null ||
-          homeSuggestionsSnapshot !== null) ? (
+        isHome && showNewDeckPrompt ? (
           <AgentSuggestionBar
-            loading={homeSuggestionsLoading}
+            loading={false}
             announceUpdates
             layout="single-line"
             suggestions={homeSuggestions.map((suggestion, index) => ({

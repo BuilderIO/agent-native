@@ -30,8 +30,14 @@ export const WEBSITE_STYLE_REFERENCE_DIRECTIVE =
 export const NO_UPLOADED_FILES_CONTEXT =
   "No uploaded files are attached to this run. Use source text already present in the user message or supplied reference context. For a supplied URL, follow its dedicated import instructions. Never invent a local file path or call `import-file` for an unattached file. If the referenced content is not present or retrievable from a supplied reference, ask the user to upload the file or paste its contents.";
 
+export const BLANK_AND_FOLLOW_UP_SCOPE_INSTRUCTION =
+  'Scale the work to the request; this rule overrides the generation steps below. A blank or empty deck request needs no question, outline, progress run, retitle, or audit: add one empty slide with `add-slide` (layout "blank") and reply. These generation instructions govern only this generation and its guided-question answers; a later direct request in this thread, such as adding an empty slide, renaming, reordering, or deleting, is a targeted edit: make it with the one action it needs and reply.';
+
 export const SLIDE_COUNT_COMPLETION_INSTRUCTION =
   "For a requested slide count, compare the realSlideCount returned by every add-slide result (slideCount only if realSlideCount is absent) with the persisted target; blank placeholder slides do not count. Once it matches, stop all slide writes and return a completion summary. If add-slide returns errorCode target_slide_count_reached, re-read get-deck once; if the target is already satisfied, stop without retrying and finish the response. Only add more slides if the user explicitly asks to extend the deck and targetSlideCountOverride is set to the new total of real slides.";
+
+export const SLIDE_AUTHORING_OWNERSHIP_INSTRUCTION =
+  "Slides owns authoring this deck. Use Slides actions for slide content, layout, styling, and review, guided by the linked design system and reference context already hydrated here. Keep deck generation and edits in Slides; a design-heavy brief or linked design system is not a reason to hand off slide work. Call Design only for a user-requested Design-owned input or a capability only Design provides, then return to Slides for all deck authoring.";
 
 interface DesignSystemGenerationContextResult {
   agentContext?: string;
@@ -231,7 +237,7 @@ export function describeUploadedFilesForAgent(
     "",
     "File handling rules:",
     importedSourceDeck
-      ? "- The imported source deck is canonical. Preserve its slide count, order, IDs, factual copy, notes, imagery, charts, tables, diagrams, and freeform objects while improving styling. For a deck-wide restyle, read the full deck once with get-deck compact=false; it returns sourceImport.slideIds, each slide's HTML and contentHash, and the linked design context. Call get-design-system once for full tokens, assets, and instructions, then use one patch-deck call with requireAllSourceSlides=true and the matching baseContentHash on every patch-slide. Set styleOnly=true for CSS-only changes that preserve slide structure. Verify once with get-deck using slideIds=sourceImport.slideIds and compact=false. Use update-slide only for a targeted one-slide edit. Do not rebuild it with add-slide."
+      ? "- The imported source deck is canonical. Preserve its slide count, order, IDs, factual copy, notes, imagery, charts, tables, diagrams, and freeform objects while improving styling. For a deck-wide restyle, read the full deck once with get-deck compact=false; it returns sourceImport.slideIds, each slide's HTML and contentHash, and the linked design context. Call get-design-system once for full tokens, assets, and instructions, then use one patch-deck call with requireAllSourceSlides=true and the matching baseContentHash on every patch-slide. Verify once with get-deck using slideIds=sourceImport.slideIds and compact=false. Use update-slide only for a targeted one-slide edit. Do not rebuild it with add-slide."
       : hasDocumentReferences
         ? "- PDF, PPTX, and DOCX files were already read before this run. Their content and measured visual language are in the `Attached Reference Documents` section below, or in the reference deck they were imported into. Do not call `import-file` for them again unless the `Attached Reference Documents` section says a file was omitted for space, and never generate as if a reference were missing."
         : "- No PDF, PPTX, or DOCX reference is attached to this run; do not invent one.",
@@ -809,7 +815,7 @@ export async function startDeckGeneration({
         "Source-preserving improvement mode:",
         `- The target deck already contains ${importedSourceDeck.slideCount} imported source slides. Treat those slides as the user's complete source, not as inspiration for a new deck.`,
         "- Keep the exact source slide count, order, IDs, factual meaning, notes, images, charts, tables, diagrams, and freeform objects unless the user explicitly asks to change one of them.",
-        "- Read the full deck once with get-deck compact=false to get sourceImport.slideIds, every slide's HTML and contentHash, and the linked design context; call get-design-system once for its full tokens, assets, and instructions. Make the deck-wide restyle in one patch-deck call using requireAllSourceSlides=true, with each patch-slide's matching contentHash as baseContentHash; use styleOnly=true for CSS-only changes that preserve slide structure. Do not split a full-deck restyle into arbitrary batches or fall back to one-by-one update-slide calls; use update-slide only for a targeted one-slide edit. Keep every original image source and enough original factual copy for each slide; for PDF slides, use restrained design-system chrome around the page without obscuring it.",
+        "- Read the full deck once with get-deck compact=false to get sourceImport.slideIds, every slide's HTML and contentHash, and the linked design context; call get-design-system once for its full tokens, assets, and instructions. Make the deck-wide restyle in one patch-deck call using requireAllSourceSlides=true, with each patch-slide's matching contentHash as baseContentHash. Do not split a full-deck restyle into arbitrary batches or fall back to one-by-one update-slide calls; use update-slide only for a targeted one-slide edit. Keep every original image source and enough original factual copy for each slide; for PDF slides, use restrained design-system chrome around the page without obscuring it.",
         "- For this restyle, keep the source slide structure and do not replace source images with generic cards. If the user explicitly asks to add, delete, or reorder slides, use the corresponding operation normally; it clears source-import provenance, so verify the edited slide count and order instead of waiting for sourceCoverage.",
         "- After a source-preserving patch that leaves sourceImport present, verify once with get-deck using slideIds=sourceImport.slideIds and compact=false. Confirm the full source reflects the request and sourceCoverage.complete is true with expectedSlideIds and actualSlideIds matching in order. If structural operations cleared sourceImport, verify the resulting slide count and order instead and do not require sourceCoverage.complete. Do not report an initial or partial pass, and do not leave any source slides for a later run.",
         "- If get-deck reports partial source fidelity or skipped images, stop and report the exact warning instead of claiming a reliable restyle.",
@@ -836,11 +842,13 @@ export async function startDeckGeneration({
       ? `The user uploaded a source presentation into target deck (id: "${deckId}") and wants a reliable visual improvement.`
       : `The user just created a new empty deck (id: "${deckId}") and wants to create a presentation or standalone visual.`,
     "The visible user message above contains the user's request and/or pasted source material for the deck. Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
+    BLANK_AND_FOLLOW_UP_SCOPE_INSTRUCTION,
     googleDocContext,
     fileContext,
     referenceDocumentContext,
     referenceDeckContext,
     designSystemContext,
+    SLIDE_AUTHORING_OWNERSHIP_INSTRUCTION,
     referenceSourceContext,
     WEBSITE_STYLE_REFERENCE_DIRECTIVE,
     sourceDeckContext,
@@ -850,7 +858,7 @@ export async function startDeckGeneration({
     SLIDE_COUNT_COMPLETION_INSTRUCTION,
     "Add each generated slide through sequential add-slide calls, preserving the established deck contract and using a targeted get-deck read with slideId and compact=false after the first slide to verify it.",
     "If no explicit count was given (including when the guided slide-count question was skipped), infer the count from the distinct topics/sections implied by the request — one slide per section plus a title and closing slide — and add slides for every section before considering the deck done. Do not stop at an arbitrary round number (e.g. 10) if sections remain uncovered, and never call `generate-slides-ai` for this flow; it is a legacy single-shot helper capped at 10 slides.",
-    "The original brief and uploaded/reference handles are persisted on the deck as generationContext. On every continuation or follow-up, call get-deck first and treat that context as the canonical brief. Continue the original slide sequence from the current slide count; do not replace it with a fresh topic inferred only from the follow-up message.",
+    "The original brief and uploaded/reference handles are persisted on the deck as generationContext. When continuing this generation (guided-question answers, or a request to keep going or finish the deck), call get-deck first and treat that context as the canonical brief. Continue the original slide sequence from the current slide count; do not replace it with a fresh topic inferred only from the follow-up message. A targeted edit is not a continuation.",
     "An explicit theme or brand instruction in the original brief overrides the background, palette, and styling of an uploaded/reference image or source page. Preserve source content and imagery, but do not copy a white wireframe background when the requested theme is dark.",
     "Do not report completion until the persisted generationContext targetSlideCount is reached, or, when sourceCoverage is present for source-preserving mode, get-deck compact=true reports it complete for the ordered source manifest. If the current deck is short, finish the missing requested slides before adding unrelated content.",
     "Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels, with 800x412px available inside standard 64px 80px padding). Keep the main content within that fit budget; split dense source material across more slides instead of packing it tightly. Never use zoom, transform: scale(), clipping, or scroll overflow to hide content overflow, and keep body text at least 16px.",

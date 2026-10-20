@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 
+import { AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID } from "@agent-native/agentkit/protocol";
 import { PGlite } from "@electric-sql/pglite";
 import { createApp } from "h3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -197,6 +198,19 @@ describe("agent chat plugin Nitro lifecycle", () => {
   it("holds a scheduler's sweep request until initialization registers its handlers", async () => {
     await initializeGeneration();
     expect(lifecycle.gatedPaths.at(-1)).toContain(RECURRING_JOBS_SWEEP_PATH);
+  });
+
+  it("advertises server-enforced submission deadlines without caching", async () => {
+    const nitroApp = await initializeGeneration();
+    const response = await nitroApp.h3App.fetch(
+      new Request("http://example.test/_agent-native/agent-chat/capabilities"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    await expect(response.json()).resolves.toEqual({
+      [AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID]: true,
+    });
   });
 
   it("keeps repeated init and close equivalent to one live generation", async () => {

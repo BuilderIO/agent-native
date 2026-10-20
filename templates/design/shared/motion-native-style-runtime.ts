@@ -13,7 +13,12 @@ import type {
   MotionTextDocument,
 } from "./motion-text-code";
 import {
+  MOTION_TEXT_SOURCE_VERSION,
+  MOTION_TEXT_SOURCE_VERSION_PROVENANCE,
+} from "./motion-text-code";
+import {
   isMotionPathSegmentV1,
+  MOTION_TIMELINE_MAX_CONTENT_END_MS,
   type MotionTrack,
   parseMotionPosition,
 } from "./motion-timeline";
@@ -43,8 +48,10 @@ const DEFAULT_PROPS: Record<MotionNativeStyleKey, Record<string, unknown>> = {
     delay: 0,
     easing: DEFAULT_EASING,
     textDelayGrouping: "CHARACTER",
+    textDelayTimingMode: "duration-fitted",
     presetStaggerOverlap: 50,
     textDelayOrder: "LEFT_RIGHT",
+    ignoreSpaces: false,
     clipContent: false,
     elementTransformOriginMode: "MATCH",
     elementTransformOriginX: 50,
@@ -146,8 +153,10 @@ const TEXT_STAGGER_SUPPORTED_PROPS = new Set([
   "delay",
   "easing",
   "textDelayGrouping",
+  "textDelayTimingMode",
   "presetStaggerOverlap",
   "textDelayOrder",
+  "ignoreSpaces",
   "clipContent",
   "elementTransformOriginMode",
   "elementTransformOriginX",
@@ -162,7 +171,7 @@ export function createMotionNativeStyleInstance(args: {
     type: "FIGMA",
     styleKey: args.styleKey,
     nameKey: `motion.preset_name.${args.styleKey.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`).replace(/^_/, "")}`,
-    duration: args.styleKey === "TextStagger" ? 0.5 : 1,
+    duration: args.styleKey === "Path" ? 1 : 0.5,
     timelineOffset: 0,
     targetNodeId: args.targetNodeId,
     enabled: true,
@@ -218,10 +227,11 @@ export function motionNativeStyleEndTimeMs(
     style.duration <= 0 ||
     style.timelineOffset < 0 ||
     delaySeconds < 0 ||
-    style.timelineOffset + delaySeconds + style.duration > 120
+    (style.timelineOffset + delaySeconds + style.duration) * 1000 >
+      MOTION_TIMELINE_MAX_CONTENT_END_MS
   ) {
     invalid(
-      "Native Figma duration must be positive and offsets and delays non-negative.",
+      "Imported duration must be positive and offsets and delays non-negative.",
     );
   }
   return (style.timelineOffset + delaySeconds + style.duration) * 1000;
@@ -230,28 +240,46 @@ export function motionNativeStyleEndTimeMs(
 export function motionNativeStylesToTracks(
   styles: readonly MotionNativeStyleInstance[],
 ): MotionTrack[] {
-  return styles.flatMap((style) => {
-    if (style.enabled === false) return [];
-    switch (style.styleKey) {
-      case "Position":
-        return positionTracks(style);
-      case "Scale":
-        return scaleTracks(style);
-      case "Rotation":
-        return rotationTracks(style);
-      case "Opacity":
-        return opacityTracks(style);
-      case "Size":
-        return sizeTracks(style);
-      case "TextStagger":
-        return [];
-      case "Path":
-        return pathTrimTracks(style);
-    }
+  return motionNativeStyleTrackGroups(styles).flat();
+}
+
+export function motionNativeStyleTrackGroups(
+  styles: readonly MotionNativeStyleInstance[],
+  options: { trackIds?: boolean } = {},
+): MotionTrack[][] {
+  return styles.map((style, styleIndex) => {
+    const tracks = nativeStyleTracks(style);
+    if (!options.trackIds) return tracks;
+
+    // Metadata order is the stable identity for generated native-style CSS tracks.
+    return tracks.map((track, trackIndex) => ({
+      ...track,
+      id: `native-style-${styleIndex.toString(36)}-${trackIndex.toString(36)}`,
+    }));
   });
 }
 
-/** Derives local text-unit runtime tracks without changing Figma source props. */
+function nativeStyleTracks(style: MotionNativeStyleInstance): MotionTrack[] {
+  if (style.enabled === false) return [];
+  switch (style.styleKey) {
+    case "Position":
+      return positionTracks(style);
+    case "Scale":
+      return scaleTracks(style);
+    case "Rotation":
+      return rotationTracks(style);
+    case "Opacity":
+      return opacityTracks(style);
+    case "Size":
+      return sizeTracks(style);
+    case "TextStagger":
+      return [];
+    case "Path":
+      return pathTrimTracks(style);
+  }
+}
+
+/** Derives local text-unit runtime tracks without changing imported source props. */
 export function motionNativeStylesToTextAnimations(
   styles: readonly MotionNativeStyleInstance[],
 ): MotionTextAnimation[] {
@@ -261,25 +289,334 @@ export function motionNativeStylesToTextAnimations(
   });
 }
 
+export type MotionTextAnimationSettings = Pick<
+  MotionTextAnimation,
+  "unit" | "direction" | "staggerMs" | "overlapPercent"
+> &
+  Required<
+    Pick<MotionTextAnimation, "animationDirection" | "order" | "ignoreSpaces">
+  >;
+
+/** Reads the shared TextStagger profile even when every effect is disabled. */
+export function motionNativeTextAnimationSettings(
+  style: MotionNativeStyleInstance,
+): MotionTextAnimationSettings {
+  if (style.styleKey !== "TextStagger") {
+    throw new MotionNativeStyleRuntimeError(
+      "unsupported-style",
+      "Text settings require a TextStagger style.",
+    );
+  }
+  const [animation] = textStaggerAnimations({
+    ...style,
+    enabled: true,
+    props: {
+      ...style.props,
+      positionEnabled: true,
+      positionVisible: true,
+      rotationEnabled: false,
+      scaleEnabled: false,
+      opacityEnabled: false,
+      blurEnabled: false,
+    },
+  });
+  if (!animation) {
+    throw new MotionNativeStyleRuntimeError(
+      "unsupported-style",
+      "TextStagger did not produce a text settings profile.",
+    );
+  }
+  return {
+    unit: animation.unit,
+    direction: animation.direction,
+    staggerMs: animation.staggerMs,
+    animationDirection: animation.animationDirection ?? "in",
+    order:
+      animation.order ??
+      (animation.direction === "reverse" ? "right-to-left" : "left-to-right"),
+    ...(animation.overlapPercent === undefined
+      ? {}
+      : { overlapPercent: animation.overlapPercent }),
+    ignoreSpaces:
+      animation.unit === "character" ? (animation.ignoreSpaces ?? true) : true,
+  };
+}
+
+function motionTextSharedProfileKey(
+  settings: MotionTextAnimationSettings,
+): string {
+  return JSON.stringify({
+    unit: settings.unit,
+    direction: settings.direction,
+    animationDirection: settings.animationDirection,
+    order: settings.order,
+    ignoreSpaces: settings.ignoreSpaces,
+    timing:
+      settings.overlapPercent === undefined
+        ? { mode: "fixed-stagger", staggerMs: settings.staggerMs }
+        : { mode: "duration-fitted", overlapPercent: settings.overlapPercent },
+  });
+}
+
+function motionTextAnimationSettings(
+  animation: MotionTextAnimation,
+): MotionTextAnimationSettings {
+  return {
+    unit: animation.unit,
+    direction: animation.direction,
+    staggerMs: animation.staggerMs,
+    ...(animation.overlapPercent === undefined
+      ? {}
+      : { overlapPercent: animation.overlapPercent }),
+    animationDirection: animation.animationDirection ?? "in",
+    order:
+      animation.order ??
+      (animation.direction === "reverse" ? "right-to-left" : "left-to-right"),
+    ignoreSpaces:
+      animation.unit === "character" ? (animation.ignoreSpaces ?? true) : true,
+  };
+}
+
+function authoredTextSharedProfileKey(animation: MotionTextAnimation): string {
+  return motionTextSharedProfileKey(motionTextAnimationSettings(animation));
+}
+
+/** Aligns only whitespace when a new TextStagger otherwise matches authored text. */
+export function motionNativeStyleWithMatchingAuthoredTextWhitespace(
+  style: MotionNativeStyleInstance,
+  animation: MotionTextAnimation,
+): MotionNativeStyleInstance {
+  if (style.styleKey !== "TextStagger") return style;
+
+  const settings = motionNativeTextAnimationSettings(style);
+  const authoredIgnoreSpaces =
+    animation.unit === "character" ? (animation.ignoreSpaces ?? true) : true;
+  if (settings.ignoreSpaces === authoredIgnoreSpaces) return style;
+
+  if (
+    !textAnimationSettingsMatch(
+      motionTextAnimationSettings({
+        ...animation,
+        ignoreSpaces: settings.ignoreSpaces,
+      }),
+      { ...settings, ignoreSpaces: settings.ignoreSpaces },
+    )
+  ) {
+    return style;
+  }
+
+  return {
+    ...style,
+    props: { ...style.props, ignoreSpaces: authoredIgnoreSpaces },
+  };
+}
+
+/** Seeds TextStagger from an authored track while avoiding duplicate properties. */
+export function motionNativeStyleWithTextAnimationSettings(
+  style: MotionNativeStyleInstance,
+  animation: MotionTextAnimation,
+): MotionNativeStyleInstance {
+  if (style.styleKey !== "TextStagger") {
+    throw new MotionNativeStyleRuntimeError(
+      "unsupported-style",
+      "Text settings require a TextStagger style.",
+    );
+  }
+  const order =
+    animation.order ??
+    (animation.direction === "reverse" ? "right-to-left" : "left-to-right");
+  if (
+    (order === "top-to-bottom" || order === "bottom-to-top") &&
+    animation.unit !== "line" &&
+    animation.unit !== "paragraph"
+  ) {
+    throw new MotionNativeStyleRuntimeError(
+      "unsupported-style",
+      "The authored Text settings cannot be represented by TextStagger.",
+    );
+  }
+
+  const grouping = {
+    character: "CHARACTER",
+    word: "WORD",
+    line: "LINE",
+    paragraph: "PARAGRAPH",
+  }[animation.unit];
+  const nativeOrder = {
+    "left-to-right": "LEFT_RIGHT",
+    "right-to-left": "RIGHT_LEFT",
+    "center-out": "CENTER_OUT",
+    random: "RANDOM",
+    "top-to-bottom": "TOP_BOTTOM",
+    "bottom-to-top": "BOTTOM_TOP",
+  }[order];
+
+  const props: MotionNativeStyleInstance["props"] = {
+    ...style.props,
+    textDelayGrouping: grouping,
+    textDelayOrder: nativeOrder,
+    animationDirection: animation.animationDirection ?? "in",
+    ignoreSpaces:
+      animation.unit === "character" ? (animation.ignoreSpaces ?? true) : true,
+    textDelayTimingMode:
+      animation.overlapPercent === undefined
+        ? "fixed-stagger"
+        : "duration-fitted",
+    presetStaggerOverlap:
+      animation.overlapPercent ?? style.props.presetStaggerOverlap ?? 50,
+  };
+  const nextStyle = { ...style, props };
+  if (animation.overlapPercent === undefined) {
+    const durationMs = Math.max(1, Math.round(animation.durationMs));
+    if (
+      animation.staggerMs > animation.durationMs ||
+      animation.staggerMs > durationMs
+    ) {
+      throw new MotionNativeStyleRuntimeError(
+        "unsupported-style",
+        "The authored Text stagger cannot exceed its duration when represented by TextStagger.",
+      );
+    }
+    nextStyle.duration = durationMs / 1000;
+    nextStyle.props.presetStaggerOverlap =
+      100 * (1 - animation.staggerMs / durationMs);
+  } else {
+    nextStyle.duration = animation.durationMs / 1000;
+  }
+  nextStyle.timelineOffset = 0;
+  nextStyle.props.delay = (animation.delayMs ?? 0) / 1000;
+  return nextStyle;
+}
+
+/** Applies TextStagger's shared profile while preserving each authored property track. */
+export function motionTextDocumentWithNativeStyleSettings(
+  document: MotionTextDocument | null,
+  style: MotionNativeStyleInstance,
+  previousStyle?: MotionNativeStyleInstance,
+): MotionTextDocument | null {
+  if (!document || style.styleKey !== "TextStagger") return document;
+  const targetAnimations = document.animations.filter(
+    (animation) => animation.targetNodeId === style.targetNodeId,
+  );
+  if (targetAnimations.length === 0) return document;
+
+  const settings = motionNativeTextAnimationSettings(style);
+  const sharedSettingsChanged =
+    previousStyle === undefined ||
+    motionTextSharedProfileKey(settings) !==
+      motionTextSharedProfileKey(
+        motionNativeTextAnimationSettings(previousStyle),
+      );
+  if (sharedSettingsChanged) {
+    const currentProfile = authoredTextSharedProfileKey(targetAnimations[0]!);
+    if (
+      targetAnimations.some(
+        (animation) =>
+          authoredTextSharedProfileKey(animation) !== currentProfile,
+      )
+    ) {
+      throw new MotionNativeStyleRuntimeError(
+        "unsupported-style",
+        "Text animations with different shared settings cannot be represented by one TextStagger style.",
+      );
+    }
+  }
+  const delayChanged =
+    previousStyle !== undefined &&
+    (style.timelineOffset !== previousStyle.timelineOffset ||
+      style.props.delay !== previousStyle.props.delay);
+  const durationChanged =
+    previousStyle !== undefined && style.duration !== previousStyle.duration;
+  const currentDelays = new Set(
+    targetAnimations.map((animation) => animation.delayMs ?? 0),
+  );
+  const currentDurations = new Set(
+    targetAnimations.map((animation) => animation.durationMs),
+  );
+  if (delayChanged && currentDelays.size > 1) {
+    throw new MotionNativeStyleRuntimeError(
+      "unsupported-style",
+      "The shared TextStagger delay cannot represent different authored track delays.",
+    );
+  }
+  if (durationChanged && currentDurations.size > 1) {
+    throw new MotionNativeStyleRuntimeError(
+      "unsupported-style",
+      "The shared TextStagger duration cannot represent different authored track durations.",
+    );
+  }
+  const delayMs = Math.round(
+    (style.timelineOffset + numeric(style.props.delay, 0)) * 1000,
+  );
+  const durationMs = Math.round(style.duration * 1000);
+  if (!sharedSettingsChanged && !delayChanged && !durationChanged) {
+    return document;
+  }
+  const animations = document.animations.map((animation) => {
+    if (animation.targetNodeId !== style.targetNodeId) return animation;
+    return {
+      ...(sharedSettingsChanged
+        ? (({
+            overlapPercent: _overlapPercent,
+            ...animationWithoutOverlap
+          }) => ({
+            ...animationWithoutOverlap,
+            ...settings,
+            ...(settings.overlapPercent === undefined
+              ? {}
+              : { staggerMs: animation.staggerMs }),
+          }))(animation)
+        : animation),
+      ...(delayChanged ? { delayMs } : {}),
+      ...(durationChanged ? { durationMs } : {}),
+    };
+  });
+  return JSON.stringify(animations) === JSON.stringify(document.animations)
+    ? document
+    : { version: MOTION_TEXT_SOURCE_VERSION, animations };
+}
+
 /** Returns authored text tracks after removing an exact native-style projection. */
 export function motionTextDocumentWithoutNativeStyles(
   document: MotionTextDocument | null,
   styles: readonly MotionNativeStyleInstance[],
 ): MotionTextDocument | null {
   if (!document) return null;
-  const projected = new Map<string, number>();
-  for (const animation of motionNativeStylesToTextAnimations(styles)) {
-    const key = textAnimationKey(animation);
-    projected.set(key, (projected.get(key) ?? 0) + 1);
-  }
+  const projected = motionNativeStylesToTextAnimations(styles).map(
+    (animation) => ({
+      keys: new Set([
+        textAnimationKey(animation),
+        ...(document[MOTION_TEXT_SOURCE_VERSION_PROVENANCE] === 1
+          ? legacyTextProjectionKeys(animation)
+          : []),
+      ]),
+      matched: false,
+    }),
+  );
   const animations = document.animations.filter((animation) => {
     const key = textAnimationKey(animation);
-    const count = projected.get(key) ?? 0;
-    if (count === 0) return true;
-    projected.set(key, count - 1);
+    const projection = projected.find(
+      (candidate) => !candidate.matched && candidate.keys.has(key),
+    );
+    if (!projection) return true;
+    projection.matched = true;
     return false;
   });
-  return animations.length > 0 ? { version: 1, animations } : null;
+  if (animations.length === 0) return null;
+  const filteredDocument: MotionTextDocument = {
+    version: MOTION_TEXT_SOURCE_VERSION,
+    animations,
+  };
+  Object.defineProperty(
+    filteredDocument,
+    MOTION_TEXT_SOURCE_VERSION_PROVENANCE,
+    {
+      value:
+        document[MOTION_TEXT_SOURCE_VERSION_PROVENANCE] ?? document.version,
+      enumerable: false,
+    },
+  );
+  return filteredDocument;
 }
 
 /** Combines authored and derived tracks only for runtime compilation. */
@@ -287,24 +624,46 @@ export function motionTextDocumentWithNativeStyles(
   document: MotionTextDocument | null,
   styles: readonly MotionNativeStyleInstance[],
 ): MotionTextDocument | null {
-  const nativeAnimations = motionNativeStylesToTextAnimations(styles);
+  const authoredAnimations = document?.animations ?? [];
+  const nativeAnimations = motionNativeStylesToTextAnimations(styles).filter(
+    (native) =>
+      !authoredAnimations.some(
+        (authored) =>
+          authored.targetNodeId === native.targetNodeId &&
+          authored.property === native.property,
+      ),
+  );
   if (nativeAnimations.length === 0) return document;
 
-  const authoredAnimations = document?.animations ?? [];
   const keys = new Set(authoredAnimations.map(textAnimationKey));
   for (const animation of nativeAnimations) {
     const key = textAnimationKey(animation);
     if (keys.has(key)) {
       throw new MotionNativeStyleRuntimeError(
         "unsupported-style",
-        `Native Figma TextStagger for target "${animation.targetNodeId}" duplicates an authored Motion Text property. Remove one of the duplicate tracks before previewing.`,
+        "Multiple native TextStagger styles produce the same text animation.",
+      );
+    }
+    if (
+      authoredAnimations.some(
+        (authored) =>
+          authored.targetNodeId === animation.targetNodeId &&
+          !textAnimationSettingsMatch(
+            motionTextAnimationSettings(authored),
+            motionTextAnimationSettings(animation),
+          ),
+      )
+    ) {
+      throw new MotionNativeStyleRuntimeError(
+        "unsupported-style",
+        "The native Text animation cannot be combined with authored text animations on this element because their grouping or timing settings differ. Match the text unit, direction, order, overlap, and whitespace settings first.",
       );
     }
     keys.add(key);
   }
 
   return {
-    version: 1,
+    version: MOTION_TEXT_SOURCE_VERSION,
     animations: [...authoredAnimations, ...nativeAnimations],
   };
 }
@@ -330,7 +689,7 @@ export function motionNativeStyleWithPositionTrack(
   ) {
     throw new MotionNativeStyleRuntimeError(
       "unsupported-style",
-      "Native Figma Position edits must target their source Position style.",
+      "Imported Position edits must target their source Position style.",
     );
   }
 
@@ -346,7 +705,7 @@ export function motionNativeStyleWithPositionTrack(
   ) {
     throw new MotionNativeStyleRuntimeError(
       "unsupported-style",
-      "Native Figma Position edits must keep the two source endpoints.",
+      "Imported Position edits must keep the two source endpoints.",
     );
   }
 
@@ -355,7 +714,7 @@ export function motionNativeStyleWithPositionTrack(
   if (!start || !end) {
     throw new MotionNativeStyleRuntimeError(
       "invalid-style-props",
-      "Native Figma Position endpoints must remain finite px values.",
+      "Imported Position endpoints must remain finite px values.",
     );
   }
 
@@ -376,7 +735,7 @@ export function motionNativeStyleWithPositionTrack(
     if (!isMotionPathSegmentV1(startFrame.motionPath)) {
       throw new MotionNativeStyleRuntimeError(
         "invalid-style-props",
-        "Native Figma Position path must use the version 1 cubic format.",
+        "Imported Position path must use the version 1 cubic format.",
       );
     }
     props.motionPath = {
@@ -409,7 +768,7 @@ export function motionNativeStyleWithPathTrimTrack(
   ) {
     throw new MotionNativeStyleRuntimeError(
       "unsupported-style",
-      "Native Figma Path edits must target their source Path style.",
+      "Imported Path edits must target their source Path style.",
     );
   }
 
@@ -425,7 +784,7 @@ export function motionNativeStyleWithPathTrimTrack(
   ) {
     throw new MotionNativeStyleRuntimeError(
       "unsupported-style",
-      "Native Figma Path edits must keep two start/end trim endpoints.",
+      "Imported Path edits must keep two start/end trim endpoints.",
     );
   }
 
@@ -434,7 +793,7 @@ export function motionNativeStyleWithPathTrimTrack(
   if (!start || !end) {
     throw new MotionNativeStyleRuntimeError(
       "invalid-style-props",
-      "Native Figma Path endpoints must be start/end percentages between 0 and 100.",
+      "Imported Path endpoints must be start/end percentages between 0 and 100.",
     );
   }
 
@@ -459,7 +818,7 @@ function pathTrimTracks(style: MotionNativeStyleInstance): MotionTrack[] {
   if (type !== "draw" && type !== "custom") {
     throw new MotionNativeStyleRuntimeError(
       "unsupported-style",
-      `Native Figma Path type "${type}" is preserved in source but is not supported by the local path-trim adapter.`,
+      `Imported Path type "${type}" is preserved in source but is not supported by the local path-trim adapter.`,
     );
   }
   const values = [
@@ -476,7 +835,7 @@ function pathTrimTracks(style: MotionNativeStyleInstance): MotionTrack[] {
     if (start < 0 || start > 100 || end < 0 || end > 100) {
       throw new MotionNativeStyleRuntimeError(
         "invalid-style-props",
-        "Native Figma Path trim endpoints must be percentages between 0 and 100.",
+        "Imported Path trim endpoints must be percentages between 0 and 100.",
       );
     }
   }
@@ -570,7 +929,7 @@ function positionTracks(style: MotionNativeStyleInstance): MotionTrack[] {
 function readMotionPath(value: MotionNativeStyleJsonValue | undefined) {
   if (value === undefined || value === null) return null;
   if (!isMotionPathSegmentV1(value)) {
-    invalid("Native Figma Position path must use the version 1 cubic format.");
+    invalid("Imported Position path must use the version 1 cubic format.");
   }
   return value;
 }
@@ -708,32 +1067,62 @@ function textStaggerAnimations(
     }
   }
   const unit = textStaggerUnit(text(props.textDelayGrouping, "CHARACTER"));
-  const direction = textStaggerOrder(
+  const order = textStaggerOrder(
     text(props.textDelayOrder, "LEFT_RIGHT"),
     unit,
   );
+  const direction: MotionTextAnimation["direction"] =
+    order === "right-to-left" || order === "bottom-to-top"
+      ? "reverse"
+      : "forward";
   const animationDirection = text(props.animationDirection, "in");
   if (animationDirection !== "in" && animationDirection !== "out") {
-    invalid("Native Figma TextStagger animationDirection must be in or out.");
+    invalid("Imported Text Stagger animationDirection must be in or out.");
   }
   const overlap = numeric(props.presetStaggerOverlap, 50);
   if (overlap < 0 || overlap > 100) {
-    invalid("Native Figma TextStagger overlap must be between 0 and 100.");
+    invalid("Imported Text Stagger overlap must be between 0 and 100.");
   }
   const durationMs = Math.round(style.duration * 1000);
-  const staggerMs = Math.round((durationMs * (100 - overlap)) / 100);
+  const staggerMs = (durationMs * (100 - overlap)) / 100;
+  const ignoreSpaces = booleanProp(props.ignoreSpaces, true, "ignoreSpaces");
+  const timingMode = textStaggerTimingMode(props);
+  const textOptions: Pick<
+    MotionTextAnimation,
+    "animationDirection" | "order" | "overlapPercent" | "ignoreSpaces"
+  > = {
+    animationDirection,
+    order,
+    ...(timingMode === "duration-fitted" ? { overlapPercent: overlap } : {}),
+    ignoreSpaces: unit === "character" ? ignoreSpaces : true,
+  };
   const delayMs = Math.round(
     (style.timelineOffset + numeric(props.delay, 0)) * 1000,
   );
   const ease = easing(props.easing);
   const animations: MotionTextAnimation[] = [];
+  const effectPlays = (effect: string, enabledByDefault: boolean) =>
+    booleanProp(
+      props[`${effect}Enabled`],
+      enabledByDefault,
+      `${effect}Enabled`,
+    ) && booleanProp(props[`${effect}Visible`], true, `${effect}Visible`);
 
-  if (booleanProp(props.blurEnabled, false, "blurEnabled")) {
+  if (
+    props.elementTransformOriginMode !== undefined &&
+    props.elementTransformOriginMode !== "MATCH"
+  ) {
+    unsupportedTextStaggerProp("elementTransformOriginMode");
+  }
+  const originX = originPercent(props.elementTransformOriginX, "X");
+  const originY = originPercent(props.elementTransformOriginY, "Y");
+  // Only rotation and scale read the pivot, so only they carry it.
+  const pivot = originX === 50 && originY === 50 ? {} : { originX, originY };
+  // Cropping only means something while the move effect plays.
+  const clipContent = booleanProp(props.clipContent, false, "clipContent");
+
+  if (effectPlays("blur", false)) {
     const amount = numeric(props.blurAmount, 20);
-    const values: [string, string] =
-      animationDirection === "in"
-        ? [`blur(${amount}px)`, "blur(0px)"]
-        : ["blur(0px)", `blur(${amount}px)`];
     animations.push(
       textAnimation(
         style,
@@ -743,30 +1132,13 @@ function textStaggerAnimations(
         delayMs,
         durationMs,
         "filter",
-        values,
+        [`blur(${amount}px)`, "blur(0px)"],
         ease,
+        textOptions,
       ),
     );
   }
-  if (booleanProp(props.clipContent, false, "clipContent")) {
-    unsupportedTextStaggerProp("clipContent");
-  }
-  if (
-    props.elementTransformOriginMode !== undefined &&
-    props.elementTransformOriginMode !== "MATCH"
-  ) {
-    unsupportedTextStaggerProp("elementTransformOriginMode");
-  }
-  for (const key of [
-    "elementTransformOriginX",
-    "elementTransformOriginY",
-  ] as const) {
-    if (props[key] !== undefined && props[key] !== 50) {
-      unsupportedTextStaggerProp(key);
-    }
-  }
-
-  if (booleanProp(props.positionEnabled, true, "positionEnabled")) {
+  if (effectPlays("position", true)) {
     const vector = directionVector(text(props.direction, "top"));
     const distance = numeric(props.distance, 40);
     animations.push(
@@ -778,21 +1150,20 @@ function textStaggerAnimations(
         delayMs,
         durationMs,
         "translate",
-        animationDirection === "in"
-          ? [`${vector[0] * distance}px ${vector[1] * distance}px`, "0px 0px"]
-          : ["0px 0px", `${vector[0] * distance}px ${vector[1] * distance}px`],
+        [`${vector[0] * distance}px ${vector[1] * distance}px`, "0px 0px"],
         ease,
+        clipContent ? { ...textOptions, clipContent } : textOptions,
       ),
     );
   }
-  if (booleanProp(props.rotationEnabled, false, "rotationEnabled")) {
+  if (effectPlays("rotation", false)) {
     const rotationDirection = text(props.rotationDirection, "clockwise");
     if (
       rotationDirection !== "clockwise" &&
       rotationDirection !== "counterclockwise"
     ) {
       invalid(
-        "Native Figma TextStagger rotationDirection must be clockwise or counterclockwise.",
+        "Imported Text Stagger rotationDirection must be clockwise or counterclockwise.",
       );
     }
     const clockwise = rotationDirection === "clockwise";
@@ -807,14 +1178,13 @@ function textStaggerAnimations(
         delayMs,
         durationMs,
         "rotate",
-        animationDirection === "in"
-          ? [`${signed}deg`, "0deg"]
-          : ["0deg", `${-signed}deg`],
+        [`${animationDirection === "out" ? -signed : signed}deg`, "0deg"],
         ease,
+        { ...textOptions, ...pivot },
       ),
     );
   }
-  if (booleanProp(props.scaleEnabled, false, "scaleEnabled")) {
+  if (effectPlays("scale", false)) {
     const amount = numeric(props.scaleAmount, 120) / 100;
     animations.push(
       textAnimation(
@@ -825,14 +1195,13 @@ function textStaggerAnimations(
         delayMs,
         durationMs,
         "scale",
-        animationDirection === "in"
-          ? [String(amount), "1"]
-          : ["1", String(amount)],
+        [String(amount), "1"],
         ease,
+        { ...textOptions, ...pivot },
       ),
     );
   }
-  if (booleanProp(props.opacityEnabled, false, "opacityEnabled")) {
+  if (effectPlays("opacity", false)) {
     const amount = numeric(props.opacityAmount, 0) / 100;
     animations.push(
       textAnimation(
@@ -843,10 +1212,9 @@ function textStaggerAnimations(
         delayMs,
         durationMs,
         "opacity",
-        animationDirection === "in"
-          ? [String(amount), "1"]
-          : ["1", String(amount)],
+        [String(amount), "1"],
         ease,
+        textOptions,
       ),
     );
   }
@@ -863,12 +1231,23 @@ function textAnimation(
   property: MotionTextAnimation["property"],
   values: [string, string],
   ease: string,
+  textOptions: Pick<
+    MotionTextAnimation,
+    | "animationDirection"
+    | "order"
+    | "overlapPercent"
+    | "ignoreSpaces"
+    | "clipContent"
+    | "originX"
+    | "originY"
+  >,
 ): MotionTextAnimation {
   return {
     targetNodeId: style.targetNodeId,
     unit,
     direction,
     staggerMs,
+    ...textOptions,
     delayMs,
     property,
     durationMs,
@@ -888,22 +1267,40 @@ function textStaggerUnit(value: string): MotionTextAnimation["unit"] {
   };
   const unit = units[value];
   if (!unit) {
-    invalid(`Native Figma TextStagger grouping "${value}" is unsupported.`);
+    invalid(`Imported Text Stagger grouping "${value}" is unsupported.`);
   }
   return unit;
+}
+
+function textStaggerTimingMode(
+  props: Record<string, unknown>,
+): "fixed-stagger" | "duration-fitted" {
+  const value = props.textDelayTimingMode;
+  if (value === undefined) {
+    // Earlier source encoded overlap timing through the presence of ignoreSpaces.
+    return Object.prototype.hasOwnProperty.call(props, "ignoreSpaces")
+      ? "duration-fitted"
+      : "fixed-stagger";
+  }
+  if (value === "fixed-stagger" || value === "duration-fitted") return value;
+  invalid(
+    'TextStagger textDelayTimingMode must be "fixed-stagger" or "duration-fitted".',
+  );
 }
 
 function textStaggerOrder(
   value: string,
   unit: MotionTextAnimation["unit"],
-): MotionTextAnimation["direction"] {
-  if (value === "LEFT_RIGHT") return "forward";
-  if (value === "RIGHT_LEFT") return "reverse";
+): NonNullable<MotionTextAnimation["order"]> {
+  if (value === "LEFT_RIGHT") return "left-to-right";
+  if (value === "RIGHT_LEFT") return "right-to-left";
+  if (value === "CENTER_OUT") return "center-out";
+  if (value === "RANDOM") return "random";
   if (
     (value === "TOP_BOTTOM" || value === "BOTTOM_TOP") &&
     (unit === "line" || unit === "paragraph")
   ) {
-    return value === "TOP_BOTTOM" ? "forward" : "reverse";
+    return value === "TOP_BOTTOM" ? "top-to-bottom" : "bottom-to-top";
   }
   if (value === "CENTER_OUT" || value === "OUTSIDE_IN") {
     unsupportedTextStaggerProp("textDelayOrder");
@@ -911,7 +1308,7 @@ function textStaggerOrder(
   if (value === "TOP_BOTTOM" || value === "BOTTOM_TOP") {
     unsupportedTextStaggerProp("textDelayOrder");
   }
-  invalid(`Native Figma TextStagger order "${value}" is unsupported.`);
+  invalid(`Imported Text Stagger order "${value}" is unsupported.`);
 }
 
 function booleanProp(
@@ -921,7 +1318,7 @@ function booleanProp(
 ): boolean {
   if (value === undefined) return fallback;
   if (typeof value !== "boolean") {
-    invalid(`Native Figma TextStagger ${property} must be a boolean.`);
+    invalid(`Imported Text Stagger ${property} must be a boolean.`);
   }
   return value;
 }
@@ -930,10 +1327,100 @@ function textAnimationKey(animation: MotionTextAnimation): string {
   return JSON.stringify(animation);
 }
 
+function legacyTextProjectionKeys(animation: MotionTextAnimation): string[] {
+  const legacyOrder =
+    animation.direction === "reverse" ? "right-to-left" : "left-to-right";
+  const [first, last] = animation.keyframes;
+  if (
+    animation.order !== legacyOrder ||
+    animation.keyframes.length !== 2 ||
+    first?.t !== 0 ||
+    last?.t !== 1
+  ) {
+    return [];
+  }
+
+  const keyframes =
+    animation.animationDirection === "out"
+      ? [
+          {
+            t: 0,
+            value: last.value,
+            ...(first.ease === undefined ? {} : { ease: first.ease }),
+          },
+          { t: 1, value: first.value },
+        ]
+      : animation.keyframes;
+  const legacyAnimation: MotionTextAnimation = {
+    targetNodeId: animation.targetNodeId,
+    unit: animation.unit,
+    direction: animation.direction,
+    staggerMs: Math.round(animation.staggerMs),
+    animationDirection: "in",
+    order: legacyOrder,
+    ignoreSpaces: true,
+    delayMs: animation.delayMs ?? 0,
+    property: animation.property,
+    durationMs: animation.durationMs,
+    keyframes,
+  };
+  return [textAnimationKey(legacyAnimation)];
+}
+
+function textAnimationSettingsMatch(
+  authored: MotionTextAnimationSettings,
+  native: MotionTextAnimationSettings,
+): boolean {
+  const authoredSettings = {
+    unit: authored.unit,
+    direction: authored.direction,
+    animationDirection: authored.animationDirection ?? "in",
+    order:
+      authored.order ??
+      (authored.direction === "reverse" ? "right-to-left" : "left-to-right"),
+    overlapPercent: authored.overlapPercent,
+    ignoreSpaces:
+      authored.unit === "character" ? (authored.ignoreSpaces ?? true) : true,
+  };
+  const nativeSettings = {
+    unit: native.unit,
+    direction: native.direction,
+    animationDirection: native.animationDirection ?? "in",
+    order:
+      native.order ??
+      (native.direction === "reverse" ? "right-to-left" : "left-to-right"),
+    overlapPercent: native.overlapPercent,
+    ignoreSpaces:
+      native.unit === "character" ? (native.ignoreSpaces ?? true) : true,
+  };
+  if (JSON.stringify(authoredSettings) !== JSON.stringify(nativeSettings)) {
+    return false;
+  }
+  if (authored.overlapPercent !== undefined) return true;
+  const authoredStaggerMs = authored.staggerMs;
+  const nativeStaggerMs = native.staggerMs;
+  const tolerance =
+    Number.EPSILON *
+    Math.max(1, Math.abs(authoredStaggerMs), Math.abs(nativeStaggerMs)) *
+    4;
+  return Math.abs(authoredStaggerMs - nativeStaggerMs) <= tolerance;
+}
+
+function originPercent(
+  value: MotionNativeStyleJsonValue | undefined,
+  axis: "X" | "Y",
+): number {
+  const percent = numeric(value, 50);
+  if (percent < 0 || percent > 100) {
+    invalid(`Imported Text Stagger pivot ${axis} must be between 0 and 100.`);
+  }
+  return percent;
+}
+
 function unsupportedTextStaggerProp(property: string): never {
   throw new MotionNativeStyleRuntimeError(
     "unsupported-style",
-    `Native Figma TextStagger property "${property}" is preserved in source but is not supported by the local text runtime yet.`,
+    `Imported Text Stagger property "${property}" is preserved in source but is not supported by the local text runtime yet.`,
   );
 }
 
@@ -983,7 +1470,7 @@ function easing(value: MotionNativeStyleJsonValue | undefined): string {
       });
     }
   }
-  invalid("Native Figma easing is not supported by the CSS runtime adapter.");
+  invalid("Imported easing is not supported by the CSS runtime adapter.");
 }
 
 function numeric(
@@ -992,7 +1479,7 @@ function numeric(
 ): number {
   if (value === undefined) return fallback;
   if (typeof value !== "number" || !Number.isFinite(value)) {
-    invalid("Native Figma motion property must be a finite number.");
+    invalid("Imported motion property must be a finite number.");
   }
   return value;
 }
@@ -1003,7 +1490,7 @@ function text(
 ): string {
   if (value === undefined) return fallback;
   if (typeof value !== "string")
-    invalid("Native Figma motion property must be a string.");
+    invalid("Imported motion property must be a string.");
   return value;
 }
 

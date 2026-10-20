@@ -10,9 +10,8 @@ name: Signup agent review (scheduled)
 # this one spends model tokens, needs a second credential, and must never gate
 # or page. Keeping it out of the gating workflow means a model outage or a
 # noisy review can never block a merge or wake anyone.
+# This workflow is manual-only; database isolation does not enable a schedule.
 on:
-  schedule:
-    - cron: "15 17 * * *"
   workflow_dispatch:
     inputs:
       apps:
@@ -20,7 +19,7 @@ on:
         required: false
         default: ""
       environments:
-        description: "Comma-separated environments: beta,production"
+        description: "Comma-separated environments: beta,production. Beta apps may write durable accounts to production-shared data until isolation is verified."
         required: false
         default: "beta"
 

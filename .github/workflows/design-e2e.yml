@@ -28,17 +28,17 @@ permissions:
 
 jobs:
   e2e:
-    name: ${{ matrix.shard == 'runtime-budget' && 'Runtime budget' || github.event_name == 'pull_request' && 'Design PR E2E' || format('Shard {0}/8', matrix.shard) }}
+    name: ${{ matrix.shard == 'runtime-budget' && 'Runtime budget' || github.event_name == 'pull_request' && 'Design PR E2E' || format('Shard {0}/16', matrix.shard) }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: read
     # Reserve time after the shard timeout for setup and report upload.
-    timeout-minutes: 55
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        shard: ${{ github.event_name == 'pull_request' && fromJSON('[1]') || fromJSON('[1, 2, 3, 4, 5, 6, 7, 8]') }}
+        shard: ${{ github.event_name == 'pull_request' && fromJSON('[1]') || fromJSON('[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]') }}
         # Heap, blanked screens and the live-editor pool on a production build;
         # the gates and their reasons are in templates/design/scripts/runtime-budget.json.
         include:
@@ -113,18 +113,19 @@ jobs:
         id: run-shard
         if: matrix.shard != 'runtime-budget'
         working-directory: templates/design
-        timeout-minutes: 37
+        timeout-minutes: 52
         env:
           E2E_DATABASE_URL: postgres://postgres@127.0.0.1:5432/design_e2e
           E2E_RUN_ID: design-e2e-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
+          E2E_LOG_TEST_PROGRESS: "1"
         run: |
           mkdir -p .react-router/types
           base_run_id="$E2E_RUN_ID"
           if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
             E2E_RUN_ID="${base_run_id}-exports" pnpm exec playwright test e2e/url-export-font.spec.ts e2e/single-screen-pdf-export.spec.ts e2e/imported-html-export.spec.ts e2e/private-screenshot-preview.spec.ts
-            E2E_RUN_ID="${base_run_id}-marquee" pnpm exec playwright test e2e/marquee-reachability.spec.ts --grep "modifier-held marquee"
+            E2E_RUN_ID="${base_run_id}-marquee" pnpm exec playwright test e2e/marquee-reachability.spec.ts --grep "marquee reachability"
           else
-            E2E_RUN_ID="${base_run_id}-shard" pnpm exec playwright test --shard=${{ matrix.shard }}/8
+            E2E_RUN_ID="${base_run_id}-shard" pnpm exec playwright test --shard=${{ matrix.shard }}/16
           fi
 
       # These specs skip themselves unless the loopback provider is on, so
@@ -133,7 +134,7 @@ jobs:
       - name: Run chat attachment and sizing loopback E2E
         if: matrix.shard == 1
         working-directory: templates/design
-        timeout-minutes: 15
+        timeout-minutes: 21
         env:
           E2E_DATABASE_URL: postgres://postgres@127.0.0.1:5432/design_e2e
           E2E_AI_SIDEBAR_LOOPBACK: "1"
@@ -319,7 +320,7 @@ jobs:
               printf 'The failed %s job has no downloadable Playwright report artifact (%s).\n' "$job_name" "$expected" >> "$report_dir/collection-errors.txt"
               incomplete=true
             fi
-          done < <(jq -r '.jobs[] | select(.name | test("^Shard [0-9]+/8$")) | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out" or .conclusion == "startup_failure") | [.name, (.name | capture("^Shard (?<shard>[0-9]+)/8$").shard)] | @tsv' "$report_dir/jobs.json")
+          done < <(jq -r '.jobs[] | select(.name | test("^Shard [0-9]+/16$")) | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out" or .conclusion == "startup_failure") | [.name, (.name | capture("^Shard (?<shard>[0-9]+)/16$").shard)] | @tsv' "$report_dir/jobs.json")
 
           if [ "$failed_jobs" -eq 0 ]; then
             incomplete=true

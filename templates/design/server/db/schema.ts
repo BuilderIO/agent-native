@@ -252,7 +252,11 @@ export const designFusionEdits = table("design_fusion_edits", {
   screenFileId: text("screen_file_id"),
   instruction: text("instruction").notNull(),
   target: text("target"),
-  status: text("status", { enum: ["pending", "sent", "error"] })
+  // unconfirmed: dispatched, but Builder never confirmed the run finished
+  // (timed out or cut off); held out of the queue until explicitly retried.
+  status: text("status", {
+    enum: ["pending", "sent", "unconfirmed", "error"],
+  })
     .notNull()
     .default("pending"),
   batchId: text("batch_id"),
@@ -343,6 +347,10 @@ export const designScreenRestoreClaims = table(
     index("design_screen_restore_claims_design_source_idx").on(
       t.designId,
       t.sourceFileId,
+    ),
+    index("design_screen_restore_claims_design_restored_idx").on(
+      t.designId,
+      t.restoredFileId,
     ),
   ],
 );

@@ -1,5 +1,42 @@
 # @agent-native/pinpoint
 
+## 0.1.89
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.88
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.87
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 0cfbd4d: Include the MIT license text in the published package.
+
+## 0.1.86
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.85
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.84
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.1.83
 
 ### Patch Changes

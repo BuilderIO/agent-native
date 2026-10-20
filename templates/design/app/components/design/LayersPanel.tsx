@@ -45,12 +45,10 @@ import {
   type RefObject,
 } from "react";
 
-import { CanvasMenuItem } from "@/components/design/context-menu-item";
 import {
+  CanvasMenuItem,
   MENU_CONTENT_CLASS,
-  MENU_SEPARATOR_CLASS,
-  MENU_SUB_TRIGGER_CLASS,
-} from "@/components/design/context-menu-styles";
+} from "@/components/design/context-menu-item";
 import { LeftPanelSearchField } from "@/components/design/editor/LeftPanelSearchField";
 import { formatShortcutLabel } from "@/components/design/keyboard-shortcuts";
 import { Button } from "@/components/ui/button";
@@ -289,20 +287,51 @@ function canUseActiveDragStateForDrop(
 export { canUseActiveDragStateForDrop };
 export type { LayersPanelMoveIntent };
 
-let activeIconToggleDrag: { kind: "hidden" | "locked"; value: boolean } | null =
-  null;
+let activeIconToggleDrag: {
+  kind: "hidden" | "locked";
+  value: boolean;
+  row: HTMLElement;
+  appliedIds: Set<string>;
+  clear: () => void;
+} | null = null;
 
-function beginIconToggleDrag(kind: "hidden" | "locked", value: boolean): void {
-  activeIconToggleDrag = { kind, value };
-  const clear = () => {
-    activeIconToggleDrag = null;
-    window.removeEventListener("mouseup", clear);
-    window.removeEventListener("blur", clear);
-    window.removeEventListener("pointercancel", clear);
+function clearIconToggleDrag(row?: HTMLElement | null): void {
+  const drag = activeIconToggleDrag;
+  if (!drag || (row !== undefined && drag.row !== row)) return;
+
+  activeIconToggleDrag = null;
+  drag.row.draggable = drag.row.dataset.layerRowDraggable === "true";
+  window.removeEventListener("mouseup", drag.clear, true);
+  window.removeEventListener("pointerup", drag.clear, true);
+  window.removeEventListener("pointercancel", drag.clear, true);
+  window.removeEventListener("lostpointercapture", drag.clear, true);
+  window.removeEventListener("blur", drag.clear, true);
+}
+
+function beginIconToggleDrag(
+  kind: "hidden" | "locked",
+  value: boolean,
+  nodeId: string,
+  button: HTMLButtonElement,
+): void {
+  const row = button.closest<HTMLElement>('[role="treeitem"]');
+  if (!row) return;
+
+  clearIconToggleDrag();
+  row.draggable = false;
+  const clear = () => clearIconToggleDrag(row);
+  activeIconToggleDrag = {
+    kind,
+    value,
+    row,
+    appliedIds: new Set([nodeId]),
+    clear,
   };
-  window.addEventListener("mouseup", clear, { once: true });
-  window.addEventListener("blur", clear, { once: true });
-  window.addEventListener("pointercancel", clear, { once: true });
+  window.addEventListener("mouseup", clear, true);
+  window.addEventListener("pointerup", clear, true);
+  window.addEventListener("pointercancel", clear, true);
+  window.addEventListener("lostpointercapture", clear, true);
+  window.addEventListener("blur", clear, true);
 }
 
 // Row height, left inset and type size; the Tokens panel lays its rows out with
@@ -889,6 +918,11 @@ function layerCanShowBadge(node: LayersPanelNode) {
   );
 }
 
+// autoFocus would scroll the Layers tree to the input.
+function focusRenameInput(input: HTMLInputElement | null) {
+  input?.focus({ preventScroll: true });
+}
+
 function clampScreenSectionHeight(nextHeight: number, panelHeight: number) {
   const maxHeight = panelHeight > 0 ? panelHeight * 0.3 : nextHeight;
   const minHeight = Math.min(96, maxHeight);
@@ -1153,6 +1187,15 @@ function LayersPanelImpl(
     setSearchOpen(true);
     window.requestAnimationFrame(() => searchInputRef.current?.focus());
   }, []);
+
+  const toggleSearch = useCallback(() => {
+    if (searchOpen || searchQuery.trim()) {
+      setSearchOpen(false);
+      if (searchQuery) onSearchQueryChange("");
+      return;
+    }
+    focusSearch();
+  }, [focusSearch, onSearchQueryChange, searchOpen, searchQuery]);
 
   const beginRename = useCallback(
     (layerId: string): boolean => {
@@ -1536,7 +1579,7 @@ function LayersPanelImpl(
             <IconTooltipButton
               label={labels.searchPlaceholder}
               dataAction="search"
-              onClick={focusSearch}
+              onClick={toggleSearch}
             >
               <IconSearch
                 className="!size-[var(--design-icon-size)]"
@@ -1578,7 +1621,7 @@ function LayersPanelImpl(
         >
           {visibleRows.length ? (
             <div
-              className="w-max min-w-full px-1.5"
+              className="w-full min-w-0 px-1.5"
               role="tree"
               aria-label={labels.title}
             >
@@ -1722,14 +1765,16 @@ interface LayerRowProps {
 export function LayerRowIndentSlots({
   count,
   control,
+  fit = false,
 }: {
   count: number;
   control?: ReactNode;
+  fit?: boolean;
 }) {
   return (
     <span
       data-layer-row-indents
-      className="flex h-full shrink-0"
+      className={cn("flex h-full", fit ? "min-w-0" : "shrink-0")}
       aria-hidden={control ? undefined : true}
     >
       {Array.from({ length: count }, (_, index) => (
@@ -1737,7 +1782,9 @@ export function LayerRowIndentSlots({
           key={index}
           data-layer-row-indent
           className={cn(
-            "flex h-full w-6 shrink-0 items-center",
+            "flex h-full w-6 items-center",
+            fit ? "min-w-0 shrink" : "shrink-0",
+            fit && index === count - 1 && "min-w-4",
             index === count - 1 ? "justify-start" : "justify-center",
           )}
         >
@@ -1763,7 +1810,7 @@ function LayerDropIndicator({
         placement === "before" ? "top-0" : "bottom-0",
       )}
     >
-      <LayerRowIndentSlots count={depth} />
+      <LayerRowIndentSlots count={depth} fit />
       <span className="h-px min-w-0 flex-1 bg-[var(--design-editor-accent-color)]" />
     </span>
   );
@@ -1827,6 +1874,16 @@ const LayerRow = memo(function LayerRow({
   const activeDrop = activeDropPlacement;
   const renameCancelledRef = useRef(false);
   const preventContextMenuFocusRestoreRef = useRef(false);
+  const rowElementRef = useRef<HTMLDivElement | null>(null);
+  const setRowElement = useCallback(
+    (element: HTMLDivElement | null) => {
+      const previous = rowElementRef.current;
+      if (!element && previous) clearIconToggleDrag(previous);
+      rowElementRef.current = element;
+      registerRowElement(row.rowKey, element);
+    },
+    [registerRowElement, row.rowKey],
+  );
   const springLoadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const SPRING_LOAD_DELAY_MS = 600;
   const clearSpringLoadTimer = () => {
@@ -1867,6 +1924,36 @@ const LayerRow = memo(function LayerRow({
     });
   };
 
+  const applyIconToggleDrag = (row: HTMLElement, clientX: number) => {
+    const toggleDrag = activeIconToggleDrag;
+    if (!toggleDrag || toggleDrag.appliedIds.has(node.id)) return;
+    const toggleButton = row.querySelector<HTMLButtonElement>(
+      `[data-layer-toggle="${toggleDrag.kind}"]`,
+    );
+    if (!toggleButton) return;
+    const bounds = toggleButton.getBoundingClientRect();
+    if (bounds.width <= 0 || clientX < bounds.left || clientX > bounds.right)
+      return;
+    toggleDrag.appliedIds.add(node.id);
+    if (toggleDrag?.kind === "locked" && node.locked !== toggleDrag.value) {
+      onToggleLocked?.(node.id, toggleDrag.value);
+    } else if (
+      toggleDrag?.kind === "hidden" &&
+      node.hidden !== toggleDrag.value
+    ) {
+      onToggleHidden?.(node.id, toggleDrag.value);
+    }
+  };
+
+  const handleRowMouseEnter = (event: MouseEvent<HTMLDivElement>) => {
+    onHoverLayer?.(node.id);
+    applyIconToggleDrag(event.currentTarget, event.clientX);
+  };
+
+  const handleRowMouseMove = (event: MouseEvent<HTMLDivElement>) => {
+    applyIconToggleDrag(event.currentTarget, event.clientX);
+  };
+
   const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (event.key === "Enter" || event.key === " " || event.key === "Space") {
       if (event.key === "Enter" && isSelected) return;
@@ -1905,7 +1992,7 @@ const LayerRow = memo(function LayerRow({
   };
 
   const handleDragStart = (event: DragEvent<HTMLDivElement>) => {
-    if (!draggable) {
+    if (!draggable || activeIconToggleDrag) {
       event.preventDefault();
       return;
     }
@@ -2093,12 +2180,13 @@ const LayerRow = memo(function LayerRow({
     <ContextMenu>
       <ContextMenuTrigger asChild disabled={!showContextMenu}>
         <div
-          ref={(element) => registerRowElement(row.rowKey, element)}
+          ref={setRowElement}
           role="treeitem"
+          data-layer-row-draggable={draggable ? "true" : "false"}
           aria-expanded={hasChildren ? isExpanded : undefined}
           aria-level={depth + 1}
           aria-selected={selectable ? isSelected : undefined}
-          className="relative w-max min-w-full"
+          className="relative w-full min-w-0"
           onClick={(event) => {
             if ((event.target as Element).closest("button, input")) return;
             handlePointerSelect(event);
@@ -2122,7 +2210,8 @@ const LayerRow = memo(function LayerRow({
             onDropIndicatorChange(null);
             clearSpringLoadTimer();
           }}
-          onMouseEnter={() => onHoverLayer?.(node.id)}
+          onMouseEnter={handleRowMouseEnter}
+          onMouseMove={handleRowMouseMove}
           onMouseLeave={() => onLeaveLayer?.(node.id)}
         >
           {activeDrop === "before" ? (
@@ -2145,7 +2234,7 @@ const LayerRow = memo(function LayerRow({
               activeDrop === "inside" ? "inside" : undefined
             }
             className={cn(
-              "group w-max min-w-full [--design-icon-size:16px] bg-[var(--design-editor-panel-bg)]",
+              "group w-full min-w-0 [--design-icon-size:16px] bg-[var(--design-editor-panel-bg)]",
               LAYER_ROW_GEOMETRY_CLASS,
               !isSelected && !isInSelectedSubtree && "rounded-[4px]",
               isSelectionBlockStart && isSelectionBlockEnd && "rounded-[4px]",
@@ -2179,6 +2268,7 @@ const LayerRow = memo(function LayerRow({
           >
             <LayerRowIndentSlots
               count={layerRowIndentCount(depth)}
+              fit
               control={
                 hasChildren ? (
                   <Button
@@ -2218,7 +2308,7 @@ const LayerRow = memo(function LayerRow({
               data-layer-row-button
               data-layer-node-id={node.id}
               className={cn(
-                "flex min-w-0 flex-1 items-center gap-2 rounded-sm py-0 text-left outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                "flex min-w-[44px] flex-1 items-center gap-2 rounded-sm py-0 text-left outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
                 selectable ? "cursor-default" : "cursor-default opacity-80",
               )}
               onClick={handlePointerSelect}
@@ -2239,7 +2329,7 @@ const LayerRow = memo(function LayerRow({
               {isRenaming ? (
                 <input
                   data-layer-row-name
-                  autoFocus
+                  ref={focusRenameInput}
                   value={renameDraft}
                   onClick={(event) => event.stopPropagation()}
                   onChange={(event) => onRenameDraftChange(event.target.value)}
@@ -2314,28 +2404,25 @@ const LayerRow = memo(function LayerRow({
                           isSelected && "text-foreground",
                         )}
                         aria-label={node.locked ? labels.unlock : labels.lock}
+                        data-layer-toggle="locked"
                         draggable={false}
                         onMouseDown={(event) => {
+                          if (event.button !== 0) return;
+                          event.preventDefault();
                           event.stopPropagation();
                           const nextLocked = !node.locked;
                           onToggleLocked?.(node.id, nextLocked);
-                          beginIconToggleDrag("locked", nextLocked);
+                          beginIconToggleDrag(
+                            "locked",
+                            nextLocked,
+                            node.id,
+                            event.currentTarget,
+                          );
                         }}
                         onClick={(event) => {
                           if (event.detail !== 0) return;
                           event.stopPropagation();
                           onToggleLocked?.(node.id, !node.locked);
-                        }}
-                        onMouseEnter={() => {
-                          if (
-                            activeIconToggleDrag?.kind === "locked" &&
-                            node.locked !== activeIconToggleDrag.value
-                          ) {
-                            onToggleLocked?.(
-                              node.id,
-                              activeIconToggleDrag.value,
-                            );
-                          }
                         }}
                       >
                         {node.locked ? (
@@ -2364,28 +2451,25 @@ const LayerRow = memo(function LayerRow({
                           isSelected && "text-foreground",
                         )}
                         aria-label={node.hidden ? labels.show : labels.hide}
+                        data-layer-toggle="hidden"
                         draggable={false}
                         onMouseDown={(event) => {
+                          if (event.button !== 0) return;
+                          event.preventDefault();
                           event.stopPropagation();
                           const nextHidden = !node.hidden;
                           onToggleHidden?.(node.id, nextHidden);
-                          beginIconToggleDrag("hidden", nextHidden);
+                          beginIconToggleDrag(
+                            "hidden",
+                            nextHidden,
+                            node.id,
+                            event.currentTarget,
+                          );
                         }}
                         onClick={(event) => {
                           if (event.detail !== 0) return;
                           event.stopPropagation();
                           onToggleHidden?.(node.id, !node.hidden);
-                        }}
-                        onMouseEnter={() => {
-                          if (
-                            activeIconToggleDrag?.kind === "hidden" &&
-                            node.hidden !== activeIconToggleDrag.value
-                          ) {
-                            onToggleHidden?.(
-                              node.id,
-                              activeIconToggleDrag.value,
-                            );
-                          }
                         }}
                       >
                         {node.hidden ? (
@@ -2442,7 +2526,7 @@ const LayerRow = memo(function LayerRow({
             onCopyLink ||
             (onRename && node.renamable !== false)) &&
           (lockable || hideable) ? (
-            <ContextMenuSeparator className={MENU_SEPARATOR_CLASS} />
+            <ContextMenuSeparator />
           ) : null}
           {hideable ? (
             <CanvasMenuItem
@@ -2460,13 +2544,11 @@ const LayerRow = memo(function LayerRow({
           ) : null}
 
           {(lockable || hideable) && (onReorderLayer || hasTransformActions) ? (
-            <ContextMenuSeparator className={MENU_SEPARATOR_CLASS} />
+            <ContextMenuSeparator />
           ) : null}
           {onReorderLayer ? (
             <ContextMenuSub>
-              <ContextMenuSubTrigger className={MENU_SUB_TRIGGER_CLASS}>
-                {labels.arrange}
-              </ContextMenuSubTrigger>
+              <ContextMenuSubTrigger>{labels.arrange}</ContextMenuSubTrigger>
               <ContextMenuSubContent className={MENU_CONTENT_CLASS}>
                 <CanvasMenuItem
                   label={labels.bringToFront}
@@ -2487,9 +2569,7 @@ const LayerRow = memo(function LayerRow({
           ) : null}
           {hasTransformActions ? (
             <ContextMenuSub>
-              <ContextMenuSubTrigger className={MENU_SUB_TRIGGER_CLASS}>
-                {labels.transform}
-              </ContextMenuSubTrigger>
+              <ContextMenuSubTrigger>{labels.transform}</ContextMenuSubTrigger>
               <ContextMenuSubContent className={MENU_CONTENT_CLASS}>
                 {onFlipHorizontal ? (
                   <CanvasMenuItem

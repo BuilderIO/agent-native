@@ -72,10 +72,15 @@ export function resolvePastedSvgInsertionOptions(args: {
   activeFileId: string;
   baseContent: string;
   point: { x: number; y: number };
+  selectedContainerPosition?: "point" | "origin";
   selectedElement: ElementInfo | null | undefined;
   selectedLayerTargets: readonly SelectedLayerTarget[];
   targetFileId: string;
-}): NonNullable<Parameters<typeof insertClonedHtmlLayers>[2]> {
+}): NonNullable<Parameters<typeof insertClonedHtmlLayers>[2]> & {
+  positionError?:
+    | "paste-position-geometry-unavailable"
+    | "paste-position-geometry-invalid";
+} {
   const selectedLayerTarget =
     args.selectedLayerTargets.length === 1
       ? args.selectedLayerTargets[0]
@@ -99,14 +104,25 @@ export function resolvePastedSvgInsertionOptions(args: {
       ? resolvePastePlacementForSelection({
           content: args.baseContent,
           selectedElement: selectedElementForTarget,
-        })?.placement
+          point: args.point,
+        })
       : undefined;
 
+  if (placement?.positionError)
+    return { positionError: placement.positionError };
+  const position =
+    placement?.position &&
+    placement.placement === "inside" &&
+    args.selectedContainerPosition === "origin"
+      ? { x: 0, y: 0 }
+      : placement?.position;
   return placement
     ? {
         targetSelectors: selectedTargetSelectors,
-        placement,
-        stripRootPosition: true,
+        placement: placement.placement,
+        ...(position
+          ? { positions: [{ ...position, space: "visual" as const }] }
+          : { stripRootPosition: true }),
       }
     : { positions: [{ ...args.point, space: "visual" }] };
 }
@@ -204,10 +220,17 @@ export function runPastedSvgLayer(
     activeFileId: args.activeFileId,
     baseContent,
     point,
+    selectedContainerPosition: "origin",
     selectedElement: args.selectedElement,
     selectedLayerTargets: args.selectedLayerTargets,
     targetFileId,
   });
+  if (resolvedInsertionOptions.positionError) {
+    toast.error(args.t("designEditor.toasts.primitiveInsertFailed"), {
+      id: resolvedInsertionOptions.positionError,
+    });
+    return true;
+  }
   const targetExists =
     !resolvedInsertionOptions.targetSelectors?.length ||
     Boolean(

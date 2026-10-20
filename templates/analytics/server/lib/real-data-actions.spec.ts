@@ -1,3 +1,4 @@
+import { appendAgentChatContextToMessage } from "@agent-native/core/shared";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -6,13 +7,21 @@ import {
   failedDataQueryAttemptMessage,
   GENERIC_NO_DATA_FALLBACK_MESSAGE,
   hasCatalogSearchAttempt,
+  hasCompleteBigQuerySchemaSearch,
+  hasCompleteBigQuerySchemaSearchMatches,
+  hasCompleteEmptyBigQuerySchemaSearch,
+  hasBigQueryPartialDisclosure,
   hasDashboardConstructionAttempt,
+  hasEmptyFindDataResult,
   hasExplicitPartialDisclosure,
   hasCorpusWorkflowAttempt,
   hasDataQueryAttempt,
   hasFailedCorpusWorkflowEvidence,
   hasIncompleteDataEvidence,
+  hasPartialBigQueryResult,
+  hasScopedRosterSourceAbsenceClaim,
   hasRequestedSourceRecordEvidence,
+  hasUnscopedRosterSourceAbsenceClaim,
   hasOverstatedCoverageConfidenceClaim,
   isGenericNoDataFallback,
   isNonDataTurn,
@@ -107,6 +116,113 @@ describe("real data action classification", () => {
     expect(hasDataQueryAttempt([{ name: "generate-chart" }])).toBe(false);
   });
 
+  it("requires an explicitly complete live schema result before treating a roster search as checked", () => {
+    const findData = {
+      name: "find-data",
+      content: JSON.stringify({ results: [], truncated: true, nextPage: null }),
+    };
+    const partialSchema = {
+      name: "search-bigquery-schema",
+      content: JSON.stringify({
+        mode: "table-search",
+        search: "organization membership user role",
+        searched: 250,
+        of: 0,
+        tables: [],
+        truncated: true,
+        nextPage: "synthetic-next-page",
+      }),
+    };
+    const completeEmptySchema = {
+      name: "search-bigquery-schema",
+      content: JSON.stringify({
+        mode: "table-search",
+        search: "organization membership user role",
+        searched: 250,
+        of: 0,
+        tables: [],
+        truncated: false,
+        nextPage: null,
+      }),
+    };
+    const schemaWithErrors = {
+      name: "search-bigquery-schema",
+      content: JSON.stringify({
+        mode: "table-search",
+        search: "organization membership user role",
+        searched: 250,
+        of: 0,
+        tables: [],
+        errors: ["A table's metadata could not be read"],
+        errorCount: 1,
+        truncated: false,
+        nextPage: null,
+      }),
+    };
+    const schemaWithNoErrors = {
+      name: "search-bigquery-schema",
+      content: JSON.stringify({
+        mode: "table-search",
+        search: "organization membership user role",
+        searched: 250,
+        of: 0,
+        tables: [],
+        errors: [],
+        errorCount: 0,
+        truncated: false,
+        nextPage: null,
+      }),
+    };
+
+    expect(hasEmptyFindDataResult([findData])).toBe(true);
+    expect(hasCompleteBigQuerySchemaSearch([partialSchema])).toBe(false);
+    expect(hasCompleteEmptyBigQuerySchemaSearch([partialSchema])).toBe(false);
+    expect(hasCompleteBigQuerySchemaSearch([completeEmptySchema])).toBe(true);
+    expect(hasCompleteBigQuerySchemaSearch([schemaWithErrors])).toBe(false);
+    expect(hasCompleteEmptyBigQuerySchemaSearch([schemaWithErrors])).toBe(
+      false,
+    );
+    expect(hasCompleteBigQuerySchemaSearch([schemaWithNoErrors])).toBe(true);
+    expect(hasCompleteEmptyBigQuerySchemaSearch([completeEmptySchema])).toBe(
+      true,
+    );
+    expect(hasCompleteBigQuerySchemaSearchMatches([completeEmptySchema])).toBe(
+      false,
+    );
+  });
+
+  it("recognizes candidate tables only from a complete matching schema search", () => {
+    const result = {
+      name: "search-bigquery-schema",
+      content: JSON.stringify({
+        mode: "table-search",
+        search: "organization membership user role",
+        searched: 42,
+        of: 2,
+        tables: [
+          { datasetId: "synthetic_dataset", tableId: "synthetic_members" },
+        ],
+        truncated: false,
+        nextPage: null,
+      }),
+    };
+
+    expect(hasCompleteBigQuerySchemaSearch([result])).toBe(true);
+    expect(hasCompleteEmptyBigQuerySchemaSearch([result])).toBe(false);
+    expect(hasCompleteBigQuerySchemaSearchMatches([result])).toBe(true);
+  });
+
+  it("distinguishes scoped schema absence from an unverified roster absence", () => {
+    const scoped =
+      "No organization membership table was found in the configured BigQuery project schema search.";
+    const unscoped = "No organization membership table or source exists.";
+
+    expect(hasScopedRosterSourceAbsenceClaim(scoped)).toBe(true);
+    expect(hasUnscopedRosterSourceAbsenceClaim(scoped)).toBe(false);
+    expect(hasScopedRosterSourceAbsenceClaim(unscoped)).toBe(false);
+    expect(hasUnscopedRosterSourceAbsenceClaim(unscoped)).toBe(true);
+  });
+
   it("does not count failed source reads as evidence", () => {
     expect(
       hasDataQueryAttempt([{ name: "hubspot-records", isError: true }]),
@@ -162,6 +278,183 @@ describe("real data action classification", () => {
     ).toBe(true);
   });
 
+  it("grounds dbt metric queries only when a successful result contains rows", () => {
+    expect(
+      hasDataQueryAttempt([
+        {
+          name: "query-dbt-semantic-metric",
+          content: JSON.stringify({
+            status: "success",
+            rows: [{ metric_value: 42 }],
+          }),
+        },
+      ]),
+    ).toBe(true);
+    expect(
+      hasDataQueryAttempt([
+        {
+          name: "query_dbt_semantic_metric",
+          content: JSON.stringify({
+            status: "success",
+            rows: [],
+            rowCount: 0,
+          }),
+        },
+      ]),
+    ).toBe(false);
+    expect(
+      hasDataQueryAttempt([
+        {
+          name: "query-dbt-semantic-metric",
+          content: JSON.stringify({
+            status: "success",
+            rows: [[42]],
+            rowCount: 1,
+          }),
+        },
+      ]),
+    ).toBe(true);
+
+    const emptyResultFailure = failedDataQueryAttemptMessage([
+      {
+        name: "query-dbt-semantic-metric",
+        content: JSON.stringify({ status: "success", rows: [] }),
+      },
+    ]);
+    expect(emptyResultFailure).toContain("returned no metric rows");
+    expect(emptyResultFailure).toContain("does not mean the metric is zero");
+  });
+
+  it("requires dbt metric result pages to be continued before grounding a complete answer", () => {
+    const paged = {
+      name: "query_dbt_semantic_metric",
+      content: JSON.stringify({
+        status: "success",
+        rows: [{ metric_value: 42 }],
+        truncated: true,
+        nextPage: "metric-results-v4.cursor.signature",
+      }),
+    };
+    const capped = {
+      name: "query-dbt-semantic-metric",
+      content: JSON.stringify({
+        status: "success",
+        rows: [{ metric_value: 42 }],
+        truncated: true,
+        truncationReason: "query_row_cap",
+      }),
+    };
+
+    expect(hasDataQueryAttempt([paged])).toBe(false);
+    expect(failedDataQueryAttemptMessage([paged])).toContain(
+      "Continue with the same metricName, queryId, and nextPage",
+    );
+    expect(hasDataQueryAttempt([capped])).toBe(false);
+    expect(failedDataQueryAttemptMessage([capped])).toContain(
+      "1,000-row result cap",
+    );
+  });
+
+  it("clears a recoverable dbt status only after the same query completes", () => {
+    const querySpec = {
+      groupBy: [{ name: "metric_time", grain: "WEEK" }],
+      timeRange: { startDate: "2026-10-05", endDate: "2026-10-11" },
+    };
+    const cursor = `metric-results-v5.AA.${"A".repeat(43)}`;
+    const interrupted = {
+      name: "query-dbt-semantic-metric",
+      content: JSON.stringify({
+        status: "provider_error",
+        metricName: "activation_rate",
+        queryId: "synthetic-query-id",
+        nextPage: cursor,
+        querySpec,
+      }),
+    };
+    const completed = {
+      name: "query-dbt-semantic-metric",
+      content: JSON.stringify({
+        status: "success",
+        metricName: "activation_rate",
+        queryId: "synthetic-query-id",
+        querySpec,
+        rows: [{ metric_time: "2026-10-05", activation_rate: 42 }],
+        truncated: false,
+      }),
+    };
+
+    expect(hasDataQueryAttempt([interrupted, completed])).toBe(true);
+    expect(failedDataQueryAttemptMessage([interrupted, completed])).toBeNull();
+  });
+
+  it("keeps a first-party query failure when a later unrelated query succeeds", () => {
+    const failed = {
+      name: "query-agent-native-analytics",
+      isError: true,
+      content:
+        "[unsupported_sql; recovery=rewrite_once] Rewrite the unsupported part once.",
+    };
+    const completed = {
+      name: "query_agent_native_analytics",
+      content: JSON.stringify({
+        rows: [{ signups: 42 }],
+        schema: [{ name: "signups", type: "number" }],
+      }),
+    };
+
+    expect(hasDataQueryAttempt([failed, completed])).toBe(true);
+    expect(failedDataQueryAttemptMessage([failed, completed])).toContain(
+      "unsupported_sql; recovery=rewrite_once",
+    );
+  });
+
+  it("preserves safe first-party recovery guidance when no retry succeeds", () => {
+    const failed = {
+      name: "query-agent-native-analytics",
+      isError: true,
+      content:
+        "[unsupported_sql; recovery=rewrite_once] Rewrite the unsupported part once.",
+    };
+
+    expect(failedDataQueryAttemptMessage([failed])).toContain(
+      "unsupported_sql; recovery=rewrite_once",
+    );
+    expect(failedDataQueryAttemptMessage([failed])).not.toContain("secret");
+  });
+
+  it.each([
+    ["ambiguous_metric", "ask which exact metric"],
+    ["connection_error", "Repair the dbt workspace connection"],
+    [
+      "connection_selection_required",
+      "select an available dbt workspace connection",
+    ],
+    [
+      "connection_unavailable",
+      "Refresh or reconnect the selected dbt workspace connection",
+    ],
+    ["deployment_not_ready", "Wait for a successful dbt deployment run"],
+    ["empty_semantic_manifest", "no deployed semantic models or metrics"],
+    ["incomplete_result", "Resume the same MetricFlow query"],
+    ["metadata_truncated", "Continue the dbt metadata pagination"],
+    ["no_metrics_available", "no available metrics"],
+    ["permission_denied", "exact dbt permission issue"],
+    ["not_found", "Confirm the exact metric name"],
+    ["pending", "Resume the same MetricFlow query"],
+    ["provider_error", "correct the dbt provider error"],
+  ])(
+    "returns status-specific recovery guidance for dbt status %s",
+    (status, recovery) => {
+      const result = {
+        name: "query-dbt-semantic-metric",
+        content: JSON.stringify({ status }),
+      };
+
+      expect(hasDataQueryAttempt([result])).toBe(false);
+      expect(failedDataQueryAttemptMessage([result])).toContain(recovery);
+    },
+  );
+
   it("normalizes data query action name variants from hosted tool surfaces", () => {
     expect(
       hasDataQueryAttempt([
@@ -209,6 +502,76 @@ describe("analytics data request classification", () => {
       "i want a recurring job this is the .yml file",
     );
     expect(looksLikeAnalyticsDataRequest(text)).toBe(false);
+  });
+
+  it("ignores chat context items unless an app sends the request as REAL_DATA_REQUIRED context", () => {
+    const dashboardItem =
+      "## Dashboard: Product signups\nUser can edit: yes\nUse the Analytics dashboard actions to inspect, edit, or restore this dashboard.";
+    const ask = "Hide the setup incident on Setup completions per day.";
+    const onDashboard = appendAgentChatContextToMessage(ask, dashboardItem);
+
+    expect(stripInjectedAnalyticsGuardContext(onDashboard)).toBe(ask);
+    expect(looksLikeDashboardConstructionRequest(onDashboard)).toBe(false);
+    expect(
+      isTrivialTurn(appendAgentChatContextToMessage("thanks!", dashboardItem)),
+    ).toBe(true);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        appendAgentChatContextToMessage(
+          "Signups by source",
+          "The user wants to create a new analytics dashboard. REAL_DATA_REQUIRED: query before presenting numbers.",
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps context markup the user typed in the request and drops only the app's block", () => {
+    const ask = "<context>How many signups did we get last week?</context>";
+    const dashboardItem =
+      "## Dashboard: Product signups\nUser can edit: yes\nUse the Analytics dashboard actions to inspect, edit, or restore this dashboard.";
+
+    for (const typed of [
+      ask,
+      "Wrap it in <context> tags: how many signups did we get last week?",
+    ]) {
+      expect(stripInjectedAnalyticsGuardContext(typed)).toBe(typed);
+      expect(isNonDataTurn(typed)).toBe(false);
+      expect(looksLikeAnalyticsDataRequest(typed)).toBe(true);
+    }
+    expect(
+      stripInjectedAnalyticsGuardContext(
+        appendAgentChatContextToMessage(ask, dashboardItem),
+      ),
+    ).toBe(ask);
+  });
+
+  it("reads only the REAL_DATA_REQUIRED item when it shares the composer's context block", () => {
+    const dashboardItem =
+      "## Dashboard: Product signups\nUser can edit: yes\nUse the Analytics dashboard actions to inspect, edit, or restore this dashboard.";
+    const panelItem =
+      '## Active app context\nThe user wants to add a new panel to SQL dashboard "product-signups". REAL_DATA_REQUIRED: query before presenting numbers.';
+    const ask = "Signups by plan";
+    const staged = appendAgentChatContextToMessage(
+      ask,
+      `${dashboardItem}\n\n${panelItem}`,
+    );
+
+    expect(stripInjectedAnalyticsGuardContext(staged)).toBe(
+      `${ask}\n\n${panelItem}`,
+    );
+    expect(looksLikeDashboardConstructionRequest(staged)).toBe(false);
+  });
+
+  it("keeps the whole REAL_DATA_REQUIRED context an app sends, including its own headings", () => {
+    const rerun =
+      "This is a re-run of a legacy saved analysis. REAL_DATA_REQUIRED: query before saving.\n\nInstructions:\n\n## Steps\nCount signups by plan.";
+    const ask = "Re-run Signups by plan";
+
+    expect(
+      stripInjectedAnalyticsGuardContext(
+        appendAgentChatContextToMessage(ask, rerun),
+      ),
+    ).toBe(`${ask}\n\n${rerun}`);
   });
 
   it("does not treat GitHub Actions workflow migrations as analytics requests", () => {
@@ -1424,6 +1787,150 @@ describe("incomplete evidence detection", () => {
           }),
         },
       ]),
+    ).toBe(true);
+  });
+
+  it("treats BigQuery warning rows as partial evidence", () => {
+    const toolResults = [
+      {
+        name: "bigquery",
+        content: JSON.stringify({
+          rows: [{ count: 42 }],
+          partial: true,
+          warnings: [{ reason: "other", message: "One shard was unavailable" }],
+        }),
+      },
+    ];
+
+    expect(hasPartialBigQueryResult(toolResults)).toBe(true);
+    expect(hasIncompleteDataEvidence(toolResults)).toBe(true);
+    expect(
+      hasPartialBigQueryResult([
+        {
+          name: "bigquery",
+          content: JSON.stringify({ rows: [{ count: 42 }], partial: false }),
+        },
+      ]),
+    ).toBe(false);
+    expect(
+      hasPartialBigQueryResult([
+        {
+          name: "bigquery",
+          content: JSON.stringify({ rows: [{ count: 42 }], truncated: true }),
+        },
+      ]),
+    ).toBe(true);
+    const truncatedResult = {
+      name: "bigquery",
+      content:
+        '{"rows":[{"value":"large synthetic row"}],"partial":true\n\n...[truncated — full result was 200\u202f000 chars; only first 50\u202f000 shown]',
+    };
+    expect(hasPartialBigQueryResult([truncatedResult])).toBe(true);
+    expect(
+      hasBigQueryPartialDisclosure(
+        "The BigQuery tool output was truncated, so displayed rows may omit results and the reported count is partial.",
+        [truncatedResult],
+      ),
+    ).toBe(true);
+    expect(
+      hasBigQueryPartialDisclosure("BigQuery returned 42 rows.", [
+        truncatedResult,
+      ]),
+    ).toBe(false);
+  });
+
+  it("requires every meaningful BigQuery warning to be disclosed", () => {
+    const toolResults = [
+      {
+        name: "bigquery",
+        content: JSON.stringify({
+          rows: [{ count: 42 }],
+          partial: true,
+          warnings: [
+            { reason: "other", message: "One shard was unavailable" },
+            {
+              reason: "resourcesExceeded",
+              message: "A regional partition was skipped due to quota",
+            },
+          ],
+        }),
+      },
+    ];
+
+    expect(
+      hasBigQueryPartialDisclosure(
+        "BigQuery returned a partial result and warned that one shard was unavailable.",
+        toolResults,
+      ),
+    ).toBe(false);
+    expect(
+      hasBigQueryPartialDisclosure(
+        "BigQuery returned a partial result and warned about the shard.",
+        toolResults,
+      ),
+    ).toBe(false);
+    expect(
+      hasBigQueryPartialDisclosure(
+        "BigQuery returned a partial result. Warning: one shard was returned, and the retry details are in the quota dashboard.",
+        [
+          {
+            name: "bigquery",
+            content: JSON.stringify({
+              partial: true,
+              warnings: [
+                {
+                  reason: "other",
+                  message:
+                    "One shard was unavailable; retry after quota failure",
+                },
+              ],
+            }),
+          },
+        ],
+      ),
+    ).toBe(false);
+    expect(
+      hasBigQueryPartialDisclosure(
+        "BigQuery returned a partial result. Warning: one shard was unavailable; a regional partition was skipped due to quota.",
+        toolResults,
+      ),
+    ).toBe(true);
+    expect(
+      hasBigQueryPartialDisclosure(
+        "BigQuery returned a partial result. Warning: one shard was unavailable; a regional partition was skipped due to quota. The returned total is complete.",
+        toolResults,
+      ),
+    ).toBe(false);
+
+    const malformedWarningResults = [
+      {
+        name: "bigquery",
+        content: JSON.stringify({
+          partial: true,
+          warnings: [
+            { reason: "other", message: "One shard was unavailable" },
+            { reason: "other" },
+          ],
+        }),
+      },
+    ];
+    expect(
+      hasBigQueryPartialDisclosure(
+        "BigQuery returned a partial result with a warning; the row cap may omit additional rows. One shard was unavailable.",
+        malformedWarningResults,
+      ),
+    ).toBe(false);
+
+    expect(
+      hasBigQueryPartialDisclosure(
+        "BigQuery returned a partial result; the row cap may omit additional rows.",
+        [
+          {
+            name: "bigquery",
+            content: JSON.stringify({ partial: true, warnings: [] }),
+          },
+        ],
+      ),
     ).toBe(true);
   });
 

@@ -1,4 +1,5 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
+import { recorder } from "@agent-native/core/client/recorder";
 import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
 import { type CodeLayerNode } from "@shared/code-layer";
 import { sourceContentHash } from "@shared/source-workspace";
@@ -423,6 +424,7 @@ export interface UndoArgs {
   ) => boolean;
   canEditDesign: boolean;
   allowPendingLiveEdits?: boolean;
+  captureCurrentSelection: () => GeometryHistorySelection;
   clipboardPasteRedoStackRef: RefObject<ContentHistoryChange[]>;
   clipboardPasteUndoStackRef: RefObject<ContentHistoryChange[]>;
   codeLayerOwnerByNodeIdRef: RefObject<
@@ -445,6 +447,8 @@ export interface UndoArgs {
     filename: string;
     fileType: DesignFile["fileType"];
     content: string;
+    createdAt?: string | null;
+    fileOrderIndex?: number;
     result?: Record<string, unknown> | null;
   }) => void;
   deleteFileMutation: ReturnType<
@@ -585,6 +589,7 @@ export function runUndo({
   applyDesignDataHistoryChanges,
   canEditDesign,
   allowPendingLiveEdits,
+  captureCurrentSelection,
   clipboardPasteRedoStackRef,
   clipboardPasteUndoStackRef,
   codeLayerOwnerByNodeIdRef,
@@ -1150,6 +1155,10 @@ export function runUndo({
       contentReplayRefused = true;
       return false;
     }
+    // Captured before the replay, so its sources are the content redo restores.
+    const selectionAfter =
+      contentHistorySelectionAfterRef.current.get(entry) ??
+      captureCurrentSelection();
     const acceptedContents = new Map<string, string>();
     let replayAccepted = true;
     suppressContentHistoryRef.current = true;
@@ -1224,9 +1233,7 @@ export function runUndo({
       replayedChanges,
       linkedComponent,
     )!;
-    const stampedAfter = contentHistorySelectionAfterRef.current.get(entry);
-    if (stampedAfter)
-      contentHistorySelectionAfterRef.current.set(appliedEntry, stampedAfter);
+    contentHistorySelectionAfterRef.current.set(appliedEntry, selectionAfter);
     contentRedoStackRef.current = [
       ...contentRedoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
       appliedEntry,
@@ -1684,6 +1691,7 @@ export function runUndo({
     syncUndoRedoState();
     void (async () => {
       const recreatedIds: string[] = [];
+      const recreatedCreatedAt: Array<string | null> = [];
       let preparedFiles: ReturnType<typeof prepareDeletedFileRestore>[] = [];
       try {
         // A delete-triggered read can finish late and replace restored geometry.
@@ -1708,11 +1716,15 @@ export function runUndo({
             ...(file.restoreClaimId
               ? { restoreClaimId: file.restoreClaimId }
               : {}),
-          } as any)) as { id?: string };
+          } as any)) as { id?: string; createdAt?: string | null };
           if (!result.id) {
             throw new Error(`Failed to restore "${file.filename}"`);
           }
           recreatedIds.push(result.id);
+          recreatedCreatedAt.push(
+            result.createdAt === undefined ? file.createdAt : result.createdAt,
+          );
+          recorder.log("screen.restored", { from: file.id, to: result.id });
         }
 
         const restoreEntry = {
@@ -1735,6 +1747,11 @@ export function runUndo({
             filename: file.filename,
             fileType: file.fileType,
             content: prepared.content,
+            createdAt:
+              recreatedCreatedAt[index] === undefined
+                ? file.createdAt
+                : recreatedCreatedAt[index],
+            fileOrderIndex: file.fileOrderIndex,
           });
         });
         const metadataRestore = restoreMetadataAndGeometry(

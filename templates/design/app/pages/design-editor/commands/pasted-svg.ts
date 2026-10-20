@@ -1,3 +1,4 @@
+import { buildCodeLayerProjection } from "@shared/code-layer";
 import { serializePenNodes } from "@shared/pen-path";
 import { parseSvgPathData } from "@shared/svg-path-data";
 
@@ -258,6 +259,26 @@ function scopeSvgIds(svg: Element): void {
   }
 }
 
+function preserveAuthoredSvgLayerNames(svg: Element): void {
+  svg.setAttribute("data-an-primitive", "pasted-svg");
+  const namesById = new Map<string, string>();
+  for (const node of buildCodeLayerProjection(svg.outerHTML).nodes) {
+    const id = node.attributes.id;
+    if (
+      node.tag !== "svg" &&
+      node.layerNameSource === "selector" &&
+      typeof id === "string"
+    ) {
+      namesById.set(id, node.layerName);
+    }
+  }
+
+  for (const element of Array.from(svg.querySelectorAll("[id]"))) {
+    const name = namesById.get(element.getAttribute("id") ?? "");
+    if (name) element.setAttribute("data-agent-native-layer-name", name);
+  }
+}
+
 function hasDrawableGeometry(svg: Element): boolean {
   return Array.from(svg.children).some((element) => {
     const tag = element.localName.toLowerCase();
@@ -312,6 +333,7 @@ export function parsePastedSvg(source: string): PastedSvg | null {
   const nodeCount = { value: 0 };
   if (!sanitizeElement(svg, nodeCount) || nodeCount.value > MAX_NODES)
     return null;
+  preserveAuthoredSvgLayerNames(svg);
   scopeSvgIds(svg);
   if (!hasDrawableGeometry(svg)) return null;
 

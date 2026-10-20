@@ -4,6 +4,7 @@ import {
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   MAX_TURN_WALL_CLOCK_MS,
 } from "../app-config/run-lifecycle-invariants.js";
+import { SelfDispatchHttpError } from "../server/self-dispatch.js";
 import {
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
@@ -205,6 +206,22 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
     expect(h.deps.markRunAborted).toHaveBeenCalledWith("run-chunk0", "user");
   });
 
+  it("does not dispatch until the predecessor terminal marker succeeds", async () => {
+    const h = makeHarness();
+    h.deps.markBackgroundContinuationChunkTerminal = vi.fn(async () => false);
+
+    await runChain(h);
+
+    expect(
+      h.deps.markBackgroundContinuationChunkTerminal,
+    ).toHaveBeenCalledOnce();
+    expect(h.deps.fireInternalDispatch).not.toHaveBeenCalled();
+    expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
+      "run-chunk0",
+      "errored",
+    );
+  });
+
   it("PRE-INSERTS the successor row before the dispatch fires, then marks the chunk terminal", async () => {
     const h = makeHarness();
     const run = timeoutBoundaryRun();
@@ -248,7 +265,7 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
       },
     });
 
-    expect(h.callOrder).toEqual(["insertRun", "dispatch", "markTerminal"]);
+    expect(h.callOrder).toEqual(["insertRun", "markTerminal", "dispatch"]);
 
     expect(h.deps.insertRun).toHaveBeenCalledWith(
       "run-next",
@@ -483,14 +500,8 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
       RUN_DIAG_STAGE.workerThrew,
       expect.stringContaining("chain_dispatch_deferred"),
     );
-    expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
-      "run-chunk0",
-      "truncated",
-    );
-    expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
-      "run-chunk0",
-      "background_continuation_dispatch_deferred",
-    );
+    expect(h.deps.updateRunStatusIfRunning).not.toHaveBeenCalled();
+    expect(h.deps.setRunTerminalReason).not.toHaveBeenCalled();
     expect(h.deps.recordRunDiagnostic).toHaveBeenCalledWith(
       "run-chunk0",
       RUN_DIAG_STAGE.workerThrew,
@@ -498,7 +509,7 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
     );
     expect(
       h.deps.markBackgroundContinuationChunkTerminal,
-    ).not.toHaveBeenCalled();
+    ).toHaveBeenCalledOnce();
     // With this chunk terminal, the thread slot is free — the client's
     // existing auto_continue re-POST (it still receives the terminal event)
     // is a second, faster fallback alongside the sweep. See
@@ -660,6 +671,27 @@ describe("resolveContinuationDispatchBudget — retry budget matrix", () => {
       backoffCapMs: Infinity,
     });
   });
+
+  it("keeps every overload wait inside its host's remaining wall time", () => {
+    expect(
+      resolveContinuationDispatchBudget({
+        chainViaDurableBackground: true,
+        workerProvenInBackgroundFunction: false,
+      }).overloadWaitBudgetMs,
+    ).toBe(10_000);
+    expect(
+      resolveContinuationDispatchBudget({
+        chainViaDurableBackground: false,
+        workerProvenInBackgroundFunction: true,
+      }).overloadWaitBudgetMs,
+    ).toBe(30_000);
+    expect(
+      resolveContinuationDispatchBudget({
+        chainViaDurableBackground: false,
+        workerProvenInBackgroundFunction: false,
+      }).overloadWaitBudgetMs,
+    ).toBe(10_000);
+  });
 });
 
 describe("resolveSelfChainContinuationBudget — synchronous self-chain time budgeting", () => {
@@ -736,11 +768,48 @@ describe("chainServerDrivenContinuation — worker proven in background function
       "run-next",
       "errored",
     );
-    expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
-      "run-chunk0",
-      "truncated",
-    );
-    expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
+    expect(
+      h.deps.markBackgroundContinuationChunkTerminal,
+    ).toHaveBeenCalledOnce();
+    expect(h.deps.updateRunStatusIfRunning).not.toHaveBeenCalled();
+    expect(h.deps.setRunTerminalReason).not.toHaveBeenCalled();
+  });
+});
+
+describe("chainServerDrivenContinuation — self-dispatch 429 backoff", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("rides out a burst of 429s on the process-run endpoint instead of deferring to the sweep", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const throttled = () =>
+      new SelfDispatchHttpError(
+        `Self-dispatch to ${AGENT_CHAT_PROCESS_RUN_PATH} returned HTTP 429 Too Many Requests`,
+        429,
+      );
+    const dispatchMock = vi
+      .fn()
+      .mockRejectedValueOnce(throttled())
+      .mockRejectedValueOnce(throttled())
+      .mockRejectedValueOnce(throttled())
+      .mockRejectedValueOnce(throttled())
+      .mockRejectedValueOnce(throttled())
+      .mockResolvedValueOnce(undefined);
+    const h = makeHarness({ fireInternalDispatch: dispatchMock as any });
+
+    await runChain(h, {
+      chainViaDurableBackground: false,
+      workerProvenInBackgroundFunction: true,
+    });
+
+    expect(dispatchMock).toHaveBeenCalledTimes(6);
+    expect(
+      (h.deps.sleep as any).mock.calls.map((c: unknown[]) => c[0]),
+    ).toEqual([500, 1_000, 2_000, 4_000, 8_000]);
+    expect(h.deps.markBackgroundContinuationChunkTerminal).toHaveBeenCalled();
+    expect(h.deps.setRunTerminalReason).not.toHaveBeenCalledWith(
       "run-chunk0",
       "background_continuation_dispatch_deferred",
     );
@@ -766,14 +835,11 @@ describe("chainServerDrivenContinuation — durable-background path unchanged", 
       backgroundFunctionRuntimeExpected: true,
     });
     expect(readClaim).toHaveBeenCalledWith("run-next");
-    expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
-      "run-chunk0",
-      "truncated",
-    );
-    expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
-      "run-chunk0",
-      "background_continuation_dispatch_deferred",
-    );
+    expect(
+      h.deps.markBackgroundContinuationChunkTerminal,
+    ).toHaveBeenCalledOnce();
+    expect(h.deps.updateRunStatusIfRunning).not.toHaveBeenCalled();
+    expect(h.deps.setRunTerminalReason).not.toHaveBeenCalled();
     expect(h.deps.updateRunStatusIfRunning).not.toHaveBeenCalledWith(
       "run-next",
       "errored",
@@ -844,14 +910,11 @@ describe("chainServerDrivenContinuation — Netlify loop-protection 508 is class
 
     expect(dispatchMock).toHaveBeenCalledTimes(1);
 
-    expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
-      "run-chunk0",
-      "truncated",
-    );
-    expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
-      "run-chunk0",
-      "background_continuation_dispatch_deferred",
-    );
+    expect(
+      h.deps.markBackgroundContinuationChunkTerminal,
+    ).toHaveBeenCalledOnce();
+    expect(h.deps.updateRunStatusIfRunning).not.toHaveBeenCalled();
+    expect(h.deps.setRunTerminalReason).not.toHaveBeenCalled();
     expect(h.deps.setRunTerminalReason).not.toHaveBeenCalledWith(
       "run-chunk0",
       "background_continuation_dispatch_failed",
@@ -895,14 +958,11 @@ describe("chainServerDrivenContinuation — proactive nested-dispatch depth cap"
 
     expect(dispatchMock).not.toHaveBeenCalled();
     expect(h.deps.insertRun).toHaveBeenCalled();
-    expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
-      "run-chunk0",
-      "truncated",
-    );
-    expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
-      "run-chunk0",
-      "background_continuation_dispatch_deferred",
-    );
+    expect(
+      h.deps.markBackgroundContinuationChunkTerminal,
+    ).toHaveBeenCalledOnce();
+    expect(h.deps.updateRunStatusIfRunning).not.toHaveBeenCalled();
+    expect(h.deps.setRunTerminalReason).not.toHaveBeenCalled();
     expect(h.deps.recordRunDiagnostic).toHaveBeenCalledWith(
       "run-chunk0",
       RUN_DIAG_STAGE.workerThrew,
@@ -932,10 +992,10 @@ describe("chainServerDrivenContinuation — proactive nested-dispatch depth cap"
     });
 
     expect(dispatchMock).not.toHaveBeenCalled();
-    expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
-      "run-chunk0",
-      "background_continuation_dispatch_deferred",
-    );
+    expect(
+      h.deps.markBackgroundContinuationChunkTerminal,
+    ).toHaveBeenCalledOnce();
+    expect(h.deps.setRunTerminalReason).not.toHaveBeenCalled();
   });
 
   it("applies uniformly on the durable-background dispatch target too (Background Functions do not escape Netlify's loop protection)", async () => {
@@ -948,10 +1008,10 @@ describe("chainServerDrivenContinuation — proactive nested-dispatch depth cap"
     });
 
     expect(dispatchMock).not.toHaveBeenCalled();
-    expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
-      "run-chunk0",
-      "background_continuation_dispatch_deferred",
-    );
+    expect(
+      h.deps.markBackgroundContinuationChunkTerminal,
+    ).toHaveBeenCalledOnce();
+    expect(h.deps.setRunTerminalReason).not.toHaveBeenCalled();
   });
 });
 

@@ -1,7 +1,8 @@
-import { expect, test, type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
 
-import { e2eBaseURL } from "./base-url";
-import { cdpScreenshot, gotoEditor, readSeedDesignId } from "./helpers";
+import { FIXTURE_HTML } from "./global-setup";
+import { appPath, cdpScreenshot } from "./helpers";
+import { expect, test, type App } from "./rails";
 
 interface Rect {
   x: number;
@@ -58,13 +59,14 @@ interface InteractEntrySnapshot {
 }
 
 async function enterInteractAndSampleImmediately(
-  page: Page,
+  app: App,
   width: number,
   height: number,
   { phone = false }: { phone?: boolean } = {},
 ): Promise<InteractEntrySnapshot> {
+  const page = app.page;
   await page.setViewportSize({ width, height });
-  await gotoEditor(page, await readSeedDesignId());
+  await app.open(await app.seed(FIXTURE_HTML));
 
   const screenShell = page.locator("[data-screen-shell]");
   await expect(screenShell).toHaveCount(1);
@@ -103,7 +105,7 @@ async function enterInteractAndSampleImmediately(
       )
       .toBe(true);
   }
-  await expect(screenShell.locator("[data-frame-full-view]")).toBeHidden();
+  await expect(screenShell.locator("[data-frame-full-view]")).toHaveCount(0);
   // Interact loads the page afresh, with only its own bridges, so the preview
   // is a new iframe. The screen still has exactly one.
   await expect(previewIframe).toHaveCount(1);
@@ -180,9 +182,10 @@ function expectInsideBar(snapshot: InteractEntrySnapshot, name: ControlName) {
 }
 
 test("Interact controls sit in the top bar and clear the right edge at Tiana's 1751×897 viewport", async ({
+  app,
   page,
 }, testInfo) => {
-  const snapshot = await enterInteractAndSampleImmediately(page, 1751, 897);
+  const snapshot = await enterInteractAndSampleImmediately(app, 1751, 897);
 
   expect(snapshot.screenShellCount).toBe(1);
   // Nothing in a live preview is selectable, so Interact shows no bottom toolbar.
@@ -210,8 +213,7 @@ test("Interact controls sit in the top bar and clear the right edge at Tiana's 1
   expect(snapshot.controls.back.disabled).toBe(true);
   expect(snapshot.controls.forward.disabled).toBe(true);
 
-  // Figma frame 2382-4622: mode switch · device · theme, then back/forward ·
-  // screen · reload, then zoom, all on one 24px control row.
+  // The controls share a 24px row in this order.
   const x = (name: ControlName) => snapshot.controls[name].rect!.x;
   expect(x("modeSwitch")).toBeLessThan(x("device"));
   expect(x("device")).toBeLessThan(x("theme"));
@@ -243,11 +245,11 @@ test("Interact controls sit in the top bar and clear the right edge at Tiana's 1
   await cdpScreenshot(page, testInfo.outputPath("tiana-interact.png"));
 });
 
-// oracle: none — verifies hit-testing and layout bounds, not parity with a design reference.
 test("Interact controls stay inside the 48px bar at Damian's 1456×410 viewport", async ({
+  app,
   page,
 }, testInfo) => {
-  const snapshot = await enterInteractAndSampleImmediately(page, 1456, 410);
+  const snapshot = await enterInteractAndSampleImmediately(app, 1456, 410);
 
   expect(snapshot.screenShellCount).toBe(1);
   expect(snapshot.bottomToolbarCount).toBe(0);
@@ -276,11 +278,11 @@ test("Interact controls stay inside the 48px bar at Damian's 1456×410 viewport"
   await cdpScreenshot(page, testInfo.outputPath("damian-interact.png"));
 });
 
-// oracle: none — verifies layout bounds on a phone-width viewport.
 test("Interact keeps the mode switch, device, theme and screen on a 390px viewport", async ({
+  app,
   page,
 }, testInfo) => {
-  const snapshot = await enterInteractAndSampleImmediately(page, 390, 844, {
+  const snapshot = await enterInteractAndSampleImmediately(app, 390, 844, {
     phone: true,
   });
 
@@ -318,7 +320,7 @@ async function postAction(
   input: Record<string, unknown>,
 ): Promise<Record<string, any>> {
   const response = await page.request.post(
-    `${e2eBaseURL()}/_agent-native/actions/${name}`,
+    appPath(`/_agent-native/actions/${name}`),
     { data: input, headers: { "Content-Type": "application/json" } },
   );
   if (!response.ok()) {
@@ -349,36 +351,22 @@ async function enterInteractOnceSettled(page: Page): Promise<void> {
     .click();
 }
 
-async function createRoutedDesign(pageHandle: Page): Promise<string> {
-  const created = await postAction(pageHandle, "create-design", {
+function seedRoutedDesign(app: App): Promise<string> {
+  return app.seed(html("Home screen", DARK_CSS), {
     title: "Interact routes",
-    projectType: "prototype",
+    files: {
+      "pricing.html": html("Pricing screen", DARK_CSS),
+      "docs.html": html("Docs screen"),
+    },
   });
-  const designId: string | undefined =
-    created?.id ?? created?.data?.id ?? created?.design?.id;
-  if (!designId) throw new Error("create-design returned no id");
-  for (const [filename, content] of [
-    ["index.html", html("Home screen", DARK_CSS)],
-    ["pricing.html", html("Pricing screen", DARK_CSS)],
-    ["docs.html", html("Docs screen")],
-  ] as const) {
-    await postAction(pageHandle, "create-file", {
-      designId,
-      filename,
-      content,
-      fileType: "html",
-    });
-  }
-  return designId;
 }
 
-// oracle: none — drives the Interact screen, device and theme controls end to end.
 test("screen picker, history, reload, device and theme drive the preview", async ({
+  app,
   page,
 }) => {
   await page.setViewportSize({ width: 1751, height: 897 });
-  const designId = await createRoutedDesign(page);
-  await gotoEditor(page, designId);
+  await app.open(await seedRoutedDesign(app));
 
   await enterInteractOnceSettled(page);
   const screen = page.locator(CONTROL_SELECTORS.screen);
@@ -445,14 +433,13 @@ test("screen picker, history, reload, device and theme drive the preview", async
     .toBe(402);
 });
 
-// oracle: none — checks the emulated color scheme against the design's own CSS.
 test("System shows the design as authored, Light and Dark force a scheme, and only Dark without dark styles asks the agent", async ({
+  app,
   page,
 }) => {
   await page.setViewportSize({ width: 1751, height: 897 });
   await page.emulateMedia({ colorScheme: "light" });
-  const designId = await createRoutedDesign(page);
-  await gotoEditor(page, designId);
+  await app.open(await seedRoutedDesign(app));
 
   await enterInteractOnceSettled(page);
   const screen = page.locator(CONTROL_SELECTORS.screen);
@@ -556,22 +543,11 @@ test("System shows the design as authored, Light and Dark force a scheme, and on
   await page.keyboard.press("Escape");
 });
 
-// oracle: none — a URL screen is another page's document, which the editor does not script.
 test("a URL screen has no theme picker at all, while screens and reload still work", async ({
+  app,
   page,
 }) => {
   await page.setViewportSize({ width: 1751, height: 897 });
-  const created = await postAction(page, "create-design", {
-    title: "URL screen",
-    projectType: "prototype",
-  });
-  const designId: string = created?.id ?? created?.data?.id;
-  await postAction(page, "create-file", {
-    designId,
-    filename: "index.html",
-    content: html("Home screen"),
-    fileType: "html",
-  });
   // A loopback URL is a localhost screen, which needs a bridge connection to
   // render at all; any other host is a plain URL screen, answered here.
   const url = "https://preview.example.test/robots.txt";
@@ -581,13 +557,14 @@ test("a URL screen has no theme picker at all, while screens and reload still wo
       body: "User-agent: *\nAllow: /\n",
     }),
   );
-  const app = await postAction(page, "create-file", {
-    designId,
-    filename: "app.html",
-    content: url,
-    fileType: "html",
+  const designId = await app.seed(html("Home screen"), {
+    title: "URL screen",
+    files: { "app.html": url },
   });
-  const appId: string = app?.id ?? app?.data?.id ?? app?.file?.id;
+  const appId = (await app.savedRecord(designId)).files.find(
+    (file) => file.filename === "app.html",
+  )?.id;
+  if (!appId) throw new Error("seeded design has no app.html screen");
   await postAction(page, "update-design", {
     id: designId,
     dataOperations: [
@@ -598,7 +575,7 @@ test("a URL screen has no theme picker at all, while screens and reload still wo
       },
     ],
   });
-  await gotoEditor(page, designId);
+  await app.open(designId);
 
   await enterInteractOnceSettled(page);
   const screen = page.locator(CONTROL_SELECTORS.screen);
@@ -634,10 +611,9 @@ test("a URL screen has no theme picker at all, while screens and reload still wo
   await expect(theme).toBeEnabled();
 });
 
-// oracle: none — Escape and the mode switch both leave Interact.
-test("Escape and the mode switch leave Interact", async ({ page }) => {
+test("Escape and the mode switch leave Interact", async ({ app, page }) => {
   await page.setViewportSize({ width: 1751, height: 897 });
-  await gotoEditor(page, await readSeedDesignId());
+  await app.open(await app.seed(FIXTURE_HTML));
   const interact = page.locator(
     '[data-design-top-bar] [data-design-mode="interact"]',
   );

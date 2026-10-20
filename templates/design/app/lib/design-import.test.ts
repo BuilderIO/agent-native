@@ -7,6 +7,7 @@ import {
   hasFigmaClipboardPayload,
   importResultNotification,
   isAttemptedFigmaPaste,
+  isValidRelativePositionOffset,
   type JsonParsableResponse,
   looksLikeStandaloneHtml,
   parseDesignClipboardMarker,
@@ -100,7 +101,7 @@ describe("import result notifications", () => {
     });
   });
 
-  it("keeps fidelity warnings bounded with existing import warnings", () => {
+  it("reserves notification slots for fidelity warnings", () => {
     const notification = importResultNotification(
       {
         warnings: ["Storage warning", "Font warning", "Another warning"],
@@ -124,8 +125,11 @@ describe("import result notifications", () => {
     );
 
     expect(notification.variant).toBe("warning");
-    expect(notification.description?.split("\n")).toHaveLength(3);
-    expect(notification.description).not.toContain("image fallback");
+    expect(notification.description?.split("\n")).toEqual([
+      "Storage warning",
+      "Image fallbacks: 1. Appearance is preserved, but these layers are not fully editable.",
+      "Approximated layers: 1. HTML/CSS cannot represent every Figma property exactly.",
+    ]);
   });
 });
 
@@ -259,6 +263,7 @@ describe("design clipboard marker round-trip", () => {
         rootNodeId: "node-1",
         sourceParentNodeId: "group-1",
         sourceFileId: "file-1",
+        sourceRelativeOffset: { x: -7.75, y: 12.5 },
         portableStyleSnapshot: {
           version: 1,
           rootSourceId: "node-1",
@@ -275,6 +280,30 @@ describe("design clipboard marker round-trip", () => {
     );
     const parsed = parseDesignClipboardMarker(clipboardText);
     expect(parsed).toEqual(payload);
+  });
+
+  it("rejects malformed relative offset metadata instead of serializing it as absence", () => {
+    const malformedOffsets: unknown[] = [
+      { x: Number.NaN, y: 12 },
+      { x: Number.POSITIVE_INFINITY, y: 12 },
+      { x: "8px", y: 12 },
+    ];
+    for (const sourceRelativeOffset of malformedOffsets) {
+      expect(isValidRelativePositionOffset(sourceRelativeOffset)).toBe(false);
+      expect(() =>
+        serializeDesignClipboardPayload("Relative", {
+          version: 1,
+          entries: [
+            {
+              html: "<div>Relative</div>",
+              sourceFileId: "file-1",
+              sourceRelativeOffset,
+            },
+          ],
+        } as DesignClipboardPayload),
+      ).toThrow("Cannot serialize invalid relative position metadata");
+    }
+    expect(isValidRelativePositionOffset(null)).toBe(true);
   });
 
   it("round-trips an explicit failed-capture marker without inventing a snapshot", () => {

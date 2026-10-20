@@ -43,6 +43,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "getting-started",
       },
       {
+        id: "create-with-an-agent",
+        labelKey: "createWithAgent",
+        slug: "create-with-an-agent",
+      },
+      {
         id: "what-is-agent-native",
         labelKey: "whatIsAgentNative",
         slug: "what-is-agent-native",
@@ -219,9 +224,19 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             slug: "template-chat",
           },
           {
-            id: "template-chat-first-edits",
-            labelKey: "chatFirstEdits",
-            slug: "template-chat-first-edits",
+            id: "template-chat-features",
+            labelKey: "chatFeatures",
+            slug: "template-chat-features",
+          },
+          {
+            id: "template-chat-agent",
+            labelKey: "chatAgent",
+            slug: "template-chat-agent",
+          },
+          {
+            id: "template-chat-integrations",
+            labelKey: "chatIntegrations",
+            slug: "template-chat-integrations",
           },
           {
             id: "template-chat-developers",
@@ -776,6 +791,7 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "doctor",
       },
       { id: "observability", labelKey: "observability", slug: "observability" },
+      { id: "recorder", labelKey: "recorder", slug: "recorder" },
       {
         id: "observational-memory",
         labelKey: "observationalMemory",

@@ -1,4 +1,10 @@
-import { useT } from "@agent-native/core/client/i18n";
+import { callAction } from "@agent-native/core/client/hooks";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import {
+  ComposerContextPickerDialog,
+  ComposerRuntimeAdaptersProvider,
+  type ComposerContextPickerConfig,
+} from "@agent-native/toolkit/composer";
 import {
   IconArrowLeft,
   IconBrandFigma,
@@ -11,25 +17,13 @@ import {
   IconWorld,
 } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
-import type { ChangeEvent, ReactNode } from "react";
+import type { ChangeEvent, CSSProperties, ReactNode } from "react";
 
+import SlideRenderer from "@/components/deck/SlideRenderer";
 import { DesignSystemSetup } from "@/components/design-system/DesignSystemSetup";
 import { UploadStorageGate } from "@/components/editor/UploadStorageGate";
 import { Button } from "@/components/ui/button";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -37,10 +31,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { Deck } from "@/context/DeckContext";
+import type { Deck, Slide } from "@/context/DeckContext";
 import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
 import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status";
-import { sortDecksByRecency } from "@/lib/deck-sorting";
+import type { AspectRatio } from "@/lib/aspect-ratios";
+import { getDeckListingPreviewFrameStyle } from "@/lib/deck-preview-frame";
 import { resolveSelectableDesignSystemId } from "@/lib/design-system-selection";
 import type {
   NewDeckReferenceSelection,
@@ -161,6 +156,7 @@ export function NewDeckReferenceStep({
   promptSummary,
 }: NewDeckReferenceStepProps) {
   const t = useT();
+  const formatters = useFormatters();
   const storageQuery = useSlideFileStorageStatus(open);
   const fileStorageConfigured =
     storageQuery.data?.configured === true && !storageQuery.isError;
@@ -172,6 +168,8 @@ export function NewDeckReferenceStep({
   const [selectedReferenceDeckId, setSelectedReferenceDeckId] = useState<
     string | null
   >(null);
+  const [selectedReferenceDeckTitle, setSelectedReferenceDeckTitle] =
+    useState<string>();
   const [referenceDeckTouched, setReferenceDeckTouched] = useState(false);
   const [importedReference, setImportedReference] =
     useState<ImportedReference | null>(null);
@@ -186,12 +184,8 @@ export function NewDeckReferenceStep({
   const busy = importing || continuing;
 
   const designSystemAutoRef = useRef(true);
+  const referenceDeckTriggerRef = useRef<HTMLButtonElement>(null);
 
-  const deckById = new Map(decks.map((deck) => [deck.id, deck]));
-  const sortedDecks = sortDecksByRecency(decks);
-  const selectedReferenceDeck = selectedReferenceDeckId
-    ? deckById.get(selectedReferenceDeckId)
-    : undefined;
   const selectedSourceValid = Boolean(
     selectedSource &&
     isValidReferenceSourceValue(selectedSource.kind, selectedSource.value),
@@ -215,6 +209,7 @@ export function NewDeckReferenceStep({
       resolveSelectableDesignSystemId(designSystems, defaultDesignSystemId),
     );
     setSelectedReferenceDeckId(null);
+    setSelectedReferenceDeckTitle(undefined);
     setReferenceDeckTouched(false);
     setImportedReference(null);
     setSelectedSource(null);
@@ -256,6 +251,7 @@ export function NewDeckReferenceStep({
     designSystemAutoRef.current = false;
     setSelectedDesignSystemId(null);
     setSelectedReferenceDeckId(imported.id);
+    setSelectedReferenceDeckTitle(imported.title);
     setReferenceDeckTouched(true);
     setSelectedSource(null);
     setImportedReference(imported);
@@ -315,6 +311,7 @@ export function NewDeckReferenceStep({
         setSelectedReferenceDeckId((current) =>
           current === importedReference.id ? null : current,
         );
+        setSelectedReferenceDeckTitle(undefined);
         setImportedReference(null);
         setReferenceDeckTouched(false);
       }
@@ -326,6 +323,7 @@ export function NewDeckReferenceStep({
       setSelectedDesignSystemId(null);
     } else {
       setSelectedReferenceDeckId(null);
+      setSelectedReferenceDeckTitle(undefined);
       setImportedReference(null);
     }
   };
@@ -335,11 +333,96 @@ export function NewDeckReferenceStep({
       : selectedSource?.kind === "website"
         ? "Website"
         : "Figma";
-  const selectedReferenceDeckTitle =
-    selectedReferenceDeck?.title ??
-    (selectedReferenceDeckId === importedReference?.id
-      ? importedReference.title
-      : undefined);
+  const referenceDeckPicker = {
+    presentation: { type: "dialog", mode: "single", layout: "gallery" },
+    searchPlaceholder: searchDecksLabel,
+    emptyMessage: t("home.noMatchingDecks"),
+    selectedIds: selectedReferenceDeckId ? [selectedReferenceDeckId] : [],
+    clearSelection: {
+      label: t("home.none"),
+      onSelect: () => {
+        setSelectedReferenceDeckId(null);
+        setSelectedReferenceDeckTitle(undefined);
+        setReferenceDeckTouched(true);
+        setImportedReference(null);
+        setSelectedSource(null);
+      },
+    },
+    load: async ({ search, cursor, signal }) => {
+      const result = await callAction<{
+        decks: Array<{
+          id: string;
+          title: string;
+          previewSlide?: Slide;
+          previewTooLarge?: boolean;
+          aspectRatio?: AspectRatio;
+          updatedAt: string | null;
+        }>;
+        nextCursor?: string;
+      }>(
+        "list-decks",
+        { includePreview: "true", limit: 12, search, cursor },
+        { method: "GET", signal },
+      );
+      return {
+        hasMore: Boolean(result.nextCursor),
+        nextCursor: result.nextCursor,
+        items: result.decks.map((deck) => {
+          const updatedAt = deck.updatedAt ? new Date(deck.updatedAt) : null;
+          const validUpdatedAt =
+            updatedAt && Number.isFinite(updatedAt.getTime())
+              ? updatedAt.toISOString()
+              : null;
+          return {
+            id: deck.id,
+            title: deck.title,
+            preview: deck.previewSlide ? (
+              <div className="flex h-full items-center justify-center overflow-hidden">
+                <div
+                  className="slide-reference-preview-frame relative h-full overflow-hidden"
+                  style={
+                    {
+                      "--reference-ratio": getDeckListingPreviewFrameStyle(
+                        deck.aspectRatio,
+                      ).aspectRatio,
+                      "--reference-width": getDeckListingPreviewFrameStyle(
+                        deck.aspectRatio,
+                      ).width,
+                    } as CSSProperties
+                  }
+                >
+                  <SlideRenderer
+                    slide={deck.previewSlide}
+                    thumbnail
+                    aspectRatio={deck.aspectRatio}
+                  />
+                </div>
+              </div>
+            ) : deck.previewTooLarge ? (
+              <div
+                aria-hidden
+                className="slide-reference-preview-fallback flex h-full items-center justify-center bg-muted text-muted-foreground"
+              >
+                <IconPresentation className="size-8" />
+              </div>
+            ) : null,
+            metadata: validUpdatedAt ? (
+              <time dateTime={validUpdatedAt}>
+                {formatters.formatDate(validUpdatedAt, { dateStyle: "medium" })}
+              </time>
+            ) : null,
+          };
+        }),
+      };
+    },
+    onSelect: (item) => {
+      setSelectedReferenceDeckId(item.id);
+      setSelectedReferenceDeckTitle(item.title);
+      setReferenceDeckTouched(true);
+      setImportedReference(null);
+      setSelectedSource(null);
+    },
+  } satisfies ComposerContextPickerConfig;
   return open ? (
     <div
       className="fixed inset-0 z-[200] flex min-h-screen flex-col bg-background text-foreground"
@@ -416,98 +499,22 @@ export function NewDeckReferenceStep({
               <span className="text-xs font-medium text-muted-foreground">
                 {referenceDeckLabel}
               </span>
-              <Popover
-                open={referenceDeckSearchOpen && !busy}
-                onOpenChange={(open) =>
-                  !busy && setReferenceDeckSearchOpen(open)
-                }
+              <button
+                ref={referenceDeckTriggerRef}
+                type="button"
+                aria-haspopup="dialog"
+                aria-expanded={referenceDeckSearchOpen}
+                aria-label={referenceDeckLabel}
+                disabled={!referenceOptionsLoaded || busy}
+                onClick={() => setReferenceDeckSearchOpen(true)}
+                className="flex h-10 w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <PopoverTrigger asChild>
-                  <button
-                    type="button"
-                    role="combobox"
-                    aria-expanded={referenceDeckSearchOpen}
-                    aria-label={referenceDeckLabel}
-                    disabled={decks.length === 0 || busy}
-                    className="flex h-10 w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <span className="truncate">
-                      {selectedReferenceDeckTitle ??
-                        (referenceDeckTouched
-                          ? t("home.none")
-                          : chooseDeckLabel)}
-                    </span>
-                    <IconChevronDown className="size-4 shrink-0 opacity-50" />
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent
-                  align="start"
-                  className="w-[--radix-popover-trigger-width] p-0"
-                >
-                  <Command
-                    filter={(value, search) =>
-                      value.toLowerCase().includes(search.toLowerCase().trim())
-                        ? 1
-                        : 0
-                    }
-                  >
-                    <CommandInput
-                      placeholder={searchDecksLabel}
-                      disabled={busy}
-                    />
-                    <CommandList className="max-h-72">
-                      <CommandEmpty>{t("home.noMatchingDecks")}</CommandEmpty>
-                      <CommandGroup>
-                        <CommandItem
-                          value={`none ${t("home.none")}`}
-                          disabled={busy}
-                          onSelect={() => {
-                            setSelectedReferenceDeckId(null);
-                            setReferenceDeckTouched(true);
-                            setImportedReference(null);
-                            setSelectedSource(null);
-                            setReferenceDeckSearchOpen(false);
-                          }}
-                        >
-                          <IconCheck
-                            className={cn(
-                              "me-2 size-4",
-                              selectedReferenceDeckId === null
-                                ? "opacity-100"
-                                : "opacity-0",
-                            )}
-                          />
-                          <span className="truncate">{t("home.none")}</span>
-                        </CommandItem>
-                        {sortedDecks.map((deck) => (
-                          <CommandItem
-                            key={deck.id}
-                            value={`${deck.title} ${deck.id}`}
-                            disabled={busy}
-                            onSelect={() => {
-                              setSelectedReferenceDeckId(deck.id);
-                              setReferenceDeckTouched(true);
-                              setImportedReference(null);
-                              setSelectedSource(null);
-                              setReferenceDeckSearchOpen(false);
-                            }}
-                          >
-                            <IconCheck
-                              className={cn(
-                                "me-2 size-4",
-                                selectedReferenceDeckId === deck.id
-                                  ? "opacity-100"
-                                  : "opacity-0",
-                              )}
-                            />
-                            <span className="truncate">{deck.title}</span>
-                          </CommandItem>
-                        ))}
-                      </CommandGroup>
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
+                <span className="truncate">
+                  {selectedReferenceDeckTitle ??
+                    (referenceDeckTouched ? t("home.none") : chooseDeckLabel)}
+                </span>
+                <IconChevronDown className="size-4 shrink-0 opacity-50" />
+              </button>
             </div>
 
             <div className="border-t border-border pt-5">
@@ -679,6 +686,18 @@ export function NewDeckReferenceStep({
           onDesignSystemsChanged();
         }}
       />
+      {referenceDeckSearchOpen && !busy && (
+        <ComposerRuntimeAdaptersProvider
+          adapters={{ translate: (key, options) => t(key, options) }}
+        >
+          <ComposerContextPickerDialog
+            config={referenceDeckPicker}
+            title={referenceDeckLabel}
+            onClose={() => setReferenceDeckSearchOpen(false)}
+            onRestoreFocus={() => referenceDeckTriggerRef.current?.focus()}
+          />
+        </ComposerRuntimeAdaptersProvider>
+      )}
     </div>
   ) : null;
 }

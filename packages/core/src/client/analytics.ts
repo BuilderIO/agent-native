@@ -61,6 +61,11 @@ import {
   installErrorCapture,
   type CapturedExceptionEvent,
 } from "./error-capture.js";
+import {
+  buildRecorderReport,
+  recorderSentryEnabled,
+  type RecorderEvent,
+} from "./recorder.js";
 import { currentRouteTemplate } from "./route-template.js";
 import type {
   SessionReplayOptions,
@@ -1068,6 +1073,23 @@ function ensureAmplitude(): boolean {
   return false;
 }
 
+/**
+ * True when browser events reach the Agent-Native analytics sink that the
+ * first-party dashboards read: a public key is configured and the host is not
+ * local. `getAnalyticsAnonymousId()` returns an id regardless, so experiments
+ * must check this before assigning an arm they could never measure.
+ */
+export function isAgentNativeAnalyticsConfigured(): boolean {
+  if (typeof window === "undefined") return false;
+  if (isLocalAnalyticsHostname(window.location.hostname)) return false;
+  return Boolean(
+    _agentNativeAnalyticsPublicKey ||
+    window.__AGENT_NATIVE_CONFIG__?.agentNativeAnalyticsPublicKey ||
+    (import.meta.env as Record<string, string | undefined>)
+      ?.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY,
+  );
+}
+
 function hasBrowserTrackingDestination(): boolean {
   const env = import.meta.env as Record<string, string | undefined>;
   return Boolean(
@@ -1124,6 +1146,57 @@ function shouldDropBrowserSentryNoise(event: Sentry.Event): boolean {
     tags,
     firstPartyHosts: firstPartyHosts(),
   }).drop;
+}
+
+// Sentry keeps 100 breadcrumbs by default; the attachment carries the whole report.
+const SENTRY_RECORDER_BREADCRUMBS = 100;
+
+function recorderBreadcrumb(recorded: RecorderEvent): Sentry.Breadcrumb {
+  const { t: _t, at, type, name, data: _data, ...outcome } = recorded;
+  return {
+    category: `recorder.${type}`,
+    message: [
+      name,
+      outcome.ok === undefined ? undefined : outcome.ok ? "ok" : "failed",
+      outcome.status,
+      outcome.errorCode,
+      outcome.ms === undefined ? undefined : `${outcome.ms}ms`,
+    ]
+      .filter((part) => part !== undefined)
+      .join(" "),
+    level:
+      type === "error" || (type === "toast" && name === "error")
+        ? "error"
+        : type === "toast" || outcome.ok === false
+          ? "warning"
+          : "info",
+    timestamp: at / 1000,
+    data: outcome,
+  };
+}
+
+function addRecorderContext(
+  event: Sentry.ErrorEvent,
+  hint: Sentry.EventHint,
+): void {
+  if (!recorderSentryEnabled()) return;
+  const report = buildRecorderReport("error");
+  if (report.events.length > 0) {
+    event.breadcrumbs = [
+      ...(event.breadcrumbs ?? []),
+      ...report.events
+        .slice(-SENTRY_RECORDER_BREADCRUMBS)
+        .map(recorderBreadcrumb),
+    ].sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
+  }
+  hint.attachments = [
+    ...(hint.attachments ?? []),
+    {
+      filename: "recorder.json",
+      data: JSON.stringify(report),
+      contentType: "application/json",
+    },
+  ];
 }
 
 function firstNonEmpty(...values: Array<string | undefined>): string {
@@ -1218,7 +1291,7 @@ function ensureSentry(loadWithoutDsn = false): void {
         dsn,
         environment: resolveClientDeploymentEnvironment(),
         release: resolveClientRelease(),
-        beforeSend(event) {
+        beforeSend(event, hint = {}) {
           if (isSyntheticBrowserTraffic()) return null;
           event.tags = {
             ...event.tags,
@@ -1246,6 +1319,7 @@ function ensureSentry(loadWithoutDsn = false): void {
               }
             }
           }
+          addRecorderContext(event, hint);
           return event;
         },
       });

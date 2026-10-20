@@ -1,9 +1,10 @@
 import path from "node:path";
 
-import { expect, test, type Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
 import * as Y from "yjs";
 
-import { appPath, designFrame, gotoEditor } from "./helpers";
+import { appPath, designFrame } from "./helpers";
+import { expect, test, type App } from "./rails";
 
 const IMAGE_FIXTURE = path.resolve(
   import.meta.dirname,
@@ -31,28 +32,20 @@ async function postAction(
   return response.json();
 }
 
-async function createTwoScreenDesign(page: Page) {
-  const created = await postAction(page, "create-design", {
-    title: `Screen root delayed image upload ${Date.now()}`,
-    projectType: "prototype",
+async function createTwoScreenDesign(app: App) {
+  const designId = await app.seed(SCREEN_A_HTML, {
+    title: "Screen root delayed image upload",
+    files: { "screen-b.html": SCREEN_B_HTML },
   });
-  const designId: string | undefined =
-    created?.id ?? created?.data?.id ?? created?.design?.id;
-  if (!designId) throw new Error("create-design returned no id");
-
-  await postAction(page, "create-file", {
-    designId,
+  const seeded = await readDesign(app.page, designId);
+  const indexId = seeded.files?.find(
+    (file) => file.filename === "index.html",
+  )?.id;
+  await postAction(app.page, "update-file", {
+    id: indexId,
     filename: "screen-a.html",
-    content: SCREEN_A_HTML,
-    fileType: "html",
   });
-  await postAction(page, "create-file", {
-    designId,
-    filename: "screen-b.html",
-    content: SCREEN_B_HTML,
-    fileType: "html",
-  });
-  const design = await readDesign(page, designId);
+  const design = await readDesign(app.page, designId);
   const screenAId = design.files?.find(
     (file) => file.filename === "screen-a.html",
   )?.id;
@@ -112,10 +105,6 @@ async function readBodyFill(page: Page, html: string) {
   }, html);
 }
 
-async function deleteDesign(page: Page, designId: string) {
-  await postAction(page, "delete-design", { id: designId });
-}
-
 async function waitForGate(gate: Promise<void>, label: string) {
   let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -133,14 +122,23 @@ async function waitForGate(gate: Promise<void>, label: string) {
   }
 }
 
-// oracle: none — an upload race in app code with no native Figma counterpart; only the Choose image… button's name changed here.
 test("delayed Screen-root image upload stays with its original Screen", async ({
+  app,
   page,
 }) => {
   test.setTimeout(120_000);
-  const { designId, screenAId, screenBId } = await createTwoScreenDesign(page);
+  const { designId, screenAId, screenBId } = await createTwoScreenDesign(app);
+  app.allowFailure(
+    /^http 409 POST \/_agent-native\/actions\/update-file$/,
+    "the test makes the upload's save conflict with a concurrent edit",
+  );
+  app.allowFailure(
+    /^error toast This screen changed elsewhere\. Your last edit was not saved\.$/,
+    "the conflict is reported to the user",
+  );
   const uploadTimeline: Array<Record<string, unknown>> = [];
   const timelineStart = Date.now();
+  let observedRequestSequence = 0;
   page.on("request", (request) => {
     const url = request.url();
     if (!url.includes("/_agent-native/actions/")) return;
@@ -148,6 +146,7 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
     if (action === "get-design") {
       uploadTimeline.push({
         ms: Date.now() - timelineStart,
+        sequence: observedRequestSequence++,
         event: "browser-get-design-request",
       });
       return;
@@ -163,6 +162,7 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
     const content = typeof body.content === "string" ? body.content : "";
     uploadTimeline.push({
       ms: Date.now() - timelineStart,
+      sequence: observedRequestSequence++,
       event: "browser-update-file-request",
       fileId: body.id,
       expectedVersionHash: body.expectedVersionHash ?? null,
@@ -201,6 +201,7 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
       return;
     }
     if (!url.includes("/_agent-native/actions/get-design")) return;
+    const sequence = observedRequestSequence++;
     void response
       .json()
       .then((body: DesignRecord) => {
@@ -208,6 +209,7 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
         if (!file) return;
         uploadTimeline.push({
           ms: Date.now() - timelineStart,
+          sequence,
           event: "browser-get-design-response",
           screenAHasConcurrentMarker: file.content.includes(
             "Screen A source updated during upload",
@@ -219,12 +221,26 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
       .catch(() => {});
   });
   let releaseUpload!: () => void;
+  let releaseScreenACollabPoll!: () => void;
   let releaseBrowserDesignReads!: () => void;
   let markUploadStarted!: () => void;
   let markUploadCompleted!: () => void;
+  let markScreenACollabPollObserved!: () => void;
+  let markScreenACollabPollCompleted!: () => void;
+  let holdNextScreenACollabPoll = false;
+  let screenACollabPollHeld = false;
   let holdBrowserDesignReads = false;
   const uploadGate = new Promise<void>((resolve) => {
     releaseUpload = resolve;
+  });
+  const screenACollabPollReleaseGate = new Promise<void>((resolve) => {
+    releaseScreenACollabPoll = resolve;
+  });
+  const screenACollabPollObserved = new Promise<void>((resolve) => {
+    markScreenACollabPollObserved = resolve;
+  });
+  const screenACollabPollCompleted = new Promise<void>((resolve) => {
+    markScreenACollabPollCompleted = resolve;
   });
   const browserDesignReadGate = new Promise<void>((resolve) => {
     releaseBrowserDesignReads = resolve;
@@ -239,10 +255,52 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
   let uploadBody: string | undefined;
   let uploadRouteError: string | undefined;
   const uploadRoute = "**/_agent-native/actions/upload-image";
+  const pollRoute = "**/_agent-native/poll?*";
+  const eventsRoute = "**/_agent-native/events*";
   const designReadRoute = "**/_agent-native/actions/get-design*";
+  // The client also reads get-design inside batches; an unheld batch leaks the concurrent edit.
+  const batchedReadRoute = "**/_agent-native/actions/get-actions-batch*";
 
   try {
-    await gotoEditor(page, designId);
+    await page.route(eventsRoute, async (route) => {
+      await route.fulfill({ status: 204, body: "" });
+    });
+    await page.route(pollRoute, async (route) => {
+      const response = await route.fetch();
+      const body = await response.text();
+      const payload = JSON.parse(body) as {
+        events?: Array<{ source?: string; docId?: string }>;
+      };
+      const events = payload.events ?? [];
+      const hasScreenACollabEvent = events.some(
+        (event) => event.source === "collab" && event.docId === screenAId,
+      );
+      if (holdNextScreenACollabPoll && hasScreenACollabEvent) {
+        holdNextScreenACollabPoll = false;
+        screenACollabPollHeld = true;
+        markScreenACollabPollObserved();
+        uploadTimeline.push({
+          ms: Date.now() - timelineStart,
+          event: "screen-a-collab-poll-held",
+        });
+        try {
+          await waitForGate(
+            screenACollabPollReleaseGate,
+            "Screen A collaboration poll release",
+          );
+          await route.fulfill({ response, body });
+          uploadTimeline.push({
+            ms: Date.now() - timelineStart,
+            event: "screen-a-collab-poll-released",
+          });
+        } finally {
+          markScreenACollabPollCompleted();
+        }
+        return;
+      }
+      await route.fulfill({ response, body });
+    });
+    await app.open(designId);
     await page.route(designReadRoute, async (route) => {
       if (!holdBrowserDesignReads) {
         await route.continue();
@@ -267,6 +325,18 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
       });
       await waitForGate(browserDesignReadGate, "browser get-design release");
       await route.fulfill({ response, body });
+    });
+    await page.route(batchedReadRoute, async (route) => {
+      const readsDesign = (route.request().postData() ?? "").includes(
+        '"action":"get-design"',
+      );
+      if (holdBrowserDesignReads && readsDesign) {
+        await waitForGate(
+          browserDesignReadGate,
+          "browser batched get-design release",
+        );
+      }
+      await route.continue();
     });
     const layers = page.getByRole("tree", { name: "Layers" });
     const screens = layers.locator('[role="treeitem"][aria-level="1"]');
@@ -357,6 +427,7 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
       .replace("background-color:#253b50", "background-color:#2e4a62");
     expect(screenAHtmlWithConcurrentEdit).not.toBe(screenAHtmlBeforeEdit);
     expect(screenAHtmlWithConcurrentEdit).toContain("#2e4a62");
+    holdNextScreenACollabPoll = true;
     holdBrowserDesignReads = true;
     const externalUpdateResult = await postAction(page, "update-file", {
       id: screenAId,
@@ -371,6 +442,8 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
     await expect
       .poll(() => readScreenHtml(page, designId, screenAId))
       .toContain("Screen A source updated during upload");
+    await waitForGate(screenACollabPollObserved, "Screen A collaboration poll");
+    expect(screenACollabPollHeld).toBe(true);
     expect(await readBodyFill(page, screenBHtmlBefore)).toMatchObject({
       backgroundColor: "rgb(128, 85, 0)",
       backgroundImage: "",
@@ -380,6 +453,7 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
     uploadTimeline.push({
       ms: Date.now() - timelineStart,
       event: "upload-response-released",
+      screenACollabPollHeld: screenACollabPollHeld,
       browserHadObservedConcurrentMarker: uploadTimeline.some(
         (event) =>
           event.event === "browser-get-design-response" &&
@@ -433,11 +507,25 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
         { exact: true },
       ),
     ).toBeVisible();
+    const staleUploadSave = uploadTimeline.find(
+      (event) =>
+        event.event === "browser-update-file-request" &&
+        event.fileId === screenAId &&
+        event.hasUploadUrl === true,
+    );
+    expect(staleUploadSave).toBeDefined();
+    expect(staleUploadSave?.hasConcurrentMarker).toBe(false);
+    expect(typeof staleUploadSave?.expectedVersionHash).toBe("string");
+    const staleUploadSaveSequence = staleUploadSave?.sequence;
+    expect(typeof staleUploadSaveSequence).toBe("number");
     expect(
       uploadTimeline.some(
         (event) =>
           event.event === "browser-get-design-response" &&
-          event.screenAHasConcurrentMarker === true,
+          event.screenAHasConcurrentMarker === true &&
+          typeof event.sequence === "number" &&
+          typeof staleUploadSaveSequence === "number" &&
+          event.sequence < staleUploadSaveSequence,
       ),
     ).toBe(false);
     expect(
@@ -451,6 +539,8 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
     ).toBe(true);
     releaseBrowserDesignReads();
     holdBrowserDesignReads = false;
+    releaseScreenACollabPoll();
+    await screenACollabPollCompleted;
     await expect
       .poll(() => designFrame(page, screenAId).locator("body").textContent())
       .toContain("Screen A source updated during upload");
@@ -579,23 +669,39 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
     );
   } finally {
     releaseUpload?.();
+    releaseScreenACollabPoll?.();
     releaseBrowserDesignReads?.();
     await Promise.race([
       uploadCompleted,
       new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
     ]);
+    if (screenACollabPollHeld) {
+      await Promise.race([
+        screenACollabPollCompleted,
+        new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
+      ]);
+    }
     await page.unroute(uploadRoute).catch(() => {});
+    await page.unroute(pollRoute).catch(() => {});
+    await page.unroute(eventsRoute).catch(() => {});
     await page.unroute(designReadRoute).catch(() => {});
-    await deleteDesign(page, designId);
+    await page.unroute(batchedReadRoute).catch(() => {});
   }
 });
-
-// oracle: none — an upload race in app code with no native Figma counterpart; only the Choose image… button's name and how Interact is left and its frame swapped changed here.
 test("active Screen upload conflict preserves SQL and live-collaboration source", async ({
+  app,
   page,
 }) => {
   test.setTimeout(120_000);
-  const { designId, screenAId, screenBId } = await createTwoScreenDesign(page);
+  const { designId, screenAId, screenBId } = await createTwoScreenDesign(app);
+  app.allowFailure(
+    /^http 409 POST \/_agent-native\/actions\/update-file$/,
+    "the test makes the upload's save conflict with a concurrent edit",
+  );
+  app.allowFailure(
+    /^error toast This screen changed elsewhere\. Your last edit was not saved\.$/,
+    "the conflict is reported to the user",
+  );
   const marker = "Screen A source updated during active upload";
   const timeline: Array<Record<string, unknown>> = [];
   let releaseUpload!: () => void;
@@ -604,6 +710,7 @@ test("active Screen upload conflict preserves SQL and live-collaboration source"
   let releaseBrowserReads!: () => void;
   let holdBrowserReads = false;
   let hideRemoteCollabEvents = false;
+  let reloaded = false;
   let filteredCollabEvents = 0;
   const uploadGate = new Promise<void>((resolve) => {
     releaseUpload = resolve;
@@ -638,6 +745,7 @@ test("active Screen upload conflict preserves SQL and live-collaboration source"
       syncCollab: body.syncCollab ?? null,
       hasMarker: content.includes(marker),
       hasUploadUrl: /qa-import-assets/.test(content),
+      afterReload: reloaded,
     });
   });
   page.on("response", (response) => {
@@ -732,7 +840,7 @@ test("active Screen upload conflict preserves SQL and live-collaboration source"
         response.url().includes(`/_agent-native/collab/${screenAId}/state`),
       { timeout: 20_000 },
     );
-    await gotoEditor(page, designId);
+    await app.open(designId);
     const collabStateResponse = await collabStateResponsePromise;
     const collabState = (await collabStateResponse.json()) as {
       state?: string;
@@ -789,14 +897,12 @@ test("active Screen upload conflict preserves SQL and live-collaboration source"
       "data-screen-interact-mode",
       "false",
     );
-    const focusScreen = screenAShell.locator("[data-frame-full-view]");
-    await expect(focusScreen).toHaveCount(1);
+    const screenTitle = screenAShell.locator("[data-frame-title]").first();
+    await expect(screenTitle).toBeVisible();
     await expect(
       screenAShell.locator("iframe[data-design-preview-iframe]").first(),
     ).toBeVisible();
-    await focusScreen.evaluate((element) => {
-      (element as HTMLButtonElement).click();
-    });
+    await screenTitle.dblclick();
     await expect(
       screenAShell.locator("iframe[data-design-preview-iframe]").first(),
     ).toBeVisible();
@@ -1007,6 +1113,7 @@ test("active Screen upload conflict preserves SQL and live-collaboration source"
       "screen-image-upload-active-collab-before-reload",
       JSON.stringify(timeline),
     );
+    reloaded = true;
     await page.reload();
     await expect
       .poll(async () => readScreenHtml(page, designId, screenAId))
@@ -1036,6 +1143,16 @@ test("active Screen upload conflict preserves SQL and live-collaboration source"
         previewText: await reloadedFrame.locator("body").innerText(),
       }),
     );
+    await app.settled();
+    expect(
+      timeline.filter(
+        (event) =>
+          event.event === "browser-update-file-request" &&
+          event.afterReload &&
+          event.hasUploadUrl,
+      ),
+      "the save the conflict toast called not saved is never re-sent",
+    ).toEqual([]);
   } finally {
     releaseUpload?.();
     releaseBrowserReads?.();
@@ -1050,16 +1167,15 @@ test("active Screen upload conflict preserves SQL and live-collaboration source"
       "screen-image-upload-active-collab-final-timeline",
       JSON.stringify(timeline),
     );
-    await deleteDesign(page, designId);
   }
 });
 
-// oracle: none — an upload race in app code with no native Figma counterpart; only the Choose image… button's name changed here.
 test("accepted Screen-root image upload persists and renders its source", async ({
+  app,
   page,
 }) => {
   test.setTimeout(120_000);
-  const { designId, screenAId, screenBId } = await createTwoScreenDesign(page);
+  const { designId, screenAId, screenBId } = await createTwoScreenDesign(app);
   const screenBHtmlBefore = await readScreenHtml(page, designId, screenBId);
   let releaseUpload!: () => void;
   let markUploadStarted!: () => void;
@@ -1102,7 +1218,7 @@ test("accepted Screen-root image upload persists and renders its source", async 
         response.url().includes(`/_agent-native/collab/${screenAId}/state`),
       { timeout: 20_000 },
     );
-    await gotoEditor(page, designId);
+    await app.open(designId);
     expect((await collabStateResponse).status()).toBe(200);
 
     await page.route(sourceUpdateRoute, async (route) => {
@@ -1185,9 +1301,7 @@ test("accepted Screen-root image upload persists and renders its source", async 
     const screenAShell = page.locator(
       `[data-screen-shell][data-frame-id="${screenAId}"]`,
     );
-    await screenAShell.locator("[data-frame-full-view]").evaluate((element) => {
-      (element as HTMLButtonElement).click();
-    });
+    await screenAShell.locator("[data-frame-title]").first().dblclick();
     await page
       .locator('[data-design-top-bar] [data-design-mode="interact"]')
       .click();
@@ -1285,11 +1399,7 @@ test("accepted Screen-root image upload persists and renders its source", async 
     const reloadedScreenAShell = page.locator(
       `[data-screen-shell][data-frame-id="${screenAId}"]`,
     );
-    await reloadedScreenAShell
-      .locator("[data-frame-full-view]")
-      .evaluate((element) => {
-        (element as HTMLButtonElement).click();
-      });
+    await reloadedScreenAShell.locator("[data-frame-title]").first().dblclick();
     await page
       .locator('[data-design-top-bar] [data-design-mode="interact"]')
       .click();
@@ -1317,6 +1427,5 @@ test("accepted Screen-root image upload persists and renders its source", async 
     ]);
     await page.unroute(uploadRoute).catch(() => {});
     await page.unroute(sourceUpdateRoute).catch(() => {});
-    await deleteDesign(page, designId);
   }
 });

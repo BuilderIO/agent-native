@@ -4,7 +4,12 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../../db/ddl-guard.js";
-import { retainRequestDbPoolScope } from "../../db/request-pool-context.js";
+import { defineStore } from "../../db/store-registry.js";
+import { fromMigrationEntries } from "../../db/versioned-store-migrations.js";
+import {
+  AGENT_HARNESS_SESSION_MIGRATIONS,
+  AGENT_HARNESS_SESSION_MIGRATIONS_TABLE,
+} from "./migrations.js";
 
 export type AgentHarnessSessionStatus =
   | "running"
@@ -69,12 +74,13 @@ export interface SaveAgentHarnessSessionInput {
   existingSession?: StoredAgentHarnessSession | null;
 }
 
-let initPromise: Promise<void> | undefined;
-
-export async function ensureAgentHarnessSessionTables(): Promise<void> {
-  if (!initPromise) {
-    const initPromiseWithRequestDbPoolScope = (async () => {
-      const createSql = `
+export const agentHarnessSessionsStore = defineStore({
+  id: "agent_harness_sessions",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `
         CREATE TABLE IF NOT EXISTS agent_harness_sessions (
           id TEXT PRIMARY KEY,
           harness_name TEXT NOT NULL,
@@ -95,7 +101,6 @@ export async function ensureAgentHarnessSessionTables(): Promise<void> {
         )
       `;
 
-      {
         await ensureTableExists("agent_harness_sessions", createSql);
         for (const col of [
           "run_id",
@@ -135,15 +140,17 @@ export async function ensureAgentHarnessSessionTables(): Promise<void> {
           "idx_agent_harness_sessions_owner",
           `CREATE INDEX IF NOT EXISTS idx_agent_harness_sessions_owner ON agent_harness_sessions(owner_email, updated_at)`,
         );
-        return;
-      }
-    })().catch((err) => {
-      initPromise = undefined;
-      throw err;
-    });
-    initPromise = retainRequestDbPoolScope(initPromiseWithRequestDbPoolScope);
-  }
-  return initPromise;
+      },
+    },
+    ...fromMigrationEntries(
+      AGENT_HARNESS_SESSION_MIGRATIONS_TABLE,
+      AGENT_HARNESS_SESSION_MIGRATIONS,
+    ),
+  ],
+});
+
+export function ensureAgentHarnessSessionTables(): Promise<void> {
+  return agentHarnessSessionsStore.ready();
 }
 
 export async function saveAgentHarnessSession(

@@ -5,10 +5,19 @@ import {
   readAgentSqlQuery,
   rewriteAgentSqlQuerySources,
   type AgentSqlDialect,
+  type AgentSqlToken,
 } from "@agent-native/core/agent-sql";
 import { getDbExec } from "@agent-native/core/db";
 import { getOrgSetting } from "@agent-native/core/settings";
 
+import type {
+  SourceGenerationResult,
+  SourceGenerationUnavailableReason,
+} from "../../shared/source-generation.js";
+import type {
+  FirstPartyEventsModelSkipReason,
+  FirstPartyEventsSource,
+} from "../../shared/sql-query-contract.js";
 import {
   BigQueryQueryTimeoutError,
   getBigQueryProjectId,
@@ -18,6 +27,7 @@ import {
 import { requireRequestCredentialContext } from "./credentials-context.js";
 import { firstPartyEventPushdownPredicates } from "./first-party-analytics-pushdown.js";
 import { validateAnalyticsSqlFunctions } from "./first-party-analytics-sql-policy.js";
+import type { AnalyticsQueryResult } from "./first-party-analytics.js";
 import {
   fetchGoogleWithRetry,
   getBigQueryAccessToken,
@@ -27,6 +37,7 @@ import {
   getScopedSettingRecord,
   putScopedSettingRecord,
 } from "./scoped-settings.js";
+import { resolveSourceGeneration } from "./source-generation.js";
 
 export const FIRST_PARTY_ANALYTICS_BACKEND_SETTING =
   "first-party-analytics-backend";
@@ -38,6 +49,20 @@ export interface FirstPartyAnalyticsBackendConfig {
   table: string | null;
   backfillCursor?: string | null;
   backfillCompleted?: boolean;
+  /**
+   * A deduplicated, warehouse-built model of the product events in `table`,
+   * as project.dataset.table. Saving without it keeps the stored value.
+   */
+  modelTable?: string | null;
+}
+
+export interface ResolvedFirstPartyAnalyticsBackend extends FirstPartyAnalyticsBackendConfig {
+  /**
+   * Where `sink` came from. An unrecognized stored value still routes reads
+   * and writes to Postgres, but it is not the same state as an absent setting
+   * and must stay visible to whoever reports the backend.
+   */
+  sinkSetting: "absent" | "recognized" | "unrecognized";
 }
 
 export interface FirstPartyAnalyticsBackfillCursor {
@@ -73,6 +98,13 @@ interface FirstPartyAnalyticsBackendSetting {
   table?: unknown;
   backfillCursor?: unknown;
   backfillCompleted?: unknown;
+  model?: unknown;
+}
+
+function settingModelTable(model: unknown): string | null {
+  if (!model || typeof model !== "object") return null;
+  const table = (model as { table?: unknown }).table;
+  return typeof table === "string" && table.trim() ? table.trim() : null;
 }
 
 interface FirstPartyAnalyticsEventRow {
@@ -137,7 +169,7 @@ export interface FirstPartyAnalyticsInsertResult {
 
 const backendConfigCache = new Map<
   string,
-  { config: FirstPartyAnalyticsBackendConfig; expiresAt: number }
+  { config: ResolvedFirstPartyAnalyticsBackend; expiresAt: number }
 >();
 
 function backendScopeKey(scope: FirstPartyAnalyticsScope): string {
@@ -175,6 +207,13 @@ function parseTableRef(
   };
 }
 
+function sinkSettingState(
+  value: unknown,
+): ResolvedFirstPartyAnalyticsBackend["sinkSetting"] {
+  if (value === undefined || value === null) return "absent";
+  return normalizeSink(value) === value ? "recognized" : "unrecognized";
+}
+
 function normalizeSink(value: unknown): FirstPartyAnalyticsSink {
   return value === "dual" || value === "bigquery" ? value : "postgres";
 }
@@ -182,7 +221,7 @@ function normalizeSink(value: unknown): FirstPartyAnalyticsSink {
 export async function getFirstPartyAnalyticsBackend(
   scope: FirstPartyAnalyticsScope,
   signal?: AbortSignal,
-): Promise<FirstPartyAnalyticsBackendConfig> {
+): Promise<ResolvedFirstPartyAnalyticsBackend> {
   if (signal?.aborted) {
     throw new DOMException("The operation was aborted", "AbortError");
   }
@@ -205,12 +244,14 @@ export async function getFirstPartyAnalyticsBackend(
   )) as FirstPartyAnalyticsBackendSetting | null;
   const config = {
     sink: normalizeSink(setting?.sink),
+    sinkSetting: sinkSettingState(setting?.sink),
     table: typeof setting?.table === "string" ? setting.table : null,
     backfillCursor:
       typeof setting?.backfillCursor === "string"
         ? setting.backfillCursor
         : null,
     backfillCompleted: setting?.backfillCompleted === true,
+    modelTable: settingModelTable(setting?.model),
   };
   backendConfigCache.set(cacheKey, {
     config,
@@ -223,11 +264,24 @@ export async function saveFirstPartyAnalyticsBackend(
   scope: FirstPartyAnalyticsScope,
   config: FirstPartyAnalyticsBackendConfig,
 ): Promise<void> {
+  const settingScope = { email: scope.userEmail, orgId: scope.orgId };
+  const modelTable =
+    config.modelTable !== undefined
+      ? config.modelTable
+      : settingModelTable(
+          (
+            (await getScopedSettingRecord(
+              settingScope,
+              FIRST_PARTY_ANALYTICS_BACKEND_SETTING,
+            )) as FirstPartyAnalyticsBackendSetting | null
+          )?.model,
+        );
   await putScopedSettingRecord(
-    { email: scope.userEmail, orgId: scope.orgId },
+    settingScope,
     FIRST_PARTY_ANALYTICS_BACKEND_SETTING,
     {
       sink: config.sink,
+      ...(modelTable ? { model: { table: modelTable } } : {}),
       ...(config.table ? { table: config.table } : {}),
       ...(config.backfillCursor !== undefined
         ? { backfillCursor: config.backfillCursor }
@@ -235,6 +289,32 @@ export async function saveFirstPartyAnalyticsBackend(
       ...(config.backfillCompleted !== undefined
         ? { backfillCompleted: config.backfillCompleted }
         : {}),
+      updatedAt: new Date().toISOString(),
+    },
+  );
+  backendConfigCache.delete(backendScopeKey(scope));
+}
+
+/**
+ * Point first-party reads at an events model, or back at the raw table with
+ * null. Only the model changes; the sink and backfill state stay as stored.
+ */
+export async function saveFirstPartyEventsModelTable(
+  scope: FirstPartyAnalyticsScope,
+  modelTable: string | null,
+): Promise<void> {
+  const settingScope = { email: scope.userEmail, orgId: scope.orgId };
+  const stored = ((await getScopedSettingRecord(
+    settingScope,
+    FIRST_PARTY_ANALYTICS_BACKEND_SETTING,
+  )) ?? {}) as Record<string, unknown>;
+  const { model: _previous, ...rest } = stored;
+  await putScopedSettingRecord(
+    settingScope,
+    FIRST_PARTY_ANALYTICS_BACKEND_SETTING,
+    {
+      ...rest,
+      ...(modelTable ? { model: { table: modelTable } } : {}),
       updatedAt: new Date().toISOString(),
     },
   );
@@ -757,6 +837,12 @@ function normalizePostgresSql(sql: string): string {
   let cursor = 0;
   let result = "";
   const tokens = lexAgentSql(sql, { dialect: "postgres" });
+  const typedLiteralPrefixes = new Set([
+    "date",
+    "time",
+    "datetime",
+    "timestamp",
+  ]);
   for (const [index, token] of tokens.entries()) {
     if (token.kind === "string" && !token.text.startsWith("'")) {
       const prefix = token.text.startsWith("$")
@@ -773,10 +859,13 @@ function normalizePostgresSql(sql: string): string {
       previous?.kind === "word" &&
       previous.end === token.start
     ) {
-      throw new FirstPartyAnalyticsUnsupportedSqlError(
-        "a string literal without a preceding separator",
-        "First-party BigQuery query requires a separator before string literals",
-      );
+      if (!typedLiteralPrefixes.has(previous.text.toLowerCase())) {
+        throw new FirstPartyAnalyticsUnsupportedSqlError(
+          "a string literal without a preceding separator",
+          "First-party BigQuery query requires a separator before string literals",
+        );
+      }
+      result += " ";
     }
     // PostgreSQL nests block comments; GoogleSQL does not. Remove the skipped
     // spans before translating so inner comment terminators cannot expose SQL.
@@ -1119,13 +1208,14 @@ function replacePostgresCastsInCode(code: string): string {
 }
 
 function translatePostgresDateExpression(value: string): string {
-  let translated = replacePostgresCastsInCode(value.trim());
-  translated = translated
-    .replace(/\bnow\s*\(\s*\)/gi, "CURRENT_TIMESTAMP()")
-    .replace(/\bCURRENT_DATE\b(?!\s*\()/gi, "CURRENT_DATE()")
-    .replace(/\bCURRENT_TIMESTAMP\b(?!\s*\()/gi, "CURRENT_TIMESTAMP()");
-  translated = replaceBigQueryDateArithmetic(translated);
-  return translated.trim();
+  return rewriteWithMaskedSqlLiterals(value.trim(), (code) => {
+    let translated = replacePostgresCastsInCode(code);
+    translated = translated
+      .replace(/\bnow\s*\(\s*\)/gi, "CURRENT_TIMESTAMP()")
+      .replace(/\bCURRENT_DATE\b(?!\s*\()/gi, "CURRENT_DATE()")
+      .replace(/\bCURRENT_TIMESTAMP\b(?!\s*\()/gi, "CURRENT_TIMESTAMP()");
+    return replaceBigQueryDateArithmetic(translated).trim();
+  });
 }
 
 function replaceBigQueryDateArithmetic(code: string): string {
@@ -1295,7 +1385,363 @@ function translateFirstPartyAnalyticsBigQuerySql(sql: string): string {
   return translated;
 }
 
-function qualifyQuerySources(sql: string, table: BigQueryTableRef): string {
+/**
+ * The events model projected back to the raw table's column names, so scoped
+ * first-party SQL runs unchanged. The model omits `http.response`, is already
+ * deduplicated by event id, carries `properties` as native JSON, and has no
+ * `public_key_id` or `context`; `firstPartyEventsModelIneligibility` keeps
+ * SQL that depends on any of those on the raw table. The missing columns are
+ * left out rather than filled with NULL, so `SELECT *` cannot return a
+ * plausible empty value for data the model never had.
+ */
+export function firstPartyEventsModelProjection(modelTable: string): string {
+  return [
+    "SELECT event_id AS id, event_name,",
+    "user_email AS user_id, anonymous_id, user_key, session_id,",
+    "event_at AS timestamp, event_date, received_at, page_url AS url,",
+    "page_path AS path, page_hostname AS hostname, referrer_url AS referrer,",
+    "app, template,",
+    "CASE WHEN is_signed_in THEN 'true' WHEN NOT is_signed_in THEN 'false' END AS signed_in,",
+    "properties,",
+    "agent_native_account_owner_email AS owner_email,",
+    "agent_native_account_id AS org_id",
+    `FROM \`${modelTable}\``,
+  ].join(" ");
+}
+
+// Only the extractors that return STRING (or ARRAY<STRING>) from both a STRING
+// and a JSON argument: the raw table types `properties` as STRING and the
+// model as JSON, so JSON_QUERY and its kin would change the result type.
+const JSON_PATH_FUNCTIONS = new Set([
+  "json_value",
+  "json_extract_scalar",
+  "json_value_array",
+  "json_extract_string_array",
+]);
+
+export type FirstPartyEventsModelIneligibility = Extract<
+  FirstPartyEventsModelSkipReason,
+  | "reads_no_events"
+  | "reads_raw_only_columns"
+  | "reads_all_columns"
+  | "reads_http_response"
+  | "http_response_not_excluded"
+  | "reads_properties_as_text"
+>;
+
+const HTTP_RESPONSE_LITERAL = /^['"]http\.response['"]$/i;
+// Raw, triple-quoted, and escaped strings can spell http.response without
+// matching it, so only a plain literal proves which event a filter names.
+const PLAIN_STRING_LITERAL = /^(?:'[^'\\]*'|"[^"\\]*")$/;
+const WHERE_END_KEYWORDS = new Set([
+  "group",
+  "having",
+  "window",
+  "qualify",
+  "order",
+  "limit",
+  "union",
+  "intersect",
+  "except",
+]);
+
+function isWord(token: AgentSqlToken | undefined, word: string): boolean {
+  return token?.kind === "word" && token.value === word;
+}
+
+function isEventNameColumn(
+  tokens: AgentSqlToken[],
+  index: number,
+  sourceName: string,
+): boolean {
+  const token = tokens[index];
+  if (
+    (token?.kind !== "word" && token?.kind !== "quoted-identifier") ||
+    token.value.toLowerCase() !== "event_name"
+  ) {
+    return false;
+  }
+  if (tokens[index - 1]?.text !== ".") return true;
+  return tokens[index - 2]?.value.toLowerCase() === sourceName;
+}
+
+/**
+ * Index just past an `event_name` conjunct that keeps `http.response` out:
+ * `= 'event'`, `IN ('event', ...)`, or `!= 'http.response'`. -1 otherwise.
+ */
+function httpResponseExclusionEnd(
+  tokens: AgentSqlToken[],
+  index: number,
+): number {
+  const operator = tokens[index + 1];
+  const literal = tokens[index + 2];
+  if (operator?.text === "=" && literal?.kind === "string") {
+    return PLAIN_STRING_LITERAL.test(literal.text) &&
+      !HTTP_RESPONSE_LITERAL.test(literal.text)
+      ? index + 3
+      : -1;
+  }
+  if (
+    (operator?.text === "!=" || operator?.text === "<>") &&
+    literal?.kind === "string"
+  ) {
+    // String comparison is case-sensitive, so only the exact event name
+    // excludes it; the case-insensitive match elsewhere only keeps SQL raw.
+    return literal.text.slice(1, -1) === "http.response" &&
+      PLAIN_STRING_LITERAL.test(literal.text)
+      ? index + 3
+      : -1;
+  }
+  if (!isWord(operator, "in") || literal?.text !== "(") return -1;
+  let cursor = index + 3;
+  for (;;) {
+    const value = tokens[cursor];
+    if (
+      value?.kind !== "string" ||
+      !PLAIN_STRING_LITERAL.test(value.text) ||
+      HTTP_RESPONSE_LITERAL.test(value.text)
+    ) {
+      return -1;
+    }
+    const next = tokens[cursor + 1];
+    if (next?.text === ")") return cursor + 2;
+    if (next?.text !== ",") return -1;
+    cursor += 2;
+  }
+}
+
+type ConditionTokens = {
+  tokens: AgentSqlToken[];
+  depths: number[];
+  sourceName: string;
+};
+
+function widensCondition(tokens: AgentSqlToken[], index: number): boolean {
+  const token = tokens[index];
+  return (
+    isWord(token, "or") ||
+    isWord(token, "case") ||
+    (isWord(token, "not") && !isWord(tokens[index - 1], "is"))
+  );
+}
+
+/** Whether some AND conjunct of tokens [from, to) at `level` drops every `http.response` row. */
+function conjunctionExcludesHttpResponse(
+  condition: ConditionTokens,
+  from: number,
+  to: number,
+  level: number,
+): boolean {
+  let start = from;
+  let between = false;
+  for (let index = from; index <= to; index++) {
+    if (index < to) {
+      if (condition.depths[index] !== level) continue;
+      const token = condition.tokens[index];
+      if (isWord(token, "between")) between = true;
+      if (!isWord(token, "and")) continue;
+      // BETWEEN's own AND joins its bounds, not two conditions.
+      if (between) {
+        between = false;
+        continue;
+      }
+    }
+    if (conjunctExcludesHttpResponse(condition, start, index, level)) {
+      return true;
+    }
+    start = index + 1;
+  }
+  return false;
+}
+
+function conjunctExcludesHttpResponse(
+  condition: ConditionTokens,
+  from: number,
+  to: number,
+  level: number,
+): boolean {
+  const { tokens, depths } = condition;
+  if (
+    to - from >= 2 &&
+    tokens[from].text === "(" &&
+    tokens[to - 1].text === ")"
+  ) {
+    // A subquery's event_name belongs to its own FROM, not to this source.
+    if (
+      isWord(tokens[from + 1], "select") ||
+      isWord(tokens[from + 1], "with")
+    ) {
+      return false;
+    }
+    for (let index = from + 1; index < to - 1; index++) {
+      if (depths[index] <= level) return false;
+    }
+    return groupExcludesHttpResponse(condition, from + 1, to - 1, level + 1);
+  }
+  const column = tokens[from + 1]?.text === "." ? from + 2 : from;
+  return (
+    isEventNameColumn(tokens, column, condition.sourceName) &&
+    httpResponseExclusionEnd(tokens, column) === to
+  );
+}
+
+// A parenthesized condition excludes `http.response` only when every OR
+// branch does: one branch without an event restriction readmits it.
+function groupExcludesHttpResponse(
+  condition: ConditionTokens,
+  from: number,
+  to: number,
+  level: number,
+): boolean {
+  let start = from;
+  for (let index = from; index <= to; index++) {
+    if (index < to) {
+      if (condition.depths[index] !== level) continue;
+      if (!isWord(condition.tokens[index], "or")) {
+        if (widensCondition(condition.tokens, index)) return false;
+        continue;
+      }
+    }
+    if (!conjunctionExcludesHttpResponse(condition, start, index, level)) {
+      return false;
+    }
+    start = index + 1;
+  }
+  return true;
+}
+
+/**
+ * The model omits every `http.response` row, so a read can move to it only
+ * when its own WHERE provably drops them: a top-level conjunct on
+ * `event_name`, or a parenthesized OR whose every branch has one. ANDed
+ * conditions only narrow, so OR and NOT may appear inside any other
+ * parenthesized conjunct, but an OR, NOT, or CASE at the WHERE's own level
+ * could let `http.response` back in. An unfiltered count or an
+ * `event_name` breakdown would otherwise lose those rows without any sign the
+ * number changed.
+ */
+function eventsReadsIneligibility(
+  sql: string,
+): "reads_no_events" | "http_response_not_excluded" | null {
+  const query = readAgentSqlQuery(sql, { dialect: "bigquery" });
+  const { tokens } = query;
+  // A pipe stage filters an earlier stage's result, so its WHERE says nothing
+  // about which rows the source fed in.
+  if (
+    tokens.some(
+      (token, index) =>
+        token.text === "|>" ||
+        (token.text === "|" && tokens[index + 1]?.text === ">"),
+    )
+  ) {
+    return "http_response_not_excluded";
+  }
+  const depths: number[] = [];
+  let depth = 0;
+  // Array brackets nest expressions just as parentheses do.
+  for (const token of tokens) {
+    if (token.text === ")" || token.text === "]") depth--;
+    depths.push(depth);
+    if (token.text === "(" || token.text === "[") depth++;
+  }
+  const tokenIndex = new Map(
+    tokens.map((token, index) => [token.start, index]),
+  );
+  const eventsReads = query.sources.filter(
+    (source) =>
+      !source.cte &&
+      source.qualifiers.length === 0 &&
+      source.name.toLowerCase() === "analytics_events",
+  );
+  if (eventsReads.length === 0) return "reads_no_events";
+  for (const source of eventsReads) {
+    const start = tokenIndex.get(source.start);
+    if (start === undefined) return "http_response_not_excluded";
+    const level = depths[start];
+    const sourceName = (source.alias?.name ?? source.name).toLowerCase();
+    const atLevelEnd = (index: number) =>
+      index >= tokens.length ||
+      depths[index] < level ||
+      (depths[index] === level &&
+        tokens[index].kind === "word" &&
+        WHERE_END_KEYWORDS.has(tokens[index].value));
+    let where = start + 1;
+    while (
+      !atLevelEnd(where) &&
+      !(depths[where] === level && isWord(tokens[where], "where"))
+    ) {
+      where++;
+    }
+    if (atLevelEnd(where)) return "http_response_not_excluded";
+    let end = where + 1;
+    while (!atLevelEnd(end)) end++;
+    for (let index = where + 1; index < end; index++) {
+      if (depths[index] === level && widensCondition(tokens, index)) {
+        return "http_response_not_excluded";
+      }
+    }
+    const condition = { tokens, depths, sourceName };
+    if (!conjunctionExcludesHttpResponse(condition, where + 1, end, level)) {
+      return "http_response_not_excluded";
+    }
+  }
+  return null;
+}
+
+/** Why translated first-party BigQuery SQL must read the raw table, if it must. */
+export function firstPartyEventsModelIneligibility(
+  sql: string,
+): FirstPartyEventsModelIneligibility | null {
+  const tokens = lexAgentSql(sql, { dialect: "bigquery" });
+  for (let index = 0; index < tokens.length; index++) {
+    const token = tokens[index];
+    if (
+      token.kind === "string" &&
+      HTTP_RESPONSE_LITERAL.test(token.text) &&
+      // Excluding the events the model already omits is safe on the model.
+      !(
+        (tokens[index - 1]?.text === "!=" ||
+          tokens[index - 1]?.text === "<>") &&
+        tokens[index - 2]?.value === "event_name"
+      )
+    ) {
+      return "reads_http_response";
+    }
+    // The model has fewer columns than the raw table and types `properties`
+    // as JSON, so a wildcard would silently change the result's schema.
+    if (
+      token.text === "*" &&
+      (tokens[index - 1]?.text === "." ||
+        tokens[index - 1]?.text === "," ||
+        isWord(tokens[index - 1], "select") ||
+        isWord(tokens[index - 1], "distinct") ||
+        isWord(tokens[index - 1], "all"))
+    ) {
+      return "reads_all_columns";
+    }
+    if (token.kind !== "word" && token.kind !== "quoted-identifier") continue;
+    const name = token.value.toLowerCase();
+    if (name === "public_key_id" || name === "context") {
+      return "reads_raw_only_columns";
+    }
+    if (
+      name === "properties" &&
+      !(
+        tokens[index - 1]?.text === "(" &&
+        JSON_PATH_FUNCTIONS.has(tokens[index - 2]?.value.toLowerCase() ?? "")
+      )
+    ) {
+      return "reads_properties_as_text";
+    }
+  }
+  return eventsReadsIneligibility(sql);
+}
+
+function qualifyQuerySources(
+  sql: string,
+  table: BigQueryTableRef,
+  eventsModelTable?: string,
+): string {
   const physical = firstPartyAnalyticsPhysicalTables(table);
   const sourceMap: Record<string, string> = {
     analytics_events: firstPartyAnalyticsRawTable(table),
@@ -1307,6 +1753,9 @@ function qualifyQuerySources(sql: string, table: BigQueryTableRef): string {
     const physicalName = sourceMap[source.name.toLowerCase()];
     if (source.cte || source.qualifiers.length > 0 || !physicalName) {
       return sql.slice(source.start, source.end);
+    }
+    if (eventsModelTable && source.name.toLowerCase() === "analytics_events") {
+      return `(${firstPartyEventsModelProjection(eventsModelTable)})${source.alias ? "" : " AS analytics_events"}`;
     }
     return `\`${physicalName}\``;
   });
@@ -1336,15 +1785,7 @@ function onboardingEventDatePredicates(eventDateRange?: {
 function addPartitionPrunedEventDeduplication(
   sql: string,
   table: BigQueryTableRef,
-  options: {
-    eventDateRange?: { startDate: string; endDate: string };
-    scopedEventsSingleScan?: boolean;
-    scopedEventsProjection?: FirstPartyAnalyticsEventsProjection;
-    scopedEventsSourceProjections?: Record<
-      string,
-      FirstPartyAnalyticsEventSourceProjection
-    >;
-  } = {},
+  options: FirstPartyAnalyticsBigQueryRenderOptions = {},
 ): string {
   const quote = String.fromCharCode(96);
   const rawTableName = firstPartyAnalyticsRawTable(table);
@@ -1496,19 +1937,97 @@ export function assertFirstPartyAnalyticsBigQuerySql(sql: string): void {
   translateFirstPartyAnalyticsBigQuerySql(sql);
 }
 
+export interface FirstPartyAnalyticsBigQueryRenderOptions {
+  eventDateRange?: { startDate: string; endDate: string };
+  scopedEventsSingleScan?: boolean;
+  scopedEventsProjection?: FirstPartyAnalyticsEventsProjection;
+  scopedEventsSourceProjections?: Record<
+    string,
+    FirstPartyAnalyticsEventSourceProjection
+  >;
+  /** Read `analytics_events` from this events model instead of the raw table. */
+  eventsModelTable?: string;
+}
+
+function firstPartyEventsModelProjectionRequested(
+  options: FirstPartyAnalyticsBigQueryRenderOptions,
+): boolean {
+  return (
+    options.eventDateRange !== undefined ||
+    options.scopedEventsSingleScan === true ||
+    options.scopedEventsProjection !== undefined ||
+    options.scopedEventsSourceProjections !== undefined
+  );
+}
+
+const MODEL_MISSING_SKIP_REASONS: Partial<
+  Record<SourceGenerationUnavailableReason, FirstPartyEventsModelSkipReason>
+> = {
+  invalid_table_id: "model_invalid_table_id",
+  not_found: "model_not_found",
+  access_denied: "model_access_denied",
+};
+
+/**
+ * Check that a planned events model is there to read. A failed lookup still
+ * reads the model under an unknown generation; only a model that is not there
+ * to read sends the query to the raw table.
+ */
+export async function settleFirstPartyEventsSource(
+  eventsSource: FirstPartyEventsSource | undefined,
+  signal?: AbortSignal,
+): Promise<{
+  eventsSource: FirstPartyEventsSource | undefined;
+  sourceGeneration: SourceGenerationResult | undefined;
+}> {
+  const sourceGeneration =
+    eventsSource?.source === "model"
+      ? await resolveSourceGeneration([eventsSource.table], { signal })
+      : undefined;
+  const modelMissing =
+    sourceGeneration?.status === "unavailable"
+      ? MODEL_MISSING_SKIP_REASONS[sourceGeneration.reason]
+      : undefined;
+  return {
+    eventsSource: modelMissing
+      ? { source: "raw", modelSkipped: modelMissing }
+      : eventsSource,
+    sourceGeneration,
+  };
+}
+
+/**
+ * Choose where a first-party query reads `analytics_events`: the events model
+ * when one is configured and the query reads nothing the model lacks, the raw
+ * table otherwise, with the reason the model was skipped.
+ */
+export function planFirstPartyEventsSource(
+  sql: string,
+  modelTable: string | null | undefined,
+  options: FirstPartyAnalyticsBigQueryRenderOptions & {
+    eventsSource?: "raw";
+  } = {},
+): FirstPartyEventsSource {
+  if (!modelTable) return { source: "raw", modelSkipped: "not_configured" };
+  if (options.eventsSource === "raw") {
+    return { source: "raw", modelSkipped: "raw_requested" };
+  }
+  if (firstPartyEventsModelProjectionRequested(options)) {
+    return { source: "raw", modelSkipped: "raw_projection" };
+  }
+  const ineligible = firstPartyEventsModelIneligibility(
+    translateFirstPartyAnalyticsBigQuerySql(sql),
+  );
+  return ineligible
+    ? { source: "raw", modelSkipped: ineligible }
+    : { source: "model", table: modelTable };
+}
+
 export function renderFirstPartyAnalyticsBigQuerySql(
   scopedSql: string,
   args: Array<string | null>,
   table: BigQueryTableRef,
-  options: {
-    eventDateRange?: { startDate: string; endDate: string };
-    scopedEventsSingleScan?: boolean;
-    scopedEventsProjection?: FirstPartyAnalyticsEventsProjection;
-    scopedEventsSourceProjections?: Record<
-      string,
-      FirstPartyAnalyticsEventSourceProjection
-    >;
-  } = {},
+  options: FirstPartyAnalyticsBigQueryRenderOptions = {},
 ): string {
   // The Postgres scope builder uses a text fallback for nullable event
   // dates. BigQuery's event_date is a DATE, and the fallback is unnecessary
@@ -1528,6 +2047,18 @@ export function renderFirstPartyAnalyticsBigQuerySql(
     readAgentSqlQuery(bound, { dialect: "bigquery" }),
     "bigquery",
   );
+  if (options.eventsModelTable) {
+    if (firstPartyEventsModelProjectionRequested(options)) {
+      throw new Error(
+        "First-party event projections and date bounds read the raw event table",
+      );
+    }
+    // The model is already deduplicated, and its plain projection lets
+    // BigQuery push the scope filters into its partitions.
+    return coerceDateComparisonOperands(
+      qualifyQuerySources(bound, table, options.eventsModelTable),
+    );
+  }
   return addPartitionPrunedEventDeduplication(
     coerceDateComparisonOperands(qualifyQuerySources(bound, table)),
     table,
@@ -1539,15 +2070,7 @@ export function renderFirstPartyAnalyticsBigQueryRequestSql(
   scopedSql: string,
   args: Array<string | null>,
   table: BigQueryTableRef,
-  options: {
-    eventDateRange?: { startDate: string; endDate: string };
-    scopedEventsSingleScan?: boolean;
-    scopedEventsProjection?: FirstPartyAnalyticsEventsProjection;
-    scopedEventsSourceProjections?: Record<
-      string,
-      FirstPartyAnalyticsEventSourceProjection
-    >;
-  } = {},
+  options: FirstPartyAnalyticsBigQueryRenderOptions = {},
 ): string {
   return `SELECT * FROM (${renderFirstPartyAnalyticsBigQuerySql(scopedSql, args, table, options)}) AS first_party_analytics_query LIMIT 5000`;
 }
@@ -1556,23 +2079,17 @@ export async function queryFirstPartyAnalyticsInBigQuery(
   scopedSql: string,
   args: Array<string | null>,
   table: BigQueryTableRef,
-  options: {
-    eventDateRange?: { startDate: string; endDate: string };
-    scopedEventsSingleScan?: boolean;
-    scopedEventsProjection?: FirstPartyAnalyticsEventsProjection;
-    scopedEventsSourceProjections?: Record<
-      string,
-      FirstPartyAnalyticsEventSourceProjection
-    >;
+  options: Omit<
+    FirstPartyAnalyticsBigQueryRenderOptions,
+    "eventsModelTable"
+  > & {
+    /** From `planFirstPartyEventsSource`; the raw table when absent. */
+    eventsSource?: FirstPartyEventsSource;
     maxBytesBilled?: number;
     timeoutMs?: number;
     signal?: AbortSignal;
   } = {},
-): Promise<{
-  rows: Record<string, unknown>[];
-  schema: { name: string; type: string }[];
-  truncated?: boolean;
-}> {
+): Promise<AnalyticsQueryResult> {
   const timeoutMs = options.timeoutMs;
   if (
     timeoutMs !== undefined &&
@@ -1588,18 +2105,30 @@ export async function queryFirstPartyAnalyticsInBigQuery(
     options.signal && timeoutSignal
       ? AbortSignal.any([options.signal, timeoutSignal])
       : (options.signal ?? timeoutSignal);
+  let eventsSource = options.eventsSource;
   let result: Awaited<ReturnType<typeof runQuery>>;
   try {
+    // Read the generation before the job, so rows are never labeled newer
+    // than the model they read.
+    const settled = await settleFirstPartyEventsSource(eventsSource, signal);
+    eventsSource = settled.eventsSource;
+    const { sourceGeneration } = settled;
     result = await runQuery(
       renderFirstPartyAnalyticsBigQueryRequestSql(scopedSql, args, table, {
         eventDateRange: options.eventDateRange,
         scopedEventsSingleScan: options.scopedEventsSingleScan,
         scopedEventsProjection: options.scopedEventsProjection,
         scopedEventsSourceProjections: options.scopedEventsSourceProjections,
+        ...(eventsSource?.source === "model"
+          ? { eventsModelTable: eventsSource.table }
+          : {}),
       }),
       {
         maxBytesBilled: options.maxBytesBilled,
         ...(signal ? { signal } : {}),
+        ...(eventsSource?.source === "model" && sourceGeneration
+          ? { sourceGeneration }
+          : {}),
       },
     );
   } catch (error) {
@@ -1610,7 +2139,17 @@ export async function queryFirstPartyAnalyticsInBigQuery(
   return {
     rows: result.rows,
     schema: result.schema,
-    ...(result.truncated ? { truncated: true } : {}),
+    bytesProcessed: result.bytesProcessed,
+    ...(eventsSource ? { eventsSource } : {}),
+    ...(result.sourceGeneration !== undefined
+      ? { sourceGeneration: result.sourceGeneration }
+      : {}),
+    ...(result.cached !== undefined ? { cached: result.cached } : {}),
+    ...(result.providerCacheHit !== undefined
+      ? { providerCacheHit: result.providerCacheHit }
+      : {}),
+    ...(result.fetchedAt !== undefined ? { fetchedAt: result.fetchedAt } : {}),
+    ...(result.truncated !== undefined ? { truncated: result.truncated } : {}),
   };
 }
 
@@ -1708,7 +2247,12 @@ export async function assertFirstPartyAnalyticsBigQueryReady(
 export async function getFirstPartyAnalyticsBigQueryMetrics(
   scope: FirstPartyAnalyticsScope,
   configuredTable?: string | null,
-  options: { includeLegacyOwnerRows?: boolean; startDate?: string } = {},
+  options: {
+    includeLegacyOwnerRows?: boolean;
+    startDate?: string;
+    endDate?: string;
+    maxBytesBilled?: number;
+  } = {},
 ): Promise<{
   eventCount: number;
   dailyRollupRows: number;
@@ -1716,9 +2260,8 @@ export async function getFirstPartyAnalyticsBigQueryMetrics(
   lastEventDate: string | null;
 }> {
   const table = await getFirstPartyAnalyticsTable(configuredTable);
-  const physical = firstPartyAnalyticsPhysicalTables(table);
   const ownerEmail = sqlLiteral(scope.userEmail);
-  const today = sqlLiteral(new Date().toISOString().slice(0, 10));
+  const endDate = options.endDate ?? new Date().toISOString().slice(0, 10);
   const includeLegacyOwnerRows = options.includeLegacyOwnerRows !== false;
   const tenantFilter = scope.orgId
     ? includeLegacyOwnerRows
@@ -1726,15 +2269,18 @@ export async function getFirstPartyAnalyticsBigQueryMetrics(
       : `(org_id = ${sqlLiteral(scope.orgId)})`
     : `(org_id IS NULL AND owner_email = ${ownerEmail})`;
   const startDateFilter = options.startDate
-    ? ` AND event_date >= ${sqlLiteral(options.startDate)}`
+    ? ` AND event_date >= DATE ${sqlLiteral(options.startDate)}`
     : "";
-  const result = await runQuery(`
+  // Filtering the deduplicating view would still scan historical partitions.
+  const result = await runQuery(
+    `
     WITH scoped_events AS (
-      SELECT *
-      FROM \`${physical.events}\`
+      SELECT event_date, event_name, app, template
+      FROM \`${firstPartyAnalyticsRawTable(table)}\`
       WHERE ${tenantFilter}${startDateFilter}
         AND event_name IS DISTINCT FROM 'http.response'
-        AND event_date <= ${today}
+        AND event_date <= DATE ${sqlLiteral(endDate)}
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY id, org_id ORDER BY received_at DESC) = 1
     )
     SELECT
       COUNT(*) AS event_count,
@@ -1745,7 +2291,9 @@ export async function getFirstPartyAnalyticsBigQueryMetrics(
       MIN(event_date) AS first_event_date,
       MAX(event_date) AS last_event_date
     FROM scoped_events
-  `);
+  `,
+    { maxBytesBilled: options.maxBytesBilled },
+  );
   const row = result.rows[0] ?? {};
   const readValue = (...names: string[]): unknown => {
     for (const name of names) {

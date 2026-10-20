@@ -1,41 +1,26 @@
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import {
+  getRequestUserEmail,
+  getRequestUserName,
+} from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  assertMentionsInText,
+  submittedCommentMentions,
+} from "../server/lib/comment-mention-input.js";
+import { notifyEditedCommentMentions } from "../server/lib/comment-notifications.js";
+import { commentSubmissionSource } from "../server/lib/comment-submission-source.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
-
-type Mention = { email: string; name: string };
-
-function parseMentions(value: unknown): Mention[] {
-  let raw = value;
-  if (typeof raw === "string") {
-    const trimmed = raw.trim();
-    if (!trimmed) return [];
-    try {
-      raw = JSON.parse(trimmed);
-    } catch {
-      throw new Error("Comment mentions metadata is not valid JSON");
-    }
-  }
-  if (!Array.isArray(raw)) {
-    throw new Error("Comment mentions metadata must be an array");
-  }
-  return raw.map((entry) => {
-    if (!entry || typeof entry !== "object") {
-      throw new Error("Comment mentions metadata contains an invalid entry");
-    }
-    const email = (entry as Record<string, unknown>).email;
-    const name = (entry as Record<string, unknown>).name;
-    if (typeof email !== "string" || !email) {
-      throw new Error("Comment mention email is required");
-    }
-    return { email, name: typeof name === "string" ? name : "" };
-  });
-}
+import {
+  personMentions,
+  readStoredCommentMentions,
+  serializeStoredCommentMentions,
+} from "../shared/comment-mentions.js";
 
 export default defineAction({
   description:
@@ -48,10 +33,12 @@ export default defineAction({
     mentions: z
       .union([z.string(), z.array(z.unknown())])
       .optional()
-      .describe("JSON-encoded array of {email, name} mentions"),
+      .describe(
+        'JSON-encoded mentions, one per @name in the final text in text order; omitted, the stored mentions must still match it. People: {"email","name"}; agents: {"kind":"agent","model","name"}. A malformed list, or an entry no @name in the final text reaches, is rejected with a 400. People the edit newly mentions are emailed.',
+      ),
     resolved: z.coerce.boolean().optional().describe("Resolved state"),
   }),
-  run: async (args) => {
+  run: async (args, ctx) => {
     if (
       args.content === undefined &&
       args.mentions === undefined &&
@@ -68,6 +55,8 @@ export default defineAction({
         documentId: schema.documentComments.documentId,
         threadId: schema.documentComments.threadId,
         authorEmail: schema.documentComments.authorEmail,
+        content: schema.documentComments.content,
+        mentionsJson: schema.documentComments.mentionsJson,
       })
       .from(schema.documentComments)
       .where(eq(schema.documentComments.id, args.id))
@@ -85,22 +74,43 @@ export default defineAction({
       typeof userEmail === "string" &&
       comment.authorEmail.trim().toLowerCase() ===
         userEmail.trim().toLowerCase();
-    if (args.resolved === true || args.resolved === false || !isAuthor) {
-      await assertAccess("document", comment.documentId, "editor");
-    } else {
-      await assertAccess("document", comment.documentId, "commenter");
-    }
+    const access = await assertAccess(
+      "document",
+      comment.documentId,
+      args.resolved === true || args.resolved === false || !isAuthor
+        ? "editor"
+        : "commenter",
+    );
+    // guard:allow-bare-error — invariant: assertAccess refuses a signed-out caller
+    if (!userEmail) throw new Error("no authenticated user");
 
     const updatedAt = new Date().toISOString();
     const mentions =
-      args.mentions === undefined ? undefined : parseMentions(args.mentions);
+      args.mentions === undefined
+        ? undefined
+        : submittedCommentMentions(args.mentions);
+    const storedMentions = readStoredCommentMentions(comment.mentionsJson);
+    if (args.content !== undefined || mentions !== undefined) {
+      assertMentionsInText(
+        args.content ?? comment.content,
+        mentions ?? storedMentions,
+      );
+    }
+    const alreadyMentioned = new Set(
+      personMentions(storedMentions).map((mention) =>
+        mention.email.trim().toLowerCase(),
+      ),
+    );
+    const addedMentions = personMentions(mentions ?? []).filter(
+      (mention) => !alreadyMentioned.has(mention.email.trim().toLowerCase()),
+    );
     const contentUpdates: Partial<typeof schema.documentComments.$inferInsert> =
       {
         updatedAt,
         ...(args.content !== undefined ? { content: args.content } : {}),
         ...(mentions !== undefined
           ? {
-              mentionsJson: mentions.length ? JSON.stringify(mentions) : null,
+              mentionsJson: serializeStoredCommentMentions(mentions),
             }
           : {}),
       };
@@ -139,26 +149,42 @@ export default defineAction({
             ),
           );
       });
-      await writeAppState("refresh-signal", { ts: Date.now() });
-      return {
-        ok: true,
-        resolved: args.resolved,
-        documentId: comment.documentId,
-      };
+    } else {
+      await db
+        .update(schema.documentComments)
+        .set(contentUpdates)
+        .where(
+          and(
+            eq(schema.documentComments.id, args.id),
+            eq(schema.documentComments.documentId, comment.documentId),
+          ),
+        );
     }
 
-    await db
-      .update(schema.documentComments)
-      .set(contentUpdates)
-      .where(
-        and(
-          eq(schema.documentComments.id, args.id),
-          eq(schema.documentComments.documentId, comment.documentId),
-        ),
-      );
-
     await writeAppState("refresh-signal", { ts: Date.now() });
-    return { ok: true, documentId: comment.documentId };
+    // The email names whoever made the edit: an editor can add a mention to
+    // someone else's comment.
+    const notified = addedMentions.length
+      ? await notifyEditedCommentMentions({
+          documentId: comment.documentId,
+          documentTitle: (access.resource.title as string | null) ?? "",
+          orgId: (access.resource.orgId as string | null) ?? null,
+          threadId: comment.threadId,
+          ownerEmail: access.resource.ownerEmail as string,
+          authorEmail: userEmail,
+          authorName: getRequestUserName(),
+          submissionSource: commentSubmissionSource(ctx?.caller),
+          content: args.content ?? comment.content,
+          mentions: addedMentions,
+          isReply: comment.threadId !== args.id,
+        })
+      : undefined;
+    return {
+      ok: true,
+      ...(args.resolved !== undefined ? { resolved: args.resolved } : {}),
+      documentId: comment.documentId,
+      ...(notified ? { notified } : {}),
+    };
   },
   changeResource: (input, result) =>
     documentChangeResource(input.documentId ?? result.documentId),

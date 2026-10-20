@@ -29,6 +29,9 @@ const incidentSkill = readMarkdown(
 const analysisWorkspaceSkill = readMarkdown(
   "../../.agents/skills/analysis-workspace/SKILL.md",
 );
+const dataQueryingSkill = readMarkdown(
+  "../../.agents/skills/data-querying/SKILL.md",
+);
 
 const {
   agentChatPluginOptions,
@@ -128,6 +131,26 @@ vi.mock("../lib/analytics-memory-capture.js", () => ({
 }));
 
 vi.mock("@agent-native/core/tracking", () => ({ track }));
+
+const { dbtProviderReadiness, getOrgContext, listWorkspaceConnectionsForApp } =
+  vi.hoisted(() => ({
+    dbtProviderReadiness: vi.fn(async (): Promise<string> => "ready"),
+    getOrgContext: vi.fn(async () => ({ orgId: "org_test" })),
+    listWorkspaceConnectionsForApp: vi.fn(async () => []),
+  }));
+
+vi.mock("@agent-native/core/org", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/org")>()),
+  getOrgContext,
+}));
+vi.mock("@agent-native/core/workspace-connections", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/workspace-connections")
+  >()),
+  listWorkspaceConnectionsForApp,
+  resolveWorkspaceConnectionsForApp: listWorkspaceConnectionsForApp,
+}));
+vi.mock("../lib/dbt-readiness", () => ({ dbtProviderReadiness }));
 
 vi.mock("@agent-native/core/server", async (importOriginal) => {
   const original =
@@ -487,12 +510,37 @@ describe("Analytics agent Plan mode policy", () => {
     );
   });
 
-  it("hands the plugin the same rules as extraContext", async () => {
+  it("hands the plugin the same rules as extraContext plus one dbt readiness line", async () => {
     const extraContext = agentChatPluginOptions[0]?.extraContext as
-      | (() => Promise<string> | string)
+      | ((event: unknown, owner: string) => Promise<string>)
       | undefined;
 
-    expect(await extraContext?.()).toBe(analyticsExtraContext());
+    expect(await extraContext?.({}, "owner@example.test")).toBe(
+      analyticsExtraContext("dbt Semantic Layer: ready."),
+    );
+  });
+
+  it("names the dbt readiness reason in guidance, and unknown when the lookup fails", async () => {
+    const extraContext = agentChatPluginOptions[0]?.extraContext as
+      | ((event: unknown, owner: string) => Promise<string>)
+      | undefined;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    dbtProviderReadiness.mockResolvedValueOnce("token_missing");
+    const notReady = await extraContext?.({}, "owner@example.test");
+    expect(notReady).toContain(
+      "dbt Semantic Layer: not ready (token_missing). The dbt Semantic Layer token is not saved. Setup: [Semantic Layer](",
+    );
+
+    dbtProviderReadiness.mockRejectedValueOnce(
+      new Error("unreadable environment id"),
+    );
+    const unknown = await extraContext?.({}, "owner@example.test");
+    expect(unknown).toContain(
+      "dbt Semantic Layer: unknown (the readiness check failed).",
+    );
+    expect(unknown).not.toContain("not ready");
+    warn.mockRestore();
   });
 
   const ruleText = (id: string) => {
@@ -510,7 +558,47 @@ describe("Analytics agent Plan mode policy", () => {
       "never repeat an identical failed call",
     );
     expect(ruleText("real-data")).toContain("live data-source query");
+    expect(ruleText("real-data")).toContain(
+      "Matching totals do not prove exclusions",
+    );
     expect(ruleText("sources")).toContain("authoritative for the turn");
+    expect(ruleText("sources")).toContain("load `data-source-status`");
+    expect(ruleText("sources")).toContain(
+      "`connectionHealth` (stored workspace state)",
+    );
+    expect(ruleText("sources")).toContain(
+      "use `tool-search` to load `query-dbt-semantic-metric`",
+    );
+    expect(ruleText("sources")).toContain("configured query-path hint");
+    expect(ruleText("sources")).toContain("not a live health check");
+    expect(ruleText("sources")).toContain(
+      "A connected provider tool does not prove the workspace connection is healthy",
+    );
+    expect(ruleText("understand-the-ask")).toContain(
+      "Builder product activity, Builder.io organization membership, or Agent-Native app opens",
+    );
+    expect(ruleText("understand-the-ask")).toContain(
+      "never combine or silently substitute them",
+    );
+  });
+
+  it("keeps event families, exclusion rules, and bounded absence claims evidence-based", () => {
+    expect(dataQueryingSkill).toContain(
+      "grouped MetricFlow queries require an inclusive `timeRange`",
+    );
+    expect(dataQueryingSkill).toContain(
+      "keep the populations separate and ask which one the user intends",
+    );
+    expect(dataQueryingSkill).toContain(
+      "Keep event families separate unless the dbt metric or exact saved query defines their union",
+    );
+    expect(dataQueryingSkill).toContain(
+      "Similar aggregate totals do not prove that a model excludes staff",
+    );
+    expect(dataQueryingSkill).toContain("does not establish absence elsewhere");
+    expect(dataQueryingSkill).toContain(
+      "distinguish configured credentials from a healthy workspace connection",
+    );
   });
 
   it("keeps every clause of the understand-the-ask rule", () => {
@@ -521,6 +609,8 @@ describe("Analytics agent Plan mode policy", () => {
       "`selected-object`",
       "keep its source and business logic and change only filters and window",
       "certified over favorite over unmarked",
+      'An unqualified "active users" request may mean Builder product activity, Builder.io organization membership, or Agent-Native app opens',
+      "Ask which population they mean before querying; never combine or silently substitute them",
       "ask exactly one `ask-question` with a recommended default",
       "pick the default and label it",
       '"Reading this as: <metric definition>, <window>, <filters>, <source>"',
@@ -573,6 +663,12 @@ describe("Analytics agent Plan mode policy", () => {
     expect(ruleText("sources")).toContain("query-agent-native-analytics");
     expect(ruleText("sources")).toContain("never call it disconnected");
     expect(ruleText("sources")).toContain("[Connect data sources](");
+  });
+
+  it("routes named dbt metrics through tool discovery", () => {
+    expect(ruleText("sources")).toContain(
+      "For a named dbt metric, use `tool-search` to load `query-dbt-semantic-metric`.",
+    );
   });
 
   it("routes internal usage and sibling-app questions without user-supplied SQL", () => {
@@ -722,7 +818,6 @@ describe("Analytics agent Plan mode policy", () => {
         "inspect-dashboard-panel",
         "search-dashboard-references",
         "find-data",
-        "query-dbt-semantic-metric",
         "query-agent-native-analytics",
         "bigquery",
         "search-bigquery-schema",
@@ -746,6 +841,8 @@ describe("Analytics agent Plan mode policy", () => {
       "provider-api-catalog",
       "account-deep-dive",
       "gong-calls",
+      "query-dbt-semantic-metric",
+      "data-source-status",
     ]) {
       expect(INITIAL_TOOL_NAMES).not.toContain(lazy);
     }
@@ -754,7 +851,9 @@ describe("Analytics agent Plan mode policy", () => {
   it("explicitly keeps extension creation enabled for Analytics Custom Blocks", async () => {
     const { readFile } = await import("node:fs/promises");
     const [agentChatSource, coreRoutesSource] = await Promise.all([
+      // source-read-ok: this test protects app-level capability wiring at the plugin boundary.
       readFile(new URL("./agent-chat.ts", import.meta.url), "utf8"),
+      // source-read-ok: this test protects app-level capability wiring at the plugin boundary.
       readFile(new URL("./core-routes.ts", import.meta.url), "utf8"),
     ]);
 
@@ -773,25 +872,2073 @@ function guardContext(params: {
   userText: string;
   requestText?: string;
   draftText: string;
+  toolCalls?: AgentLoopFinalResponseGuardContext["toolCalls"];
   toolResults?: AgentLoopFinalResponseGuardContext["toolResults"];
+  runStartedAt?: number;
   executionMode?: AgentLoopFinalResponseGuardContext["executionMode"];
+  retryCount?: number;
 }): AgentLoopFinalResponseGuardContext {
   const context: AgentLoopFinalResponseGuardContext & {
     requestText?: string;
   } = {
     messages: [userMessage(params.userText)],
     requestText: params.requestText ?? params.userText,
+    runStartedAt: params.runStartedAt,
     assistantContent: [],
     text: params.draftText,
-    toolCalls: [],
+    toolCalls: params.toolCalls ?? [],
     toolResults: params.toolResults ?? [],
-    retryCount: 0,
+    retryCount: params.retryCount ?? 0,
     executionMode: params.executionMode ?? "act",
   };
   return context;
 }
 
+describe("realDataFinalGuard dbt fallback disclosure", () => {
+  const dbtNotFound = {
+    name: "query-dbt-semantic-metric",
+    isError: false,
+    content: JSON.stringify({ status: "not_found" }),
+  };
+  const dbtSuccess = {
+    name: "query-dbt-semantic-metric",
+    isError: false,
+    content: JSON.stringify({
+      status: "success",
+      metricName: "active_accounts",
+      querySpec: {
+        timeRange: { startDate: "2026-09-01", endDate: "2026-09-30" },
+        groupBy: [],
+      },
+      rows: [{ active_accounts: 10 }],
+    }),
+  };
+  const bigQueryOk = {
+    name: "bigquery",
+    isError: false,
+    // The production result: runQuery's rows and metadata, with no query_status.
+    content: JSON.stringify({
+      rows: [{ n: 10 }],
+      totalRows: 1,
+      bytesProcessed: 0,
+      cached: false,
+      truncated: false,
+    }),
+  };
+  // bigquery throws on timeout, so the tool result is an error, not a rows payload.
+  const bigQueryTimedOut = {
+    name: "bigquery",
+    isError: true,
+    content: JSON.stringify({ error: "BigQuery query timed out" }),
+  };
+  const dbtNotReadyStatus = {
+    name: "data-source-status",
+    isError: false,
+    content: JSON.stringify({
+      workspaceConnections: {
+        appId: "analytics",
+        available: true,
+        providers: [
+          {
+            id: "dbt",
+            label: "dbt Cloud",
+            grantState: "connected",
+            dbtReadiness: "token_missing",
+          },
+        ],
+      },
+    }),
+  };
+  const draft = "Active accounts were 10 last month.";
+  const disclosed =
+    "Active accounts were 10 last month. This figure is warehouse-derived from BigQuery, not the owner-approved Semantic Layer definition, because the dbt metric query did not complete.";
+
+  it("asks once for a disclosure when a failed dbt metric falls back to a successful BigQuery answer", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText: draft,
+        toolResults: [dbtNotFound, bigQueryOk],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      maxRetries: 1,
+      retryMessage: expect.stringContaining("warehouse-derived"),
+      exhaustedDraftPrefix: expect.stringContaining(
+        "not the owner-approved Semantic Layer definition",
+      ),
+    });
+  });
+
+  it("does not force a disclosure retry on a readiness status alone, without a dbt metric attempt", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText: draft,
+        toolResults: [dbtNotReadyStatus, bigQueryOk],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("accepts the fallback answer once it discloses the source", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText: disclosed,
+        toolResults: [dbtNotFound, bigQueryOk],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("does not force a retry on a BigQuery answer that never asked dbt", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "How many sessions did we record yesterday?",
+        draftText: draft,
+        toolResults: [bigQueryOk],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("does not treat a successful dbt answer as a fallback", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText: draft,
+        runStartedAt: Date.UTC(2026, 9, 15, 19, 0),
+        toolCalls: [
+          {
+            name: "query-dbt-semantic-metric",
+            input: {
+              metricName: "active_accounts",
+              timeRange: { startDate: "2026-09-01", endDate: "2026-09-30" },
+              groupBy: [],
+            },
+          },
+        ],
+        toolResults: [dbtSuccess, bigQueryOk],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("asks for a correction when a 'not approved' clause does not cover a later approval claim", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText:
+          "This figure is warehouse-derived from BigQuery, not the owner-approved Semantic Layer definition, but the approved value is 10.",
+        toolResults: [dbtNotFound, bigQueryOk],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining("warehouse-derived"),
+    });
+  });
+
+  it("withholds the figure on an exhausted retry when the draft still claims approval", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText:
+          "The approved value is 10 from BigQuery. It is warehouse-derived and not the owner-approved Semantic Layer definition.",
+        toolResults: [dbtNotFound, bigQueryOk],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      fallbackMessage: expect.stringContaining("no owner-approved figure"),
+    });
+    expect(result).not.toMatchObject({
+      fallbackMessage: expect.stringMatching(/this figure/i),
+    });
+    expect(result).not.toHaveProperty("exhaustedDraftPrefix");
+  });
+
+  it("asks for a correction when a draft disclaims approval and then calls the figure approved", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText:
+          "The figure is warehouse-derived from BigQuery and is not the approved Semantic Layer definition. Call it the owner-approved value: 10.",
+        toolResults: [dbtNotFound, bigQueryOk],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining("warehouse-derived"),
+    });
+  });
+
+  it("asks for a correction when the draft discloses the source but also claims approval", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText:
+          "The approved value is 10 from BigQuery. It is warehouse-derived and not the owner-approved Semantic Layer definition.",
+        toolResults: [dbtNotFound, bigQueryOk],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining("warehouse-derived"),
+    });
+  });
+
+  it("does not force the disclosure on an empty draft", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText: "   ",
+        toolResults: [dbtNotFound, bigQueryOk],
+      }),
+    );
+
+    expect(JSON.stringify(result ?? null)).not.toContain("warehouse-derived");
+  });
+
+  it("does not use a later BigQuery read when the first read after the dbt failure errored", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText: draft,
+        toolResults: [dbtNotFound, bigQueryTimedOut, bigQueryOk],
+      }),
+    );
+
+    expect(JSON.stringify(result ?? null)).not.toContain("warehouse-derived");
+  });
+
+  it("does not count an empty BigQuery result as the fallback answer", () => {
+    const emptyRead = {
+      name: "bigquery",
+      isError: false,
+      content: JSON.stringify({ rows: [], totalRows: 0 }),
+    };
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText: draft,
+        toolResults: [dbtNotFound, emptyRead],
+      }),
+    );
+
+    expect(JSON.stringify(result ?? null)).not.toContain("warehouse-derived");
+  });
+
+  it("does not count a BigQuery answer that ran before the dbt failure", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText: draft,
+        toolResults: [bigQueryOk, dbtNotFound],
+      }),
+    );
+
+    expect(JSON.stringify(result ?? null)).not.toContain("warehouse-derived");
+  });
+
+  it("does not count a structured BigQuery failure as the fallback answer", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText: draft,
+        toolResults: [dbtNotFound, bigQueryTimedOut],
+      }),
+    );
+
+    expect(JSON.stringify(result ?? null)).not.toContain("warehouse-derived");
+  });
+});
+
 describe("realDataFinalGuard", () => {
+  const today = new Date();
+  const todayUtc = new Date(
+    Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()),
+  );
+  const currentWeekStart = new Date(
+    Date.UTC(
+      todayUtc.getUTCFullYear(),
+      todayUtc.getUTCMonth(),
+      todayUtc.getUTCDate() - ((todayUtc.getUTCDay() + 6) % 7),
+    ),
+  );
+  const lastWeekStart = new Date(
+    Date.UTC(
+      currentWeekStart.getUTCFullYear(),
+      currentWeekStart.getUTCMonth(),
+      currentWeekStart.getUTCDate() - 7,
+    ),
+  );
+  const activationRateWeek = {
+    startDate: lastWeekStart.toISOString().slice(0, 10),
+    endDate: new Date(
+      Date.UTC(
+        lastWeekStart.getUTCFullYear(),
+        lastWeekStart.getUTCMonth(),
+        lastWeekStart.getUTCDate() + 6,
+      ),
+    )
+      .toISOString()
+      .slice(0, 10),
+  };
+
+  function dbtMetricCall(
+    timeRange: {
+      startDate: string;
+      endDate: string;
+    },
+    groupBy: Array<{ name: string; grain?: string }> = [],
+    toolCallId?: string,
+  ): AgentLoopFinalResponseGuardContext["toolCalls"][number] {
+    return {
+      ...(toolCallId ? { toolCallId } : {}),
+      name: "query-dbt-semantic-metric",
+      input: { metricName: "activation_rate", timeRange, groupBy },
+    };
+  }
+
+  function dbtMetricResult(
+    querySpec: Record<string, unknown>,
+    rows: Array<Record<string, unknown>> = [{ activation_rate: 42 }],
+    extra: Record<string, unknown> = {},
+    toolCallId?: string,
+  ): AgentLoopFinalResponseGuardContext["toolResults"][number] {
+    return {
+      ...(toolCallId ? { toolCallId } : {}),
+      name: "query-dbt-semantic-metric",
+      isError: false,
+      content: JSON.stringify({
+        status: "success",
+        metricName: "activation_rate",
+        metric: {
+          name: "activation_rate",
+          queryableGranularities: ["DAY", "WEEK", "MONTH"],
+          dimensions: [
+            {
+              name: "organization_id",
+              description: "Owning organization",
+              queryableGranularities: [],
+            },
+            {
+              name: "metric_time",
+              queryableGranularities: ["DAY", "WEEK", "MONTH"],
+            },
+          ],
+        },
+        querySpec,
+        rows,
+        ...extra,
+      }),
+    };
+  }
+
+  it("accepts numeric claims only from nonempty successful dbt metric rows", () => {
+    const successful = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate last week?",
+        draftText: "The activation rate was 42%.",
+        toolCalls: [dbtMetricCall(activationRateWeek)],
+        toolResults: [
+          dbtMetricResult({ groupBy: [], timeRange: activationRateWeek }),
+        ],
+      }),
+    );
+    const empty = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate last week?",
+        draftText: "The activation rate was 42%.",
+        toolCalls: [dbtMetricCall(activationRateWeek)],
+        toolResults: [
+          dbtMetricResult({ groupBy: [], timeRange: activationRateWeek }, []),
+        ],
+      }),
+    );
+
+    expect(successful).toBeNull();
+    expect(empty).toMatchObject({
+      retryMessage: expect.stringContaining("returned no metric rows"),
+      fallbackMessage: expect.stringContaining(
+        "does not mean the metric is zero",
+      ),
+    });
+  });
+
+  it("rejects an all-time dbt result for a period-scoped request", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate last week?",
+        draftText: "The activation rate was 42%.",
+        toolCalls: [
+          {
+            name: "query-dbt-semantic-metric",
+            input: { metricName: "activation_rate", allTime: true },
+          },
+        ],
+        toolResults: [dbtMetricResult({ groupBy: [], allTime: true })],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining("do not use `allTime:true`"),
+      fallbackMessage: expect.stringContaining(
+        "does not match the requested date range",
+      ),
+    });
+  });
+
+  it("guards annual and natural-language bounded date requests", () => {
+    const runStartedAt = Date.UTC(2026, 9, 15, 19, 0);
+    const allTimeResult = (userText: string) =>
+      realDataFinalGuard(
+        guardContext({
+          userText,
+          draftText: "The activation rate was 42%.",
+          runStartedAt,
+          toolCalls: [
+            {
+              name: "query-dbt-semantic-metric",
+              input: { metricName: "activation_rate", allTime: true },
+            },
+          ],
+          toolResults: [dbtMetricResult({ groupBy: [], allTime: true })],
+        }),
+      );
+
+    expect(
+      allTimeResult("What was the activation rate for 2025?"),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("do not use `allTime:true`"),
+    });
+    expect(
+      allTimeResult(
+        "What was the activation rate from March 1, 2025 to March 31, 2025?",
+      ),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("do not use `allTime:true`"),
+    });
+    expect(
+      allTimeResult(
+        "What was the activation rate from March 1 through March 31?",
+      ),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("do not use `allTime:true`"),
+    });
+    expect(
+      allTimeResult("What was the activation rate from Jan 1 to 31 Dec 2026?"),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("do not use `allTime:true`"),
+    });
+    expect(
+      allTimeResult(
+        "What was the activation rate from Jan 1 to 31st Dec 2026?",
+      ),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("do not use `allTime:true`"),
+    });
+    expect(
+      allTimeResult("What was the activation rate from Jan 1 to 31?"),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("do not use `allTime:true`"),
+    });
+    expect(
+      allTimeResult(
+        "What was the activation rate from 1 Jan 2026 to 31 Jan 2026?",
+      ),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("do not use `allTime:true`"),
+    });
+
+    const march2025 = { startDate: "2025-03-01", endDate: "2025-03-31" };
+    const matchingNamedRange = realDataFinalGuard(
+      guardContext({
+        userText:
+          "What was the activation rate from March 1, 2025 to March 31, 2025?",
+        draftText: "The activation rate was 42%.",
+        runStartedAt,
+        toolCalls: [dbtMetricCall(march2025)],
+        toolResults: [dbtMetricResult({ groupBy: [], timeRange: march2025 })],
+      }),
+    );
+    expect(matchingNamedRange).toBeNull();
+
+    const march2026 = { startDate: "2026-03-01", endDate: "2026-03-31" };
+    const matchingYearlessRange = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate from March 1 through March 31?",
+        draftText: "The activation rate was 42%.",
+        runStartedAt,
+        toolCalls: [dbtMetricCall(march2026)],
+        toolResults: [dbtMetricResult({ groupBy: [], timeRange: march2026 })],
+      }),
+    );
+    expect(matchingYearlessRange).toBeNull();
+
+    const dayFirstRange = { startDate: "2026-01-01", endDate: "2026-12-31" };
+    const matchingDayFirstRange = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate from Jan 1 to 31 Dec 2026?",
+        draftText: "The activation rate was 42%.",
+        runStartedAt,
+        toolCalls: [dbtMetricCall(dayFirstRange)],
+        toolResults: [
+          dbtMetricResult({ groupBy: [], timeRange: dayFirstRange }),
+        ],
+      }),
+    );
+    expect(matchingDayFirstRange).toBeNull();
+
+    const matchingOrdinalDayFirstRange = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate from Jan 1 to 31st Dec 2026?",
+        draftText: "The activation rate was 42%.",
+        runStartedAt,
+        toolCalls: [dbtMetricCall(dayFirstRange)],
+        toolResults: [
+          dbtMetricResult({ groupBy: [], timeRange: dayFirstRange }),
+        ],
+      }),
+    );
+    expect(matchingOrdinalDayFirstRange).toBeNull();
+
+    const januaryRange = { startDate: "2026-01-01", endDate: "2026-01-31" };
+    const matchingSameMonthShorthand = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate from Jan 1 to 31?",
+        draftText: "The activation rate was 42%.",
+        runStartedAt,
+        toolCalls: [dbtMetricCall(januaryRange)],
+        toolResults: [
+          dbtMetricResult({ groupBy: [], timeRange: januaryRange }),
+        ],
+      }),
+    );
+    expect(matchingSameMonthShorthand).toBeNull();
+
+    const matchingDayFirstNamedRange = realDataFinalGuard(
+      guardContext({
+        userText:
+          "What was the activation rate from 1 Jan 2026 to 31 Jan 2026?",
+        draftText: "The activation rate was 42%.",
+        runStartedAt,
+        toolCalls: [dbtMetricCall(januaryRange)],
+        toolResults: [
+          dbtMetricResult({ groupBy: [], timeRange: januaryRange }),
+        ],
+      }),
+    );
+    expect(matchingDayFirstNamedRange).toBeNull();
+
+    const invalidNamedRange = allTimeResult(
+      "What was the activation rate from February 30, 2025 to March 2, 2025?",
+    );
+    expect(invalidNamedRange).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+    expect(
+      allTimeResult(
+        "What was the activation rate from 30 Feb 2025 to 2 Mar 2025?",
+      ),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+  });
+
+  it("requires the dbt result range to match its query input and explicit dates", () => {
+    const requestedRange = {
+      startDate: "2026-10-05",
+      endDate: "2026-10-11",
+    };
+    const mismatchedResult = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate from 2026-10-05 to 2026-10-11?",
+        draftText: "The activation rate was 42%.",
+        toolCalls: [dbtMetricCall(requestedRange)],
+        toolResults: [
+          dbtMetricResult({
+            groupBy: [],
+            timeRange: { startDate: "2026-10-04", endDate: "2026-10-10" },
+          }),
+        ],
+      }),
+    );
+    const mismatchedInput = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate from 2026-10-05 to 2026-10-11?",
+        draftText: "The activation rate was 42%.",
+        toolCalls: [
+          dbtMetricCall({ startDate: "2026-10-04", endDate: "2026-10-10" }),
+        ],
+        toolResults: [
+          dbtMetricResult({ groupBy: [], timeRange: requestedRange }),
+        ],
+      }),
+    );
+    const matchingWindow = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate from 2026-10-05 to 2026-10-11?",
+        draftText: "The activation rate was 42%.",
+        toolCalls: [dbtMetricCall(requestedRange)],
+        toolResults: [
+          dbtMetricResult({ groupBy: [], timeRange: requestedRange }),
+        ],
+      }),
+    );
+
+    expect(mismatchedResult).toMatchObject({
+      retryMessage: expect.stringContaining("match explicit dates exactly"),
+    });
+    expect(mismatchedInput).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+    expect(matchingWindow).toBeNull();
+  });
+
+  it("rejects a seven-day range from the wrong calendar week", () => {
+    const wrongWeekStart = new Date(
+      Date.UTC(
+        lastWeekStart.getUTCFullYear(),
+        lastWeekStart.getUTCMonth(),
+        lastWeekStart.getUTCDate() - 7,
+      ),
+    );
+    const wrongRange = {
+      startDate: wrongWeekStart.toISOString().slice(0, 10),
+      endDate: new Date(
+        Date.UTC(
+          wrongWeekStart.getUTCFullYear(),
+          wrongWeekStart.getUTCMonth(),
+          wrongWeekStart.getUTCDate() + 6,
+        ),
+      )
+        .toISOString()
+        .slice(0, 10),
+    };
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate last week?",
+        draftText: "The activation rate was 42%.",
+        toolCalls: [dbtMetricCall(wrongRange)],
+        toolResults: [dbtMetricResult({ groupBy: [], timeRange: wrongRange })],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining("match explicit dates exactly"),
+    });
+  });
+
+  it("checks named calendar periods against the requested range", () => {
+    const lastMonthStart = new Date(
+      Date.UTC(todayUtc.getUTCFullYear(), todayUtc.getUTCMonth() - 1, 1),
+    );
+    const lastMonthEnd = new Date(
+      Date.UTC(todayUtc.getUTCFullYear(), todayUtc.getUTCMonth(), 0),
+    );
+    const correctRange = {
+      startDate: lastMonthStart.toISOString().slice(0, 10),
+      endDate: lastMonthEnd.toISOString().slice(0, 10),
+    };
+    const wrongRange = {
+      startDate: activationRateWeek.startDate,
+      endDate: activationRateWeek.endDate,
+    };
+    const correct = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate last month?",
+        draftText: "The activation rate was 42%.",
+        toolCalls: [dbtMetricCall(correctRange)],
+        toolResults: [
+          dbtMetricResult({ groupBy: [], timeRange: correctRange }),
+        ],
+      }),
+    );
+    const wrong = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate last month?",
+        draftText: "The activation rate was 42%.",
+        toolCalls: [dbtMetricCall(wrongRange)],
+        toolResults: [dbtMetricResult({ groupBy: [], timeRange: wrongRange })],
+      }),
+    );
+
+    expect(correct).toBeNull();
+    expect(wrong).toMatchObject({
+      retryMessage: expect.stringContaining("match explicit dates exactly"),
+    });
+  });
+
+  it("checks explicit rolling day counts against the queried date range", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate for the last 30 days?",
+        draftText: "The activation rate was 42%.",
+        toolCalls: [dbtMetricCall(activationRateWeek)],
+        toolResults: [
+          dbtMetricResult({ groupBy: [], timeRange: activationRateWeek }),
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+  });
+
+  it("anchors rolling windows to turn start and checks both endpoints", () => {
+    const runStartedAt = Date.UTC(2026, 9, 1, 23, 59);
+    const expectedRange = {
+      startDate: "2026-09-25",
+      endDate: "2026-10-01",
+    };
+    const staleSameLengthRange = {
+      startDate: "2026-09-01",
+      endDate: "2026-09-07",
+    };
+    const matching = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate for the last 7 days?",
+        draftText: "The activation rate was 42%.",
+        runStartedAt,
+        toolCalls: [dbtMetricCall(expectedRange)],
+        toolResults: [
+          dbtMetricResult({ groupBy: [], timeRange: expectedRange }),
+        ],
+      }),
+    );
+    const stale = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate for the last 7 days?",
+        draftText: "The activation rate was 42%.",
+        runStartedAt,
+        toolCalls: [dbtMetricCall(staleSameLengthRange)],
+        toolResults: [
+          dbtMetricResult({ groupBy: [], timeRange: staleSameLengthRange }),
+        ],
+      }),
+    );
+
+    expect(matching).toBeNull();
+    expect(stale).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+  });
+
+  it("checks recent rolling windows and rejects all-time metric results", () => {
+    const runStartedAt = Date.UTC(2026, 9, 15, 19, 0);
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate over the most recent 7 days?",
+        draftText: "The activation rate was 42%.",
+        runStartedAt,
+        toolCalls: [
+          {
+            name: "query-dbt-semantic-metric",
+            input: { metricName: "activation_rate", allTime: true },
+          },
+        ],
+        toolResults: [dbtMetricResult({ groupBy: [], allTime: true })],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+  });
+
+  it("checks both dates for a month-day open-ended request", () => {
+    const runStartedAt = Date.UTC(2026, 9, 15, 19, 0);
+    const correctRange = {
+      startDate: "2026-07-01",
+      endDate: "2026-10-15",
+    };
+    const wrongRange = {
+      startDate: "2025-07-01",
+      endDate: "2026-10-15",
+    };
+    const correct = realDataFinalGuard(
+      guardContext({
+        userText: "How many signups since July 1?",
+        draftText: "There were 42 signups.",
+        runStartedAt,
+        toolCalls: [dbtMetricCall(correctRange)],
+        toolResults: [
+          dbtMetricResult({ groupBy: [], timeRange: correctRange }),
+        ],
+      }),
+    );
+    const wrong = realDataFinalGuard(
+      guardContext({
+        userText: "How many signups since July 1?",
+        draftText: "There were 42 signups.",
+        runStartedAt,
+        toolCalls: [dbtMetricCall(wrongRange)],
+        toolResults: [dbtMetricResult({ groupBy: [], timeRange: wrongRange })],
+      }),
+    );
+
+    expect(correct).toBeNull();
+    expect(wrong).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+  });
+
+  it("requires both sides of a calendar comparison independent of result order", () => {
+    const runStartedAt = Date.UTC(2026, 9, 15, 19, 0);
+    const currentWeek = { startDate: "2026-10-12", endDate: "2026-10-15" };
+    const lastWeek = { startDate: "2026-10-05", endDate: "2026-10-11" };
+    const matching = realDataFinalGuard(
+      guardContext({
+        userText: "Compare this week to last week for activation rate.",
+        draftText: "This week was 42%; last week was 39%.",
+        runStartedAt,
+        toolCalls: [
+          dbtMetricCall(currentWeek, [], "current-week"),
+          dbtMetricCall(lastWeek, [], "last-week"),
+        ],
+        toolResults: [
+          dbtMetricResult(
+            { groupBy: [], timeRange: lastWeek },
+            undefined,
+            {},
+            "last-week",
+          ),
+          dbtMetricResult(
+            { groupBy: [], timeRange: currentWeek },
+            undefined,
+            {},
+            "current-week",
+          ),
+        ],
+      }),
+    );
+    const missingSide = realDataFinalGuard(
+      guardContext({
+        userText: "Compare this week to last week for activation rate.",
+        draftText: "This week was 42%; last week was 39%.",
+        runStartedAt,
+        toolCalls: [dbtMetricCall(currentWeek)],
+        toolResults: [dbtMetricResult({ groupBy: [], timeRange: currentWeek })],
+      }),
+    );
+    const reversedResultOrder = realDataFinalGuard(
+      guardContext({
+        userText: "Compare this week to last week for activation rate.",
+        draftText: "This week was 42%; last week was 39%.",
+        runStartedAt,
+        toolCalls: [
+          dbtMetricCall(currentWeek, [], "current-week"),
+          dbtMetricCall(lastWeek, [], "last-week"),
+        ],
+        toolResults: [
+          dbtMetricResult(
+            { groupBy: [], timeRange: currentWeek },
+            undefined,
+            {},
+            "current-week",
+          ),
+          dbtMetricResult(
+            { groupBy: [], timeRange: lastWeek },
+            undefined,
+            {},
+            "last-week",
+          ),
+        ],
+      }),
+    );
+    const mixedGrouping = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Compare this week to last week for activation rate by organization.",
+        draftText: "This week was 42%; last week was 39% by organization.",
+        runStartedAt,
+        toolCalls: [
+          dbtMetricCall(
+            currentWeek,
+            [{ name: "organization_id" }],
+            "current-week",
+          ),
+          dbtMetricCall(lastWeek, [], "last-week"),
+        ],
+        toolResults: [
+          dbtMetricResult(
+            { groupBy: [], timeRange: lastWeek },
+            undefined,
+            {},
+            "last-week",
+          ),
+          dbtMetricResult(
+            {
+              groupBy: [{ name: "organization_id" }],
+              timeRange: currentWeek,
+            },
+            undefined,
+            {},
+            "current-week",
+          ),
+        ],
+      }),
+    );
+
+    expect(matching).toBeNull();
+    expect(reversedResultOrder).toBeNull();
+    expect(missingSide).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+    expect(mixedGrouping).toMatchObject({
+      retryMessage: expect.stringContaining("requested grouping"),
+    });
+  });
+
+  it("checks rolling month windows and supports compare date phrasing", () => {
+    const runStartedAt = Date.UTC(2026, 9, 1, 23, 59);
+    const threeMonths = {
+      startDate: "2026-07-01",
+      endDate: "2026-10-01",
+    };
+    const correct = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate over the last 3 months?",
+        draftText: "The activation rate was 42%.",
+        runStartedAt,
+        toolCalls: [dbtMetricCall(threeMonths)],
+        toolResults: [dbtMetricResult({ groupBy: [], timeRange: threeMonths })],
+      }),
+    );
+    const comparedDates = {
+      startDate: "2026-07-01",
+      endDate: "2026-07-07",
+    };
+    const compared = realDataFinalGuard(
+      guardContext({
+        userText: "Compare activation rate from 2026-07-01 to 2026-07-07.",
+        draftText: "The activation rate was 42%.",
+        toolCalls: [dbtMetricCall(comparedDates)],
+        toolResults: [
+          dbtMetricResult({ groupBy: [], timeRange: comparedDates }),
+        ],
+      }),
+    );
+    const comparedBareDates = realDataFinalGuard(
+      guardContext({
+        userText: "Compare 2026-07-01 to 2026-07-07 activation rate.",
+        draftText: "The activation rate was 42%.",
+        toolCalls: [dbtMetricCall(comparedDates)],
+        toolResults: [
+          dbtMetricResult({ groupBy: [], timeRange: comparedDates }),
+        ],
+      }),
+    );
+
+    expect(correct).toBeNull();
+    expect(compared).toBeNull();
+    expect(comparedBareDates).toBeNull();
+  });
+
+  it("matches date ranges without an introductory preposition", () => {
+    const range = { startDate: "2026-07-01", endDate: "2026-07-07" };
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate 2026-07-01 through 2026-07-07?",
+        draftText: "The activation rate was 42%.",
+        toolCalls: [dbtMetricCall(range)],
+        toolResults: [dbtMetricResult({ groupBy: [], timeRange: range })],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("validates both sides of numeric rolling-window comparisons", () => {
+    const runStartedAt = Date.UTC(2026, 9, 1, 23, 59);
+    const recent = { startDate: "2026-07-01", endDate: "2026-10-01" };
+    const previous = { startDate: "2026-03-30", endDate: "2026-06-30" };
+    const recentCall = dbtMetricCall(recent, [], "recent");
+    const previousCall = dbtMetricCall(previous, [], "previous");
+    const recentResult = dbtMetricResult(
+      { groupBy: [], timeRange: recent },
+      undefined,
+      {},
+      "recent",
+    );
+    const previousResult = dbtMetricResult(
+      { groupBy: [], timeRange: previous },
+      undefined,
+      {},
+      "previous",
+    );
+    const evaluate = (
+      toolCalls: AgentLoopFinalResponseGuardContext["toolCalls"],
+      toolResults: AgentLoopFinalResponseGuardContext["toolResults"],
+      userText = "Compare activation rate over the last 3 months vs the previous 3 months.",
+    ) =>
+      realDataFinalGuard(
+        guardContext({
+          userText,
+          draftText:
+            "The activation rate was 42% in the recent period and 39% before.",
+          runStartedAt,
+          toolCalls,
+          toolResults,
+        }),
+      );
+
+    expect(
+      evaluate([recentCall, previousCall], [recentResult, previousResult]),
+    ).toBeNull();
+    expect(
+      evaluate([previousCall, recentCall], [previousResult, recentResult]),
+    ).toBeNull();
+    expect(evaluate([recentCall], [recentResult])).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+    expect(
+      evaluate(
+        [recentCall, previousCall],
+        [recentResult, previousResult],
+        "Compare activation rate over the last 3 months vs the previous 2 months.",
+      ),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+    const unequalPrevious = {
+      startDate: "2026-04-01",
+      endDate: "2026-06-30",
+    };
+    expect(
+      evaluate(
+        [recentCall, dbtMetricCall(unequalPrevious, [], "unequal-previous")],
+        [
+          recentResult,
+          dbtMetricResult(
+            { groupBy: [], timeRange: unequalPrevious },
+            undefined,
+            {},
+            "unequal-previous",
+          ),
+        ],
+      ),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+    const equivalentPreviousYear = {
+      startDate: "2025-07-01",
+      endDate: "2025-10-01",
+    };
+    const equivalentPreviousCall = dbtMetricCall(
+      equivalentPreviousYear,
+      [],
+      "equivalent-previous-year",
+    );
+    const equivalentPreviousResult = dbtMetricResult(
+      { groupBy: [], timeRange: equivalentPreviousYear },
+      undefined,
+      {},
+      "equivalent-previous-year",
+    );
+    const equivalentYearText =
+      "Compare activation rate over the last 3 months vs the equivalent period one year ago.";
+    expect(
+      evaluate(
+        [recentCall, equivalentPreviousCall],
+        [recentResult, equivalentPreviousResult],
+        equivalentYearText,
+      ),
+    ).toBeNull();
+    expect(
+      evaluate([recentCall], [recentResult], equivalentYearText),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+    const threePeriodText =
+      "Compare activation rate over the last 3 months vs the previous 3 months and the equivalent period one year ago.";
+    expect(
+      evaluate(
+        [recentCall, previousCall, equivalentPreviousCall],
+        [recentResult, previousResult, equivalentPreviousResult],
+        threePeriodText,
+      ),
+    ).toBeNull();
+    expect(
+      evaluate(
+        [recentCall, previousCall],
+        [recentResult, previousResult],
+        threePeriodText,
+      ),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+    expect(
+      evaluate(
+        [recentCall],
+        [recentResult],
+        "Compare activation rate over the last 3 months vs last year.",
+      ),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+    expect(
+      evaluate(
+        [recentCall, previousCall],
+        [recentResult, previousResult],
+        "Compare activation rate over the last 3 months vs the previous 3 months and prior 3 months.",
+      ),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+
+    const yearBoundaryNow = Date.UTC(2027, 0, 1, 23, 59);
+    const yearBoundaryCurrent = {
+      startDate: "2026-10-01",
+      endDate: "2027-01-01",
+    };
+    const yearBoundaryPrevious = {
+      startDate: "2026-06-30",
+      endDate: "2026-09-30",
+    };
+    const yearBoundaryResult = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Compare activation rate over the last 3 months vs the previous 3 months.",
+        draftText:
+          "The activation rate was 42% in the recent period and 39% before.",
+        runStartedAt: yearBoundaryNow,
+        toolCalls: [
+          dbtMetricCall(yearBoundaryCurrent, [], "current-year-boundary"),
+          dbtMetricCall(yearBoundaryPrevious, [], "previous-year-boundary"),
+        ],
+        toolResults: [
+          dbtMetricResult(
+            { groupBy: [], timeRange: yearBoundaryCurrent },
+            undefined,
+            {},
+            "current-year-boundary",
+          ),
+          dbtMetricResult(
+            { groupBy: [], timeRange: yearBoundaryPrevious },
+            undefined,
+            {},
+            "previous-year-boundary",
+          ),
+        ],
+      }),
+    );
+    expect(yearBoundaryResult).toBeNull();
+  });
+
+  it("validates today and yesterday against their year-ago dates", () => {
+    const runStartedAt = Date.UTC(2026, 9, 1, 23, 59);
+    const evaluate = (
+      userText: string,
+      currentRange: { startDate: string; endDate: string },
+      priorRange: { startDate: string; endDate: string },
+      key: string,
+      includePrior = true,
+    ) => {
+      const currentCall = dbtMetricCall(currentRange, [], `${key}-current`);
+      const priorCall = dbtMetricCall(priorRange, [], `${key}-prior`);
+      const currentResult = dbtMetricResult(
+        { groupBy: [], timeRange: currentRange },
+        undefined,
+        {},
+        `${key}-current`,
+      );
+      const priorResult = dbtMetricResult(
+        { groupBy: [], timeRange: priorRange },
+        undefined,
+        {},
+        `${key}-prior`,
+      );
+      return realDataFinalGuard(
+        guardContext({
+          userText,
+          draftText: "The activation rate was 42% now and 39% last year.",
+          runStartedAt,
+          toolCalls: includePrior ? [currentCall, priorCall] : [currentCall],
+          toolResults: includePrior
+            ? [currentResult, priorResult]
+            : [currentResult],
+        }),
+      );
+    };
+
+    expect(
+      evaluate(
+        "Compare activation rate today vs one year ago.",
+        { startDate: "2026-10-01", endDate: "2026-10-01" },
+        { startDate: "2025-10-01", endDate: "2025-10-01" },
+        "today",
+      ),
+    ).toBeNull();
+    expect(
+      evaluate(
+        "Compare activation rate today vs one year ago.",
+        { startDate: "2026-10-01", endDate: "2026-10-01" },
+        { startDate: "2025-10-01", endDate: "2025-10-01" },
+        "today-missing-prior",
+        false,
+      ),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+    expect(
+      evaluate(
+        "Compare activation rate yesterday vs one year ago.",
+        { startDate: "2026-09-30", endDate: "2026-09-30" },
+        { startDate: "2025-09-30", endDate: "2025-09-30" },
+        "yesterday",
+      ),
+    ).toBeNull();
+  });
+
+  it("uses the matching current calendar window for same-period year-ago comparisons", () => {
+    const currentMonth = { startDate: "2026-10-01", endDate: "2026-10-15" };
+    const priorYearMonth = { startDate: "2025-10-01", endDate: "2025-10-15" };
+    const ranges = [currentMonth, priorYearMonth];
+    const result = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Compare activation rate for this month with the same period last year.",
+        draftText: "The activation rate was 42% this month and 39% last year.",
+        runStartedAt: Date.UTC(2026, 9, 15, 19, 0),
+        toolCalls: ranges.map((range, index) =>
+          dbtMetricCall(range, [], `month-year-ago-${index}`),
+        ),
+        toolResults: ranges.map((range, index) =>
+          dbtMetricResult(
+            { groupBy: [], timeRange: range },
+            undefined,
+            {},
+            `month-year-ago-${index}`,
+          ),
+        ),
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("uses the named current quarter for year-ago comparisons", () => {
+    const currentQuarter = {
+      startDate: "2026-07-01",
+      endDate: "2026-09-30",
+    };
+    const priorYearQuarter = {
+      startDate: "2025-07-01",
+      endDate: "2025-09-30",
+    };
+    const currentCall = dbtMetricCall(currentQuarter, [], "quarter-current");
+    const priorCall = dbtMetricCall(priorYearQuarter, [], "quarter-prior");
+    const currentResult = dbtMetricResult(
+      { groupBy: [], timeRange: currentQuarter },
+      undefined,
+      {},
+      "quarter-current",
+    );
+    const priorResult = dbtMetricResult(
+      { groupBy: [], timeRange: priorYearQuarter },
+      undefined,
+      {},
+      "quarter-prior",
+    );
+    const context = (
+      toolCalls: AgentLoopFinalResponseGuardContext["toolCalls"],
+      toolResults: AgentLoopFinalResponseGuardContext["toolResults"],
+    ) =>
+      guardContext({
+        userText:
+          "Compare activation rate for Q3 2026 with the equivalent period last year.",
+        draftText: "The activation rate was 42% in Q3 2026 and 39% in Q3 2025.",
+        runStartedAt: Date.UTC(2026, 9, 1, 23, 59),
+        toolCalls,
+        toolResults,
+      });
+
+    expect(
+      realDataFinalGuard(
+        context([currentCall, priorCall], [currentResult, priorResult]),
+      ),
+    ).toBeNull();
+    expect(
+      realDataFinalGuard(context([currentCall], [currentResult])),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+    expect(
+      realDataFinalGuard(
+        guardContext({
+          userText: "Compare activation rate for Q3 2026 with last year.",
+          draftText: "The activation rate was 42% in Q3 2026.",
+          runStartedAt: Date.UTC(2026, 9, 1, 23, 59),
+          toolCalls: [currentCall],
+          toolResults: [currentResult],
+        }),
+      ),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+  });
+
+  it("prefers explicit comparison connectors and parses periods introduced by with", () => {
+    const january2025 = {
+      startDate: "2025-01-01",
+      endDate: "2025-01-31",
+    };
+    const january2024 = {
+      startDate: "2024-01-01",
+      endDate: "2024-01-31",
+    };
+    const evaluate = (
+      userText: string,
+      ranges: Array<{ startDate: string; endDate: string }>,
+    ) => {
+      const toolCalls = ranges.map((range, index) =>
+        dbtMetricCall(range, [], `named-period-${index}`),
+      );
+      const toolResults = ranges.map((range, index) =>
+        dbtMetricResult(
+          { groupBy: [], timeRange: range },
+          undefined,
+          {},
+          `named-period-${index}`,
+        ),
+      );
+      return realDataFinalGuard(
+        guardContext({
+          userText,
+          draftText:
+            "The activation rate was 42% in the current period and 39% before.",
+          runStartedAt: Date.UTC(2026, 9, 1, 23, 59),
+          toolCalls,
+          toolResults,
+        }),
+      );
+    };
+
+    expect(
+      evaluate(
+        "Show activation rate with Jan 2025 vs the same period last year.",
+        [january2025, january2024],
+      ),
+    ).toBeNull();
+    expect(
+      evaluate(
+        "Show activation rate with Jan 2025 vs the same period last year.",
+        [january2024],
+      ),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+    expect(
+      evaluate("Compare activation rate for Jan 2025 with Jan 2024.", [
+        january2025,
+        january2024,
+      ]),
+    ).toBeNull();
+    expect(
+      evaluate("Compare activation rate for Jan 2025 with Jan 2024.", [
+        january2025,
+      ]),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+    expect(
+      evaluate(
+        "Compare activation rate for Jan 2025 with Jan 2024 and last quarter.",
+        [january2025, january2024],
+      ),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+    expect(
+      evaluate(
+        "Compare activation rate for Jan 2025 with Jan 2024, this month vs last month.",
+        [
+          { startDate: "2026-10-01", endDate: "2026-10-01" },
+          { startDate: "2026-09-01", endDate: "2026-09-30" },
+        ],
+      ),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+    expect(
+      evaluate(
+        "Compare activation rate for Jan 2025, this month vs last month.",
+        [
+          { startDate: "2026-10-01", endDate: "2026-10-01" },
+          { startDate: "2026-09-01", endDate: "2026-09-30" },
+        ],
+      ),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+    expect(
+      evaluate(
+        "Compare activation rate for Jan 2025 with the equivalent period last year and the full year last year.",
+        [january2025, january2024],
+      ),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+    expect(
+      evaluate(
+        "Compare activation rate for Jan 2026 with last year and the same period one year ago.",
+        [{ startDate: "2026-01-01", endDate: "2026-01-31" }, january2025],
+      ),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+    expect(
+      evaluate("Compare activation rate for Q3 2026 with last year.", [
+        { startDate: "2026-07-01", endDate: "2026-09-30" },
+      ]),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+  });
+
+  it("fails closed on invalid explicit dates in a year-ago comparison", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Compare activation rate from 2026-13-01 to 2026-13-07 vs the equivalent period one year ago.",
+        draftText: "The activation rate was 42%.",
+        runStartedAt: Date.UTC(2026, 9, 1, 23, 59),
+        toolCalls: [],
+        toolResults: [],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+  });
+
+  it("validates both explicit date ranges in a comparison", () => {
+    const recent = { startDate: "2026-07-01", endDate: "2026-07-07" };
+    const previous = { startDate: "2026-06-01", endDate: "2026-06-07" };
+    const evaluate = (
+      toolCalls: AgentLoopFinalResponseGuardContext["toolCalls"],
+      toolResults: AgentLoopFinalResponseGuardContext["toolResults"],
+    ) =>
+      realDataFinalGuard(
+        guardContext({
+          userText:
+            "Compare activation rate 2026-07-01 through 2026-07-07 vs 2026-06-01 through 2026-06-07.",
+          draftText: "The activation rate was 42% in July and 39% in June.",
+          toolCalls,
+          toolResults,
+        }),
+      );
+
+    const recentCall = dbtMetricCall(recent, [], "explicit-recent");
+    const previousCall = dbtMetricCall(previous, [], "explicit-previous");
+    const recentResult = dbtMetricResult(
+      { groupBy: [], timeRange: recent },
+      undefined,
+      {},
+      "explicit-recent",
+    );
+    const previousResult = dbtMetricResult(
+      { groupBy: [], timeRange: previous },
+      undefined,
+      {},
+      "explicit-previous",
+    );
+
+    expect(
+      evaluate([recentCall, previousCall], [recentResult, previousResult]),
+    ).toBeNull();
+    expect(
+      evaluate([previousCall, recentCall], [previousResult, recentResult]),
+    ).toBeNull();
+    expect(evaluate([recentCall], [recentResult])).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+  });
+
+  it("resolves past and within rolling periods and rejects vague or sub-day windows", () => {
+    const runStartedAt = Date.UTC(2026, 9, 15, 19, 0);
+    const rollingWeek = { startDate: "2026-10-09", endDate: "2026-10-15" };
+    const pastWeek = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate for the past week?",
+        draftText: "The activation rate was 42%.",
+        runStartedAt,
+        toolCalls: [dbtMetricCall(rollingWeek)],
+        toolResults: [dbtMetricResult({ groupBy: [], timeRange: rollingWeek })],
+      }),
+    );
+    const withinLastSevenDays = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate within last 7 days?",
+        draftText: "The activation rate was 42%.",
+        runStartedAt,
+        toolCalls: [dbtMetricCall(rollingWeek)],
+        toolResults: [dbtMetricResult({ groupBy: [], timeRange: rollingWeek })],
+      }),
+    );
+    const subDay = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate in the last 6 hours?",
+        draftText: "The activation rate was 42%.",
+        runStartedAt,
+        toolCalls: [dbtMetricCall(rollingWeek)],
+        toolResults: [dbtMetricResult({ groupBy: [], timeRange: rollingWeek })],
+      }),
+    );
+    const vague = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate recently?",
+        draftText: "The activation rate was 42%.",
+        runStartedAt,
+        toolCalls: [dbtMetricCall(rollingWeek)],
+        toolResults: [dbtMetricResult({ groupBy: [], timeRange: rollingWeek })],
+      }),
+    );
+
+    expect(pastWeek).toBeNull();
+    expect(withinLastSevenDays).toBeNull();
+    expect(subDay).toMatchObject({
+      retryMessage: expect.stringContaining("ask for a concrete date range"),
+    });
+    expect(vague).toMatchObject({
+      retryMessage: expect.stringContaining("ask for a concrete date range"),
+    });
+  });
+
+  it("requires requested dbt breakdowns and matches result grouping to input", () => {
+    const range = { startDate: "2026-07-01", endDate: "2026-07-07" };
+    const grouped = [{ name: "organization_id" }];
+    const scalarForBreakdown = realDataFinalGuard(
+      guardContext({
+        userText:
+          "What was the activation rate from 2026-07-01 to 2026-07-07 by organization?",
+        draftText: "The activation rate was 42%.",
+        toolCalls: [dbtMetricCall(range)],
+        toolResults: [dbtMetricResult({ groupBy: [], timeRange: range })],
+      }),
+    );
+    const mismatchedInput = realDataFinalGuard(
+      guardContext({
+        userText:
+          "What was the activation rate from 2026-07-01 to 2026-07-07 by organization?",
+        draftText: "The activation rate was 42%.",
+        toolCalls: [dbtMetricCall(range)],
+        toolResults: [dbtMetricResult({ groupBy: grouped, timeRange: range })],
+      }),
+    );
+    const matchingGroup = realDataFinalGuard(
+      guardContext({
+        userText:
+          "What was the activation rate from 2026-07-01 to 2026-07-07 by organization?",
+        draftText: "The activation rate was 42%.",
+        toolCalls: [dbtMetricCall(range, grouped)],
+        toolResults: [dbtMetricResult({ groupBy: grouped, timeRange: range })],
+      }),
+    );
+
+    expect(scalarForBreakdown).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+    expect(mismatchedInput).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+    expect(matchingGroup).toBeNull();
+
+    for (const organizationAlias of ["organizations", "orgs"]) {
+      expect(
+        realDataFinalGuard(
+          guardContext({
+            userText: `What was the activation rate from 2026-07-01 to 2026-07-07 by ${organizationAlias}?`,
+            draftText: `The activation rate was 42% by ${organizationAlias}.`,
+            toolCalls: [dbtMetricCall(range, grouped)],
+            toolResults: [
+              dbtMetricResult({ groupBy: grouped, timeRange: range }),
+            ],
+          }),
+        ),
+      ).toBeNull();
+    }
+  });
+
+  it("matches custom dbt dimensions exactly and fails closed on ambiguity", () => {
+    const range = { startDate: "2026-07-01", endDate: "2026-07-07" };
+    const lifecycleDimensions = [
+      { name: "lifecycle_stage", description: "Lifecycle stage" },
+      { name: "metric_time", queryableGranularities: ["DAY"] },
+    ];
+    const scalar = realDataFinalGuard(
+      guardContext({
+        userText:
+          "What was activation from 2026-07-01 to 2026-07-07 by lifecycle stage?",
+        draftText: "Activation was 42%.",
+        runStartedAt: Date.UTC(2026, 6, 8),
+        toolCalls: [dbtMetricCall(range)],
+        toolResults: [
+          dbtMetricResult({ groupBy: [], timeRange: range }, undefined, {
+            metric: {
+              name: "activation_rate",
+              dimensions: lifecycleDimensions,
+            },
+          }),
+        ],
+      }),
+    );
+    const grouped = [{ name: "lifecycle_stage" }];
+    const correct = realDataFinalGuard(
+      guardContext({
+        userText:
+          "What was activation from 2026-07-01 to 2026-07-07 by lifecycle stage?",
+        draftText: "Activation was 42% by lifecycle stage.",
+        runStartedAt: Date.UTC(2026, 6, 8),
+        toolCalls: [dbtMetricCall(range, grouped)],
+        toolResults: [
+          dbtMetricResult({ groupBy: grouped, timeRange: range }, undefined, {
+            metric: {
+              name: "activation_rate",
+              dimensions: lifecycleDimensions,
+            },
+          }),
+        ],
+      }),
+    );
+    const ambiguous = realDataFinalGuard(
+      guardContext({
+        userText:
+          "What was activation from 2026-07-01 to 2026-07-07 by organization?",
+        draftText: "Activation was 42% by organization.",
+        runStartedAt: Date.UTC(2026, 6, 8),
+        toolCalls: [dbtMetricCall(range)],
+        toolResults: [
+          dbtMetricResult({ groupBy: [], timeRange: range }, undefined, {
+            metric: {
+              name: "activation_rate",
+              dimensions: [
+                { name: "org_id", description: "Organization ID" },
+                {
+                  name: "workspace_org_id",
+                  description: "Owning organization",
+                },
+              ],
+            },
+          }),
+        ],
+      }),
+    );
+    const overlappingAlias = realDataFinalGuard(
+      guardContext({
+        userText:
+          "What was activation from 2026-07-01 to 2026-07-07 by organization?",
+        draftText: "Activation was 42% by organization.",
+        runStartedAt: Date.UTC(2026, 6, 8),
+        toolCalls: [dbtMetricCall(range, [{ name: "org_id" }])],
+        toolResults: [
+          dbtMetricResult(
+            { groupBy: [{ name: "org_id" }], timeRange: range },
+            undefined,
+            {
+              metric: {
+                name: "activation_rate",
+                dimensions: [
+                  { name: "org_id", description: "Organization ID" },
+                  {
+                    name: "workspace_org_id",
+                    description: "Owning organization",
+                  },
+                ],
+              },
+            },
+          ),
+        ],
+      }),
+    );
+
+    expect(scalar).toMatchObject({
+      retryMessage: expect.stringContaining("requested grouping"),
+    });
+    expect(correct).toBeNull();
+    expect(overlappingAlias).toBeNull();
+    expect(ambiguous).toMatchObject({
+      retryMessage: expect.stringContaining("requested grouping"),
+    });
+  });
+
+  it("does not infer organization hierarchy from unrelated dimension prose", () => {
+    const range = { startDate: "2026-07-01", endDate: "2026-07-07" };
+    const resultFor = (name: string, description: string) => {
+      const groupBy = [{ name }];
+      return realDataFinalGuard(
+        guardContext({
+          userText:
+            "What was activation from 2026-07-01 to 2026-07-07 by organization?",
+          draftText: "Activation was 42% by organization.",
+          runStartedAt: Date.UTC(2026, 6, 8),
+          toolCalls: [dbtMetricCall(range, groupBy)],
+          toolResults: [
+            dbtMetricResult({ groupBy, timeRange: range }, undefined, {
+              metric: {
+                name: "activation_rate",
+                dimensions: [{ name, description }],
+              },
+            }),
+          ],
+        }),
+      );
+    };
+
+    expect(
+      resultFor("organization_id", "Top-level tier of each organization"),
+    ).toBeNull();
+    expect(resultFor("organization_id", "Root or member account")).toBeNull();
+    expect(resultFor("root", "Organization")).toBeNull();
+  });
+
+  it("uses a validated selected dbt dimension when the definition summary is truncated", () => {
+    const range = { startDate: "2026-07-01", endDate: "2026-07-07" };
+    const visibleDimensions = Array.from({ length: 30 }, (_, index) => ({
+      name: `dimension_${index}`,
+      description: `Dimension ${index}`,
+    }));
+    const metric = {
+      name: "activation_rate",
+      dimensions: visibleDimensions,
+      dimensionsCount: 31,
+      dimensionsTruncated: true,
+    };
+    const groupBy = [{ name: "organization_id" }];
+    const valid = realDataFinalGuard(
+      guardContext({
+        userText:
+          "What was activation from 2026-07-01 to 2026-07-07 by organization?",
+        draftText: "Activation was 42% by organization.",
+        runStartedAt: Date.UTC(2026, 6, 8),
+        toolCalls: [dbtMetricCall(range, groupBy)],
+        toolResults: [
+          dbtMetricResult({ groupBy, timeRange: range }, undefined, { metric }),
+        ],
+      }),
+    );
+    const mismatched = realDataFinalGuard(
+      guardContext({
+        userText:
+          "What was activation from 2026-07-01 to 2026-07-07 by organization?",
+        draftText: "Activation was 42% by organization.",
+        runStartedAt: Date.UTC(2026, 6, 8),
+        toolCalls: [dbtMetricCall(range, [{ name: "source_name" }])],
+        toolResults: [
+          dbtMetricResult(
+            { groupBy: [{ name: "source_name" }], timeRange: range },
+            undefined,
+            { metric },
+          ),
+        ],
+      }),
+    );
+
+    expect(valid).toBeNull();
+    expect(mismatched).toMatchObject({
+      retryMessage: expect.stringContaining("requested grouping"),
+    });
+  });
+
+  it("checks the requested dbt metric-time grain", () => {
+    const range = { startDate: "2026-07-01", endDate: "2026-07-07" };
+    const weekly = [{ name: "metric_time", grain: "WEEK" }];
+    const daily = [{ name: "metric_time", grain: "DAY" }];
+    const missing = realDataFinalGuard(
+      guardContext({
+        userText:
+          "What was the activation rate from 2026-07-01 to 2026-07-07 by week?",
+        draftText: "The activation rate was 42% by week.",
+        toolCalls: [dbtMetricCall(range)],
+        toolResults: [dbtMetricResult({ groupBy: [], timeRange: range })],
+      }),
+    );
+    const wrongGrain = realDataFinalGuard(
+      guardContext({
+        userText:
+          "What was the activation rate from 2026-07-01 to 2026-07-07 by week?",
+        draftText: "The activation rate was 42% by week.",
+        toolCalls: [dbtMetricCall(range, daily)],
+        toolResults: [dbtMetricResult({ groupBy: daily, timeRange: range })],
+      }),
+    );
+    const correct = realDataFinalGuard(
+      guardContext({
+        userText:
+          "What was the activation rate from 2026-07-01 to 2026-07-07 by week?",
+        draftText: "The activation rate was 42% by week.",
+        toolCalls: [dbtMetricCall(range, weekly)],
+        toolResults: [dbtMetricResult({ groupBy: weekly, timeRange: range })],
+      }),
+    );
+
+    expect(missing).toMatchObject({
+      retryMessage: expect.stringContaining("requested grouping"),
+    });
+    expect(wrongGrain).toMatchObject({
+      retryMessage: expect.stringContaining("requested grouping"),
+    });
+    expect(correct).toBeNull();
+  });
+
+  it("uses the latest successful dbt result after an exploratory mismatch", () => {
+    const correctRange = { startDate: "2026-07-01", endDate: "2026-07-07" };
+    const wrongRange = { startDate: "2026-06-01", endDate: "2026-06-07" };
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate from 2026-07-01 to 2026-07-07?",
+        draftText: "The activation rate was 42%.",
+        toolCalls: [
+          dbtMetricCall(wrongRange, [], "exploratory-query"),
+          dbtMetricCall(correctRange, [], "final-query"),
+        ],
+        toolResults: [
+          dbtMetricResult(
+            { groupBy: [], timeRange: wrongRange },
+            undefined,
+            {},
+            "exploratory-query",
+          ),
+          dbtMetricResult(
+            { groupBy: [], timeRange: correctRange },
+            undefined,
+            {},
+            "final-query",
+          ),
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("does not interpret an origin country as a bounded date request", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What was the product revenue from Germany?",
+        draftText: "The product revenue was 42.",
+        toolCalls: [
+          {
+            name: "query-dbt-semantic-metric",
+            input: { metricName: "product_revenue", allTime: true },
+          },
+        ],
+        toolResults: [
+          dbtMetricResult({ groupBy: [], allTime: true }, [{ value: 42 }], {
+            metricName: "product_revenue",
+            metric: { name: "product_revenue", dimensions: [] },
+          }),
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("fails closed when dbt returns malformed result evidence for a bounded request", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate last week?",
+        draftText: "The activation rate was 42%.",
+        toolCalls: [dbtMetricCall(activationRateWeek)],
+        toolResults: [
+          {
+            name: "query-dbt-semantic-metric",
+            isError: false,
+            content: "not valid JSON",
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining("no structured metric status"),
+    });
+  });
+
+  it("uses status-specific dbt recovery guidance instead of accepting a numeric claim", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate last week?",
+        draftText: "The activation rate was 42%.",
+        toolResults: [
+          {
+            name: "query-dbt-semantic-metric",
+            isError: false,
+            content: JSON.stringify({ status: "deployment_not_ready" }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining(
+        "Wait for a successful dbt deployment run",
+      ),
+      fallbackMessage: expect.stringContaining(
+        "Wait for a successful dbt deployment run",
+      ),
+    });
+  });
+
+  it.each(["query-dbt-semantic-metric", "query_dbt_semantic_metric"])(
+    "does not let a safe no-data draft bypass typed dbt status failure from %s",
+    (toolName) => {
+      const result = realDataFinalGuard(
+        guardContext({
+          userText: "What was the activation rate last week?",
+          draftText:
+            "I can't retrieve this metric because the dbt deployment is not ready.",
+          toolResults: [
+            {
+              name: toolName,
+              isError: false,
+              content: JSON.stringify({ status: "deployment_not_ready" }),
+            },
+          ],
+        }),
+      );
+
+      expect(result).toMatchObject({
+        retryMessage: expect.stringContaining(
+          "Wait for a successful dbt deployment run",
+        ),
+        fallbackMessage: expect.stringContaining(
+          "Wait for a successful dbt deployment run",
+        ),
+      });
+    },
+  );
+
+  it("continues paginated dbt metric rows before accepting a complete answer", () => {
+    const resultPageRange = activationRateWeek;
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate last week?",
+        draftText: "The activation rate was 42%.",
+        runStartedAt: todayUtc.getTime(),
+        toolCalls: [dbtMetricCall(resultPageRange)],
+        toolResults: [
+          {
+            name: "query-dbt-semantic-metric",
+            isError: false,
+            content: JSON.stringify({
+              status: "success",
+              metricName: "activation_rate",
+              querySpec: { groupBy: [], timeRange: resultPageRange },
+              rows: [{ activation_rate: 42 }],
+              truncated: true,
+              nextPage: "metric-results-v4.cursor.signature",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining(
+        "Continue with the same metricName, queryId, and nextPage",
+      ),
+      fallbackMessage: expect.stringContaining("result page"),
+    });
+  });
+
+  it("requires partial disclosure when the dbt metric row cap has no cursor", () => {
+    const resultPageRange = activationRateWeek;
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate last week?",
+        draftText: "The activation rate was 42%.",
+        runStartedAt: todayUtc.getTime(),
+        toolCalls: [dbtMetricCall(resultPageRange)],
+        toolResults: [
+          {
+            name: "query-dbt-semantic-metric",
+            isError: false,
+            content: JSON.stringify({
+              status: "success",
+              metricName: "activation_rate",
+              querySpec: { groupBy: [], timeRange: resultPageRange },
+              rows: [{ activation_rate: 42 }],
+              truncated: true,
+              truncationReason: "query_row_cap",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining("1,000-row result cap"),
+      fallbackMessage: expect.stringContaining("returned rows as partial"),
+    });
+  });
+
+  it("preserves safe no-data answers for unrelated provider failures", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "How many signups did we get last week?",
+        draftText:
+          "I can't retrieve this analytics result because the query failed.",
+        toolResults: [
+          {
+            name: "bigquery",
+            isError: false,
+            content: JSON.stringify({
+              error: "bigquery_query_failed",
+              message: "Temporary provider failure.",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("keeps cursor-bearing dbt failures on their status-specific recovery path", () => {
+    const resultPageRange = activationRateWeek;
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Find every account's activation rate for last week.",
+        draftText: "All accounts had an activation rate of 42%.",
+        runStartedAt: todayUtc.getTime(),
+        toolCalls: [dbtMetricCall(resultPageRange)],
+        toolResults: [
+          {
+            name: "query-dbt-semantic-metric",
+            isError: false,
+            content: JSON.stringify({
+              status: "pending",
+              metricName: "activation_rate",
+              querySpec: { groupBy: [], timeRange: resultPageRange },
+              nextPage: "opaque-cursor",
+              message: "The MetricFlow query is still running.",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining("Resume the same MetricFlow query"),
+      fallbackMessage: expect.stringContaining(
+        "Resume the same MetricFlow query",
+      ),
+    });
+  });
+
   it("accepts a grounded answer from a source action no name list ever enumerated", () => {
     const result = realDataFinalGuard(
       guardContext({
@@ -824,6 +2971,18 @@ describe("realDataFinalGuard", () => {
             content: '{"entries":[{"name":"p95_latency"}]}',
           },
         ],
+      }),
+    );
+
+    expect(result).not.toBeNull();
+  });
+
+  it("judges a question the user wrapped in context tags", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText:
+          "<context>How many sessions did we record in the last 24 hours?</context>",
+        draftText: "We recorded 41,208 sessions in the last 24 hours.",
       }),
     );
 
@@ -1124,6 +3283,517 @@ describe("realDataFinalGuard", () => {
     expect((result as { retryMessage: string }).retryMessage).toContain(
       "Do not ask the user for warehouse schema identifiers",
     );
+  });
+
+  it("continues roster discovery after an empty and incomplete find-data result", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Find the Builder.io user roster by organization and membership roles",
+        draftText:
+          "I can't confirm a row-grain membership source from the catalog, and the index may not include every source.",
+        toolResults: [
+          {
+            name: "find-data",
+            isError: false,
+            content: JSON.stringify({
+              results: [],
+              sourceIndexStatus: "not-configured",
+              truncated: true,
+              nextPage: null,
+              dashboardDetailHydrationTruncated: true,
+              dashboardPanelReferenceSearchTruncated: true,
+              dashboardPanelReferenceNextPage: "synthetic-dashboard-cursor",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining("search-bigquery-schema"),
+      fallbackMessage: expect.stringContaining(
+        "does not show that the source is absent",
+      ),
+      maxRetries: 2,
+      expandToolSurface: true,
+    });
+    expect((result as { retryMessage: string }).retryMessage).toContain(
+      "dashboardPanelReferenceNextPage",
+    );
+  });
+
+  it("continues a partial schema search instead of accepting an unscoped roster absence", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Find the Builder.io user roster by organization and membership roles",
+        draftText:
+          "No membership table was found, so the user roster source does not exist.",
+        toolResults: [
+          {
+            name: "find-data",
+            isError: false,
+            content: JSON.stringify({
+              results: [],
+              sourceIndexStatus: "available",
+            }),
+          },
+          {
+            name: "search-bigquery-schema",
+            isError: false,
+            content: JSON.stringify({
+              mode: "table-search",
+              search: "organization membership user role",
+              searched: 250,
+              of: 0,
+              tables: [],
+              truncated: true,
+              nextPage: "synthetic-schema-cursor",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining("search-bigquery-schema"),
+      fallbackMessage: expect.stringContaining(
+        "does not show that the source is absent",
+      ),
+    });
+  });
+
+  it("requires scoped wording after a complete schema search finds no roster tables", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Find the Builder.io user roster by organization and membership roles",
+        draftText:
+          "No membership table was found, so the user roster source does not exist.",
+        toolResults: [
+          {
+            name: "find-data",
+            isError: false,
+            content: JSON.stringify({
+              results: [],
+              sourceIndexStatus: "available",
+            }),
+          },
+          {
+            name: "search-bigquery-schema",
+            isError: false,
+            content: JSON.stringify({
+              mode: "table-search",
+              search: "organization membership user role",
+              searched: 250,
+              of: 0,
+              tables: [],
+              truncated: false,
+              nextPage: null,
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining("configured project/schema"),
+      fallbackMessage: expect.stringContaining(
+        "does not establish that a membership source is absent",
+      ),
+    });
+  });
+
+  it("allows a roster absence statement scoped to the completed schema search", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Find the Builder.io user roster by organization and membership roles",
+        draftText:
+          "I found no organization membership table in the configured BigQuery project schema search; that result does not rule out a source in another system.",
+        toolResults: [
+          {
+            name: "find-data",
+            isError: false,
+            content: JSON.stringify({
+              results: [],
+              sourceIndexStatus: "available",
+            }),
+          },
+          {
+            name: "search-bigquery-schema",
+            isError: false,
+            content: JSON.stringify({
+              mode: "table-search",
+              search: "organization membership user role",
+              searched: 250,
+              of: 0,
+              tables: [],
+              truncated: false,
+              nextPage: null,
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("requires a query after complete schema discovery finds candidate roster tables", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Find the Builder.io user roster by organization and membership roles",
+        draftText:
+          "I can't report the roster yet because I have not run a query.",
+        toolResults: [
+          {
+            name: "find-data",
+            isError: false,
+            content: JSON.stringify({
+              results: [],
+              sourceIndexStatus: "available",
+            }),
+          },
+          {
+            name: "search-bigquery-schema",
+            isError: false,
+            content: JSON.stringify({
+              mode: "table-search",
+              search: "organization membership user role",
+              searched: 250,
+              of: 1,
+              tables: [
+                {
+                  datasetId: "synthetic_dataset",
+                  tableId: "synthetic_members",
+                },
+              ],
+              truncated: false,
+              nextPage: null,
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining("run a bounded live query"),
+      fallbackMessage: expect.stringContaining(
+        "did not verify their row grain",
+      ),
+    });
+  });
+
+  it("accepts a finished answer that mentions tables and says to tell the agent what else is wrong", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "That cohort table doesn't make any sense",
+        draftText:
+          "I found and fixed two data bugs in the cohort table. I'm guessing at what looked wrong, so tell me if something else is bothering you. Both panels now render (43 rows in the table, 12 months in the line).\n\n**What was wrong**\n- The query summed `current_month_pageviews`, which holds one frozen figure per account. MagMutual is now 0.06% for the year.",
+        toolResults: [
+          { name: "bigquery", isError: false, content: '{"rows":[{"n":43}]}' },
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("still retries a question asking the user which table to use", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Pull AI credit usage by user for each month",
+        draftText: "Which table holds the monthly credit usage?",
+      }),
+    );
+
+    expect(result).toMatchObject({
+      maxRetries: 2,
+      retryMessage: expect.stringContaining(
+        "Do not ask the user for warehouse schema identifiers",
+      ),
+    });
+  });
+
+  it("does not retry a verified dashboard edit for quoting the rows it rendered", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Add a line chart panel for monthly pageviews",
+        draftText:
+          "Added the line chart. It renders 12 months and the table shows 43 accounts.",
+        toolResults: [
+          {
+            name: "mutate-dashboard",
+            isError: false,
+            content: '{"saved":true,"changed":true}',
+            receipt: {
+              changed: true,
+              verified: true,
+              summary: "Saved the dashboard.",
+              checks: [
+                {
+                  id: "pageviews-line",
+                  ok: true,
+                  detail: "renders 12 row(s), columns [month, pageviews]",
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("still retries figures after a save that only checked a section panel", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Rename the pageviews panel",
+        draftText:
+          "Renamed the panel. The table shows 43 accounts under 5% utilization.",
+        toolResults: [
+          {
+            name: "mutate-dashboard",
+            isError: false,
+            content: '{"saved":true,"changed":true}',
+            receipt: {
+              changed: true,
+              verified: true,
+              summary:
+                "Saved 1 op(s); 1 section/extension panel(s) not data-checked.",
+              checks: [
+                {
+                  id: "intro",
+                  ok: true,
+                  detail:
+                    "is a section panel with no data to run; only its config was checked",
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({ maxRetries: 2 });
+  });
+
+  it("still retries figures after a save that checked no panel", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Rename the pageviews panel",
+        draftText:
+          "Renamed the panel. The table shows 43 accounts under 5% utilization.",
+        toolResults: [
+          {
+            name: "mutate-dashboard",
+            isError: false,
+            content: '{"saved":true,"changed":true}',
+            receipt: {
+              changed: true,
+              verified: true,
+              summary:
+                "Saved 1 op(s); no panel render was affected, so no panel was checked.",
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({ maxRetries: 2 });
+  });
+
+  it.each([
+    "I can provide a table of the results if that helps.",
+    "I need the table to reload, so I re-ran the query and it shows 43 accounts.",
+    "There are 43 accounts. Want me to show which table this came from?",
+    "There are 43 accounts. Would you like me to show which table this came from?",
+    "There are 43 accounts. I need to know the table is current before I answer, so I re-ran it.",
+    "I fixed both panels, so tell me what else is off:\n- the table now shows 43 rows\n- the column labels are swapped back",
+    "I fixed both panels. Tell me what else is off: the table shows 43 rows.",
+    "Tell me if anything else is off, since the table still shows 43 rows.",
+    "I fixed both panels. Can you tell me what else is off:\n- the table shows 43 rows",
+    "Tell me if anything else is off and the table shows 43 rows.",
+    "Could you confirm the table has 43 rows?",
+    "Could you check the table has 43 rows?",
+    "Could you explain what the table represents?",
+    "I need the table that has the current data, so I re-ran the query and it shows 43 rows.",
+    "I need the table that holds the current figures, so I re-ran the query and it shows 43 rows.",
+    "Could you show me the table?",
+    "Can you show which table this came from?",
+    "There are 43 accounts. Which table rows were excluded from the 43 count?",
+    "There are 43 accounts. What is the table size relative to last month?",
+    "I fixed both panels. Can you share anything else that's off:\n- the table shows 43 rows",
+    "I need you to confirm the table is current, so I re-ran it and it shows 43 rows.",
+    "I need to know what the table shows before I answer, so I re-ran it and it has 43 rows.",
+    "I need to know what the table name is, so I looked it up and it is usage_monthly.",
+    "I need to know which table holds usage, so I searched the catalog and it is usage_monthly.",
+    "I need to know which table this came from. I re-ran the query and it shows 43 rows.",
+    "I need the table name, so I looked it up and it is usage_monthly.",
+    "I need to know which table holds usage. I checked the catalog and it is usage_monthly.",
+    "I need the table name, so I looked it up and it is usage_monthly, not usage_daily.",
+    "I need the table name. So I've checked the catalog and it is usage_monthly.",
+    "I need the table name, so I've looked it up and it is usage_monthly.",
+    "I need to know which table holds usage. I checked the catalog and it is usage_monthly, with no other table for this.",
+    "I need to know which table holds usage. I checked the catalog and found no other table.",
+    "There are 43 accounts. Which row in the table is wrong?",
+  ])(
+    "does not treat the agent's own narration as a schema request: %s",
+    (draftText) => {
+      const result = realDataFinalGuard(
+        guardContext({
+          userText: "How many accounts are under 5% utilization?",
+          draftText,
+          toolResults: [
+            {
+              name: "bigquery",
+              isError: false,
+              content: '{"rows":[{"n":43}]}',
+            },
+          ],
+        }),
+      );
+
+      expect(result).toBeNull();
+    },
+  );
+
+  it("retries a schema ask even after a verified non-data dashboard save", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Rename the pageviews panel",
+        draftText:
+          "Renamed the panel. Could you provide the BigQuery dataset name?",
+        toolResults: [
+          {
+            name: "mutate-dashboard",
+            isError: false,
+            content: '{"saved":true,"changed":true}',
+            receipt: {
+              changed: true,
+              verified: true,
+              summary: "Saved the dashboard.",
+              checks: [{ id: "intro", ok: true, detail: "is a section panel" }],
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining(
+        "Do not ask the user for warehouse schema identifiers",
+      ),
+    });
+  });
+
+  it("keeps the draft once the schema-request retries are spent", () => {
+    const draftText =
+      "Could you provide the BigQuery dataset name or the exact SQL query?";
+    const context = (retryCount: number) =>
+      guardContext({
+        userText: "Pull AI credit usage by user for each month",
+        draftText,
+        retryCount,
+      });
+
+    expect(realDataFinalGuard(context(1))).toMatchObject({ maxRetries: 2 });
+    expect(realDataFinalGuard(context(2))).toBeNull();
+  });
+
+  it("still checks unsupported figures after the schema-request retries are spent", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "How many accounts are under 5% utilization?",
+        draftText:
+          "Revenue was $4.2M across 43 accounts. Could you provide the BigQuery dataset name?",
+        retryCount: 2,
+      }),
+    );
+
+    expect(result).not.toBeNull();
+    expect(
+      (result as { retryMessage?: string } | string | null) &&
+        typeof result === "object" &&
+        (result as { retryMessage: string }).retryMessage,
+    ).not.toContain("Do not ask the user for warehouse schema identifiers");
+  });
+
+  it.each([
+    "I need the table name before I can continue.",
+    "I need a table name before I can continue.",
+    "I need to know which table holds monthly usage before I can continue.",
+    "I need to know the table name before I can continue.",
+    "I need to know what the table name is before I can continue.",
+    "I need to know what table holds monthly usage before I can continue.",
+    "What is the name of the table?",
+    "What is the table name?",
+    "What is the current table name?",
+    "What is the active dataset name?",
+    "What is the name of the source table?",
+    "I need to know what the current table name is before I can continue.",
+    "I need to know which table holds monthly usage so I can write the query.",
+    "I need the table name so I can write the query.",
+    "I need the table name, so I cannot continue until you send it.",
+    "I need the table name so I can write the query. Separately, the account count is ready, so I sent the summary.",
+    "I need the table name. Separately, I ran the revenue query and it returned 43 rows.",
+    "I need to know which table holds usage. Separately, I checked the revenue dashboard and it shows 43 rows.",
+    "I need the table name. I ran into a problem finding it in the catalog.",
+    "Which table for monthly usage?",
+    "Which dataset for this metric?",
+    "Which table to use for monthly usage?",
+    "Which source table holds usage?",
+    "Which warehouse table for monthly usage?",
+    "Which BigQuery dataset should I use?",
+    "What is the schema?",
+    "What is the SQL query?",
+    "What SQL query should I use?",
+    "What are the schema details for usage?",
+    "I need the table name. I looked in the catalog and found no table matching usage.",
+    "I need the table name before I can continue. I searched the catalog, but nothing matched.",
+    "I need the table name. I checked the catalog and couldn't find it.",
+    "I need to know which table holds usage. I searched the catalog. Nothing matched.",
+    "I need the table name. I looked in the catalog and found nothing.",
+    "I need the dataset name so I could build the chart.",
+    "Do you know which table holds the monthly credit usage?",
+    "I need the schema before I can write this query.",
+    "I need the column that holds usage before I can continue.",
+    "For this metric, which table holds the monthly usage?",
+    "I need the name of the table before I can continue.",
+    "I need table names before I can continue.",
+    "Could you let me know which table holds monthly usage?",
+    "Could you clarify which table holds monthly usage?",
+    "Could you show me the table name?",
+    "Could you show me which table holds monthly usage?",
+    "Could you describe which table holds monthly usage?",
+    "Could you explain what the dataset name is?",
+    "Could you check which table holds monthly usage?",
+    "Could you confirm which table holds monthly usage?",
+    "Could you verify the dataset name?",
+    "Can you check the dataset name?",
+    "Would you mind providing the dataset name?",
+    "Could you provide the following?\n- the BigQuery dataset name",
+    "What table stores monthly credit usage?",
+    "To continue, please provide:\n- the dataset name\n- the column that holds usage",
+    "To continue, please provide the following:\n\n- the dataset name\n- the column that holds usage",
+    "Share the dataset name.",
+  ])("retries a request for schema details: %s", (draftText) => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Pull AI credit usage by user for each month",
+        draftText,
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining(
+        "Do not ask the user for warehouse schema identifiers",
+      ),
+    });
   });
 
   it("accepts the action's string setup link without overwriting it with the settings path", () => {
@@ -1775,6 +4445,144 @@ describe("realDataFinalGuard", () => {
     expect(result).toBeNull();
   });
 
+  it("requires BigQuery warning rows to be disclosed as partial", () => {
+    const toolResults = [
+      {
+        name: "bigquery",
+        isError: false,
+        content: JSON.stringify({
+          rows: [{ signups: 42 }],
+          partial: true,
+          warnings: [{ reason: "other", message: "One shard was unavailable" }],
+        }),
+      },
+    ];
+
+    expect(
+      realDataFinalGuard(
+        guardContext({
+          userText: "How many signups did we get yesterday?",
+          draftText: "We got 42 signups yesterday.",
+          toolResults,
+        }),
+      ),
+    ).toMatchObject({
+      maxRetries: 2,
+      retryMessage: expect.stringContaining("result is partial"),
+      fallbackMessage: expect.stringContaining(
+        "incomplete or its output was truncated",
+      ),
+    });
+    expect(
+      realDataFinalGuard(
+        guardContext({
+          userText: "How many signups did we get yesterday?",
+          draftText:
+            "The partial result reports 42 signups yesterday; BigQuery warned that one shard was unavailable, so the total may be incomplete.",
+          toolResults,
+        }),
+      ),
+    ).toBeNull();
+    expect(
+      realDataFinalGuard(
+        guardContext({
+          userText: "How many signups did we get yesterday?",
+          draftText:
+            "The partial result reports 42 signups yesterday; BigQuery warned that one shard was unavailable, so the total may be incomplete. The returned total is complete.",
+          toolResults,
+        }),
+      ),
+    ).toMatchObject({
+      maxRetries: 2,
+      retryMessage: expect.stringContaining("result is partial"),
+    });
+    for (const draftText of [
+      "The signups were 42 yesterday; a sample dashboard is available here.",
+      "BigQuery returned a partial result: 42 signups yesterday.",
+    ]) {
+      expect(
+        realDataFinalGuard(
+          guardContext({
+            userText: "How many signups did we get yesterday?",
+            draftText,
+            toolResults,
+          }),
+        ),
+      ).toMatchObject({
+        maxRetries: 2,
+        fallbackMessage: expect.stringContaining(
+          "incomplete or its output was truncated",
+        ),
+      });
+    }
+  });
+
+  it("requires a row-cap explanation for a truncated BigQuery answer", () => {
+    const toolResults = [
+      {
+        name: "bigquery",
+        isError: false,
+        content: JSON.stringify({ rows: [{ signups: 42 }], truncated: true }),
+      },
+    ];
+    const unrelatedSample = realDataFinalGuard(
+      guardContext({
+        userText: "How many signups did we get yesterday?",
+        draftText: "This sample shows 42 signups yesterday.",
+        toolResults,
+      }),
+    );
+    const disclosed = realDataFinalGuard(
+      guardContext({
+        userText: "How many signups did we get yesterday?",
+        draftText:
+          "BigQuery returned a truncated result with 42 signups; the row cap may omit additional rows.",
+        toolResults,
+      }),
+    );
+
+    expect(unrelatedSample).toMatchObject({
+      fallbackMessage: expect.stringContaining(
+        "incomplete or its output was truncated",
+      ),
+    });
+    expect(disclosed).toBeNull();
+  });
+
+  it("requires disclosure when the production tool-result limit truncates BigQuery metadata", () => {
+    const toolResults = [
+      {
+        name: "bigquery",
+        isError: false,
+        content:
+          '{"rows":[{"signups":42}],"partial":true\n\n...[truncated — full result was 200\u202f000 chars; only first 50\u202f000 shown]',
+      },
+    ];
+    const undisclosed = realDataFinalGuard(
+      guardContext({
+        userText: "How many signups did we get yesterday?",
+        draftText: "We got 42 signups yesterday.",
+        toolResults,
+      }),
+    );
+    const disclosed = realDataFinalGuard(
+      guardContext({
+        userText: "How many signups did we get yesterday?",
+        draftText:
+          "BigQuery returned 42 signups, but the tool output was truncated, so the displayed rows may omit additional results.",
+        toolResults,
+      }),
+    );
+
+    expect(undisclosed).toMatchObject({
+      maxRetries: 2,
+      fallbackMessage: expect.stringContaining(
+        "incomplete or its output was truncated",
+      ),
+    });
+    expect(disclosed).toBeNull();
+  });
+
   it("lets a data question through when the draft makes no analytics claim and no tool ran", () => {
     const result = realDataFinalGuard(
       guardContext({
@@ -1800,6 +4608,53 @@ describe("realDataFinalGuard", () => {
       expandToolSurface: true,
       exhaustedDraftPrefix: expect.stringContaining("Unverified"),
     });
+  });
+
+  it("gives the unverified fallback the dbt readiness reason and does not count a not-ready dbt grant as healthy", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What was our signup conversion last week?",
+        draftText: "Signup conversion was 4.2% last week.",
+        toolResults: [
+          {
+            name: "data-source-status",
+            isError: false,
+            content: JSON.stringify({
+              workspaceConnections: {
+                appId: "analytics",
+                available: true,
+                providers: [
+                  {
+                    id: "github",
+                    label: "GitHub",
+                    grantState: "connected",
+                  },
+                  {
+                    id: "dbt",
+                    label: "dbt Cloud",
+                    grantState: "connected",
+                    dbtReadiness: "token_missing",
+                  },
+                ],
+              },
+            }),
+          },
+        ],
+      }),
+    );
+
+    const note =
+      "The dbt Semantic Layer is not ready: The dbt Semantic Layer token is not saved. Set it up on the [Semantic Layer page](";
+    expect(result).toMatchObject({
+      exhaustedDraftPrefix: expect.stringContaining(note),
+      fallbackMessage: expect.stringContaining(note),
+    });
+    expect(
+      (result as { exhaustedDraftPrefix: string }).exhaustedDraftPrefix,
+    ).toContain("healthy workspace connections: GitHub");
+    expect(
+      (result as { exhaustedDraftPrefix: string }).exhaustedDraftPrefix,
+    ).not.toContain("dbt Cloud");
   });
 
   it("distinguishes configured credentials from healthy workspace connections in guard copy", () => {

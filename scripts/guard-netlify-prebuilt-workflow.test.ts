@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
+import { runInNewContext } from "node:vm";
 
 import { parse } from "yaml";
 
@@ -101,7 +102,7 @@ describe("Google callback deploy verification guard", () => {
   it("accepts a pinned beta source while main advances during the queue", () => {
     assert.match(
       reusableSource,
-      /const comparison = await github\.rest\.repos\.compareCommits\([\s\S]*?Beta source \$\{sourceSha\} is not an ancestor of main \$\{mainSha\}/,
+      /async function compareCommitsWithRetry\(base, head\)[\s\S]*?github\.rest\.repos\.compareCommits\([\s\S]*?base,[\s\S]*?head,[\s\S]*?status < 500[\s\S]*?status >= 600[\s\S]*?attempt === 3[\s\S]*?const comparison = await compareCommitsWithRetry\(sourceSha, mainSha\)[\s\S]*?Beta source \$\{sourceSha\} is not an ancestor of main \$\{mainSha\}/,
     );
     assert.doesNotMatch(
       reusableSource,
@@ -557,6 +558,25 @@ describe("Netlify API rate-limit guard", () => {
         ),
       ).join("\n"),
       /raw Netlify fetch calls/,
+    );
+  });
+
+  it("uses the docs retry backoff when Retry-After is absent or invalid", () => {
+    const docsProductionSource = readFileSync(
+      ".github/workflows/deploy-docs-production.yml",
+      "utf8",
+    );
+    assert.match(
+      docsProductionSource,
+      /retryAfterHeader === null \|\| !retryAfterHeader\.trim\(\)[\s\S]*?Number\.NaN/,
+    );
+    assert.match(
+      docsProductionSource,
+      /Number\.isFinite\(retryAfter\) && retryAfter >= 0[\s\S]*?: attempt \* 1_000/,
+    );
+    assert.doesNotMatch(
+      docsProductionSource,
+      /Number\(response\.headers\.get\(['"]retry-after['"]\)\)/,
     );
   });
 });
@@ -1939,6 +1959,635 @@ describe("production Netlify site concurrency guard", () => {
     assert(index < steps.findIndex((step) => step.id === "deploy"));
   });
 
+  it("guards stale queued and dispatched docs deploys", async () => {
+    const docsWorkflow = readWorkflow(
+      ".github/workflows/deploy-docs-production.yml",
+    );
+    const jobs = docsWorkflow.jobs as Record<string, Workflow>;
+    const freshnessJob = jobs["docs-source-freshness"];
+    assert(freshnessJob);
+    const freshnessSteps = (freshnessJob.steps as Array<Workflow>).filter(
+      Boolean,
+    );
+    const freshness = freshnessSteps.find(
+      (step) =>
+        step.name ===
+        "Verify docs source is current before production side effects",
+    );
+    const needsSourceFreshness = (jobName: string) => {
+      const job = jobs[jobName];
+      assert(job);
+      assert((job.needs as string[]).includes("docs-source-freshness"));
+      assert.match(
+        String(job.if),
+        /needs\.docs-source-freshness\.result == 'success'/,
+      );
+      assert.match(
+        String(job.if),
+        /needs\.docs-source-freshness\.outputs\.current == 'true'/,
+      );
+    };
+    needsSourceFreshness("pause-netlify-builds");
+    needsSourceFreshness("migrate");
+    needsSourceFreshness("deploy");
+
+    assert(freshness);
+    const initialFreshnessScript = String((freshness.with as Workflow).script);
+    const runInitialFreshness = async (files: unknown[]) => {
+      const failures: string[] = [];
+      const outputs: Record<string, string> = {};
+      const context = {
+        repo: { owner: "BuilderIO", repo: "agent-native" },
+        eventName: "workflow_dispatch",
+      };
+      const github = {
+        rest: {
+          git: {
+            getRef: async () => ({
+              data: { object: { sha: "a".repeat(40) } },
+            }),
+          },
+          repos: {
+            compareCommits: async () => ({
+              data: {
+                status: "ahead",
+                total_commits: 0,
+                commits: [],
+                files,
+              },
+            }),
+          },
+        },
+      };
+      const core = {
+        setFailed: (message: string) => failures.push(message),
+        setOutput: (name: string, value: string) => {
+          outputs[name] = value;
+        },
+        notice: () => undefined,
+      };
+      await runInNewContext(`(async () => {\n${initialFreshnessScript}\n})()`, {
+        context,
+        github,
+        core,
+        process: {
+          env: {
+            SOURCE_REF: "b".repeat(40),
+            FAIL_ON_STALE: "false",
+          },
+        },
+      });
+      return { failures, outputs };
+    };
+
+    for (const files of [
+      [{ filename: undefined }],
+      [{ filename: "packages/core/file.ts", previous_filename: null }],
+    ]) {
+      const result = await runInitialFreshness(files);
+      assert.match(result.failures[0] ?? "", /Cannot verify all newer docs/);
+      assert.equal(result.outputs.current, "false");
+    }
+
+    const pauseJob = jobs["pause-netlify-builds"]!;
+    const pauseJobSteps = (pauseJob.steps as Array<Workflow>).filter(Boolean);
+    const postQueueFreshness = pauseJobSteps.find(
+      (step) => step.id === "docs_post_queue_freshness",
+    );
+    const postQueueActionCheckout = pauseJobSteps.find(
+      (step) =>
+        (step.with as Workflow | undefined)?.path === ".docs-freshness-action",
+    );
+    const pauseMutation = pauseJobSteps.find((step) => step.id === "pause");
+    assert(postQueueFreshness);
+    assert(postQueueActionCheckout);
+    assert(pauseMutation);
+    assert.equal(
+      (pauseJob.outputs as Workflow).freshness_current,
+      "${{ steps.docs_post_queue_freshness.outputs.current }}",
+    );
+    assert.equal(
+      pauseJobSteps.indexOf(postQueueFreshness),
+      pauseJobSteps.indexOf(pauseMutation) - 1,
+    );
+    assert.equal(
+      postQueueFreshness.uses,
+      "./.docs-freshness-action/.github/actions/docs-source-freshness",
+    );
+    assert.equal((postQueueActionCheckout.with as Workflow).ref, "main");
+    assert.match(
+      String(pauseMutation.if),
+      /steps\.docs_post_queue_freshness\.outputs\.current == 'true'/,
+    );
+    for (const jobName of ["migrate", "deploy"]) {
+      assert.match(
+        String(jobs[jobName]!.if),
+        /needs\.pause-netlify-builds\.outputs\.freshness_current == 'true'/,
+      );
+    }
+
+    const workflow = readWorkflow(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    const reusableSource = readFileSync(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+      "utf8",
+    );
+    const reusableJobs = workflow.jobs as Record<string, Workflow>;
+    const steps = (reusableJobs.deploy.steps as Array<Workflow>).filter(
+      Boolean,
+    );
+    const reusableActionCheckout = steps.find(
+      (step) =>
+        (step.with as Workflow | undefined)?.path === ".docs-freshness-action",
+    );
+    const pause = steps.find(
+      (step) =>
+        step.name === "Pause automatic Netlify builds for production cutover",
+    );
+    const unlock = steps.find(
+      (step) => step.name === "Unlock the published production deploy",
+    );
+    const prePauseFreshness = steps.find(
+      (step) =>
+        step.name ===
+        "Verify docs source is current immediately before Netlify pause",
+    );
+    const preUnlockFreshness = steps.find(
+      (step) =>
+        step.name ===
+        "Verify docs source is current immediately before Netlify unlock",
+    );
+    const upload = steps.find(
+      (step) => step.name === "Upload the prebuilt deploy",
+    );
+    const preUploadFreshness = steps.find(
+      (step) =>
+        step.name === "Verify docs source is current immediately before upload",
+    );
+
+    assert(freshness);
+    assert(reusableActionCheckout);
+    assert(prePauseFreshness);
+    assert(pause);
+    assert(preUnlockFreshness);
+    assert(unlock);
+    assert(upload);
+    assert(preUploadFreshness);
+    assert.equal(preUploadFreshness.id, "docs_freshness");
+    assert.equal(steps.indexOf(preUploadFreshness), steps.indexOf(upload) - 1);
+    assert.equal(steps.indexOf(prePauseFreshness), steps.indexOf(pause) - 1);
+    assert.equal(steps.indexOf(preUnlockFreshness), steps.indexOf(unlock) - 1);
+    assert.equal(
+      prePauseFreshness.uses,
+      "./.docs-freshness-action/.github/actions/docs-source-freshness",
+    );
+    assert.equal((reusableActionCheckout.with as Workflow).ref, "main");
+    assert.equal(
+      preUnlockFreshness.uses,
+      "./.docs-freshness-action/.github/actions/docs-source-freshness",
+    );
+    assert.match(
+      String(pause.if),
+      /steps\.docs_pre_pause_freshness\.outputs\.current == 'true'/,
+    );
+    assert.match(
+      String(unlock.if),
+      /steps\.docs_pre_unlock_freshness\.outputs\.current == 'true'/,
+    );
+    assert.match(String(unlock.if), /inputs\.target != 'production' \|\|/);
+    assert.match(
+      String(preUploadFreshness.if),
+      /inputs\.target == 'production'[\s\S]*steps\.target\.outputs\.source_template == '@agent-native\/docs'[\s\S]*inputs\.deploy/,
+    );
+    assert.doesNotMatch(
+      String(preUploadFreshness.if),
+      /inputs\.caller == 'docs'/,
+    );
+    assert.match(
+      String(preUploadFreshness.if),
+      /inputs\.migration_only != true/,
+    );
+    assert.match(
+      String(upload.if),
+      /steps\.docs_freshness\.outcome == 'success'/,
+    );
+    assert.match(
+      String(upload.if),
+      /steps\.docs_freshness\.outputs\.current == 'true'/,
+    );
+    assert.match(
+      String(upload.if),
+      /steps\.target\.outputs\.source_template != '@agent-native\/docs'/,
+    );
+    assert.equal(freshness.id, "freshness");
+    assert.doesNotMatch(
+      reusableSource,
+      /docs_source_freshness|DOCS_DEPLOY_PATHS/,
+    );
+
+    const installMigrationDependencies = steps.find(
+      (step) =>
+        step.name === "Install workspace dependencies before release migration",
+    );
+    const preMigrationFreshness = steps.find(
+      (step) =>
+        step.name ===
+        "Verify docs source is current immediately before migration",
+    );
+    const releaseMigration = steps.find(
+      (step) =>
+        step.name === "Run the release migration from the Netlify environment",
+    );
+    const netlifyBuild = steps.find(
+      (step) => step.name === "Build with the Netlify project configuration",
+    );
+    assert(installMigrationDependencies);
+    assert(preMigrationFreshness);
+    assert(releaseMigration);
+    assert(netlifyBuild);
+    assert.equal(preMigrationFreshness.id, "docs_pre_migration_freshness");
+    assert.equal(
+      steps.indexOf(preMigrationFreshness),
+      steps.indexOf(releaseMigration) - 1,
+    );
+    assert.equal(
+      steps.indexOf(installMigrationDependencies),
+      steps.indexOf(preMigrationFreshness) - 1,
+    );
+    assert.match(
+      String(installMigrationDependencies.run),
+      /pnpm install --frozen-lockfile/,
+    );
+    assert.doesNotMatch(String(releaseMigration.run), /pnpm install/);
+    assert.match(
+      String(preMigrationFreshness.if),
+      /inputs\.target == 'production'[\s\S]*inputs\.migration_only \|\|[\s\S]*inputs\.deploy && inputs\.deploy_mode == 'production' &&\s*inputs\.caller != 'docs'/,
+    );
+    assert.match(
+      String(releaseMigration.if),
+      /steps\.docs_pre_migration_freshness\.outcome == 'success'/,
+    );
+    assert.match(
+      String(releaseMigration.if),
+      /steps\.docs_pre_migration_freshness\.outputs\.current == 'true'/,
+    );
+    assert.match(
+      String(releaseMigration.if),
+      /inputs\.deploy && inputs\.deploy_mode == 'production' &&\s*inputs\.caller != 'docs'/,
+    );
+    assert(
+      steps.indexOf(releaseMigration) < steps.indexOf(netlifyBuild),
+      "docs production migration must run before the Netlify build",
+    );
+    const netlifyBuildEnv = netlifyBuild.env as Workflow;
+    assert.match(
+      String(netlifyBuildEnv.SKIP_BUILD_MIGRATIONS),
+      /inputs\.target == 'production'[\s\S]*source_template == 'mail'[\s\S]*source_template == '@agent-native\/docs'/,
+    );
+    assert.match(
+      String(netlifyBuild.run),
+      /SKIP_BUILD_MIGRATIONS.*SOURCE_TEMPLATE.*@agent-native\/docs[\s\S]*AGENT_NATIVE_PREBUILT_SKIP_RELEASE_MIGRATIONS=1/,
+    );
+    const migrationFreshnessScript = String(
+      (preMigrationFreshness.with as Workflow).script,
+    );
+    assert.match(
+      migrationFreshnessScript,
+      /github\.rest\.repos\.compareCommits/,
+    );
+    assert.match(migrationFreshnessScript, /!files\.every\(/);
+    assert.match(migrationFreshnessScript, /file\?\.filename === "string"/);
+    assert.match(migrationFreshnessScript, /files\.some\(\(file\)/);
+
+    const on = docsWorkflow.on as Workflow;
+    const push = on.push as Workflow;
+    const script = String((freshness.with as Workflow).script);
+    const docsPathList = script.match(/const docsPaths = \[([\s\S]*?)\];/)?.[1];
+    assert(docsPathList);
+    const docsPaths = [...docsPathList.matchAll(/"([^"]+)"/g)].map(
+      (match) => match[1],
+    );
+    assert.deepEqual(docsPaths, push.paths);
+    const freshnessAction = readWorkflow(
+      ".github/actions/docs-source-freshness/action.yml",
+    );
+    const actionRuns = freshnessAction.runs as Workflow;
+    const actionSteps = actionRuns.steps as Array<Workflow>;
+    const actionScript = String((actionSteps[0]!.with as Workflow).script);
+    const actionDocsPathList = actionScript.match(
+      /const docsPaths = \[([\s\S]*?)\];/,
+    )?.[1];
+    assert(actionDocsPathList);
+    assert.deepEqual(
+      [...actionDocsPathList.matchAll(/"([^"]+)"/g)].map((match) => match[1]),
+      push.paths,
+    );
+    const reusableDocsPathLists = [
+      ...reusableSource.matchAll(/const docsPaths = \[([\s\S]*?)\];/g),
+    ];
+    assert.equal(reusableDocsPathLists.length, 2);
+    for (const [, list] of reusableDocsPathLists) {
+      assert(list);
+      assert.deepEqual(
+        [...list.matchAll(/"([^"]+)"/g)].map((match) => match[1]),
+        push.paths,
+      );
+    }
+    type WorkspacePackageManifest = {
+      name?: string;
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+      optionalDependencies?: Record<string, string>;
+      peerDependencies?: Record<string, string>;
+    };
+    const workspacePackages = new Map<
+      string,
+      { directory: string; manifest: WorkspacePackageManifest }
+    >(
+      readdirSync("packages", { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .flatMap((entry) => {
+          const manifestPath = join("packages", entry.name, "package.json");
+          if (!existsSync(manifestPath)) return [];
+          const manifest = JSON.parse(
+            readFileSync(manifestPath, "utf8"),
+          ) as WorkspacePackageManifest;
+          assert.ok(
+            manifest.name,
+            `${manifestPath} must declare a package name`,
+          );
+          return [
+            [manifest.name, { directory: entry.name, manifest }],
+          ] as const;
+        }),
+    );
+    assert.ok(workspacePackages.has("@agent-native/docs"));
+    const docsDependencyDirectories = new Set<string>();
+    const pendingWorkspacePackages = ["@agent-native/docs"];
+    while (pendingWorkspacePackages.length) {
+      const packageName = pendingWorkspacePackages.pop()!;
+      const workspacePackage = workspacePackages.get(packageName);
+      if (
+        !workspacePackage ||
+        docsDependencyDirectories.has(workspacePackage.directory)
+      ) {
+        continue;
+      }
+      docsDependencyDirectories.add(workspacePackage.directory);
+      for (const dependencyField of [
+        "dependencies",
+        "devDependencies",
+        "optionalDependencies",
+        "peerDependencies",
+      ] as const) {
+        const dependencies = workspacePackage.manifest[dependencyField] as
+          | Record<string, string>
+          | undefined;
+        pendingWorkspacePackages.push(
+          ...Object.keys(dependencies ?? {}).filter((dependency) =>
+            workspacePackages.has(dependency),
+          ),
+        );
+      }
+    }
+    for (const directory of docsDependencyDirectories) {
+      assert.ok(
+        docsPaths.includes(`packages/${directory}/**`),
+        `docs deployment inputs must include workspace dependency packages/${directory}`,
+      );
+    }
+    assert.match(script, /github\.rest\.git\.getRef/);
+    assert.match(script, /github\.rest\.repos\.compareCommits/);
+    assert.match(script, /per_page: 100/);
+    assert.match(script, /for \(let page = 1; page <= pageCount; page \+= 1\)/);
+    assert.match(script, /data\.commits\.length !== expectedPageCommits/);
+    assert.match(script, /files\.length >= 300/);
+    assert.match(script, /file\.previous_filename/);
+    assert.match(script, /core\.setOutput\("current", "false"\)/);
+    assert.doesNotMatch(script, /context\.eventName !== "push"/);
+    assert.match(script, /context\.eventName === "workflow_dispatch"/);
+    const preUploadScript = String(
+      (preUploadFreshness.with as Workflow).script,
+    );
+    const preUploadDocsPathList = preUploadScript.match(
+      /const docsPaths = \[([\s\S]*?)\];/,
+    )?.[1];
+    assert(preUploadDocsPathList);
+    const preUploadDocsPaths = [
+      ...preUploadDocsPathList.matchAll(/"([^"]+)"/g),
+    ].map((match) => match[1]);
+    assert.deepEqual(preUploadDocsPaths, push.paths);
+    assert.match(preUploadScript, /github\.rest\.git\.getRef/);
+    assert.match(preUploadScript, /github\.rest\.repos\.compareCommits/);
+    assert.match(preUploadScript, /per_page: 100/);
+    assert.match(
+      preUploadScript,
+      /for \(let page = 1; page <= pageCount; page \+= 1\)/,
+    );
+    assert.match(
+      preUploadScript,
+      /data\.commits\.length !== expectedPageCommits/,
+    );
+    assert.match(preUploadScript, /files\.length >= 300/);
+    assert.match(preUploadScript, /file\.previous_filename/);
+    assert.match(preUploadScript, /core\.setOutput\("current", "false"\)/);
+
+    const runFreshnessScript = async (
+      freshnessScript: string,
+      files: Array<{ filename: string; previous_filename?: string }>,
+      page2Commits: Array<{ sha: string }>,
+      eventName = "push",
+      failOnStale = false,
+    ) => {
+      const outputs: Record<string, string> = {};
+      const failures: string[] = [];
+      const notices: string[] = [];
+      const pagesRequested: number[] = [];
+      const allCommits = Array.from({ length: 101 }, (_, index) => ({
+        sha: `commit-${index}`,
+      }));
+      const pageData = [
+        {
+          status: "ahead",
+          total_commits: 101,
+          commits: allCommits.slice(0, 100),
+          files,
+        },
+        {
+          status: "ahead",
+          total_commits: 101,
+          commits: page2Commits,
+        },
+      ];
+      const github = {
+        rest: {
+          git: {
+            getRef: async () => ({ data: { object: { sha: "b".repeat(40) } } }),
+          },
+          repos: {
+            compareCommits: async (args: { page: number }) => {
+              pagesRequested.push(args.page);
+              return { data: pageData[args.page - 1] };
+            },
+          },
+        },
+      };
+      const context = {
+        eventName,
+        repo: { owner: "BuilderIO", repo: "agent-native" },
+      };
+      const core = {
+        setOutput: (name: string, value: string) => {
+          outputs[name] = value;
+        },
+        setFailed: (message: string) => failures.push(message),
+        notice: (message: string) => notices.push(message),
+      };
+      const process = {
+        env: {
+          SOURCE_REF: "a".repeat(40),
+          FAIL_ON_STALE: failOnStale ? "true" : "false",
+        },
+      };
+      const run = new Function(
+        "github",
+        "context",
+        "core",
+        "process",
+        `return (async () => {\n${freshnessScript}\n})();`,
+      ) as (
+        github: typeof github,
+        context: typeof context,
+        core: typeof core,
+        process: typeof process,
+      ) => Promise<void>;
+      await run(github, context, core, process);
+      return { outputs, failures, notices, pagesRequested };
+    };
+
+    const fresh = await runFreshnessScript(
+      script,
+      [{ filename: "README.md" }],
+      [{ sha: "commit-100" }],
+    );
+    assert.deepEqual(fresh.pagesRequested, [1, 2]);
+    assert.equal(fresh.outputs.current, "true");
+    assert.deepEqual(fresh.failures, []);
+
+    const stale = await runFreshnessScript(
+      script,
+      [{ filename: "packages/docs/content/guide.mdx" }],
+      [{ sha: "commit-100" }],
+    );
+    assert.equal(stale.outputs.current, "false");
+    assert.match(stale.notices[0] ?? "", /newer docs deployment inputs/);
+    assert.deepEqual(stale.failures, []);
+
+    const staleBeforeProductionPause = await runFreshnessScript(
+      actionScript,
+      [{ filename: "packages/docs/content/guide.mdx" }],
+      [{ sha: "commit-100" }],
+      "push",
+      true,
+    );
+    assert.equal(staleBeforeProductionPause.outputs.current, "false");
+    assert.match(
+      staleBeforeProductionPause.failures[0] ?? "",
+      /Refusing to publish .* is stale/,
+    );
+
+    const staleDispatch = await runFreshnessScript(
+      script,
+      [{ filename: "packages/docs/content/guide.mdx" }],
+      [{ sha: "commit-100" }],
+      "workflow_dispatch",
+    );
+    assert.equal(staleDispatch.outputs.current, "false");
+    assert.match(
+      staleDispatch.failures[0] ?? "",
+      /Requested Docs source .* is stale/,
+    );
+    assert.deepEqual(staleDispatch.notices, []);
+
+    const incomplete = await runFreshnessScript(
+      script,
+      [{ filename: "README.md" }],
+      [],
+    );
+    assert.equal(incomplete.outputs.current, "false");
+    assert.match(
+      incomplete.failures[0] ?? "",
+      /Cannot verify every newer commit/,
+    );
+
+    const sourceWasFreshBeforeBuild = await runFreshnessScript(
+      script,
+      [{ filename: "README.md" }],
+      [{ sha: "commit-100" }],
+    );
+    assert.equal(sourceWasFreshBeforeBuild.outputs.current, "true");
+    const docsChangedDuringBuild = await runFreshnessScript(
+      preUploadScript,
+      [{ filename: "packages/docs/content/guide.mdx" }],
+      [{ sha: "commit-100" }],
+    );
+    assert.deepEqual(docsChangedDuringBuild.pagesRequested, [1, 2]);
+    assert.equal(docsChangedDuringBuild.outputs.current, "false");
+    assert.match(
+      docsChangedDuringBuild.failures[0] ?? "",
+      /Refusing to publish docs source .* newer docs deployment inputs/,
+    );
+    assert.deepEqual(docsChangedDuringBuild.notices, []);
+
+    const incompletePreUpload = await runFreshnessScript(
+      preUploadScript,
+      [{ filename: "README.md" }],
+      [],
+    );
+    assert.equal(incompletePreUpload.outputs.current, "false");
+    assert.match(
+      incompletePreUpload.failures[0] ?? "",
+      /Cannot verify every newer commit/,
+    );
+
+    const failureCleanup = steps.find(
+      (step) =>
+        step.name ===
+        "Restore the production deploy lock after a failed cutover",
+    );
+    const resumeBuilds = steps.find(
+      (step) =>
+        step.name ===
+        "Resume automatic Netlify builds after production cutover",
+    );
+    assert(failureCleanup);
+    assert(resumeBuilds);
+    assert.match(String(failureCleanup.if), /failure\(\)/);
+    assert.match(String(failureCleanup.run), /restoreLockState\(/);
+    assert.match(
+      String(failureCleanup.run),
+      /Published production deploy \$\{originalDeployId\}/,
+    );
+    assert.match(
+      String(resumeBuilds.if),
+      /steps\.failure_cleanup\.outcome == 'success'/,
+    );
+
+    const wait = steps.find(
+      (step) => step.name === "Wait for the Netlify deploy to publish",
+    );
+    const purge = steps.find(
+      (step) => step.name === "Purge the published Netlify cache",
+    );
+    const lock = steps.find(
+      (step) => step.name === "Lock the published production deploy",
+    );
+    assert.match(String(wait?.if), /steps\.deploy\.outputs\.deploy_id != ''/);
+    assert.match(String(purge?.if), /steps\.deploy\.outputs\.deploy_id != ''/);
+    assert.match(String(lock?.if), /steps\.deploy\.outputs\.deploy_id != ''/);
+  });
+
   it("smoke-tests app health while keeping static docs on a shell-only probe", () => {
     const workflow = readWorkflow(
       ".github/workflows/deploy-netlify-prebuilt.yml",
@@ -2100,12 +2749,12 @@ describe("production Netlify site concurrency guard", () => {
     assert(docsSmoke);
     assert.equal(
       docsSmoke.if,
-      "inputs.deploy && steps.beta_freshness.outputs.current != 'false' && inputs.smoke && steps.target.outputs.source_template == '@agent-native/docs'",
+      "inputs.deploy && steps.deploy.outputs.deploy_id != '' && steps.beta_freshness.outputs.current != 'false' && inputs.smoke && steps.target.outputs.source_template == '@agent-native/docs'",
     );
     assert.doesNotMatch(String(docsSmoke.run), /\/_agent-native\/health/);
   });
 
-  it("gives the beta branch-deploy build release and warm-runtime ownership", () => {
+  it("keeps beta keep-warm opt-in while preserving beta runtime ownership", () => {
     const workflow = readFileSync(
       ".github/workflows/deploy-netlify-prebuilt.yml",
       "utf8",
@@ -2140,11 +2789,26 @@ describe("production Netlify site concurrency guard", () => {
       );
     }
     for (const flag of [
-      "AGENT_NATIVE_ENABLE_KEEP_WARM=1",
       "AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1",
       "AGENT_NATIVE_HOSTED_HARNESS=true",
     ]) {
       assert.match(beta, new RegExp(`export ${flag.replace(/[=]/g, "\\=")}`));
+    }
+    assert.doesNotMatch(beta, /export AGENT_NATIVE_ENABLE_KEEP_WARM\b/);
+  });
+
+  it("does not opt starter Netlify configs into keep-warm", () => {
+    for (const templateRoot of ["templates", "community-templates"]) {
+      for (const entry of readdirSync(templateRoot, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const netlifyConfig = join(templateRoot, entry.name, "netlify.toml");
+        if (!existsSync(netlifyConfig)) continue;
+        assert.doesNotMatch(
+          readFileSync(netlifyConfig, "utf8"),
+          /^\s*AGENT_NATIVE_ENABLE_KEEP_WARM\s*=/m,
+          netlifyConfig,
+        );
+      }
     }
   });
 
@@ -2627,8 +3291,18 @@ describe("production Netlify site concurrency guard", () => {
     const ownership = jobs["pause-netlify-builds"];
     assert.deepEqual(deploy?.needs, [
       "verify-stable-release",
+      "docs-source-freshness",
       "pause-netlify-builds",
       "migrate",
+    ]);
+    assert.deepEqual(jobs.migrate.needs, [
+      "verify-stable-release",
+      "docs-source-freshness",
+      "pause-netlify-builds",
+    ]);
+    assert.deepEqual(ownership.needs, [
+      "verify-stable-release",
+      "docs-source-freshness",
     ]);
     assert.match(String(deploy?.if), /always\(\)/);
     assert.match(String(deploy?.if), /needs\.migrate\.result == 'success'/);

@@ -210,11 +210,24 @@ function AgentResourceTab({
 }
 
 function ServerStatus({ server }: { server: McpServer }) {
+  const t = useT();
   if (server.status.state === "connected") {
     return (
-      <span className="text-[11px] text-emerald-600 dark:text-emerald-400">
-        Connected · {server.status.toolCount} tools
-      </span>
+      <>
+        <span className="text-[11px] text-emerald-600 dark:text-emerald-400">
+          Connected · {server.status.toolCount} tools
+        </span>
+        {server.status.error ? (
+          <span
+            className="truncate text-[11px] text-destructive"
+            title={server.status.error}
+          >
+            {t("mcpIntegrations.connectionErrorReason", {
+              reason: server.status.error,
+            })}
+          </span>
+        ) : null}
+      </>
     );
   }
   if (server.status.state === "error") {

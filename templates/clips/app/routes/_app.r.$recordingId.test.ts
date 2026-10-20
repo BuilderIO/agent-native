@@ -116,7 +116,7 @@ describe("direct recording route shell cue", () => {
     const route = readRoute("_app.r.$recordingId.tsx");
 
     expect(route).toContain(
-      'className="relative aspect-video w-full bg-card shadow-sm ring-1 ring-border sm:rounded-2xl"',
+      '"relative w-full bg-card shadow-sm ring-1 ring-border sm:rounded-2xl"',
     );
   });
 
@@ -138,7 +138,7 @@ describe("direct recording route shell cue", () => {
     expect(menu).not.toContain('t("recordingPage.cleanUpRecording")');
   });
 
-  it("keeps background AI work in one persistent Sonner lifecycle", () => {
+  it("keeps background AI work in one finite terminal Sonner lifecycle", () => {
     const route = readRoute("_app.r.$recordingId.tsx");
 
     expect(route).toContain("const aiRequestStatusQ = useQuery");
@@ -150,7 +150,8 @@ describe("direct recording route shell cue", () => {
       "activeAiRequestRef.current.requestedAt !== aiRequestStatus.requestedAt",
     );
     expect(route).toContain("requestedAt: result?.requestedAt ?? null");
-    expect(route).toContain("duration: Number.POSITIVE_INFINITY");
+    expect(route).toContain("useSonnerLifecycleToast");
+    expect(route).not.toContain("duration: Number.POSITIVE_INFINITY");
     expect(route).toContain("transcriptPendingObservedRef.current = true");
     expect(route).toContain(
       "transcriptLifecycleRecordingIdRef.current !== recording.id",

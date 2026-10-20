@@ -2003,6 +2003,246 @@ describe("buildAssistantMessage", () => {
     ).toBe(55_000);
   });
 
+  it("keeps the latest run metadata when an earlier folded run is replayed", () => {
+    const earlierRun = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "First attempt." } },
+        {
+          seq: 1,
+          event: {
+            type: "error",
+            error: "The first attempt failed.",
+            errorCode: "first_attempt_failed",
+          },
+        },
+      ],
+      "run-earlier",
+      { turnId: "turn-replayed", runDurationMs: 40_000 },
+    );
+    const latestRun = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "Recovery succeeded." } },
+        { seq: 1, event: { type: "done" } },
+      ],
+      "run-latest",
+      { turnId: "turn-replayed", runDurationMs: 15_000 },
+    );
+    expect(earlierRun).not.toBeNull();
+    expect(latestRun).not.toBeNull();
+
+    let repo = foldAssistantTurn(
+      {
+        messages: [
+          {
+            message: {
+              id: "user-replayed",
+              role: "user",
+              content: [{ type: "text", text: "try again" }],
+            },
+            parentId: null,
+          },
+        ],
+      },
+      earlierRun!,
+      { turnId: "turn-replayed", runId: "run-earlier" },
+    );
+    repo = foldAssistantTurn(repo, latestRun!, {
+      turnId: "turn-replayed",
+      runId: "run-latest",
+    });
+    repo = foldAssistantTurn(repo, earlierRun!, {
+      turnId: "turn-replayed",
+      runId: "run-earlier",
+    });
+
+    const assistant = repo.messages[1].message;
+    expect(assistant.content).toEqual([
+      {
+        type: "text",
+        text: "First attempt.\n\nError: The first attempt failed.\n\nRecovery succeeded.",
+      },
+    ]);
+    expect(assistant.status).toEqual({ type: "complete", reason: "stop" });
+    expect(assistant.metadata).toMatchObject({
+      runId: "run-latest",
+      custom: {
+        turnId: "turn-replayed",
+        foldedRunIds: ["run-earlier", "run-latest"],
+        agentNativeRunDurationMs: 55_000,
+      },
+    });
+    expect(assistant.metadata.custom).not.toHaveProperty("runError");
+  });
+
+  it("does not let a verbose older replay replace the latest transcript", () => {
+    const earlierRun = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: { type: "text", text: "Earlier attempt. ".repeat(20) },
+        },
+        { seq: 1, event: { type: "done" } },
+      ],
+      "run-earlier-replay",
+      { turnId: "turn-older-replay" },
+    );
+    expect(earlierRun).not.toBeNull();
+
+    const latest = {
+      id: "assistant-latest-replay",
+      role: "assistant",
+      content: [{ type: "text", text: "Latest answer." }],
+      status: { type: "complete", reason: "stop" },
+      metadata: {
+        runId: "run-latest-replay",
+        custom: {
+          turnId: "turn-older-replay",
+          foldedRunIds: ["run-earlier-replay", "run-latest-replay"],
+        },
+      },
+    };
+    const repo = {
+      messages: [
+        {
+          message: {
+            id: "user-older-replay",
+            role: "user",
+            content: [{ type: "text", text: "try again" }],
+          },
+          parentId: null,
+        },
+        { message: latest, parentId: null },
+      ],
+    };
+
+    const folded = foldAssistantTurn(repo, earlierRun!, {
+      turnId: "turn-older-replay",
+      runId: "run-earlier-replay",
+    });
+
+    expect(folded.messages[1].message).toMatchObject({
+      content: [{ type: "text", text: "Latest answer." }],
+      status: { type: "complete", reason: "stop" },
+      metadata: { runId: "run-latest-replay" },
+    });
+  });
+
+  it("replaces a saved prefix with its full turn journal without duplicates", () => {
+    const earlierRun = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "First attempt." } },
+        { seq: 1, event: { type: "done" } },
+      ],
+      "run-prefix",
+      { turnId: "turn-prefix" },
+    );
+    const latestRun = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "Recovery succeeded." } },
+        { seq: 1, event: { type: "done" } },
+      ],
+      "run-prefix-successor",
+      { turnId: "turn-prefix" },
+    );
+    expect(earlierRun).not.toBeNull();
+    expect(latestRun).not.toBeNull();
+
+    const user = {
+      message: {
+        id: "user-prefix",
+        role: "user",
+        content: [{ type: "text", text: "try again" }],
+      },
+      parentId: null,
+    };
+    const savedPrefix = foldAssistantTurn({ messages: [user] }, earlierRun!, {
+      turnId: "turn-prefix",
+      runId: "run-prefix",
+    });
+    let fullTurn = foldAssistantTurn({ messages: [] }, earlierRun!, {
+      turnId: "turn-prefix",
+      runId: "run-prefix",
+    });
+    fullTurn = foldAssistantTurn(fullTurn, latestRun!, {
+      turnId: "turn-prefix",
+      runId: "run-prefix-successor",
+    });
+
+    const canonical = fullTurn.messages.at(-1).message;
+    const updated = foldAssistantTurn(savedPrefix, canonical, {
+      turnId: "turn-prefix",
+      runId: "run-prefix-successor",
+    });
+
+    expect(updated.messages.at(-1).message.content).toEqual(canonical.content);
+    expect(
+      updated.messages.at(-1).message.metadata.custom.foldedRunIds,
+    ).toEqual(["run-prefix", "run-prefix-successor"]);
+  });
+
+  it("keeps the latest continuation marker when an earlier run is replayed", () => {
+    const earlierRunId = "run-earlier-continuation-replay";
+    const continuingRunId = "run-current-continuation-replay";
+    const earlierRun = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "First attempt." } },
+        { seq: 1, event: { type: "done" } },
+      ],
+      earlierRunId,
+      { turnId: "turn-continuation-replay" },
+    );
+    const continuingRun = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "Recovery is continuing." } },
+        {
+          seq: 1,
+          event: {
+            type: "error",
+            error: "AI features aren't available on this site right now.",
+            errorCode: "too_many_concurrent_requests",
+          },
+        },
+      ],
+      continuingRunId,
+      {
+        suppressInternalContinuation: true,
+        turnId: "turn-continuation-replay",
+      },
+    );
+    expect(continuingRun?.metadata?.custom?.continued).toBe(true);
+
+    let repo = foldAssistantTurn(
+      {
+        messages: [
+          {
+            message: {
+              id: "user-continuation-replay",
+              role: "user",
+              content: [{ type: "text", text: "try again" }],
+            },
+            parentId: null,
+          },
+        ],
+      },
+      earlierRun!,
+      { turnId: "turn-continuation-replay", runId: earlierRunId },
+    );
+    repo = foldAssistantTurn(repo, continuingRun!, {
+      turnId: "turn-continuation-replay",
+      runId: continuingRunId,
+    });
+    repo = foldAssistantTurn(repo, earlierRun!, {
+      turnId: "turn-continuation-replay",
+      runId: earlierRunId,
+    });
+
+    expect(repo.messages[1].message.metadata?.runId).toBe(continuingRunId);
+    expect(repo.messages[1].message.metadata?.custom).toMatchObject({
+      continued: true,
+      foldedRunIds: [earlierRunId, continuingRunId],
+    });
+  });
+
   it("replaces a paused tool call when its approved replay completes", () => {
     const toolCallId = "approved-release-call";
     const turnId = "turn-approved-release";
@@ -6071,12 +6311,77 @@ describe("upsertUserMessage", () => {
     expect(result.status).toBe("already_submitted");
     if (
       result.status === "already_claimed" ||
-      result.status === "claim_expired"
+      result.status === "claim_expired" ||
+      result.status === "submission_expired"
     ) {
       throw new Error("Expected an already-submitted result.");
     }
     expect(result.repo.messages).toHaveLength(2);
     expect(result.repo.queuedMessages).toEqual([]);
+  });
+
+  it("rejects deadline-bound prompts that expire before durable submission", () => {
+    const submissionExpiresAt = Date.now() - 1;
+    const direct = applySubmittedUserMessage(
+      {},
+      buildUserMessage({
+        text: "Retry this deck prompt",
+        runId: "run-direct",
+        submissionExpiresAt,
+      }),
+    );
+    expect(direct).toEqual({ status: "submission_expired" });
+
+    const queued = applySubmittedUserMessage(
+      {
+        queuedMessages: [
+          {
+            id: "queued-retry",
+            text: "Retry this deck prompt",
+            promotionClaim: { id: "tab-1", expiresAt: Date.now() + 60_000 },
+          },
+        ],
+      },
+      buildUserMessage({
+        text: "Retry this deck prompt",
+        runId: "run-queued",
+        queuedMessageId: "queued-retry",
+        submissionExpiresAt,
+      }),
+      { id: "queued-retry", claimId: "tab-1" },
+    );
+    expect(queued).toEqual({ status: "submission_expired" });
+  });
+
+  it("accepts an expired direct replay only when its run was already saved", () => {
+    const first = applySubmittedUserMessage(
+      {},
+      buildUserMessage({
+        text: "Retry this deck prompt",
+        runId: "run-direct",
+        submissionExpiresAt: Date.now() + 60_000,
+      }),
+    );
+    if (!("repo" in first)) throw new Error("Expected a submitted result.");
+
+    const later = applySubmittedUserMessage(
+      first.repo,
+      buildUserMessage({ text: "A later prompt", runId: "run-later" }),
+    );
+    if (!("repo" in later)) throw new Error("Expected a submitted result.");
+
+    const replay = applySubmittedUserMessage(
+      later.repo,
+      buildUserMessage({
+        text: "Retry this deck prompt",
+        runId: "run-direct",
+        submissionExpiresAt: Date.now() - 1,
+      }),
+    );
+
+    expect(replay).toEqual({ status: "already_submitted", repo: later.repo });
+    if (!("repo" in replay)) throw new Error("Expected an idempotent replay.");
+    expect(replay.repo.messages).toHaveLength(2);
   });
 
   it("submits a background operation once and reports a later run as already claimed", () => {

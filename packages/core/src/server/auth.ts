@@ -19,11 +19,11 @@ import {
   newOrgSelection,
   ORG_SELECTION_COOKIE,
 } from "../org/request-org-cache.js";
-import { checkWorkspaceAppAccessForRequest } from "../org/workspace-app-access-request.js";
 import {
-  WORKSPACE_APP_ACCESS_UNAVAILABLE,
-  WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE,
-} from "../org/workspace-app-access.js";
+  isWorkspaceAppAccessUnavailable,
+  workspaceAppAccessUnavailableBody,
+} from "../org/workspace-app-access-outcome.js";
+import { checkWorkspaceAppAccessForRequest } from "../org/workspace-app-access-request.js";
 import {
   EMBED_SESSION_COOKIE,
   EMBED_START_PATH,
@@ -99,7 +99,7 @@ function toWebRequest(event: H3Event): Request {
 type H3App = H3AppShim;
 import { getDbExec, describeDbError, type DbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
-import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
+import { defineStore } from "../db/store-registry.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { resolveLocaleFromRequest } from "../localization/server.js";
 import { readMcpOAuthFlowCookiePayload } from "../mcp-client/oauth-flow-cookie.js";
@@ -279,6 +279,7 @@ import { queryEchoSafeRedirect } from "./query-echo-safe-redirect.js";
 import {
   getRequestContext,
   markRequestIdentityAuthenticatedAtMs,
+  markVerifiedMcpCredentialForEvent,
   markVerifiedServiceIdentityForEvent,
   hasContinuationLocalRequestContext,
   hasExplicitPersonalOrgScope,
@@ -577,9 +578,17 @@ async function enrichLegacySessionIdentity(
       // coercion-ok: preserve the valid legacy session when optional profile enrichment is unreadable.
       .catch(() => null);
   }
-  if (!existing) return session;
+  if (
+    !existing ||
+    existing.user.email.trim().toLowerCase() !==
+      session.email.trim().toLowerCase()
+  ) {
+    return session;
+  }
   return {
     ...session,
+    authUserId: session.authUserId ?? existing.user.id,
+    userId: session.userId ?? existing.user.id,
     ...(!session.name?.trim() && existing.user.name?.trim()
       ? { name: existing.user.name.trim() }
       : {}),
@@ -1201,14 +1210,25 @@ export async function getMcpOAuthBearerSession(
   const bearerToken = getBearerSessionToken(event);
   if (!bearerToken) return null;
 
+  let identityVerificationUnavailableErrorClass:
+    | typeof import("../mcp/build-server.js").McpIdentityVerificationUnavailableError
+    | undefined;
+  let identityVerificationRefusedErrorClass:
+    | typeof import("../mcp/build-server.js").McpIdentityVerificationRefusedError
+    | undefined;
+  let connectUrl: string | undefined;
   try {
-    const [
-      { getMcpConnectUrl, getMcpOAuthAudiences },
-      { verifyAuth, resolveMcpIdentityOrgId },
-    ] = await Promise.all([
+    const [oauthRoute, mcp] = await Promise.all([
       import("../mcp/oauth-route.js"),
       import("../mcp/build-server.js"),
     ]);
+    connectUrl = oauthRoute.getMcpConnectUrl(event);
+    identityVerificationUnavailableErrorClass =
+      mcp.McpIdentityVerificationUnavailableError;
+    identityVerificationRefusedErrorClass =
+      mcp.McpIdentityVerificationRefusedError;
+    const { getMcpOAuthAudiences } = oauthRoute;
+    const { verifyAuth, resolveMcpIdentityOrgId } = mcp;
     const result = await verifyAuth(authHeader, undefined, {
       resourceUrl: getMcpOAuthAudiences(event),
       allowDevOpen: false,
@@ -1220,11 +1240,7 @@ export async function getMcpOAuthBearerSession(
     }
     if (!result.authed) {
       if (result.refusal) {
-        markBearerCredentialRefused(
-          event,
-          result.refusal,
-          getMcpConnectUrl(event),
-        );
+        markBearerCredentialRefused(event, result.refusal, connectUrl);
       }
       return null;
     }
@@ -1232,6 +1248,12 @@ export async function getMcpOAuthBearerSession(
     if (!identity?.userEmail) return null;
     if (identity.orgId === null) markExplicitPersonalOrgScope(event);
     const orgId = await resolveMcpIdentityOrgId(identity);
+    markVerifiedMcpCredentialForEvent(event, {
+      userEmail: identity.userEmail,
+      ...(identity.oauthClientId
+        ? { oauthClientId: identity.oauthClientId }
+        : {}),
+    });
     if (
       identity.identityAssurance === "service" &&
       identity.orgId &&
@@ -1248,6 +1270,20 @@ export async function getMcpOAuthBearerSession(
       ...(orgId ? { orgId } : {}),
     };
   } catch (e) {
+    if (
+      identityVerificationRefusedErrorClass &&
+      e instanceof identityVerificationRefusedErrorClass
+    ) {
+      markBearerCredentialRefused(event, "invalid", connectUrl);
+      return null;
+    }
+    if (
+      identityVerificationUnavailableErrorClass &&
+      e instanceof identityVerificationUnavailableErrorClass
+    ) {
+      markCredentialMembershipUnavailable(event);
+      return null;
+    }
     console.error("[auth] MCP OAuth bearer verification error:", e);
     return null;
   }
@@ -1915,39 +1951,40 @@ export function isExpectedAuthFailure(error: unknown): boolean {
   return EXPECTED_AUTH_FAILURE_PATTERNS.some((re) => re.test(msg));
 }
 
-let _sessionInitPromise: Promise<void> | undefined;
 let sessionMaxAge = DEFAULT_MAX_AGE;
 
-export async function ensureSessionTable(): Promise<void> {
-  if (!_sessionInitPromise) {
-    const _sessionInitPromiseWithRequestDbPoolScope = (async () => {
-      const createSql = `
+export const authSessionsStore = defineStore({
+  id: "auth_sessions",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `
           CREATE TABLE IF NOT EXISTS sessions (
             token TEXT PRIMARY KEY,
             email TEXT,
             created_at BIGINT NOT NULL
           )
         `;
-
-      {
         await ensureTableExists("sessions", createSql);
         await ensureColumnExists(
           "sessions",
           "email",
           `ALTER TABLE sessions ADD COLUMN IF NOT EXISTS email TEXT`,
         );
+      },
+    },
+    {
+      name: "widen-bigint",
+      run: async () => {
         await widenIntColumnsToBigInt("sessions", ["created_at"]);
-        return;
-      }
-    })().catch((err) => {
-      _sessionInitPromise = undefined;
-      throw err;
-    });
-    _sessionInitPromise = retainRequestDbPoolScope(
-      _sessionInitPromiseWithRequestDbPoolScope,
-    );
-  }
-  return _sessionInitPromise;
+      },
+    },
+  ],
+});
+
+export function ensureSessionTable(): Promise<void> {
+  return authSessionsStore.ready();
 }
 
 async function retryIfSessionsMissing<T>(op: () => Promise<T>): Promise<T> {
@@ -1957,7 +1994,7 @@ async function retryIfSessionsMissing<T>(op: () => Promise<T>): Promise<T> {
     if (e?.code !== "42P01") throw e;
     const msg = String(e?.message ?? "");
     if (!msg.includes("sessions")) throw e;
-    _sessionInitPromise = undefined;
+    authSessionsStore.reset();
     await ensureSessionTable();
     return await op();
   }
@@ -4298,9 +4335,9 @@ function createAuthGuardFn(
           email: session.email,
           orgId: session.orgId,
         });
-        if (workspaceAppAccess === WORKSPACE_APP_ACCESS_UNAVAILABLE) {
+        if (isWorkspaceAppAccessUnavailable(workspaceAppAccess)) {
           setResponseStatus(event, 503);
-          return { error: WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE };
+          return workspaceAppAccessUnavailableBody(workspaceAppAccess);
         }
         if (workspaceAppAccess === false) {
           setResponseStatus(event, 403);

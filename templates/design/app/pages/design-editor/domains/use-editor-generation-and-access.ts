@@ -169,6 +169,7 @@ export function useEditorGenerationAndAccess({
     explicitOverviewScreenSelectionRef,
     historyOrderRef,
     selectionUndoStackRef,
+    selectionPushedAtRef,
     clearRedoStacks,
     historySourceReaderRef,
     captureCurrentSelection,
@@ -268,7 +269,6 @@ export function useEditorGenerationAndAccess({
   const pendingQuestionsVisibleRef = useRef(false);
   const generationRunConfirmedRef = useRef(false);
   const generationCompleteTimerRef = useRef<number | null>(null);
-  const generationStopCountRef = useRef(0);
   const autoRetryTimerRef = useRef<number | null>(null);
   const storedRunLivenessTimerRef = useRef<number | null>(null);
   const clearGenerationCompleteTimer = useCallback(() => {
@@ -353,7 +353,6 @@ export function useEditorGenerationAndAccess({
     }, 4000);
   }, [clearGenerationCompleteTimer, id, rememberPendingGenerationForRetry, t]);
   const handleGenerationStopped = useCallback(() => {
-    generationStopCountRef.current += 1;
     clearGenerationCompleteTimer();
     clearAutoRetryTimer();
     clearStoredRunLivenessTimer();
@@ -664,9 +663,7 @@ export function useEditorGenerationAndAccess({
     designId: id,
     isOwner: !shellMode && designAccessRole === "owner",
     designLoaded: Boolean(design),
-    generationActive: pendingGenerationActive || generating,
     files: design?.files ?? EMPTY_READY_VIEW_FILES,
-    stopCountRef: generationStopCountRef,
   });
   const canShareDesign =
     designAccessRole === "owner" || designAccessRole === "admin";
@@ -735,6 +732,9 @@ export function useEditorGenerationAndAccess({
           queryFailed: query.state.status === "error",
         });
       },
+      notifyOnChangeProps: failedLocalhostConsentClear
+        ? ["data", "error", "status", "dataUpdatedAt"]
+        : ["data", "error", "status"],
     },
   );
   const clearLocalhostConsentRequestMutation = useActionMutation(
@@ -937,6 +937,7 @@ export function useEditorGenerationAndAccess({
           ...selectionUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
           { before, after },
         ];
+        selectionPushedAtRef.current = Date.now();
         clearRedoStacks();
         historyOrderRef.current = [
           ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),

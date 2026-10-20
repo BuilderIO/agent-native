@@ -5,16 +5,19 @@ const recording = vi.hoisted(() => ({
   status: "ready",
   videoUrl: "https://cdn.example.com/original.webm",
   videoFormat: "webm",
+  storageMode: null as "own" | "hosted" | null,
   sourceAppName: null,
 }));
 const repairedBytes = vi.hoisted(() => new Uint8Array([9, 8, 7, 6]));
-const mockUploadFile = vi.hoisted(() => vi.fn());
+const mockUploadRecordingMedia = vi.hoisted(() => vi.fn());
 const mockReadAppState = vi.hoisted(() => vi.fn());
 const mockWriteAppState = vi.hoisted(() => vi.fn());
 const mockMakeSeekable = vi.hoisted(() => vi.fn());
 const mockNormalizeTimelineToMp4 = vi.hoisted(() => vi.fn());
 const mockQueueCompression = vi.hoisted(() => vi.fn());
 const mockDeleteRecordingMediaObjects = vi.hoisted(() => vi.fn());
+const mockDeleteSupersededHostedMedia = vi.hoisted(() => vi.fn());
+const mockFetchS3ObjectByUrl = vi.hoisted(() => vi.fn());
 const mockClearSeekableRepairPending = vi.hoisted(() => vi.fn());
 const mockReturning = vi.hoisted(() => vi.fn());
 const mockUpdateWhere = vi.hoisted(() =>
@@ -37,8 +40,12 @@ vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
 }));
 
-vi.mock("@agent-native/core/file-upload", () => ({
-  uploadFile: (...args: unknown[]) => mockUploadFile(...args),
+vi.mock("../../server/lib/upload-recording-media.js", () => ({
+  uploadRecordingMedia: (...args: unknown[]) =>
+    mockUploadRecordingMedia(...args),
+}));
+vi.mock("../../server/lib/s3-upload-provider.js", () => ({
+  fetchS3ObjectByUrl: (...args: unknown[]) => mockFetchS3ObjectByUrl(...args),
 }));
 
 vi.mock("@shared/upload-limits.js", () => ({
@@ -59,6 +66,7 @@ vi.mock("../../server/db/index.js", () => ({
       status: "recordings.status",
       videoUrl: "recordings.videoUrl",
       videoFormat: "recordings.videoFormat",
+      storageMode: "recordings.storageMode",
       sourceAppName: "recordings.sourceAppName",
     },
   },
@@ -72,6 +80,8 @@ vi.mock("../../server/lib/builder-media-compression.js", () => ({
 vi.mock("../../server/lib/recording-media-cleanup.js", () => ({
   deleteRecordingMediaObjects: (...args: unknown[]) =>
     mockDeleteRecordingMediaObjects(...args),
+  deleteSupersededHostedMedia: (...args: unknown[]) =>
+    mockDeleteSupersededHostedMedia(...args),
 }));
 
 vi.mock("../../server/lib/recordings.js", () => ({
@@ -102,6 +112,7 @@ import { ensureRecordingSeekable } from "./ensure-seekable-video";
 describe("ensureRecordingSeekable timeline normalization", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    recording.storageMode = null;
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
@@ -124,11 +135,17 @@ describe("ensureRecordingSeekable timeline normalization", () => {
       bytes: repairedBytes,
       changed: true,
     });
-    mockUploadFile.mockResolvedValue({
+    mockUploadRecordingMedia.mockResolvedValue({
       url: "https://cdn.example.com/repaired.mp4",
       provider: "builder",
       id: "asset-example",
     });
+    mockFetchS3ObjectByUrl.mockResolvedValue(
+      new Response(new Uint8Array([1, 2, 3]), {
+        status: 200,
+        headers: { "content-length": "3", "content-type": "video/webm" },
+      }),
+    );
     mockReturning.mockResolvedValue([
       {
         id: recording.id,
@@ -160,8 +177,9 @@ describe("ensureRecordingSeekable timeline normalization", () => {
       videoFormat: "webm",
     });
     expect(mockMakeSeekable).not.toHaveBeenCalled();
-    expect(mockUploadFile).toHaveBeenCalledWith(
+    expect(mockUploadRecordingMedia).toHaveBeenCalledWith(
       expect.objectContaining({
+        recordingId: recording.id,
         data: repairedBytes,
         filename: "recording-example.mp4",
         mimeType: "video/mp4",
@@ -197,6 +215,60 @@ describe("ensureRecordingSeekable timeline normalization", () => {
     expect(mockClearSeekableRepairPending).toHaveBeenCalledWith(recording.id);
   });
 
+  it("deletes the superseded hosted video once the repaired one is linked", async () => {
+    recording.storageMode = "hosted";
+
+    await ensureRecordingSeekable({
+      recordingId: recording.id,
+      ownerEmail: "owner@example.com",
+      normalizeTimeline: true,
+    });
+
+    expect(mockDeleteSupersededHostedMedia).toHaveBeenCalledWith(
+      recording.videoUrl,
+      {
+        recordingId: recording.id,
+        replacementUrl: "https://cdn.example.com/repaired.mp4",
+      },
+    );
+  });
+
+  it("keeps the original video when the guarded update loses its race", async () => {
+    recording.storageMode = "hosted";
+    mockReturning.mockResolvedValue([]);
+
+    await ensureRecordingSeekable({
+      recordingId: recording.id,
+      ownerEmail: "owner@example.com",
+      normalizeTimeline: true,
+    });
+
+    expect(mockDeleteSupersededHostedMedia).not.toHaveBeenCalled();
+  });
+
+  it("reads a hosted source through the recording-scoped signed reader", async () => {
+    recording.storageMode = "hosted";
+
+    const result = await ensureRecordingSeekable({
+      recordingId: recording.id,
+      ownerEmail: "owner@example.com",
+    });
+
+    expect(result.status).toBe("already-optimized");
+    expect(mockMakeSeekable).toHaveBeenCalledWith({
+      mediaBytes: new Uint8Array([1, 2, 3]),
+      videoFormat: "webm",
+    });
+    expect(mockFetchS3ObjectByUrl).toHaveBeenCalledWith(
+      recording.videoUrl,
+      expect.objectContaining({
+        recordingId: recording.id,
+        storageMode: "hosted",
+      }),
+    );
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("leaves the original untouched when normalization cannot verify output", async () => {
     mockNormalizeTimelineToMp4.mockResolvedValue({
       bytes: new Uint8Array([1, 2, 3]),
@@ -209,7 +281,7 @@ describe("ensureRecordingSeekable timeline normalization", () => {
       normalizeTimeline: true,
     });
 
-    expect(mockUploadFile).not.toHaveBeenCalled();
+    expect(mockUploadRecordingMedia).not.toHaveBeenCalled();
     expect(mockDb.update).not.toHaveBeenCalled();
     expect(mockWriteAppState).not.toHaveBeenCalled();
     expect(result).toEqual(
@@ -223,7 +295,7 @@ describe("ensureRecordingSeekable timeline normalization", () => {
   });
 
   it("does not repoint the row when repaired media upload fails", async () => {
-    mockUploadFile.mockRejectedValue(new Error("upload failed"));
+    mockUploadRecordingMedia.mockRejectedValue(new Error("upload failed"));
 
     const result = await ensureRecordingSeekable({
       recordingId: recording.id,
@@ -253,6 +325,7 @@ describe("ensureRecordingSeekable timeline normalization", () => {
     expect(mockDeleteRecordingMediaObjects).toHaveBeenCalledWith(
       {
         id: recording.id,
+        storageMode: null,
         videoUrl: "https://cdn.example.com/repaired.mp4",
       },
       { protectedUrls: [recording.videoUrl] },

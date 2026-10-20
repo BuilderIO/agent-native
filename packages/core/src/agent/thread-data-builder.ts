@@ -1,4 +1,5 @@
 import {
+  AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
   parseAgentSuggestion,
   type AgentRunSnapshot,
 } from "@agent-native/agentkit/protocol";
@@ -1683,37 +1684,74 @@ export function applySubmittedUserMessage(
     | { kind: "background-operation"; id: string },
 ):
   | { status: "submitted" | "already_submitted"; repo: any }
-  | { status: "already_claimed" | "claim_expired" } {
-  if (!queuedMessage) {
-    return { status: "submitted", repo: upsertUserMessage(repo, userMessage) };
-  }
-
+  | { status: "already_claimed" | "claim_expired" | "submission_expired" } {
   const userCustom = userMessage.metadata.custom as
     | Record<string, unknown>
     | undefined;
-  const wasSubmitted = Array.isArray(repo?.messages)
-    ? repo.messages.some((entry: unknown) => {
-        const outer = entry as Record<string, unknown> | null;
-        const message = outer?.message ?? outer;
-        if (!message || typeof message !== "object") return false;
-        const metadata = (message as Record<string, unknown>).metadata;
-        if (!metadata || typeof metadata !== "object") return false;
-        const custom = (metadata as Record<string, unknown>).custom;
-        return (
-          custom !== null &&
-          typeof custom === "object" &&
-          (custom as Record<string, unknown>).agentNativeQueuedMessageId ===
-            queuedMessage.id &&
-          (custom as Record<string, unknown>).submittedRunId ===
-            userCustom?.submittedRunId
-        );
-      })
-    : false;
-  if (wasSubmitted) {
+  const wasSubmitted =
+    queuedMessage && Array.isArray(repo?.messages)
+      ? repo.messages.some((entry: unknown) => {
+          const outer = entry as Record<string, unknown> | null;
+          const message = outer?.message ?? outer;
+          if (!message || typeof message !== "object") return false;
+          const metadata = (message as Record<string, unknown>).metadata;
+          if (!metadata || typeof metadata !== "object") return false;
+          const custom = (metadata as Record<string, unknown>).custom;
+          return (
+            custom !== null &&
+            typeof custom === "object" &&
+            (custom as Record<string, unknown>).agentNativeQueuedMessageId ===
+              queuedMessage.id &&
+            (custom as Record<string, unknown>).submittedRunId ===
+              userCustom?.submittedRunId
+          );
+        })
+      : false;
+  if (wasSubmitted && queuedMessage) {
     return {
       status: "already_submitted",
       repo: claimQueuedMessage(repo, queuedMessage.id),
     };
+  }
+  const submittedRunId = userCustom?.submittedRunId;
+  const wasDirectlySubmitted =
+    !queuedMessage &&
+    typeof submittedRunId === "string" &&
+    submittedRunId.trim().length > 0 &&
+    Array.isArray(repo?.messages) &&
+    repo.messages.some((entry: unknown) => {
+      const message = getStoredMessage(entry);
+      const custom = message?.metadata?.custom;
+      return (
+        message?.role === "user" &&
+        custom &&
+        typeof custom === "object" &&
+        !Array.isArray(custom) &&
+        custom.submittedRunId === submittedRunId
+      );
+    });
+  if (wasDirectlySubmitted) {
+    return { status: "already_submitted", repo };
+  }
+  if (
+    userCustom &&
+    Object.prototype.hasOwnProperty.call(
+      userCustom,
+      AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
+    )
+  ) {
+    const submissionExpiresAt =
+      userCustom[AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY];
+    if (
+      typeof submissionExpiresAt !== "number" ||
+      !Number.isFinite(submissionExpiresAt) ||
+      submissionExpiresAt <= Date.now()
+    ) {
+      return { status: "submission_expired" };
+    }
+  }
+  if (!queuedMessage) {
+    return { status: "submitted", repo: upsertUserMessage(repo, userMessage) };
   }
   if (hasClaimedQueuedMessage(repo, queuedMessage.id)) {
     return { status: "already_claimed" };
@@ -4141,6 +4179,7 @@ export function buildUserMessage(opts: {
   turnId?: string;
   agentKitMessageId?: string;
   queuedMessageId?: string;
+  submissionExpiresAt?: unknown;
   createdAt?: Date;
   /** The turn was refused before a run started; its retry reads this back. */
   refusedRetry?: RefusedTurnRetryContext;
@@ -4169,6 +4208,12 @@ export function buildUserMessage(opts: {
           : {}),
         ...(opts.queuedMessageId
           ? { agentNativeQueuedMessageId: opts.queuedMessageId }
+          : {}),
+        ...(Object.prototype.hasOwnProperty.call(opts, "submissionExpiresAt")
+          ? {
+              [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]:
+                opts.submissionExpiresAt,
+            }
           : {}),
         ...(opts.refusedRetry ? { [RUN_NOT_STARTED_METADATA_KEY]: true } : {}),
       },
@@ -4465,7 +4510,11 @@ function assistantContentWeight(content: unknown): number {
   return weight;
 }
 
-function appendFoldedContent(existing: any[], incoming: any[]): any[] {
+function appendFoldedContent(
+  existing: any[],
+  incoming: any[],
+  separateRunBoundary = false,
+): any[] {
   const merged = existing.map((p) => ({ ...p }));
   for (const part of incoming) {
     if (part?.type === "tool-call" && part.result !== undefined) {
@@ -4496,10 +4545,11 @@ function appendFoldedContent(existing: any[], incoming: any[]): any[] {
       last?.type === "text" &&
       typeof last.text === "string"
     ) {
-      last.text = `${last.text}${part.text}`;
+      last.text = `${last.text}${separateRunBoundary ? "\n\n" : ""}${part.text}`;
     } else {
       merged.push({ ...part });
     }
+    separateRunBoundary = false;
   }
   return normalizeAssistantToolCallIds({
     role: "assistant",
@@ -4544,19 +4594,44 @@ export function foldAssistantTurn(
     ? assistantMsg.content
     : [];
   const existingFolded = foldedRunIdsOf(lastMsg);
+  const incomingFolded = foldedRunIdsOf(assistantMsg);
   const runAlreadyFolded =
     !!runId &&
     (existingFolded.includes(runId) || getMessageRunId(lastMsg) === runId);
+  const supersededRunReplay =
+    runAlreadyFolded && !!runId && getMessageRunId(lastMsg) !== runId;
+  const incomingCoversExistingRuns =
+    existingFolded.length > 0 &&
+    !!runId &&
+    incomingFolded.includes(runId) &&
+    existingFolded.every((foldedRunId) => incomingFolded.includes(foldedRunId));
 
-  const mergedContent = runAlreadyFolded
-    ? assistantContentWeight(incomingContent) >
-      assistantContentWeight(existingContent)
-      ? incomingContent
-      : existingContent
-    : appendFoldedContent(existingContent, incomingContent);
+  let mergedContent = existingContent;
+  if (!supersededRunReplay) {
+    if (incomingCoversExistingRuns) {
+      mergedContent = incomingContent;
+    } else if (runAlreadyFolded) {
+      if (
+        assistantContentWeight(incomingContent) >
+        assistantContentWeight(existingContent)
+      ) {
+        mergedContent = incomingContent;
+      }
+    } else {
+      mergedContent = appendFoldedContent(
+        existingContent,
+        incomingContent,
+        lastMsg.status?.type === "incomplete",
+      );
+    }
+  }
 
   const mergedFolded = Array.from(
-    new Set([...existingFolded, ...(runId ? [runId] : [])]),
+    new Set([
+      ...existingFolded,
+      ...(supersededRunReplay ? [] : incomingFolded),
+      ...(runId ? [runId] : []),
+    ]),
   );
 
   const existingCustom =
@@ -4571,7 +4646,7 @@ export function foldAssistantTurn(
 
   const mergedCustom: Record<string, unknown> = {
     ...existingCustom,
-    ...incomingCustom,
+    ...(supersededRunReplay ? {} : incomingCustom),
     turnId,
     foldedRunIds: mergedFolded,
   };
@@ -4589,7 +4664,9 @@ export function foldAssistantTurn(
   if (mergedDurationMs != null) {
     mergedCustom[ASSISTANT_RUN_DURATION_METADATA_KEY] = mergedDurationMs;
   }
-  if (incomingCustom.continued !== true) delete mergedCustom.continued;
+  if (!supersededRunReplay && incomingCustom.continued !== true) {
+    delete mergedCustom.continued;
+  }
   // A turn's failure is its newest run's: a run that continued past an
   // earlier stop clears the stop's error instead of inheriting it.
   if (!runAlreadyFolded && incomingCustom.runError === undefined) {
@@ -4602,10 +4679,14 @@ export function foldAssistantTurn(
       role: "assistant",
       content: mergedContent,
     }).content,
-    status: assistantMsg.status ?? lastMsg.status,
+    status: supersededRunReplay
+      ? lastMsg.status
+      : (assistantMsg.status ?? lastMsg.status),
     metadata: {
       ...lastMsg.metadata,
-      runId: runId ?? lastMsg.metadata?.runId,
+      runId: supersededRunReplay
+        ? lastMsg.metadata?.runId
+        : (runId ?? lastMsg.metadata?.runId),
       custom: mergedCustom,
     },
   };

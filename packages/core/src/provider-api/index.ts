@@ -1,10 +1,14 @@
 import { createHash } from "node:crypto";
 
-import { AgentConnectionRequiredError } from "../action.js";
+import { AgentConnectionRequiredError, fail } from "../action.js";
 import {
   getWorkspaceConnectionProvider,
   type WorkspaceConnectionTemplateUse,
 } from "../connections/catalog.js";
+import {
+  normalizeSigmaApiBaseUrl,
+  normalizeSigmaDirectApiBaseUrl,
+} from "../connections/sigma-api.js";
 import {
   assertCredentialCanReachEndpoint,
   describeCredentialScopeGap,
@@ -25,6 +29,7 @@ import {
 import {
   deleteOAuthTokens,
   listOAuthAccountsByOwner,
+  resolveOAuthTokenBundleAccess,
   saveOAuthTokens,
 } from "../oauth-tokens/index.js";
 import { resolveSecret } from "../server/credential-provider.js";
@@ -347,6 +352,15 @@ export type ProviderApiAuthKind =
       workspaceProvider: string;
     }
   | {
+      type: "oauth-bearer-or-client-credentials";
+      oauthProvider: string;
+      tokenLabel: string;
+      clientIdKey: string;
+      clientSecretKey: string;
+      tokenPath: string;
+      workspaceProvider: string;
+    }
+  | {
       type: "oauth-bearer-or-api-key-header";
       oauthProvider: string;
       tokenLabel: string;
@@ -532,6 +546,7 @@ interface ResolvedAuth {
 interface ResolvedProviderEndpoint {
   url: string;
   owner?: CredentialEndpointOwner;
+  credentialMode?: "oauth";
 }
 
 interface ProviderApiHttpResponse {
@@ -542,6 +557,10 @@ interface ProviderApiHttpResponse {
   headers: Record<string, string>;
   contentType: string | null;
   size: number;
+  /** `size` counts only what was read before the cap; the body was longer. */
+  sizeIsLowerBound?: true;
+  /** The body was not read, so `size`, `text`, and `json` say nothing about it. */
+  bodyDiscarded?: true;
   truncated: boolean;
   text?: string;
   json?: unknown;
@@ -571,6 +590,14 @@ interface OAuthTokens {
   expires_in?: number;
   token_type?: string;
   scope?: string;
+  sigma_api_base_url?: string;
+  sigma_token_url?: string;
+  sigma_client_id?: string;
+  sigma_client_secret?: string;
+  sigma_token_endpoint_auth_method?:
+    | "none"
+    | "client_secret_basic"
+    | "client_secret_post";
 }
 
 const PERMANENT_GOOGLE_OAUTH_REFRESH_ERRORS = new Set([
@@ -602,6 +629,8 @@ const MAX_MAX_BYTES = 4 * 1024 * 1024;
 const SAVE_TO_FILE_MAX_BYTES = 20 * 1024 * 1024;
 const FETCH_ALL_PAGES_MAX = 50;
 const HEADER_NAME_RE = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+// The method-override headers are blocked because approval gates decide on the
+// request's `method`: a GET carrying one could be tunneled to a write.
 const BLOCKED_OUTBOUND_HEADERS = new Set([
   "connection",
   "content-length",
@@ -621,6 +650,9 @@ const BLOCKED_OUTBOUND_HEADERS = new Set([
   "x-forwarded-for",
   "x-forwarded-host",
   "x-forwarded-proto",
+  "x-http-method",
+  "x-http-method-override",
+  "x-method-override",
 ]);
 
 const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
@@ -654,7 +686,9 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     requiresConnectionId: true,
     requireHttps: true,
     auth: {
-      type: "oauth-client-credentials",
+      type: "oauth-bearer-or-client-credentials",
+      oauthProvider: "sigma",
+      tokenLabel: "Sigma OAuth token",
       clientIdKey: "SIGMA_CLIENT_ID",
       clientSecretKey: "SIGMA_CLIENT_SECRET",
       tokenPath: "/v2/auth/token",
@@ -691,7 +725,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
       },
     ],
     notes: [
-      "Uses OAuth client-credentials exchange through a Sigma workspace connection. Sigma is optional; use it for reviewed examples, and use dbt as the canonical schema and grain source.",
+      "Uses a personal Sigma OAuth connection when selected, or the existing OAuth client-credentials exchange for directly configured connections. Sigma is optional; use it for reviewed examples, and use dbt as the canonical schema and grain source.",
     ],
   },
   apollo: {
@@ -1094,14 +1128,17 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     label: "Gong",
     defaultBaseUrl: "https://api.gong.io/v2",
     baseUrlCredentialKey: "GONG_API_BASE",
+    baseUrlMustMatchAllowedHost: true,
+    requireHttps: true,
+    allowedHostSuffixes: ["api.gong.io"],
     auth: {
       type: "basic",
       usernameKey: "GONG_ACCESS_KEY",
       passwordKey: "GONG_ACCESS_SECRET",
     },
-    credentialKeys: ["GONG_ACCESS_KEY", "GONG_ACCESS_SECRET", "GONG_API_BASE"],
+    credentialKeys: ["GONG_ACCESS_KEY", "GONG_ACCESS_SECRET"],
     docsUrls: ["https://gong.app.gong.io/settings/api/documentation"],
-    templateUses: ["analytics", "calendar"],
+    templateUses: ["analytics", "brain", "calendar"],
     examples: [
       { label: "List calls", method: "GET", path: "/calls" },
       {
@@ -1111,12 +1148,17 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
         body: { filter: { callIds: ["<call-id>"] } },
       },
       {
-        label: "Calls with parties/content",
+        label: "Calls with CRM context and summaries",
         method: "POST",
         path: "/calls/extensive",
         body: {
-          filter: { fromDateTime: "<iso-date-time>" },
+          filter: {
+            fromDateTime: "<start-iso-date-time>",
+            toDateTime: "<end-iso-date-time>",
+          },
           contentSelector: {
+            context: "Extended",
+            contextTiming: ["TimeOfCall"],
             exposedFields: {
               parties: true,
               content: { brief: true, keyPoints: true },
@@ -1126,25 +1168,67 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
       },
     ],
     notes: [
-      "For broad corpus work, call /calls/extensive with provider-api-request and stageAs/saveToFile. Gong returns the next cursor at records.cursor and expects the next cursor in the POST body at cursor, so use pagination { nextCursorPath: 'records.cursor', cursorBodyPath: 'cursor' } for stageAs or fetchAllPages { cursorPath: 'records.cursor', cursorBodyPath: 'cursor' } for saveToFile.",
-      "The public Gong REST API does not expose an arbitrary transcript-text filter. Use configured keyword tracker results from /calls/extensive when they cover the requested term; otherwise batch transcripts with POST /calls/transcript and body { filter: { callIds: [...] } } after narrowing or staging call ids.",
+      "Brain uses provider-api-request with the organization's GONG_ACCESS_KEY and GONG_ACCESS_SECRET for on-demand Gong queries; Gong calls are not indexed Brain Sources, and the caller does not need a personal Gong seat or Gong MCP connection. Other apps may use connected Gong MCP account/deal tools for native Gong search; Analytics may use call-agent for CRM or warehouse joins.",
+      "The Gong REST API has no account, company, customer/prospect, or topic filter. For account-call reports, scan only an explicit bounded date/workspace cohort, match calls by returned CRM context, and report scanned and matched counts. Mark results partial when response or page limits leave records unread.",
+      "For complete /calls/extensive cohorts, use provider-api-request with stageAs and pagination { nextCursorPath: 'records.cursor', cursorBodyPath: 'cursor', maxPages: 200 }, or run-code's providerFetchAll with the same cursor paths. Gong returns the next cursor at records.cursor and expects it in the next POST JSON body at cursor. Report staging's truncated flag or fetchAll's hasMore/stoppedReason and lastCursor; provider response-size truncation is an incomplete result.",
+      "The public Gong REST API does not expose an arbitrary transcript-text filter. Use configured keyword tracker results from /calls/extensive when they cover the requested term; otherwise use the bounded call-id transcript recipe below. Non-Brain apps may use connected Gong MCP search for open-ended questions.",
     ],
     corpusRecipes: [
       {
-        label: "Stage Gong calls with configured keyword tracker hits",
+        label: "Find Gong calls for an account with CRM context",
         useWhen:
-          "Use when the requested term or phrase already exists as a Gong keyword tracker and the answer can use tracker matches instead of arbitrary transcript-text search.",
+          "Use for weekly account-call reports or customer/prospect call counts for a bounded date range.",
         workflow: [
-          "Call /calls/extensive with the narrowest date, workspace, or owner filters available and contentSelector.exposedFields.content.trackers = true.",
-          "Stage the calls pages with provider-api-request stageAs or saveToFile; use the POST-body cursor at records.cursor for complete pagination.",
-          "Use query-staged-dataset or a Data Program to flatten content.trackers, filter by tracker id/name/phrase, and aggregate counts or occurrences.",
-          "Tracker results are provider-indexed evidence for configured trackers, not an arbitrary transcript search. For an unconfigured term, use Gong native Search when connected or the transcript batch recipe below.",
+          "In Brain, use run-code with providerFetchAll to call the Gong REST endpoint; it uses the organization's Gong credentials through provider-api-request and does not require the caller's personal Gong seat or Gong MCP connection.",
+          "Set both fromDateTime and toDateTime to the requested ISO-8601 range (start inclusive, end exclusive). Gong has no server-side account filter, so this returns the full date/workspace cohort.",
+          "Request Extended CRM context at TimeOfCall plus parties, brief, and keyPoints. Set pagination { itemsPath: 'calls', nextCursorPath: 'records.cursor', cursorBodyPath: 'cursor', maxPages: 200 } and continue until the cursor is empty; flatten and reduce the nested CRM fields inside run-code.",
+          "Associate each call with its Account or Opportunity using calls[].context[].objects[] CRM IDs and fields; for a named account, prefer its CRM object ID and otherwise match exact name or website. Treat missing or ambiguous links separately; do not match only on call title or participant names.",
+          "Classify customer versus prospect only when the returned CRM context contains an organization-defined lifecycle/customer-status field at TimeOfCall or an opportunity stage with an explicit stage-to-cohort mapping. Otherwise count the call as unclassified rather than inferring status from Gong content.",
+          "Report the date range, calls scanned, CRM-linked calls, customer/prospect/unclassified/ambiguous counts, and pageCount/itemCount. Include hasMore, stoppedReason, and lastCursor for coverage/resume context; if hasMore is true or stoppedReason is not completed, label counts partial. Compare itemCount with records.totalRecords when present, and treat response-size errors as incomplete rather than as zero calls.",
         ],
         request: {
           method: "POST",
           path: "/calls/extensive",
           body: {
-            filter: { fromDateTime: "<iso-date-time>" },
+            filter: {
+              fromDateTime: "<start-iso-date-time>",
+              toDateTime: "<end-iso-date-time>",
+            },
+            contentSelector: {
+              context: "Extended",
+              contextTiming: ["TimeOfCall"],
+              exposedFields: {
+                parties: true,
+                content: { brief: true, keyPoints: true },
+              },
+            },
+          },
+        },
+        pagination: {
+          itemsPath: "calls",
+          nextCursorPath: "records.cursor",
+          cursorBodyPath: "cursor",
+          maxPages: 200,
+        },
+      },
+      {
+        label: "Stage Gong calls with configured keyword tracker hits",
+        useWhen:
+          "Use when the requested term or phrase already exists as a Gong keyword tracker and the answer can use tracker matches instead of arbitrary transcript-text search.",
+        workflow: [
+          "Call /calls/extensive with an explicit bounded date range and the narrowest workspace or owner filters available, and contentSelector.exposedFields.content.trackers = true.",
+          "Stage the calls pages with provider-api-request stageAs or saveToFile; use the POST-body cursor at records.cursor for complete pagination.",
+          "Use query-staged-dataset or a Data Program to flatten content.trackers, filter by tracker id/name/phrase, and aggregate counts or occurrences.",
+          "Tracker results are provider-indexed evidence for configured trackers, not an arbitrary transcript search. For an unconfigured term, use the transcript batch recipe below; non-Brain apps may also use connected Gong MCP search.",
+        ],
+        request: {
+          method: "POST",
+          path: "/calls/extensive",
+          body: {
+            filter: {
+              fromDateTime: "<start-iso-date-time>",
+              toDateTime: "<end-iso-date-time>",
+            },
             contentSelector: {
               exposedFields: {
                 content: { trackers: true, trackerOccurrences: true },
@@ -1164,10 +1248,10 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
         useWhen:
           "Use when the user asks to search, count, or prove absence across Gong transcript text for a bounded cohort of call ids.",
         workflow: [
-          "Stage or otherwise collect the exact call ids in scope first.",
-          "Start provider-corpus-job with mode=batch-search against /calls/transcript.",
-          "Inject each batch into body path filter.callIds and search responseItemsPath callTranscripts.",
-          "Search transcript.sentence text fields, then report call-id coverage, batches processed, matches, and gaps.",
+          "Stage or otherwise collect the exact call ids in scope first, and confirm that the source cohort was not truncated.",
+          "Use provider-api-request to POST /calls/transcript with body.filter.callIds in batches of at most 20 ids; repeat until every id has been attempted.",
+          "Match response callTranscripts by callId and search transcript.sentence text fields.",
+          "Report ids requested, calls returned, batches processed, matches, missing ids, and any incomplete source or transcript response.",
         ],
         request: {
           method: "POST",
@@ -1199,8 +1283,15 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
           method: "POST",
           path: "/calls/extensive",
           body: {
-            filter: { fromDateTime: "<iso-date-time>" },
-            contentSelector: { exposedFields: { parties: true } },
+            filter: {
+              fromDateTime: "<start-iso-date-time>",
+              toDateTime: "<end-iso-date-time>",
+            },
+            contentSelector: {
+              context: "Extended",
+              contextTiming: ["TimeOfCall"],
+              exposedFields: { parties: true },
+            },
           },
         },
         pagination: {
@@ -1758,6 +1849,49 @@ export function getProviderApiConfig(
   return config;
 }
 
+export function isValidProviderApiBaseUrl(
+  provider: ProviderApiId | string,
+  value: string,
+  overrides: readonly ProviderApiConfig[] = [],
+): boolean {
+  return isValidProviderApiBaseUrlForConfig(
+    getProviderApiConfig(provider, overrides),
+    value,
+  );
+}
+
+function isValidProviderApiBaseUrlForConfig(
+  config: ProviderApiConfig,
+  value: string,
+): boolean {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch (error) {
+    if (error instanceof TypeError) return false;
+    throw error;
+  }
+
+  if (
+    (url.protocol !== "https:" && url.protocol !== "http:") ||
+    (config.requireHttps && url.protocol !== "https:")
+  ) {
+    return false;
+  }
+
+  if (!config.baseUrlMustMatchAllowedHost) return true;
+  return (
+    !url.username &&
+    !url.password &&
+    !url.port &&
+    !url.search &&
+    !url.hash &&
+    // Gong request paths are relative to its versioned API base.
+    (config.id !== "gong" || url.pathname.replace(/\/+$/, "") === "/v2") &&
+    isAllowedProviderHost(url.hostname, config)
+  );
+}
+
 export function mergeProviderApiConfigs(
   overrides: readonly ProviderApiConfig[] = [],
 ): ProviderApiConfig[] {
@@ -1911,16 +2045,16 @@ export async function fetchProviderApiDocs(
     throw new Error(`Blocked private/internal docs URL: ${url.href}`);
   }
 
-  const response = await fetchWithTimeout(url.href, {
-    method: "GET",
-    maxBytes: clampMaxBytes(options.maxBytes),
-  });
+  const { response, finalUrl } = await fetchPublicDocsPage(
+    url.href,
+    clampMaxBytes(options.maxBytes),
+  );
 
   const responseBody =
     response.text ??
     (response.json !== undefined ? JSON.stringify(response.json, null, 2) : "");
   const content = await processWebContent({
-    url: url.href,
+    url: finalUrl,
     body: responseBody,
     contentType: response.contentType,
     responseMode: options.responseMode ?? "auto",
@@ -1935,10 +2069,115 @@ export async function fetchProviderApiDocs(
   return {
     provider: options.provider,
     catalog,
-    request: { url: url.href },
+    request: { url: url.href, finalUrl },
     response: responseForOutput,
     ...(content.mode === "raw" ? {} : { content }),
   };
+}
+
+const PROVIDER_DOCS_MAX_REDIRECTS = 5;
+const PROVIDER_DOCS_REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+type ProviderDocsRedirectFailure =
+  | "blocked"
+  | "loop"
+  | "missing_location"
+  | "too_many_redirects";
+
+function failProviderDocsRedirect(
+  reason: ProviderDocsRedirectFailure,
+  message: string,
+  details: Record<string, unknown>,
+): never {
+  fail(message, {
+    errorCode: `provider_docs_redirect_${reason}`,
+    statusCode: reason === "blocked" ? 400 : 502,
+    details: { reason, ...details },
+  });
+}
+
+// Docs fetches are unauthenticated public GETs, so unlike credentialed
+// provider requests (which must never chase a 30x to another host) they follow
+// redirects. Each hop gets the same SSRF check as the first URL before it is
+// fetched; a 30x is never returned as if it were the page.
+async function fetchPublicDocsPage(
+  startUrl: string,
+  maxBytes: number,
+): Promise<{ response: ProviderApiHttpResponse; finalUrl: string }> {
+  const visited = new Set<string>();
+  let currentUrl = startUrl;
+  for (let redirects = 0; ; redirects++) {
+    visited.add(urlWithoutHash(currentUrl));
+    const response = await fetchWithTimeout(currentUrl, {
+      method: "GET",
+      maxBytes,
+      discardRedirectBody: true,
+    });
+    if (response.status < 300 || response.status >= 400) {
+      return { response, finalUrl: currentUrl };
+    }
+
+    const location = response.headers.location;
+    const details = {
+      url: startUrl,
+      from: currentUrl,
+      status: response.status,
+      redirects,
+    };
+    if (!PROVIDER_DOCS_REDIRECT_STATUSES.has(response.status) || !location) {
+      failProviderDocsRedirect(
+        "missing_location",
+        `Docs URL ${currentUrl} returned HTTP ${response.status} ${response.statusText} without a redirect Location to follow.`,
+        details,
+      );
+    }
+    let nextUrl: URL;
+    try {
+      nextUrl = new URL(location, currentUrl);
+    } catch {
+      failProviderDocsRedirect(
+        "missing_location",
+        `Docs URL ${currentUrl} redirected to an invalid Location: ${location}`,
+        { ...details, location },
+      );
+    }
+    const next = { ...details, location: nextUrl.href };
+    if (visited.has(urlWithoutHash(nextUrl.href))) {
+      failProviderDocsRedirect(
+        "loop",
+        `Docs URL ${startUrl} redirects in a loop (${currentUrl} -> ${nextUrl.href}).`,
+        next,
+      );
+    }
+    if (redirects >= PROVIDER_DOCS_MAX_REDIRECTS) {
+      failProviderDocsRedirect(
+        "too_many_redirects",
+        `Docs URL ${startUrl} redirected more than ${PROVIDER_DOCS_MAX_REDIRECTS} times (last hop ${currentUrl} -> ${nextUrl.href}).`,
+        next,
+      );
+    }
+    if (nextUrl.protocol !== "https:" && nextUrl.protocol !== "http:") {
+      failProviderDocsRedirect(
+        "blocked",
+        `Docs URL ${currentUrl} redirected to a non-http(s) URL: ${nextUrl.href}`,
+        next,
+      );
+    }
+    if (await isBlockedExtensionUrlWithDns(nextUrl.href)) {
+      failProviderDocsRedirect(
+        "blocked",
+        `Docs URL ${currentUrl} redirected to a blocked private/internal URL: ${nextUrl.href}`,
+        next,
+      );
+    }
+    currentUrl = nextUrl.href;
+  }
+}
+
+function urlWithoutHash(href: string): string {
+  const url = new URL(href);
+  url.hash = "";
+  return url.href;
 }
 
 function compactProviderDocsResponse(response: ProviderApiHttpResponse) {
@@ -1950,6 +2189,7 @@ function compactProviderDocsResponse(response: ProviderApiHttpResponse) {
     headers: response.headers,
     contentType: response.contentType,
     size: response.size,
+    ...(response.sizeIsLowerBound ? { sizeIsLowerBound: true as const } : {}),
     truncated: response.truncated,
   };
 }
@@ -2097,6 +2337,7 @@ export async function executeProviderApiRequest(
         contentType: resp.contentType,
         status: resp.status,
         ok: resp.ok,
+        truncated: resp.truncated,
       };
     });
 
@@ -2150,6 +2391,11 @@ export async function executeProviderApiRequest(
   );
 
   if (args.saveToFile) {
+    if (response.truncated) {
+      throw new Error(
+        `The response was cut at ${effectiveMaxBytes} bytes (${describeResponseSize(response)} available), so saving it would persist an incomplete file. Narrow the request with a server-side filter or fetch it in pages with fetchAllPages.`,
+      );
+    }
     const rawText =
       response.text ??
       (response.json !== undefined ? JSON.stringify(response.json) : "");
@@ -2195,12 +2441,30 @@ export async function executeProviderApiRequest(
     },
     response,
     guidance: [
-      "This was a raw provider API request. Use provider docs/spec URLs to choose endpoints and include method/path/status plus relevant filters in the methodology. Prefer this escape hatch whenever canned actions are too narrow.",
+      "This was a raw provider API request. Use provider docs/spec URLs to choose endpoints and include method/path/status plus relevant filters in the methodology. A data API returns records: when the provider can filter, search, or answer the question itself, make it do that instead of pulling records to filter locally.",
+      response.truncated
+        ? truncatedResponseGuidance(response, effectiveMaxBytes)
+        : null,
       providerAccessErrorGuidance(config, response.status),
     ]
       .filter(Boolean)
       .join(" "),
   };
+}
+
+// A truncated body is incomplete, not a smaller answer. Raising maxBytes and
+// paging the whole collection is the wrong recovery, so name the right ones.
+function describeResponseSize(response: ProviderApiHttpResponse): string {
+  return response.sizeIsLowerBound
+    ? `at least ${response.size}`
+    : String(response.size);
+}
+
+function truncatedResponseGuidance(
+  response: ProviderApiHttpResponse,
+  maxBytes: number,
+): string {
+  return `This response is incomplete: ${describeResponseSize(response)} bytes came back and only the first ${maxBytes} are included. Do not raise maxBytes or page the whole collection to filter it locally. Add a server-side filter or query parameter, use the provider's own search or semantic tool, or run the scan with stageAs or provider-corpus-job. If none of those can express the question, say so or hand it to the app that owns this source.`;
 }
 
 const PROVIDER_ACCESS_ERROR_STATUSES = new Set([401, 403, 404]);
@@ -2247,14 +2511,21 @@ export async function resolveProviderApiOAuthAccessToken(
               tokenLabel: auth.tokenLabel,
               workspaceProvider: auth.workspaceProvider,
             }
-          : auth.type === "google-service-account" && auth.oauthProvider
+          : auth.type === "oauth-bearer-or-client-credentials"
             ? {
                 type: "oauth-bearer" as const,
                 oauthProvider: auth.oauthProvider,
-                tokenLabel: "Google OAuth token",
+                tokenLabel: auth.tokenLabel,
                 workspaceProvider: auth.workspaceProvider,
               }
-            : null;
+            : auth.type === "google-service-account" && auth.oauthProvider
+              ? {
+                  type: "oauth-bearer" as const,
+                  oauthProvider: auth.oauthProvider,
+                  tokenLabel: "Google OAuth token",
+                  workspaceProvider: auth.workspaceProvider,
+                }
+              : null;
   if (!oauthAuth) {
     throw new Error(
       `Provider API ${args.provider} does not use a direct OAuth bearer token.`,
@@ -3088,6 +3359,7 @@ async function executeCustomProviderApiRequest(
         contentType: resp.contentType,
         status: resp.status,
         ok: resp.ok,
+        truncated: resp.truncated,
       };
     });
 
@@ -3140,6 +3412,11 @@ async function executeCustomProviderApiRequest(
   });
 
   if (args.saveToFile) {
+    if (response.truncated) {
+      throw new Error(
+        `The response was cut at ${effectiveMaxBytes} bytes (${describeResponseSize(response)} available), so saving it would persist an incomplete file. Narrow the request with a server-side filter or fetch it in pages with fetchAllPages.`,
+      );
+    }
     const rawText =
       response.text ??
       (response.json !== undefined ? JSON.stringify(response.json) : "");
@@ -3188,8 +3465,14 @@ async function executeCustomProviderApiRequest(
       ),
     },
     response,
-    guidance:
+    guidance: [
       "This was a raw provider API request to a custom provider. Use provider docs URLs to choose endpoints.",
+      response.truncated
+        ? truncatedResponseGuidance(response, effectiveMaxBytes)
+        : null,
+    ]
+      .filter(Boolean)
+      .join(" "),
   };
 }
 
@@ -3507,6 +3790,9 @@ function describeAuth(auth: ProviderApiAuthKind): string {
   if (auth.type === "oauth-client-credentials") {
     return `oauth-client-credentials:${auth.workspaceProvider}`;
   }
+  if (auth.type === "oauth-bearer-or-client-credentials") {
+    return `oauth-bearer:${auth.oauthProvider}-or-oauth-client-credentials:${auth.workspaceProvider}`;
+  }
   if (auth.type === "oauth-bearer-or-api-key-header") {
     return `oauth-bearer:${auth.oauthProvider}-or-api-key-header:${auth.header}:${(auth.fallbackKeys ?? [auth.key]).join(",")}`;
   }
@@ -3610,11 +3896,13 @@ async function resolveBaseUrl(
   });
   const url = (configured?.value || config.defaultBaseUrl).replace(/\/+$/, "");
   if (
-    config.baseUrlMustMatchAllowedHost &&
-    !isAllowedProviderHost(new URL(url).hostname, config)
+    !isValidProviderApiBaseUrlForConfig(config, url) ||
+    (config.id === "sigma" && !normalizeSigmaDirectApiBaseUrl(url))
   ) {
     throw new Error(
-      `${config.label} API requests must stay on the configured provider host or registered provider host suffix.`,
+      config.id === "sigma"
+        ? `${config.label} API region is not supported.`
+        : `${config.label} API base URL is invalid or must use the configured provider host or registered provider host suffix.`,
     );
   }
   return {
@@ -3642,10 +3930,15 @@ async function resolveWorkspaceOAuthBaseUrl(
     auth.type === "oauth-bearer" ||
     auth.type === "oauth-bearer-or-api-key-header" ||
     auth.type === "oauth-bearer-or-bearer-key" ||
-    auth.type === "oauth-bearer-or-basic"
+    auth.type === "oauth-bearer-or-basic" ||
+    auth.type === "oauth-bearer-or-client-credentials"
       ? auth.workspaceProvider
       : undefined;
-  if (workspaceProvider !== "jira" && workspaceProvider !== "salesforce") {
+  if (
+    workspaceProvider !== "jira" &&
+    workspaceProvider !== "salesforce" &&
+    workspaceProvider !== "sigma"
+  ) {
     return null;
   }
   let resolved: Awaited<ReturnType<typeof resolveWorkspaceConnectionForApp>>;
@@ -3664,6 +3957,32 @@ async function resolveWorkspaceOAuthBaseUrl(
       return null;
     }
     throw error;
+  }
+  if (
+    workspaceProvider === "sigma" &&
+    resolved.connection?.config.credentialMode === "oauth"
+  ) {
+    if (!resolved.available) {
+      return throwWorkspaceConnectionRequired({
+        runtime,
+        provider: workspaceProvider,
+        connectionId: args.connectionId,
+        message: resolved.reason,
+      });
+    }
+    const baseUrl = normalizeSigmaApiBaseUrl(
+      String(resolved.connection.config.sigmaBaseUrl ?? ""),
+    );
+    if (!baseUrl) {
+      throw new Error(
+        "Sigma OAuth connection has an invalid API region. Reconnect it to continue.",
+      );
+    }
+    return {
+      url: baseUrl,
+      owner: workspaceConnectionEndpointOwner(resolved.connection),
+      credentialMode: "oauth",
+    };
   }
   if (!resolved.available || !resolved.connection) return null;
   const connectionConfig = resolved.connection.config;
@@ -3840,6 +4159,7 @@ function isAllowedProviderUrl(
 ): boolean {
   if (url.protocol !== "https:" && url.protocol !== "http:") return false;
   if (config.requireHttps && url.protocol !== "https:") return false;
+  if (config.id === "gong") return url.origin === base.origin;
   return (
     url.origin === base.origin || isAllowedProviderHost(url.hostname, config)
   );
@@ -3850,6 +4170,13 @@ function isAllowedProviderHost(
   config: ProviderApiConfig,
 ): boolean {
   const host = hostname.toLowerCase();
+  if (config.id === "gong") {
+    // Gong assigns one tenant or region label before api.gong.io.
+    return (
+      host === "api.gong.io" ||
+      /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.api\.gong\.io$/.test(host)
+    );
+  }
   return (config.allowedHostSuffixes ?? []).some((suffix) => {
     const normalized = suffix.toLowerCase().replace(/^\./, "");
     return host === normalized || host.endsWith(`.${normalized}`);
@@ -3964,7 +4291,32 @@ async function resolveAuth(
       secretValues: [credential.value],
     };
   }
-  if (auth.type === "oauth-client-credentials") {
+  if (
+    auth.type === "oauth-client-credentials" ||
+    auth.type === "oauth-bearer-or-client-credentials"
+  ) {
+    if (
+      auth.type === "oauth-bearer-or-client-credentials" &&
+      endpoint.credentialMode === "oauth"
+    ) {
+      const oauthCredential = await resolveConnectionBoundOAuthBearerToken({
+        auth: {
+          type: "oauth-bearer",
+          oauthProvider: auth.oauthProvider,
+          tokenLabel: auth.tokenLabel,
+          workspaceProvider: auth.workspaceProvider,
+        },
+        runtime,
+        ctx,
+        workspaceProvider: auth.workspaceProvider,
+        connectionId: args.connectionId,
+      });
+      return {
+        headers: { Authorization: `Bearer ${oauthCredential.value}` },
+        credentialSources: [omitCredentialValue(oauthCredential)],
+        secretValues: [oauthCredential.value],
+      };
+    }
     const clientId = await resolveRequiredCredential({
       provider: config.id,
       workspaceProvider: auth.workspaceProvider,
@@ -4972,9 +5324,138 @@ async function getValidOAuthAccessToken(options: {
   if (options.oauthProvider === "sentry") {
     return refreshSentryOAuthToken(options, refreshToken);
   }
+  if (options.oauthProvider === "sigma") {
+    return refreshSigmaOAuthToken(options);
+  }
   throw new Error(
     `${options.oauthProvider} OAuth token is expired and automatic refresh is not configured for provider-api.`,
   );
+}
+
+async function refreshSigmaOAuthToken(options: {
+  oauthProvider: string;
+  accountId: string;
+  ownerEmail: string;
+  tokens: OAuthTokens;
+}): Promise<string> {
+  const tokens = await resolveOAuthTokenBundleAccess<OAuthTokens>(
+    {
+      provider: options.oauthProvider,
+      accountId: options.accountId,
+      resource: "provider-api",
+      owner: { scope: "user", id: options.ownerEmail },
+    },
+    {
+      storageOwner: options.ownerEmail,
+      shouldRefresh: (stored, now) => {
+        const expiresAt = stored.expiry_date ?? stored.expiresAt;
+        return Boolean(
+          expiresAt && Number.isFinite(expiresAt) && expiresAt <= now + 60_000,
+        );
+      },
+      refresh: refreshSigmaOAuthTokenBundle,
+    },
+  );
+  const accessToken = tokens.access_token ?? tokens.accessToken;
+  if (typeof accessToken !== "string" || !accessToken) {
+    throw new Error("Sigma OAuth connection has no access token.");
+  }
+  return accessToken;
+}
+
+async function refreshSigmaOAuthTokenBundle(
+  tokens: OAuthTokens,
+): Promise<OAuthTokens> {
+  const refreshToken = tokens.refresh_token ?? tokens.refreshToken;
+  if (typeof refreshToken !== "string" || !refreshToken) {
+    throw new Error("Sigma OAuth connection has no refresh token.");
+  }
+  const apiBaseUrl = normalizeSigmaApiBaseUrl(tokens.sigma_api_base_url ?? "");
+  const clientId = tokens.sigma_client_id?.trim();
+  const tokenUrl = tokens.sigma_token_url;
+  const authMethod = tokens.sigma_token_endpoint_auth_method;
+  if (!apiBaseUrl || !clientId || !tokenUrl) {
+    throw new Error(
+      "Sigma OAuth connection is missing its refresh configuration.",
+    );
+  }
+  let parsedTokenUrl: URL;
+  try {
+    parsedTokenUrl = new URL(tokenUrl);
+  } catch {
+    throw new Error("Sigma OAuth token endpoint is invalid.");
+  }
+  if (
+    parsedTokenUrl.protocol !== "https:" ||
+    parsedTokenUrl.origin !== apiBaseUrl
+  ) {
+    throw new Error("Sigma OAuth token endpoint is outside its API region.");
+  }
+  if (
+    authMethod !== "none" &&
+    authMethod !== "client_secret_basic" &&
+    authMethod !== "client_secret_post"
+  ) {
+    throw new Error("Sigma OAuth token endpoint authentication is invalid.");
+  }
+  const fields = new URLSearchParams({
+    grant_type: "refresh_token",
+    client_id: clientId,
+    refresh_token: refreshToken,
+  });
+  const headers: Record<string, string> = {
+    "Content-Type": "application/x-www-form-urlencoded",
+  };
+  const clientSecret = tokens.sigma_client_secret;
+  if (authMethod === "client_secret_basic") {
+    if (!clientSecret) {
+      throw new Error(
+        "Sigma OAuth client secret is missing for token refresh.",
+      );
+    }
+    headers.Authorization = `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`;
+  } else if (authMethod === "client_secret_post") {
+    if (!clientSecret) {
+      throw new Error(
+        "Sigma OAuth client secret is missing for token refresh.",
+      );
+    }
+    fields.set("client_secret", clientSecret);
+  }
+  const { response, data } = await fetchBoundedOAuthRefreshJson<{
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+    token_type?: string;
+  }>(
+    parsedTokenUrl.href,
+    { method: "POST", headers, body: fields, redirect: "error" },
+    "Sigma",
+  );
+  if (
+    !response.ok ||
+    typeof data.access_token !== "string" ||
+    !data.access_token.trim()
+  ) {
+    throw new Error(`Sigma OAuth refresh failed (${response.status}).`);
+  }
+  if (
+    typeof data.expires_in !== "number" ||
+    !Number.isSafeInteger(data.expires_in) ||
+    data.expires_in <= 0
+  ) {
+    throw new Error("Sigma OAuth refresh returned an invalid token lifetime.");
+  }
+  return {
+    ...tokens,
+    access_token: data.access_token,
+    refresh_token:
+      typeof data.refresh_token === "string" && data.refresh_token
+        ? data.refresh_token
+        : refreshToken,
+    token_type: data.token_type ?? tokens.token_type,
+    expiry_date: Date.now() + data.expires_in * 1_000,
+  };
 }
 
 async function refreshFigmaOAuthToken(
@@ -5799,6 +6280,7 @@ async function fetchWithTimeout(
     maxBytes?: number;
     secretValues?: string[];
     quota?: ProviderApiFetchQuotaOptions;
+    discardRedirectBody?: boolean;
   },
 ): Promise<ProviderApiHttpResponse> {
   const runOnce = async (): Promise<ProviderApiHttpResponse> => {
@@ -5823,6 +6305,7 @@ async function fetchWithTimeout(
         return await fetchProviderResponse(optionsUrl, fetchOptions, {
           maxBytes: options.maxBytes,
           secretValues,
+          discardRedirectBody: options.discardRedirectBody,
         });
       } catch (error) {
         if (dispatcher && isDispatcherCompatibilityError(error)) {
@@ -5831,6 +6314,7 @@ async function fetchWithTimeout(
           return await fetchProviderResponse(optionsUrl, fallbackOptions, {
             maxBytes: options.maxBytes,
             secretValues,
+            discardRedirectBody: options.discardRedirectBody,
           });
         }
         throw error;
@@ -5956,11 +6440,30 @@ async function fetchProviderResponse(
   options: {
     maxBytes?: number;
     secretValues: string[];
+    discardRedirectBody?: boolean;
   },
 ): Promise<ProviderApiHttpResponse> {
   const startedAt = Date.now();
   const res = await fetch(url, fetchOptions);
   const elapsedMs = Date.now() - startedAt;
+  const headers = redactSecrets(
+    headersToObject(res.headers),
+    options.secretValues,
+  );
+  if (options.discardRedirectBody && res.status >= 300 && res.status < 400) {
+    await res.body?.cancel();
+    return {
+      status: res.status,
+      statusText: res.statusText,
+      ok: res.ok,
+      elapsedMs,
+      headers,
+      contentType: res.headers.get("content-type") ?? null,
+      size: 0,
+      bodyDiscarded: true,
+      truncated: false,
+    };
+  }
   const rawText = await readResponseTextWithLimit(
     res,
     clampMaxBytes(options.maxBytes),
@@ -5972,9 +6475,10 @@ async function fetchProviderResponse(
     statusText: res.statusText,
     ok: res.ok,
     elapsedMs,
-    headers: redactSecrets(headersToObject(res.headers), options.secretValues),
+    headers,
     contentType: res.headers.get("content-type") ?? null,
     size: rawText.size,
+    ...(rawText.sizeIsLowerBound ? { sizeIsLowerBound: true as const } : {}),
     truncated: rawText.truncated,
     text: parsed === undefined ? redactedText : undefined,
     json: parsed,
@@ -6058,7 +6562,12 @@ function describeProviderRequestTarget(
 async function readResponseTextWithLimit(
   response: Response,
   maxBytes: number,
-): Promise<{ text: string; truncated: boolean; size: number }> {
+): Promise<{
+  text: string;
+  truncated: boolean;
+  size: number;
+  sizeIsLowerBound?: true;
+}> {
   const contentLength = response.headers.get("content-length");
   if (contentLength && Number(contentLength) > maxBytes) {
     return {
@@ -6067,12 +6576,34 @@ async function readResponseTextWithLimit(
       size: Number(contentLength),
     };
   }
-  const buffer = await response.arrayBuffer();
-  const size = buffer.byteLength;
-  const bytes = new Uint8Array(buffer.slice(0, maxBytes));
+  // Stop at the cap: a missing or understated Content-Length must not let a
+  // response force an unbounded allocation or hold the request open while it
+  // streams bytes nobody keeps. The total past the cap is then unknown.
+  const kept: Uint8Array[] = [];
+  let size = 0;
+  if (response.body) {
+    const reader = response.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      kept.push(value);
+      if (size > maxBytes) {
+        await reader.cancel();
+        return {
+          text: new TextDecoder().decode(
+            Buffer.concat(kept, size).subarray(0, maxBytes),
+          ),
+          truncated: true,
+          size,
+          sizeIsLowerBound: true,
+        };
+      }
+    }
+  }
   return {
-    text: new TextDecoder().decode(bytes),
-    truncated: size > maxBytes,
+    text: new TextDecoder().decode(Buffer.concat(kept, size)),
+    truncated: false,
     size,
   };
 }
@@ -6255,6 +6786,7 @@ async function fetchAllPages(
     contentType: string | null;
     status: number;
     ok: boolean;
+    truncated: boolean;
   }>,
 ): Promise<{
   items: unknown[];
@@ -6312,6 +6844,12 @@ async function fetchAllPages(
         `fetchAllPages request failed with HTTP ${page.status}${
           preview ? `: ${preview}` : ""
         }`,
+      );
+    }
+
+    if (page.truncated) {
+      throw new Error(
+        `fetchAllPages page ${pageCount} was cut at the response size limit, so its items and next cursor are incomplete. Request smaller pages (a lower limit or fewer fields) or add a server-side filter.`,
       );
     }
 

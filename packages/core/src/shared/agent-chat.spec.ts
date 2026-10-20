@@ -69,6 +69,28 @@ describe("agentChat.call", () => {
     expect(body.context).toBe("extra");
   });
 
+  it("aborts the frame request when its caller aborts", async () => {
+    let requestSignal: AbortSignal | undefined;
+    globalThis.fetch = vi.fn(
+      (_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          requestSignal = init?.signal as AbortSignal | undefined;
+          requestSignal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+        }),
+    );
+
+    const caller = new AbortController();
+    const request = agentChat.call("msg", { signal: caller.signal });
+    caller.abort();
+
+    await expect(request).rejects.toMatchObject({ name: "AbortError" });
+    expect(requestSignal?.aborted).toBe(true);
+  });
+
   it("uses FRAME_PORT env var", async () => {
     process.env.FRAME_PORT = "9999";
     globalThis.fetch = vi.fn().mockResolvedValue({

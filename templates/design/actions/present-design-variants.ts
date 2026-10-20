@@ -1253,6 +1253,7 @@ export default defineAction({
 
     attempt.addProperties({
       has_linked_design_system: Boolean(linkedDesign?.designSystemId),
+      variant_set_id: variantSetId,
     });
     trackDesign(
       "variants_generated",
@@ -1260,6 +1261,7 @@ export default defineAction({
         output_id: designId,
         output_type: "design",
         generation_attempt_id: attempt.id,
+        variant_set_id: variantSetId,
         variant_count: screens.length,
       },
       context,

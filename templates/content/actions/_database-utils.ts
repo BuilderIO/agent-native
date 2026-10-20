@@ -32,14 +32,15 @@ import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
-import type {
-  ContentDatabaseBodyHydration,
-  ContentDatabaseItem,
-  ContentDatabaseMembership,
-  ContentDatabaseResponse,
-  ContentDatabaseTableQuery,
-  ContentSidebarViewOrder,
-  DocumentProperty,
+import {
+  CONTENT_DATABASE_FILTER_OPERATORS,
+  type ContentDatabaseBodyHydration,
+  type ContentDatabaseItem,
+  type ContentDatabaseMembership,
+  type ContentDatabaseResponse,
+  type ContentDatabaseTableQuery,
+  type ContentSidebarViewOrder,
+  type DocumentProperty,
 } from "../shared/api.js";
 import {
   applyContentDatabaseTableQuery,
@@ -60,6 +61,7 @@ import {
   normalizeContentSpaceEmail,
   resolveContentSpaceAccess,
 } from "./_content-space-access.js";
+import { readOpenCommentSummaries } from "./_database-comment-summary.js";
 import {
   databaseRowRevision,
   getDatabaseMutationContract,
@@ -146,20 +148,7 @@ export const contentDatabaseTableQuerySchema = z
         z.object({
           key: z.string(),
           label: z.string(),
-          operator: z.enum([
-            "contains",
-            "equals",
-            "does_not_equal",
-            "greater_than",
-            "less_than",
-            "before",
-            "after",
-            "between",
-            "is_checked",
-            "is_unchecked",
-            "is_empty",
-            "is_not_empty",
-          ]),
+          operator: z.enum(CONTENT_DATABASE_FILTER_OPERATORS),
           value: z.string(),
           filterGroupId: z.string().optional(),
           parentFilterGroupId: z.string().optional(),
@@ -1075,6 +1064,7 @@ export async function getContentDatabasePageResponse(
     filesProjection,
     queuedBodyHydrationItemIds,
     workspaceMemberships,
+    commentSummaries,
   ] = await Promise.all([
     database.systemRole === "favorites"
       ? new Set(documentIds)
@@ -1142,6 +1132,7 @@ export async function getContentDatabasePageResponse(
             ),
           )
       : [],
+    readOpenCommentSummaries(documentIds),
   ]);
   const shareRoleByDocumentId = new Map<string, ShareRole>();
   for (const row of shareRows) {
@@ -1180,7 +1171,9 @@ export async function getContentDatabasePageResponse(
     const document = documentById.get(item.documentId);
     if (!document) continue;
     const bodyHydrationQueued = queuedBodyHydrationItemIds.has(item.id);
+    const comments = commentSummaries.get(document.id);
     serializedCandidateItems.push({
+      ...(comments ? { comments } : {}),
       id: item.id,
       databaseId: item.databaseId,
       document: serializeDocument(

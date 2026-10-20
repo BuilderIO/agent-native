@@ -1,13 +1,11 @@
 import { getDbExec } from "../db/client.js";
 import { ensureTableExists, ensureIndexExists } from "../db/ddl-guard.js";
-import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
+import { defineStore } from "../db/store-registry.js";
 import { serializeBoundedRemoteJson } from "./remote-json-safety.js";
 import type { RemoteLiveViewEvent, RemoteRunEvent } from "./remote-types.js";
 
 const MAX_EVENT_JSON_BYTES = 256_000;
 const MAX_EVENT_BATCH_JSON_BYTES = 1_000_000;
-
-let _initPromise: Promise<void> | undefined;
 
 function buildCreateSql(): string {
   return `
@@ -21,26 +19,29 @@ function buildCreateSql(): string {
 `;
 }
 
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    const _initPromiseWithRequestDbPoolScope = (async () => {
-      const createSql = buildCreateSql();
-      await ensureTableExists("integration_remote_run_events", createSql);
-      await ensureIndexExists(
-        "idx_remote_run_events_unique",
-        `CREATE UNIQUE INDEX IF NOT EXISTS idx_remote_run_events_unique ON integration_remote_run_events(device_id, remote_run_id, seq)`,
-      );
-      await ensureIndexExists(
-        "idx_remote_run_events_run",
-        `CREATE INDEX IF NOT EXISTS idx_remote_run_events_run ON integration_remote_run_events(device_id, remote_run_id, seq)`,
-      );
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
-  }
-  return _initPromise;
+export const remoteRunEventsStore = defineStore({
+  id: "remote_run_events",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = buildCreateSql();
+        await ensureTableExists("integration_remote_run_events", createSql);
+        await ensureIndexExists(
+          "idx_remote_run_events_unique",
+          `CREATE UNIQUE INDEX IF NOT EXISTS idx_remote_run_events_unique ON integration_remote_run_events(device_id, remote_run_id, seq)`,
+        );
+        await ensureIndexExists(
+          "idx_remote_run_events_run",
+          `CREATE INDEX IF NOT EXISTS idx_remote_run_events_run ON integration_remote_run_events(device_id, remote_run_id, seq)`,
+        );
+      },
+    },
+  ],
+});
+
+export function ensureTable(): Promise<void> {
+  return remoteRunEventsStore.ready();
 }
 
 function rowToRunEvent(row: Record<string, unknown>): RemoteRunEvent {

@@ -12,11 +12,16 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
+import { getCurrentAuthEndpointContext } from "@better-auth/core/context";
 import {
   betterAuth,
   type BetterAuthOptions,
   type BetterAuthPlugin,
 } from "better-auth";
+import {
+  createAuthMiddleware,
+  createEmailVerificationToken,
+} from "better-auth/api";
 import { bearer } from "better-auth/plugins/bearer";
 import { jwt } from "better-auth/plugins/jwt";
 import { magicLink } from "better-auth/plugins/magic-link";
@@ -53,6 +58,7 @@ import {
   onSharedDbPoolReplaced,
   onDbClientsClosing,
 } from "../db/client.js";
+import { ensureTable as ensureEmailLogTable } from "../email-catalog/log.js";
 import {
   CORE_CHANGE_EMAIL_CONFIRMATION_EMAIL_ID,
   CORE_CHANGE_EMAIL_VERIFICATION_EMAIL_ID,
@@ -193,6 +199,10 @@ export {
   resolveAuthLoginModeFromReadiness,
   type AuthLoginMode,
 } from "./auth-login-mode.js";
+
+const EXISTING_ACCOUNT_VERIFICATION_COOLDOWN_MS = 5 * 60_000;
+// Signup delivery holds its transaction, connection, and per-address lock.
+const VERIFICATION_EMAIL_TIMEOUT_MS = 10_000;
 
 async function flushSignupTracking(): Promise<void> {
   try {
@@ -2240,6 +2250,38 @@ async function createBetterAuthInstance(
     },
   });
 
+  const sendVerificationEmail: NonNullable<
+    NonNullable<BetterAuthOptions["emailVerification"]>["sendVerificationEmail"]
+  > = async ({ user, url, token }) => {
+    const deliveredVerifyUrl = emailAuthLinkLandingUrl(url) ?? url;
+    const emailChange = await verifiedEmailChangeFromToken(
+      token,
+      secret,
+      user.email,
+    );
+    if (emailChange)
+      await preflightEmailIdentityRekey(
+        emailChange.oldEmail,
+        emailChange.newEmail,
+      );
+    const renderedEmail = await renderTransactionalEmail(
+      emailChange
+        ? CORE_CHANGE_EMAIL_VERIFICATION_EMAIL_ID
+        : CORE_VERIFY_SIGNUP_EMAIL_ID,
+      { email: user.email, verifyUrl: deliveredVerifyUrl },
+    );
+    await sendEmail({
+      to: user.email,
+      ...renderedEmail,
+      disableClickTracking: true,
+      templateId: emailChange
+        ? CORE_CHANGE_EMAIL_VERIFICATION_EMAIL_ID
+        : CORE_VERIFY_SIGNUP_EMAIL_ID,
+      authCritical: true,
+      timeoutMs: VERIFICATION_EMAIL_TIMEOUT_MS,
+    });
+  };
+
   const auth = betterAuth({
     basePath,
     baseURL: appUrl,
@@ -2256,6 +2298,42 @@ async function createBetterAuthInstance(
       // Email verification is enabled only when a provider is ready. Without
       // one, hosted deployments keep password signup available.
       requireEmailVerification,
+      onExistingUserSignUp: requireEmailVerification
+        ? async ({ user }) => {
+            // Duplicate signup is unauthenticated, and direct auth.api calls
+            // such as the register route skip Better Auth's IP rate limit.
+            // The lock makes a concurrent signup for this address wait for
+            // this transaction, so it sees the sent row before checking.
+            const db = getDbExec();
+            await db.execute({
+              sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+              args: [`existing-account-verification:${user.email}`],
+            });
+            const { rows } = await db.execute({
+              sql: `SELECT 1 FROM email_log
+                WHERE template_id = ? AND recipient = ? AND status = 'sent' AND created_at > ?
+                LIMIT 1`,
+              args: [
+                CORE_VERIFY_SIGNUP_EMAIL_ID,
+                user.email,
+                Date.now() - EXISTING_ACCOUNT_VERIFICATION_COOLDOWN_MS,
+              ],
+            });
+            if (rows.length > 0) return;
+            const endpoint = getCurrentAuthEndpointContext();
+            const callbackURL =
+              typeof endpoint.body?.callbackURL === "string" &&
+              endpoint.body.callbackURL
+                ? endpoint.body.callbackURL
+                : "/";
+            const token = await createEmailVerificationToken(
+              secret,
+              user.email,
+            );
+            const url = `${endpoint.context.baseURL}/verify-email?token=${token}&callbackURL=${encodeURIComponent(callbackURL)}`;
+            await sendVerificationEmail({ user, url, token });
+          }
+        : undefined,
       sendResetPassword: async ({ user, token }) => {
         const appBasePath = (
           process.env.VITE_APP_BASE_PATH ||
@@ -2283,34 +2361,7 @@ async function createBetterAuthInstance(
     emailVerification: {
       sendOnSignUp: requireEmailVerification,
       autoSignInAfterVerification: true,
-      sendVerificationEmail: async ({ user, url, token }) => {
-        const deliveredVerifyUrl = emailAuthLinkLandingUrl(url) ?? url;
-        const emailChange = await verifiedEmailChangeFromToken(
-          token,
-          secret,
-          user.email,
-        );
-        if (emailChange)
-          await preflightEmailIdentityRekey(
-            emailChange.oldEmail,
-            emailChange.newEmail,
-          );
-        const renderedEmail = await renderTransactionalEmail(
-          emailChange
-            ? CORE_CHANGE_EMAIL_VERIFICATION_EMAIL_ID
-            : CORE_VERIFY_SIGNUP_EMAIL_ID,
-          { email: user.email, verifyUrl: deliveredVerifyUrl },
-        );
-        await sendEmail({
-          to: user.email,
-          ...renderedEmail,
-          disableClickTracking: true,
-          templateId: emailChange
-            ? CORE_CHANGE_EMAIL_VERIFICATION_EMAIL_ID
-            : CORE_VERIFY_SIGNUP_EMAIL_ID,
-          authCritical: true,
-        });
-      },
+      sendVerificationEmail,
       afterEmailVerification: async (user, request) => {
         if (!request) return;
         const token = new URL(request.url).searchParams.get("token");
@@ -2613,6 +2664,54 @@ async function createBetterAuthInstance(
           ]),
       ...enterprisePlugins,
       ...configuredPlugins,
+      {
+        id: "verification-email-delivery",
+        hooks: {
+          before: [
+            {
+              matcher: (ctx) =>
+                ctx.path === "/sign-up/email" && requireEmailVerification,
+              handler: createAuthMiddleware(async () => {
+                // A failed delivery rolls signup back; lazy log DDL must not
+                // leave its readiness cache pointing at a rolled-back table.
+                await ensureEmailLogTable();
+              }),
+            },
+          ],
+        },
+        init(ctx) {
+          const emailVerification = ctx.options.emailVerification;
+          if (!emailVerification?.sendVerificationEmail) return;
+          const sendVerificationEmail = emailVerification.sendVerificationEmail;
+          const deliveries = new WeakSet<Promise<unknown>>();
+          emailVerification.sendVerificationEmail = (...args) => {
+            const delivery = sendVerificationEmail(...args);
+            if (delivery instanceof Promise) deliveries.add(delivery);
+            return delivery;
+          };
+          const passwordOptions = ctx.options.emailAndPassword;
+          const onExistingUserSignUp = passwordOptions?.onExistingUserSignUp;
+          if (passwordOptions && onExistingUserSignUp) {
+            passwordOptions.onExistingUserSignUp = (...args) => {
+              const delivery = onExistingUserSignUp(...args);
+              deliveries.add(delivery);
+              return delivery;
+            };
+          }
+          const runInBackgroundOrAwait = ctx.runInBackgroundOrAwait.bind(ctx);
+          return {
+            context: {
+              runInBackgroundOrAwait(task) {
+                // Better Auth swallows even awaited task errors; verification
+                // must fail the request before the UI can claim mail was sent.
+                if (task instanceof Promise && deliveries.has(task))
+                  return task;
+                return runInBackgroundOrAwait(task);
+              },
+            },
+          };
+        },
+      },
     ],
   });
 

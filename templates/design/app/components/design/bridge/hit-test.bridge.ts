@@ -1,3 +1,10 @@
+import {
+  alpineGeneratedChildrenOf,
+  buildSourceEquivalentSelector,
+  isEditorInjectedElement,
+  isSourceLocationMatch,
+  resolveSourceEquivalentSelectorResult,
+} from "../../../../shared/source-equivalent-selector";
 /**
  * Lightweight hit-test bridge — injected into every inline Edit canvas iframe so the
  * parent editor can resolve drop-anchor positions via postMessage without a full
@@ -17,7 +24,8 @@
  *     guidePlacement: 'before'|'after'|'inside', axis: 'x'|'y',
  *     anchorRect: { left: number, top: number, width: number, height: number },
  *     gridPlacement?: { column: number, columnEnd: number, row: number, rowEnd: number },
- *     guideRect?: { left: number, top: number, width: number, height: number } }
+ *     guideRect?: { left: number, top: number, width: number, height: number },
+ *     absoluteOrigin?: { left: number, top: number } }
  *
  * `anchorSelector` accompanies `pendingNodeId`, and also accompanies an
  * ambiguous stable anchor id only when the hit-test has an exact source
@@ -184,8 +192,7 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
       var childTag = (child.tagName || "").toLowerCase();
       if (
         BRIDGE_LEAF_TAGS.indexOf(childTag) === -1 &&
-        !INLINE_TEXT_TAGS.has(childTag) &&
-        BRIDGE_INTERACTIVE_LEAF_TAGS.indexOf(childTag) === -1
+        !INLINE_TEXT_TAGS.has(childTag)
       ) {
         return false;
       }
@@ -907,6 +914,11 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
     return true;
   }
 
+  function isOutOfFlow(el: Element): boolean {
+    var position = window.getComputedStyle(el).position;
+    return position === "absolute" || position === "fixed";
+  }
+
   function isAbsolutePrimitiveContainer(el: Element | null): boolean {
     if (!el || el.nodeType !== 1) return false;
     if (BRIDGE_REPLACED_TAGS[(el.tagName || "").toLowerCase()]) return false;
@@ -924,6 +936,32 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
     var cs = window.getComputedStyle(el);
     if (primitive === "frame" && cs.position === "relative") return true;
     return cs.position === "absolute" || cs.position === "fixed";
+  }
+
+  // No in-flow children to stack against, so a drop keeps its release point.
+  // An empty static box is not a frame and stays a flow target; an empty
+  // screen body is the screen's frame.
+  function isFreeformDropContainer(el: Element): boolean {
+    if (isAutoLayoutElement(el)) return false;
+    var hasChild = false;
+    for (var i = 0; i < el.children.length; i += 1) {
+      var child = el.children[i]!;
+      if (isOverlayElement(child)) continue;
+      var childStyle = window.getComputedStyle(child);
+      if (childStyle.display === "none") continue;
+      if (
+        childStyle.position !== "absolute" &&
+        childStyle.position !== "fixed"
+      ) {
+        return false;
+      }
+      hasChild = true;
+    }
+    return (
+      hasChild ||
+      el === document.body ||
+      window.getComputedStyle(el).position !== "static"
+    );
   }
 
   function hasAbsolutePositionedChild(el: Element): boolean {
@@ -1160,85 +1198,6 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
   // pending node id onto the WRONG source element. When bumping Alpine,
   // re-verify these fields and the clone-vs-source guard tests in
   // bridge.guard.spec.ts.
-  function alpineGeneratedChildrenOf(parent: Element): Element[] {
-    var generated: Element[] = [];
-    var children = parent.children;
-    for (var i = 0; i < children.length; i += 1) {
-      var child = children[i] as Element & {
-        _x_lookup?: Map<unknown, Element> | Record<string, Element>;
-        _x_currentIfEl?: Element;
-      };
-      if (!child.tagName || child.tagName.toLowerCase() !== "template") {
-        continue;
-      }
-      try {
-        if (child._x_currentIfEl) generated.push(child._x_currentIfEl);
-        var lookup = child._x_lookup;
-        if (lookup) {
-          var map = lookup as Map<unknown, Element>;
-          if (
-            typeof map.forEach === "function" &&
-            typeof map.get === "function"
-          ) {
-            map.forEach(function (item) {
-              if (item) generated.push(item);
-            });
-          } else {
-            var record = lookup as Record<string, Element>;
-            for (var key in record) {
-              if (Object.prototype.hasOwnProperty.call(record, key)) {
-                var item = record[key];
-                if (item) generated.push(item);
-              }
-            }
-          }
-        }
-      } catch (_err) {}
-    }
-    return generated;
-  }
-
-  function isEditorInjectedElement(el: Element): boolean {
-    return !!(
-      el.getAttribute &&
-      (el.getAttribute("data-agent-native-edit-overlay") !== null ||
-        el.getAttribute("data-agent-native-hit-test-preview") !== null)
-    );
-  }
-
-  function buildSourceEquivalentSelector(el: Element | null): string {
-    if (!el || el === document.documentElement || el === document.body) {
-      return "";
-    }
-    var parts: string[] = [];
-    var node: Element | null = el;
-    while (node && node !== document.body) {
-      var parent: Element | null = node.parentElement;
-      if (!parent) return "";
-      var generated = alpineGeneratedChildrenOf(parent);
-      if (generated.indexOf(node) !== -1) return "";
-      if (isEditorInjectedElement(node)) return "";
-      var tag = node.tagName ? node.tagName.toLowerCase() : "";
-      if (!tag || tag === "template") return "";
-      var nth = 0;
-      var siblings = parent.children;
-      for (var i = 0; i < siblings.length; i += 1) {
-        var sib = siblings[i];
-        if (!sib.tagName || sib.tagName.toLowerCase() !== tag) continue;
-        if (generated.indexOf(sib) !== -1) continue;
-        if (isEditorInjectedElement(sib)) continue;
-        nth += 1;
-        if (sib === node) break;
-      }
-      if (nth === 0) return "";
-      parts.unshift(tag + ":nth-of-type(" + nth + ")");
-      node = parent;
-    }
-    if (!node) return "";
-    parts.unshift("body");
-    return parts.join(" > ");
-  }
-
   function isMultiTrackGrid(container: Element) {
     var styles = window.getComputedStyle(container);
     return (
@@ -1373,7 +1332,7 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
     while (cursor && cursor !== document.body) {
       if (isLayerInteractionBlocked(cursor)) return null;
       var parent: Element | null = cursor.parentElement;
-      if (parent && isAutoLayoutElement(parent)) {
+      if (parent && isAutoLayoutElement(parent) && !isOutOfFlow(cursor)) {
         if (!hasKnownFlexMainAxis(parent)) return null;
         var emptyGridCell = gridEmptyCellInsertionTarget(
           parent,
@@ -1508,7 +1467,9 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
           anchor: blockCursor,
           placement: "inside",
           axis: "y",
-          dropMode: "flow-insert",
+          dropMode: isFreeformDropContainer(blockCursor)
+            ? "absolute-container"
+            : "flow-insert",
         };
       }
       blockCursor = blockCursor.parentElement;
@@ -1676,9 +1637,37 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
       container.parentElement === document.body &&
       containerPrimitive !== "frame"
     ) {
-      return nearestChildInsertionTarget(document.body, clientX, clientY);
+      var besideContainer = nearestChildInsertionTarget(
+        document.body,
+        clientX,
+        clientY,
+      );
+      if (besideContainer && isFreeformDropContainer(document.body)) {
+        besideContainer.dropMode = "absolute-container";
+      }
+      return besideContainer;
     }
     return null;
+  }
+
+  // Where left:0/top:0 lands for a layer placed at this target: the drop
+  // container's containing block, which a static container is not.
+  function absoluteOriginForTarget(
+    target: HitTestTarget,
+  ): { left: number; top: number } | null {
+    var container =
+      target.placement === "inside"
+        ? target.anchor
+        : target.anchor.parentElement;
+    if (!container) return null;
+    var probe = document.createElement("div");
+    probe.setAttribute("data-agent-native-edit-overlay", "absolute-origin");
+    probe.style.cssText =
+      "position:absolute;left:0;top:0;width:0;height:0;margin:0;visibility:hidden;pointer-events:none";
+    container.appendChild(probe);
+    var probeRect = probe.getBoundingClientRect();
+    probe.remove();
+    return { left: probeRect.left, top: probeRect.top };
   }
 
   function showInsertionGuideFor(target: HitTestTarget | null): void {
@@ -1737,7 +1726,7 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
     ) {
       if (
         current.matches(
-          "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[id]",
+          "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[data-loc],[id]",
         )
       ) {
         identifiedAncestor = current;
@@ -1766,8 +1755,12 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
       if (nodeId) wanted[nodeId] = true;
     }
     var candidates = document.querySelectorAll(
-      "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[id]",
+      "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[data-loc],[id]",
     );
+    var matchCounts: Record<string, number> = {};
+    var sourceMatches: Record<string, Element> = {};
+    var plainIdMatches: Record<string, Element> = {};
+    var mixedIdentityCollisions: Record<string, boolean> = {};
     for (
       var candidateIndex = 0;
       candidateIndex < candidates.length;
@@ -1775,10 +1768,38 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
     ) {
       var candidate = candidates[candidateIndex];
       var candidateId = getNodeId(candidate);
-      if (candidateId && wanted[candidateId] && !found[candidateId]) {
-        found[candidateId] = candidate;
+      if (candidateId && wanted[candidateId]) {
+        if (isSourceLocationMatch(candidate, candidateId)) {
+          matchCounts[candidateId] = (matchCounts[candidateId] || 0) + 1;
+          sourceMatches[candidateId] = sourceMatches[candidateId] || candidate;
+          if (
+            plainIdMatches[candidateId] &&
+            plainIdMatches[candidateId] !== candidate
+          ) {
+            mixedIdentityCollisions[candidateId] = true;
+          }
+        }
+        if (candidate.id === candidateId) {
+          plainIdMatches[candidateId] =
+            plainIdMatches[candidateId] || candidate;
+          if (
+            sourceMatches[candidateId] &&
+            sourceMatches[candidateId] !== candidate
+          ) {
+            mixedIdentityCollisions[candidateId] = true;
+          }
+        }
+        if (!found[candidateId]) found[candidateId] = candidate;
       }
     }
+    // A data-loc is shared by every instance of one source location; the parent cannot tell
+    // those instances apart, so a repeated id gets no element rather than the first one.
+    Object.keys(matchCounts).forEach(function (repeatedId) {
+      if (matchCounts[repeatedId] > 1) delete found[repeatedId];
+    });
+    Object.keys(mixedIdentityCollisions).forEach(function (collidingId) {
+      delete found[collidingId];
+    });
     return found;
   }
 
@@ -1890,19 +1911,75 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
         reviewPointElement && !reviewPointNodeId
           ? buildSourceEquivalentSelector(reviewPointElement)
           : "";
-      try {
-        (window.parent as Window).postMessage(
-          {
-            type: "agent-native:review-anchor-at-point-result",
-            correlationId: reviewPointCorrelationId,
-            nodeId: reviewPointNodeId || undefined,
-            targetSelector: reviewPointSelector || undefined,
-            layerName: layerNameForElement(reviewPointElement) || undefined,
-            tagName: reviewPointElement?.tagName?.toLowerCase() || undefined,
-          },
-          "*",
-        );
-      } catch (_err) {}
+      // Every hit carries its box and a selector: a node id such as data-loc may not resolve
+      // back to an element in the parent, and the selector re-finds the element after layout moves.
+      var reviewPointBox = reviewPointElement
+        ? reviewPointElement.getBoundingClientRect()
+        : null;
+      var reviewPointHitSelector = reviewPointElement
+        ? buildSourceEquivalentSelector(reviewPointElement)
+        : "";
+      (window.parent as Window).postMessage(
+        {
+          type: "agent-native:review-anchor-at-point-result",
+          correlationId: reviewPointCorrelationId,
+          nodeId: reviewPointNodeId || undefined,
+          targetSelector: reviewPointSelector || undefined,
+          hitSelector: reviewPointHitSelector || undefined,
+          layerName: layerNameForElement(reviewPointElement) || undefined,
+          tagName: reviewPointElement?.tagName?.toLowerCase() || undefined,
+          rect: reviewPointBox
+            ? {
+                left: reviewPointBox.left,
+                top: reviewPointBox.top,
+                width: reviewPointBox.width,
+                height: reviewPointBox.height,
+              }
+            : undefined,
+          viewportWidth: window.innerWidth,
+          viewportHeight: window.innerHeight,
+        },
+        "*",
+      );
+      return;
+    }
+    if (e.data.type === "agent-native:review-selector-rects") {
+      var reviewSelectorCorrelationId: string = e.data.correlationId;
+      var reviewSelector: unknown = e.data.selector;
+      if (!reviewSelectorCorrelationId || typeof reviewSelector !== "string") {
+        return;
+      }
+      // Unversioned selectors retain native CSS matching; new source paths use the filtered walk.
+      var reviewSelectorResolution = resolveSourceEquivalentSelectorResult(
+        document,
+        reviewSelector,
+      );
+      var reviewSelectorElement: Element | null =
+        reviewSelectorResolution.status === "matched"
+          ? reviewSelectorResolution.element
+          : null;
+      if (reviewSelectorElement === document.body) reviewSelectorElement = null;
+      var reviewSelectorBox = reviewSelectorElement
+        ? reviewSelectorElement.getBoundingClientRect()
+        : null;
+      (window.parent as Window).postMessage(
+        {
+          type: "agent-native:review-selector-rects-result",
+          correlationId: reviewSelectorCorrelationId,
+          selectorStatus: reviewSelectorResolution.status,
+          rect: reviewSelectorBox
+            ? {
+                left: reviewSelectorBox.left,
+                top: reviewSelectorBox.top,
+                width: reviewSelectorBox.width,
+                height: reviewSelectorBox.height,
+              }
+            : undefined,
+          viewportWidth: window.innerWidth,
+          viewportHeight: window.innerHeight,
+        },
+        "*",
+      );
       return;
     }
     if (e.data.type === "agent-native:review-node-rects") {
@@ -2073,6 +2150,10 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
     var axis: string = result ? result.axis : "y";
     var dropMode: string = result ? result.dropMode : "flow-insert";
     var anchorRect = result ? result.anchor.getBoundingClientRect() : null;
+    var absoluteOrigin =
+      result && dropMode === "absolute-container" && !e.data.preview
+        ? absoluteOriginForTarget(result)
+        : null;
     try {
       (window.parent as Window).postMessage(
         {
@@ -2103,6 +2184,7 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
               }
             : undefined,
           guideRect: result ? result.guideRect : undefined,
+          absoluteOrigin: absoluteOrigin || undefined,
         },
         "*",
       );

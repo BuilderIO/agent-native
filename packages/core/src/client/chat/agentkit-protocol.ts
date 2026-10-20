@@ -14,6 +14,7 @@ import type {
   AgentEvent,
   AgentInteraction,
   AgentMessage,
+  AgentMessagePart,
   AgentObjectReference,
   AgentParticipant,
   AgentRunStatus,
@@ -59,11 +60,13 @@ import {
   emitChatFirstOpenApp,
   emitChatFirstOpenBrowser,
 } from "../chat-first-state.js";
+import { toolDisplayName } from "../tool-display.js";
 import {
   decideAfterStreamClosed,
   runOutcomeForCode,
   type RunAuthorityRead,
   type RunOutcomeReport,
+  type ServerRunState,
   type RunTerminalSource,
   type StreamClosedDecision,
   type TerminalDrain,
@@ -167,6 +170,8 @@ interface ProtocolRun {
   quietAuthorityReads?: number;
   subscribeFailures?: number;
   initialAuthorityRead?: RunAuthorityRead;
+  restoredPendingConnectionRequestId?: string | null;
+  restoredRunStatus?: ServerRunState["status"];
   terminalDrain?: TerminalDrain;
   readingTerminalDrain?: boolean;
   successorWaitStartedAtMs?: number;
@@ -178,6 +183,8 @@ interface ProtocolRun {
   pipeClosedBeforeTerminal?: boolean;
   /** Restored after a reload: its first "stream" is a placeholder, not a pipe. */
   restoredWithoutStream?: boolean;
+  /** A restored decline must verify its request against the replayed stream. */
+  requiresRestoredConnectionRequestReplay?: boolean;
   /**
    * The runtime run's own interruption, held until the server says whether a
    * newer run already carries the turn (the stale-run reaper starts one).
@@ -216,6 +223,19 @@ const DEFAULT_MAX_RETAINED_RUNS = 100;
 const DEFAULT_RETAINED_RUN_TTL_MS = 30 * 60 * 1_000;
 const MAX_DURABLE_RESUME_ATTEMPTS = 3;
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
+const RESTORED_CONNECTION_REQUEST_REPLAY_TIMEOUT_MS = 5_000;
+const RESTORED_CONNECTION_REQUEST_UNVERIFIED_MESSAGE =
+  "Could not verify whether the restored connection request is still pending.";
+
+function restoredConnectionRequestUnverifiedError() {
+  return Object.assign(
+    new Error(RESTORED_CONNECTION_REQUEST_UNVERIFIED_MESSAGE),
+    {
+      code: "connection_request_unverified" as const,
+      retryable: true as const,
+    },
+  );
+}
 
 const DISCOVERABLE_CAPABILITIES = [
   "actions",
@@ -728,6 +748,92 @@ function runtimeInteractionToProtocol(
   };
 }
 
+const DELEGATED_ACTIVITY_KIND = "agent-native/agent-activity";
+const MAX_DELEGATED_SUMMARY_STEPS = 12;
+const MAX_DELEGATED_REPLY_CHARS = 600;
+
+/** What a delegated agent's tool call touched: a file, path or command. */
+function delegatedToolTarget(input: unknown): string {
+  if (typeof input !== "string" || !input) return "";
+  let target: unknown;
+  try {
+    const parsed = JSON.parse(input) as Record<string, unknown>;
+    target =
+      parsed.file ??
+      parsed.file_path ??
+      parsed.filePath ??
+      parsed.path ??
+      parsed.pattern ??
+      parsed.command;
+  } catch {
+    // coercion-ok: tool input is free text when it is not JSON.
+    return "";
+  }
+  if (typeof target !== "string" || !target.trim()) return "";
+  const oneLine = target.replace(/\s+/g, " ").trim();
+  return oneLine.length > 80 ? `${oneLine.slice(0, 79)}…` : oneLine;
+}
+
+/**
+ * A delegated agent's run as readable steps (its tool calls and what each
+ * touched, then its latest reply) for the expanded activity row. The raw
+ * snapshot has no renderer, so without this the row opens onto nothing.
+ */
+function delegatedActivitySummary(data: unknown): AgentMessagePart[] | null {
+  if (
+    !data ||
+    typeof data !== "object" ||
+    (data as { kind?: unknown }).kind !== DELEGATED_ACTIVITY_KIND
+  ) {
+    return null;
+  }
+  const snapshot = data as {
+    toolCalls?: Array<{ name?: unknown; status?: unknown; input?: unknown }>;
+    responseText?: unknown;
+    response?: unknown;
+  };
+  const tools = Array.isArray(snapshot.toolCalls) ? snapshot.toolCalls : [];
+  const shown = tools.slice(-MAX_DELEGATED_SUMMARY_STEPS);
+  const lines: string[] = [];
+  if (tools.length > shown.length) {
+    lines.push(`- ${tools.length - shown.length} earlier steps`);
+  }
+  for (const tool of shown) {
+    const name =
+      typeof tool.name === "string" && tool.name ? tool.name : "Step";
+    const target = delegatedToolTarget(tool.input);
+    const status =
+      tool.status === "running"
+        ? "running"
+        : tool.status === "error" || tool.status === "failed"
+          ? "failed"
+          : "done";
+    lines.push(`- **${name}**${target ? ` \`${target}\`` : ""} · ${status}`);
+  }
+  const reply =
+    typeof snapshot.responseText === "string"
+      ? snapshot.responseText
+      : Array.isArray(snapshot.response)
+        ? snapshot.response.filter((part) => typeof part === "string").join("")
+        : "";
+  const trimmedReply = reply.trim();
+  const parts: AgentMessagePart[] = [];
+  if (lines.length) {
+    parts.push({ type: "text", text: lines.join("\n"), format: "markdown" });
+  }
+  if (trimmedReply) {
+    parts.push({
+      type: "text",
+      text:
+        trimmedReply.length > MAX_DELEGATED_REPLY_CHARS
+          ? `${trimmedReply.slice(0, MAX_DELEGATED_REPLY_CHARS - 1)}…`
+          : trimmedReply,
+      format: "markdown",
+    });
+  }
+  return parts.length ? parts : null;
+}
+
 function runtimeStructuredActivity(
   activity: Extract<AgentChatRuntimeEvent, { type: "activity" }>["activity"],
 ): AgentActivity {
@@ -748,7 +854,7 @@ function runtimeStructuredActivity(
     ...(activity.data === undefined
       ? {}
       : {
-          summary: [
+          summary: delegatedActivitySummary(activity.data) ?? [
             {
               type: "data",
               data: activity.data,
@@ -946,6 +1052,7 @@ function runtimeMessageToProtocolMessage(
       runtimePartToProtocolPart(part, textFormat),
     ),
     createdAt: message.createdAt,
+    status: message.status,
     metadata: message.metadata,
   };
 }
@@ -1048,6 +1155,7 @@ function protocolMessageToRuntimeMessage(
     role: message.role,
     content: message.parts.map(protocolPartToRuntimePart),
     createdAt: message.createdAt,
+    status: message.status,
     metadata: message.metadata,
   };
 }
@@ -1077,7 +1185,7 @@ function runtimeToolStatus(
 }
 
 function runtimeActivityLabel(name: string): string {
-  const label = name
+  const label = (toolDisplayName(name) ?? name)
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
     .replace(/[_-]+/g, " ")
     .trim();
@@ -1389,6 +1497,7 @@ export function createAgentKitProtocolAdapter(
     sessionId: string;
     runId?: string;
     turnId?: string;
+    includePendingConnectionRequest?: boolean;
   }): Promise<RunAuthorityRead> {
     if (!runAuthority) {
       throw new Error("The runtime does not provide run authority.");
@@ -1455,9 +1564,18 @@ export function createAgentKitProtocolAdapter(
   function indexRun(
     run: ProtocolRun,
     runtimeRunId = run.turn.runId ?? run.runId,
-  ): void {
+    allowReplay = false,
+  ): ProtocolRun {
     const existingRun = runs.get(run.runId);
     if (existingRun && existingRun !== run) {
+      if (
+        allowReplay &&
+        existingRun.threadId === run.threadId &&
+        existingRun.turn.id !== undefined &&
+        existingRun.turn.id === run.turn.id
+      ) {
+        return existingRun;
+      }
       throw new Error(`Duplicate AgentKit run id: ${run.runId}`);
     }
     if (runtimeRunId && runtimeRunId !== run.runId) {
@@ -1482,6 +1600,7 @@ export function createAgentKitProtocolAdapter(
       runtimeRunAliases.set(aliasKey, run);
     }
     runs.set(run.runId, run);
+    return run;
   }
 
   async function resolveRuntimeRunOwner(
@@ -1805,10 +1924,34 @@ export function createAgentKitProtocolAdapter(
     return session;
   }
 
-  async function restoreRunFromRuntime(input: {
-    threadId: string;
-    runId: string;
-  }): Promise<ProtocolRun> {
+  async function restoreRunFromRuntime(
+    input: {
+      threadId: string;
+      runId: string;
+    },
+    restoreOptions: { includePendingConnectionRequest?: boolean } = {},
+  ): Promise<ProtocolRun> {
+    const readPendingConnectionRequestState = async (
+      sessionId: string,
+      runId: string,
+    ): Promise<ServerRunState> => {
+      if (!runAuthority) {
+        throw restoredConnectionRequestUnverifiedError();
+      }
+      const read = await readAuthoritativeRunState({
+        sessionId,
+        runId,
+        includePendingConnectionRequest: true,
+      });
+      if (
+        read.kind !== "read" ||
+        !("pendingConnectionRequestId" in read.state) ||
+        read.state.pendingConnectionRequestId === undefined
+      ) {
+        throw restoredConnectionRequestUnverifiedError();
+      }
+      return read.state;
+    };
     if (
       capabilities.resumableRuns !== true ||
       (!runtime.resume && !runtime.subscribe)
@@ -1819,7 +1962,22 @@ export function createAgentKitProtocolAdapter(
       input.threadId,
       input.runId,
     );
-    if (initialResolution.owner) return initialResolution.owner;
+    if (initialResolution.owner) {
+      if (restoreOptions.includePendingConnectionRequest && runAuthority) {
+        const state = await readPendingConnectionRequestState(
+          initialResolution.owner.session.id,
+          initialResolution.owner.turn.runId ?? input.runId,
+        );
+        initialResolution.owner.restoredPendingConnectionRequestId =
+          state.pendingConnectionRequestId;
+        initialResolution.owner.restoredRunStatus = state.status;
+        initialResolution.owner.initialAuthorityRead = { kind: "read", state };
+      }
+      if (restoreOptions.includePendingConnectionRequest) {
+        initialResolution.owner.requiresRestoredConnectionRequestReplay = true;
+      }
+      return initialResolution.owner;
+    }
     const session = await getSession(input.threadId);
     const resolution = await resolveRuntimeRunOwner(
       input.threadId,
@@ -1827,9 +1985,44 @@ export function createAgentKitProtocolAdapter(
       session.id,
       initialResolution.read,
     );
-    if (resolution.owner) return resolution.owner;
-    const state =
-      resolution.read?.kind === "read" ? resolution.read.state : undefined;
+    if (resolution.owner) {
+      if (restoreOptions.includePendingConnectionRequest && runAuthority) {
+        const state = await readPendingConnectionRequestState(
+          resolution.owner.session.id,
+          resolution.owner.turn.runId ?? input.runId,
+        );
+        resolution.owner.restoredPendingConnectionRequestId =
+          state.pendingConnectionRequestId;
+        resolution.owner.restoredRunStatus = state.status;
+        resolution.owner.initialAuthorityRead = { kind: "read", state };
+      }
+      if (restoreOptions.includePendingConnectionRequest) {
+        resolution.owner.requiresRestoredConnectionRequestReplay = true;
+      }
+      return resolution.owner;
+    }
+    const restoreRead =
+      restoreOptions.includePendingConnectionRequest && runAuthority
+        ? await readAuthoritativeRunState({
+            sessionId: session.id,
+            runId:
+              resolution.read?.kind === "read" &&
+              resolution.read.state.status !== "missing"
+                ? resolution.read.state.runId
+                : input.runId,
+            includePendingConnectionRequest: true,
+          })
+        : resolution.read;
+    if (
+      restoreOptions.includePendingConnectionRequest &&
+      runAuthority &&
+      (restoreRead?.kind !== "read" ||
+        !("pendingConnectionRequestId" in restoreRead.state) ||
+        restoreRead.state.pendingConnectionRequestId === undefined)
+    ) {
+      throw restoredConnectionRequestUnverifiedError();
+    }
+    const state = restoreRead?.kind === "read" ? restoreRead.state : undefined;
     const resumeInput = {
       sessionId: session.id,
       runId: input.runId,
@@ -1901,10 +2094,21 @@ export function createAgentKitProtocolAdapter(
       terminal: false,
       waitingForContinuation: false,
       ...(runAuthority ? { restoredWithoutStream: true } : {}),
+      ...(restoreOptions.includePendingConnectionRequest
+        ? { requiresRestoredConnectionRequestReplay: true }
+        : {}),
       listeners: new Set(),
     };
-    indexRun(run, turn.runId ?? input.runId);
-    if (resolution.read) run.initialAuthorityRead = resolution.read;
+    const indexedRun = indexRun(run, turn.runId ?? input.runId, true);
+    if (indexedRun !== run) {
+      await closeDiscardedTurnEvents(turn);
+      return indexedRun;
+    }
+    if (restoreRead) run.initialAuthorityRead = restoreRead;
+    if (state && "pendingConnectionRequestId" in state) {
+      run.restoredPendingConnectionRequestId = state.pendingConnectionRequestId;
+      run.restoredRunStatus = state.status;
+    }
     append(run, {
       type: "run.started",
       agentId: runtime.id,
@@ -1980,7 +2184,11 @@ export function createAgentKitProtocolAdapter(
       );
     }
     pruneRetainedRuns(run.lastAccessedAtMs);
-    indexRun(run, turn.runId);
+    const indexedRun = indexRun(run, turn.runId, true);
+    if (indexedRun !== run) {
+      await closeDiscardedTurnEvents(turn);
+      return indexedRun.runId;
+    }
     append(run, {
       type: "run.started",
       agentId: runtime.id,
@@ -1997,6 +2205,13 @@ export function createAgentKitProtocolAdapter(
     if (disposedSessions.has(session)) return;
     disposedSessions.add(session);
     await session.dispose?.();
+  }
+
+  async function closeDiscardedTurnEvents(
+    turn: AgentChatRuntimeTurn,
+  ): Promise<void> {
+    const iterator = turn.events[Symbol.asyncIterator]();
+    await Promise.all([turn.closeEvents?.(), iterator.return?.()]);
   }
 
   function append(run: ProtocolRun, event: ProtocolEventInput): void {
@@ -2612,6 +2827,10 @@ export function createAgentKitProtocolAdapter(
                 ...(event.toolCallId ? { toolCallId: event.toolCallId } : {}),
                 ...(event.toolName ? { toolName: event.toolName } : {}),
                 ...(event.input === undefined ? {} : { input: event.input }),
+                ...(event.allowPersistentApproval === false
+                  ? { allowPersistentApproval: false }
+                  : {}),
+                ...(event.askId ? { approvalAskId: event.askId } : {}),
               },
             } satisfies AgentApprovalRequest,
           },
@@ -3132,6 +3351,28 @@ export function createAgentKitProtocolAdapter(
     });
   }
 
+  async function waitForRestoredConnectionRequest(
+    run: ProtocolRun,
+    requestId: string,
+  ): Promise<void> {
+    const isPending = () =>
+      run.pendingConnectionRequestId === requestId &&
+      run.events.some(
+        (event) =>
+          event.type === "connection.requested" &&
+          event.request.id === requestId,
+      );
+    const deadline = Date.now() + RESTORED_CONNECTION_REQUEST_REPLAY_TIMEOUT_MS;
+    while (!isPending() && !run.terminal && !readers.signal.aborted) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      await notifyWhenChanged(run, readers.signal, remaining);
+    }
+    if (!isPending() && !run.terminal) {
+      throw restoredConnectionRequestUnverifiedError();
+    }
+  }
+
   async function resumeRuntimeTurn(
     run: ProtocolRun,
     cause?: unknown,
@@ -3636,6 +3877,9 @@ export function createAgentKitProtocolAdapter(
         const turn = await session.startTurn({
           prompt: latestUserPrompt(input.messages),
           messages,
+          ...(input.submissionPayload
+            ? { submissionPayload: input.submissionPayload }
+            : {}),
           ...(input.queuePromotion
             ? { queuePromotion: input.queuePromotion }
             : {}),
@@ -4012,11 +4256,24 @@ export function createAgentKitProtocolAdapter(
           activeMessageCompleted: run.activeMessageCompleted,
           pendingWidgets: new Map(run.pendingWidgets),
           actions: new Map(run.actions),
-          activeTools: new Map(run.activeTools),
-          pendingToolMessageAssociations: new Map(
-            run.pendingToolMessageAssociations,
+          activeTools: new Map(
+            [...run.activeTools].map(([id, tool]) => [
+              id,
+              { ...tool, runId: nextRunId },
+            ]),
           ),
-          activeActivities: new Map(run.activeActivities),
+          pendingToolMessageAssociations: new Map(
+            [...run.pendingToolMessageAssociations].map(([id, tool]) => [
+              id,
+              { ...tool, runId: nextRunId },
+            ]),
+          ),
+          activeActivities: new Map(
+            [...run.activeActivities].map(([id, activity]) => [
+              id,
+              { ...activity, runId: nextRunId },
+            ]),
+          ),
           terminalAppendDepth: 0,
           pumpPromise: null,
           continuationPromise: null,
@@ -4125,12 +4382,48 @@ export function createAgentKitProtocolAdapter(
   if (runtime.capabilities.rich?.connectionRequests) {
     transport.resolveConnectionRequest = async (input) => {
       pruneRetainedRuns();
-      const run = findRun(input.threadId, input.runId);
+      let run = findRun(input.threadId, input.runId);
+      let restoredThisCall = false;
       if (!run) {
-        throw new Error(`Unknown AgentKit run: ${input.runId}`);
+        if (runs.has(input.runId)) {
+          throw new Error(`Unknown AgentKit run: ${input.runId}`);
+        }
+        run = await restoreRunFromRuntime(input, {
+          includePendingConnectionRequest: input.response.status === "declined",
+        });
+        restoredThisCall = true;
+      }
+      if (
+        input.response.status === "declined" &&
+        run.requiresRestoredConnectionRequestReplay
+      ) {
+        if (
+          run.restoredPendingConnectionRequestId !== undefined &&
+          run.restoredPendingConnectionRequestId !== input.requestId
+        ) {
+          if (
+            typeof run.restoredPendingConnectionRequestId === "string" ||
+            (run.restoredPendingConnectionRequestId === null &&
+              run.restoredRunStatus !== undefined &&
+              run.restoredRunStatus !== "running")
+          ) {
+            return;
+          }
+          throw restoredConnectionRequestUnverifiedError();
+        }
+        await waitForRestoredConnectionRequest(run, input.requestId);
+        run.requiresRestoredConnectionRequestReplay = false;
+      } else if (restoredThisCall && run.pumpPromise) {
+        await run.pumpPromise;
       }
       touchRun(run);
+      if (input.response.status === "declined" && run.terminal) return;
       if (run.pendingConnectionRequestId !== input.requestId) {
+        const staleDecline =
+          input.response.status === "declined" &&
+          run.initialAuthorityRead?.kind === "read" &&
+          run.initialAuthorityRead.state.status !== "running";
+        if (staleDecline) return;
         throw new Error(
           `Connection response ${input.requestId} does not match pending request ${run.pendingConnectionRequestId ?? "<none>"}.`,
         );

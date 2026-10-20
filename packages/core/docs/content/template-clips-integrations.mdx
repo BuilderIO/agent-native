@@ -29,11 +29,12 @@ Paste a public Clips share link into an agent, or use **Share → Copy** in the 
 
 Most agents that can view images handle this on their own, including ChatGPT, Claude Code, Cursor, and Codex. A few text-only chats can read the transcript but not the frames, so open the clip in an image-capable agent for those.
 
-| Endpoint                                          | What agents get                                                                                                |
-| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `/api/agent-context.json?id=<recordingId>`        | Clip metadata, transcript status, chapters, CTAs, recommended frames, and links to the transcript/frame APIs   |
-| `/api/agent-transcript.json?id=<recordingId>`     | Timestamped transcript segments with `startMs`, `endMs`, readable timestamps, text, and optional source labels |
-| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | A JPEG frame extracted from the video at an original-video timestamp                                           |
+| Endpoint                                                                 | What agents get                                                                                                                      |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `/api/agent-context.json?id=<recordingId>`                               | Clip metadata, transcript status, chapters, CTAs, recommended frames, and links to the transcript/frame APIs                         |
+| `/api/agent-transcript.json?id=<recordingId>`                            | Timestamped transcript segments with `startMs`, `endMs`, readable timestamps, text, and optional source labels                       |
+| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>`                        | A JPEG frame extracted from the video at an original-video timestamp                                                                 |
+| `/api/agent-frames.jpg?id=<recordingId>&startMs=<ms>&endMs=<ms>&fps=<n>` | One JPEG contact sheet of up to 36 consecutive frames from a time range, for watching an animation or a transition in a single image |
 
 The endpoints follow the same public/password/expiry rules as the share page, or accept the scoped `agent_access` token from a temporary agent link. Password-protected clips require the password once; successful responses return short-lived tokenized links so downstream agents do not need the plaintext password.
 
@@ -101,6 +102,50 @@ Returns clip metadata, transcript status, chapters, CTAs, recommended frames, an
     "description": "image/jpeg frame"
   }
 ]}>
+
+</Endpoint>
+
+<Endpoint id="doc-block-clips-agent-frames" title="Frame sheet for a time range" method="GET" path="/api/agent-frames.jpg" summary="Consecutive frames from a time range in one JPEG contact sheet" params={[
+  {
+    "name": "id",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "Recording id"
+  },
+  {
+    "name": "startMs",
+    "in": "query",
+    "type": "integer",
+    "required": true,
+    "description": "Time of the first frame in milliseconds"
+  },
+  {
+    "name": "endMs",
+    "in": "query",
+    "type": "integer",
+    "required": false,
+    "description": "End of the range in milliseconds (exclusive); without it, the sheet holds up to 36 frames from startMs, stopping at 60 seconds or the end of the clip"
+  },
+  {
+    "name": "fps",
+    "in": "query",
+    "type": "number",
+    "required": false,
+    "description": "Frames per second, up to 60; without it, the video's own frame rate"
+  }
+]} responses={[
+  {
+    "status": "200",
+    "description": "image/jpeg sheet read left to right, then top to bottom; the X-Clips-Frame-Sheet-Times header lists each cell's time"
+  },
+  {
+    "status": "400",
+    "description": "failureKind=request when the range needs more than 36 frames or spans more than 60 seconds; nextStep names a request that fits"
+  }
+]}>
+
+Cell _i_ shows the frame on screen at `startMs + i × 1000 / fps`. Leave out `fps` to see every frame the video has.
 
 </Endpoint>
 

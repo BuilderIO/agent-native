@@ -3,6 +3,7 @@ import {
   hasActiveAgentRuns,
   selectAgentSuggestions,
   isCurrentAgentSuggestion,
+  AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
   splitAgentKitMessageContext,
   type AgentKitUploadDriver,
   type AgentThreadState,
@@ -643,10 +644,22 @@ type AgentKitInternalSendOptions = AssistantChatSendOptions & {
   deferredSubmissionId?: string;
 };
 
+function isSubmissionExpired(submissionExpiresAt: number | undefined): boolean {
+  return (
+    submissionExpiresAt !== undefined &&
+    (!Number.isFinite(submissionExpiresAt) || submissionExpiresAt <= Date.now())
+  );
+}
+
+function isSubmissionExpiredError(error: unknown): boolean {
+  return asRecord(error)?.code === "submission_expired";
+}
+
 interface PendingProviderSubmission {
   id: string;
   threadId: string;
   text: string;
+  submissionExpiresAt?: number;
   fileParts: FilePart[];
   requestAttachments?: AgentRequestAttachment[];
   references: Reference[];
@@ -931,6 +944,9 @@ function parseDeferredProviderSubmissions(
       !Array.isArray(submission.references) ||
       !composerOptions ||
       !options ||
+      (submission.submissionExpiresAt !== undefined &&
+        (typeof submission.submissionExpiresAt !== "number" ||
+          !Number.isFinite(submission.submissionExpiresAt))) ||
       (submission.attempts !== undefined &&
         (!Number.isSafeInteger(submission.attempts) ||
           (submission.attempts as number) < 0)) ||
@@ -950,6 +966,9 @@ function parseDeferredProviderSubmissions(
       id: submission.id,
       threadId,
       text: submission.text,
+      ...(typeof submission.submissionExpiresAt === "number"
+        ? { submissionExpiresAt: submission.submissionExpiresAt }
+        : {}),
       fileParts: fileParts as FilePart[],
       ...(Array.isArray(requestAttachments)
         ? {
@@ -3536,6 +3555,12 @@ const AgentKitAssistantChatBody = forwardRef<
             : props.selectedAgent;
         const actionScope = options.actionScope ?? contextScope;
         const customMetadata = {
+          ...(typeof options.submissionExpiresAt === "number"
+            ? {
+                [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]:
+                  options.submissionExpiresAt,
+              }
+            : {}),
           ...(options.recoveryAction
             ? { agentNativeRecoveryAction: options.recoveryAction }
             : {}),
@@ -3596,6 +3621,12 @@ const AgentKitAssistantChatBody = forwardRef<
           requestMode,
         };
         if (!queuedMessageReservationId) localSubmissionRef.current = true;
+        if (isSubmissionExpired(options.submissionExpiresAt)) {
+          throw Object.assign(
+            new Error("The prompt expired before it could be sent."),
+            { code: "submission_expired", retryable: false },
+          );
+        }
         await control.sendMessage({
           text: message,
           attachments: fileParts,
@@ -3603,6 +3634,9 @@ const AgentKitAssistantChatBody = forwardRef<
           queuedWhileRunActive:
             composerOptions.queuedWhileRunActive ||
             composerOptions.intent === "queued",
+          ...(options.submissionExpiresAt !== undefined
+            ? { queueWhileRunning: false }
+            : {}),
           interruptActiveRun: composerOptions.steer,
           options: {
             model,
@@ -3684,12 +3718,28 @@ const AgentKitAssistantChatBody = forwardRef<
       composerOptions: AgentKitSuggestionSubmitOptions,
       options: AgentKitInternalSendOptions = {},
     ): Promise<AssistantChatSubmitResult> => {
+      if (isSubmissionExpired(options.submissionExpiresAt)) {
+        reportAgentChatSubmitResult(
+          options.submitMessageId,
+          false,
+          "submission-expired",
+        );
+        return { status: "rejected", reason: "submission-expired" };
+      }
       const submittedComposerOptions = captureQueuedRunState(
         composerOptions,
         isThreadRunning(),
       );
       const release = await acquireSubmission();
       if (!release) {
+        if (isSubmissionExpired(options.submissionExpiresAt)) {
+          reportAgentChatSubmitResult(
+            options.submitMessageId,
+            false,
+            "submission-expired",
+          );
+          return { status: "rejected", reason: "submission-expired" };
+        }
         if (isRestoring) {
           try {
             const selectedEngine =
@@ -3738,6 +3788,14 @@ const AgentKitAssistantChatBody = forwardRef<
             ) {
               throw new Error(t("onboarding.fileStorage.title"));
             }
+            if (isSubmissionExpired(options.submissionExpiresAt)) {
+              reportAgentChatSubmitResult(
+                options.submitMessageId,
+                false,
+                "submission-expired",
+              );
+              return { status: "rejected", reason: "submission-expired" };
+            }
             const requestAttachments = normalizeRequestAttachmentReferences(
               options.deferredRequestAttachments ??
                 (await uploadRequestAttachments(
@@ -3746,6 +3804,14 @@ const AgentKitAssistantChatBody = forwardRef<
                 )),
             );
             submittedComposerOptions.validateSubmissionScope?.();
+            if (isSubmissionExpired(options.submissionExpiresAt)) {
+              reportAgentChatSubmitResult(
+                options.submitMessageId,
+                false,
+                "submission-expired",
+              );
+              return { status: "rejected", reason: "submission-expired" };
+            }
             const selectionChangedDuringUpload =
               selectionRevision !== selectionRevisionRef.current;
             const context = options.recoveryAction
@@ -3794,12 +3860,23 @@ const AgentKitAssistantChatBody = forwardRef<
               id: deferredOptions.deferredSubmissionId,
               threadId,
               text: appendAgentChatContextToMessage(text, context),
+              ...(typeof options.submissionExpiresAt === "number"
+                ? { submissionExpiresAt: options.submissionExpiresAt }
+                : {}),
               fileParts,
               ...(requestAttachments.length ? { requestAttachments } : {}),
               references: [...references],
               composerOptions: deferredComposerOptions,
               options: deferredOptions,
             };
+            if (isSubmissionExpired(options.submissionExpiresAt)) {
+              reportAgentChatSubmitResult(
+                submitMessageId,
+                false,
+                "submission-expired",
+              );
+              return { status: "rejected", reason: "submission-expired" };
+            }
             const submissions = await updateDeferredProviderSubmissions(
               threadId,
               (current) =>
@@ -3807,11 +3884,32 @@ const AgentKitAssistantChatBody = forwardRef<
                   ? current
                   : [...current, submission],
             );
+            if (isSubmissionExpired(options.submissionExpiresAt)) {
+              pendingProviderSubmissionsRef.current =
+                await updateDeferredProviderSubmissions(threadId, (current) =>
+                  current.filter(({ id }) => id !== submission.id),
+                );
+              setPendingProviderSubmissionVersion((version) => version + 1);
+              reportAgentChatSubmitResult(
+                submitMessageId,
+                false,
+                "submission-expired",
+              );
+              return { status: "rejected", reason: "submission-expired" };
+            }
             pendingProviderSubmissionsRef.current = submissions;
             setDeferredSubmissionsLoadedThread(threadId);
             reportAgentChatSubmitResult(submitMessageId, true);
             return { status: "submitted" };
           } catch (error) {
+            if (isSubmissionExpiredError(error)) {
+              reportAgentChatSubmitResult(
+                options.submitMessageId,
+                false,
+                "submission-expired",
+              );
+              return { status: "rejected", reason: "submission-expired" };
+            }
             reportAgentChatSubmitResult(
               options.submitMessageId,
               false,
@@ -3841,6 +3939,14 @@ const AgentKitAssistantChatBody = forwardRef<
         }
       }
       try {
+        if (isSubmissionExpired(options.submissionExpiresAt)) {
+          reportAgentChatSubmitResult(
+            options.submitMessageId,
+            false,
+            "submission-expired",
+          );
+          return { status: "rejected", reason: "submission-expired" };
+        }
         await dispatch(
           text,
           files,
@@ -3850,6 +3956,14 @@ const AgentKitAssistantChatBody = forwardRef<
         );
         return { status: "submitted" };
       } catch (error) {
+        if (isSubmissionExpiredError(error)) {
+          reportAgentChatSubmitResult(
+            options.submitMessageId,
+            false,
+            "submission-expired",
+          );
+          return { status: "rejected", reason: "submission-expired" };
+        }
         reportAgentChatSubmitResult(
           options.submitMessageId,
           false,
@@ -4232,6 +4346,20 @@ const AgentKitAssistantChatBody = forwardRef<
       let claimToken: string | undefined;
       let claimRenewalTimer: number | undefined;
       try {
+        if (isSubmissionExpired(submission.submissionExpiresAt)) {
+          const submissions = await updateDeferredProviderSubmissions(
+            threadId,
+            (current) => current.filter(({ id }) => id !== submission.id),
+          );
+          pendingProviderSubmissionsRef.current = submissions;
+          reportAgentChatSubmitResult(
+            submission.id,
+            false,
+            "submission-expired",
+          );
+          setPendingProviderSubmissionVersion((version) => version + 1);
+          return;
+        }
         release = await acquireSubmission();
         if (!release) {
           if (active) scheduleProviderSubmissionRetry();
@@ -4301,6 +4429,20 @@ const AgentKitAssistantChatBody = forwardRef<
           );
           return;
         }
+        if (isSubmissionExpired(currentSubmission.submissionExpiresAt)) {
+          const submissions = await updateDeferredProviderSubmissions(
+            threadId,
+            (current) => current.filter(({ id }) => id !== submission.id),
+          );
+          pendingProviderSubmissionsRef.current = submissions;
+          reportAgentChatSubmitResult(
+            submission.id,
+            false,
+            "submission-expired",
+          );
+          setPendingProviderSubmissionVersion((version) => version + 1);
+          return;
+        }
 
         claimRenewalTimer = window.setInterval(() => {
           void updateDeferredProviderSubmissions(threadId, (current) =>
@@ -4345,6 +4487,29 @@ const AgentKitAssistantChatBody = forwardRef<
         setDeferredProviderSubmissionFailureId(null);
         setPendingProviderSubmissionVersion((version) => version + 1);
       } catch (error) {
+        if (isSubmissionExpiredError(error)) {
+          const submissions = await updateDeferredProviderSubmissions(
+            threadId,
+            (current) =>
+              current.filter(
+                (candidate) =>
+                  candidate.id !== submission.id ||
+                  !claimToken ||
+                  candidate.claim?.token !== claimToken,
+              ),
+          );
+          pendingProviderSubmissionsRef.current = submissions;
+          reportAgentChatSubmitResult(
+            submission.id,
+            false,
+            "submission-expired",
+          );
+          if (active) {
+            setDeferredProviderSubmissionFailureId(null);
+            setPendingProviderSubmissionVersion((version) => version + 1);
+          }
+          return;
+        }
         let snapshotReadFailed = false;
         const latestThread = await props
           .getThreadSnapshot(threadId)
@@ -5764,6 +5929,7 @@ function AgentKitComposerSurface({
     text,
     variant: "composer",
     requestedByUser: true,
+    excludedIntegrationIds: props.mcpSuggestionExcludedIntegrationIds,
   });
   const showHomeIntro =
     props.homeIntroSlot &&
@@ -5859,6 +6025,7 @@ function AgentKitComposerSurface({
           text={text}
           variant="composer"
           requestedByUser
+          excludedIntegrationIds={props.mcpSuggestionExcludedIntegrationIds}
           integrationId={integration.id}
         />
       ) : null}
@@ -6164,6 +6331,7 @@ function AgentKitUserMessage(props: AgentKitRenderProps<AgentMessage>) {
 function AgentKitMessageSupplement(props: AgentKitRenderProps<AgentMessage>) {
   const value = props.value;
   const t = useT();
+  const surface = useAgentKitSurface();
   const thread = useAgentThread(props.threadId);
   const assistantIndex = thread.messages.findIndex(
     (message) => message.id === value.id,
@@ -6197,6 +6365,8 @@ function AgentKitMessageSupplement(props: AgentKitRenderProps<AgentMessage>) {
           contextText,
           variant: "response",
           requestedByAgent: true,
+          excludedIntegrationIds:
+            surface.props.mcpSuggestionExcludedIntegrationIds,
         })
       : null;
   const runWarning = asRecord(asRecord(value.metadata?.custom)?.runWarning);
@@ -6233,6 +6403,9 @@ function AgentKitMessageSupplement(props: AgentKitRenderProps<AgentMessage>) {
           contextText={contextText}
           variant="response"
           requestedByAgent
+          excludedIntegrationIds={
+            surface.props.mcpSuggestionExcludedIntegrationIds
+          }
           integrationId={integration.id}
         />
       ) : null}
@@ -6305,6 +6478,7 @@ function AgentKitApproval({
       ? metadata.toolName
       : (value.description ?? "");
   const exactCommandScope = actions?.alwaysAllowScope === "exact-command";
+  const allowPersistentApproval = metadata?.allowPersistentApproval !== false;
   if (value.options?.length || value.input) {
     return <AgentApprovalPrompt request={value} runId={runId} />;
   }
@@ -6333,6 +6507,9 @@ function AgentKitApproval({
         await callAction("set-tool-approval-policy", {
           toolName,
           enabled: true,
+          ...(typeof metadata?.approvalAskId === "string"
+            ? { approvalId: metadata.approvalAskId }
+            : {}),
         });
       }
       await control.resolveApproval(runId, value.id, {
@@ -6369,7 +6546,10 @@ function AgentKitApproval({
       onApprove={() => void resolve("approve")}
       onDeny={() => void resolve("deny")}
       onAlwaysAllow={
-        actions?.onAlwaysAllow || !exactCommandScope ? alwaysAllow : undefined
+        allowPersistentApproval &&
+        (actions?.onAlwaysAllow || !exactCommandScope)
+          ? alwaysAllow
+          : undefined
       }
     />
   );
@@ -6412,6 +6592,7 @@ function AgentKitConnectionRequest({
   runId,
   threadId,
 }: AgentKitRenderProps<AgentConnectionRequest> & { runId: string }) {
+  const surface = useAgentKitSurface();
   const control = useAgentKitControl();
   return (
     <McpAgentKitConnectionRequestCard
@@ -6421,6 +6602,7 @@ function AgentKitConnectionRequest({
       status={value.status}
       appId={value.appId}
       source={value.source}
+      excludedIntegrationIds={surface.props.mcpSuggestionExcludedIntegrationIds}
       target={{ threadId, runId, requestId: value.id }}
       onConnected={() =>
         control.resolveConnectionRequest(runId, value.id, {
@@ -7346,6 +7528,9 @@ const ATTACHMENT_UNREADABLE_SUBMIT_REASON = "attachment-unreadable";
 
 function submitFailureReason(error: unknown): string {
   const record = asRecord(error);
+  if (record?.code === "submission_expired") {
+    return "submission-expired";
+  }
   if (record?.code === ATTACHMENT_UNREADABLE_SUBMIT_REASON) {
     return ATTACHMENT_UNREADABLE_SUBMIT_REASON;
   }

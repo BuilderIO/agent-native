@@ -23,6 +23,7 @@ import {
   MAX_SANE_FRAME_DIMENSION_PX,
 } from "@shared/responsive-frame-layout";
 import { sourceContentHash } from "@shared/source-workspace";
+import type { QueryClient } from "@tanstack/react-query";
 import {
   useState,
   useEffect,
@@ -67,10 +68,10 @@ import {
   optimisticRemoveBreakpointData,
 } from "../commands/optimistic-breakpoint-mutation";
 import { runPersistFrameGeometrySave } from "../commands/persist-frame-geometry-save";
+import { runQueueFrameGeometrySave } from "../commands/queue-frame-geometry-save";
 import { runWriteFrameGeometrySnapshot } from "../commands/write-frame-geometry-snapshot";
 import {
   applyDesignDataOperations,
-  buildFrameGeometryDataOperations,
   clearAcknowledgedDesignDataOperationsThroughRevision,
   compactDesignDataOperations,
   pendingDesignDataOperations,
@@ -80,17 +81,11 @@ import {
 } from "../data-operations";
 import { deriveDesignBreakpoints } from "../derive/design-breakpoints";
 import {
-  cloneCanvasFrameGeometry,
   frameHeightChangedIds,
-  getCanvasFrameGeometry,
   getDesignDataRecord,
 } from "../design-data-geometry-utils";
 import { type UndoRedoOrderKind } from "../editor-state";
 import { runResumePendingGeneration } from "../effects/resume-pending-generation";
-import {
-  quantizeCanvasFrameGeometryForPersist,
-  sanitizeCanvasFrameGeometryForPersist,
-} from "../geometry-persistence";
 import {
   type ContentHistoryChange,
   type FileDeletionRestoreClaim,
@@ -269,6 +264,20 @@ export function acknowledgeFrameGeometryRestoreClaims(
   );
 }
 
+/**
+ * Call once a write's operations stop being rebased onto server reads: a read
+ * still in flight may have been served before the write and would undo it.
+ */
+export function discardDesignReadsInFlight(
+  queryClient: QueryClient,
+  designId: string,
+): void {
+  const queryKey = ["action", "get-design", { id: designId }];
+  if (queryClient.isFetching({ queryKey }) === 0) return;
+  void queryClient.cancelQueries({ queryKey });
+  void queryClient.invalidateQueries({ queryKey });
+}
+
 export function useEditorActiveScreenAndGeometry({
   editorCore,
   editorHistory,
@@ -390,6 +399,7 @@ export function useEditorActiveScreenAndGeometry({
     canvasZoom?: number;
     nonce: number;
     paddingScreenPx?: number;
+    revealOnly?: boolean;
   } | null>(null);
   const cameraCommandNonceRef = useRef(0);
   const screenZoomByIdRef = useRef<Map<string, number>>(new Map());
@@ -642,6 +652,7 @@ export function useEditorActiveScreenAndGeometry({
                 pendingFrameGeometryOperationsForUnloadRef.current,
                 revision,
               );
+            discardDesignReadsInFlight(queryClient, id);
             await acknowledgeFrameGeometryOutboxEntry(outboxEntry);
           } catch (error: unknown) {
             const restoreClaims = Array.isArray(
@@ -935,57 +946,29 @@ export function useEditorActiveScreenAndGeometry({
   );
 
   const queueFrameGeometrySave = useCallback(
-    (geometryById: CanvasFrameGeometryById) => {
-      if (!id || !canEditDesignRef.current) return;
-      const previousGeometry = cloneCanvasFrameGeometry(
-        getCanvasFrameGeometry(designDataJsonRef.current),
-      );
-      pendingFrameGeometrySaveRef.current = {
-        geometryById: quantizeCanvasFrameGeometryForPersist(
-          cloneCanvasFrameGeometry(geometryById),
-          previousGeometry,
-        ),
-        previousGeometry,
-      };
-      const pending = pendingFrameGeometrySaveRef.current;
-      const { geometryById: safeGeometryById } =
-        sanitizeCanvasFrameGeometryForPersist(
-          pending.geometryById,
-          pending.previousGeometry,
-          boardFileId ? [boardFileId] : [],
-        );
-      const dataOperations = buildFrameGeometryDataOperations({
-        previousGeometry: pending.previousGeometry,
-        nextGeometry: safeGeometryById,
-        designData: designDataJsonRef.current,
-      });
-      const combinedOperations = compactDesignDataOperations([
-        ...pendingDesignDataOperations(
-          pendingFrameGeometryOperationsForUnloadRef.current,
-        ),
-        ...dataOperations,
-      ]);
-      if (combinedOperations.length > 0) {
-        const revision = frameGeometryOperationRevisionRef.current + 1;
-        frameGeometryOperationRevisionRef.current = revision;
-        const entry = createFrameGeometryOutboxEntry(
-          combinedOperations,
-          revision,
-        );
-        if (entry) void journalOutboxEntry(entry);
-      }
-      if (frameGeometrySaveTimerRef.current !== null) {
-        window.clearTimeout(frameGeometrySaveTimerRef.current);
-      }
-      frameGeometrySaveTimerRef.current = window.setTimeout(
-        flushPendingFrameGeometrySave,
-        500,
-      );
-    },
+    (geometryById: CanvasFrameGeometryById) =>
+      runQueueFrameGeometrySave(
+        {
+          boardFileId,
+          canEditDesignRef,
+          createFrameGeometryOutboxEntry,
+          designDataJsonRef,
+          flushPendingFrameGeometrySave,
+          frameGeometryOperationRevisionRef,
+          frameGeometryOperationsInFlightRef,
+          frameGeometrySaveTimerRef,
+          id,
+          journalOutboxEntry,
+          pendingFrameGeometryOperationsForUnloadRef,
+          pendingFrameGeometrySaveRef,
+        },
+        geometryById,
+      ),
     [
       boardFileId,
       createFrameGeometryOutboxEntry,
       flushPendingFrameGeometrySave,
+      frameGeometryOperationsInFlightRef,
       id,
       journalOutboxEntry,
     ],
@@ -1601,8 +1584,8 @@ export function useEditorActiveScreenAndGeometry({
   }, [activeBreakpointWidthState, designBreakpoints, activeScreenBaseWidthPx]);
   const motionTimelineQueryParams =
     id && activeFile?.id
-      ? { designId: id, sourceRef: activeFile.id }
-      : { designId: "", sourceRef: "" };
+      ? { designId: id, sourceRef: activeFile.id, passiveRead: true }
+      : { designId: "", sourceRef: "", passiveRead: true };
   const { data: motionTimelineResult } =
     useActionQuery<MotionTimelineQueryResult>(
       "get-motion-timeline",
@@ -1756,10 +1739,13 @@ export function useEditorActiveScreenAndGeometry({
   const activeOverviewFrameWidth = overviewZoomBasisScreenId
     ? displayedCanvasFrameGeometryById[overviewZoomBasisScreenId]?.width
     : undefined;
-  const overviewZoomScale = getOverviewZoomScale({
-    frameWidth: activeOverviewFrameWidth,
-    sourceWidth: activeOverviewSourceWidth,
-  });
+  // With no screen to measure, the board's own pixels are the displayed zoom.
+  const overviewZoomScale = overviewZoomBasisScreenId
+    ? getOverviewZoomScale({
+        frameWidth: activeOverviewFrameWidth,
+        sourceWidth: activeOverviewSourceWidth,
+      })
+    : 1;
   const overviewZoomScaleRef = useRef(overviewZoomScale);
 
   useEffect(() => {

@@ -1,17 +1,10 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
 
-import {
-  MOD,
-  indexHtml,
-  newDesign,
-  node,
-  openEditor,
-  postAction,
-  setBaseURL,
-} from "./drag-and-drop.shared";
+import { expect, expectOnlyChanged, styleOf, test, type App } from "./rails";
+
+const MOD = process.platform === "darwin" ? "Meta" : "Control";
 
 test.use({ viewport: { width: 1600, height: 1000 } });
-test.beforeEach(async ({}, info) => setBaseURL(info));
 
 const FIXTURE = `<!doctype html><html><body style="margin:0;min-height:900px;background:#111827">
   <div data-agent-native-node-id="source" data-agent-native-layer-name="Source" style="position:absolute;left:80px;top:520px;width:220px;height:96px;background:#f97316">Source</div>
@@ -42,18 +35,11 @@ const STATIC_SECTION_FIXTURE = `<!doctype html><html><body style="margin:0;min-h
   </section>
 </body></html>`;
 
-function body(page: Page): Locator {
-  return page
-    .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
-    .first()
-    .contentFrame()
-    .locator("body");
-}
-
 function frameRoot(page: Page) {
   return page
-    .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
-    .first()
+    .locator(
+      'iframe[data-design-preview-iframe][data-screen-iframe-id]:not([data-screen-iframe-id*="::bp-"])',
+    )
     .contentFrame();
 }
 
@@ -86,321 +72,233 @@ async function guide(page: Page) {
     );
 }
 
-async function drag(
-  page: Page,
-  id: string,
-  target: Locator,
-  modifier?: "Meta" | "Control",
-  requireGuide = true,
-  beforeRelease?: (
-    held: Awaited<ReturnType<typeof guide>>,
-  ) => void | Promise<void>,
-  targetPosition?: { xRatio?: number; yRatio?: number },
+function childrenOf(
+  nodes: Map<string, { parent: string | null; index: number }>,
+  parent: string,
 ) {
-  const source = (await node(page, id).boundingBox())!;
-  const targetBox = (await target.boundingBox())!;
+  return [...nodes.entries()]
+    .filter(([, node]) => node.parent === parent)
+    .sort(([, a], [, b]) => a.index - b.index)
+    .map(([id]) => id);
+}
+
+function subtree(
+  nodes: Map<string, { parent: string | null }>,
+  id: string,
+): string[] {
+  return [
+    id,
+    ...[...nodes.entries()]
+      .filter(([, node]) => node.parent === id)
+      .flatMap(([child]) => subtree(nodes, child)),
+  ];
+}
+
+function bodyOf(nodes: Map<string, { tag: string }>) {
+  return [...nodes.entries()].find(([, node]) => node.tag === "body")?.[0];
+}
+
+async function selectSource(app: App) {
+  const rect = await app.designRect("source");
+  const point = await app.pagePoint(
+    rect.x + rect.width / 2,
+    rect.y + rect.height / 2,
+  );
+  await app.page.mouse.click(point.x, point.y);
+  expect(await app.selectedLayers()).toEqual(["Source"]);
+}
+
+/** Drags Source by its centre onto a point of the target box; returns the held guide just before release. */
+async function dragSourceOnto(
+  app: App,
+  targetId: string,
+  at: { xRatio: number; yRatio: number },
+  modifier?: string,
+) {
+  const page = app.page;
+  const source = (await app.node("source").boundingBox())!;
+  const target = (await app.node(targetId).boundingBox())!;
   if (modifier) await page.keyboard.down(modifier);
-  try {
-    await page.mouse.move(
-      source.x + source.width / 2,
-      source.y + source.height / 2,
-    );
-    await page.mouse.down();
-    await page.mouse.move(
-      source.x + source.width / 2 + 12,
-      source.y + source.height / 2 + 8,
-      { steps: 6 },
-    );
-    await page.mouse.move(
-      targetBox.x + targetBox.width * (targetPosition?.xRatio ?? 0.5),
-      targetBox.y + targetBox.height * (targetPosition?.yRatio ?? 0.5),
-      { steps: 24 },
-    );
-    const held = await guide(page);
-    if (requireGuide) expect(held).toBeTruthy();
-    await beforeRelease?.(held);
-    await page.mouse.up();
-    return held;
-  } finally {
-    if (modifier) await page.keyboard.up(modifier);
-  }
+  await page.mouse.move(
+    source.x + source.width / 2,
+    source.y + source.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    source.x + source.width / 2 + 12,
+    source.y + source.height / 2 + 8,
+    {
+      steps: 6,
+    },
+  );
+  await page.mouse.move(
+    target.x + target.width * at.xRatio,
+    target.y + target.height * at.yRatio,
+    {
+      steps: 24,
+    },
+  );
+  const held = await guide(page);
+  return {
+    held,
+    release: async () => {
+      await page.mouse.up();
+      if (modifier) await page.keyboard.up(modifier);
+      await app.settled();
+    },
+  };
 }
 
-async function cleanup(page: Page, id: string) {
-  await postAction(page, "delete-design", { id }).catch(() => {});
+async function renderedSize(app: App, nodeId: string) {
+  const { width, height } = await app.designRect(nodeId);
+  return { width, height };
 }
 
-test("width-only oversized drop previews the outer fallback insertion slot", async ({
-  page,
+test("a source too wide for Nested drops into Outer just above Nested at its full 220×96 size", async ({
+  app,
 }) => {
-  const id = await newDesign(page, FIXTURE);
-  try {
-    await openEditor(page, id);
-    await page
-      .getByRole("tree", { name: "Layers" })
-      .getByRole("button", { name: "Source", exact: true })
-      .first()
-      .click({ force: true });
-    const target = node(page, "nested");
-    const sizeGate = await body(page).evaluate((frameBody) => {
-      const source = frameBody.querySelector<HTMLElement>(
-        '[data-agent-native-node-id="source"]',
-      )!;
-      const nested = frameBody.querySelector<HTMLElement>(
-        '[data-agent-native-node-id="nested"]',
-      )!;
-      const sourceRect = source.getBoundingClientRect();
-      const nestedRect = nested.getBoundingClientRect();
-      const nestedStyle = getComputedStyle(nested);
-      return {
-        sourceWidth: sourceRect.width,
-        sourceHeight: sourceRect.height,
-        nestedLeft: nestedRect.left,
-        nestedTop: nestedRect.top,
-        nestedWidth: nestedRect.width,
-        nestedContentWidth:
-          nestedRect.width -
-          Number.parseFloat(nestedStyle.paddingLeft) -
-          Number.parseFloat(nestedStyle.paddingRight),
-        nestedContentHeight:
-          nestedRect.height -
-          Number.parseFloat(nestedStyle.paddingTop) -
-          Number.parseFloat(nestedStyle.paddingBottom),
-      };
-    });
-    expect(sizeGate.sourceWidth).toBeGreaterThan(sizeGate.nestedContentWidth);
-    expect(sizeGate.sourceHeight).toBeLessThanOrEqual(
-      sizeGate.nestedContentHeight,
-    );
-    const sourceParentBefore = await body(page)
-      .locator('[data-agent-native-node-id="source"]')
-      .evaluate(
-        (el) =>
-          el.parentElement?.getAttribute("data-agent-native-node-id") ??
-          el.parentElement?.tagName,
-      );
-    const before = await indexHtml(page, id);
-    await drag(
-      page,
-      "source",
-      target,
-      undefined,
-      true,
-      async (held) => {
-        expect(held).toBeTruthy();
-        expect(held?.height).toBeLessThan(16);
-        expect(held?.width).toBeGreaterThan(sizeGate.nestedWidth - 2);
-        expect(Math.abs(held!.left - sizeGate.nestedLeft)).toBeLessThan(2);
-        expect(
-          Math.abs(held!.top + held!.height / 2 - sizeGate.nestedTop),
-        ).toBeLessThan(3);
-        expect(await indexHtml(page, id)).toBe(before);
-        await expect
-          .poll(() =>
-            body(page)
-              .locator('[data-agent-native-node-id="source"]')
-              .evaluate(
-                (el) =>
-                  el.parentElement?.getAttribute("data-agent-native-node-id") ??
-                  el.parentElement?.tagName,
-              ),
-          )
-          .toBe(sourceParentBefore);
-        await expect(
-          body(page).locator(
-            '[data-agent-native-node-id="nested"] [data-agent-native-node-id="source"]',
-          ),
-        ).toHaveCount(0);
-      },
-      { xRatio: 0.5, yRatio: 0.25 },
-    );
-    await expect
-      .poll(() => indexHtml(page, id), { timeout: 5_000 })
-      .not.toBe(before);
-    await openEditor(page, id);
-    await expect(
-      body(page).locator(
-        '[data-agent-native-node-id="nested"] [data-agent-native-node-id="source"]',
-      ),
-    ).toHaveCount(0);
-    await expect
-      .poll(() =>
-        body(page)
-          .locator('[data-agent-native-node-id="source"]')
-          .evaluate(
-            (el) =>
-              el.parentElement?.getAttribute("data-agent-native-node-id") ??
-              el.parentElement?.tagName,
-          ),
-      )
-      .toBe("outer");
-    await expect
-      .poll(() =>
-        body(page)
-          .locator('[data-agent-native-node-id="outer"]')
-          .evaluate((outer) =>
-            Array.from(outer.children).map((child) =>
-              child.getAttribute("data-agent-native-node-id"),
-            ),
-          ),
-      )
-      .toEqual(["source", "nested"]);
-  } finally {
-    await cleanup(page, id);
-  }
+  const id = await app.seed(FIXTURE);
+  await app.open(id);
+  await selectSource(app);
+  const before = await app.savedNodes(id);
+  const nested = await app.designRect("nested");
+  expect({ nested, source: await renderedSize(app, "source") }).toEqual({
+    nested: { x: 516, y: 136, width: 196, height: 176 },
+    source: { width: 220, height: 96 },
+  });
+
+  const drop = await dragSourceOnto(app, "nested", {
+    xRatio: 0.5,
+    yRatio: 0.25,
+  });
+  expect(
+    drop.held,
+    "an insertion line at Nested's top edge while held",
+  ).not.toBeNull();
+  expect(drop.held!.height).toBeLessThan(16);
+  expect(Math.round(drop.held!.left)).toBe(nested.x);
+  expect(
+    Math.abs(drop.held!.top + drop.held!.height / 2 - nested.y),
+  ).toBeLessThan(3);
+  expect(await app.savedNodes(id)).toEqual(before);
+  await drop.release();
+
+  const after = await app.savedNodes(id);
+  expect(childrenOf(after, "outer")).toEqual(["source", "nested"]);
+  const style = styleOf(after.get("source"));
+  expect({
+    position: style.position,
+    left: style.left,
+    top: style.top,
+  }).toEqual({
+    position: undefined,
+    left: undefined,
+    top: undefined,
+  });
+  expectOnlyChanged(before, after, ["source"]);
+  expect(
+    await renderedSize(app, "source"),
+    "moving a fixed-size layer into a column must not squeeze it",
+  ).toEqual({ width: 220, height: 96 });
 });
 
-test("oversized drop from nested plain frames previews and lands in nearest fitting ancestor", async ({
-  page,
+test("a source too big for nested plain frames lands in Outer, the nearest auto-layout ancestor it fits", async ({
+  app,
 }) => {
-  const id = await newDesign(page, NESTED_PLAIN_FRAME_FIXTURE);
-  try {
-    await openEditor(page, id);
-    await page
-      .getByRole("tree", { name: "Layers" })
-      .getByRole("button", { name: "Source", exact: true })
-      .first()
-      .click({ force: true });
-    const before = await indexHtml(page, id);
-    await drag(
-      page,
-      "source",
-      node(page, "nested"),
-      undefined,
-      true,
-      async (held) => {
-        expect(held).toBeTruthy();
-        expect(held?.height).toBeLessThan(16);
-        expect(await indexHtml(page, id)).toBe(before);
-      },
-    );
-    await expect
-      .poll(() => indexHtml(page, id), { timeout: 5_000 })
-      .not.toBe(before);
-    await openEditor(page, id);
-    await expect
-      .poll(() =>
-        body(page)
-          .locator('[data-agent-native-node-id="source"]')
-          .evaluate(
-            (el) =>
-              el.parentElement?.getAttribute("data-agent-native-node-id") ??
-              el.parentElement?.tagName,
-          ),
-      )
-      .toBe("outer");
-    await expect(
-      body(page).locator(
-        '[data-agent-native-node-id="middle"] [data-agent-native-node-id="source"]',
-      ),
-    ).toHaveCount(0);
-  } finally {
-    await cleanup(page, id);
-  }
+  const id = await app.seed(NESTED_PLAIN_FRAME_FIXTURE);
+  await app.open(id);
+  await selectSource(app);
+  const before = await app.savedNodes(id);
+  expect(childrenOf(before, "outer")).toEqual(["middle"]);
+
+  const drop = await dragSourceOnto(app, "nested", {
+    xRatio: 0.5,
+    yRatio: 0.5,
+  });
+  expect(drop.held, "an insertion line while held").not.toBeNull();
+  expect(drop.held!.height).toBeLessThan(16);
+  expect(await app.savedNodes(id)).toEqual(before);
+  await drop.release();
+
+  const after = await app.savedNodes(id);
+  expect(childrenOf(after, "outer")).toEqual(["source", "middle"]);
+  expect(childrenOf(after, "nested")).toEqual(["anchor"]);
+  expectOnlyChanged(before, after, ["source"]);
+  expect(await renderedSize(app, "source")).toEqual({ width: 220, height: 96 });
 });
 
-test("oversized drop leaves a fitting static section without a valid ancestor", async ({
-  page,
+test("a source dropped on a frame inside a static section with no fitting ancestor stays on the page at the drop point", async ({
+  app,
 }) => {
-  const id = await newDesign(page, STATIC_SECTION_FIXTURE);
-  try {
-    await openEditor(page, id);
-    await page
-      .getByRole("tree", { name: "Layers" })
-      .getByRole("button", { name: "Source", exact: true })
-      .first()
-      .click({ force: true });
-    const before = await indexHtml(page, id);
-    const expectedDropPosition = await body(page).evaluate((frameBody) => {
-      const source = frameBody.querySelector(
-        '[data-agent-native-node-id="source"]',
-      )!;
-      const target = frameBody.querySelector(
-        '[data-agent-native-node-id="nested"]',
-      )!;
-      const sourceRect = source.getBoundingClientRect();
-      const targetRect = target.getBoundingClientRect();
-      const startLeft = Number.parseFloat((source as HTMLElement).style.left);
-      const startTop = Number.parseFloat((source as HTMLElement).style.top);
-      return {
-        left:
-          targetRect.left +
-          targetRect.width / 2 -
-          (sourceRect.left + sourceRect.width / 2 - startLeft),
-        top:
-          targetRect.top +
-          targetRect.height / 2 -
-          (sourceRect.top + sourceRect.height / 2 - startTop),
-      };
-    });
-    await drag(
-      page,
-      "source",
-      node(page, "nested"),
-      undefined,
-      false,
-      async (held) => {
-        expect(held).toBeNull();
-        expect(await indexHtml(page, id)).toBe(before);
-      },
-    );
-    await openEditor(page, id);
-    const persistedPosition = await body(page)
-      .locator('[data-agent-native-node-id="source"]')
-      .evaluate((el) => ({
-        parentTag: el.parentElement?.tagName,
-        left: Number.parseFloat((el as HTMLElement).style.left),
-        top: Number.parseFloat((el as HTMLElement).style.top),
-      }));
-    expect(persistedPosition.parentTag).toBe("BODY");
-    expect(
-      Math.abs(persistedPosition.left - expectedDropPosition.left),
-    ).toBeLessThan(8);
-    expect(
-      Math.abs(persistedPosition.top - expectedDropPosition.top),
-    ).toBeLessThan(8);
-    await expect(
-      body(page).locator(
-        '[data-agent-native-node-id="static"] [data-agent-native-node-id="source"]',
-      ),
-    ).toHaveCount(0);
-  } finally {
-    await cleanup(page, id);
-  }
+  const id = await app.seed(STATIC_SECTION_FIXTURE);
+  await app.open(id);
+  await selectSource(app);
+  const before = await app.savedNodes(id);
+  expect(await app.designRect("nested")).toEqual({
+    x: 16,
+    y: 16,
+    width: 140,
+    height: 140,
+  });
+
+  const drop = await dragSourceOnto(app, "nested", {
+    xRatio: 0.5,
+    yRatio: 0.5,
+  });
+  expect(
+    drop.held,
+    "no insertion guide: nothing can accept the drop",
+  ).toBeNull();
+  expect(await app.savedNodes(id)).toEqual(before);
+  await drop.release();
+
+  const after = await app.savedNodes(id);
+  expect(after.get("source")?.parent).toBe(bodyOf(after));
+  expect(styleOf(after.get("source"))).toEqual({
+    ...styleOf(before.get("source")),
+    left: "-24px",
+    top: "38px",
+  });
+  expectOnlyChanged(before, after, ["source"]);
+  expect(await app.designRect("source")).toEqual({
+    x: -24,
+    y: 38,
+    width: 220,
+    height: 96,
+  });
 });
 
-test("primary modifier oversized drop inserts into nested flow with held blue indicator", async ({
-  page,
+test("Command forces an oversized source into Nested's flow after its anchor", async ({
+  app,
 }) => {
-  const id = await newDesign(page, FIXTURE);
-  try {
-    await openEditor(page, id);
-    await page
-      .getByRole("tree", { name: "Layers" })
-      .getByRole("button", { name: "Source", exact: true })
-      .first()
-      .click({ force: true });
-    const held = await drag(page, "source", node(page, "nested"), MOD);
-    expect(held).toBeDefined();
-    await expect(
-      body(page).locator(
-        '[data-agent-native-node-id="nested"] [data-agent-native-node-id="source"]',
-      ),
-    ).toHaveCount(1);
-    await expect
-      .poll(() =>
-        body(page)
-          .locator('[data-agent-native-node-id="source"]')
-          .evaluate((el) => ({
-            parent: el.parentElement?.getAttribute("data-agent-native-node-id"),
-            position: getComputedStyle(el).position,
-          })),
-      )
-      .toEqual({ parent: "nested", position: "static" });
-    await expect
-      .poll(() => indexHtml(page, id), { timeout: 5_000 })
-      .toContain('data-agent-native-node-id="source"');
-  } finally {
-    await cleanup(page, id);
-  }
+  const id = await app.seed(FIXTURE);
+  await app.open(id);
+  await selectSource(app);
+  const before = await app.savedNodes(id);
+  expect(childrenOf(before, "nested")).toEqual(["anchor"]);
+
+  const drop = await dragSourceOnto(
+    app,
+    "nested",
+    { xRatio: 0.5, yRatio: 0.5 },
+    MOD,
+  );
+  expect(drop.held, "an insertion indicator while held").not.toBeNull();
+  expect(await app.savedNodes(id)).toEqual(before);
+  await drop.release();
+
+  const after = await app.savedNodes(id);
+  expect(childrenOf(after, "nested")).toEqual(["anchor", "source"]);
+  const style = styleOf(after.get("source"));
+  expect({
+    position: style.position,
+    left: style.left,
+    top: style.top,
+  }).toEqual({
+    position: undefined,
+    left: undefined,
+    top: undefined,
+  });
+  expectOnlyChanged(before, after, subtree(after, "source"));
+  expect(await renderedSize(app, "source")).toEqual({ width: 220, height: 96 });
 });

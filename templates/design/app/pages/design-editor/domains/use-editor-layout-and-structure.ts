@@ -81,6 +81,7 @@ import {
   authoredPxLength,
   computeOverlapReflowGeometry,
   mergeAuthoredAndLiveRect,
+  type NodePositionPatch,
   type ReflowCandidate,
 } from "../layout-operations";
 import { measureFreeformGeometry } from "../measure-child-rects";
@@ -398,7 +399,7 @@ export function useEditorLayoutAndStructure({
   const commitNodePositions = useCallback(
     (
       baseContent: string,
-      positions: ReadonlyMap<string, { x: number; y: number }>,
+      positions: ReadonlyMap<string, NodePositionPatch>,
       providedSource?: CodeLayerSource,
     ): boolean => {
       if (positions.size === 0 || !activeFile?.id) return false;
@@ -425,30 +426,34 @@ export function useEditorLayoutAndStructure({
             content = positionPatch.content;
           }
         }
-        const leftPatch = applyVisualEdit(
-          content,
-          {
-            kind: "style",
-            target: { nodeId },
-            property: "left",
-            value: `${position.x}px`,
-          },
-          { source },
-        );
-        if (leftPatch.result.status !== "applied") continue;
-        content = leftPatch.content;
-        const topPatch = applyVisualEdit(
-          content,
-          {
-            kind: "style",
-            target: { nodeId },
-            property: "top",
-            value: `${position.y}px`,
-          },
-          { source },
-        );
-        if (topPatch.result.status !== "applied") continue;
-        content = topPatch.content;
+        if (position.x !== undefined) {
+          const leftPatch = applyVisualEdit(
+            content,
+            {
+              kind: "style",
+              target: { nodeId },
+              property: "left",
+              value: `${position.x}px`,
+            },
+            { source },
+          );
+          if (leftPatch.result.status !== "applied") continue;
+          content = leftPatch.content;
+        }
+        if (position.y !== undefined) {
+          const topPatch = applyVisualEdit(
+            content,
+            {
+              kind: "style",
+              target: { nodeId },
+              property: "top",
+              value: `${position.y}px`,
+            },
+            { source },
+          );
+          if (topPatch.result.status !== "applied") continue;
+          content = topPatch.content;
+        }
         appliedAny = true;
       }
       if (!appliedAny) return false;
@@ -1100,12 +1105,7 @@ export function useEditorLayoutAndStructure({
         row: number;
         rowEnd: number;
       };
-      targetAnchorRect?: {
-        left: number;
-        top: number;
-        width: number;
-        height: number;
-      };
+      targetAbsoluteOrigin?: { left: number; top: number };
       targetCanvasPoint?: { x: number; y: number };
       targetLocalPoint?: { x: number; y: number };
       sourcePointerOffset?: { x: number; y: number };

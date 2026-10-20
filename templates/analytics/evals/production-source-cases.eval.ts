@@ -48,6 +48,11 @@ export const METADATA_ONLY_ACTION_ALLOWLIST = [
   "tool-search",
 ] as const;
 
+export const DBT_CONNECTION_STATUS_ACTION_ALLOWLIST = [
+  "data-source-status",
+  "tool-search",
+] as const;
+
 const monthlyUserCountMeaningGroups = [
   [
     "completed months use month-end",
@@ -258,6 +263,8 @@ export const sourceContracts = {
 
 const METADATA_ONLY_TOOLS = new Set<string>(METADATA_ONLY_ACTION_ALLOWLIST);
 const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i;
+const SOURCE_RELATION_PATTERN =
+  /\b(?:dbt_[a-z0-9_]+\.[a-z0-9_]+|(?:fact|dim|fct|stg|aggregate|agg|first_party)_[a-z0-9_]+)\b/gi;
 const COUNT_VALUE_PATTERN =
   /\b(?:\d[\d,]*|zero|one|two|three|four|five|six|seven|eight|nine|ten|dozens?|hundreds?|thousands?)\s+(?:builder\.io\s+)?(?:users?|organizations?|orgs?|members?|accounts?|people)\b|\b(?:users?|organizations?|orgs?|members?|accounts?|people)\s*[:=]\s*\d[\d,]*\b|\b(?:count|total|population)\s*(?:is|was|equals|[:=])\s*\d[\d,]*\b/i;
 const ROW_IDENTIFIER_VALUE_PATTERN =
@@ -579,6 +586,113 @@ function hasFieldMeaningClaim(
     );
 }
 
+type RetrievedFindDataMetadata = {
+  table: string;
+  content: string;
+};
+
+function normalizedRelationName(value: string): string {
+  return value
+    .trim()
+    .replace(/^[`\"]|[`\"]$/g, "")
+    .toLowerCase();
+}
+
+function retrievedFindDataMetadata(
+  run: AgentRunOutput,
+): RetrievedFindDataMetadata[] {
+  return (run.toolCallDetails ?? [])
+    .filter(
+      (call) =>
+        call.name === "find-data" &&
+        call.completed === true &&
+        call.isError !== true &&
+        typeof call.result === "string",
+    )
+    .flatMap((call) => {
+      try {
+        const result: unknown = JSON.parse(call.result!);
+        if (!result || typeof result !== "object" || Array.isArray(result)) {
+          return [];
+        }
+        const candidates = (result as { results?: unknown }).results;
+        if (!Array.isArray(candidates)) return [];
+        return candidates.flatMap((candidate) => {
+          if (
+            !candidate ||
+            typeof candidate !== "object" ||
+            Array.isArray(candidate)
+          ) {
+            return [];
+          }
+          const record = candidate as Record<string, unknown>;
+          if (typeof record.table !== "string" || !record.table.trim()) {
+            return [];
+          }
+          return [
+            {
+              table: normalizedRelationName(record.table),
+              content: JSON.stringify(record).toLowerCase(),
+            },
+          ];
+        });
+      } catch (error) {
+        throw new Error("Could not parse retrieved find-data metadata.", {
+          cause: error,
+        });
+      }
+    });
+}
+
+function retrievedMetadataForRelation(
+  candidates: RetrievedFindDataMetadata[],
+  relation: string,
+): string[] {
+  const expectedTable = normalizedRelationName(relation);
+  return candidates
+    .filter((candidate) => candidate.table === expectedTable)
+    .map((candidate) => candidate.content);
+}
+
+function hasRetrievedRelationGrainClaim(
+  candidates: RetrievedFindDataMetadata[],
+  claim: RelationGrainClaim,
+  allClaims: RelationGrainClaim[],
+): boolean {
+  return hasRelationGrainClaim(
+    retrievedMetadataForRelation(candidates, claim.relation),
+    claim,
+    allClaims,
+  );
+}
+
+function hasRetrievedRelationFieldsClaim(
+  candidates: RetrievedFindDataMetadata[],
+  claim: RelationFieldsClaim,
+  allRelations: RelationGrainClaim[],
+): boolean {
+  return hasRelationFieldsClaim(
+    retrievedMetadataForRelation(candidates, claim.relation),
+    claim,
+    allRelations,
+  );
+}
+
+function hasRetrievedMetadataPhrases(
+  candidates: RetrievedFindDataMetadata[],
+  relation: string,
+  phraseGroups: string[][],
+): boolean {
+  return retrievedMetadataForRelation(candidates, relation).some((line) =>
+    phraseGroups.every((group) =>
+      group.some(
+        (phrase) =>
+          findCompletePhraseIndexes(line, phrase.toLowerCase()).length > 0,
+      ),
+    ),
+  );
+}
+
 function sourceContractScorer(
   contract: SourceContract,
 ): Scorer<AgentRunOutput, { passed: boolean; reasons: string[] }> {
@@ -594,10 +708,34 @@ function sourceContractScorer(
           (group) => group.alternatives,
         ),
       ];
+      const supportedRelations = new Set(
+        allClaims.map((claim) => claim.relation.toLowerCase()),
+      );
+      const unsupportedRelations = [
+        ...new Set(
+          Array.from(text.matchAll(SOURCE_RELATION_PATTERN), ([relation]) =>
+            relation.toLowerCase(),
+          ),
+        ),
+      ].filter((relation) => !supportedRelations.has(relation));
+      if (unsupportedRelations.length > 0) {
+        reasons.push(
+          `unsupported source relations were claimed: ${unsupportedRelations.join(", ")}`,
+        );
+      }
+      const evidenceLines = retrievedFindDataMetadata(run);
+      if (evidenceLines.length === 0) {
+        reasons.push("no successful find-data metadata evidence was retrieved");
+      }
       for (const claim of contract.relationGrains) {
         if (!hasRelationGrainClaim(lines, claim, allClaims)) {
           reasons.push(
             `${claim.relation} did not declare its expected ${claim.grains[0]}`,
+          );
+        }
+        if (!hasRetrievedRelationGrainClaim(evidenceLines, claim, allClaims)) {
+          reasons.push(
+            `retrieved metadata did not support ${claim.relation} at ${claim.grains[0]}`,
           );
         }
       }
@@ -606,6 +744,11 @@ function sourceContractScorer(
         if (!hasRelationFieldsClaim(lines, claim, allClaims)) {
           reasons.push(
             `${claim.relation} did not attribute its expected fields: ${claim.fields.join(", ")}`,
+          );
+        }
+        if (!hasRetrievedRelationFieldsClaim(evidenceLines, claim, allClaims)) {
+          reasons.push(
+            `retrieved metadata did not support fields for ${claim.relation}`,
           );
         }
       }
@@ -617,6 +760,13 @@ function sourceContractScorer(
           )
         ) {
           reasons.push(`missing ${group.label} with its expected grain`);
+        }
+        if (
+          !group.alternatives.some((claim) =>
+            hasRetrievedRelationGrainClaim(evidenceLines, claim, allClaims),
+          )
+        ) {
+          reasons.push(`retrieved metadata did not support ${group.label}`);
         }
       }
 
@@ -632,10 +782,32 @@ function sourceContractScorer(
             `${claim.relation} was not assigned to its expected ${claim.meanings[0]} time scope`,
           );
         }
+        const meaningGroups = [
+          claim.meanings,
+          ...(claim.requiredMeaningGroups ?? []),
+        ];
+        if (
+          !hasRetrievedMetadataPhrases(
+            evidenceLines,
+            claim.relation,
+            meaningGroups,
+          )
+        ) {
+          reasons.push(
+            `retrieved metadata did not support the time scope for ${claim.relation}`,
+          );
+        }
         for (const group of claim.requiredMeaningGroups ?? []) {
           if (!hasRequiredRelationMeaningGroup(lines, claim, group)) {
             reasons.push(
               `${claim.relation} omitted required semantic detail: ${group[0]}`,
+            );
+          }
+          if (
+            !hasRetrievedMetadataPhrases(evidenceLines, claim.relation, [group])
+          ) {
+            reasons.push(
+              `retrieved metadata did not support required detail for ${claim.relation}: ${group[0]}`,
             );
           }
         }
@@ -645,6 +817,17 @@ function sourceContractScorer(
         if (!hasFieldMeaningClaim(lines, claim, contract.fieldMeanings ?? [])) {
           reasons.push(
             `${claim.relation}.${claim.field} was not mapped to its expected population`,
+          );
+        }
+        if (
+          !hasRetrievedMetadataPhrases(evidenceLines, claim.relation, [
+            [claim.field],
+            claim.meanings,
+            ...(claim.requiredDisclaimers ?? []).map((value) => [value]),
+          ])
+        ) {
+          reasons.push(
+            `retrieved metadata did not support the population for ${claim.relation}.${claim.field}`,
           );
         }
       }
@@ -696,6 +879,170 @@ function sourceEval(name: string, prompt: string, contract: SourceContract) {
   });
 }
 
+type DbtConnectionHealth =
+  | "connected"
+  | "not_connected"
+  | "needs_reauth"
+  | "error"
+  | "checking"
+  | "unknown"
+  | "invalid_response"
+  | null;
+
+function dbtConnectionHealth(run: AgentRunOutput): DbtConnectionHealth {
+  const statusCall = run.toolCallDetails?.find(
+    (call) =>
+      call.name === "data-source-status" &&
+      call.completed === true &&
+      call.isError !== true &&
+      typeof call.result === "string",
+  );
+  if (!statusCall || typeof statusCall.result !== "string") return null;
+
+  let result: unknown;
+  try {
+    result = JSON.parse(statusCall.result);
+  } catch (error) {
+    if (error instanceof SyntaxError) return "invalid_response";
+    throw error;
+  }
+  if (!result || typeof result !== "object") return null;
+
+  const payload = result as {
+    workspaceConnections?: {
+      available?: unknown;
+      providers?: Array<{
+        id?: unknown;
+        grantState?: unknown;
+        statuses?: unknown;
+      }>;
+    };
+    providers?: Array<{
+      provider?: unknown;
+      connectionHealth?: unknown;
+      workspaceConnection?: { grantState?: unknown; statuses?: unknown };
+    }>;
+  };
+  const summary = payload.providers?.find(
+    (provider) => provider.provider === "dbt",
+  );
+  const workspace = payload.workspaceConnections;
+  const provider = workspace?.providers?.find((item) => item.id === "dbt");
+  const allowedStates = new Set([
+    "connected",
+    "not_connected",
+    "needs_reauth",
+    "error",
+    "checking",
+    "unknown",
+  ]);
+  const summaryState = summary?.connectionHealth;
+  if (typeof summaryState === "string" && allowedStates.has(summaryState)) {
+    return summaryState;
+  }
+  const workspaceState = summary?.workspaceConnection?.grantState;
+  if (workspaceState === "connected") return "connected";
+  const statuses = [
+    ...(Array.isArray(provider?.statuses) ? provider.statuses : []),
+    ...(Array.isArray(summary?.workspaceConnection?.statuses)
+      ? summary.workspaceConnection.statuses
+      : []),
+  ];
+  for (const state of ["needs_reauth", "error", "checking", "connected"]) {
+    if (statuses.includes(state)) return state;
+  }
+  if (workspace?.available === false) return "unknown";
+  if (workspace?.available === true && provider) return "not_connected";
+  return null;
+}
+
+function dbtConnectionStateScorer(): Scorer<
+  AgentRunOutput,
+  { passed: boolean; reasons: string[] }
+> {
+  return createScorer<AgentRunOutput, { passed: boolean; reasons: string[] }>({
+    name: "dbt_connection_status_and_no_metric_value",
+    analyze(run) {
+      const reasons: string[] = [];
+      const state = dbtConnectionHealth(run);
+      if (!run.ok || run.error)
+        reasons.push("production run failed or was aborted");
+      if (state === "invalid_response") {
+        reasons.push("dbt status response was invalid JSON");
+      } else if (!run.toolCalls.includes("data-source-status") || !state) {
+        reasons.push(
+          "no successful dbt connection status evidence was retrieved",
+        );
+      }
+
+      const unsafeTools = run.toolCalls.filter(
+        (tool) =>
+          !DBT_CONNECTION_STATUS_ACTION_ALLOWLIST.includes(
+            tool as (typeof DBT_CONNECTION_STATUS_ACTION_ALLOWLIST)[number],
+          ),
+      );
+      if (unsafeTools.length > 0) {
+        reasons.push(`used non-status tools: ${unsafeTools.join(", ")}`);
+      }
+
+      const text = run.text.toLowerCase();
+      const stateLanguage: Record<string, RegExp> = {
+        connected: /\bconnected\b/,
+        not_connected: /\bnot connected\b|\bdisconnected\b|\bunavailable\b/,
+        needs_reauth: /\bneeds? re-?auth\b|\breconnect\b|\bre-?authenticate\b/,
+        error: /\bconnection error\b|\bconnection failed\b|\bstatus is error\b/,
+        checking: /\bchecking\b|\bstill being checked\b/,
+        unknown:
+          /\bcould not verify\b|\bunable to verify\b|\bstatus is unknown\b/,
+      };
+      const stateMatches =
+        state === "invalid_response"
+          ? false
+          : state === "connected"
+            ? stateLanguage.connected?.test(text) === true &&
+              !/\bnot\s+connected\b|\bdisconnected\b/.test(text)
+            : state
+              ? stateLanguage[state]?.test(text) === true
+              : false;
+      if (state && !stateMatches) {
+        reasons.push(`answer did not accurately state the dbt ${state} status`);
+      }
+      if (
+        !/\b(?:no|not (?:return|report|provide|query)|cannot (?:return|report|provide)|could not (?:return|report|provide))\b[^.\n]{0,100}\b(?:metric\s+)?(?:value|result|measurement)\b/i.test(
+          run.text,
+        )
+      ) {
+        reasons.push(
+          "answer did not clearly say that no metric value is available",
+        );
+      }
+      if (/\b\d+(?:,\d{3})*(?:\.\d+)?\s*%?\b/.test(run.text)) {
+        reasons.push("answer included an unsupported numeric value");
+      }
+      return { passed: reasons.length === 0, reasons };
+    },
+    generateScore({ passed }) {
+      return passed ? 1 : 0;
+    },
+    generateReason({ analysis }) {
+      return analysis.reasons.length === 0
+        ? "dbt connection readiness was grounded in status evidence without querying or inventing a metric value."
+        : analysis.reasons.join("; ");
+    },
+  });
+}
+
+export const dbtConnectionStatusEval = defineEval({
+  name: "SYNTHETIC: dbt connection readiness is checked before reporting metric availability",
+  input: {
+    prompt:
+      "SYNTHETIC status check only: before anyone asks for a named metric, check whether this workspace's dbt Semantic Layer connection is available. Use source-status metadata only. Do not run a metric-value query, use BigQuery as a substitute, or report a metric value. State the observed connection status and say whether a value is available.",
+  },
+  threshold: 1,
+  actionAllowlist: DBT_CONNECTION_STATUS_ACTION_ALLOWLIST,
+  scorers: [dbtConnectionStateScorer()],
+});
+
 export default [
   sourceEval(
     "Builder.io user roster and roles use the dbt membership bridge",
@@ -732,4 +1079,5 @@ export default [
     "SYNTHETIC source selection only: a teammate says `dbt_mapping.user_id_to_org_id` does not exist. Verify that claim from dbt model metadata. For a Builder.io roster with each user's organization and role, compare that mapping with `dbt_intermediate.user_organization_role`: state the grain of each, which fields the mapping contains, and which relation carries `organization_role`. Use model or schema metadata only. Put one relation on each line as `<relation>: grain: <declared row unit>; <fields or meaning>`. Do not query production rows, list users or organizations, or return counts.",
     sourceContracts.builderUserOrganizationIdMapping,
   ),
+  dbtConnectionStatusEval,
 ];

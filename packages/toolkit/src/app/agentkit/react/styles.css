@@ -1182,6 +1182,9 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
 
 .agentkit-agent-feed {
   display: grid;
+  /* minmax(0, …): an auto track grows to its widest row's unwrapped text,
+     which pushes rows past the chat column instead of ellipsizing them. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.125rem;
 }
 
@@ -1298,6 +1301,51 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
   color: var(--agentkit-text-muted);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Two agent chips plus a label can be wider than a narrow chat column: the
+   chips shrink and ellipsize instead of overflowing, and a detail that does
+   not fit beside the head drops to its own line. */
+.agentkit-agent-interaction {
+  flex-wrap: wrap;
+  row-gap: 0.125rem;
+}
+
+.agentkit-agent-interaction-head {
+  display: flex;
+  flex: 0 1 auto;
+  min-inline-size: 0;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.agentkit-agent-interaction-head > .agentkit-agent {
+  flex: 0 1 auto;
+}
+
+.agentkit-agent-interaction-head > .agentkit-agent-interaction-label {
+  flex: none;
+}
+
+.agentkit-agent-interaction > .agentkit-agent-interaction-detail {
+  flex: 1 1 6rem;
+  max-inline-size: 100%;
+  text-align: end;
+}
+
+/* A message is prose: give it its own line under the chips. */
+.agentkit-agent-interaction[data-kind="messaged"]
+  > .agentkit-agent-interaction-detail {
+  display: -webkit-box;
+  flex-basis: 100%;
+  text-align: start;
+  max-inline-size: 100%;
+  margin-inline-start: 0;
+  padding-inline-start: 1.5rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .agentkit-activity-cluster-count,
@@ -1561,6 +1609,29 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
   text-align: end;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* The detail is bare text: a flex container cannot ellipsize it, so it
+   would be clipped mid-word instead. */
+.agentkit-activity-detail {
+  display: block;
+}
+
+/* A detail that does not fit beside the agent and label drops to its own
+   line rather than squeezing the label. */
+.agentkit-activity-row {
+  flex-wrap: wrap;
+  row-gap: 0.125rem;
+}
+
+.agentkit-activity-row > .agentkit-activity-label {
+  flex: none;
+  max-inline-size: 100%;
+}
+
+.agentkit-activity-row > .agentkit-activity-detail {
+  flex: 1 1 8rem;
+  max-inline-size: 100%;
 }
 
 button.agentkit-object {
@@ -1974,7 +2045,7 @@ button.agentkit-object {
 }
 
 .agentkit-host-suggestions-slot {
-  block-size: 2rem;
+  block-size: 2.5rem;
   min-inline-size: 0;
 }
 

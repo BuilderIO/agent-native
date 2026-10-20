@@ -5,8 +5,14 @@ import {
   isArtifactReceipt,
   type ArtifactReceipt,
 } from "../artifacts/detect.js";
+import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import { stripInlineBytes } from "../shared/inline-bytes.js";
-import type { AgentChatEvent, AgentToolInput } from "./types.js";
+import type { EngineMessage } from "./engine/types.js";
+import type {
+  AgentChatEvent,
+  AgentFileMutationProof,
+  AgentToolInput,
+} from "./types.js";
 
 export interface ToolCallJournalEntry {
   key: string;
@@ -17,7 +23,18 @@ export interface ToolCallJournalEntry {
   inputStoredFingerprint?: string;
   order: number;
   result?: string;
+  /** The call failed after its side effect completed. */
+  isError?: true;
+  errorCode?: string;
+  /** The call recorded a completed side effect, its own or a nested call's. */
+  committed?: true;
+  /** Exact identity of the arguments the call ran with, defaults applied. */
+  argumentsHash?: string;
+  /** The call settled with an outcome it could not confirm. */
+  outcomeUnknown?: true;
   artifacts?: ArtifactReceipt[];
+  fileMutation?: AgentFileMutationProof;
+  mcpApp?: AgentMcpAppPayload;
   chatUI?: Omit<ActionChatUIConfig, "when" | "projectResult">;
   chatUIResult?: unknown;
 }
@@ -158,6 +175,8 @@ export function classifyToolCallJournal(
       const entry = takeMatchingOpenEntry(queue, event);
       if (entry) {
         if (event.outcomeUnknown === true) {
+          entry.outcomeUnknown = true;
+          if (event.argumentsHash) entry.argumentsHash = event.argumentsHash;
           queue!.push(entry);
           continue;
         }
@@ -165,8 +184,14 @@ export function classifyToolCallJournal(
           continue;
         }
         entry.result = event.result ?? "";
+        if (event.isError === true) entry.isError = true;
+        if (event.errorCode) entry.errorCode = event.errorCode;
+        if (event.completedSideEffect === true) entry.committed = true;
+        if (event.argumentsHash) entry.argumentsHash = event.argumentsHash;
         const artifacts = event.artifacts?.filter(isArtifactReceipt);
         if (artifacts && artifacts.length > 0) entry.artifacts = artifacts;
+        if (event.fileMutation) entry.fileMutation = event.fileMutation;
+        if (event.mcpApp) entry.mcpApp = event.mcpApp;
         if (event.chatUI && event.chatUIResult !== undefined) {
           entry.chatUI = {
             renderer: event.chatUI.renderer,
@@ -256,16 +281,18 @@ function isNonCompletedToolDone(
   event: Extract<AgentChatEvent, { type: "tool_done" }>,
 ): boolean {
   if (event.replayed === true) return true;
-  if (event.completedSideEffect === false) return true;
-  if (event.isError === true) return true;
-  if (event.completedSideEffect === true || event.isError === false)
-    return false;
+  // The effect, not the response: a call can fail after its changes saved.
+  if (event.completedSideEffect !== undefined) {
+    return !event.completedSideEffect;
+  }
+  if (event.isError !== undefined) return event.isError;
 
   const result = (event.result ?? "").trim();
   if (!result) return false;
 
   return (
     result.startsWith("Error: Unknown tool") ||
+    result.startsWith("Error: Tool no longer available") ||
     result.startsWith("Error running ") ||
     result.startsWith("Invalid action parameters for ") ||
     result.startsWith("Plan mode blocked ") ||
@@ -281,28 +308,116 @@ export function isJournalEmpty(journal: ToolCallJournal): boolean {
   return journal.completed.length === 0 && journal.interrupted.length === 0;
 }
 
-export function findCompletedJournalEntry(
+export type JournalCallEffect = "none" | "committed" | "unknown";
+
+/**
+ * What each call of the journal recorded having done, by call id: no side
+ * effect, a completed one, or an outcome it could not confirm. A call that
+ * recorded none of these, as calls before effects were recorded did, or that
+ * never finished, is absent.
+ */
+export function journalCallEffects(
+  journal: ToolCallJournal,
+  events: readonly AgentChatEvent[],
+): Map<string, JournalCallEffect> {
+  const effects = new Map<string, JournalCallEffect>();
+  // The journal drops a call that changed nothing, so its own record says so.
+  for (const event of events) {
+    if (
+      event.type === "tool_done" &&
+      event.id &&
+      event.completedSideEffect === false &&
+      event.outcomeUnknown !== true
+    ) {
+      effects.set(event.id, "none");
+    }
+  }
+  for (const entry of journal.completed) {
+    if (entry.id !== undefined && entry.committed) {
+      effects.set(entry.id, "committed");
+    }
+  }
+  for (const entry of journal.interrupted) {
+    if (entry.id !== undefined && entry.outcomeUnknown) {
+      effects.set(entry.id, "unknown");
+    }
+  }
+  return effects;
+}
+
+/**
+ * The identity each call of a turn recorded running with, by call id, for a
+ * result found by that id in the turn's `history`. A call that recorded none,
+ * as calls before identities did, is absent, and so is every id that more
+ * than one call of the turn used, in the journal or in the history: which of
+ * them a result belongs to cannot be told by its id.
+ */
+export function journalCallIdentities(
+  events: readonly AgentChatEvent[],
+  history: readonly EngineMessage[],
+): Map<string, string> {
+  const journalCalls = new Map<string, number>();
+  const historyCalls = new Map<string, number>();
+  const count = (calls: Map<string, number>, id: string) =>
+    calls.set(id, (calls.get(id) ?? 0) + 1);
+  for (const event of events) {
+    if (event.type === "tool_start" && event.id) count(journalCalls, event.id);
+  }
+  for (const message of history) {
+    if (message.role !== "assistant") continue;
+    for (const part of message.content) {
+      if (part.type === "tool-call") count(historyCalls, part.id);
+    }
+  }
+  const identities = new Map<string, string>();
+  for (const event of events) {
+    if (
+      event.type === "tool_done" &&
+      event.id &&
+      event.argumentsHash &&
+      (journalCalls.get(event.id) ?? 0) <= 1 &&
+      (historyCalls.get(event.id) ?? 0) <= 1
+    ) {
+      identities.set(event.id, event.argumentsHash);
+    }
+  }
+  return identities;
+}
+
+/**
+ * The completed call a continued turn replays instead of running a call
+ * prepared to `argumentsHash`: one that recorded a committed effect for that
+ * exact identity, whatever raw input either call was sent with. A call that
+ * recorded no committed effect runs fresh. A call recorded before calls had
+ * identities is matched as it was then, by its raw input, and only for a
+ * call prepared as a write, given in `rawWrite`: running that fresh could
+ * repeat its effect. The result and the identity it ran with come from one
+ * `tool_done`, never joined by call id, so a repeated id cannot attach one
+ * call's result to another's arguments here.
+ */
+export function findReplayableJournalEntry(
   journal: ToolCallJournal,
   toolName: string,
-  input: unknown,
+  argumentsHash: string,
   consumedKeys?: Set<string>,
+  rawWrite?: { input: unknown },
 ): ToolCallJournalEntry | undefined {
-  const wantSig = inputSignature(input);
-  let wantFingerprint: string | undefined;
-  for (const entry of journal.completed) {
-    if (entry.tool !== toolName) continue;
-    if (
-      entry.inputFingerprint
-        ? entry.inputFingerprint !==
-          (wantFingerprint ??= toolCallInputFingerprint(input))
-        : inputSignature(entry.input) !== wantSig
-    )
-      continue;
-    if (consumedKeys?.has(entry.key)) continue;
-    consumedKeys?.add(entry.key);
-    return entry;
-  }
-  return undefined;
+  const entry = journal.completed.find(
+    (candidate) =>
+      candidate.tool === toolName &&
+      !consumedKeys?.has(candidate.key) &&
+      (candidate.argumentsHash === undefined
+        ? rawWrite !== undefined &&
+          (candidate.inputFingerprint
+            ? candidate.inputFingerprint ===
+              toolCallInputFingerprint(rawWrite.input)
+            : inputSignature(candidate.input) ===
+              inputSignature(rawWrite.input))
+        : candidate.committed === true &&
+          candidate.argumentsHash === argumentsHash),
+  );
+  if (entry) consumedKeys?.add(entry.key);
+  return entry;
 }
 
 function summarizeResult(result: string | undefined): string {
@@ -366,7 +481,7 @@ export function buildResumeJournalNote(
     for (const entry of journal.completed) {
       const nextRequiredAction = summarizeNextRequiredAction(entry.result);
       lines.push(
-        `- ${entry.tool}${describeInput(entry.input)} → ${summarizeResult(entry.result)}`,
+        `- ${entry.tool}${describeInput(entry.input)} → ${entry.isError ? "failed after its changes were saved: " : ""}${summarizeResult(entry.result)}`,
       );
       if (nextRequiredAction) {
         lines.push(`  Next required action from result: ${nextRequiredAction}`);

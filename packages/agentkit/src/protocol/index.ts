@@ -28,6 +28,12 @@ export const AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE =
   "application/x-agent-native-tool-call";
 export const AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE =
   "application/x-agent-native-tool-result";
+export const AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY =
+  "agentNativeSubmissionExpiresAt";
+export const AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY =
+  "agentNativeSubmissionTtlMs";
+export const AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID =
+  "x-agent-native-submission-deadlines" as const;
 
 export interface AgentProtocolReference {
   id: string;
@@ -1085,6 +1091,7 @@ export interface AgentQueuedMessage {
   requestAttachments?: AgentRequestAttachment[];
   metadata?: AgentProtocolMetadata;
   options?: AgentRunOptions;
+  interruptActiveRun?: boolean;
 }
 
 export interface ListThreadsInput {
@@ -1136,11 +1143,48 @@ export interface QueueMessageInput {
   requestAttachments?: AgentRequestAttachment[];
   metadata?: AgentProtocolMetadata;
   options?: AgentRunOptions;
+  interruptActiveRun?: boolean;
+  /** Compact original submit identity used only to hash the durable receipt. */
+  submissionPayload?: AgentSubmissionPayload;
 }
 
-export interface QueueMessageResult {
-  message: AgentQueuedMessage;
+export interface AgentSubmissionFileIdentity {
+  type: "file";
+  name: string;
+  mediaType?: string;
+  fingerprint: string;
 }
+
+export interface AgentSubmissionRequestAttachmentIdentity {
+  type: "image";
+  name: string;
+  contentType?: string;
+  fingerprint: string;
+}
+
+export interface AgentSubmissionPayload {
+  threadId: ThreadId;
+  id: string;
+  text: string;
+  /** Fingerprints keep original attachment identity without retaining file bodies. */
+  attachments?: AgentSubmissionFileIdentity[];
+  requestAttachments?: AgentSubmissionRequestAttachmentIdentity[];
+  metadata?: AgentProtocolMetadata;
+  options?: AgentRunOptions;
+  interruptActiveRun?: boolean;
+}
+
+export type QueueMessageResult =
+  | {
+      message: AgentQueuedMessage;
+      alreadySubmitted?: false;
+      submittedRunId?: never;
+    }
+  | {
+      message: AgentQueuedMessage;
+      alreadySubmitted: true;
+      submittedRunId: RunId;
+    };
 
 export type SteerQueuedMessageResult =
   | (StartRunResult & { alreadySubmitted?: true })
@@ -1283,6 +1327,8 @@ export interface StartRunInput {
   options?: AgentRunOptions;
   resume?: AgentResumeEntry[];
   metadata?: AgentProtocolMetadata;
+  /** Original submit payload preserved for durable queue/direct admission dedupe. */
+  submissionPayload?: AgentSubmissionPayload;
   queuePromotion?: {
     messageId: string;
     claimId: string;

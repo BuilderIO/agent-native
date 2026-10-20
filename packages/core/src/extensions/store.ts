@@ -3,14 +3,14 @@ import { randomUUID } from "node:crypto";
 import { and, eq, gte, isNull, sql } from "drizzle-orm";
 
 import { appStatePut } from "../application-state/store.js";
-import { getDbExec } from "../db/client.js";
+import { getDbExec, type DbExec } from "../db/client.js";
 import { createGetDb } from "../db/create-get-db.js";
 import {
   ensureTableExists,
   ensureColumnExists,
   ensureIndexExists,
 } from "../db/ddl-guard.js";
-import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
+import { defineStore } from "../db/store-registry.js";
 import { recordChange } from "../server/poll.js";
 import {
   getRequestUserEmail,
@@ -72,15 +72,23 @@ const getDb = createGetDb({
   extensionHistory,
 });
 
-let _initPromise: Promise<void> | undefined;
-
-export async function ensureExtensionsTables(): Promise<void> {
-  if (!_initPromise) {
-    const _initPromiseWithRequestDbPoolScope = (async () => {
-      const client = getDbExec();
-      {
+export const extensionsStore = defineStore({
+  id: "extensions",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
         await ensureTableExists("tools", EXTENSIONS_CREATE_SQL);
-        await migrateMisnamedExtensionsTable(client);
+      },
+    },
+    {
+      name: "migrate-misnamed-extensions-table",
+      kind: "data",
+      run: (exec) => migrateMisnamedExtensionsTable(exec),
+    },
+    {
+      name: "tool-data-tables",
+      run: async () => {
         await ensureTableExists("tool_shares", EXTENSION_SHARES_CREATE_SQL);
         await ensureColumnExists(
           "tool_shares",
@@ -90,7 +98,22 @@ export async function ensureExtensionsTables(): Promise<void> {
         await ensureTableExists("tool_data", EXTENSION_DATA_CREATE_SQL);
         await ensureExtensionDataItemId();
         await ensureExtensionDataScope();
-        await client.execute(EXTENSION_DATA_DROP_OLD_INDEX_SQL);
+      },
+    },
+    {
+      name: "backfill-tool-data-scope-key",
+      kind: "data",
+      sql:
+        // guard:allow-localhost-fallback — one-time backfill migration replacing dev-mode default scope_key with the row's real owner_email
+        `UPDATE tool_data SET scope_key = owner_email WHERE scope_key = 'local@localhost' AND owner_email != 'local@localhost'`,
+    },
+    {
+      name: "drop-legacy-tool-data-index",
+      sql: EXTENSION_DATA_DROP_OLD_INDEX_SQL,
+    },
+    {
+      name: "extension-indexes-and-tables",
+      run: async () => {
         await ensureIndexExists(
           "tool_data_scoped_item_idx",
           EXTENSION_DATA_ITEM_INDEX_SQL,
@@ -141,30 +164,23 @@ export async function ensureExtensionsTables(): Promise<void> {
           "tool_consents_viewer_idx",
           EXTENSION_CONSENTS_VIEWER_INDEX_SQL,
         );
-        return;
-      }
-    })();
-    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
-  }
+      },
+    },
+  ],
+});
 
-  try {
-    await _initPromise;
-  } catch (err) {
-    _initPromise = undefined;
-    throw err;
-  }
+export function ensureExtensionsTables(): Promise<void> {
+  return extensionsStore.ready();
 }
 
-async function migrateMisnamedExtensionsTable(
-  client: ReturnType<typeof getDbExec>,
-): Promise<void> {
+async function migrateMisnamedExtensionsTable(exec: DbExec): Promise<void> {
   const sql = `INSERT INTO tools (id, name, description, content, icon, created_at, updated_at, owner_email, org_id, visibility)
        SELECT id, name, description, content, icon, created_at, updated_at, owner_email, org_id, visibility
        FROM extensions
        ON CONFLICT (id) DO NOTHING`;
 
   try {
-    await client.execute(sql);
+    await exec.execute(sql);
   } catch (err: any) {
     const message = String(err?.message ?? err).toLowerCase();
     if (
@@ -195,10 +211,6 @@ async function ensureExtensionDataScope(): Promise<void> {
   await addCol("scope", "TEXT NOT NULL DEFAULT 'user'");
   await addCol("org_id", "TEXT");
   await addCol("scope_key", "TEXT NOT NULL DEFAULT 'local@localhost'");
-  await getDbExec().execute(
-    // guard:allow-localhost-fallback — one-time backfill migration replacing dev-mode default scope_key with the row's real owner_email
-    `UPDATE tool_data SET scope_key = owner_email WHERE scope_key = 'local@localhost' AND owner_email != 'local@localhost'`,
-  );
 }
 
 async function ensureExtensionsGlobalHideColumns(): Promise<void> {

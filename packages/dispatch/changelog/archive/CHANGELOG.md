@@ -1,3 +1,47 @@
+## 0.27.21
+
+### Patch Changes
+
+- ed0666b: Report the embedded workspace app to the Dispatch agent as structured context. `/apps/<id>` now resolves to a `workspace-app` navigation view that keeps the app id and in-app path instead of collapsing to the apps list, and `view-screen` emits an `embeddedApp` block for both that route and chat-first mode, where the route stays on `/chat` and the open app is named only by `chat-first-pane` state. An app that is open but cannot be identified reports `status: "unknown"` rather than a default or an omitted field.
+- ed0666b: Share the canonical localized authentication copy with native sign-in surfaces
+  and allow authenticated packaged callers to mint workspace embed sessions.
+
+## 0.27.20
+
+### Patch Changes
+
+- b676db8: Share the canonical localized authentication copy with native sign-in surfaces
+  and allow authenticated packaged callers to mint workspace embed sessions.
+
+## 0.27.19
+
+### Patch Changes
+
+- 94fc4d8: Keep feature-flag definitions off the server HMAC barrel so Vite client graphs do not crash.
+- b676db8: Share the canonical localized authentication copy with native sign-in surfaces
+  and allow authenticated packaged callers to mint workspace embed sessions.
+
+## 0.27.18
+
+### Patch Changes
+
+- 436340b: Share the canonical localized authentication copy with native sign-in surfaces
+  and allow authenticated packaged callers to mint workspace embed sessions.
+
+## 0.27.17
+
+### Patch Changes
+
+- Updated dependencies [95ea873]
+  - @agent-native/toolkit@0.16.4
+
+## 0.27.16
+
+### Patch Changes
+
+- 3850b75: Retry workspace embed-session minting with the shared A2A secret when a target rejects org-secret authentication, with redacted mint diagnostics. Keep SSO fanout limited to canonical and explicitly registered own-origin apps; path-mounted workspace apps remain same-origin with Dispatch and keep their existing ambient session behavior, so this narrows fanout targets but is not origin isolation.
+- 3850b75: Resolve workspace embed pages from an app's canonical home URL instead of a deep A2A link, and allow extensions rendered in the hosted workspace to load in their parent frame.
+
 ## 0.27.15
 
 ### Patch Changes

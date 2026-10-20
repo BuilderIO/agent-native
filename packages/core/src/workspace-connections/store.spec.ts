@@ -9,6 +9,7 @@ import {
 } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
+import { resetAppConfigForTests } from "../app-config/index.js";
 
 vi.mock("../db/client.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../db/client.js")>();
@@ -99,11 +100,30 @@ afterAll(async () => {
 });
 
 describe("workspace connection store", () => {
+  it("does not run schema DDL in hosted apps without release migrations", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "workspace-groups-test");
+    resetAppConfigForTests();
+    const execute = vi.spyOn(sharedClient, "execute");
+    try {
+      const { workspaceUserGroupsStore } = await import("./groups.js");
+      workspaceUserGroupsStore.reset();
+      await workspaceUserGroupsStore.ready();
+      expect(execute).not.toHaveBeenCalled();
+    } finally {
+      execute.mockRestore();
+      vi.unstubAllEnvs();
+      resetAppConfigForTests();
+    }
+  });
+
   it("does not run runtime schema DDL in hosted function invocations", async () => {
     const previousNodeEnv = process.env.NODE_ENV;
     const previousNetlifyFunctionName = process.env.NETLIFY_FUNCTION_NAME;
     process.env.NODE_ENV = "production";
     process.env.NETLIFY_FUNCTION_NAME = "workspace-groups-test";
+    vi.stubEnv("AGENT_NATIVE_RELEASE_MIGRATIONS", "1");
+    resetAppConfigForTests();
     const execute = vi.spyOn(sharedClient, "execute");
     try {
       const { ensureWorkspaceUserGroupsTable } = await import("./groups.js");
@@ -111,6 +131,8 @@ describe("workspace connection store", () => {
       expect(execute).not.toHaveBeenCalled();
     } finally {
       execute.mockRestore();
+      vi.unstubAllEnvs();
+      resetAppConfigForTests();
       if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
       else process.env.NODE_ENV = previousNodeEnv;
       if (previousNetlifyFunctionName === undefined) {
@@ -516,6 +538,74 @@ describe("workspace connection store", () => {
       readyConnectionCount: 1,
       appGrant: { statuses: ["connected"] },
     });
+  });
+
+  it("resolves every connection a caller can use for an app in one pass", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { resolveWorkspaceConnectionsForApp, upsertWorkspaceConnection } =
+      await import("./store.js");
+
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-batch" },
+      async () => {
+        await upsertWorkspaceConnection({
+          id: "conn-batch-open",
+          provider: "slack",
+          label: "Open Slack",
+          allowedApps: ["analytics"],
+        });
+        await upsertWorkspaceConnection({
+          id: "conn-batch-alice",
+          provider: "slack",
+          label: "Alice Slack",
+          allowedApps: ["analytics"],
+          allowedUsers: ["alice@example.com"],
+        });
+        await upsertWorkspaceConnection({
+          id: "conn-batch-bob",
+          provider: "slack",
+          label: "Bob Slack",
+          allowedApps: ["analytics"],
+          allowedUsers: ["bob@example.com"],
+        });
+        await upsertWorkspaceConnection({
+          id: "conn-batch-other-app",
+          provider: "slack",
+          label: "Brain-only Slack",
+          allowedApps: ["brain"],
+        });
+      },
+    );
+
+    const aliceVisible = await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-batch" },
+      () =>
+        resolveWorkspaceConnectionsForApp({
+          appId: "analytics",
+          provider: "slack",
+        }),
+    );
+    expect(aliceVisible.map((connection) => connection.id).sort()).toEqual([
+      "conn-batch-alice",
+      "conn-batch-open",
+    ]);
+    expect(
+      aliceVisible.every((connection) => connection.appAccess.available),
+    ).toBe(true);
+
+    const bobVisible = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-batch" },
+      () =>
+        resolveWorkspaceConnectionsForApp({
+          appId: "analytics",
+          provider: "slack",
+        }),
+    );
+    expect(bobVisible.map((connection) => connection.id).sort()).toEqual([
+      "conn-batch-bob",
+      "conn-batch-open",
+    ]);
   });
 
   it("scopes personal list, upsert, and delete to the request user", async () => {

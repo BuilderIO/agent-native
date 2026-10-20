@@ -87,6 +87,7 @@ describe("import-design-file .fig uploads", () => {
         },
       ],
       warnings: [],
+      skippedFrames: [{ pageName: "Page", frameName: "Hero" }],
       stats: {
         sourceKind: "fig-upload",
         format: "kiwi",
@@ -143,6 +144,7 @@ describe("import-design-file .fig uploads", () => {
       importKind: "fig",
       designId: "design-1",
       stats: { sourceKind: "fig-upload", frameCount: 1 },
+      skippedFrames: ["Hero"],
     });
   });
 
@@ -222,6 +224,7 @@ describe("import-design-file chunked .fig uploads", () => {
         },
       ],
       warnings: [],
+      skippedFrames: [],
       stats: { sourceKind: "fig-upload", frameCount: 1 },
     });
     mocks.saveImportedDesignFiles.mockResolvedValue({

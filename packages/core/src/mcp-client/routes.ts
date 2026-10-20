@@ -31,6 +31,7 @@ import {
   type H3Event,
 } from "h3";
 
+import type { ActionRunContext } from "../action.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import { readBody } from "../server/h3-helpers.js";
 import { runWithRequestContext } from "../server/request-context.js";
@@ -177,7 +178,7 @@ export interface ClientBuiltinCapability {
 }
 
 type ServerStatus =
-  | { state: "connected"; toolCount: number }
+  | { state: "connected"; toolCount: number; error?: string }
   | { state: "error"; error: string }
   | { state: "unknown" };
 
@@ -185,7 +186,10 @@ function statusFor(manager: McpClientManager, mergedId: string): ServerStatus {
   const snap = manager.getStatus();
   if (snap.connectedServers.includes(mergedId)) {
     const toolCount = snap.tools.filter((t) => t.source === mergedId).length;
-    return { state: "connected", toolCount };
+    const error = snap.errors[mergedId];
+    return error
+      ? { state: "connected", toolCount, error }
+      : { state: "connected", toolCount };
   }
   if (snap.errors[mergedId]) {
     return { state: "error", error: snap.errors[mergedId] };
@@ -366,9 +370,9 @@ async function resolveContextForRequest(event: H3Event): Promise<{
 async function reconfigureManager(
   manager: McpClientManager,
   principal: McpPrincipal,
-): Promise<void> {
+): ReturnType<McpClientManager["reconfigure"]> {
   const merged = await buildMergedConfig(principal);
-  await manager.reconfigure(merged);
+  return manager.reconfigure(merged);
 }
 
 export function mountMcpServersRoutes(
@@ -577,19 +581,24 @@ export function mountMcpServersRoutes(
 
 async function withMcpAppRequestContext<T>(
   event: H3Event,
-  fn: () => Promise<T>,
+  fn: (context: ActionRunContext) => Promise<T>,
 ): Promise<T | { error: string }> {
   const { email, orgId } = await resolveContextForRequest(event);
   if (!email) {
     setResponseStatus(event, 401);
     return { error: "Authentication required" };
   }
+  const context = {
+    caller: "frontend",
+    userEmail: email,
+    orgId: orgId ?? null,
+  } satisfies ActionRunContext;
   return runWithRequestContext(
     {
       userEmail: email ?? undefined,
       orgId: orgId ?? undefined,
     },
-    fn,
+    () => fn(context),
   ) as Promise<T>;
 }
 
@@ -671,7 +680,7 @@ async function handleMcpAppCallTool(event: H3Event, manager: McpClientManager) {
     return { error: "serverId and same-server toolName are required" };
   }
 
-  return withMcpAppRequestContext(event, async () => {
+  return withMcpAppRequestContext(event, async (context) => {
     const tool = mcpAppCallableTool(manager, serverId, originalToolName);
     if (!tool) {
       setResponseStatus(event, 403);
@@ -683,9 +692,10 @@ async function handleMcpAppCallTool(event: H3Event, manager: McpClientManager) {
         body.arguments && typeof body.arguments === "object"
           ? (body.arguments as Record<string, unknown>)
           : {},
+        { context },
       );
     } catch (err: any) {
-      setResponseStatus(event, 400);
+      setResponseStatus(event, err?.statusCode === 403 ? 403 : 400);
       return { error: err?.message ?? "MCP tool call failed" };
     }
   });
@@ -1202,8 +1212,23 @@ async function handleReconnectExisting(
     return { error: "Server not found" };
   }
 
-  await reconfigureManager(manager, principal);
+  const { unchanged } = await reconfigureManager(manager, principal);
   const mergedId = mergedConfigKey(parsedScope, server, scopeId);
+  // Reconfiguring leaves a connected server alone, so its held-back tools are
+  // only checked again by listing them over the same connection.
+  if (unchanged.includes(mergedId)) {
+    try {
+      await manager.refreshTools(mergedId);
+    } catch (error) {
+      // A list refused over HTTP, as a revoked grant's 401 is, drops the
+      // connection the way a refused connect does. Its status, answered below
+      // like any reconnect that failed, is what offers OAuth again.
+      if (statusFor(manager, mergedId).state === "connected") {
+        setResponseStatus(event, 502);
+        return { ok: false, error: formatMcpConnectError(error) };
+      }
+    }
+  }
   const status = reconnectStatusForClient(manager, mergedId);
   const projected = projectForClient(server, parsedScope, scopeId, status);
   return {

@@ -182,6 +182,28 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "Datenschutzrichtlinien",
   "onboarding.builderConsentAnd": "und",
   "onboarding.builderExistingAccount": "Ich habe ein Builder.io-Konto",
+  "onboarding.creditsTitle":
+    "Probiere es mit 60 kostenlosen Agent Credits im Monat",
+  "onboarding.creditsTitleClips":
+    "Probiere es mit kostenlosem Videospeicher und 60 Agent Credits im Monat",
+  "onboarding.creditsActivate": "Kostenlose Credits aktivieren",
+  "onboarding.creditsFinePrint":
+    "Dies erstellt ein kostenloses Builder.io-Konto. Mit dem Fortfahren akzeptierst du unsere",
+  "onboarding.creditsMoreInfo": "Weitere Informationen",
+  "onboarding.creditsSubtitle":
+    "Hol dir kostenlose Credits für LLMs, Jev, Speicher und mehr für diese App mit einem Klick von Builder.io.",
+  "onboarding.creditsLearnMore": "Mehr erfahren",
+  "onboarding.creditsSkip": "Überspringen",
+  "onboarding.creditsSkipConfirmTitle": "Bist du sicher?",
+  "onboarding.creditsSkipConfirmBody":
+    "Agent-Native-Apps brauchen ein verbundenes LLM, um die meisten Funktionen zu nutzen. Ohne eines funktioniert das meiste nicht.",
+  "onboarding.creditsSkipGoBack": "Zurück",
+  "onboarding.creditsSkipAnyway": "Trotzdem überspringen",
+  "onboarding.creditsUseCustomKeys": "Eigene Schlüssel verwenden",
+  "onboarding.creditsAboutLabel": "Über kostenlose Credits",
+  "onboarding.creditsActivating": "Gratis-Credits werden aktiviert",
+  "onboarding.creditsActivatingTooltip":
+    "Builder stellt kostenlose Credits für LLMs, Jev, Speicher und mehr bereit, damit du die KI-Funktionen dieser App ohne eigene Schlüssel nutzen kannst.",
   "onboarding.builderConnect": "Builder.io verbinden",
   "onboarding.builderActivating": "Builder.io-Gratiscredits werden aktiviert",
   "onboarding.builderConnecting": "Builder.io-Credits werden eingerichtet",
@@ -219,6 +241,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "Semantische Vektoren",
   "onboarding.capability.embeddings.why":
     "Semantische Vektoren verbessern die semantische Suche. Die Stichwortsuche funktioniert auch ohne sie.",
+  "onboarding.capability.webSearch.label": "Websuche",
+  "onboarding.capability.webSearch.keySummary": "Websuche",
+  "onboarding.capability.webSearch.why":
+    "Durchsuche aktuelle öffentliche Webquellen. Die von Builder verwaltete Suche nutzt enthaltene Builder-KI-Credits, daher ist kein separater Such-API-Schlüssel erforderlich.",
   "onboarding.capability.systemOne.why":
     "Jev ist ein optionales Entscheidungsmodell, das vor der ersten Modellanfrage des Agenten passende Tools und Skills auswählt.",
   "onboarding.capability.assetsImageGeneration.label": "Bilderzeugung",
@@ -690,7 +716,28 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.hubspot.useCase":
     "CRM, Kontakte, Unternehmen, Deals, Tickets, Kundenanalysen",
   "mcpIntegrations.catalog.hubspot.setupNote":
-    'Wenn eine vom Workspace verwaltete "HubSpot MCP Auth App" konfiguriert ist, kann jedes Mitglied ein persönliches HubSpot-Konto mit OAuth und PKCE verbinden. Andernfalls erstelle die App vor dem Verbinden in der HubSpot Developer Platform. Der bestehende HubSpot-OAuth-Connector bleibt für App-Aktionen verfügbar.',
+    "Jede Person verbindet ihr eigenes HubSpot-Konto, nachdem ein Workspace-Owner die HubSpot MCP Auth App eingerichtet hat.",
+  "mcpIntegrations.hubspot.setupTitle": "HubSpot MCP einrichten",
+  "mcpIntegrations.hubspot.dialogDescription":
+    "Ein Workspace-Owner richtet HubSpot MCP einmal ein. Danach verbindet jedes Mitglied das eigene Konto.",
+  "mcpIntegrations.hubspot.workspaceSetupStatus":
+    "Workspace-Einrichtung erforderlich",
+  "mcpIntegrations.hubspot.setupChecking":
+    "Workspace-Einrichtung wird geprüft…",
+  "mcpIntegrations.hubspot.setupUnavailable":
+    "Einrichtungsstatus nicht verfügbar",
+  "mcpIntegrations.hubspot.setupUnavailableDescription":
+    "Die OAuth-Einstellungen des Workspace konnten nicht geprüft werden. Bitte erneut versuchen.",
+  "mcpIntegrations.hubspot.ownerSetupDescription":
+    "Erstelle eine HubSpot MCP Auth App und füge ihre Client-ID und ihr Secret unter Agent-Native settings → API keys hinzu.",
+  "mcpIntegrations.hubspot.memberSetupDescription":
+    "Bitte einen Workspace-Owner, eine HubSpot MCP Auth App zu erstellen und Client-ID sowie Secret unter Agent-Native settings → API keys hinzuzufügen. Danach kannst du dein eigenes HubSpot-Konto verbinden.",
+  "mcpIntegrations.hubspot.noWorkspaceDescription":
+    "Tritt einem Workspace bei, bevor du HubSpot MCP verbindest.",
+  "mcpIntegrations.hubspot.configureWorkspaceCredentials":
+    "Workspace-Zugangsdaten hinzufügen",
+  "mcpIntegrations.hubspot.refreshSetupStatus": "Erneut prüfen",
+  "mcpIntegrations.hubspot.retrySetupStatus": "Erneut versuchen",
   "mcpIntegrations.catalog.pylon.description":
     "Pylon-Supportdaten durchsuchen und aktualisieren.",
   "mcpIntegrations.catalog.pylon.useCase":
@@ -1346,6 +1393,10 @@ const messages: ToolkitAgentChatTranslation = {
     "Der Modellanbieter hat diese Anfrage als fehlerhaft abgelehnt, daher wurde sie nicht wiederholt. Versuchen Sie es erneut oder starten Sie einen neuen Chat, wenn das Problem weiterhin auftritt.",
   "errorMessages.requestTooLarge":
     "Diese Anfrage überschritt das Größenlimit des Servers (HTTP 413). Starte einen neuen Chat oder entferne große Anhänge oder Referenzen und versuche es erneut.",
+  "errorMessages.capabilityUnavailable":
+    "Deine Nachricht konnte gerade nicht gesendet werden. Bitte versuche es gleich noch einmal.",
+  "errorMessages.capabilityUnsupported":
+    "Diese App kann deinen gespeicherten Prompt noch nicht sicher erneut senden. Aktualisiere die App und versuche es erneut.",
   "errorMessages.runInterrupted": "Der Agent hat vor dem Abschluss aufgehört.",
   "errorMessages.runFailed": "Der Agent-Lauf ist fehlgeschlagen.",
   "errorMessages.runUnverified":
@@ -1944,6 +1995,12 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.agentVia": "Agent über {{protocol}}",
   "settings.audit.allApps": "Alle Apps",
   "settings.audit.app": "App",
+  "settings.audit.approval": "Genehmigung",
+  "settings.audit.approvalAgentChat": "Im Agent-Chat genehmigt",
+  "settings.audit.approvalA2AReview":
+    "Auf der Prüfseite für Agent-Aktionen genehmigt",
+  "settings.audit.approvalMcpClient":
+    "Vom MCP-Client akzeptiert (nicht verifiziert)",
   "settings.audit.changedBy": "Geändert von",
   "settings.audit.close": "Schließen",
   "settings.audit.empty": "Keine Änderungen in diesem Zeitraum.",
@@ -1957,9 +2014,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.last90Days": "Letzte 90 Tage",
   "settings.audit.loadFailed": "Das Audit-Log konnte nicht geladen werden.",
   "settings.audit.loading": "Audit-Log wird geladen",
+  "settings.audit.oauthClient": "OAuth-Client",
   "settings.audit.onBehalfOf": "Im Auftrag von",
   "settings.audit.range": "Zeitraum",
   "settings.audit.refused": "Abgelehnt",
+  "settings.audit.reportedClient": "Selbst gemeldeter Client",
   "settings.audit.result": "Ergebnis",
   "settings.audit.showMore": "{{count}} weitere anzeigen",
   "settings.audit.succeeded": "Erfolgreich",
@@ -2771,6 +2830,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.search.appDefaultModel": "Standardmodell der App",
   "settingsShell.search.backgroundAgents": "Hintergrund-Agenten",
   "settingsShell.search.browserAutomation": "Browser-Automatisierung",
+  "settingsShell.search.webSearch": "Websuche",
   "settingsShell.search.connectedAgents": "Verbundene Agenten",
   "settingsShell.search.database": "Datenbank",
   "settingsShell.search.defaultModel": "Standardmodell",
@@ -2908,6 +2968,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyBackground": "Nimmt Codeänderungen aus der Produktion vor.",
   "settingsInfra.whyBrowser":
     "Lässt den Agenten in der Produktion einen Browser nutzen.",
+  "settingsInfra.whyWebSearch":
+    "Findet aktuelle öffentliche Informationen und offizielle Dokumentation.",
   "settingsInfra.provider": "Anbieter",
   "settingsInfra.keyOrg": "Nutzt den {{provider}}-Schlüssel der Organisation.",
   "settingsInfra.manageKey": "Schlüssel verwalten",
@@ -3071,6 +3133,10 @@ const messages: ToolkitAgentChatTranslation = {
     "Hier getrennt. Der Zugriff kann in ChatGPT weiterhin aktiv sein.",
   "settingsModel.chatgptLocalOnly":
     "Open-Source-Apps kannst du selbstständig nutzen, wenn du sie lokal mit einem Loopback-Callback startest; ein Partnerantrag ist nicht nötig. Gehostete Apps auf *.agent-native.com benötigen die Freigabe des Betreibers und einen gehosteten Callback.",
+  "settingsModel.chatgptPersonalScopeOnly":
+    "Verwende den ChatGPT-Planzugriff mit einem persönlichen Konto. Setze in der lokalen Entwicklung access.autoCreateDefaultOrg vor der Anmeldung auf false.",
+  "settingsModel.chatgptScopeUnresolved":
+    "Die App konnte den Kontobereich nicht bestätigen. Schließe die lokale Einrichtung ab und lade die Einstellungen neu.",
   "settingsModel.chatgptNoDirectUse":
     "Verbinde dich erneut und erlaube den direkten Modellzugriff, um dieses ChatGPT-Konto zu verwenden.",
   "settingsModel.chatgptReconnect": "Erneut verbinden",
@@ -3257,6 +3323,18 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.close": "Schließen",
   "observability.insights.rawTrace":
     "Rohdaten-Trace (alle Spans mit Ein- und Ausgaben)",
+  "reportProblem.menuItem": "Problem melden",
+  "reportProblem.title_one":
+    "Anhängen, was die App in der letzten {{count}} Sekunde getan hat?",
+  "reportProblem.title_other":
+    "Anhängen, was die App in den letzten {{count}} Sekunden getan hat?",
+  "reportProblem.noEvents": "Noch nichts aufgezeichnet.",
+  "reportProblem.send": "An Agent senden",
+  "reportProblem.copy": "Problembericht kopieren",
+  "reportProblem.attaching": "Wird angehängt…",
+  "reportProblem.notAttached": "Der Bericht wurde nicht angehängt.",
+  "reportProblem.agentMessage":
+    "In der App ist etwas schiefgelaufen. Erkläre anhand des angehängten Problemberichts, was passiert ist.",
 };
 
 export default messages;

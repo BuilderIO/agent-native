@@ -61,6 +61,32 @@ describe("seedRepeatedToolCallCountsFromJournal", () => {
     );
   });
 
+  it("resets other repeat counts after a write that failed once its changes saved", () => {
+    const calls: PriorTurnToolCallSequenceEntry[] = [
+      { event: "start", name: "check", input: { deckId: "deck-1" } },
+      {
+        event: "done",
+        name: "check",
+        input: { deckId: "deck-1" },
+        result: "overflow",
+        isError: false,
+        matchedStart: true,
+      },
+      { event: "start", name: "edit", input: { slide: 1 } },
+      {
+        event: "done",
+        name: "edit",
+        input: { slide: 1 },
+        result: "Its changes are already applied: do not retry it.",
+        isError: true,
+        completedSideEffect: true,
+        matchedStart: true,
+      },
+    ];
+
+    expect(seed(calls)).toEqual(new Map([[`edit:{"slide":1}`, 1]]));
+  });
+
   it("preserves pending parallel calls across successful-write resets", () => {
     const calls: PriorTurnToolCallSequenceEntry[] = [
       { event: "start", name: "write-a", input: { id: "a" } },
@@ -302,6 +328,33 @@ describe("seedRepeatedToolErrorCountsFromJournal", () => {
 
     expect(result.sameArguments.get(`write:{"id":1}:same error`)).toBe(2);
     expect(result.sameTool.get("write:same error")).toBe(2);
+  });
+
+  it("counts a committed failure's error and resets the others", () => {
+    const result = seedErrors([
+      {
+        event: "done",
+        name: "read",
+        input: { id: 1 },
+        result: "same error",
+        isError: true,
+        matchedStart: false,
+      },
+      {
+        event: "done",
+        name: "write",
+        input: { id: 1 },
+        result: "do not retry",
+        isError: true,
+        completedSideEffect: true,
+        matchedStart: false,
+      },
+    ]);
+
+    expect(result.sameArguments).toEqual(
+      new Map([[`write:{"id":1}:do not retry`, 1]]),
+    );
+    expect(result.sameTool).toEqual(new Map([["write:do not retry", 1]]));
   });
 
   it("applies replayed write boundaries without counting replayed errors", () => {

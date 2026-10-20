@@ -10,11 +10,14 @@ import {
 import { describe, expect, it } from "vitest";
 
 import evals, {
+  DBT_CONNECTION_STATUS_ACTION_ALLOWLIST,
   METADATA_ONLY_ACTION_ALLOWLIST,
+  dbtConnectionStatusEval,
   sourceContracts,
 } from "./production-source-cases.eval.js";
 
 const cases = evals as Eval[];
+const sourceCases = cases.slice(0, Object.keys(sourceContracts).length);
 
 function outputFor(
   contract: (typeof sourceContracts)[keyof typeof sourceContracts],
@@ -22,10 +25,51 @@ function outputFor(
 ): AgentRunOutput {
   const relationClaims = [
     ...contract.relationGrains,
-    ...contract.relationGrainAlternatives.map(
-      (group) => group.alternatives[0]!,
+    ...contract.relationGrainAlternatives.flatMap(
+      (group) => group.alternatives,
     ),
   ];
+  const metadataCandidates = relationClaims.map((claim) => {
+    const meaningClaim = contract.relationMeanings?.find(
+      (candidate) => candidate.relation === claim.relation,
+    );
+    const fields = [
+      ...(contract.relationFields ?? [])
+        .filter((candidate) => candidate.relation === claim.relation)
+        .flatMap((candidate) => candidate.fields),
+      ...(contract.fieldMeanings ?? [])
+        .filter((candidate) => candidate.relation === claim.relation)
+        .map((candidate) => candidate.field),
+    ];
+    const definitions = [
+      ...(meaningClaim?.meanings ?? []),
+      ...(meaningClaim?.requiredMeaningGroups?.flat() ?? []),
+      ...(contract.fieldMeanings ?? [])
+        .filter((candidate) => candidate.relation === claim.relation)
+        .flatMap((candidate) => [
+          ...candidate.meanings,
+          ...(candidate.requiredDisclaimers ?? []),
+        ]),
+    ];
+    const fieldDefinitions = Object.fromEntries(
+      (contract.fieldMeanings ?? [])
+        .filter((candidate) => candidate.relation === claim.relation)
+        .map((candidate) => [
+          candidate.field,
+          [
+            ...candidate.meanings,
+            ...(candidate.requiredDisclaimers ?? []),
+          ].join("; "),
+        ]),
+    );
+    return {
+      table: claim.relation,
+      grain: claim.grains.join("; "),
+      columnsUsed: fields.join(", "),
+      fieldDefinitions,
+      definition: definitions.join("; "),
+    };
+  });
   const expectedText = [
     ...relationClaims.map((claim) => {
       const meaningClaim = contract.relationMeanings?.find(
@@ -50,7 +94,16 @@ function outputFor(
   ].join("\n");
   return {
     text: expectedText,
-    toolCalls: ["search-bigquery-schema"],
+    toolCalls: ["find-data"],
+    toolCallDetails: [
+      {
+        name: "find-data",
+        input: { question: "synthetic metadata contract" },
+        completed: true,
+        isError: false,
+        result: JSON.stringify({ results: metadataCandidates }),
+      },
+    ],
     ok: true,
     runId: "eval:synthetic-fixture",
     durationMs: 0,
@@ -62,8 +115,60 @@ function runnerFor(output: AgentRunOutput): AgentRunner {
   return {
     engine: {} as AgentRunner["engine"],
     model: "synthetic-fixture",
-    runAgent: async () => output,
+    runAgent: async (input) => {
+      if (output.toolCallDetails !== undefined) return output;
+      const caseIndex = cases.findIndex(
+        (evalCase) => evalCase.input.prompt === input.prompt,
+      );
+      const contract = Object.values(sourceContracts)[caseIndex];
+      if (!contract) return output;
+      const evidence = outputFor(contract).toolCallDetails ?? [];
+      return {
+        ...output,
+        toolCalls: [...new Set([...output.toolCalls, "find-data"])],
+        toolCallDetails: evidence,
+      };
+    },
     analyzeContext: () => ({}) as ReturnType<AgentRunner["analyzeContext"]>,
+  };
+}
+
+function dbtStatusOutput(
+  connectionHealth: string,
+  text: string,
+  overrides: Partial<AgentRunOutput> = {},
+): AgentRunOutput {
+  const grantState =
+    connectionHealth === "connected" ? "connected" : "not_connected";
+  const statuses = [connectionHealth];
+  return {
+    text,
+    toolCalls: ["data-source-status"],
+    toolCallDetails: [
+      {
+        name: "data-source-status",
+        input: { key: "dbt" },
+        completed: true,
+        isError: false,
+        result: JSON.stringify({
+          workspaceConnections: {
+            available: true,
+            providers: [{ id: "dbt", grantState, statuses }],
+          },
+          providers: [
+            {
+              provider: "dbt",
+              connectionHealth,
+              workspaceConnection: { grantState, statuses },
+            },
+          ],
+        }),
+      },
+    ],
+    ok: true,
+    runId: "eval:synthetic-dbt-status",
+    durationMs: 0,
+    ...overrides,
   };
 }
 
@@ -77,27 +182,106 @@ describe("Analytics synthetic production source evals", () => {
     expect(files.map((file) => file.split("/").at(-1))).toContain(
       "production-source-cases.eval.ts",
     );
-    expect(cases.map((evalCase) => evalCase.name)).toHaveLength(7);
+    expect(cases.map((evalCase) => evalCase.name)).toHaveLength(8);
     expect(
-      cases.every((evalCase) => evalCase.name.startsWith("SYNTHETIC:")),
+      sourceCases.every((evalCase) => evalCase.name.startsWith("SYNTHETIC:")),
     ).toBe(true);
     expect(cases.every((evalCase) => evalCase.run === undefined)).toBe(true);
     expect(
-      cases.every(
+      sourceCases.every(
         (evalCase) =>
           evalCase.actionAllowlist === METADATA_ONLY_ACTION_ALLOWLIST,
       ),
     ).toBe(true);
+    expect(dbtConnectionStatusEval.actionAllowlist).toBe(
+      DBT_CONNECTION_STATUS_ACTION_ALLOWLIST,
+    );
     expect(
       cases.map((evalCase) => evalCase.input.prompt).join("\n"),
     ).not.toMatch(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i);
+  });
+
+  it("requires retrieved find-data metadata to support the relation and grain claims", async () => {
+    const contract = sourceContracts.builderUsersByOrganization;
+    const noEvidence = await runEvals(
+      [cases[0]!],
+      runnerFor(outputFor(contract, { toolCallDetails: [] })),
+      { persist: false },
+    );
+    const mismatchedEvidence = await runEvals(
+      [cases[0]!],
+      runnerFor(
+        outputFor(contract, {
+          toolCallDetails: [
+            {
+              name: "find-data",
+              input: { question: "synthetic metadata contract" },
+              completed: true,
+              isError: false,
+              result: JSON.stringify({
+                results: [
+                  {
+                    table: "dbt_mart.other_user_table",
+                    grain: "one row per user",
+                  },
+                ],
+              }),
+            },
+          ],
+        }),
+      ),
+      { persist: false },
+    );
+    const unboundEvidence = await runEvals(
+      [cases[0]!],
+      runnerFor(
+        outputFor(contract, {
+          toolCallDetails: [
+            {
+              name: "find-data",
+              input: { question: "synthetic metadata contract" },
+              completed: true,
+              isError: false,
+              result: JSON.stringify({
+                results: [
+                  {
+                    table: "dbt_mart.other_user_table",
+                    grain: "one row per account",
+                    definition:
+                      "dbt_mart.dim_users_core has a user grain and one row per user.",
+                  },
+                ],
+              }),
+            },
+          ],
+        }),
+      ),
+      { persist: false },
+    );
+
+    expect(noEvidence).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(noEvidence.results[0]?.scores[0]?.reason).toContain(
+      "no successful find-data metadata evidence was retrieved",
+    );
+    expect(mismatchedEvidence).toMatchObject({
+      total: 1,
+      passed: 0,
+      failed: 1,
+    });
+    expect(mismatchedEvidence.results[0]?.scores[0]?.reason).toContain(
+      "retrieved metadata did not support dbt_mart.dim_users_core at user grain",
+    );
+    expect(unboundEvidence).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(unboundEvidence.results[0]?.scores[0]?.reason).toContain(
+      "retrieved metadata did not support dbt_mart.dim_users_core at user grain",
+    );
   });
 
   it("accepts the expected source and grain contracts using metadata tools only", async () => {
     const contracts = Object.values(sourceContracts);
     let contractIndex = 0;
     const report = await runEvals(
-      cases,
+      sourceCases,
       {
         engine: {} as AgentRunner["engine"],
         model: "synthetic-fixture",
@@ -112,6 +296,115 @@ describe("Analytics synthetic production source evals", () => {
     );
 
     expect(report).toMatchObject({ total: 7, passed: 7, failed: 0 });
+  });
+
+  it("grounds dbt readiness in source status and withholds metric values", async () => {
+    const reportFor = (output: AgentRunOutput) =>
+      runEvals([dbtConnectionStatusEval], runnerFor(output), {
+        persist: false,
+      });
+    const disconnected = await reportFor(
+      dbtStatusOutput(
+        "not_connected",
+        "The dbt Semantic Layer is not connected, so no metric value is available. I did not run a metric query or substitute BigQuery.",
+      ),
+    );
+    const connected = await reportFor(
+      dbtStatusOutput(
+        "connected",
+        "The dbt Semantic Layer is connected. I did not query a metric, so no metric value is available from this status check.",
+      ),
+    );
+
+    expect(disconnected).toMatchObject({ total: 1, passed: 1, failed: 0 });
+    expect(connected).toMatchObject({ total: 1, passed: 1, failed: 0 });
+  });
+
+  it.each([
+    [
+      "needs_reauth",
+      "The dbt connection needs re-auth; no metric value is available.",
+    ],
+    ["error", "The dbt connection error means no metric value is available."],
+    [
+      "checking",
+      "The dbt connection is still checking; no metric value is available.",
+    ],
+  ])("reports the observed dbt %s state", async (state, text) => {
+    const report = await runEvals(
+      [dbtConnectionStatusEval],
+      runnerFor(dbtStatusOutput(state, text)),
+      { persist: false },
+    );
+
+    expect(report).toMatchObject({ total: 1, passed: 1, failed: 0 });
+  });
+
+  it("rejects missing status evidence, conflicting states, fabricated values, and data queries", async () => {
+    const valid = dbtStatusOutput(
+      "not_connected",
+      "The dbt Semantic Layer is not connected; no metric value is available.",
+    );
+    const noStatus = await runEvals(
+      [dbtConnectionStatusEval],
+      runnerFor({
+        ...valid,
+        toolCalls: [],
+        toolCallDetails: [],
+      }),
+      { persist: false },
+    );
+    const invalidStatus = await runEvals(
+      [dbtConnectionStatusEval],
+      runnerFor({
+        ...valid,
+        toolCallDetails: valid.toolCallDetails?.map((call) => ({
+          ...call,
+          result: "not-json",
+        })),
+      }),
+      { persist: false },
+    );
+    const contradictory = await runEvals(
+      [dbtConnectionStatusEval],
+      runnerFor(
+        dbtStatusOutput(
+          "connected",
+          "The dbt connection is not connected; no metric value is available.",
+        ),
+      ),
+      { persist: false },
+    );
+    const fabricated = await runEvals(
+      [dbtConnectionStatusEval],
+      runnerFor(
+        dbtStatusOutput(
+          "not_connected",
+          "The dbt Semantic Layer is not connected; no metric value is available, with 42 active workspaces.",
+        ),
+      ),
+      { persist: false },
+    );
+    const queried = await runEvals(
+      [dbtConnectionStatusEval],
+      runnerFor(
+        dbtStatusOutput(
+          "not_connected",
+          "The dbt Semantic Layer is not connected; no metric value is available.",
+          { toolCalls: ["data-source-status", "query-dbt-semantic-metric"] },
+        ),
+      ),
+      { persist: false },
+    );
+
+    expect(noStatus).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(invalidStatus).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(invalidStatus.results[0]?.scores[0]?.reason).toContain(
+      "dbt status response was invalid JSON",
+    );
+    expect(contradictory).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(fabricated).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(queried).toMatchObject({ total: 1, passed: 0, failed: 1 });
   });
 
   it("rejects row counts and identifiers in metadata-only answers", async () => {
@@ -131,6 +424,25 @@ describe("Analytics synthetic production source evals", () => {
         /output included (?:a count-like data value|a row identifier value)/,
       );
     }
+  });
+
+  it("rejects unsupported source relations added to an otherwise correct answer", async () => {
+    const contract = sourceContracts.builderUsersByOrganization;
+    const valid = outputFor(contract);
+    const report = await runEvals(
+      [cases[0]!],
+      runnerFor(
+        outputFor(contract, {
+          text: `${valid.text}\ndbt_mart.unverified_user_table: one row per user`,
+        }),
+      ),
+      { persist: false },
+    );
+
+    expect(report).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(report.results[0]?.scores[0]?.reason).toContain(
+      "unsupported source relations were claimed: dbt_mart.unverified_user_table",
+    );
   });
 
   it("rejects current and historical count relations assigned to the opposite time scopes", async () => {

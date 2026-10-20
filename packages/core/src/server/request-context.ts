@@ -1,6 +1,7 @@
 import type { AgentActionScope } from "../agent/types.js";
 import type { TrackingEventScope } from "../observability/tracing.js";
 import type { ContextStatus } from "../shared/context-status.js";
+import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import type { SignupAttributionContext } from "./attribution.js";
 
 type AsyncLocalStorageLike<T> = {
@@ -76,6 +77,8 @@ export interface RequestRunContext {
   systemPrompt?: string;
   engine?: import("../agent/engine/types.js").AgentEngine;
   model?: string;
+  /** The run's resolved thinking effort; unset when the model takes none. */
+  reasoningEffort?: ReasoningEffort;
   allowedActionNames?: readonly string[];
   actionScope?: Readonly<AgentActionScope>;
   appAuthorization?: {
@@ -119,6 +122,8 @@ export interface RequestContext {
   userName?: string;
   orgId?: string;
   orgScope?: "personal";
+  /** Explicitly selects deployment-wide agent defaults for shared no-org jobs. */
+  defaultAgentEngineScope?: "deployment";
   /**
    * Narrow authorization capability verified from an embed session. This is
    * deliberately separate from user identity: capability-only sessions must
@@ -155,6 +160,8 @@ export interface RequestContext {
    * radius (a resource that is itself local-only, NODE_ENV, etc.).
    */
   isLoopbackRequest?: boolean;
+  /** True only when this server received the request directly on 127.0.0.1. */
+  isDirectLoopbackRequest?: boolean;
   isIntegrationCaller?: boolean;
   integration?: {
     taskId: string;
@@ -214,6 +221,37 @@ export function getVerifiedServiceIdentityFromEvent(
     return undefined;
   }
   return { userEmail: userEmail.trim(), orgId: orgId.trim() };
+}
+
+const VERIFIED_MCP_CREDENTIAL_EVENT_KEY = "__anVerifiedMcpCredential";
+
+/**
+ * The request authenticated with an MCP credential this app verified, so an
+ * action route records the call as MCP rather than as a person's HTTP call.
+ */
+export function markVerifiedMcpCredentialForEvent(
+  event: RequestContextEvent,
+  credential: { userEmail: string; oauthClientId?: string },
+): void {
+  const context = (event.context ??= {});
+  context[VERIFIED_MCP_CREDENTIAL_EVENT_KEY] = credential;
+}
+
+export function getVerifiedMcpCredentialFromEvent(
+  event: RequestContextEvent,
+): { userEmail: string; oauthClientId?: string } | undefined {
+  const credential = event.context?.[VERIFIED_MCP_CREDENTIAL_EVENT_KEY] as
+    | { userEmail?: unknown; oauthClientId?: unknown }
+    | undefined;
+  const userEmail = credential?.userEmail;
+  if (typeof userEmail !== "string" || !userEmail.trim()) return undefined;
+  const oauthClientId = credential?.oauthClientId;
+  return {
+    userEmail: userEmail.trim(),
+    ...(typeof oauthClientId === "string" && oauthClientId
+      ? { oauthClientId }
+      : {}),
+  };
 }
 
 export function markExplicitPersonalOrgScope(event: {

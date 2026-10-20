@@ -1,6 +1,10 @@
 import type { OutsideSnapshot } from "./lib/in-page.ts";
 import { outsideChangesFor } from "./lib/metrics.ts";
-import { CouldNotRun, getHarnessUnavailableError } from "./run-outcomes.ts";
+import {
+  AuthoringFuzzStallError,
+  CouldNotRun,
+  getHarnessUnavailableError,
+} from "./run-outcomes.ts";
 
 export const AUTHORING_FUZZ_STYLE_PROPERTIES = [
   "font-family",
@@ -173,6 +177,25 @@ export function authoringFuzzBrowserSessionResponse(
   return null;
 }
 
+export function redactBrowserSessionRequestPath(pathname: string) {
+  return pathname.replace(
+    /^\/_agent-native\/browser-sessions\/[^/]+(?=\/|$)/,
+    "/_agent-native/browser-sessions/:session",
+  );
+}
+
+export function redactBrowserSessionSensitiveText(value: string) {
+  return value
+    .replace(
+      /(\/_agent-native\/browser-sessions\/)[^/?#\s"'<>]+/g,
+      "$1:session",
+    )
+    .replace(
+      /("(?:requestSessionId|retiredSessionId|sessionId)"\s*:\s*)"[^"]*"/g,
+      '$1"[redacted]"',
+    );
+}
+
 export function authoringFuzzBrowserSessionCorsHeaders(
   origin?: string,
 ): Record<string, string> {
@@ -281,6 +304,67 @@ function browserSessionClaimId(pathname: string) {
   )?.[1];
 }
 
+type BrowserSessionHeartbeatIdentity =
+  | { status: "identified"; sessionId: string }
+  | { status: "invalid"; reason: "malformed-heartbeat" };
+
+function browserSessionHeartbeatIdentity(
+  method: string,
+  pathname: string,
+): BrowserSessionHeartbeatIdentity | null {
+  if (method !== "POST") return null;
+  const encodedId =
+    /^\/_agent-native\/browser-sessions\/([^/]+)\/heartbeat$/.exec(
+      pathname,
+    )?.[1];
+  if (!encodedId) return null;
+  try {
+    return { status: "identified", sessionId: decodeURIComponent(encodedId) };
+  } catch (error) {
+    if (error instanceof URIError) {
+      return { status: "invalid", reason: "malformed-heartbeat" };
+    }
+    throw error;
+  }
+}
+
+function matchesRetiredSessionHeartbeat(
+  method: string,
+  pathname: string,
+  requestSessionId: string | null | undefined,
+  retiredSessionId: string | null | undefined,
+  competingSameTypeRequest = false,
+  competingRegistrationStartedAfterNavigation = false,
+) {
+  const heartbeat = browserSessionHeartbeatIdentity(method, pathname);
+  return (
+    heartbeat?.status === "identified" &&
+    requestSessionId === heartbeat.sessionId &&
+    retiredSessionId === heartbeat.sessionId &&
+    !competingSameTypeRequest &&
+    !competingRegistrationStartedAfterNavigation
+  );
+}
+
+function matchesRetiredSessionRegistration(
+  method: string,
+  pathname: string,
+  requestSessionId: string | null | undefined,
+  retiredSessionId: string | null | undefined,
+  competingSameTypeRequest: boolean | undefined,
+  competingRegistrationStartedAfterNavigation: boolean | undefined,
+) {
+  return (
+    method === "POST" &&
+    pathname === "/_agent-native/browser-sessions" &&
+    requestSessionId !== null &&
+    requestSessionId !== undefined &&
+    requestSessionId === retiredSessionId &&
+    competingSameTypeRequest === false &&
+    competingRegistrationStartedAfterNavigation === false
+  );
+}
+
 export function uniquePendingBrowserSessionId(
   claims: readonly { method: string; pathname: string }[],
 ) {
@@ -354,15 +438,245 @@ type SaveReloadRequestAbortRule = {
   path: string | RegExp;
   method?: string;
   errorTexts: readonly string[];
+  maxRequestAgeMs?: number | null;
 };
 
 const navigationAbortErrors = ["NS_BINDING_ABORTED", "net::ERR_ABORTED"];
+const readOnlyStatusProbePaths: readonly string[] = [
+  "/_agent-native/actions/get-lab-states",
+  "/_agent-native/actions/get-deck-access-status",
+];
+
+type ReadOnlyStatusProbeNavigationEvidence = {
+  requestStartedAt: number;
+  requestSourceIsMainFrame: boolean;
+  requestFrameUrl: string | null;
+  reloadNavigationStartedAt: number | null;
+  outgoingDocumentUrl: string | null;
+  requestWasPendingAtReloadNavigation: boolean;
+  mainFrameNavigationStartedAt: number | null;
+  mainFrameNavigationUrl: string | null;
+  mainFrameNavigationCommittedAtAtRequest: number | null;
+  mainFrameNavigationCommittedAt: number | null;
+  failedAt: number;
+};
+
+type WatchedRequestDetails = {
+  requestSequence: number;
+  resourceType: string;
+  requestSourceIsMainFrame: boolean;
+  requestFrameUrl: string | null;
+  mainFrameNavigationStartedAt: number | null;
+  mainFrameNavigationRequestSequence: number | null;
+  mainFrameNavigationUrl: string | null;
+  mainFrameNavigationCommittedAt: number | null;
+  reloadNavigationStartedAt: number | null;
+  outgoingDocumentUrl: string | null;
+};
+
+function isSameDeckNavigationUrl(
+  value: string | null,
+  outgoing: string | null,
+) {
+  if (!value || !outgoing || !URL.canParse(value) || !URL.canParse(outgoing)) {
+    return false;
+  }
+  const navigationUrl = new URL(value);
+  const outgoingUrl = new URL(outgoing);
+  if (!navigationUrl.pathname.startsWith("/deck/")) return false;
+  navigationUrl.hash = "";
+  outgoingUrl.hash = "";
+  navigationUrl.searchParams.delete("slide");
+  outgoingUrl.searchParams.delete("slide");
+  return navigationUrl.href === outgoingUrl.href;
+}
+
+// A status probe is ignorable only when the failed request came from the outgoing
+// document and failed alongside the matching main-frame reload navigation.
+export function isExpectedReadOnlyStatusProbeAbort(
+  method: string,
+  pathname: string,
+  errorText: string,
+  activePhase: string,
+  requestSameOrigin: boolean,
+  requestAgeMs: number,
+  navigation: ReadOnlyStatusProbeNavigationEvidence | null,
+) {
+  return (
+    navigationAbortErrors.includes(errorText) &&
+    isExpectedReadOnlyStatusProbeNavigation(
+      method,
+      pathname,
+      activePhase,
+      requestSameOrigin,
+      requestAgeMs,
+      navigation,
+    )
+  );
+}
+
+function isExpectedReadOnlyStatusProbeNavigation(
+  method: string,
+  pathname: string,
+  activePhase: string,
+  requestSameOrigin: boolean,
+  requestAgeMs: number,
+  navigation: ReadOnlyStatusProbeNavigationEvidence | null,
+) {
+  const navigationStartedForReload =
+    navigation?.reloadNavigationStartedAt !== null &&
+    navigation?.reloadNavigationStartedAt !== undefined &&
+    navigation?.mainFrameNavigationStartedAt !== null &&
+    navigation?.mainFrameNavigationStartedAt !== undefined &&
+    navigation.mainFrameNavigationStartedAt >=
+      navigation.reloadNavigationStartedAt &&
+    isSameDeckNavigationUrl(
+      navigation.mainFrameNavigationUrl,
+      navigation.outgoingDocumentUrl,
+    );
+  const requestBelongsToOutgoingDocument =
+    navigation?.requestSourceIsMainFrame === true &&
+    isSameDeckNavigationUrl(
+      navigation.requestFrameUrl,
+      navigation.outgoingDocumentUrl,
+    );
+  const requestStartedDuringOutgoingReload =
+    navigation !== null &&
+    navigation.reloadNavigationStartedAt !== null &&
+    navigation.requestStartedAt >= navigation.reloadNavigationStartedAt &&
+    navigation.mainFrameNavigationCommittedAtAtRequest === null;
+  const failedAlongsideNavigation =
+    navigationStartedForReload &&
+    navigation !== null &&
+    (Math.abs(navigation.failedAt - navigation.mainFrameNavigationStartedAt!) <=
+      outgoingBrowserSessionAbortWindowMs ||
+      (navigation.mainFrameNavigationCommittedAt !== null &&
+        Math.abs(
+          navigation.failedAt - navigation.mainFrameNavigationCommittedAt,
+        ) <= outgoingBrowserSessionAbortWindowMs));
+
+  return (
+    activePhase === "save/reload" &&
+    method === "GET" &&
+    requestSameOrigin &&
+    readOnlyStatusProbePaths.includes(pathname) &&
+    requestAgeMs >= 0 &&
+    requestAgeMs < reloadNavigationAbortMaxRequestAgeMs &&
+    navigation !== null &&
+    (navigation.requestWasPendingAtReloadNavigation ||
+      requestStartedDuringOutgoingReload) &&
+    requestBelongsToOutgoingDocument &&
+    failedAlongsideNavigation
+  );
+}
+
+export function isExpectedReadOnlyStatusProbeCorsConsoleError(
+  message: string,
+  activePhase: string,
+  candidates: Array<{
+    url: string;
+    pathname: string;
+    method: string;
+    ageMs: number;
+    sameOrigin: boolean;
+    observedAt: number;
+    navigation: ReadOnlyStatusProbeNavigationEvidence;
+  }>,
+  now: number,
+) {
+  const corsUrl =
+    /^Fetch API cannot load (https?:\/\/\S+) due to access control checks\.(?:\s+at\b[\s\S]*)?$/.exec(
+      message,
+    )?.[1] ?? null;
+  if (!corsUrl) return false;
+
+  return (
+    candidates.filter(
+      (candidate) =>
+        candidate.url === corsUrl &&
+        now >= candidate.observedAt &&
+        now - candidate.observedAt < reloadNavigationConsoleGraceMs &&
+        isExpectedReadOnlyStatusProbeNavigation(
+          candidate.method,
+          candidate.pathname,
+          activePhase,
+          candidate.sameOrigin,
+          candidate.ageMs,
+          candidate.navigation,
+        ),
+    ).length === 1
+  );
+}
 // Browser-session requests abort after at least ten seconds; leave timer slack.
 const reloadNavigationAbortMaxRequestAgeMs = 9_000;
+const reloadActionAbortMaxRequestAgeMs = 250;
+const reloadActionAbortRecoveryWindowMs = 1_000;
 const reloadNavigationConsoleGraceMs = 1_000;
-const retiredBrowserSessionPollConsoleGraceMs = 250;
+// The default client abort timer is ten seconds; allow delivery slack for a
+// browser-session request that was still pending when cleanup navigation began.
+const cleanupNavigationBrowserSessionMaxRequestAgeMs =
+  10_000 + reloadNavigationConsoleGraceMs;
+
+export function isRecentReadOnlyStatusProbeSettle(
+  settledAt: number,
+  failedAt: number,
+) {
+  return (
+    Number.isFinite(settledAt) &&
+    Number.isFinite(failedAt) &&
+    failedAt >= settledAt &&
+    failedAt - settledAt < reloadNavigationConsoleGraceMs
+  );
+}
+
+export function readOnlyStatusProbeFailureEvidence<T>(
+  activeEvidence: { startedAt: number; details: T } | undefined,
+  settledEvidence:
+    | { startedAt: number; settledAt: number; details: T }
+    | undefined,
+  failedAt: number,
+) {
+  if (activeEvidence) return activeEvidence;
+  if (
+    !settledEvidence ||
+    !isRecentReadOnlyStatusProbeSettle(settledEvidence.settledAt, failedAt)
+  ) {
+    return undefined;
+  }
+  return {
+    startedAt: settledEvidence.startedAt,
+    details: settledEvidence.details,
+  };
+}
+
+export const retiredBrowserSessionPollConsoleGraceMs = 250;
+// A matching page error can arrive during one grace window, then inspection takes another.
+const cleanupRecoveryClaimEvidenceRetentionMs =
+  retiredBrowserSessionPollConsoleGraceMs * 2;
 const reloadNavigationSuccessfulClaimGraceMs = 250;
 const outgoingBrowserSessionAbortWindowMs = 1_000;
+const authoringFuzzStepStallTimeoutMs = 120_000;
+const authoringFuzzHistoryStallTimeoutMs = 20 * 60_000;
+const authoringFuzzPersistenceStallTimeoutMs = 10 * 60_000;
+
+export function authoringFuzzStallTimeoutMs(phase: string) {
+  if (phase === "undo-all" || phase === "redo-all")
+    return authoringFuzzHistoryStallTimeoutMs;
+  if (phase === "save/reload") return authoringFuzzPersistenceStallTimeoutMs;
+  return authoringFuzzStepStallTimeoutMs;
+}
+
+export function authoringFuzzStallExpired(
+  phase: string,
+  phaseStartedAt: number,
+  now: number,
+) {
+  return now - phaseStartedAt >= authoringFuzzStallTimeoutMs(phase);
+}
+
+export function assertAuthoringFuzzDidNotStall(stallError: Error | null) {
+  if (stallError) throw stallError;
+}
 
 const browserSessionRegistrationRequestRule: SaveReloadRequestAbortRule = {
   path: "/_agent-native/browser-sessions",
@@ -376,17 +690,22 @@ const browserSessionClaimRequestRule: SaveReloadRequestAbortRule = {
   errorTexts: ["Load request cancelled", "cancelled", ...navigationAbortErrors],
 };
 
+const browserSessionHeartbeatRequestRule: SaveReloadRequestAbortRule = {
+  path: /^\/_agent-native\/browser-sessions\/[^/]+\/heartbeat$/,
+  method: "POST",
+  errorTexts: ["Load request cancelled", "cancelled", ...navigationAbortErrors],
+};
+
+const cleanupPollRequestRule: SaveReloadRequestAbortRule = {
+  path: "/_agent-native/poll",
+  method: "GET",
+  errorTexts: ["Load request cancelled", "cancelled", ...navigationAbortErrors],
+};
+
 const saveReloadRequestAbortRules: readonly SaveReloadRequestAbortRule[] = [
-  {
-    path: "/_agent-native/actions/get-lab-states",
-    errorTexts: navigationAbortErrors,
-  },
-  {
-    path: "/_agent-native/actions/get-deck-access-status",
-    errorTexts: navigationAbortErrors,
-  },
   browserSessionRegistrationRequestRule,
   browserSessionClaimRequestRule,
+  browserSessionHeartbeatRequestRule,
 ];
 
 export function isExpectedSaveReloadWatchedRequestAbort(
@@ -399,15 +718,23 @@ export function isExpectedSaveReloadWatchedRequestAbort(
   requestStartedDuringNavigation = false,
   competingClaimStartedAfterNavigation = false,
   requestSameOrigin = false,
+  sessionCorrelation?: {
+    requestSessionId: string | null;
+    retiredSessionId: string | null;
+    competingSameTypeRequest: boolean;
+    competingRegistrationStartedAfterNavigation?: boolean;
+  },
 ) {
+  const pendingAtNavigation = requestWasPendingAtReloadNavigation;
+
   return (
     activePhase === "save/reload" &&
     requestSameOrigin &&
-    requestWasPendingAtReloadNavigation &&
+    pendingAtNavigation &&
     !requestStartedDuringNavigation &&
     !competingClaimStartedAfterNavigation &&
+    Number.isFinite(requestAgeMs) &&
     requestAgeMs >= 0 &&
-    requestAgeMs < reloadNavigationAbortMaxRequestAgeMs &&
     saveReloadRequestAbortRules.some((rule) => {
       const matchesPath =
         typeof rule.path === "string"
@@ -416,15 +743,131 @@ export function isExpectedSaveReloadWatchedRequestAbort(
       return (
         matchesPath &&
         (!rule.method || rule.method === method) &&
-        rule.errorTexts.includes(errorText)
+        rule.errorTexts.includes(errorText) &&
+        isWithinWatchedRequestAgeLimit(requestAgeMs, rule) &&
+        (rule !== browserSessionHeartbeatRequestRule ||
+          matchesRetiredSessionHeartbeat(
+            method ?? "",
+            pathname,
+            sessionCorrelation?.requestSessionId,
+            sessionCorrelation?.retiredSessionId,
+            sessionCorrelation?.competingSameTypeRequest,
+            sessionCorrelation?.competingRegistrationStartedAfterNavigation,
+          )) &&
+        (rule !== browserSessionRegistrationRequestRule ||
+          matchesRetiredSessionRegistration(
+            method ?? "",
+            pathname,
+            sessionCorrelation?.requestSessionId,
+            sessionCorrelation?.retiredSessionId,
+            sessionCorrelation?.competingSameTypeRequest,
+            sessionCorrelation?.competingRegistrationStartedAfterNavigation,
+          ))
       );
     })
   );
 }
 
+export function isRecoverableSaveReloadActionAbortCandidate(candidate: {
+  pathname: string;
+  method: string;
+  errorText: string;
+  activePhase: string;
+  requestStartedAt: number | null;
+  failedAt: number;
+  reloadStartedAt: number | null;
+  sameOrigin: boolean;
+}) {
+  return (
+    candidate.pathname === "/_agent-native/actions/get-deck-access-status" &&
+    candidate.method === "GET" &&
+    candidate.errorText === "net::ERR_ABORTED" &&
+    candidate.activePhase === "save/reload" &&
+    candidate.sameOrigin &&
+    candidate.requestStartedAt !== null &&
+    candidate.reloadStartedAt !== null &&
+    candidate.requestStartedAt >= candidate.reloadStartedAt &&
+    candidate.requestStartedAt - candidate.reloadStartedAt <
+      reloadNavigationAbortMaxRequestAgeMs &&
+    candidate.failedAt >= candidate.requestStartedAt &&
+    candidate.failedAt - candidate.requestStartedAt <=
+      reloadActionAbortMaxRequestAgeMs
+  );
+}
+
+export function isRecoveredSaveReloadActionAbort(
+  aborted: { url: string; failedAt: number },
+  retry: {
+    url: string;
+    method: string;
+    requestStartedAt: number | null;
+    responseAt: number;
+    status: number;
+  },
+) {
+  return (
+    retry.url === aborted.url &&
+    retry.method === "GET" &&
+    retry.requestStartedAt !== null &&
+    retry.requestStartedAt >= aborted.failedAt &&
+    retry.responseAt >= retry.requestStartedAt &&
+    retry.responseAt - aborted.failedAt <= reloadActionAbortRecoveryWindowMs &&
+    retry.status >= 200 &&
+    retry.status < 300
+  );
+}
+
+export async function waitForPendingSaveReloadActionAbortRecoveries(
+  pending: Map<string, { failedAt: number; message: string }>,
+) {
+  const errors: string[] = [];
+  while (pending.size > 0) {
+    const nextFailureAt = Math.min(
+      ...Array.from(
+        pending.values(),
+        (candidate) =>
+          candidate.failedAt + reloadActionAbortRecoveryWindowMs + 1,
+      ),
+    );
+    const waitMs = nextFailureAt - Date.now();
+    if (waitMs > 0) {
+      await new Promise<void>((resolve) => setTimeout(resolve, waitMs));
+    }
+
+    const now = Date.now();
+    for (const [url, candidate] of pending) {
+      if (now - candidate.failedAt <= reloadActionAbortRecoveryWindowMs) {
+        continue;
+      }
+      errors.push(candidate.message);
+      pending.delete(url);
+    }
+  }
+  return errors;
+}
+
+function isWithinWatchedRequestAgeLimit(
+  requestAgeMs: number,
+  rule: SaveReloadRequestAbortRule,
+  defaultMaxRequestAgeMs = reloadNavigationAbortMaxRequestAgeMs,
+) {
+  const requestAgeLimitMs =
+    rule.maxRequestAgeMs === null
+      ? defaultMaxRequestAgeMs
+      : (rule.maxRequestAgeMs ?? defaultMaxRequestAgeMs);
+  return (
+    Number.isFinite(requestAgeMs) &&
+    requestAgeMs >= 0 &&
+    requestAgeMs < requestAgeLimitMs
+  );
+}
 function browserSessionNavigationRequestKind(method: string, pathname: string) {
   if (isBrowserSessionClaimRequest(method, pathname)) return "poll" as const;
-  if (method === "POST" && pathname === "/_agent-native/browser-sessions") {
+  const heartbeat = browserSessionHeartbeatIdentity(method, pathname);
+  if (
+    method === "POST" &&
+    (pathname === "/_agent-native/browser-sessions" || heartbeat !== null)
+  ) {
     return "heartbeat" as const;
   }
   return null;
@@ -436,13 +879,17 @@ type BrowserSessionNavigationRequestIdentity =
       kind: "poll" | "heartbeat";
       sessionId: string;
     }
-  | { status: "invalid"; reason: "malformed-registration" };
+  | {
+      status: "invalid";
+      reason: "malformed-registration" | "malformed-heartbeat";
+    };
 
 export function browserSessionNavigationRequestIdentity(
   method: string,
   pathname: string,
   postData: string | null,
 ): BrowserSessionNavigationRequestIdentity | null {
+  const heartbeat = browserSessionHeartbeatIdentity(method, pathname);
   const kind = browserSessionNavigationRequestKind(method, pathname);
   if (!kind) return null;
   const claimSessionId = browserSessionClaimId(pathname);
@@ -450,6 +897,11 @@ export function browserSessionNavigationRequestIdentity(
     return claimSessionId
       ? { status: "identified", kind, sessionId: claimSessionId }
       : null;
+  if (heartbeat?.status === "invalid") return heartbeat;
+  if (heartbeat?.status === "identified") {
+    return { status: "identified", kind, sessionId: heartbeat.sessionId };
+  }
+  if (pathname !== "/_agent-native/browser-sessions") return null;
   if (postData === null) {
     return { status: "invalid", reason: "malformed-registration" };
   }
@@ -498,6 +950,100 @@ export function browserSessionNavigationRequestIdentity(
   return { status: "identified", kind, sessionId: sessionIds[0] };
 }
 
+export function cleanupNavigationSessionRequestKeys(identity: {
+  kind: "poll" | "heartbeat";
+  sessionId: string;
+  pathname: string;
+}) {
+  const keys = [`${identity.kind}:${identity.sessionId}`];
+  if (
+    identity.kind === "heartbeat" &&
+    identity.pathname === "/_agent-native/browser-sessions"
+  ) {
+    keys.push("heartbeat:registration");
+  }
+  return keys;
+}
+
+export function cleanupNavigationSessionCorrelation(
+  identity: {
+    kind: "poll" | "heartbeat";
+    sessionId: string;
+  } | null,
+) {
+  return {
+    requestSessionId:
+      identity?.kind === "heartbeat" ? identity.sessionId : null,
+    retiredSessionId: identity?.sessionId ?? null,
+  };
+}
+
+export function recordCleanupNavigationSessionCompetitor(
+  request: object,
+  identity: {
+    kind: "poll" | "heartbeat";
+    sessionId: string;
+    pathname: string;
+  },
+  activeRequestsByKey: Map<string, Set<object>>,
+  keysByRequest: Map<object, string[]>,
+) {
+  const keys = cleanupNavigationSessionRequestKeys(identity);
+  keysByRequest.set(request, keys);
+  for (const key of keys) {
+    const requests = activeRequestsByKey.get(key) ?? new Set<object>();
+    requests.add(request);
+    activeRequestsByKey.set(key, requests);
+  }
+}
+
+export function removeCleanupNavigationSessionCompetitor(
+  request: object,
+  activeRequestsByKey: Map<string, Set<object>>,
+  keysByRequest: Map<object, string[]>,
+) {
+  const keys = keysByRequest.get(request);
+  if (!keys) return;
+  keysByRequest.delete(request);
+  for (const key of keys) {
+    const requests = activeRequestsByKey.get(key);
+    if (!requests) continue;
+    requests.delete(request);
+    if (requests.size === 0) activeRequestsByKey.delete(key);
+  }
+}
+
+export function hasActiveCleanupNavigationSessionCompetitor(
+  identity: {
+    kind: "poll" | "heartbeat";
+    sessionId: string;
+    pathname: string;
+  },
+  activeRequestsByKey: ReadonlyMap<string, ReadonlySet<unknown>>,
+) {
+  const keys = cleanupNavigationSessionRequestKeys(identity);
+  if (
+    identity.kind === "heartbeat" &&
+    identity.pathname !== "/_agent-native/browser-sessions"
+  ) {
+    keys.push("heartbeat:registration");
+  }
+  return keys.some((key) => (activeRequestsByKey.get(key)?.size ?? 0) > 0);
+}
+
+export function isCleanupNavigationCompetitionPage<T>(
+  requestPage: T,
+  cleanupNavigationPage: T | null,
+  cleanupNavigationStarted: boolean,
+) {
+  return cleanupNavigationStarted && requestPage === cleanupNavigationPage;
+}
+
+type IdentifiedBrowserSessionRequest = Extract<
+  NonNullable<ReturnType<typeof browserSessionNavigationRequestIdentity>>,
+  { status: "identified" }
+>;
+
 type OutgoingBrowserSessionNavigationAbort = {
   activePhase: string;
   method: string;
@@ -513,6 +1059,8 @@ type OutgoingBrowserSessionNavigationAbort = {
   requestSequence: number;
   mainFrameNavigationRequestSequence: number | null;
   requestStartedBeforeMainFrameCommit: boolean;
+  requestStartedDuringNavigation: boolean;
+  requestStartedBeforeReloadCommit: boolean;
   requestFailedAt: number;
   requestKind: "poll" | "heartbeat" | null;
   requestSessionId: string | null;
@@ -588,7 +1136,23 @@ export function isCompetingOutgoingBrowserSessionRequest(
   );
 }
 
-export function isExpectedOutgoingBrowserSessionNavigationAbort(
+export function isCompetingBrowserSessionRegistration(candidate: {
+  method: string;
+  pathname: string;
+  finishedSuccessfully: boolean;
+  requestStartedDuringNavigation: boolean;
+  requestStartedAfterNavigation: boolean;
+}) {
+  return (
+    candidate.method === "POST" &&
+    candidate.pathname === "/_agent-native/browser-sessions" &&
+    !candidate.finishedSuccessfully &&
+    (candidate.requestStartedDuringNavigation ||
+      candidate.requestStartedAfterNavigation)
+  );
+}
+
+function matchesOutgoingBrowserSessionAbortRequest(
   candidate: OutgoingBrowserSessionNavigationAbort,
 ) {
   const routeMatchesKind =
@@ -596,11 +1160,13 @@ export function isExpectedOutgoingBrowserSessionNavigationAbort(
       browserSessionClaimId(candidate.pathname) ===
         candidate.requestSessionId) ||
     (candidate.requestKind === "heartbeat" &&
-      candidate.pathname === "/_agent-native/browser-sessions");
-  const navigationOffsetMs =
-    candidate.mainFrameNavigationStartedAt === null
-      ? Number.POSITIVE_INFINITY
-      : candidate.requestStartedAt - candidate.mainFrameNavigationStartedAt;
+      (candidate.pathname === "/_agent-native/browser-sessions" ||
+        matchesRetiredSessionHeartbeat(
+          candidate.method,
+          candidate.pathname,
+          candidate.requestSessionId,
+          candidate.retiredSessionId,
+        )));
   const failureOffsetMs =
     candidate.requestFailedAt - candidate.requestStartedAt;
 
@@ -608,24 +1174,65 @@ export function isExpectedOutgoingBrowserSessionNavigationAbort(
     candidate.activePhase === "save/reload" &&
     candidate.method === "POST" &&
     (candidate.errorText === "NS_BINDING_ABORTED" ||
-      candidate.errorText === "net::ERR_ABORTED") &&
+      candidate.errorText === "net::ERR_ABORTED" ||
+      candidate.errorText === "Load request cancelled") &&
     candidate.sameOrigin &&
     candidate.resourceType === "fetch" &&
     candidate.requestSourceIsMainFrame &&
     normalizeDocumentUrl(candidate.requestFrameUrl) !== null &&
     normalizeDocumentUrl(candidate.requestFrameUrl) ===
       normalizeDocumentUrl(candidate.outgoingDocumentUrl) &&
-    navigationOffsetMs >= 0 &&
-    navigationOffsetMs < outgoingBrowserSessionAbortWindowMs &&
-    candidate.mainFrameNavigationRequestSequence !== null &&
-    candidate.requestSequence > candidate.mainFrameNavigationRequestSequence &&
-    candidate.requestStartedBeforeMainFrameCommit &&
     failureOffsetMs >= 0 &&
     failureOffsetMs < outgoingBrowserSessionAbortWindowMs &&
     candidate.requestSessionId !== null &&
     candidate.requestSessionId === candidate.retiredSessionId &&
     routeMatchesKind &&
     candidate.competingSameTypeRequest === false
+  );
+}
+
+export function isPendingOutgoingBrowserSessionNavigationAbort(
+  candidate: OutgoingBrowserSessionNavigationAbort,
+) {
+  return (
+    matchesOutgoingBrowserSessionAbortRequest(candidate) &&
+    candidate.mainFrameNavigationStartedAt === null &&
+    candidate.mainFrameNavigationRequestSequence === null &&
+    candidate.requestStartedDuringNavigation &&
+    candidate.requestStartedBeforeReloadCommit
+  );
+}
+
+export function isExpectedOutgoingBrowserSessionNavigationAbort(
+  candidate: OutgoingBrowserSessionNavigationAbort,
+) {
+  const navigationOffsetMs =
+    candidate.mainFrameNavigationStartedAt === null
+      ? Number.POSITIVE_INFINITY
+      : candidate.requestStartedAt - candidate.mainFrameNavigationStartedAt;
+  const failureAfterNavigationStartMs =
+    candidate.mainFrameNavigationStartedAt === null
+      ? Number.NEGATIVE_INFINITY
+      : candidate.requestFailedAt - candidate.mainFrameNavigationStartedAt;
+  const requestStartedBeforeNavigationRequest =
+    candidate.mainFrameNavigationRequestSequence !== null &&
+    candidate.mainFrameNavigationStartedAt !== null &&
+    candidate.requestSequence < candidate.mainFrameNavigationRequestSequence &&
+    candidate.requestStartedDuringNavigation &&
+    candidate.requestStartedBeforeReloadCommit &&
+    // Playwright may deliver this failure before its main-frame request event.
+    failureAfterNavigationStartMs > -outgoingBrowserSessionAbortWindowMs &&
+    failureAfterNavigationStartMs < outgoingBrowserSessionAbortWindowMs;
+  const requestStartedAfterNavigationRequest =
+    candidate.mainFrameNavigationRequestSequence !== null &&
+    candidate.requestSequence > candidate.mainFrameNavigationRequestSequence &&
+    candidate.requestStartedBeforeMainFrameCommit &&
+    navigationOffsetMs >= 0 &&
+    navigationOffsetMs < outgoingBrowserSessionAbortWindowMs;
+  return (
+    matchesOutgoingBrowserSessionAbortRequest(candidate) &&
+    (requestStartedBeforeNavigationRequest ||
+      requestStartedAfterNavigationRequest)
   );
 }
 
@@ -643,22 +1250,42 @@ type WatchedRequestNavigationCandidate = {
   completedBeforeNavigationAgeMs?: number;
   requestStartedDuringNavigation?: boolean;
   requestStartedAfterNavigation?: boolean;
+  requestStartedBeforeReloadCommit?: boolean;
   competingRequestStartedAfterNavigation?: boolean;
   competingClaimStartedAfterNavigation?: boolean;
+  competingSameUrlClaimStartedAfterNavigation?: boolean;
   competingRegistrationStartedAfterNavigation?: boolean;
   outgoingNavigationAbort?: boolean;
   outgoingRequestKind?: "poll" | "heartbeat";
   requestSessionId?: string | null;
   retiredSessionId?: string | null;
+  requestSourceIsMainFrame?: boolean;
+  requestFrameUrl?: string | null;
+  outgoingDocumentUrl?: string | null;
   outgoingAbortWarningAgeMs?: number;
   competingSameTypeRequest?: boolean;
 };
+
+function matchesRetiredRegistrationCandidate(
+  candidate: WatchedRequestNavigationCandidate,
+) {
+  return matchesRetiredSessionRegistration(
+    candidate.method,
+    candidate.pathname,
+    candidate.requestSessionId,
+    candidate.retiredSessionId,
+    candidate.competingSameTypeRequest,
+    candidate.competingRegistrationStartedAfterNavigation,
+  );
+}
 
 function isExpectedWatchedRequestNavigationAbort(
   candidate: WatchedRequestNavigationCandidate,
   rules: readonly SaveReloadRequestAbortRule[],
   allowFinishedRequestGrace = false,
   rejectCompetingClaim = false,
+  maxRequestAgeMs = reloadNavigationAbortMaxRequestAgeMs,
+  requireRegistrationIdentity = false,
 ) {
   return (
     candidate.requestWasPendingAtNavigation === true &&
@@ -678,7 +1305,7 @@ function isExpectedWatchedRequestNavigationAbort(
         candidate.settledAgeMs >= 0 &&
         candidate.settledAgeMs < reloadNavigationConsoleGraceMs)) &&
     candidate.ageMs >= 0 &&
-    candidate.ageMs < reloadNavigationAbortMaxRequestAgeMs &&
+    candidate.ageMs < maxRequestAgeMs &&
     (candidate.settledAgeMs === undefined ||
       (candidate.settledAgeMs >= 0 &&
         candidate.settledAgeMs < reloadNavigationConsoleGraceMs)) &&
@@ -687,7 +1314,27 @@ function isExpectedWatchedRequestNavigationAbort(
         typeof rule.path === "string"
           ? rule.path === candidate.pathname
           : rule.path.test(candidate.pathname);
-      return matchesPath && (!rule.method || rule.method === candidate.method);
+      return (
+        matchesPath &&
+        (!rule.method || rule.method === candidate.method) &&
+        isWithinWatchedRequestAgeLimit(
+          candidate.ageMs,
+          rule,
+          maxRequestAgeMs,
+        ) &&
+        (rule !== browserSessionHeartbeatRequestRule ||
+          matchesRetiredSessionHeartbeat(
+            candidate.method,
+            candidate.pathname,
+            candidate.requestSessionId,
+            candidate.retiredSessionId,
+            candidate.competingSameTypeRequest,
+            candidate.competingRegistrationStartedAfterNavigation,
+          )) &&
+        (rule !== browserSessionRegistrationRequestRule ||
+          !requireRegistrationIdentity ||
+          matchesRetiredRegistrationCandidate(candidate))
+      );
     })
   );
 }
@@ -701,7 +1348,12 @@ export function isExpectedWatchedRequestCorsError(
     activePhase === "save/reload"
       ? saveReloadRequestAbortRules
       : activePhase === "cleanup/navigation"
-        ? [browserSessionClaimRequestRule]
+        ? [
+            browserSessionRegistrationRequestRule,
+            browserSessionClaimRequestRule,
+            browserSessionHeartbeatRequestRule,
+            cleanupPollRequestRule,
+          ]
         : null;
   if (!rules) return false;
   const match =
@@ -711,16 +1363,37 @@ export function isExpectedWatchedRequestCorsError(
   if (!match) return false;
 
   return (
-    candidates.filter(
-      (candidate) =>
+    candidates.filter((candidate) => {
+      const isCleanupBrowserSessionRequest =
+        activePhase === "cleanup/navigation" &&
+        isBrowserSessionPath(candidate.pathname);
+      return (
         candidate.url === match[1] &&
+        (candidate.pathname !== "/_agent-native/poll" ||
+          (candidate.method === "GET" &&
+            candidate.requestSourceIsMainFrame === true &&
+            normalizeDocumentUrl(candidate.requestFrameUrl ?? null) !== null &&
+            normalizeDocumentUrl(candidate.requestFrameUrl ?? null) ===
+              normalizeDocumentUrl(candidate.outgoingDocumentUrl ?? null))) &&
         isExpectedWatchedRequestNavigationAbort(
-          candidate,
+          isCleanupBrowserSessionRequest
+            ? {
+                ...candidate,
+                competingClaimStartedAfterNavigation:
+                  candidate.competingSameUrlClaimStartedAfterNavigation ??
+                  candidate.competingClaimStartedAfterNavigation,
+              }
+            : candidate,
           rules,
           activePhase === "save/reload",
-          activePhase === "save/reload",
-        ),
-    ).length === 1
+          true,
+          isCleanupBrowserSessionRequest
+            ? cleanupNavigationBrowserSessionMaxRequestAgeMs
+            : reloadNavigationAbortMaxRequestAgeMs,
+          true,
+        )
+      );
+    }).length === 1
   );
 }
 
@@ -729,6 +1402,8 @@ function hasExactlyOneExpectedBrowserSessionAbort(
   rules: readonly SaveReloadRequestAbortRule[],
   allowFinishedRequestGrace = false,
   rejectCompetingClaim = false,
+  maxRequestAgeMs = reloadNavigationAbortMaxRequestAgeMs,
+  requireRegistrationIdentity = false,
 ) {
   return (
     candidates.filter((candidate) =>
@@ -737,6 +1412,8 @@ function hasExactlyOneExpectedBrowserSessionAbort(
         rules,
         allowFinishedRequestGrace,
         rejectCompetingClaim,
+        maxRequestAgeMs,
+        requireRegistrationIdentity,
       ),
     ).length === 1
   );
@@ -775,36 +1452,111 @@ function isExpectedCompletedClaimBeforeReload(
 
 function outgoingBrowserSessionWarningKind(message: string) {
   return message ===
-    "[Agent-Native browser session] poll failed: TypeError: NetworkError when attempting to fetch resource."
+    "[Agent-Native browser session] poll failed: TypeError: NetworkError when attempting to fetch resource." ||
+    message ===
+      "[Agent-Native browser session] poll failed: TypeError: Load failed"
     ? "poll"
     : message ===
-        "[Agent-Native browser session] heartbeat failed: TypeError: NetworkError when attempting to fetch resource."
+          "[Agent-Native browser session] heartbeat failed: TypeError: NetworkError when attempting to fetch resource." ||
+        message ===
+          "[Agent-Native browser session] heartbeat failed: TypeError: Load failed"
       ? "heartbeat"
       : null;
+}
+
+// Firefox can report a claim or registration the retired page sent as finished
+// (its response arrived) while that page's fetch still rejects with
+// NetworkError as the document is torn down. Playwright emits no requestfailed
+// for it, so it never becomes an outgoing abort and the warning would otherwise
+// be counted as an unexpected console error. A tab can keep its session id
+// across the reload, so the id alone does not say which document sent the
+// request: it was either in flight when the reload began, started before the
+// reloaded document committed, or completed just before navigation began.
+function isFinishedRetiredSessionRequest(
+  candidate: WatchedRequestNavigationCandidate,
+  requestKind: "poll" | "heartbeat",
+  evaluationDelayMs: number,
+) {
+  const completedImmediatelyBeforeNavigation =
+    candidate.completedSuccessfullyBeforeNavigation === true &&
+    candidate.requestWasPendingAtNavigation === false &&
+    candidate.requestStartedDuringNavigation !== true &&
+    candidate.requestStartedAfterNavigation !== true &&
+    candidate.completedBeforeNavigationAgeMs !== undefined &&
+    candidate.completedBeforeNavigationAgeMs >= 0 &&
+    candidate.completedBeforeNavigationAgeMs <
+      reloadNavigationSuccessfulClaimGraceMs;
+  return (
+    candidate.requestFinishedSuccessfully === true &&
+    (candidate.requestWasPendingAtNavigation === true ||
+      (candidate.requestStartedDuringNavigation === true &&
+        candidate.requestStartedBeforeReloadCommit === true) ||
+      completedImmediatelyBeforeNavigation) &&
+    candidate.outgoingRequestKind === requestKind &&
+    candidate.sameOrigin === true &&
+    candidate.requestSourceIsMainFrame === true &&
+    normalizeDocumentUrl(candidate.requestFrameUrl ?? null) !== null &&
+    normalizeDocumentUrl(candidate.requestFrameUrl ?? null) ===
+      normalizeDocumentUrl(candidate.outgoingDocumentUrl ?? null) &&
+    candidate.requestSessionId !== null &&
+    candidate.requestSessionId === candidate.retiredSessionId &&
+    (requestKind !== "heartbeat" ||
+      candidate.pathname !== "/_agent-native/browser-sessions" ||
+      matchesRetiredRegistrationCandidate(candidate)) &&
+    candidate.responseStatus !== undefined &&
+    candidate.responseStatus >= 200 &&
+    candidate.responseStatus < 300 &&
+    candidate.settledAgeMs !== undefined &&
+    // Ages are read when the candidates are evaluated, evaluationDelayMs after
+    // the warning (the grace wait), so both bounds shift by it: the request must
+    // have settled by the warning and within a second before it. One that
+    // settled after the warning cannot be what tore the warned fetch down.
+    candidate.settledAgeMs >= evaluationDelayMs &&
+    candidate.settledAgeMs <
+      reloadNavigationConsoleGraceMs + evaluationDelayMs &&
+    candidate.competingSameTypeRequest !== true
+  );
 }
 
 export function isExpectedSaveReloadBrowserSessionConsoleError(
   message: string,
   activePhase: string,
   candidates: WatchedRequestNavigationCandidate[],
+  // How long after the warning the candidates were read.
+  evaluationDelayMs = 0,
 ) {
   const outgoingRequestKind = outgoingBrowserSessionWarningKind(message);
   if (outgoingRequestKind) {
-    return (
-      activePhase === "save/reload" &&
-      candidates.filter(
-        (candidate) =>
-          candidate.outgoingNavigationAbort === true &&
-          candidate.outgoingRequestKind === outgoingRequestKind &&
-          candidate.requestSessionId !== null &&
-          candidate.requestSessionId === candidate.retiredSessionId &&
-          candidate.outgoingAbortWarningAgeMs !== undefined &&
-          candidate.outgoingAbortWarningAgeMs >= 0 &&
-          candidate.outgoingAbortWarningAgeMs <=
-            retiredBrowserSessionPollConsoleGraceMs &&
-          candidate.competingSameTypeRequest !== true,
-      ).length === 1
-    );
+    if (activePhase !== "save/reload") return false;
+    // A failed request is attributed to its warning one-to-one, so two are
+    // ambiguous. A finished one carries no such attribution, and the retired
+    // page keeps polling until the reloaded document commits, so any of them
+    // excuses the warning.
+    const aborted = candidates.filter(
+      (candidate) =>
+        candidate.outgoingNavigationAbort === true &&
+        candidate.outgoingRequestKind === outgoingRequestKind &&
+        candidate.requestSessionId !== null &&
+        candidate.requestSessionId === candidate.retiredSessionId &&
+        candidate.outgoingAbortWarningAgeMs !== undefined &&
+        candidate.outgoingAbortWarningAgeMs >= 0 &&
+        candidate.outgoingAbortWarningAgeMs <=
+          retiredBrowserSessionPollConsoleGraceMs &&
+        candidate.competingSameTypeRequest !== true &&
+        (candidate.outgoingRequestKind !== "heartbeat" ||
+          candidate.pathname !== "/_agent-native/browser-sessions" ||
+          matchesRetiredRegistrationCandidate(candidate)),
+    ).length;
+    if (aborted > 0) return aborted === 1;
+    if (!message.endsWith("TypeError: Load failed")) {
+      return candidates.some((candidate) =>
+        isFinishedRetiredSessionRequest(
+          candidate,
+          outgoingRequestKind,
+          evaluationDelayMs,
+        ),
+      );
+    }
   }
   const rules =
     message ===
@@ -831,6 +1583,8 @@ export function isExpectedSaveReloadBrowserSessionConsoleError(
       rules,
       isPollFailure,
       isPollFailure,
+      reloadNavigationAbortMaxRequestAgeMs,
+      true,
     ) ||
       (isPollFailure && completedClaimCount === 1 && claimCandidateCount === 1))
   );
@@ -840,16 +1594,23 @@ export async function isExpectedSaveReloadBrowserSessionConsoleErrorAfterGrace(
   message: string,
   activePhase: string,
   getCandidates: () => WatchedRequestNavigationCandidate[],
+  // When the warning was emitted; Firefox normalizes it asynchronously before
+  // this runs, so the caller's own timestamp is the accurate baseline.
+  warnedAt = Date.now(),
 ) {
   if (outgoingBrowserSessionWarningKind(message)) {
     await new Promise<void>((resolve) =>
       setTimeout(resolve, retiredBrowserSessionPollConsoleGraceMs),
     );
   }
+  // Taken just before the candidates are read, so their ages and this delay
+  // share one instant.
+  const evaluationDelayMs = Math.max(0, Date.now() - warnedAt);
   return isExpectedSaveReloadBrowserSessionConsoleError(
     message,
     activePhase,
     getCandidates(),
+    evaluationDelayMs,
   );
 }
 
@@ -1110,7 +1871,7 @@ export function createRetiredBrowserSessionErrorCorrelator() {
 }
 
 export function isFirefoxBrowserSessionConsoleError(message: string) {
-  return /^\[Agent-Native browser session\] (?:poll|heartbeat) failed: JSHandle@object$/.test(
+  return /^\[Agent-Native browser session\] (?:poll|heartbeat) failed: (?:JSHandle@object|Error)$/.test(
     message,
   );
 }
@@ -1130,7 +1891,7 @@ export async function normalizeFirefoxBrowserSessionConsoleError(
 ) {
   const text = message.text();
   const match =
-    /^\[Agent-Native browser session\] (poll|heartbeat) failed: JSHandle@object$/.exec(
+    /^\[Agent-Native browser session\] (poll|heartbeat) failed: (?:JSHandle@object|Error)$/.exec(
       text,
     );
   if (!match) return text;
@@ -1141,7 +1902,18 @@ export async function normalizeFirefoxBrowserSessionConsoleError(
     const prefix = `[Agent-Native browser session] ${match[1]} failed:`;
     const [loggedPrefix, detail] = await Promise.all([
       args[0].jsonValue(),
-      args[1].evaluate((error) => String(error)),
+      args[1].evaluate((error) => {
+        if (error && typeof error === "object") {
+          const value = error as { name?: unknown; message?: unknown };
+          const name =
+            typeof value.name === "string" && value.name.length > 0
+              ? value.name
+              : "Error";
+          const detail = typeof value.message === "string" ? value.message : "";
+          return detail ? `${name}: ${detail}` : name;
+        }
+        return String(error);
+      }),
     ]);
     if (loggedPrefix !== prefix) return text;
     return typeof detail === "string" ? `${prefix} ${detail}` : text;
@@ -1154,15 +1926,132 @@ export function isExpectedCleanupBrowserSessionPollConsoleError(
   message: string,
   candidates: WatchedRequestNavigationCandidate[],
 ) {
+  const possibleClaims = candidates.filter((candidate) =>
+    isBrowserSessionClaimRequest(candidate.method, candidate.pathname),
+  );
   return (
     message ===
       "[Agent-Native browser session] poll failed: TypeError: Load failed" &&
-    !candidates.some(
-      (candidate) => candidate.competingClaimStartedAfterNavigation === true,
+    possibleClaims.length === 1 &&
+    hasExactlyOneExpectedBrowserSessionAbort(
+      candidates,
+      [browserSessionClaimRequestRule],
+      false,
+      true,
+      cleanupNavigationBrowserSessionMaxRequestAgeMs,
+    )
+  );
+}
+
+export function isPotentialCleanupRecoveryPageBrowserSessionError(
+  message: string,
+) {
+  if (
+    message ===
+    "[Agent-Native browser session] poll failed: TypeError: Load failed"
+  ) {
+    return true;
+  }
+
+  const corsUrl =
+    /^Fetch API cannot load (https?:\/\/\S+) due to access control checks\.(?:\s+at\b[\s\S]*)?$/.exec(
+      message,
+    )?.[1] ?? null;
+  if (corsUrl === null) return false;
+
+  if (!URL.canParse(corsUrl)) return false;
+  return /^\/_agent-native\/browser-sessions\/[^/]+\/requests\/claim$/.test(
+    new URL(corsUrl).pathname,
+  );
+}
+
+export function isWithinCleanupRecoveryClaimCorrelationWindow(
+  failedAt: number,
+  pageErrorAt: number,
+) {
+  return (
+    Math.abs(failedAt - pageErrorAt) <= retiredBrowserSessionPollConsoleGraceMs
+  );
+}
+
+export function cleanupRecoveryClaimRequestAgeMs(
+  startedAt: number,
+  pageErrorAt: number,
+) {
+  return pageErrorAt - startedAt;
+}
+
+export function shouldRetainCleanupRecoveryClaimEvidence(
+  failedAt: number,
+  now: number,
+  pendingPageErrorAts: readonly number[],
+) {
+  return (
+    now - failedAt <= cleanupRecoveryClaimEvidenceRetentionMs ||
+    pendingPageErrorAts.some((pageErrorAt) =>
+      isWithinCleanupRecoveryClaimCorrelationWindow(failedAt, pageErrorAt),
+    )
+  );
+}
+
+export function isExpectedCleanupRecoveryPageBrowserSessionError(
+  message: string,
+  candidates: Array<{
+    url: string;
+    pathname: string;
+    method: string;
+    sessionId: string;
+    requestAgeMs: number;
+    failureOffsetMs: number;
+    sameOrigin: boolean;
+    competingClaimStartedAfterFailure: boolean;
+    competingClaimPendingAtFailure: boolean;
+    competingSameUrlClaimStartedAfterFailure: boolean;
+    competingSameUrlClaimPendingAtFailure: boolean;
+    requestWasPendingAtNavigation: boolean;
+  }>,
+) {
+  const corsUrl =
+    /^Fetch API cannot load (https?:\/\/\S+) due to access control checks\.(?:\s+at\b[\s\S]*)?$/.exec(
+      message,
+    )?.[1] ?? null;
+  const knownFailure =
+    message ===
+      "[Agent-Native browser session] poll failed: TypeError: Load failed" ||
+    corsUrl !== null;
+  if (!knownFailure) return false;
+  const taggedPoll =
+    message ===
+    "[Agent-Native browser session] poll failed: TypeError: Load failed";
+  const matchingCandidates = corsUrl
+    ? candidates.filter((candidate) => candidate.url === corsUrl)
+    : candidates;
+  if (matchingCandidates.length !== 1) return false;
+  const [candidate] = matchingCandidates;
+  if (!candidate) return false;
+  const competingClaimStarted = corsUrl
+    ? candidate.competingSameUrlClaimStartedAfterFailure
+    : candidate.competingClaimStartedAfterFailure;
+  const competingClaimPending = corsUrl
+    ? candidate.competingSameUrlClaimPendingAtFailure
+    : candidate.competingClaimPendingAtFailure;
+
+  return (
+    candidate.method === "POST" &&
+    /^\/_agent-native\/browser-sessions\/[^/]+\/requests\/claim$/.test(
+      candidate.pathname,
     ) &&
-    hasExactlyOneExpectedBrowserSessionAbort(candidates, [
-      browserSessionClaimRequestRule,
-    ])
+    candidate.requestWasPendingAtNavigation &&
+    (candidate.sameOrigin ||
+      taggedPoll ||
+      (corsUrl !== null && candidate.url === corsUrl)) &&
+    !competingClaimStarted &&
+    !competingClaimPending &&
+    candidate.requestAgeMs >= 0 &&
+    candidate.requestAgeMs < cleanupNavigationBrowserSessionMaxRequestAgeMs &&
+    candidate.failureOffsetMs >= -retiredBrowserSessionPollConsoleGraceMs &&
+    candidate.failureOffsetMs <= retiredBrowserSessionPollConsoleGraceMs &&
+    (corsUrl === null || candidate.url === corsUrl)
   );
 }
 
@@ -1177,9 +2066,17 @@ export function isExpectedCleanupBrowserSessionHeartbeatConsoleError(
       (candidate) =>
         candidate.competingRegistrationStartedAfterNavigation === true,
     ) &&
-    hasExactlyOneExpectedBrowserSessionAbort(candidates, [
-      browserSessionRegistrationRequestRule,
-    ])
+    hasExactlyOneExpectedBrowserSessionAbort(
+      candidates,
+      [
+        browserSessionRegistrationRequestRule,
+        browserSessionHeartbeatRequestRule,
+      ],
+      false,
+      false,
+      cleanupNavigationBrowserSessionMaxRequestAgeMs,
+      true,
+    )
   );
 }
 
@@ -1217,6 +2114,10 @@ export function isExpectedSaveReloadWatchedRequestCorsConsoleError(
     requestFinishedSuccessfully?: boolean;
     competingRequestStartedAfterNavigation?: boolean;
     competingClaimStartedAfterNavigation?: boolean;
+    requestSessionId?: string | null;
+    retiredSessionId?: string | null;
+    competingSameTypeRequest?: boolean;
+    competingRegistrationStartedAfterNavigation?: boolean;
   }>,
 ) {
   if (activePhase !== "save/reload") return false;
@@ -1433,6 +2334,35 @@ export interface AuthoringFuzzPersistence {
   reloadedHtml: string;
 }
 
+export function authoringFuzzListTagForOperation(
+  operation: AuthoringFuzzOperation,
+): "OL" | "UL" | null {
+  if (operation.kind === "list") {
+    return operation.value === "ul"
+      ? "UL"
+      : operation.value === "ol"
+        ? "OL"
+        : null;
+  }
+  if (operation.kind === "slash") {
+    return operation.value === "bulletList"
+      ? "UL"
+      : operation.value === "orderedList"
+        ? "OL"
+        : null;
+  }
+  return operation.kind === "shortcut" && operation.result === "ordered"
+    ? "OL"
+    : null;
+}
+
+export function authoringFuzzPrecedingListMergePreservesIdentity(
+  candidateId: string,
+  resultId: string | null,
+) {
+  return resultId === candidateId;
+}
+
 export async function canonicalizeAuthoringFuzzPersistence(
   persistence: AuthoringFuzzPersistence,
   canonicalize: (html: string) => string | Promise<string>,
@@ -1500,6 +2430,20 @@ export function assertByteIdenticalHtml(
   }
 }
 
+export function requireUndoHistoryStats(
+  stats: Record<string, unknown> | null,
+): Record<string, unknown> {
+  if (!stats || typeof stats.initialStateEvicted !== "boolean") {
+    throw new Error(
+      "authoring fuzz could not inspect undo history before undo-all",
+    );
+  }
+  if (stats.initialStateEvicted) {
+    throw new Error("undo history evicted the original state before undo-all");
+  }
+  return stats;
+}
+
 export function assertAuthoringPersistence(
   persistence: AuthoringFuzzPersistence,
 ) {
@@ -1545,6 +2489,75 @@ const SLASH_COMMANDS = [
   ["quote", "quote"],
   ["divider", "divider"],
 ] as const;
+
+export function isControlledSlashMenuStateReady(state: {
+  listboxRole: string | null;
+  activeRole: string | null;
+  contained: boolean;
+  listboxVisible: boolean;
+  activeVisible: boolean;
+}) {
+  return (
+    state.listboxRole === "listbox" &&
+    state.activeRole === "option" &&
+    state.contained &&
+    state.listboxVisible &&
+    state.activeVisible
+  );
+}
+
+export function controlledSlashMenuIdWhenReady(state: {
+  controls: string | null;
+  listboxRole: string | null;
+  activeRole: string | null;
+  contained: boolean;
+  listboxVisible: boolean;
+  activeVisible: boolean;
+}) {
+  return isControlledSlashMenuStateReady(state) && state.controls
+    ? state.controls
+    : null;
+}
+
+export function isSlashCommandNavigationStateReady(
+  state: {
+    current: string | null;
+    listboxRole: string | null;
+    activeRole: string | null;
+    contained: boolean;
+    listboxVisible: boolean;
+    activeVisible: boolean;
+  },
+  expectedCommand: string,
+) {
+  return (
+    state.current === expectedCommand &&
+    state.listboxRole === "listbox" &&
+    state.activeRole === "option" &&
+    state.contained &&
+    state.listboxVisible &&
+    state.activeVisible
+  );
+}
+
+export function authoringFuzzSlashArrowDownCount(
+  activeCommand: string | null,
+  targetCommand: string,
+) {
+  const activeIndex = SLASH_COMMANDS.findIndex(
+    ([value]) => value === activeCommand,
+  );
+  const targetIndex = SLASH_COMMANDS.findIndex(
+    ([value]) => value === targetCommand,
+  );
+  if (activeIndex < 0)
+    throw new Error("slash menu did not expose its active command");
+  if (targetIndex < 0)
+    throw new Error(`unknown slash command ${targetCommand}`);
+  return (
+    (targetIndex - activeIndex + SLASH_COMMANDS.length) % SLASH_COMMANDS.length
+  );
+}
 
 const RANDOM_KINDS: AuthoringFuzzOperation["kind"][] = [
   "type",
@@ -1833,17 +2846,51 @@ export async function runAuthoringFuzz(
     { method: string; path: string; startedAt: number }
   >();
   const watchedRequests = new Map(options.initialPendingWatchedRequests);
-  const inFlightBrowserSessionClaims = new Map<
-    any,
-    { startedAt: number; responseStatus: number | null }
+  const pendingSaveReloadActionAbortRecoveries = new Map<
+    string,
+    { url: string; failedAt: number; message: string }
   >();
-  const recentlyCompletedBrowserSessionClaims = new Map<
+  const watchedRequestDetails = new Map<any, WatchedRequestDetails>();
+  const recentlySettledStatusProbeRequests = new WeakMap<
     any,
-    { startedAt: number; settledAt: number; responseStatus: number }
+    { startedAt: number; settledAt: number; details: WatchedRequestDetails }
+  >();
+  const recentExpectedStatusProbeAborts: Array<{
+    url: string;
+    pathname: string;
+    method: string;
+    ageMs: number;
+    sameOrigin: boolean;
+    observedAt: number;
+    navigation: ReadOnlyStatusProbeNavigationEvidence;
+  }> = [];
+  const inFlightBrowserSessionRequests = new Map<
+    any,
+    {
+      startedAt: number;
+      responseStatus: number | null;
+      identity: IdentifiedBrowserSessionRequest;
+      requestSourceIsMainFrame: boolean;
+      requestFrameUrl: string | null;
+      requestSequence: number;
+    }
+  >();
+  const recentlyCompletedBrowserSessionRequests = new Map<
+    any,
+    {
+      startedAt: number;
+      settledAt: number;
+      responseStatus: number;
+      identity: IdentifiedBrowserSessionRequest;
+      requestSourceIsMainFrame: boolean;
+      requestFrameUrl: string | null;
+      requestSequence: number;
+    }
   >();
   type ReloadNavigationRequest = {
     startedAt: number;
     settledAt: number | null;
+    reloadNavigationStartedAt: number | null;
     finishedSuccessfully: boolean;
     responseStatus: number | null;
     requestWasPendingAtNavigation: boolean;
@@ -1861,6 +2908,7 @@ export async function runAuthoringFuzz(
     mainFrameNavigationStartedAt: number | null;
     mainFrameNavigationRequestSequence: number | null;
     requestStartedBeforeMainFrameCommit: boolean;
+    requestStartedBeforeReloadCommit: boolean;
     retiredSessionId: string | null;
     failureAt: number | null;
     failureText: string | null;
@@ -1868,6 +2916,7 @@ export async function runAuthoringFuzz(
     outgoingNavigationAbort: boolean;
   };
   const reloadNavigationRequests = new Map<any, ReloadNavigationRequest>();
+  const watchedRequestsLinkedToReloadNavigation = new WeakSet<any>();
   const pendingOutgoingAbortTimers = new Set<ReturnType<typeof setTimeout>>();
   let reloadNavigationStartedAt: number | null = null;
   // Keep the latest start after openSlide returns to correlate late poll errors.
@@ -1875,6 +2924,7 @@ export async function runAuthoringFuzz(
   let outgoingDocumentUrlAtReload: string | null = null;
   let mainFrameNavigationStartedAt: number | null = null;
   let mainFrameNavigationRequestSequence: number | null = null;
+  let mainFrameNavigationUrl: string | null = null;
   let mainFrameNavigationCommittedAt: number | null = null;
   let requestEventSequence = 0;
   let currentBrowserSessionId: string | null = null;
@@ -1897,6 +2947,30 @@ export async function runAuthoringFuzz(
           otherRequest.method() === request.method() &&
           otherUrl.pathname === url.pathname
         );
+      },
+    );
+  };
+  const hasCompetingRegistrationStartedAfterNavigation = (request: any) => {
+    const url = new URL(request.url());
+    if (
+      request.method() !== "POST" ||
+      url.pathname !== "/_agent-native/browser-sessions"
+    ) {
+      return false;
+    }
+    return [...reloadNavigationRequests.entries()].some(
+      ([otherRequest, otherCandidate]) => {
+        if (otherRequest === request) return false;
+        const otherUrl = new URL(otherRequest.url());
+        return isCompetingBrowserSessionRegistration({
+          method: otherRequest.method(),
+          pathname: otherUrl.pathname,
+          finishedSuccessfully: otherCandidate.finishedSuccessfully,
+          requestStartedDuringNavigation:
+            otherCandidate.requestStartedDuringNavigation,
+          requestStartedAfterNavigation:
+            otherCandidate.requestStartedAfterNavigation,
+        });
       },
     );
   };
@@ -1955,11 +3029,16 @@ export async function runAuthoringFuzz(
       candidate.mainFrameNavigationRequestSequence,
     requestStartedBeforeMainFrameCommit:
       candidate.requestStartedBeforeMainFrameCommit,
+    requestStartedDuringNavigation: candidate.requestStartedDuringNavigation,
+    requestStartedBeforeReloadCommit:
+      candidate.requestStartedBeforeReloadCommit,
     requestFailedAt,
     requestKind: candidate.outgoingRequestKind,
     requestSessionId: candidate.requestSessionId,
     retiredSessionId: candidate.retiredSessionId,
-    competingSameTypeRequest: hasCompetingOutgoingSessionRequest(request),
+    competingSameTypeRequest:
+      hasCompetingOutgoingSessionRequest(request) ||
+      hasCompetingRegistrationStartedAfterNavigation(request),
   });
   const finalizePendingOutgoingAborts = () => {
     const errors: string[] = [];
@@ -1973,7 +3052,9 @@ export async function runAuthoringFuzz(
       );
       if (outcome !== "unexpected") continue;
       reloadNavigationRequests.delete(request);
-      const error = `watched request failed: ${request.method()} ${request.url()} (${candidate.failureText})`;
+      const error = redactBrowserSessionSensitiveText(
+        `watched request failed: ${request.method()} ${request.url()} (${candidate.failureText})`,
+      );
       pageErrors.push(error);
       errors.push(error);
     }
@@ -2030,18 +3111,96 @@ export async function runAuthoringFuzz(
         requestStartedDuringNavigation:
           candidate.requestStartedDuringNavigation,
         requestStartedAfterNavigation: candidate.requestStartedAfterNavigation,
+        requestStartedBeforeReloadCommit:
+          candidate.requestStartedBeforeReloadCommit,
         competingClaimStartedAfterNavigation:
           hasCompetingClaimStartedAfterNavigation(request),
+        competingRegistrationStartedAfterNavigation:
+          hasCompetingRegistrationStartedAfterNavigation(request),
         outgoingNavigationAbort: candidate.outgoingNavigationAbort,
         outgoingRequestKind: candidate.outgoingRequestKind ?? undefined,
         requestSessionId: candidate.requestSessionId,
         retiredSessionId: candidate.retiredSessionId,
+        requestSourceIsMainFrame: candidate.requestSourceIsMainFrame,
+        requestFrameUrl: candidate.requestFrameUrl,
+        outgoingDocumentUrl: candidate.outgoingDocumentUrl,
         ...(candidate.failureAt === null
           ? {}
           : { outgoingAbortWarningAgeMs: now - candidate.failureAt }),
         competingSameTypeRequest: hasCompetingOutgoingSessionRequest(request),
       };
     });
+  const readOnlyStatusProbeNavigationEvidence = (
+    startedAt: number,
+    details: WatchedRequestDetails,
+    failedAt: number,
+    requestWasPendingAtReloadNavigation: boolean,
+  ): ReadOnlyStatusProbeNavigationEvidence => ({
+    requestStartedAt: startedAt,
+    requestSourceIsMainFrame: details.requestSourceIsMainFrame,
+    requestFrameUrl: details.requestFrameUrl,
+    reloadNavigationStartedAt:
+      reloadNavigationStartedAt ?? details.reloadNavigationStartedAt,
+    outgoingDocumentUrl:
+      outgoingDocumentUrlAtReload ?? details.outgoingDocumentUrl,
+    requestWasPendingAtReloadNavigation,
+    mainFrameNavigationStartedAt,
+    mainFrameNavigationUrl,
+    mainFrameNavigationCommittedAtAtRequest:
+      details.mainFrameNavigationCommittedAt,
+    mainFrameNavigationCommittedAt,
+    failedAt,
+  });
+  const readOnlyStatusProbeCorsCandidatesAt = (now: number) => {
+    const candidates: Array<{
+      url: string;
+      pathname: string;
+      method: string;
+      ageMs: number;
+      sameOrigin: boolean;
+      observedAt: number;
+      navigation: ReadOnlyStatusProbeNavigationEvidence;
+    }> = [];
+    for (const [request, startedAt] of watchedRequests) {
+      const url = new URL(request.url());
+      if (!readOnlyStatusProbePaths.includes(url.pathname)) continue;
+      const details = watchedRequestDetails.get(request);
+      if (!details) continue;
+      const navigationCandidate = reloadNavigationRequests.get(request);
+      candidates.push({
+        url: url.href,
+        pathname: url.pathname,
+        method: request.method(),
+        ageMs: now - startedAt,
+        sameOrigin: url.origin === authoringPageOrigin,
+        observedAt: now,
+        navigation: readOnlyStatusProbeNavigationEvidence(
+          startedAt,
+          details,
+          now,
+          navigationCandidate?.requestWasPendingAtNavigation ??
+            (reloadNavigationStartedAt !== null &&
+              startedAt <= reloadNavigationStartedAt),
+        ),
+      });
+    }
+    for (
+      let index = recentExpectedStatusProbeAborts.length - 1;
+      index >= 0;
+      index -= 1
+    ) {
+      const candidate = recentExpectedStatusProbeAborts[index];
+      if (
+        !candidate ||
+        now - candidate.observedAt >= reloadNavigationConsoleGraceMs
+      ) {
+        recentExpectedStatusProbeAborts.splice(index, 1);
+        continue;
+      }
+      candidates.push(candidate);
+    }
+    return candidates;
+  };
   const pendingSaveConflicts: Promise<void>[] = [];
   const pendingConsoleInspections = new Set<Promise<void>>();
   const conflictResponsePaths: string[] = [];
@@ -2050,6 +3209,7 @@ export async function runAuthoringFuzz(
   let conflictResourceErrors = 0;
   let activeIndex = -1;
   let activePhase = "setup";
+  let slashHoverThemesChecked = false;
   currentBrowserSessionId = uniquePendingBrowserSessionId(
     [...watchedRequests.keys()].map((request) => ({
       method: request.method(),
@@ -2057,20 +3217,40 @@ export async function runAuthoringFuzz(
     })),
   );
   for (const [request, startedAt] of watchedRequests.entries()) {
-    if (
-      !isBrowserSessionClaimRequest(
-        request.method(),
-        new URL(request.url()).pathname,
-      )
-    ) {
-      continue;
-    }
-    const claim = { startedAt, responseStatus: null };
-    inFlightBrowserSessionClaims.set(request, claim);
+    const requestUrl = new URL(request.url());
+    const frame = request.serviceWorker() === null ? request.frame() : null;
+    const requestSequence = ++requestEventSequence;
+    watchedRequestDetails.set(request, {
+      requestSequence,
+      resourceType: request.resourceType(),
+      requestSourceIsMainFrame: frame === page.mainFrame(),
+      requestFrameUrl: frame ? frame.url() : null,
+      mainFrameNavigationStartedAt,
+      mainFrameNavigationRequestSequence,
+      mainFrameNavigationUrl,
+      mainFrameNavigationCommittedAt,
+      reloadNavigationStartedAt,
+      outgoingDocumentUrl: outgoingDocumentUrlAtReload,
+    });
+    const identity = browserSessionNavigationRequestIdentity(
+      request.method(),
+      requestUrl.pathname,
+      request.postData(),
+    );
+    if (identity?.status !== "identified") continue;
+    const browserSessionRequest = {
+      startedAt,
+      responseStatus: null as number | null,
+      identity,
+      requestSourceIsMainFrame: frame === page.mainFrame(),
+      requestFrameUrl: frame ? frame.url() : null,
+      requestSequence,
+    };
+    inFlightBrowserSessionRequests.set(request, browserSessionRequest);
     void request
       .response()
       .then((response: any) => {
-        if (response) claim.responseStatus = response.status();
+        if (response) browserSessionRequest.responseStatus = response.status();
       })
       .catch(() => undefined);
   }
@@ -2080,13 +3260,15 @@ export async function runAuthoringFuzz(
       message.type() === "debug" &&
       message.text().startsWith("[authoring-fuzz heartbeat]")
     ) {
-      console.log(message.text());
+      console.log(redactBrowserSessionSensitiveText(message.text()));
       return;
     }
     if (message.type() !== "error") return;
     if (traceEnabled) {
       console.log(
-        `[edit-fidelity] console error phase=${activePhase} location=${JSON.stringify(message.location())}: ${message.text()}`,
+        redactBrowserSessionSensitiveText(
+          `[edit-fidelity] console error phase=${activePhase} location=${JSON.stringify(message.location())}: ${message.text()}`,
+        ),
       );
     }
     if (isConflictResourceConsoleError(message.text())) {
@@ -2106,12 +3288,25 @@ export async function runAuthoringFuzz(
     const consoleTiming = {
       sinceReloadMs:
         lastReloadStartedAt === null ? null : Date.now() - lastReloadStartedAt,
+      // Includes every input of isFinishedRetiredSessionRequest so a failure
+      // that still slips through shows which condition rejected it.
       reloadMap: [...reloadNavigationRequests.entries()].map(
-        ([request, { startedAt, settledAt }]) => ({
+        ([request, candidate]) => ({
           pathname: new URL(request.url()).pathname,
-          ageMs: now - startedAt,
-          settledAgeMs: settledAt === null ? null : now - settledAt,
-          startOffsetMs: startOffsetMs(startedAt),
+          ageMs: now - candidate.startedAt,
+          settledAgeMs:
+            candidate.settledAt === null ? null : now - candidate.settledAt,
+          startOffsetMs: startOffsetMs(candidate.startedAt),
+          kind: candidate.outgoingRequestKind,
+          finished: candidate.finishedSuccessfully,
+          status: candidate.responseStatus,
+          pendingAtReload: candidate.requestWasPendingAtNavigation,
+          duringReload: candidate.requestStartedDuringNavigation,
+          beforeCommit: candidate.requestStartedBeforeReloadCommit,
+          retiredSession:
+            candidate.requestSessionId !== null &&
+            candidate.requestSessionId === candidate.retiredSessionId,
+          competing: hasCompetingOutgoingSessionRequest(request),
         }),
       ),
       watched: [...watchedRequests.entries()].map(([request, startedAt]) => ({
@@ -2130,15 +3325,27 @@ export async function runAuthoringFuzz(
           consoleSessionId,
           competingSessionTraffic,
         );
-      pageErrors.push(...retiredSessionPollResult.errors);
+      pageErrors.push(
+        ...retiredSessionPollResult.errors.map(
+          redactBrowserSessionSensitiveText,
+        ),
+      );
       if (retiredSessionPollResult.matched) {
         return;
       }
+      const corsCheckedAt = Date.now();
       if (
+        isExpectedReadOnlyStatusProbeCorsConsoleError(
+          text,
+          consolePhase,
+          readOnlyStatusProbeCorsCandidatesAt(corsCheckedAt),
+          corsCheckedAt,
+        ) ||
         (await isExpectedSaveReloadBrowserSessionConsoleErrorAfterGrace(
           text,
           consolePhase,
           () => reloadNavigationCandidatesAt(Date.now()),
+          now,
         )) ||
         isExpectedWatchedRequestCorsError(
           text,
@@ -2151,9 +3358,11 @@ export async function runAuthoringFuzz(
       // Diagnostic only: CI runs without tracing. consoleTiming was captured when
       // the console event arrived, so deferred Firefox messages report the same state.
       console.log(
-        `[edit-fidelity] unexpected console error phase=${consolePhase} sinceReloadMs=${consoleTiming.sinceReloadMs ?? "n/a"} text=${JSON.stringify(text.slice(0, 240))} reloadMap=${JSON.stringify(consoleTiming.reloadMap)} watched=${JSON.stringify(consoleTiming.watched)}`,
+        redactBrowserSessionSensitiveText(
+          `[edit-fidelity] unexpected console error phase=${consolePhase} sinceReloadMs=${consoleTiming.sinceReloadMs ?? "n/a"} text=${JSON.stringify(text.slice(0, 240))} reloadMap=${JSON.stringify(consoleTiming.reloadMap.map((candidate) => ({ ...candidate, pathname: redactBrowserSessionRequestPath(candidate.pathname) })))} watched=${JSON.stringify(consoleTiming.watched.map((candidate) => ({ ...candidate, pathname: redactBrowserSessionRequestPath(candidate.pathname) })))}`,
+        ),
       );
-      pageErrors.push(text);
+      pageErrors.push(redactBrowserSessionSensitiveText(text));
     };
     let inspection: Promise<void>;
     inspection = (async () => {
@@ -2175,39 +3384,126 @@ export async function runAuthoringFuzz(
         now,
         hasCompetingNewBrowserSessionTraffic(),
       );
-    pageErrors.push(...retiredSessionPageErrorResult.errors);
+    pageErrors.push(
+      ...retiredSessionPageErrorResult.errors.map(
+        redactBrowserSessionSensitiveText,
+      ),
+    );
     if (retiredSessionPageErrorResult.matched) {
       if (traceEnabled) {
         console.log(
-          `[edit-fidelity] correlated WebKit page error from the retired browser-session claim during reload (${browserSessionIdAtReload})`,
+          "[edit-fidelity] correlated WebKit page error from the retired browser-session claim during reload",
         );
       }
       return;
     }
+    const corsCheckedAt = Date.now();
+    if (
+      isExpectedReadOnlyStatusProbeCorsConsoleError(
+        pageErrorText,
+        activePhase,
+        readOnlyStatusProbeCorsCandidatesAt(corsCheckedAt),
+        corsCheckedAt,
+      )
+    ) {
+      return;
+    }
     if (traceEnabled) {
       console.log(
-        `[edit-fidelity] page error phase=${activePhase}: ${error.stack ?? error.message}`,
+        redactBrowserSessionSensitiveText(
+          `[edit-fidelity] page error phase=${activePhase}: ${error.stack ?? error.message}`,
+        ),
       );
     }
-    pageErrors.push(error.stack ?? error.message);
+    pageErrors.push(
+      redactBrowserSessionSensitiveText(error.stack ?? error.message),
+    );
   };
   const onRequestFailed = (request: any) => {
-    const requestStartedAt = watchedRequests.get(request);
+    const failedAt = Date.now();
+    const activeRequestStartedAt = watchedRequests.get(request);
+    const activeRequestDetails = watchedRequestDetails.get(request);
+    const recentlySettledStatusProbe =
+      recentlySettledStatusProbeRequests.get(request);
+    const statusProbeFailureEvidence = readOnlyStatusProbeFailureEvidence(
+      activeRequestStartedAt !== undefined && activeRequestDetails
+        ? { startedAt: activeRequestStartedAt, details: activeRequestDetails }
+        : undefined,
+      recentlySettledStatusProbe,
+      failedAt,
+    );
+    const requestStartedAt =
+      activeRequestStartedAt ?? statusProbeFailureEvidence?.startedAt;
+    const watchedRequestDetailsAtStart =
+      activeRequestDetails ?? statusProbeFailureEvidence?.details;
+    recentlySettledStatusProbeRequests.delete(request);
     const navigationCandidate = reloadNavigationRequests.get(request);
+    const requestLinkedToReloadNavigation =
+      watchedRequestsLinkedToReloadNavigation.has(request);
     const requestPendingAtReloadNavigation =
       navigationCandidate?.requestWasPendingAtNavigation === true;
+    const statusProbePendingAtReloadNavigation =
+      requestPendingAtReloadNavigation || requestLinkedToReloadNavigation;
     const competingClaimStartedAfterNavigation =
       hasCompetingClaimStartedAfterNavigation(request);
     pendingRequests.delete(request);
     watchedRequests.delete(request);
-    inFlightBrowserSessionClaims.delete(request);
+    watchedRequestsLinkedToReloadNavigation.delete(request);
+    watchedRequestDetails.delete(request);
+    inFlightBrowserSessionRequests.delete(request);
     const url = request.url();
     const requestUrl = new URL(url);
     const pathname = requestUrl.pathname;
     const errorText = request.failure()?.errorText ?? "unknown";
-    if (traceEnabled || isBrowserSessionPath(pathname)) {
+    const reportSaveReloadAccessAbort =
+      activePhase === "save/reload" &&
+      pathname === "/_agent-native/actions/get-deck-access-status" &&
+      navigationAbortErrors.includes(errorText);
+    if (
+      traceEnabled ||
+      isBrowserSessionPath(pathname) ||
+      reportSaveReloadAccessAbort
+    ) {
+      const requestAgeMs =
+        requestStartedAt === undefined ? null : Date.now() - requestStartedAt;
+      const navigationFacts = reportSaveReloadAccessAbort
+        ? ` ${JSON.stringify({
+            pendingAtReload: statusProbePendingAtReloadNavigation,
+            requestStartedDuringNavigation:
+              navigationCandidate?.requestStartedDuringNavigation ?? "unknown",
+            sameOrigin: requestUrl.origin === authoringPageOrigin,
+            requestSequence:
+              watchedRequestDetailsAtStart?.requestSequence ?? "unknown",
+            resourceType:
+              watchedRequestDetailsAtStart?.resourceType ?? "unknown",
+            sourceMainFrame:
+              watchedRequestDetailsAtStart?.requestSourceIsMainFrame ??
+              "unknown",
+            frameUrlAtRequest:
+              watchedRequestDetailsAtStart?.requestFrameUrl ?? "unknown",
+            navigationAtRequest: watchedRequestDetailsAtStart
+              ? {
+                  startedAt:
+                    watchedRequestDetailsAtStart.mainFrameNavigationStartedAt,
+                  requestSequence:
+                    watchedRequestDetailsAtStart.mainFrameNavigationRequestSequence,
+                  committedAt:
+                    watchedRequestDetailsAtStart.mainFrameNavigationCommittedAt,
+                }
+              : null,
+            navigationAtFailure: {
+              startedAt: mainFrameNavigationStartedAt,
+              requestSequence: mainFrameNavigationRequestSequence,
+              url: mainFrameNavigationUrl,
+              committedAt: mainFrameNavigationCommittedAt,
+            },
+            pageUrlAtFailure: page.url(),
+          })}`
+        : "";
       console.log(
-        `[edit-fidelity] request failed ${request.method()} ${pathname} (${errorText}) phase=${activePhase} ageMs=${requestStartedAt === undefined ? "unknown" : Date.now() - requestStartedAt} startOffsetMsFromLastReload=${requestStartedAt === undefined || lastReloadStartedAt === null ? "n/a" : requestStartedAt - lastReloadStartedAt}`,
+        redactBrowserSessionSensitiveText(
+          `[edit-fidelity] request failed ${request.method()} ${pathname} (${errorText}) phase=${activePhase} ageMs=${requestAgeMs ?? "unknown"} startOffsetMsFromLastReload=${requestStartedAt === undefined || lastReloadStartedAt === null ? "n/a" : requestStartedAt - lastReloadStartedAt}${navigationFacts}`,
+        ),
       );
     }
     if (
@@ -2217,14 +3513,16 @@ export async function runAuthoringFuzz(
       !navigationCandidate.pendingOutgoingAbort &&
       !navigationCandidate.outgoingNavigationAbort
     ) {
-      const failedAt = Date.now();
       const facts = outgoingAbortFacts(
         request,
         navigationCandidate,
         failedAt,
         errorText,
       );
-      if (isExpectedOutgoingBrowserSessionNavigationAbort(facts)) {
+      if (
+        isExpectedOutgoingBrowserSessionNavigationAbort(facts) ||
+        isPendingOutgoingBrowserSessionNavigationAbort(facts)
+      ) {
         navigationCandidate.failureAt = failedAt;
         navigationCandidate.failureText = errorText;
         navigationCandidate.pendingOutgoingAbort = true;
@@ -2249,12 +3547,55 @@ export async function runAuthoringFuzz(
         navigationCandidate?.requestStartedDuringNavigation === true,
         competingClaimStartedAfterNavigation,
         requestUrl.origin === authoringPageOrigin,
+        navigationCandidate
+          ? {
+              requestSessionId: navigationCandidate.requestSessionId,
+              retiredSessionId: navigationCandidate.retiredSessionId,
+              competingSameTypeRequest:
+                hasCompetingOutgoingSessionRequest(request),
+              competingRegistrationStartedAfterNavigation:
+                hasCompetingRegistrationStartedAfterNavigation(request),
+            }
+          : undefined,
       )
     ) {
       const candidate = navigationCandidate;
       if (candidate) {
         candidate.settledAt = Date.now();
         candidate.finishedSuccessfully = false;
+      }
+      return;
+    }
+    const watchedRequestError = `watched request failed: ${request.method()} ${url} (${errorText})`;
+    const recoverableActionAbort = isRecoverableSaveReloadActionAbortCandidate({
+      pathname,
+      method: request.method(),
+      errorText,
+      activePhase,
+      requestStartedAt: requestStartedAt ?? null,
+      failedAt,
+      reloadStartedAt: lastReloadStartedAt,
+      sameOrigin: requestUrl.origin === authoringPageOrigin,
+    });
+    if (
+      traceEnabled &&
+      pathname === "/_agent-native/actions/get-deck-access-status"
+    ) {
+      console.log(
+        `[edit-fidelity] deck status abort correlation candidate=${recoverableActionAbort} requestAgeMs=${requestStartedAt === undefined ? "unknown" : failedAt - requestStartedAt} reloadOffsetMs=${requestStartedAt === undefined || lastReloadStartedAt === null ? "unknown" : requestStartedAt - lastReloadStartedAt}`,
+      );
+    }
+    if (recoverableActionAbort) {
+      const previous = pendingSaveReloadActionAbortRecoveries.get(url);
+      if (previous) {
+        pageErrors.push(previous.message, watchedRequestError);
+        pendingSaveReloadActionAbortRecoveries.delete(url);
+      } else {
+        pendingSaveReloadActionAbortRecoveries.set(url, {
+          url,
+          failedAt,
+          message: watchedRequestError,
+        });
       }
       return;
     }
@@ -2266,9 +3607,47 @@ export async function runAuthoringFuzz(
       ].includes(pathname) ||
       isBrowserSessionPath(pathname)
     ) {
-      pageErrors.push(
-        `watched request failed: ${request.method()} ${url} (${errorText})`,
+      const probeAgeMs =
+        requestStartedAt === undefined
+          ? Number.POSITIVE_INFINITY
+          : Date.now() - requestStartedAt;
+      const statusProbeNavigation =
+        watchedRequestDetailsAtStart && requestStartedAt !== undefined
+          ? readOnlyStatusProbeNavigationEvidence(
+              requestStartedAt,
+              watchedRequestDetailsAtStart,
+              failedAt,
+              navigationCandidate?.requestWasPendingAtNavigation ??
+                statusProbePendingAtReloadNavigation,
+            )
+          : null;
+      const expectedStatusProbeAbort = isExpectedReadOnlyStatusProbeAbort(
+        request.method(),
+        pathname,
+        errorText,
+        activePhase,
+        requestUrl.origin === authoringPageOrigin,
+        probeAgeMs,
+        statusProbeNavigation,
       );
+      if (expectedStatusProbeAbort && statusProbeNavigation) {
+        recentExpectedStatusProbeAborts.push({
+          url,
+          pathname,
+          method: request.method(),
+          ageMs: probeAgeMs,
+          sameOrigin: requestUrl.origin === authoringPageOrigin,
+          observedAt: failedAt,
+          navigation: statusProbeNavigation,
+        });
+      }
+      if (!expectedStatusProbeAbort) {
+        pageErrors.push(
+          redactBrowserSessionSensitiveText(
+            `watched request failed: ${request.method()} ${url} (${errorText})`,
+          ),
+        );
+      }
     }
   };
   const onRequest = (request: any) => {
@@ -2285,9 +3664,30 @@ export async function runAuthoringFuzz(
       activePhase === "save/reload" &&
       reloadNavigationStartedAt !== null
     ) {
+      for (const watchedRequest of watchedRequests.keys()) {
+        if (
+          watchedRequest !== request &&
+          watchedRequest.serviceWorker() === null &&
+          watchedRequest.frame() === page.mainFrame()
+        ) {
+          watchedRequestsLinkedToReloadNavigation.add(watchedRequest);
+        }
+      }
       mainFrameNavigationStartedAt = startedAt;
       mainFrameNavigationRequestSequence = requestSequence;
+      mainFrameNavigationUrl = request.url();
       mainFrameNavigationCommittedAt = null;
+      for (const candidate of reloadNavigationRequests.values()) {
+        if (
+          candidate.mainFrameNavigationRequestSequence === null &&
+          candidate.mainFrameNavigationStartedAt === null &&
+          candidate.requestStartedDuringNavigation &&
+          candidate.requestStartedBeforeReloadCommit
+        ) {
+          candidate.mainFrameNavigationStartedAt = startedAt;
+          candidate.mainFrameNavigationRequestSequence = requestSequence;
+        }
+      }
     }
     const requestFrameUrl = requestFrame ? requestFrame.url() : null;
     currentBrowserSessionId = browserSessionIdAfterRequest(
@@ -2295,10 +3695,21 @@ export async function runAuthoringFuzz(
       request.method(),
       requestUrl.pathname,
     );
-    if (isBrowserSessionClaimRequest(request.method(), requestUrl.pathname)) {
-      inFlightBrowserSessionClaims.set(request, {
+    const sessionIdentity = browserSessionNavigationRequestIdentity(
+      request.method(),
+      requestUrl.pathname,
+      request.postData(),
+    );
+    const identifiedSession =
+      sessionIdentity?.status === "identified" ? sessionIdentity : null;
+    if (identifiedSession) {
+      inFlightBrowserSessionRequests.set(request, {
         startedAt,
         responseStatus: null,
+        identity: identifiedSession,
+        requestSourceIsMainFrame,
+        requestFrameUrl,
+        requestSequence,
       });
     }
     if (
@@ -2309,6 +3720,32 @@ export async function runAuthoringFuzz(
       isBrowserSessionPath(requestUrl.pathname)
     ) {
       watchedRequests.set(request, startedAt);
+      watchedRequestDetails.set(request, {
+        requestSequence,
+        resourceType: request.resourceType(),
+        requestSourceIsMainFrame,
+        requestFrameUrl,
+        mainFrameNavigationStartedAt,
+        mainFrameNavigationRequestSequence,
+        mainFrameNavigationUrl,
+        mainFrameNavigationCommittedAt,
+        reloadNavigationStartedAt,
+        outgoingDocumentUrl: outgoingDocumentUrlAtReload,
+      });
+    }
+    // Navigation can cancel this read even when the document issues it after the reload starts.
+    if (
+      activePhase === "save/reload" &&
+      reloadNavigationStartedAt !== null &&
+      requestSourceIsMainFrame &&
+      request.method() === "GET" &&
+      requestUrl.pathname === "/_agent-native/actions/get-deck-access-status" &&
+      requestUrl.origin === authoringPageOrigin &&
+      startedAt >= reloadNavigationStartedAt &&
+      startedAt - reloadNavigationStartedAt <
+        reloadNavigationAbortMaxRequestAgeMs
+    ) {
+      watchedRequestsLinkedToReloadNavigation.add(request);
     }
     const requestStartedDuringNavigation =
       activePhase === "save/reload" &&
@@ -2325,16 +3762,11 @@ export async function runAuthoringFuzz(
       startedAt - lastReloadStartedAt < reloadNavigationConsoleGraceMs &&
       isBrowserSessionPath(requestUrl.pathname);
     if (requestStartedDuringNavigation || requestStartedAfterNavigation) {
-      const sessionIdentity = browserSessionNavigationRequestIdentity(
-        request.method(),
-        requestUrl.pathname,
-        request.postData(),
-      );
-      const identifiedSession =
-        sessionIdentity?.status === "identified" ? sessionIdentity : null;
       reloadNavigationRequests.set(request, {
         startedAt,
         settledAt: null,
+        reloadNavigationStartedAt:
+          reloadNavigationStartedAt ?? lastReloadStartedAt,
         finishedSuccessfully: false,
         responseStatus: null,
         requestWasPendingAtNavigation: false,
@@ -2355,6 +3787,12 @@ export async function runAuthoringFuzz(
           requestSourceIsMainFrame &&
           mainFrameNavigationRequestSequence !== null &&
           requestSequence > mainFrameNavigationRequestSequence &&
+          mainFrameNavigationCommittedAt === null,
+        // Reset when the reload begins, so null means the reloaded document has
+        // not committed and this request still belongs to the retired one even
+        // when it was issued before the navigation request itself was seen.
+        requestStartedBeforeReloadCommit:
+          requestStartedDuringNavigation &&
           mainFrameNavigationCommittedAt === null,
         retiredSessionId: browserSessionIdAtReload,
         failureAt: null,
@@ -2381,34 +3819,49 @@ export async function runAuthoringFuzz(
     }
   };
   const onRequestSettled = (request: any) => {
+    const settledAt = Date.now();
+    const requestStartedAt = watchedRequests.get(request);
+    const requestDetails = watchedRequestDetails.get(request);
+    if (
+      requestStartedAt !== undefined &&
+      requestDetails &&
+      readOnlyStatusProbePaths.includes(new URL(request.url()).pathname)
+    ) {
+      recentlySettledStatusProbeRequests.set(request, {
+        startedAt: requestStartedAt,
+        settledAt,
+        details: requestDetails,
+      });
+    }
     pendingRequests.delete(request);
     watchedRequests.delete(request);
-    const settledAt = Date.now();
-    const claim = inFlightBrowserSessionClaims.get(request);
-    if (claim) {
+    watchedRequestsLinkedToReloadNavigation.delete(request);
+    watchedRequestDetails.delete(request);
+    const browserSessionRequest = inFlightBrowserSessionRequests.get(request);
+    if (browserSessionRequest) {
       if (
-        claim.responseStatus !== null &&
-        claim.responseStatus >= 200 &&
-        claim.responseStatus < 300
+        browserSessionRequest.responseStatus !== null &&
+        browserSessionRequest.responseStatus >= 200 &&
+        browserSessionRequest.responseStatus < 300
       ) {
         for (const [
           completedRequest,
-          completedClaim,
-        ] of recentlyCompletedBrowserSessionClaims.entries()) {
+          completedBrowserSessionRequest,
+        ] of recentlyCompletedBrowserSessionRequests.entries()) {
           if (
-            settledAt - completedClaim.settledAt >=
+            settledAt - completedBrowserSessionRequest.settledAt >=
             reloadNavigationSuccessfulClaimGraceMs
           ) {
-            recentlyCompletedBrowserSessionClaims.delete(completedRequest);
+            recentlyCompletedBrowserSessionRequests.delete(completedRequest);
           }
         }
-        recentlyCompletedBrowserSessionClaims.set(request, {
-          startedAt: claim.startedAt,
+        recentlyCompletedBrowserSessionRequests.set(request, {
+          ...browserSessionRequest,
           settledAt,
-          responseStatus: claim.responseStatus,
+          responseStatus: browserSessionRequest.responseStatus,
         });
       }
-      inFlightBrowserSessionClaims.delete(request);
+      inFlightBrowserSessionRequests.delete(request);
     }
     const candidate = reloadNavigationRequests.get(request);
     // WebKit can deliver the fetch error after Playwright's requestfinished event.
@@ -2416,13 +3869,36 @@ export async function runAuthoringFuzz(
       candidate.settledAt = settledAt;
       candidate.finishedSuccessfully = true;
       candidate.responseStatus =
-        claim?.responseStatus ?? candidate.responseStatus;
+        browserSessionRequest?.responseStatus ?? candidate.responseStatus;
     }
   };
   const onResponse = (response: any) => {
     const request = response.request();
-    const claim = inFlightBrowserSessionClaims.get(request);
-    if (claim) claim.responseStatus = response.status();
+    const responseUrl = response.url();
+    const responseAt = Date.now();
+    const pendingActionAbort =
+      pendingSaveReloadActionAbortRecoveries.get(responseUrl);
+    const recoveredActionAbort = Boolean(
+      pendingActionAbort &&
+      isRecoveredSaveReloadActionAbort(pendingActionAbort, {
+        url: responseUrl,
+        method: request.method(),
+        requestStartedAt: watchedRequests.get(request) ?? null,
+        responseAt,
+        status: response.status(),
+      }),
+    );
+    if (traceEnabled && pendingActionAbort) {
+      console.log(
+        `[edit-fidelity] deck status retry recovery=${recoveredActionAbort} status=${response.status()} retryAgeMs=${(watchedRequests.get(request) ?? 0) - pendingActionAbort.failedAt} responseAgeMs=${responseAt - pendingActionAbort.failedAt}`,
+      );
+    }
+    if (recoveredActionAbort) {
+      pendingSaveReloadActionAbortRecoveries.delete(responseUrl);
+    }
+    const browserSessionRequest = inFlightBrowserSessionRequests.get(request);
+    if (browserSessionRequest)
+      browserSessionRequest.responseStatus = response.status();
     const navigationCandidate = reloadNavigationRequests.get(request);
     if (navigationCandidate) {
       navigationCandidate.responseStatus = response.status();
@@ -2515,25 +3991,41 @@ export async function runAuthoringFuzz(
     }
   }, traceEnabled);
 
+  let lastTracePhase = "setup";
+  let lastTracePhaseAt = Date.now();
+  const stallState: { error: Error | null } = { error: null };
   const tracePhase = (phase: string) => {
+    lastTracePhase = phase;
+    lastTracePhaseAt = Date.now();
     if (!traceEnabled) return;
     console.log(
-      `[edit-fidelity] trace seed=${seed} step=${activeIndex} operation=${plan[activeIndex]?.kind ?? "setup"} phase=${phase} at=${Date.now()}`,
+      `[edit-fidelity] trace seed=${seed} step=${activeIndex} operation=${plan[activeIndex]?.kind ?? "setup"} phase=${phase} at=${lastTracePhaseAt}`,
     );
   };
-  const traceWatchdog = traceEnabled
-    ? setInterval(() => {
-        const pending = [...pendingRequests.values()]
-          .filter((request) => Date.now() - request.startedAt >= 10_000)
-          .map(
-            (request) =>
-              `${request.method} ${request.path} ${Date.now() - request.startedAt}ms`,
-          );
-        console.log(
-          `[edit-fidelity] trace seed=${seed} node-heartbeat step=${activeIndex} operation=${plan[activeIndex]?.kind ?? "setup"} phase=${activePhase} pending=${pending.length ? pending.join(" | ") : "none"}`,
-        );
-      }, 15_000)
-    : null;
+  const traceWatchdog = setInterval(() => {
+    const stalledForMs = Date.now() - lastTracePhaseAt;
+    if (
+      !stallState.error &&
+      authoringFuzzStallExpired(activePhase, lastTracePhaseAt, Date.now())
+    ) {
+      stallState.error = new Error(
+        `authoring fuzz stalled for ${stalledForMs}ms at seed=${seed} step=${activeIndex} operation=${plan[activeIndex]?.kind ?? "setup"} phase=${activePhase}/${lastTracePhase}`,
+      );
+      console.error(`[edit-fidelity] ${stallState.error.message}`);
+      void page.close().catch(() => undefined);
+      return;
+    }
+    if (!traceEnabled) return;
+    const pending = [...pendingRequests.values()]
+      .filter((request) => Date.now() - request.startedAt >= 10_000)
+      .map(
+        (request) =>
+          `${request.method} ${redactBrowserSessionRequestPath(request.path)} ${Date.now() - request.startedAt}ms`,
+      );
+    console.log(
+      `[edit-fidelity] trace seed=${seed} node-heartbeat step=${activeIndex} operation=${plan[activeIndex]?.kind ?? "setup"} phase=${activePhase}/${lastTracePhase} pending=${pending.length ? pending.join(" | ") : "none"}`,
+    );
+  }, 15_000);
   const replay = () => plan.slice(0, Math.max(1, activeIndex + 1));
   const drainRetiredSessionErrors = async () => {
     while (true) {
@@ -2541,7 +4033,9 @@ export async function runAuthoringFuzz(
       if (waitMs === null) return;
       await new Promise<void>((resolve) => setTimeout(resolve, waitMs));
       pageErrors.push(
-        ...retiredSessionErrorCorrelator.flushExpired(Date.now()),
+        ...retiredSessionErrorCorrelator
+          .flushExpired(Date.now())
+          .map(redactBrowserSessionSensitiveText),
       );
     }
   };
@@ -2551,6 +4045,11 @@ export async function runAuthoringFuzz(
       await Promise.all([...pendingConsoleInspections]);
     }
     await drainRetiredSessionErrors();
+    pageErrors.push(
+      ...(await waitForPendingSaveReloadActionAbortRecoveries(
+        pendingSaveReloadActionAbortRecoveries,
+      )),
+    );
     if (pageErrors.length)
       throw new Error(
         `browser emitted ${pageErrors.length} console/page error(s): ${pageErrors
@@ -2794,21 +4293,21 @@ export async function runAuthoringFuzz(
     phase: "capture" | "assert",
     operation: AuthoringFuzzOperation,
     requireMerge = false,
-  ) =>
-    page.evaluate(
+  ) => {
+    const result = await page.evaluate(
       ({
         selector,
         phase,
         operation,
         requireMerge,
-        operationIndex,
+        listTag,
         styleProperties,
       }: {
         selector: string;
         phase: "capture" | "assert";
         operation: AuthoringFuzzOperation;
         requireMerge: boolean;
-        operationIndex: number;
+        listTag: "OL" | "UL" | null;
         styleProperties: string[];
       }) => {
         const root = document.querySelector(selector);
@@ -2832,6 +4331,26 @@ export async function runAuthoringFuzz(
               emptyInlineLink: boolean;
             }>;
             targets: HTMLElement[];
+            originalListRows: Element[];
+            emptyListExit?: {
+              list: HTMLElement;
+              item: HTMLElement;
+              expectedMoves: Element[];
+              paragraphs: HTMLElement[];
+              listStyles: Record<string, string>;
+              listAttributes: string;
+            };
+            listMerge?: {
+              tagName: "OL" | "UL";
+              originalRows: Element[];
+              adjacent: Array<{
+                side: "before" | "after";
+                node: HTMLElement;
+                rows: HTMLElement[];
+                attributes: string;
+                styles: Record<string, string>;
+              }>;
+            };
             merge?: {
               direction: "backward" | "forward";
               source: HTMLElement;
@@ -2880,6 +4399,32 @@ export async function runAuthoringFuzz(
                       candidate !== element && element.contains(candidate),
                   ),
               );
+        if (
+          phase === "capture" &&
+          operation.kind === "delete-list-edge" &&
+          targets[0]?.tagName === "LI"
+        ) {
+          const followingItem = targets[0].nextElementSibling;
+          if (followingItem?.tagName === "LI")
+            targets.push(followingItem as HTMLElement);
+        }
+        if (phase === "capture" && operation.kind === "backspace-list-edge") {
+          const isStyledBulletRow = (element: Element | null) => {
+            const marker = element?.firstElementChild;
+            return (
+              element?.tagName === "DIV" &&
+              getComputedStyle(element).display === "flex" &&
+              marker?.tagName === "SPAN" &&
+              /^[•●◦▪‣·⁃–—-]+$/u.test(marker.textContent?.trim() ?? "") &&
+              element.lastElementChild?.tagName === "SPAN"
+            );
+          };
+          const row = targets[0];
+          const previousRow = row?.previousElementSibling;
+          if (isStyledBulletRow(row) && isStyledBulletRow(previousRow)) {
+            targets.unshift(previousRow as HTMLElement);
+          }
+        }
         const activeItem =
           targets[0]?.tagName === "LI" ? targets[0] : targets[0]?.closest("li");
         const activeList = activeItem?.parentElement ?? null;
@@ -2899,7 +4444,9 @@ export async function runAuthoringFuzz(
         if (
           phase === "assert" &&
           (operation.kind === "backspace-block-edge" ||
-            operation.kind === "delete-block-edge") &&
+            operation.kind === "delete-block-edge" ||
+            operation.kind === "empty-list-exit" ||
+            previous?.listMerge) &&
           previous?.root === root
         ) {
           targets = previous.targets;
@@ -3157,7 +4704,9 @@ export async function runAuthoringFuzz(
           node instanceof Element &&
           (node.tagName === "LI" || isListGroup(node));
         const originalListRows = new Set<Element>();
-        if (listShortcut) {
+        if (phase === "assert" && previous?.root === root) {
+          previous.originalListRows.forEach((row) => originalListRows.add(row));
+        } else if (listShortcut) {
           for (const target of targets) {
             let candidate = target.parentElement;
             while (candidate && candidate !== root) {
@@ -3174,6 +4723,96 @@ export async function runAuthoringFuzz(
             }
           }
         }
+        const emptyListExit =
+          phase === "capture" &&
+          operation.kind === "empty-list-exit" &&
+          activeItem &&
+          activeList &&
+          /^(OL|UL)$/.test(activeList.tagName)
+            ? (() => {
+                const rows = Array.from(activeList.children).filter(
+                  (child) => child.tagName === "LI",
+                );
+                const itemIndex = rows.indexOf(activeItem);
+                if (itemIndex < 0) {
+                  throw new Error(
+                    "empty-list-exit setup could not find its active list item",
+                  );
+                }
+                const before = rows.slice(0, itemIndex);
+                const after = rows.slice(itemIndex + 1);
+                const expectedMoves =
+                  activeList === root
+                    ? rows.filter((row) => row !== activeItem)
+                    : before.length && after.length
+                      ? after
+                      : [];
+                return {
+                  list: activeList,
+                  item: activeItem,
+                  expectedMoves,
+                  paragraphs: [
+                    ...(root.matches("p") ? [root] : []),
+                    ...root.querySelectorAll<HTMLElement>("p"),
+                  ],
+                  listStyles: styleValues(activeList),
+                  listAttributes: authoredAttributes(activeList),
+                };
+              })()
+            : phase === "assert"
+              ? previous?.emptyListExit
+              : undefined;
+        const listMerge =
+          phase === "capture" &&
+          listTag &&
+          targets[0] instanceof HTMLElement &&
+          targets[0] !== root &&
+          !targets[0].closest("li,ol,ul")
+            ? (() => {
+                const target = targets[0] as HTMLElement;
+                const adjacent = [
+                  {
+                    side: "before" as const,
+                    node: target.previousElementSibling,
+                  },
+                  {
+                    side: "after" as const,
+                    node: target.nextElementSibling,
+                  },
+                ]
+                  .filter(
+                    (
+                      candidate,
+                    ): candidate is {
+                      side: "before" | "after";
+                      node: HTMLElement;
+                    } =>
+                      candidate.node instanceof HTMLElement &&
+                      candidate.node.tagName === listTag,
+                  )
+                  .map(({ side, node }) => ({
+                    side,
+                    node,
+                    rows: Array.from(node.children).filter(
+                      (child): child is HTMLElement =>
+                        child instanceof HTMLElement && child.tagName === "LI",
+                    ),
+                    attributes: authoredAttributes(node),
+                    styles: styleValues(node),
+                  }));
+                return adjacent.length
+                  ? {
+                      tagName: listTag,
+                      originalRows: Array.from(
+                        root.querySelectorAll<HTMLElement>("li"),
+                      ),
+                      adjacent,
+                    }
+                  : undefined;
+              })()
+            : phase === "assert"
+              ? previous?.listMerge
+              : undefined;
         const isEmptyAuthorStyleSpan = (element: Element): boolean =>
           isEditorInlineStyleSpan(element) &&
           !element.textContent &&
@@ -3251,15 +4890,22 @@ export async function runAuthoringFuzz(
             root,
             records,
             targets: [...targets],
+            originalListRows: [...originalListRows],
+            emptyListExit,
+            listMerge,
             merge,
           };
-          return [];
+          return { failures: [], listIdentityChecks: [] };
         }
         const baseline = previous;
         if (!baseline) {
           throw new Error("editor sibling snapshot was not captured");
         }
         const failures: string[] = [];
+        const listIdentityChecks: Array<{
+          candidateId: string;
+          resultId: string | null;
+        }> = [];
         const mergeAssertion =
           baseline.merge &&
           ((operation.kind === "backspace-block-edge" &&
@@ -3274,6 +4920,98 @@ export async function runAuthoringFuzz(
           !mergeAssertion
         ) {
           failures.push("block-edge operation did not capture its block pair");
+        }
+        const mergedListContainers = new Set<Element>();
+        const mergedListRows = new Set<Element>();
+        const mergedListContainerContentChanges = new Set<Element>();
+        if (
+          baseline.listMerge &&
+          listTag === baseline.listMerge.tagName &&
+          activeList?.tagName === baseline.listMerge.tagName &&
+          activeItem
+        ) {
+          const resultRows = Array.from(activeList.children).filter(
+            (child) => child.tagName === "LI",
+          );
+          const generatedRows = resultRows.filter(
+            (row) => !baseline.listMerge?.originalRows.includes(row),
+          );
+          const expectedGeneratedRows = operation.kind === "list" ? 2 : 1;
+          const generatedIndexes = generatedRows.map((row) =>
+            resultRows.indexOf(row),
+          );
+          const generatedRowsAreContiguous = generatedIndexes.every(
+            (index, position) =>
+              position === 0 || index === generatedIndexes[position - 1]! + 1,
+          );
+          const generatedRowsContainCaret = generatedRows.includes(activeItem);
+          const compatibleAttributes = (element: Element) =>
+            Array.from(element.attributes)
+              .filter(({ name }) => name !== "id")
+              .map(({ name, value }) => `${name}=${value}`)
+              .sort()
+              .join("\n");
+          if (
+            generatedRows.length === expectedGeneratedRows &&
+            generatedRowsAreContiguous &&
+            generatedRowsContainCaret
+          ) {
+            const firstGeneratedIndex = generatedIndexes[0] ?? -1;
+            const lastGeneratedIndex = generatedIndexes.at(-1) ?? -1;
+            for (const candidate of baseline.listMerge.adjacent) {
+              const rowIndexes = candidate.rows.map((row) =>
+                resultRows.indexOf(row),
+              );
+              const rowsPreserved = rowIndexes.every(
+                (index, position) =>
+                  index >= 0 &&
+                  (position === 0 || index === rowIndexes[position - 1]! + 1),
+              );
+              const rowsOnExpectedSide =
+                candidate.side === "before"
+                  ? rowIndexes.every((index) => index < firstGeneratedIndex)
+                  : rowIndexes.every((index) => index > lastGeneratedIndex);
+              const sameListAttributes =
+                compatibleAttributes(candidate.node) ===
+                compatibleAttributes(activeList);
+              const sourceAttributesPreserved =
+                authoredAttributes(candidate.node) === candidate.attributes;
+              const listWasMerged =
+                candidate.node === activeList || !root.contains(candidate.node);
+              if (
+                candidate.side === "before" &&
+                candidate.node.hasAttribute("id") &&
+                listWasMerged
+              ) {
+                listIdentityChecks.push({
+                  candidateId: candidate.node.getAttribute("id") ?? "",
+                  resultId: activeList.getAttribute("id"),
+                });
+              }
+              const leftListCarriesIdentity =
+                candidate.side !== "after" ||
+                !candidate.node.hasAttribute("id");
+              const resultStyleMatches =
+                changedStyleProperties(activeList, candidate.styles).length ===
+                0;
+              if (
+                candidate.node.tagName === baseline.listMerge.tagName &&
+                sameListAttributes &&
+                sourceAttributesPreserved &&
+                listWasMerged &&
+                leftListCarriesIdentity &&
+                rowsPreserved &&
+                rowsOnExpectedSide &&
+                resultStyleMatches
+              ) {
+                mergedListContainers.add(candidate.node);
+                candidate.rows.forEach((row) => mergedListRows.add(row));
+                if (candidate.node === activeList) {
+                  mergedListContainerContentChanges.add(candidate.node);
+                }
+              }
+            }
+          }
         }
         const path = (node: Node) => {
           const parts: string[] = [];
@@ -3296,6 +5034,13 @@ export async function runAuthoringFuzz(
         const equivalentReplacements = new Set<Element>();
         for (const record of baseline.records) {
           if (isTarget(record.node)) continue;
+          if (
+            record.node instanceof Element &&
+            mergedListContainers.has(record.node) &&
+            record.node !== activeList
+          ) {
+            continue;
+          }
           if (!root.contains(record.node)) {
             if (
               mergeAssertion &&
@@ -3367,17 +5112,30 @@ export async function runAuthoringFuzz(
             newParent.children.length === 2 &&
             newParent.firstElementChild?.tagName === "H2" &&
             newParent.lastElementChild === record.node;
+          const expectedEmptyListMove =
+            operation.kind === "empty-list-exit" &&
+            record.node instanceof Element &&
+            baseline.emptyListExit?.expectedMoves.includes(record.node) &&
+            isListContainer(record.parent) &&
+            record.node.parentNode &&
+            isListContainer(record.node.parentNode);
+          const expectedListMergeMove =
+            record.node instanceof Element &&
+            mergedListRows.has(record.node) &&
+            record.node.parentNode === activeList;
           if (
             moved &&
             !(
               promotedHeadingLine ||
               wrappedSiblingText ||
+              expectedListMergeMove ||
               (listShortcut &&
                 record.node instanceof Element &&
                 originalListRows.has(record.node) &&
                 isListContainer(record.parent) &&
                 record.node.parentNode &&
-                isListContainer(record.node.parentNode))
+                isListContainer(record.node.parentNode)) ||
+              expectedEmptyListMove
             )
           ) {
             const structure = (node: Node) =>
@@ -3437,11 +5195,8 @@ export async function runAuthoringFuzz(
             if (structureIndex >= 0) changes.splice(structureIndex, 1);
           }
           if (
-            operation.kind === "empty-list-exit" &&
-            record.node instanceof HTMLElement &&
-            /^(OL|UL)$/.test(record.node.tagName) &&
-            record.node.textContent?.includes(`list${operationIndex}`) &&
-            record.node.nextElementSibling?.tagName === "P"
+            record.node instanceof Element &&
+            mergedListContainerContentChanges.has(record.node)
           ) {
             const textIndex = changes.indexOf("text");
             if (textIndex >= 0) changes.splice(textIndex, 1);
@@ -3468,6 +5223,32 @@ export async function runAuthoringFuzz(
             failures.push(
               `changed ${record.node.nodeName} at ${path(record.node)} (${changes.join(", ")}${changes.includes("text") ? `, content signature length=${record.contentSignature.length}->${changedTextLength}` : ""}${styleDetails.length ? `: ${styleDetails.join(", ")}` : ""})`,
             );
+          }
+        }
+        if (baseline.emptyListExit && baseline.emptyListExit.list !== root) {
+          const { list, listStyles, listAttributes } = baseline.emptyListExit;
+          if (!root.contains(list)) {
+            failures.push(
+              "empty-list-exit removed its existing list container",
+            );
+          } else {
+            const changed = changedStyleProperties(list, listStyles);
+            if (changed.length) {
+              failures.push(
+                `empty-list-exit changed list container style: ${changed
+                  .slice(0, 6)
+                  .map(
+                    (property) =>
+                      `${property}=${listStyles[property] ?? ""}->${getComputedStyle(list).getPropertyValue(property)}`,
+                  )
+                  .join(", ")}`,
+              );
+            }
+            if (authoredAttributes(list) !== listAttributes) {
+              failures.push(
+                "empty-list-exit changed list container attributes",
+              );
+            }
           }
         }
         if (mergeAssertion) {
@@ -3566,19 +5347,35 @@ export async function runAuthoringFuzz(
         ) {
           failures.push("reordered sibling blocks");
         }
-        return failures.length
-          ? [...failures, `authoring targets: ${targetPaths}`]
-          : failures;
+        return {
+          failures: failures.length
+            ? [...failures, `authoring targets: ${targetPaths}`]
+            : failures,
+          listIdentityChecks,
+        };
       },
       {
         selector: editorSelector,
         phase,
         operation,
         requireMerge,
-        operationIndex: activeIndex,
+        listTag: authoringFuzzListTagForOperation(operation),
         styleProperties: AUTHORING_FUZZ_STYLE_PROPERTIES,
       },
     );
+    return [
+      ...result.failures,
+      ...result.listIdentityChecks.flatMap(
+        (check: { candidateId: string; resultId: string | null }) =>
+          authoringFuzzPrecedingListMergePreservesIdentity(
+            check.candidateId,
+            check.resultId,
+          )
+            ? []
+            : ["adjacent-list merge lost the preceding list's authored id"],
+      ),
+    ];
+  };
   const assertOutsideUnchanged = async () => {
     await page.evaluate(
       () =>
@@ -3802,6 +5599,98 @@ export async function runAuthoringFuzz(
           return 0;
       }
     }, result);
+  const inlineShortcutText = (result: string, value: string) => {
+    if (result === "bold" || result === "strike") return value.slice(2, -2);
+    if (result === "italic" || result === "code") return value.slice(1, -1);
+    return null;
+  };
+  const inlineShortcutIsActive = async (
+    format: string,
+    value: string,
+    expectedTextLength: number,
+  ) =>
+    editor.evaluate(
+      (
+        root: HTMLElement,
+        expected: { format: string; text: string; textLength: number },
+      ) => {
+        const selection = window.getSelection();
+        const anchor =
+          selection?.anchorNode instanceof HTMLElement
+            ? selection.anchorNode
+            : selection?.anchorNode?.parentElement;
+        const block =
+          anchor?.closest<HTMLElement>(
+            "p,li,blockquote,pre,h1,h2,h3,h4,h5,h6,div",
+          ) ?? root;
+        const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+        const nodes: Text[] = [];
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          nodes.push(node as Text);
+        }
+        const text = nodes.map((node) => node.data).join("");
+        if (text.length !== expected.textLength) return false;
+        const tokenStart = text.length - expected.text.length;
+        if (tokenStart < 0 || !text.endsWith(expected.text)) return false;
+
+        const hasFormat = (node: Text) => {
+          for (
+            let element = node.parentElement;
+            element && root.contains(element);
+            element = element.parentElement
+          ) {
+            const style = window.getComputedStyle(element);
+            if (expected.format === "bold") {
+              const weight = style.fontWeight;
+              if (
+                element.tagName === "B" ||
+                element.tagName === "STRONG" ||
+                weight === "bold" ||
+                (Number.parseFloat(weight) || 0) >= 600
+              ) {
+                return true;
+              }
+            } else if (expected.format === "italic") {
+              if (
+                element.tagName === "I" ||
+                element.tagName === "EM" ||
+                style.fontStyle === "italic" ||
+                style.fontStyle === "oblique"
+              ) {
+                return true;
+              }
+            } else if (expected.format === "strike") {
+              if (
+                element.tagName === "S" ||
+                element.tagName === "DEL" ||
+                style.textDecorationLine.includes("line-through") ||
+                style.textDecoration.includes("line-through")
+              ) {
+                return true;
+              }
+            } else if (element.tagName === "CODE") {
+              return true;
+            }
+            if (element === block) break;
+          }
+          return false;
+        };
+
+        let offset = 0;
+        let checked = 0;
+        for (const node of nodes) {
+          const end = offset + node.data.length;
+          if (end > tokenStart && offset < text.length) {
+            if (!hasFormat(node)) return false;
+            checked +=
+              Math.min(end, text.length) - Math.max(offset, tokenStart);
+          }
+          offset = end;
+        }
+        return checked === expected.text.length;
+      },
+      { format, text: value, textLength: expectedTextLength },
+    );
   const shortcutState = async () =>
     editor.evaluate((root: HTMLElement) => {
       const selection = window.getSelection();
@@ -3857,10 +5746,20 @@ export async function runAuthoringFuzz(
   const assertShortcut = async (
     result: string,
     before: number,
-    beforeTrigger?: unknown,
+    value: string,
+    beforeTrigger: Awaited<ReturnType<typeof shortcutState>>,
   ) => {
     const after = await shortcutResultCount(result);
-    if (after <= before) {
+    const content = inlineShortcutText(result, value);
+    const produced =
+      content === null
+        ? after > before
+        : await inlineShortcutIsActive(
+            result,
+            content,
+            beforeTrigger.blockTextLength - (value.length - 1 - content.length),
+          );
+    if (!produced) {
       const state = await shortcutState();
       throw new Error(
         `markdown shortcut did not produce ${result} (${before} -> ${after}; before trigger=${JSON.stringify(beforeTrigger)}; after=${JSON.stringify(state)})`,
@@ -3975,42 +5874,196 @@ export async function runAuthoringFuzz(
     });
   const newPlainLine = async (label = "authoring operation") => {
     await editor.evaluate((root: HTMLElement) => {
-      root.focus();
+      if (document.activeElement !== root) root.focus();
       const selection = window.getSelection();
       if (!selection) throw new Error("editor has no text selection");
-      const range = document.createRange();
-      const textNodes = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-      let lastText: Text | null = null;
-      for (let node = textNodes.nextNode(); node; node = textNodes.nextNode()) {
-        lastText = node as Text;
+      const isVisible = (range: Range) => {
+        const rangeRect = range.getBoundingClientRect();
+        const anchor =
+          range.startContainer instanceof Element
+            ? range.startContainer
+            : range.startContainer.parentElement;
+        const rect =
+          rangeRect.height > 0 ? rangeRect : anchor?.getBoundingClientRect();
+        return (
+          !!rect &&
+          rect.height > 0 &&
+          rect.left >= 0 &&
+          rect.left <= window.innerWidth &&
+          rect.top >= 0 &&
+          rect.bottom <= window.innerHeight
+        );
+      };
+      const blockEdgeRange = (block: HTMLElement, end: boolean) => {
+        const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+        let firstText: Text | null = null;
+        let lastText: Text | null = null;
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          const text = node as Text;
+          if (!text.length) continue;
+          firstText ??= text;
+          lastText = text;
+        }
+        const range = document.createRange();
+        const text = end ? lastText : firstText;
+        if (text) range.setStart(text, end ? text.length : 0);
+        else range.selectNodeContents(block);
+        range.collapse(end);
+        return range;
+      };
+      let emptyPlainRange: Range | null = null;
+      let plainEndRange: Range | null = null;
+      let plainStartRange: Range | null = null;
+      const plainBlocks = [
+        ...(root.matches("p,div") ? [root] : []),
+        ...root.querySelectorAll<HTMLElement>("p,div"),
+      ];
+      for (const block of plainBlocks) {
+        if (
+          block.querySelector("p,div,li,ul,ol,blockquote,h1,h2,h3,h4,h5,h6,pre")
+        )
+          continue;
+        if (block.closest("li,ul,ol,blockquote,h1,h2,h3,h4,h5,h6,pre"))
+          continue;
+        const marker = block.firstElementChild;
+        if (
+          getComputedStyle(block).display === "flex" &&
+          marker?.tagName === "SPAN" &&
+          /^[•●◦▪‣·⁃–—-]+$/u.test(marker.textContent?.trim() ?? "") &&
+          block.lastElementChild?.tagName === "SPAN"
+        )
+          continue;
+        if (block.querySelector("img,svg,video,canvas,picture,iframe,input,hr"))
+          continue;
+        const text = (block.textContent ?? "")
+          .replaceAll(/[\u200b\ufeff]/g, "")
+          .replaceAll("\u00a0", "");
+        const endRange = blockEdgeRange(block, true);
+        if (isVisible(endRange)) {
+          if (!text) {
+            emptyPlainRange = endRange;
+            break;
+          }
+          plainEndRange ??= endRange;
+          continue;
+        }
+        if (!text) continue;
+        const startRange = blockEdgeRange(block, false);
+        if (isVisible(startRange)) plainStartRange ??= startRange;
       }
-      if (lastText) range.setStart(lastText, lastText.length);
-      else {
+      let range = emptyPlainRange ?? plainEndRange ?? plainStartRange;
+      if (!range) {
+        const headings = [
+          ...(root.matches("h1,h2,h3,h4,h5,h6") ? [root] : []),
+          ...root.querySelectorAll<HTMLElement>("h1,h2,h3,h4,h5,h6"),
+        ];
+        for (const heading of headings) {
+          const candidate = blockEdgeRange(heading, true);
+          if (isVisible(candidate)) {
+            range = candidate;
+            break;
+          }
+        }
+      }
+      if (!range) {
+        const textBlocks = Array.from(
+          root.querySelectorAll<HTMLElement>(
+            "li,blockquote,pre,h1,h2,h3,h4,h5,h6,ol,ul",
+          ),
+        ).reverse();
+        for (const block of textBlocks) {
+          const candidate = blockEdgeRange(block, true);
+          if (isVisible(candidate)) {
+            range = candidate;
+            break;
+          }
+        }
+      }
+      if (!range) {
+        range = document.createRange();
         range.selectNodeContents(root);
         range.collapse(false);
       }
-      range.collapse(true);
       selection.removeAllRanges();
       selection.addRange(range);
-      const caretTarget =
-        range.startContainer instanceof Element
-          ? range.startContainer
-          : range.startContainer.parentElement;
-      (caretTarget ?? root).scrollIntoView({
+      const caretTarget = range.startContainer.parentElement ?? root;
+      caretTarget.scrollIntoView({
         block: "nearest",
         inline: "nearest",
       });
+      const rangeRect = range.getBoundingClientRect();
+      const caretRect =
+        rangeRect.height > 0
+          ? rangeRect
+          : range.startContainer instanceof Element
+            ? range.startContainer.getBoundingClientRect()
+            : range.startContainer.parentElement?.getBoundingClientRect();
+      if (
+        !caretRect ||
+        caretRect.height <= 0 ||
+        caretRect.left < 0 ||
+        caretRect.left > window.innerWidth ||
+        caretRect.top < 0 ||
+        caretRect.bottom > window.innerHeight
+      ) {
+        throw new Error("authoring fuzz could not place its caret in view");
+      }
     });
     let state = await plainLineState();
+    const setupStates = [state];
     let attempts = 0;
     for (let attempt = 0; !state.valid && attempt < 8; attempt += 1) {
-      await editor.press("Enter");
+      await page.keyboard.press("Enter");
+      await editor.evaluate((root: HTMLElement) => {
+        const selection = window.getSelection();
+        if (!selection?.rangeCount) return;
+        const range = selection.getRangeAt(0);
+        if (!root.contains(range.startContainer)) return;
+        const caretTarget = range.startContainer.parentElement ?? root;
+        caretTarget.scrollIntoView({
+          block: "nearest",
+          inline: "nearest",
+        });
+      });
       state = await plainLineState();
+      setupStates.push(state);
       attempts += 1;
     }
     if (!state.valid)
       throw new Error(
-        `${label} setup did not reach an empty plain line (${JSON.stringify({ attempts, state })})`,
+        `${label} setup did not reach an empty plain line (${JSON.stringify({ attempts, state, setupStates })})`,
+      );
+    const finalCaret = await editor.evaluate((root: HTMLElement) => {
+      const selection = window.getSelection();
+      if (!selection?.rangeCount || !root.contains(selection.focusNode))
+        return null;
+      const range = selection.getRangeAt(0);
+      const rangeRect = range.getBoundingClientRect();
+      const anchor =
+        range.startContainer instanceof Element
+          ? range.startContainer
+          : range.startContainer.parentElement;
+      const rect =
+        rangeRect.height > 0 ? rangeRect : anchor?.getBoundingClientRect();
+      if (!rect) return null;
+      return {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height,
+        withinViewport:
+          rect.height > 0 &&
+          rect.left >= 0 &&
+          rect.left <= window.innerWidth &&
+          rect.top >= 0 &&
+          rect.bottom <= window.innerHeight,
+      };
+    });
+    if (!finalCaret?.withinViewport)
+      throw new Error(
+        `${label} setup left the caret outside the viewport (${JSON.stringify(finalCaret)})`,
       );
     const operation = plan[activeIndex];
     if (!operation) throw new Error("authoring operation is unavailable");
@@ -4025,11 +6078,125 @@ export async function runAuthoringFuzz(
     tracePhase("slash.type:end");
     const listbox = await waitForControlledSlashListbox();
     const options = listbox.locator('[role="option"]');
-    tracePhase("slash.wait-visible:start");
-    await options.first().waitFor({ state: "visible", timeout: 5_000 });
-    tracePhase("slash.wait-visible:end");
     if ((await options.count()) !== SLASH_COMMANDS.length)
       throw new Error("slash menu did not expose all eight commands");
+    const initialOptionId = await editor.getAttribute("aria-activedescendant");
+    const initialCommand = initialOptionId
+      ? await page
+          .locator(`[id=${JSON.stringify(initialOptionId)}]`)
+          .getAttribute("data-value")
+      : null;
+    await options.nth(1).hover();
+    if (!slashHoverThemesChecked) {
+      const originalTheme = await page.evaluate(() => ({
+        light: document.documentElement.classList.contains("light"),
+        dark: document.documentElement.classList.contains("dark"),
+      }));
+      try {
+        for (const theme of ["light", "dark"] as const) {
+          await page.evaluate((nextTheme: "light" | "dark") => {
+            const root = document.documentElement;
+            root.classList.toggle("light", nextTheme === "light");
+            root.classList.toggle("dark", nextTheme === "dark");
+          }, theme);
+          const hoverState = await editor.evaluate((root: HTMLElement) => {
+            const activeId = root.getAttribute("aria-activedescendant");
+            const activeOption = activeId
+              ? document.getElementById(activeId)
+              : null;
+            const hoveredOption = document.querySelector<HTMLElement>(
+              '[role="option"]:hover',
+            );
+            const activeBackground = activeOption
+              ? getComputedStyle(activeOption).backgroundColor
+              : null;
+            const hoveredBackground = hoveredOption
+              ? getComputedStyle(hoveredOption).backgroundColor
+              : null;
+            const surfaceBackgrounds: string[] = [];
+            for (
+              let ancestor = hoveredOption?.parentElement ?? null;
+              ancestor;
+              ancestor = ancestor.parentElement
+            ) {
+              surfaceBackgrounds.push(
+                getComputedStyle(ancestor).backgroundColor,
+              );
+            }
+            const canvas = document.createElement("canvas");
+            canvas.width = 1;
+            canvas.height = 1;
+            const context = canvas.getContext("2d", {
+              willReadFrequently: true,
+            });
+            const renderOverSurface = (foreground: string | null) => {
+              if (
+                !context ||
+                !foreground ||
+                !CSS.supports("color", foreground) ||
+                surfaceBackgrounds.some(
+                  (background) => !CSS.supports("color", background),
+                )
+              ) {
+                return null;
+              }
+              context.clearRect(0, 0, 1, 1);
+              for (const background of [...surfaceBackgrounds].reverse()) {
+                context.fillStyle = background;
+                context.fillRect(0, 0, 1, 1);
+              }
+              context.fillStyle = foreground;
+              context.fillRect(0, 0, 1, 1);
+              const { data } = context.getImageData(0, 0, 1, 1);
+              return [data[0], data[1], data[2]] as [number, number, number];
+            };
+            const activeRendered = renderOverSurface(activeBackground);
+            const hoveredRendered = renderOverSurface(hoveredBackground);
+            return {
+              focused: document.activeElement === root,
+              activeCommand: activeOption?.getAttribute("data-value") ?? null,
+              hoveredCommand: hoveredOption?.getAttribute("data-value") ?? null,
+              activeBackground,
+              hoveredBackground,
+              surfaceBackgrounds,
+              backgroundDifference:
+                activeRendered && hoveredRendered
+                  ? Math.max(
+                      ...activeRendered.map((channel, index) =>
+                        Math.abs(channel - hoveredRendered[index]),
+                      ),
+                    )
+                  : null,
+            };
+          });
+          if (
+            !initialCommand ||
+            !hoverState.focused ||
+            hoverState.activeCommand !== initialCommand ||
+            !hoverState.hoveredCommand ||
+            hoverState.hoveredCommand === initialCommand ||
+            !hoverState.activeBackground ||
+            !hoverState.hoveredBackground ||
+            hoverState.backgroundDifference === null ||
+            hoverState.backgroundDifference < 24
+          ) {
+            throw new Error(
+              `slash menu hover changed or lacks clear contrast from keyboard selection in ${theme} theme (${JSON.stringify({ initialCommand, hoverState })})`,
+            );
+          }
+        }
+      } finally {
+        await page.evaluate(
+          ({ light, dark }: { light: boolean; dark: boolean }) => {
+            const root = document.documentElement;
+            root.classList.toggle("light", light);
+            root.classList.toggle("dark", dark);
+          },
+          originalTheme,
+        );
+      }
+      slashHoverThemesChecked = true;
+    }
     const focused = await editor.evaluate(
       (root: HTMLElement) => document.activeElement === root,
     );
@@ -4075,24 +6242,85 @@ export async function runAuthoringFuzz(
     return listbox;
   };
   const waitForControlledSlashListbox = async () => {
-    await page.waitForFunction(
-      (selector: string) => {
-        const editingEl = document.querySelector<HTMLElement>(selector);
-        const listboxId = editingEl?.getAttribute("aria-controls");
-        const optionId = editingEl?.getAttribute("aria-activedescendant");
+    try {
+      await page.waitForFunction(
+        (selector: string) => {
+          const editingEl = document.querySelector<HTMLElement>(selector);
+          const listboxId = editingEl?.getAttribute("aria-controls");
+          const optionId = editingEl?.getAttribute("aria-activedescendant");
+          const listbox = listboxId ? document.getElementById(listboxId) : null;
+          const activeOption = optionId
+            ? document.getElementById(optionId)
+            : null;
+          return (
+            listbox?.getAttribute("role") === "listbox" &&
+            activeOption?.getAttribute("role") === "option" &&
+            listbox.contains(activeOption) &&
+            isRenderedVisible(listbox) &&
+            isRenderedVisible(activeOption)
+          );
+
+          function isRenderedVisible(element: HTMLElement | null): boolean {
+            if (!element) return false;
+            const style = getComputedStyle(element);
+            const rect = element.getBoundingClientRect();
+            return (
+              style.display !== "none" &&
+              style.visibility !== "hidden" &&
+              element.getClientRects().length > 0 &&
+              rect.width > 0 &&
+              rect.height > 0
+            );
+          }
+        },
+        editorSelector,
+        { polling: 50, timeout: 5000 },
+      );
+    } catch (error) {
+      const state = await editor.evaluate((root: HTMLElement) => {
+        const listboxId = root.getAttribute("aria-controls");
+        const activeId = root.getAttribute("aria-activedescendant");
         const listbox = listboxId ? document.getElementById(listboxId) : null;
-        const activeOption = optionId
-          ? document.getElementById(optionId)
+        const activeOption = activeId
+          ? document.getElementById(activeId)
           : null;
-        return (
-          listbox?.getAttribute("role") === "listbox" &&
-          activeOption?.getAttribute("role") === "option" &&
-          listbox.contains(activeOption)
+        const isRenderedVisible = (element: HTMLElement | null) => {
+          if (!element) return false;
+          const style = getComputedStyle(element);
+          const rect = element.getBoundingClientRect();
+          return (
+            style.display !== "none" &&
+            style.visibility !== "hidden" &&
+            element.getClientRects().length > 0 &&
+            rect.width > 0 &&
+            rect.height > 0
+          );
+        };
+        return {
+          focused: document.activeElement === root,
+          controls: listboxId,
+          activeDescendant: activeId,
+          listboxRole: listbox?.getAttribute("role") ?? null,
+          activeRole: activeOption?.getAttribute("role") ?? null,
+          activeValue: activeOption?.getAttribute("data-value") ?? null,
+          contained:
+            !!listbox && !!activeOption && listbox.contains(activeOption),
+          listboxVisible: isRenderedVisible(listbox),
+          activeVisible: isRenderedVisible(activeOption),
+          listboxes: document.querySelectorAll('[role="listbox"]').length,
+          options: document.querySelectorAll('[role="option"]').length,
+        };
+      });
+      const readyListboxId = controlledSlashMenuIdWhenReady(state);
+      if (readyListboxId) {
+        return page.locator(
+          `[role="listbox"][id=${JSON.stringify(readyListboxId)}]`,
         );
-      },
-      editorSelector,
-      { timeout: 5000 },
-    );
+      }
+      throw new Error(
+        `slash menu did not expose a controlled active option (${JSON.stringify(state)}); ${String(error)}`,
+      );
+    }
     const listboxId = await editor.getAttribute("aria-controls");
     if (!listboxId) throw new Error("slash menu did not expose its listbox");
     return page.locator(`[role="listbox"][id=${JSON.stringify(listboxId)}]`);
@@ -4240,21 +6468,196 @@ export async function runAuthoringFuzz(
     key: "Enter" | "Tab" = "Enter",
   ) => {
     const listbox = await openSlashMenu();
-    const commandIndex = SLASH_COMMANDS.findIndex(
-      ([value]) => value === command,
+    const currentOptionId = await editor.getAttribute("aria-activedescendant");
+    const activeCommand = await listbox
+      .locator('[role="option"]')
+      .evaluateAll(
+        (options: Element[], activeId: string | null) =>
+          options
+            .find((option) => option.getAttribute("id") === activeId)
+            ?.getAttribute("data-value") ?? null,
+        currentOptionId,
+      );
+    const arrowDownCount = authoringFuzzSlashArrowDownCount(
+      activeCommand,
+      command,
     );
-    if (commandIndex < 0) throw new Error(`unknown slash command ${command}`);
     tracePhase(`slash.navigate:start:${command}`);
-    for (let index = 0; index < commandIndex; index += 1)
-      await page.keyboard.press("ArrowDown");
+    let selectedIndex = SLASH_COMMANDS.findIndex(
+      ([value]) => value === activeCommand,
+    );
+    await page.evaluate((selector: string) => {
+      const trace: Array<{
+        keyCode: number;
+        isComposing: boolean;
+        activeBefore: string | null;
+        defaultPreventedAfter?: boolean;
+        activeAfter?: string | null;
+      }> = [];
+      const listener = (event: KeyboardEvent) => {
+        if (event.key !== "ArrowDown") return;
+        const editingEl = document.querySelector<HTMLElement>(selector);
+        if (!editingEl) return;
+        const activeValue = () => {
+          const id = editingEl.getAttribute("aria-activedescendant");
+          return id
+            ? (document.getElementById(id)?.getAttribute("data-value") ?? null)
+            : null;
+        };
+        const entry: {
+          keyCode: number;
+          isComposing: boolean;
+          activeBefore: string | null;
+          defaultPreventedAfter?: boolean;
+          activeAfter?: string | null;
+        } = {
+          keyCode: event.keyCode,
+          isComposing: event.isComposing,
+          activeBefore: activeValue(),
+        };
+        trace.push(entry);
+        requestAnimationFrame(() => {
+          entry.defaultPreventedAfter = event.defaultPrevented;
+          entry.activeAfter = activeValue();
+        });
+      };
+      document.addEventListener("keydown", listener, true);
+      (
+        window as Window & {
+          __slidesSlashNavigationTrace?: {
+            trace: typeof trace;
+            listener: typeof listener;
+          };
+        }
+      ).__slidesSlashNavigationTrace = { trace, listener };
+    }, editorSelector);
+    try {
+      for (let index = 0; index < arrowDownCount; index += 1) {
+        selectedIndex = (selectedIndex + 1) % SLASH_COMMANDS.length;
+        const expectedCommand = SLASH_COMMANDS[selectedIndex][0];
+        await page.keyboard.press("ArrowDown");
+        try {
+          await page.waitForFunction(
+            ({ selector, value }: { selector: string; value: string }) => {
+              const editingEl = document.querySelector<HTMLElement>(selector);
+              const listboxId = editingEl?.getAttribute("aria-controls");
+              const activeId = editingEl?.getAttribute("aria-activedescendant");
+              const listbox = listboxId
+                ? document.getElementById(listboxId)
+                : null;
+              const activeOption = activeId
+                ? document.getElementById(activeId)
+                : null;
+              const isRenderedVisible = (element: HTMLElement | null) => {
+                if (!element) return false;
+                const style = getComputedStyle(element);
+                const rect = element.getBoundingClientRect();
+                return (
+                  style.display !== "none" &&
+                  style.visibility !== "hidden" &&
+                  element.getClientRects().length > 0 &&
+                  rect.width > 0 &&
+                  rect.height > 0
+                );
+              };
+              return (
+                activeOption?.getAttribute("data-value") === value &&
+                activeOption.getAttribute("role") === "option" &&
+                listbox?.getAttribute("role") === "listbox" &&
+                listbox.contains(activeOption) &&
+                isRenderedVisible(listbox) &&
+                isRenderedVisible(activeOption)
+              );
+            },
+            { selector: editorSelector, value: expectedCommand },
+            { polling: 50, timeout: 5000 },
+          );
+        } catch (error) {
+          const navigationState = await page.evaluate(
+            ({
+              selector,
+              expected,
+            }: {
+              selector: string;
+              expected: string;
+            }) => {
+              const editingEl = document.querySelector<HTMLElement>(selector);
+              const listboxId = editingEl?.getAttribute("aria-controls");
+              const listbox = listboxId
+                ? document.getElementById(listboxId)
+                : null;
+              const activeId = editingEl?.getAttribute("aria-activedescendant");
+              const activeOption = activeId
+                ? document.getElementById(activeId)
+                : null;
+              const isRenderedVisible = (element: HTMLElement | null) => {
+                if (!element) return false;
+                const style = getComputedStyle(element);
+                const rect = element.getBoundingClientRect();
+                return (
+                  style.display !== "none" &&
+                  style.visibility !== "hidden" &&
+                  element.getClientRects().length > 0 &&
+                  rect.width > 0 &&
+                  rect.height > 0
+                );
+              };
+              const traceOwner = window as Window & {
+                __slidesSlashNavigationTrace?: {
+                  trace: Array<Record<string, unknown>>;
+                };
+              };
+              return {
+                current: activeOption?.getAttribute("data-value") ?? null,
+                listboxRole: listbox?.getAttribute("role") ?? null,
+                expected,
+                activeRole: activeOption?.getAttribute("role") ?? null,
+                contained:
+                  !!listbox && !!activeOption && listbox.contains(activeOption),
+                listboxVisible: isRenderedVisible(listbox),
+                activeVisible: isRenderedVisible(activeOption),
+                trace: traceOwner.__slidesSlashNavigationTrace?.trace ?? [],
+              };
+            },
+            { selector: editorSelector, expected: expectedCommand },
+          );
+          if (
+            isSlashCommandNavigationStateReady(navigationState, expectedCommand)
+          ) {
+            continue;
+          }
+          throw new Error(
+            `slash navigation to ${command} from ${activeCommand} stalled at ${index + 1}/${arrowDownCount}; expected ${expectedCommand}, current ${navigationState.current}, key trace=${JSON.stringify(navigationState.trace.slice(-8))}; ${String(error)}`,
+          );
+        }
+      }
+    } finally {
+      await page.evaluate(() => {
+        const traceOwner = window as Window & {
+          __slidesSlashNavigationTrace?: {
+            trace: unknown[];
+            listener: EventListener;
+          };
+        };
+        const trace = traceOwner.__slidesSlashNavigationTrace;
+        if (trace)
+          document.removeEventListener("keydown", trace.listener, true);
+        delete traceOwner.__slidesSlashNavigationTrace;
+      });
+    }
     const activeOptionId = await listbox
       .locator(`[role="option"][data-value="${command}"]`)
       .getAttribute("id");
+    const selectedCommand = await listbox
+      .locator('[role="option"][aria-selected="true"]')
+      .getAttribute("data-value");
     if (
       !activeOptionId ||
       (await editor.getAttribute("aria-activedescendant")) !== activeOptionId
     ) {
-      throw new Error(`slash menu did not select ${command}`);
+      throw new Error(
+        `slash menu did not select ${command} (started at ${activeCommand}, moved ${arrowDownCount}, selected ${selectedCommand ?? "none"})`,
+      );
     }
     const withTrigger = await inspectSelection();
     const listboxId = await slashListboxId(listbox);
@@ -4335,6 +6738,43 @@ export async function runAuthoringFuzz(
   const placeCaretAtToken = async (token: string, edge: "start" | "end") => {
     await selectToken(token, edge);
   };
+  const listCaretState = async (token: string) =>
+    editor.evaluate((root: HTMLElement, value: string) => {
+      const selection = window.getSelection();
+      const anchorNode = selection?.anchorNode ?? null;
+      const anchor =
+        anchorNode instanceof Element ? anchorNode : anchorNode?.parentElement;
+      const activeItem = anchor?.closest<HTMLElement>("li") ?? null;
+      const tokenItem =
+        Array.from(root.querySelectorAll<HTMLElement>("li")).find((item) =>
+          item.textContent?.includes(value),
+        ) ?? null;
+      const itemState = (item: HTMLElement | null) =>
+        item
+          ? {
+              connected: item.isConnected,
+              parentTag: item.parentElement?.tagName ?? null,
+              textLength: item.textContent?.length ?? 0,
+            }
+          : null;
+      return {
+        focused: document.activeElement === root,
+        selectionCollapsed: selection?.isCollapsed ?? false,
+        anchorTag:
+          anchorNode instanceof Element
+            ? anchorNode.tagName
+            : (anchorNode?.parentElement?.tagName ?? null),
+        anchorOffset: selection?.anchorOffset ?? null,
+        activeItem: itemState(activeItem),
+        tokenItem: itemState(tokenItem),
+        caretInTokenItem: !!activeItem && activeItem === tokenItem,
+        caretInSiblingItem:
+          !!activeItem &&
+          !!tokenItem &&
+          activeItem !== tokenItem &&
+          activeItem.parentElement === tokenItem.parentElement,
+      };
+    }, token);
   const listRowCount = async (kind: "styled" | "ul" | "ol") =>
     editor.evaluate((root: HTMLElement, type: string) => {
       if (type === "styled") {
@@ -4376,9 +6816,30 @@ export async function runAuthoringFuzz(
       await runSlashCommand(kind === "ul" ? "bulletList" : "orderedList");
       await typeText(firstToken);
     }
+    const caretAfterFirst =
+      kind === "styled" ? null : await listCaretState(firstToken);
+    if (caretAfterFirst && !caretAfterFirst.caretInTokenItem) {
+      throw new Error(
+        `${kind} caret left its list item after typing (${JSON.stringify(caretAfterFirst)})`,
+      );
+    }
     const afterFirst = await listRowCount(kind);
     await editor.press(lineEndKey);
+    const caretAfterLineEnd =
+      kind === "styled" ? null : await listCaretState(firstToken);
+    if (caretAfterLineEnd && !caretAfterLineEnd.caretInTokenItem) {
+      throw new Error(
+        `${kind} caret left its list item at the line end (${JSON.stringify(caretAfterLineEnd)})`,
+      );
+    }
     await editor.press("Enter");
+    const caretAfterEnter =
+      kind === "styled" ? null : await listCaretState(firstToken);
+    if (caretAfterEnter && !caretAfterEnter.caretInSiblingItem) {
+      throw new Error(
+        `${kind} Enter did not move the caret into a sibling list item (${JSON.stringify(caretAfterEnter)})`,
+      );
+    }
     await typeText(secondToken);
     const after = await listRowCount(kind);
     const siblingEntries = await editor.evaluate(
@@ -4386,31 +6847,49 @@ export async function runAuthoringFuzz(
         root: HTMLElement,
         values: { kind: string; first: string; second: string },
       ) => {
-        const entryFor = (token: string) => {
-          const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-          for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-            if (!(node as Text).data.includes(token)) continue;
-            let entry = (node as Text).parentElement;
-            if (values.kind === "styled") {
-              while (entry && entry !== root) {
-                const marker = entry.firstElementChild;
-                if (
-                  getComputedStyle(entry).display === "flex" &&
-                  marker?.tagName === "SPAN" &&
-                  /^[•●◦▪‣·⁃–—-]+$/u.test(marker.textContent?.trim() ?? "")
-                ) {
-                  return entry.textContent?.includes(token) ? entry : null;
-                }
-                entry = entry.parentElement;
-              }
-              return null;
-            }
-            const item = entry?.closest<HTMLElement>("li");
-            return item?.parentElement?.tagName === values.kind.toUpperCase()
-              ? item
-              : null;
+        const points: Array<{ text: Text; offset: number }> = [];
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        let visible = "";
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          const text = node as Text;
+          for (let offset = 0; offset < text.length; offset += 1) {
+            if (text.data[offset] === "\u200b") continue;
+            points.push({ text, offset });
+            visible += text.data[offset] === "\u00a0" ? " " : text.data[offset];
           }
-          return null;
+        }
+        const entryFor = (token: string) => {
+          const start = visible.lastIndexOf(token);
+          if (start < 0) return null;
+          const firstPoint = points[start];
+          const lastPoint = points[start + token.length - 1];
+          if (!firstPoint || !lastPoint) return null;
+          const firstElement = firstPoint.text.parentElement;
+          const lastElement = lastPoint.text.parentElement;
+          if (values.kind === "styled") {
+            let entry = firstElement;
+            while (entry && entry !== root) {
+              const marker = entry.firstElementChild;
+              if (
+                getComputedStyle(entry).display === "flex" &&
+                marker?.tagName === "SPAN" &&
+                /^[•●◦▪‣·⁃–—-]+$/u.test(marker.textContent?.trim() ?? "")
+              ) {
+                return entry.contains(lastElement) &&
+                  entry.textContent?.includes(token)
+                  ? entry
+                  : null;
+              }
+              entry = entry.parentElement;
+            }
+            return null;
+          }
+          const item = firstElement?.closest<HTMLElement>("li");
+          return item &&
+            item.contains(lastElement) &&
+            item.parentElement?.tagName === values.kind.toUpperCase()
+            ? item
+            : null;
         };
         const first = entryFor(values.first);
         const second = entryFor(values.second);
@@ -4430,24 +6909,48 @@ export async function runAuthoringFuzz(
           const anchor = selection?.anchorNode;
           const element =
             anchor instanceof HTMLElement ? anchor : anchor?.parentElement;
-          const tokenBlock = (token: string) => {
+          const tokenLocation = (token: string) => {
             const walker = document.createTreeWalker(
               root,
               NodeFilter.SHOW_TEXT,
             );
+            const points: Array<{ text: Text; offset: number }> = [];
+            let visible = "";
             for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-              if (!(node as Text).data.includes(token)) continue;
-              const block = (node as Text).parentElement?.closest<HTMLElement>(
-                "p,div,h1,h2,h3,h4,h5,h6,blockquote,li,pre",
-              );
-              const text = block?.textContent ?? "";
-              return {
-                tag: block?.tagName ?? null,
-                length: text.length,
-                shortcutPrefixRemains: text.includes(`- ${token}`),
-              };
+              const text = node as Text;
+              for (let offset = 0; offset < text.length; offset += 1) {
+                if (text.data[offset] === "\u200b") continue;
+                points.push({ text, offset });
+                visible +=
+                  text.data[offset] === "\u00a0" ? " " : text.data[offset];
+              }
             }
-            return null;
+            const start = visible.lastIndexOf(token);
+            const firstPoint = start < 0 ? null : points[start];
+            const lastPoint =
+              start < 0 ? null : points[start + token.length - 1];
+            if (!firstPoint || !lastPoint) return null;
+            const firstElement = firstPoint.text.parentElement;
+            const item = firstElement?.closest("li");
+            const lastElement = lastPoint.text.parentElement;
+            const ancestors: string[] = [];
+            for (
+              let current: Element | null = firstElement;
+              current && root.contains(current);
+              current = current.parentElement
+            ) {
+              ancestors.push(current.tagName);
+              if (current === root) break;
+            }
+            return {
+              ancestors,
+              blockTag:
+                firstElement?.closest(
+                  "p,div,h1,h2,h3,h4,h5,h6,blockquote,li,pre",
+                )?.tagName ?? null,
+              listTag: item?.parentElement?.tagName ?? null,
+              sameListItem: !!item && item.contains(lastElement),
+            };
           };
           const rows = [
             ...(root.matches("div") ? [root] : []),
@@ -4496,13 +6999,14 @@ export async function runAuthoringFuzz(
             })(),
             firstTokenPresent: root.textContent?.includes(tokens[0] ?? ""),
             secondTokenPresent: root.textContent?.includes(tokens[1] ?? ""),
-            firstTokenBlock: tokenBlock(tokens[0] ?? ""),
+            firstTokenLocation: tokenLocation(tokens[0] ?? ""),
+            secondTokenLocation: tokenLocation(tokens[1] ?? ""),
           };
         },
         [firstToken, secondToken],
       );
       throw new Error(
-        `${kind} Enter did not create a sibling list item (${JSON.stringify({ before, afterShortcut, afterFirst, after, siblingEntries, state })})`,
+        `${kind} Enter did not create a sibling list item (${JSON.stringify({ before, afterShortcut, afterFirst, after, siblingEntries, caretAfterFirst, caretAfterLineEnd, caretAfterEnter, state })})`,
       );
     }
     return { firstToken, secondToken };
@@ -4531,12 +7035,27 @@ export async function runAuthoringFuzz(
       }
       return null;
     }, token);
-  const paste = async (html: string | null, text: string) =>
+  const slideClipboardType = "application/x-agent-native-slide-text";
+  const paste = async (
+    html: string | null,
+    text: string,
+    slideClipboard?: string,
+  ) =>
     editor.evaluate(
-      (root: HTMLElement, data: { html: string | null; text: string }) => {
+      (
+        root: HTMLElement,
+        data: {
+          html: string | null;
+          text: string;
+          slideClipboard?: string;
+          slideClipboardType: string;
+        },
+      ) => {
         const clipboard = new DataTransfer();
         clipboard.setData("text/plain", data.text);
         if (data.html) clipboard.setData("text/html", data.html);
+        if (data.slideClipboard)
+          clipboard.setData(data.slideClipboardType, data.slideClipboard);
         const event = new Event("paste", {
           bubbles: true,
           cancelable: true,
@@ -4557,10 +7076,15 @@ export async function runAuthoringFuzz(
           selectionCollapsed: selection?.isCollapsed ?? null,
         };
       },
-      { html, text },
+      {
+        html,
+        text,
+        slideClipboardType,
+        ...(slideClipboard ? { slideClipboard } : {}),
+      },
     );
   const copySelection = async () =>
-    editor.evaluate((root: HTMLElement) => {
+    editor.evaluate((root: HTMLElement, type: string) => {
       const clipboard = new DataTransfer();
       const event = new Event("copy", {
         bubbles: true,
@@ -4574,8 +7098,9 @@ export async function runAuthoringFuzz(
       return {
         html: clipboard.getData("text/html"),
         text: clipboard.getData("text/plain"),
+        slideClipboard: clipboard.getData(type),
       };
-    });
+    }, slideClipboardType);
   const assertRichPasteStructure = async (suffix: string) => {
     const state = await editor.evaluate(
       (root: HTMLElement, tokenSuffix: string) => {
@@ -4680,30 +7205,117 @@ export async function runAuthoringFuzz(
       [firstToken, secondToken],
     );
   };
+  const placeReplacementCaret = async () =>
+    editor.evaluate((root: HTMLElement) => {
+      if (document.activeElement !== root) root.focus();
+      const selection = window.getSelection();
+      if (!selection) throw new Error("replacement has no browser selection");
+      const isVisible = (element: HTMLElement) => {
+        const style = getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        return (
+          style.display !== "none" &&
+          style.visibility !== "hidden" &&
+          style.visibility !== "collapse" &&
+          rect.width > 0 &&
+          rect.height > 0
+        );
+      };
+      let lastText: Text | null = null;
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const text = node as Text;
+        if (
+          text.length &&
+          text.parentElement &&
+          isVisible(text.parentElement)
+        ) {
+          lastText = text;
+        }
+      }
+      const range = document.createRange();
+      if (lastText) {
+        range.setStart(lastText, lastText.length);
+        range.collapse(true);
+      } else {
+        const emptyBlock = [
+          ...(root.matches("p,div,li,blockquote,h1,h2,h3,h4,h5,h6,pre")
+            ? [root]
+            : []),
+          ...root.querySelectorAll<HTMLElement>(
+            "p,div,li,blockquote,h1,h2,h3,h4,h5,h6,pre",
+          ),
+        ]
+          .reverse()
+          .find(
+            (element) =>
+              !element.textContent?.replaceAll(/[\u200b\ufeff\s]/g, "") &&
+              isVisible(element),
+          );
+        range.selectNodeContents(emptyBlock ?? root);
+        range.collapse(false);
+      }
+      selection.removeAllRanges();
+      selection.addRange(range);
+      const caretTarget =
+        range.startContainer instanceof Element
+          ? range.startContainer
+          : range.startContainer.parentElement;
+      caretTarget?.scrollIntoView({ block: "nearest", inline: "nearest" });
+      if (!root.contains(selection.focusNode) || !selection.isCollapsed) {
+        throw new Error("replacement could not place a caret in the editor");
+      }
+    });
   const dispatchReplacement = async () => {
-    await newPlainLine("replacement");
+    const initial = await inspectSelection();
+    if (!initial.inside || !initial.collapsed) await placeReplacementCaret();
     const before = await inspectSelection();
     if (!before.inside || !before.collapsed)
       throw new Error("replacement needs a caret in the editor");
     await typeText("teh");
-    const state = await inspectSelection();
-    if (!state.inside) throw new Error("autocorrect sample left the editor");
-    await selectToken("teh");
-    const selected = await inspectSelection();
+    const typed = await inspectSelection();
+    if (
+      !typed.inside ||
+      !typed.collapsed ||
+      typed.start !== before.start + "teh".length
+    )
+      throw new Error("autocorrect sample did not stay at the original caret");
+    const replacementStart = typed.start - "teh".length;
     const expected =
-      selected.text.slice(0, selected.start) +
+      typed.text.slice(0, replacementStart) +
       "the" +
-      selected.text.slice(selected.end);
-    await editor.evaluate((root: HTMLElement) => {
-      const selection = window.getSelection();
-      if (!selection?.rangeCount)
-        throw new Error("autocorrect selection is unavailable");
-      const target = selection.getRangeAt(0).cloneRange();
+      typed.text.slice(typed.start);
+    await editor.evaluate((root: HTMLElement, targetStart: number) => {
+      const points: Array<{ text: Text; offset: number }> = [];
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      let visible = "";
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const text = node as Text;
+        for (let offset = 0; offset < text.length; offset += 1) {
+          if (text.data[offset] === "\u200b") continue;
+          points.push({ text, offset });
+          visible += text.data[offset] === "\u00a0" ? " " : text.data[offset];
+        }
+      }
+      if (visible.slice(targetStart, targetStart + 3) !== "teh") {
+        throw new Error(
+          "autocorrect sample could not be found at the typed caret",
+        );
+      }
+      const first = points[targetStart];
+      const last = points[targetStart + 2];
+      if (!first || !last)
+        throw new Error("autocorrect target range is unavailable");
+      const target = document.createRange();
+      target.setStart(first.text, first.offset);
+      target.setEnd(last.text, last.offset + 1);
       if (target.toString().replaceAll("\u200b", "") !== "teh") {
         throw new Error(
           "autocorrect target range did not select the typed token",
         );
       }
+      const selection = window.getSelection();
+      if (!selection) throw new Error("browser selection is unavailable");
       selection.collapse(root, root.childNodes.length);
       const event = new InputEvent("beforeinput", {
         inputType: "insertReplacementText",
@@ -4715,12 +7327,13 @@ export async function runAuthoringFuzz(
         value: () => [target],
       });
       root.dispatchEvent(event);
-    });
+    }, replacementStart);
     const after = await inspectSelection();
     if (
       !after.inside ||
+      !after.collapsed ||
       after.text !== expected ||
-      after.start !== selected.start + "the".length
+      after.start !== typed.start
     )
       throw new Error(
         "insertReplacementText did not replace the selected token at its range",
@@ -4757,7 +7370,12 @@ export async function runAuthoringFuzz(
             await typeBurst(prefix, operation.result !== "divider");
             const beforeTrigger = await shortcutState();
             await typeBurst(trigger, false);
-            await assertShortcut(operation.result, before, beforeTrigger);
+            await assertShortcut(
+              operation.result,
+              before,
+              operation.value,
+              beforeTrigger,
+            );
             await typeBurst("q", true);
           }
           break;
@@ -4845,10 +7463,6 @@ export async function runAuthoringFuzz(
           await typeText("/example.com ");
           await typeText("/");
           const listbox = await waitForControlledSlashListbox();
-          await listbox
-            .locator('[role="option"]')
-            .first()
-            .waitFor({ state: "visible", timeout: 5000 });
           const listboxId = await slashListboxId(listbox);
           await page.keyboard.press("Escape");
           await waitForSlashMenuHidden(listboxId);
@@ -4915,7 +7529,7 @@ export async function runAuthoringFuzz(
           await listbox
             .locator('[role="option"]')
             .first()
-            .waitFor({ state: "visible", timeout: 1500 });
+            .waitFor({ state: "visible", timeout: 5000 });
           const listboxId = await slashListboxId(listbox);
           await page.keyboard.press("Enter");
           await waitForSlashMenuHidden(listboxId);
@@ -4927,6 +7541,64 @@ export async function runAuthoringFuzz(
         }
         case "heading-backspace":
         case "quote-backspace": {
+          if (operation.kind === "quote-backspace") {
+            await newPlainLine();
+            await runSlashCommand("quote");
+            const leadingSpaceToken = `space${activeIndex}`;
+            await typeText(` ${leadingSpaceToken}`);
+            await placeCaretAtToken(leadingSpaceToken, "start");
+            const quoteState = async () =>
+              editor.evaluate((root: HTMLElement, token: string) => {
+                const quotes = [
+                  ...(root.matches("blockquote") ? [root] : []),
+                  ...Array.from(
+                    root.querySelectorAll<HTMLElement>("blockquote"),
+                  ),
+                ];
+                const quote = quotes
+                  .reverse()
+                  .find((block) => block.textContent?.includes(token));
+                const text =
+                  quote?.textContent
+                    ?.replaceAll("\u200b", "")
+                    .replaceAll("\u00a0", " ") ?? null;
+                const tokenStart = text?.indexOf(token) ?? -1;
+                return {
+                  text,
+                  tag: quote?.tagName ?? null,
+                  prefix: tokenStart < 0 ? null : text?.slice(0, tokenStart),
+                };
+              }, leadingSpaceToken);
+            const quoteBeforeDelete = await quoteState();
+            if (
+              quoteBeforeDelete.tag !== "BLOCKQUOTE" ||
+              quoteBeforeDelete.prefix !== " "
+            ) {
+              throw new Error(
+                `${operation.kind} setup did not place the token after a leading space in a quote (${JSON.stringify(quoteBeforeDelete)})`,
+              );
+            }
+            await snapshotEditorSiblings("capture", operation);
+            await editor.press("Backspace");
+            const whitespaceDelete = await quoteState();
+            if (
+              whitespaceDelete.tag !== "BLOCKQUOTE" ||
+              whitespaceDelete.text !== leadingSpaceToken
+            ) {
+              throw new Error(
+                `${operation.kind} did not preserve native leading-space deletion (${JSON.stringify({ before: quoteBeforeDelete, after: whitespaceDelete })})`,
+              );
+            }
+            const whitespaceSiblingChanges = await snapshotEditorSiblings(
+              "assert",
+              operation,
+            );
+            if (whitespaceSiblingChanges.length) {
+              throw new Error(
+                `${operation.kind} moved or restyled a sibling while deleting leading whitespace: ${whitespaceSiblingChanges.slice(0, 5).join(", ")}`,
+              );
+            }
+          }
           await newPlainLine();
           await runSlashCommand(
             operation.kind === "heading-backspace" ? "heading2" : "quote",
@@ -5107,13 +7779,65 @@ export async function runAuthoringFuzz(
           await typeText(token);
           await editor.press(lineEndKey);
           await editor.press("Enter");
-          const plainSibling = await editor.evaluate((root: HTMLElement) =>
-            Array.from(root.querySelectorAll("h2")).some(
-              (heading) => heading.nextElementSibling?.tagName === "P",
-            ),
+          const headingState = await editor.evaluate(
+            (root: HTMLElement, value: string) => {
+              const headings = [
+                ...(root.matches("h2") ? [root] : []),
+                ...Array.from(root.querySelectorAll<HTMLElement>("h2")),
+              ];
+              const heading = headings.find((candidate) =>
+                candidate.textContent?.includes(value),
+              );
+              const selection = window.getSelection();
+              let caretBlock = selection?.anchorNode ?? null;
+              while (
+                caretBlock &&
+                caretBlock !== root &&
+                !(
+                  caretBlock instanceof HTMLElement &&
+                  caretBlock.tagName === "P"
+                )
+              ) {
+                caretBlock = caretBlock.parentNode;
+              }
+              const paragraph =
+                caretBlock instanceof HTMLElement && caretBlock.tagName === "P"
+                  ? caretBlock
+                  : null;
+              let createdParagraph = false;
+              const headingPath: Array<{
+                tag: string;
+                nextTag: string | null;
+              }> = [];
+              for (
+                let current: HTMLElement | null = heading ?? null;
+                current && current !== root;
+                current = current.parentElement
+              ) {
+                headingPath.push({
+                  tag: current.tagName,
+                  nextTag: current.nextElementSibling?.tagName ?? null,
+                });
+                if (paragraph && current.nextElementSibling === paragraph) {
+                  createdParagraph = true;
+                  break;
+                }
+              }
+              return {
+                createdParagraph,
+                headingFound: !!heading,
+                headingPath,
+                caretBlockTag:
+                  caretBlock instanceof HTMLElement ? caretBlock.tagName : null,
+              };
+            },
+            token,
           );
-          if (!plainSibling)
-            throw new Error("Enter at heading end did not create a paragraph");
+          if (!headingState.createdParagraph) {
+            throw new Error(
+              `Enter at heading end did not create a paragraph (${JSON.stringify(headingState)})`,
+            );
+          }
           break;
         }
         case "quote-exit": {
@@ -5160,24 +7884,73 @@ export async function runAuthoringFuzz(
           break;
         }
         case "empty-list-exit": {
-          await runSlashCommand("bulletList");
-          const token = `list${activeIndex}`;
-          await typeText(token);
-          await editor.press(lineEndKey);
-          await editor.press("Enter");
-          await editor.press("Enter");
-          const exited = await editor.evaluate(
-            (root: HTMLElement, expected: string) =>
-              Array.from(root.querySelectorAll("ul,ol")).some(
-                (list) =>
-                  list.textContent?.includes(expected) &&
-                  list.nextElementSibling?.tagName === "P",
-              ),
-            token,
-          );
-          if (!exited)
+          const { secondToken } = await createList("ul");
+          await placeCaretAtToken(secondToken, "end");
+          const beforeEnter = await listCaretState(secondToken);
+          await page.keyboard.press(lineEndKey);
+          const afterLineEnd = await listCaretState(secondToken);
+          await page.keyboard.press("Enter");
+          const afterFirstEnter = await listCaretState(secondToken);
+          if (
+            !afterFirstEnter.activeItem ||
+            afterFirstEnter.caretInTokenItem ||
+            afterFirstEnter.activeItem.parentTag !== "UL"
+          ) {
             throw new Error(
-              "Enter on an empty list item did not exit the list",
+              `Enter did not create an empty list item (${JSON.stringify({ beforeEnter, afterLineEnd, afterFirstEnter })})`,
+            );
+          }
+          await snapshotEditorSiblings("capture", operation);
+          await page.keyboard.press("Enter");
+          const result = await editor.evaluate(
+            (root: HTMLElement, expected: string) =>
+              (() => {
+                const state = window as Window & {
+                  __authoringFuzzSiblingSnapshot?: {
+                    emptyListExit?: {
+                      item: HTMLElement;
+                      paragraphs: HTMLElement[];
+                    };
+                  };
+                };
+                const emptyListExit =
+                  state.__authoringFuzzSiblingSnapshot?.emptyListExit;
+                const item = emptyListExit?.item;
+                const existingParagraphs = new Set(
+                  emptyListExit?.paragraphs ?? [],
+                );
+                const list = Array.from(root.querySelectorAll("ul,ol")).find(
+                  (candidate) => candidate.textContent?.includes(expected),
+                );
+                const paragraph = list?.nextElementSibling;
+                const selection = window.getSelection();
+                const caretParagraph =
+                  selection?.focusNode instanceof Element
+                    ? selection.focusNode.closest("p")
+                    : selection?.focusNode?.parentElement?.closest("p");
+                return {
+                  itemRemoved: !!item && !root.contains(item),
+                  listFollowedByNewParagraph:
+                    paragraph?.tagName === "P" &&
+                    !existingParagraphs.has(paragraph as HTMLElement),
+                  caretInNewParagraph:
+                    paragraph?.tagName === "P" &&
+                    caretParagraph === paragraph &&
+                    selection?.isCollapsed === true &&
+                    root.contains(selection.focusNode),
+                  editorKeptFocus: document.activeElement === root,
+                };
+              })(),
+            secondToken,
+          );
+          if (
+            !result.itemRemoved ||
+            !result.listFollowedByNewParagraph ||
+            !result.caretInNewParagraph ||
+            !result.editorKeptFocus
+          )
+            throw new Error(
+              `Enter on an empty list item did not exit the list (${JSON.stringify(result)})`,
             );
           break;
         }
@@ -5325,6 +8098,7 @@ export async function runAuthoringFuzz(
         }
         case "enter-list-edge":
           await createList("ul");
+          await snapshotEditorSiblings("capture", operation);
           {
             const before = await listRowCount("ul");
             await editor.press(lineEndKey);
@@ -5338,6 +8112,7 @@ export async function runAuthoringFuzz(
             const { firstToken, secondToken } = await createList("styled");
             const before = await listRowCount("styled");
             await placeCaretAtToken(secondToken, "start");
+            await snapshotEditorSiblings("capture", operation);
             await editor.press("Backspace");
             const afterDemotion = await listRowCount("styled");
             const firstPressState = await editor.evaluate(
@@ -5438,6 +8213,7 @@ export async function runAuthoringFuzz(
             const { firstToken, secondToken } = await createList("ol");
             const before = await listRowCount("ol");
             await placeCaretAtToken(firstToken, "end");
+            await snapshotEditorSiblings("capture", operation);
             await editor.press("Delete");
             const text = (await inspectSelection()).text;
             if (
@@ -5452,6 +8228,7 @@ export async function runAuthoringFuzz(
         case "tab": {
           const { secondToken } = await createList(operation.list);
           await placeCaretAtToken(secondToken, "end");
+          await snapshotEditorSiblings("capture", operation);
           if (operation.list === "styled") {
             const before = await rowIndent(secondToken);
             await editor.press("Tab");
@@ -5466,13 +8243,22 @@ export async function runAuthoringFuzz(
           break;
         }
         case "shift-tab": {
+          tracePhase("shift-tab:create-list:start");
           const { secondToken } = await createList(operation.list);
+          tracePhase("shift-tab:create-list:end");
+          tracePhase("shift-tab:place-caret:start");
           await placeCaretAtToken(secondToken, "end");
+          tracePhase("shift-tab:place-caret:end");
           if (operation.list === "styled") {
             const original = await rowIndent(secondToken);
+            tracePhase("shift-tab:indent:start");
             await editor.press("Tab");
+            tracePhase("shift-tab:indent:end");
             const indented = await rowIndent(secondToken);
+            await snapshotEditorSiblings("capture", operation);
+            tracePhase("shift-tab:outdent:start");
             await page.keyboard.press("Shift+Tab");
+            tracePhase("shift-tab:outdent:end");
             const outdented = await rowIndent(secondToken);
             if (
               original === null ||
@@ -5486,11 +8272,18 @@ export async function runAuthoringFuzz(
               );
             }
           } else {
+            tracePhase("shift-tab:indent:start");
             await editor.press("Tab");
+            tracePhase("shift-tab:indent:end");
             if (!(await isNestedListToken(secondToken)))
               throw new Error(`Tab did not nest the ${operation.list} item`);
+            tracePhase("shift-tab:place-caret-again:start");
             await placeCaretAtToken(secondToken, "end");
+            tracePhase("shift-tab:place-caret-again:end");
+            await snapshotEditorSiblings("capture", operation);
+            tracePhase("shift-tab:outdent:start");
             await page.keyboard.press("Shift+Tab");
+            tracePhase("shift-tab:outdent:end");
             if (await isNestedListToken(secondToken))
               throw new Error(
                 `Shift-Tab did not outdent the ${operation.list} item`,
@@ -5889,11 +8682,13 @@ export async function runAuthoringFuzz(
         }
         case "select-cross-block-type": {
           await makeCrossBlockSelection();
+          await snapshotEditorSiblings("capture", operation);
           await typeText("R");
           break;
         }
         case "select-cross-block-delete": {
           await makeCrossBlockSelection();
+          await snapshotEditorSiblings("capture", operation);
           const selected = await inspectSelection();
           const expected =
             selected.text.slice(0, selected.start) +
@@ -5954,18 +8749,102 @@ export async function runAuthoringFuzz(
           await typeText(token);
           await selectToken(token);
           await page.keyboard.press(`${modifier}+B`);
+          const selectedWeight = await editor.evaluate((root: HTMLElement) => {
+            const selection = window.getSelection();
+            const node = selection?.anchorNode;
+            const element =
+              node instanceof Element ? node : node?.parentElement;
+            return element && root.contains(element)
+              ? getComputedStyle(element).fontWeight
+              : null;
+          });
+          const numericWeight =
+            selectedWeight === "bold" || selectedWeight === "bolder"
+              ? 700
+              : Number.parseInt(selectedWeight ?? "400", 10);
+          if (numericWeight < 600) {
+            await page.keyboard.press(`${modifier}+B`);
+          }
+          const finalSelectedWeight = await editor.evaluate(
+            (root: HTMLElement) => {
+              const selection = window.getSelection();
+              const node = selection?.anchorNode;
+              const element =
+                node instanceof Element ? node : node?.parentElement;
+              return element && root.contains(element)
+                ? getComputedStyle(element).fontWeight
+                : null;
+            },
+          );
           const copied = await copySelection();
-          const copiedBold =
-            /<(?:strong|b)\b|<span\b[^>]*style="[^"]*font-weight\s*:/i.test(
-              copied.html,
-            );
+          const copiedBold = await editor.evaluate(
+            (_root: HTMLElement, html: string) => {
+              const document = new DOMParser().parseFromString(
+                html,
+                "text/html",
+              );
+              return Array.from(
+                document.querySelectorAll<HTMLElement>(
+                  "strong,b,span[style*='font-weight']",
+                ),
+              ).some((mark) => {
+                const weight = mark.style.fontWeight.trim();
+                if (/^(?:normal|400)$/i.test(weight)) return false;
+                return (
+                  mark.matches("strong,b") ||
+                  weight === "bold" ||
+                  Number.parseInt(weight, 10) >= 600
+                );
+              });
+            },
+            copied.html,
+          );
           if (!copiedBold) {
+            const copyState = await editor.evaluate((root: HTMLElement) => {
+              const selection = window.getSelection();
+              const range = selection?.rangeCount
+                ? selection.getRangeAt(0)
+                : null;
+              const holder = document.createElement("div");
+              if (range) holder.append(range.cloneContents());
+              const selectedText = range?.toString() ?? "";
+              const selectedNodes: Array<{
+                text: string;
+                weight: string | null;
+                markup: string | null;
+              }> = [];
+              const walker = document.createTreeWalker(
+                root,
+                NodeFilter.SHOW_TEXT,
+              );
+              for (
+                let node = walker.nextNode();
+                node;
+                node = walker.nextNode()
+              ) {
+                if (!range?.intersectsNode(node)) continue;
+                const element = node.parentElement;
+                selectedNodes.push({
+                  text: node.textContent ?? "",
+                  weight: element ? getComputedStyle(element).fontWeight : null,
+                  markup: element?.outerHTML ?? null,
+                });
+              }
+              return {
+                selectedText,
+                selectedHtml: holder.innerHTML,
+                selectedNodes,
+              };
+            });
             throw new Error(
-              `copy did not preserve the selected bold mark (HTML present: ${Boolean(copied.html)})`,
+              `copy did not preserve the selected bold mark (${JSON.stringify({ selectedWeight, finalSelectedWeight, html: copied.html, copyState })})`,
             );
           }
+          if (!copied.slideClipboard) {
+            throw new Error("copy did not preserve the slide clipboard marker");
+          }
           await newPlainLine();
-          await paste(copied.html, copied.text);
+          await paste(copied.html, copied.text, copied.slideClipboard);
           const pastedMark = await editor.evaluate(
             (root: HTMLElement, value: string) => {
               const mark = Array.from(
@@ -5986,6 +8865,8 @@ export async function runAuthoringFuzz(
                       600),
                 tag: mark?.tagName ?? null,
                 textLength: mark?.textContent?.length ?? 0,
+                fontWeight: mark ? getComputedStyle(mark).fontWeight : null,
+                html: mark?.outerHTML ?? null,
                 tokenIncluded:
                   mark?.textContent
                     ?.replaceAll("\u200b", "")
@@ -5997,7 +8878,7 @@ export async function runAuthoringFuzz(
           );
           if (!pastedMark.preserved) {
             throw new Error(
-              `pasting copied rich text lost its bold mark (${JSON.stringify(pastedMark)})`,
+              `pasting copied rich text lost its bold mark (${JSON.stringify({ pastedMark, copiedHtml: copied.html, slideClipboard: copied.slideClipboard })})`,
             );
           }
           break;
@@ -6087,6 +8968,13 @@ export async function runAuthoringFuzz(
     };
     // Keep one real shortcut per direction; replay the rest in-page to avoid thousands of protocol round trips.
     const historyReplayYieldBudgetMs = 50;
+    const forwardHistoryProgress = (message: any) => {
+      if (message.type() !== "debug") return;
+      const text = message.text();
+      if (text.startsWith("[edit-fidelity] authoring history progress:"))
+        console.log(text);
+    };
+    page.on("console", forwardHistoryProgress);
     const runHistoryBatch = (options: {
       direction: "undo" | "redo";
       maxCalls: number;
@@ -6112,6 +9000,8 @@ export async function runAuthoringFuzz(
           let calls = 0;
           let maxSliceDurationMs = 0;
           let maxEventDurationMs = 0;
+          const batchStartedAt = performance.now();
+          let lastProgressAt = batchStartedAt;
           let sliceStartedAt = performance.now();
           const historyDepth = (root: HTMLElement) => {
             const stats = (
@@ -6184,6 +9074,17 @@ export async function runAuthoringFuzz(
             calls += 1;
             const eventDurationMs = performance.now() - eventStartedAt;
             maxEventDurationMs = Math.max(maxEventDurationMs, eventDurationMs);
+            const progressAt = performance.now();
+            if (
+              calls === 1 ||
+              calls % 100 === 0 ||
+              progressAt - lastProgressAt >= 10_000
+            ) {
+              console.debug(
+                `[edit-fidelity] authoring history progress: ${state.direction} ${calls}/${state.maxCalls}; depth ${nextDepth}; elapsed ${(progressAt - batchStartedAt).toFixed(0)}ms; last event ${eventDurationMs.toFixed(1)}ms`,
+              );
+              lastProgressAt = progressAt;
+            }
             const sliceDurationMs = performance.now() - sliceStartedAt;
             maxSliceDurationMs = Math.max(maxSliceDurationMs, sliceDurationMs);
             if (sliceDurationMs >= yieldBudgetMs) {
@@ -6216,17 +9117,20 @@ export async function runAuthoringFuzz(
       );
     let currentHtml = finalHtml;
     activePhase = "undo-all";
+    tracePhase("undo-all:start");
     // Drain selection-only snapshots too, past the editor's configured cap.
     const stableHistoryProbeLimit = 3;
     const maxHistoryCalls = historyLimit + stableHistoryProbeLimit;
     const beforeKeyboardUndo = await readHistoryState();
-    const undoDepthBefore = historyDepthFromStats(
+    const historyStats = requireUndoHistoryStats(
       beforeKeyboardUndo.historyStats,
-      "undo",
     );
+    const undoDepthBefore = historyDepthFromStats(historyStats, "undo");
     let stableUndo = 0;
     let undoCalls = 0;
+    tracePhase("undo-all:keyboard-start");
     await page.keyboard.press(`${modifier}+Z`);
+    tracePhase("undo-all:keyboard-end");
     undoCalls += 1;
     const afterKeyboardUndo = await readHistoryState();
     if (!afterKeyboardUndo.inside) {
@@ -6244,11 +9148,13 @@ export async function runAuthoringFuzz(
     const undoCount = undoDepthBefore;
     if (undoDepthAfterKeyboard === undoDepthBefore) stableUndo += 1;
     currentHtml = afterKeyboardUndo.html;
+    tracePhase("undo-all:history-batch-start");
     const remainingUndo = await runHistoryBatch({
       direction: "undo",
       maxCalls: maxHistoryCalls - undoCalls,
       stableCalls: stableUndo,
     });
+    tracePhase("undo-all:history-batch-end");
     undoCalls += remainingUndo.calls;
     currentHtml = remainingUndo.html;
     if (remainingUndo.historyDepth !== 0) {
@@ -6280,8 +9186,11 @@ export async function runAuthoringFuzz(
     let stableRedo = 0;
     let redoCalls = 0;
     activePhase = "redo-all";
+    tracePhase("redo-all:start");
     const maxRedoCalls = historyLimit + stableHistoryProbeLimit;
+    tracePhase("redo-all:keyboard-start");
     await page.keyboard.press(`${modifier}+Shift+Z`);
+    tracePhase("redo-all:keyboard-end");
     redoCalls += 1;
     const afterKeyboardRedo = await readHistoryState();
     if (!afterKeyboardRedo.inside) {
@@ -6299,11 +9208,13 @@ export async function runAuthoringFuzz(
     const redoCount = redoDepthBefore;
     if (redoDepthAfterKeyboard === redoDepthBefore) stableRedo += 1;
     currentHtml = afterKeyboardRedo.html;
+    tracePhase("redo-all:history-batch-start");
     const remainingRedo = await runHistoryBatch({
       direction: "redo",
       maxCalls: maxRedoCalls - redoCalls,
       stableCalls: stableRedo,
     });
+    tracePhase("redo-all:history-batch-end");
     redoCalls += remainingRedo.calls;
     currentHtml = remainingRedo.html;
     if (remainingRedo.historyDepth !== 0) {
@@ -6324,6 +9235,7 @@ export async function runAuthoringFuzz(
     );
 
     activePhase = "save/reload";
+    tracePhase("save/reload:start");
     const persistence = await options.finishAndReload(() => {
       browserSessionIdAtReload = currentBrowserSessionId;
       reloadNavigationStartedAt = Date.now();
@@ -6331,6 +9243,7 @@ export async function runAuthoringFuzz(
       outgoingDocumentUrlAtReload = page.url();
       mainFrameNavigationStartedAt = null;
       mainFrameNavigationRequestSequence = null;
+      mainFrameNavigationUrl = null;
       mainFrameNavigationCommittedAt = null;
       retiredSessionErrorCorrelator.beginNavigation(
         browserSessionIdAtReload,
@@ -6338,37 +9251,38 @@ export async function runAuthoringFuzz(
         reloadNavigationStartedAt,
       );
       for (const [request, startedAt] of watchedRequests.entries()) {
+        const trackedRequest = inFlightBrowserSessionRequests.get(request);
+        const sessionIdentity = trackedRequest?.identity;
         const requestFrame =
-          request.serviceWorker() === null ? request.frame() : null;
-        const requestUrl = new URL(request.url());
-        const sessionIdentity = browserSessionNavigationRequestIdentity(
-          request.method(),
-          requestUrl.pathname,
-          request.postData(),
-        );
-        const identifiedSession =
-          sessionIdentity?.status === "identified" ? sessionIdentity : null;
+          trackedRequest === undefined && request.serviceWorker() === null
+            ? request.frame()
+            : null;
         reloadNavigationRequests.set(request, {
           startedAt,
           settledAt: null,
+          reloadNavigationStartedAt,
           finishedSuccessfully: false,
-          responseStatus:
-            inFlightBrowserSessionClaims.get(request)?.responseStatus ?? null,
+          responseStatus: trackedRequest?.responseStatus ?? null,
           requestWasPendingAtNavigation: true,
           completedSuccessfullyBeforeNavigation: false,
           completedBeforeNavigationAgeMs: null,
           requestStartedDuringNavigation: false,
           requestStartedAfterNavigation: false,
-          requestSequence: 0,
+          requestSequence: trackedRequest?.requestSequence ?? 0,
           resourceType: request.resourceType(),
-          requestSourceIsMainFrame: requestFrame === page.mainFrame(),
-          requestFrameUrl: requestFrame ? requestFrame.url() : null,
+          requestSourceIsMainFrame:
+            trackedRequest?.requestSourceIsMainFrame ??
+            requestFrame === page.mainFrame(),
+          requestFrameUrl:
+            trackedRequest?.requestFrameUrl ??
+            (requestFrame ? requestFrame.url() : null),
           outgoingDocumentUrl: outgoingDocumentUrlAtReload,
-          outgoingRequestKind: identifiedSession?.kind ?? null,
-          requestSessionId: identifiedSession?.sessionId ?? null,
+          outgoingRequestKind: sessionIdentity?.kind ?? null,
+          requestSessionId: sessionIdentity?.sessionId ?? null,
           mainFrameNavigationStartedAt: null,
           mainFrameNavigationRequestSequence: null,
           requestStartedBeforeMainFrameCommit: false,
+          requestStartedBeforeReloadCommit: false,
           retiredSessionId: browserSessionIdAtReload,
           failureAt: null,
           failureText: null,
@@ -6377,13 +9291,16 @@ export async function runAuthoringFuzz(
         });
         if (traceEnabled) {
           console.log(
-            `[edit-fidelity] reload pending ${request.method()} ${new URL(request.url()).pathname} ageMs=${Date.now() - startedAt}`,
+            `[edit-fidelity] reload pending ${request.method()} ${redactBrowserSessionRequestPath(new URL(request.url()).pathname)} ageMs=${Date.now() - startedAt}`,
           );
         }
       }
-      for (const [request, claim] of recentlyCompletedBrowserSessionClaims) {
+      for (const [
+        request,
+        completedRequest,
+      ] of recentlyCompletedBrowserSessionRequests) {
         const completedBeforeNavigationAgeMs =
-          reloadNavigationStartedAt - claim.settledAt;
+          reloadNavigationStartedAt - completedRequest.settledAt;
         if (
           completedBeforeNavigationAgeMs < 0 ||
           completedBeforeNavigationAgeMs >=
@@ -6392,25 +9309,27 @@ export async function runAuthoringFuzz(
           continue;
         }
         reloadNavigationRequests.set(request, {
-          startedAt: claim.startedAt,
-          settledAt: claim.settledAt,
+          startedAt: completedRequest.startedAt,
+          settledAt: completedRequest.settledAt,
+          reloadNavigationStartedAt,
           finishedSuccessfully: true,
-          responseStatus: claim.responseStatus,
+          responseStatus: completedRequest.responseStatus,
           requestWasPendingAtNavigation: false,
           completedSuccessfullyBeforeNavigation: true,
           completedBeforeNavigationAgeMs,
           requestStartedDuringNavigation: false,
           requestStartedAfterNavigation: false,
-          requestSequence: 0,
+          requestSequence: completedRequest.requestSequence,
           resourceType: request.resourceType(),
-          requestSourceIsMainFrame: false,
-          requestFrameUrl: null,
+          requestSourceIsMainFrame: completedRequest.requestSourceIsMainFrame,
+          requestFrameUrl: completedRequest.requestFrameUrl,
           outgoingDocumentUrl: outgoingDocumentUrlAtReload,
-          outgoingRequestKind: null,
-          requestSessionId: null,
+          outgoingRequestKind: completedRequest.identity.kind,
+          requestSessionId: completedRequest.identity.sessionId,
           mainFrameNavigationStartedAt: null,
           mainFrameNavigationRequestSequence: null,
           requestStartedBeforeMainFrameCommit: false,
+          requestStartedBeforeReloadCommit: false,
           retiredSessionId: browserSessionIdAtReload,
           failureAt: null,
           failureText: null,
@@ -6418,8 +9337,9 @@ export async function runAuthoringFuzz(
           outgoingNavigationAbort: false,
         });
       }
-      recentlyCompletedBrowserSessionClaims.clear();
+      recentlyCompletedBrowserSessionRequests.clear();
     });
+    tracePhase("save/reload:end");
     const retiredSessionGraceWaitMs =
       retiredSessionErrorCorrelator.finishNavigation(Date.now());
     if (retiredSessionGraceWaitMs > 0) {
@@ -6429,7 +9349,11 @@ export async function runAuthoringFuzz(
     }
     assertAuthoringPersistence(persistence);
     await checkPageErrors();
-    pageErrors.push(...retiredSessionErrorCorrelator.clear());
+    pageErrors.push(
+      ...retiredSessionErrorCorrelator
+        .clear()
+        .map(redactBrowserSessionSensitiveText),
+    );
     reloadNavigationStartedAt = null;
     browserSessionIdAtReload = null;
     await checkPageErrors();
@@ -6453,6 +9377,7 @@ export async function runAuthoringFuzz(
         `[edit-fidelity] recovered ${patchDeckConflicts} patch-deck conflict response(s); saved and reloaded HTML matched the live slide`,
       );
     }
+    assertAuthoringFuzzDidNotStall(stallState.error);
     return {
       seed,
       stepsRun: plan.length,
@@ -6461,9 +9386,12 @@ export async function runAuthoringFuzz(
       redoSteps: redoCount,
     };
   } catch (error) {
+    tracePhase("failure:diagnostics");
     const deferredOutgoingAbortErrors = finalizePendingOutgoingAborts();
     clearOutgoingAbortTimers();
-    const unavailableError = getHarnessUnavailableError(error);
+    const unavailableError = stallState.error
+      ? null
+      : getHarnessUnavailableError(error);
     if (unavailableError) {
       if (!deferredOutgoingAbortErrors.length) throw unavailableError;
       throw new CouldNotRun(
@@ -6509,6 +9437,68 @@ export async function runAuthoringFuzz(
         );
         const listbox = controls ? document.getElementById(controls) : null;
         const listboxStyle = listbox ? getComputedStyle(listbox) : null;
+        const firstOption =
+          listbox?.querySelector<HTMLElement>('[role="option"]');
+        let firstOptionSnapshot: Record<string, unknown> | null = null;
+        if (firstOption) {
+          const style = getComputedStyle(firstOption);
+          const rect = firstOption.getBoundingClientRect();
+          const clientRectCount = firstOption.getClientRects().length;
+          const hiddenAncestorFlags = {
+            hiddenAttribute: false,
+            ariaHidden: false,
+            displayNone: false,
+            visibilityHidden: false,
+            opacityZero: false,
+            hiddenClass: false,
+            invisibleClass: false,
+            opacityZeroClass: false,
+          };
+          let ancestor = firstOption.parentElement;
+          let ancestorCount = 0;
+          while (ancestor && ancestorCount < 12) {
+            const ancestorStyle = getComputedStyle(ancestor);
+            hiddenAncestorFlags.hiddenAttribute ||=
+              ancestor.hasAttribute("hidden");
+            hiddenAncestorFlags.ariaHidden ||=
+              ancestor.getAttribute("aria-hidden") === "true";
+            hiddenAncestorFlags.displayNone ||=
+              ancestorStyle.display === "none";
+            hiddenAncestorFlags.visibilityHidden ||=
+              ancestorStyle.visibility === "hidden" ||
+              ancestorStyle.visibility === "collapse";
+            hiddenAncestorFlags.opacityZero ||= ancestorStyle.opacity === "0";
+            hiddenAncestorFlags.hiddenClass ||=
+              ancestor.classList.contains("hidden");
+            hiddenAncestorFlags.invisibleClass ||=
+              ancestor.classList.contains("invisible");
+            hiddenAncestorFlags.opacityZeroClass ||=
+              ancestor.classList.contains("opacity-0");
+            ancestor = ancestor.parentElement;
+            ancestorCount += 1;
+          }
+          firstOptionSnapshot = {
+            exists: true,
+            hasNonzeroBox: rect.width > 0 && rect.height > 0,
+            display: style.display,
+            visibility: style.visibility,
+            opacity: style.opacity,
+            classFlags: {
+              hidden: firstOption.classList.contains("hidden"),
+              invisible: firstOption.classList.contains("invisible"),
+              opacityZero: firstOption.classList.contains("opacity-0"),
+            },
+            rect: {
+              x: rect.x,
+              y: rect.y,
+              width: rect.width,
+              height: rect.height,
+            },
+            clientRectCount,
+            hiddenAncestorFlags,
+            ancestorScanTruncated: ancestor !== null,
+          };
+        }
         return {
           historyStats:
             root instanceof HTMLElement
@@ -6539,6 +9529,25 @@ export async function runAuthoringFuzz(
             prefixEmpty: prefix.length === 0,
             prefixEndsInWhitespace: /\s$/.test(prefix),
             slashOffset: prefix.lastIndexOf("/"),
+            caretRect: (() => {
+              if (!selection?.rangeCount) return null;
+              const rect = selection.getRangeAt(0).getBoundingClientRect();
+              return {
+                left: rect.left,
+                top: rect.top,
+                right: rect.right,
+                bottom: rect.bottom,
+                width: rect.width,
+                height: rect.height,
+              };
+            })(),
+          },
+          viewport: {
+            width: window.innerWidth,
+            height: window.innerHeight,
+            scrollX: window.scrollX,
+            scrollY: window.scrollY,
+            documentHeight: document.documentElement.scrollHeight,
           },
           slashMenu: {
             count: listboxes.length,
@@ -6552,6 +9561,63 @@ export async function runAuthoringFuzz(
               listbox.getClientRects().length > 0,
             optionCount:
               listbox?.querySelectorAll('[role="option"]').length ?? 0,
+            activeOption: (() => {
+              const activeId =
+                root instanceof HTMLElement
+                  ? root.getAttribute("aria-activedescendant")
+                  : null;
+              const active = activeId
+                ? document.getElementById(activeId)
+                : null;
+              const activeStyle = active ? getComputedStyle(active) : null;
+              const activeRect = active?.getBoundingClientRect();
+              return {
+                id: activeId,
+                exists: !!active,
+                role: active?.getAttribute("role") ?? null,
+                contained: !!(listbox && active && listbox.contains(active)),
+                text: active?.textContent?.trim().slice(0, 100) ?? null,
+                display: activeStyle?.display ?? null,
+                visibility: activeStyle?.visibility ?? null,
+                opacity: activeStyle?.opacity ?? null,
+                clientRects: active?.getClientRects().length ?? 0,
+                rect: activeRect
+                  ? {
+                      left: activeRect.left,
+                      top: activeRect.top,
+                      right: activeRect.right,
+                      bottom: activeRect.bottom,
+                      width: activeRect.width,
+                      height: activeRect.height,
+                    }
+                  : null,
+              };
+            })(),
+            options: Array.from(
+              listbox?.querySelectorAll<HTMLElement>('[role="option"]') ?? [],
+            ).map((option) => {
+              const style = getComputedStyle(option);
+              const rect = option.getBoundingClientRect();
+              return {
+                id: option.id,
+                text: option.textContent?.trim().slice(0, 100) ?? null,
+                selected:
+                  option.getAttribute("aria-selected") ??
+                  option.getAttribute("data-selected"),
+                display: style.display,
+                visibility: style.visibility,
+                opacity: style.opacity,
+                clientRects: option.getClientRects().length,
+                rect: {
+                  left: rect.left,
+                  top: rect.top,
+                  right: rect.right,
+                  bottom: rect.bottom,
+                  width: rect.width,
+                  height: rect.height,
+                },
+              };
+            }),
             listboxes: listboxes.map((menu) => {
               const style = getComputedStyle(menu);
               const rect = menu.getBoundingClientRect();
@@ -6577,6 +9643,7 @@ export async function runAuthoringFuzz(
                 : null,
             controls,
           },
+          firstOption: firstOptionSnapshot,
           recentInputEvents:
             scope.__slidesAuthoringInputTrace?.slice(-12) ?? [],
         };
@@ -6585,12 +9652,13 @@ export async function runAuthoringFuzz(
     } catch (diagnosticError) {
       diagnostics = { status: "unavailable", error: String(diagnosticError) };
     }
-    throw formatAuthoringFuzzFailure(
+    const failure = formatAuthoringFuzzFailure(
       seed,
       activePhase,
       prefix,
       [
         String(error),
+        ...(stallState.error ? [stallState.error.message] : []),
         ...(deferredOutgoingAbortErrors.length
           ? [
               `deferred outgoing request failure(s): ${deferredOutgoingAbortErrors.join("; ")}`,
@@ -6600,6 +9668,10 @@ export async function runAuthoringFuzz(
       ].join("\n"),
       options.browser,
     );
+    if (stallState.error) {
+      throw new AuthoringFuzzStallError(failure.message);
+    }
+    throw failure;
   } finally {
     if (traceWatchdog) clearInterval(traceWatchdog);
     let deferredOutgoingAbortErrors: string[] = [];

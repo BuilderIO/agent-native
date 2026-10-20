@@ -59,6 +59,10 @@ export const resolveOrgByDomain = lazyFunction(
   loadOrgContext,
   "resolveOrgByDomain",
 );
+export const lookupOrgByDomain = lazyFunction(
+  loadOrgContext,
+  "lookupOrgByDomain",
+);
 export const resolveOrgIdForEmail = lazyFunction(
   loadOrgContext,
   "resolveOrgIdForEmail",
@@ -98,9 +102,14 @@ export type {
   IdentityOrgScope,
 } from "../identity/rekey.js";
 export {
+  checkWorkspaceAppAccess,
   claimWorkspaceAppForOrganization,
   isStandaloneDispatchRuntime,
   isWorkspaceAppAccessAllowed,
+  isWorkspaceAppAccessUnavailable,
+  type WorkspaceAppAccessCheck,
+  type WorkspaceAppAccessOutcome,
+  type WorkspaceAppAccessUnavailable,
 } from "./workspace-app-access.js";
 
 export {

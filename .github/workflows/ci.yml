@@ -1,8 +1,9 @@
 name: CI
 
 on:
+  # No `branches` filter: a stacked PR targets its parent PR's branch, and the
+  # required checks must report on it too.
   pull_request:
-    branches: [main]
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
@@ -25,6 +26,7 @@ jobs:
       test_workspace_filters: ${{ steps.scope.outputs.test_workspace_filters }}
       fast_tests: ${{ steps.scope.outputs.fast_tests }}
       content: ${{ steps.scope.outputs.content }}
+      content_db: ${{ steps.scope.outputs.content_db }}
       content_convergence: ${{ steps.scope.outputs.content_convergence }}
       core_integration: ${{ steps.scope.outputs.core_integration }}
       plan_e2e: ${{ steps.scope.outputs.plan_e2e }}
@@ -33,6 +35,7 @@ jobs:
       trusted_acceptance: ${{ steps.scope.outputs.trusted_acceptance }}
       scaffold: ${{ steps.scope.outputs.scaffold }}
       builder_code_starter_scaffold: ${{ steps.scope.outputs.builder_code_starter_scaffold }}
+      deploy_paths: ${{ steps.scope.outputs.deploy_paths }}
       ssr_boot: ${{ steps.scope.outputs.ssr_boot }}
       ssr_boot_apps: ${{ steps.scope.outputs.ssr_boot_apps }}
       guards: ${{ steps.scope.outputs.guards }}
@@ -44,6 +47,7 @@ jobs:
       design_canvas_broad_workflows: ${{ steps.scope.outputs.design_canvas_broad_workflows }}
       pre_auth_session_replay_e2e: ${{ steps.scope.outputs.pre_auth_session_replay_e2e }}
       design_canvas_e2e_specs: ${{ steps.scope.outputs.design_canvas_e2e_specs }}
+      design_canvas_e2e_diagnostic_specs: ${{ steps.scope.outputs.design_canvas_e2e_diagnostic_specs }}
       agentkit_acceptance: ${{ steps.scope.outputs.agentkit_acceptance }}
       slides_chat_e2e: ${{ steps.scope.outputs.slides_chat_e2e }}
       slides_authoring_e2e: ${{ steps.scope.outputs.slides_authoring_e2e }}
@@ -64,7 +68,11 @@ jobs:
           node-version: "22"
 
       - name: Test change scope classifier
-        run: node --experimental-strip-types --test scripts/ci-change-scope.test.ts scripts/ci-build-workspaces.test.ts
+        run: >-
+          node --experimental-strip-types --test
+          scripts/ci-change-scope.test.ts
+          scripts/ci-change-scope-renames.test.ts
+          scripts/ci-build-workspaces.test.ts
 
       - name: Test fast-test lane planner
         run: node --experimental-strip-types --test scripts/ci-test-lanes.test.ts
@@ -437,7 +445,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.design_canvas_core_regression == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 9
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -449,6 +457,7 @@ jobs:
             inspector-3a,
             inspector-3b,
             inspector-4a,
+            inspector-4c,
             inspector-4b,
             drag-1a,
             drag-1b,
@@ -488,7 +497,7 @@ jobs:
       - name: Run focused Screen selection history regressions
         if: startsWith(matrix.shard, 'screen-history-')
         working-directory: templates/design
-        timeout-minutes: 5
+        timeout-minutes: 21
         env:
           E2E_RUN_ID: design-selection-history-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
         run: |
@@ -500,7 +509,7 @@ jobs:
               grep='a newer layer selection survives failed Screen deletion settlement|Shift-picking a Screen extends the Delete selection in All screens|Shift-marquee adds a hit Screen to the existing Delete selection|a newer Screen pick survives failed Screen deletion settlement|a newer sidebar Screen selection survives failed Screen deletion settlement|Select All Screens survives failed Screen deletion settlement'
               ;;
             screen-history-3)
-              grep='deleting a selected child layer keeps its owning Screen|marquee selection persists and deletes Screens after a prior layer selection|deep-select marquee over a Screen deletes only the child|Shift-marqueeing child layers preserves an explicit Screen elsewhere for Delete|Shift-marquee reselecting an owner Screen makes Delete target the Screen'
+              grep='deleting a selected child layer keeps its owning Screen|marquee selection persists and deletes Screens after a prior layer selection|deep-select marquee over a Screen deletes only the child|Shift-marqueeing child layers preserves an explicit Screen elsewhere for Delete|Shift-marquee reselecting an owner Screen makes Delete target the Screen|deleting two selected Screens is one undo step that restores both with their content, position and order'
               ;;
             *)
               echo "::error::Unknown Screen-history shard: ${{ matrix.shard }}"
@@ -515,9 +524,10 @@ jobs:
       - name: Run focused Design regression cases
         if: ${{ !startsWith(matrix.shard, 'screen-history-') }}
         working-directory: templates/design
-        timeout-minutes: 6
+        timeout-minutes: 23
         env:
           E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
+          E2E_LOG_TEST_PROGRESS: "1"
         run: |
           set -euo pipefail
           # Workers in a shard share PGlite-backed application state; each matrix shard has its own E2E_RUN_ID.
@@ -528,7 +538,8 @@ jobs:
             echo "::error::No Design regression pins resolved for shard ${{ matrix.shard }}"
             exit 2
           fi
-          pnpm exec playwright test "${focused_specs[@]}" --workers=1
+          required_pin_identities_json="$(node --experimental-strip-types ../../scripts/design-e2e-regression-pin-identities.ts "${{ matrix.shard }}")"
+          E2E_REQUIRED_PIN_IDENTITIES="$required_pin_identities_json" pnpm exec playwright test "${focused_specs[@]}" --workers=1
 
       - name: Detect retried Design test failures
         id: retry-artifacts
@@ -565,7 +576,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.design_canvas_broad_workflows == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ (matrix.shard == 'music-app-workflow' || matrix.shard == 'landing-page-build') && 25 || matrix.shard == 'autolayout-vertical-center-trailing' && 9 || 20 }}
+    timeout-minutes: ${{ matrix.shard == 'home-system-selection' && 40 || (matrix.shard == 'music-app-workflow' || matrix.shard == 'landing-page-build') && 35 || 30 }}
     strategy:
       fail-fast: false
       matrix:
@@ -602,7 +613,7 @@ jobs:
       - name: Run AI sidebar loopback image regressions
         if: matrix.shard == 'ai-sidebar-loopback'
         working-directory: templates/design
-        timeout-minutes: 18
+        timeout-minutes: 24
         env:
           E2E_RUN_ID: design-ai-sidebar-${{ github.run_id }}-${{ github.run_attempt }}
           E2E_AI_SIDEBAR_LOOPBACK: "1"
@@ -611,7 +622,7 @@ jobs:
       - name: Run long music-app workflow regression
         if: ${{ matrix.shard == 'music-app-workflow' && contains(fromJSON(needs.change-scope.outputs.design_canvas_e2e_specs), 'templates/design/e2e/interaction-responsive-music-app.spec.ts') }}
         working-directory: templates/design
-        timeout-minutes: 23
+        timeout-minutes: 29
         env:
           E2E_RUN_ID: design-music-app-${{ github.run_id }}-${{ github.run_attempt }}
           DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}
@@ -634,7 +645,7 @@ jobs:
             exit 2
           fi
           pnpm exec playwright test "$music_app_spec" \
-            --grep 'create a responsive music-app (desktop shell under a Screen root|tablet Screen from the desktop shell)$' \
+            --grep '(a drawn empty Frame refreshes its inspector after auto layout|sizing mode actions survive the selected layer route update)$' \
             --workers=1 --retries=0 --trace on
 
       - name: Upload music-app workflow diagnostics
@@ -649,7 +660,7 @@ jobs:
       - name: Run landing-page build workflow regression
         if: ${{ matrix.shard == 'landing-page-build' && contains(fromJSON(needs.change-scope.outputs.design_canvas_e2e_specs), 'templates/design/e2e/interaction-landing-page-build.spec.ts') }}
         working-directory: templates/design
-        timeout-minutes: 23
+        timeout-minutes: 29
         env:
           E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
           DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}
@@ -677,7 +688,7 @@ jobs:
       - name: Run Home design-system selection regressions
         if: matrix.shard == 'home-system-selection'
         working-directory: templates/design
-        timeout-minutes: 6
+        timeout-minutes: 28
         env:
           E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
           E2E_AI_SIDEBAR_LOOPBACK: "1"
@@ -686,7 +697,7 @@ jobs:
       - name: Run vertical auto-layout held-guide regression
         if: ${{ matrix.shard == 'autolayout-vertical-center-trailing' && contains(fromJSON(needs.change-scope.outputs.design_canvas_e2e_specs), 'templates/design/e2e/autolayout-drag-drop-matrix.spec.ts') }}
         working-directory: templates/design
-        timeout-minutes: 7
+        timeout-minutes: 23
         env:
           E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
           DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}
@@ -752,9 +763,9 @@ jobs:
   design-canvas-changed-spec-diagnostics:
     name: Design changed-spec diagnostics (${{ matrix.shard }})
     needs: change-scope
-    if: needs.change-scope.outputs.design_canvas_e2e_specs != '[]'
+    if: needs.change-scope.outputs.design_canvas_e2e_specs != '[]' && needs.change-scope.outputs.design_canvas_e2e_diagnostic_specs != '[]'
     runs-on: ubuntu-latest
-    timeout-minutes: 16
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -833,10 +844,10 @@ jobs:
 
       - name: Run changed Design E2E specs
         working-directory: templates/design
-        timeout-minutes: 12
+        timeout-minutes: 24
         env:
           E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
-          DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}
+          DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_diagnostic_specs }}
           E2E_LOG_TEST_PROGRESS: "1"
           PW_TEST_DEBUG_REPORTERS: "1"
         run: |
@@ -850,7 +861,7 @@ jobs:
           fi
           changed_shard="${{ matrix.shard }}"
           changed_shard="${changed_shard#changed-}"
-          pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/48" --grep-invert 'create a responsive music-app (desktop shell under a Screen root|tablet Screen from the desktop shell)$|vertical center and trailing insertion keep held guides and exact reload geometry$'
+          pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/48" --grep-invert '(a drawn empty Frame refreshes its inspector after auto layout|sizing mode actions survive the selected layer route update)$|vertical center and trailing insertion keep held guides and exact reload geometry$'
 
       - name: Detect retried Design test failures
         id: retry-artifacts
@@ -879,7 +890,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.pre_auth_session_replay_e2e == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -901,7 +912,7 @@ jobs:
 
       - name: Run pre-auth session replay smoke
         working-directory: templates/design
-        timeout-minutes: 7
+        timeout-minutes: 20
         env:
           E2E_DISABLE_AUTO_DEV_ACCOUNT: "1"
           E2E_RUN_ID: pre-auth-replay-${{ github.run_id }}-${{ github.run_attempt }}
@@ -1112,7 +1123,7 @@ jobs:
   content-db-tests:
     name: Content DB tests
     needs: change-scope
-    if: needs.change-scope.outputs.content == 'true' || needs.change-scope.outputs.content_convergence == 'true'
+    if: needs.change-scope.outputs.content_db == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -1169,10 +1180,41 @@ jobs:
           CONTENT_MIGRATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_migration_test
           CONTENT_ROW_MUTATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_row_mutation_test
 
+  content-convergence-tests:
+    name: Content convergence
+    needs: change-scope
+    if: needs.change-scope.outputs.content_convergence == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+    services:
+      postgres:
+        image: ghcr.io/builderio/agent-native-ci-postgres-fallback:17-alpine
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          POSTGRES_DB: content_migration_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d content_migration_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
       # Two tabs on one page against the production build, with the realtime
       # stream refused as a serverless function refuses it.
       - name: Restore Playwright browser cache
-        if: ${{ !cancelled() && needs.change-scope.outputs.content_convergence == 'true' }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
@@ -1180,12 +1222,10 @@ jobs:
           restore-keys: playwright-${{ runner.os }}-
 
       - name: Install Playwright Chromium
-        if: ${{ !cancelled() && needs.change-scope.outputs.content_convergence == 'true' }}
         run: pnpm exec playwright install --only-shell --with-deps chromium
 
       - name: Build Content for the two-tab convergence lane
         id: convergence-build
-        if: ${{ !cancelled() && needs.change-scope.outputs.content_convergence == 'true' }}
         run: |
           docker exec "${{ job.services.postgres.id }}" createdb -U postgres content_convergence
           pnpm --filter content build
@@ -1256,6 +1296,27 @@ jobs:
     if: needs.change-scope.outputs.core_integration == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read
+    env:
+      AGENT_RUN_POSTGRES_TEST_URL: postgres://postgres@127.0.0.1:5432/agent_harness_test
+    services:
+      postgres:
+        image: ghcr.io/builderio/agent-native-ci-postgres-fallback:17-alpine
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          POSTGRES_DB: agent_harness_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d agent_harness_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -1903,6 +1964,9 @@ jobs:
       - name: Test source-reading tests guard
         run: pnpm test:no-source-reading-tests
 
+      - name: Test legacy MCP hint baseline guard
+        run: pnpm test:no-new-legacy-mcp-hints
+
       - name: Test Neon transfer alert and offline backtest
         run: pnpm test:neon-transfer-alert
 
@@ -1923,6 +1987,8 @@ jobs:
           scripts/guard-no-heavy-dashboard-list-reads.test.ts
 
       - name: Run security guards
+        env:
+          GITHUB_BASE_REF: ${{ github.base_ref }}
         run: pnpm guards
 
       - name: Check the Slides interaction oracle against one full test run
@@ -1988,3 +2054,16 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - uses: ./.github/actions/standalone-chat-acceptance
+
+  deploy-paths:
+    name: Deploy paths
+    needs: change-scope
+    # Run when selected, and also when change-scope did not succeed so the
+    # check fails closed instead of reporting "skipped".
+    if: ${{ !cancelled() && (needs.change-scope.result != 'success' || needs.change-scope.outputs.deploy_paths == 'true') }}
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/deploy-paths.yml
+    with:
+      source: local

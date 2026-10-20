@@ -3730,6 +3730,13 @@ function emitFrameTemplate(frame: FigNode, ctx: Ctx, pageName: string): string {
   return lines.join("\n");
 }
 
+export class FrameOutputBudgetError extends Error {
+  constructor() {
+    super(".fig frame exceeded its render output budget.");
+    this.name = "FrameOutputBudgetError";
+  }
+}
+
 class BudgetedLines extends Array<string> {
   private bytes = 0;
 
@@ -3740,9 +3747,7 @@ class BudgetedLines extends Array<string> {
   override push(...items: string[]): number {
     for (const item of items) {
       this.bytes += utf8ByteLength(item) + 1;
-      if (this.bytes > this.maxBytes) {
-        throw new Error(".fig frame exceeded its render output budget.");
-      }
+      if (this.bytes > this.maxBytes) throw new FrameOutputBudgetError();
     }
     return super.push(...items);
   }
@@ -3769,10 +3774,16 @@ export interface RenderHtmlFidelityEntry {
   notes: string[];
 }
 
+export interface SkippedRenderFrame {
+  pageName: string;
+  frameName: string;
+}
+
 export interface RenderHtmlResult {
   pageCount: number;
   frameCount: number;
   frames: RenderedFrame[];
+  skippedFrames: SkippedRenderFrame[];
   unresolvedImageRefs?: Set<string>;
   approximatedNodes: RenderHtmlFidelityEntry[];
   skipCounts: FigImportSkipCounts;
@@ -3797,6 +3808,8 @@ export interface RenderHtmlOptions {
   maxTreeDepth?: number;
   maxFrameOutputBytes?: number;
   maxTotalOutputBytes?: number;
+  /** Report frames over `maxFrameOutputBytes` in `skippedFrames` instead of failing the render. */
+  skipOversizedFrames?: boolean;
 }
 
 const DEFAULT_MAX_RENDER_FRAMES = 300;
@@ -4196,6 +4209,7 @@ export function renderHtmlTemplates(
       pageCount: 0,
       frameCount: 0,
       frames: [],
+      skippedFrames: [],
       approximatedNodes: [],
       skipCounts,
     };
@@ -4225,6 +4239,7 @@ export function renderHtmlTemplates(
   );
 
   const frames: RenderedFrame[] = [];
+  const skippedFrames: SkippedRenderFrame[] = [];
   for (let pageIdx = 0; pageIdx < pages.length; pageIdx++) {
     const page = pages[pageIdx]!;
     const pageDirName = sanitizeFilename(page.name, `page-${pageIdx + 1}`);
@@ -4252,15 +4267,39 @@ export function renderHtmlTemplates(
       const fileName =
         dupeIdx === 0 ? `${baseFile}.html` : `${baseFile}-${dupeIdx + 1}.html`;
       const pageName = page.name ?? `page-${pageIdx + 1}`;
-      const html = emitFrameTemplate(frame, ctx, pageName);
+      const frameName = frame.name ?? `frame-${frameIdx + 1}`;
+      const approximatedBefore = ctx.approximatedNodes.length;
+      const unresolvedBefore = ctx.unresolvedImageRefs?.size ?? 0;
+      const missingComponentsBefore = ctx.skipCounts.missingComponentCount;
+      let html: string;
+      try {
+        html = emitFrameTemplate(frame, ctx, pageName);
+      } catch (error) {
+        if (!options.skipOversizedFrames) throw error;
+        if (!(error instanceof FrameOutputBudgetError)) throw error;
+        // renderedNodeCount is deliberately kept: it bounds total work, not output.
+        for (const entry of ctx.approximatedNodes.splice(approximatedBefore)) {
+          ctx.approximationByNode.delete(entry.nodeId);
+        }
+        if (ctx.unresolvedImageRefs) {
+          [...ctx.unresolvedImageRefs]
+            .slice(unresolvedBefore)
+            .forEach((hash) => ctx.unresolvedImageRefs!.delete(hash));
+        }
+        ctx.skipCounts.missingComponentCount = missingComponentsBefore;
+        skippedFrames.push({ pageName, frameName });
+        continue;
+      }
       ctx.totalOutputBytes += utf8ByteLength(html);
       if (ctx.totalOutputBytes > ctx.maxTotalOutputBytes) {
-        throw new Error(".fig render exceeded its total output budget.");
+        throw new Error(
+          `.fig import generated too much editable HTML (max ${Math.round(ctx.maxTotalOutputBytes / 1024 / 1024)} MB).`,
+        );
       }
       frames.push({
         pageName,
         pageDirName,
-        frameName: frame.name ?? `frame-${frameIdx + 1}`,
+        frameName,
         fileName,
         relativePath: `${pageDirName}/${fileName}`,
         html,
@@ -4277,6 +4316,7 @@ export function renderHtmlTemplates(
     pageCount: pages.length,
     frameCount: frames.length,
     frames,
+    skippedFrames,
     approximatedNodes: ctx.approximatedNodes,
     skipCounts: ctx.skipCounts,
     ...(ctx.unresolvedImageRefs !== undefined

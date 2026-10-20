@@ -45,8 +45,12 @@ import { shouldReloadActiveWebview } from "./webview-refresh.js";
 const IS_DEV = window.location.protocol !== "file:";
 const DEV_APP_LOAD_TIMEOUT_MS = 60_000;
 const APP_LOAD_TIMEOUT_MS = 15_000;
-export const APP_WEBVIEW_PREFERENCES =
-  "contextIsolation=true,nodeIntegration=false,sandbox=true,backgroundThrottling=true";
+const APP_WEBVIEW_BASE_PREFERENCES =
+  "contextIsolation=true,nodeIntegration=false,sandbox=true";
+export const APP_WEBVIEW_PREFERENCES = `${APP_WEBVIEW_BASE_PREFERENCES},backgroundThrottling=true`;
+// A launch-preloaded guest is never visible, so Chromium would otherwise park
+// its timers and rAF before it finishes hydrating.
+export const APP_WEBVIEW_PRELOAD_PREFERENCES = `${APP_WEBVIEW_BASE_PREFERENCES},backgroundThrottling=false`;
 
 type WebviewTitleUpdatedEvent = Event & { title?: string };
 type WebviewLoadFailedEvent = Event & {
@@ -411,6 +415,7 @@ interface AppWebviewProps {
   isActive: boolean;
   focusNonce?: number;
   surfaceHidden?: boolean;
+  preload?: boolean;
   showDesktopIdentityGate?: boolean;
   theme: RendererTheme;
   syncTheme?: boolean;
@@ -672,6 +677,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       isActive,
       focusNonce,
       surfaceHidden = false,
+      preload = false,
       showDesktopIdentityGate = true,
       theme,
       syncTheme = true,
@@ -937,8 +943,8 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         updateDesktopIdentitySessionReady(true);
         return;
       }
-      if (!isActive) {
-        if (hasLoadedGuestPageRef.current) return;
+      if (!isActive && hasLoadedGuestPageRef.current) return;
+      if (!isActive && !preload) {
         const rememberedSignedIn = shouldReuseRememberedDesktopIdentitySession(
           rememberedDesktopIdentityStatus,
           undefined,
@@ -1088,6 +1094,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       app.id,
       desktopIdentityGateEligible,
       isActive,
+      preload,
       updateDesktopIdentitySessionReady,
     ]);
 
@@ -1833,7 +1840,12 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
               if (preloadPath) {
                 wv.setAttribute("preload", preloadPath);
               }
-              wv.setAttribute("webpreferences", APP_WEBVIEW_PREFERENCES);
+              wv.setAttribute(
+                "webpreferences",
+                preload
+                  ? APP_WEBVIEW_PRELOAD_PREFERENCES
+                  : APP_WEBVIEW_PREFERENCES,
+              );
               wv.setAttribute(
                 "partition",
                 resolveAppWebviewPartition({

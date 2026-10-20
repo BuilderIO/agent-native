@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   callActionWithRetry: mocks.callActionWithRetry,
+  currentActionQueryCacheBinding: () => undefined,
+  recordActionQueryBrowserPersist: () => {},
 }));
 
 vi.mock("@agent-native/core/client/host", () => ({

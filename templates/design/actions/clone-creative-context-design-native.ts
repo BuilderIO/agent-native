@@ -39,7 +39,7 @@ export default defineAction({
     title: z.string().optional(),
   }),
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
-  run: async (args, ctx) => {
+  run: async (args) => {
     const reference = await resolveNativeContextCloneReference({
       appId: "design",
       resourceType: "design",
@@ -74,14 +74,11 @@ export default defineAction({
         "Governed design clone payload has invalid tweak definitions.",
       );
     }
-    const created = await createDesign.run(
-      {
-        title: args.title?.trim() || "Context design",
-        projectType: "prototype",
-        creationMethod: "template",
-      },
-      ctx,
-    );
+    const created = await createDesign.run({
+      title: args.title?.trim() || "Context design",
+      projectType: "prototype",
+      creationMethod: "context_clone",
+    });
     const saved = await saveImportedDesignFiles({
       designId: created.id,
       sourceType: "creative-context-native-clone",

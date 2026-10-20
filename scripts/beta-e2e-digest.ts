@@ -1233,10 +1233,11 @@ export function reproduceCommands(test: {
     test.slot === "fleet" || test.slot === "advisory" || test.app === "unknown"
       ? "all"
       : test.app;
-  const grep = shellQuote(escapeRegex(test.grep));
+  const ciGrep = shellQuote(test.grep);
+  const localGrep = shellQuote(escapeRegex(test.grep));
   return {
-    ci: `gh workflow run beta-e2e.yml --ref main -f apps=${apps} -f lane=${lane} -f grep=${grep}`,
-    local: `BETA_E2E_APPS=${apps} pnpm e2e:beta --project=${test.project} --grep ${grep}`,
+    ci: `gh workflow run beta-e2e.yml --ref main -f apps=${apps} -f lane=${lane} -f grep=${ciGrep}`,
+    local: `BETA_E2E_APPS=${apps} pnpm e2e:beta --project=${test.project} --grep ${localGrep}`,
   };
 }
 
@@ -1669,7 +1670,13 @@ export function renderSlack(digest: Digest): string {
     );
   }
   for (const entry of digest.fixed) {
-    addFinding("FIXED", entry.c, entry.k, entry.l, `Passed in run ${entry.r}.`);
+    addFinding(
+      "FIXED",
+      entry.c,
+      entry.k,
+      entry.l,
+      `Passed in run ${digest.input.runId}.`,
+    );
   }
   for (const [index, item] of digest.advisory.entries()) {
     const title =

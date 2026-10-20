@@ -70,6 +70,10 @@ import {
   APP_STATE_ANONYMOUS_OWNER_CONTEXT_KEY,
   type AppStateAnonymousOwnerResolver,
 } from "../application-state/handlers.js";
+import {
+  routeAuditAttribution,
+  type AuditAttribution,
+} from "../audit/attribution.js";
 import { recordOrgAdminAuditEvent } from "../audit/org-admin.js";
 import { mountBrowserSessionRoutes } from "../browser-sessions/routes.js";
 import { mountDbAdminRoutes } from "../db-admin/routes.js";
@@ -105,7 +109,11 @@ import {
   registerBuiltinNotificationChannels,
 } from "../notifications/channels.js";
 import { createNotificationsHandler } from "../notifications/routes.js";
-import { getOrgContext } from "../org/context.js";
+import {
+  getOrgContext,
+  hasOrgScopeResolutionUnavailable,
+  resolveOrgScopeForEmail,
+} from "../org/context.js";
 import { isMissingOrganizationTableError } from "../org/membership.js";
 import { createProgressHandler } from "../progress/routes.js";
 import { REALTIME_POLL_LIVE_QUERY_PARAM } from "../realtime-protocol.js";
@@ -312,6 +320,7 @@ import {
   isAllowedUploadMimeType,
 } from "./h3-helpers.js";
 import { handleIdentitySso } from "./identity-sso.js";
+import { isDirectLoopbackRequest, isLoopbackRequest } from "./loopback.js";
 import { createOpenRouteHandler } from "./open-route.js";
 import {
   PERSONAL_PROVIDER_KEYS_RESTRICTED_ERROR_CODE,
@@ -414,7 +423,13 @@ function requestAgentEngineStatusDeps(): AgentEngineStatusDeps<AgentEngineEntry>
       );
       if (!appId) return null;
       const settings = await readAgentAppModelDefaultSettings(
-        { userEmail: getRequestUserEmail(), orgId: getRequestOrgId() },
+        {
+          userEmail: getRequestUserEmail(),
+          orgId: getRequestOrgId(),
+          ...(getRequestContext()?.orgScope === "personal"
+            ? { orgScope: "personal" as const }
+            : {}),
+        },
         appId,
       );
       return settings.engine && settings.model
@@ -448,13 +463,30 @@ function requestAgentEngineStatusDeps(): AgentEngineStatusDeps<AgentEngineEntry>
  */
 export async function resolveAgentEngineStatusIdentity(
   event: H3Event,
-): Promise<{ userEmail: string | undefined; orgId: string | undefined }> {
+): Promise<{
+  userEmail: string | undefined;
+  orgId: string | undefined;
+  orgScope?: "personal";
+}> {
   const session = await getSession(event);
   const userEmail = session?.email;
   if (!userEmail) return { userEmail: undefined, orgId: undefined };
   try {
     const orgCtx = await getOrgContext(event);
-    return { userEmail, orgId: orgCtx.orgId ?? undefined };
+    if (orgCtx.orgId) return { userEmail, orgId: orgCtx.orgId };
+    if (hasOrgScopeResolutionUnavailable(event)) {
+      return { userEmail, orgId: undefined };
+    }
+    if (orgCtx.email.trim().toLowerCase() === userEmail.trim().toLowerCase()) {
+      return { userEmail, orgId: undefined, orgScope: "personal" };
+    }
+    const scope = await resolveOrgScopeForEmail(userEmail);
+    if (scope.status === "organization") {
+      return { userEmail, orgId: scope.orgId };
+    }
+    return scope.status === "personal"
+      ? { userEmail, orgId: undefined, orgScope: "personal" }
+      : { userEmail, orgId: undefined };
   } catch (error) {
     /* org module not present in this template */
     if (!isMissingOrganizationTableError(error)) throw error;
@@ -914,6 +946,7 @@ export async function disconnectBuilderConnectionAtScope(
     orgId: string | null;
     role: string | null;
     scope: BuilderConnectionScope;
+    attribution: AuditAttribution;
   },
   deps: BuilderScopedDisconnectDeps = defaultScopedDisconnectDeps,
 ): Promise<
@@ -959,6 +992,7 @@ export async function disconnectBuilderConnectionAtScope(
     ownerEmail: email,
     orgId,
     scope: oauthScope,
+    attribution: input.attribution,
   });
   return {
     status: 200,
@@ -1661,10 +1695,10 @@ async function detectUsageEngineName(
   userEmail: string | undefined,
 ): Promise<string | null> {
   try {
-    const orgId = userEmail
-      ? (await resolveAgentEngineStatusIdentity(event)).orgId
-      : undefined;
-    const status = await runWithRequestContext({ userEmail, orgId }, () =>
+    const identity = userEmail
+      ? await resolveAgentEngineStatusIdentity(event)
+      : { userEmail, orgId: undefined };
+    const status = await runWithRequestContext(identity, () =>
       resolveAgentEngineStatus({
         ...requestAgentEngineStatusDeps(),
         // Tracking only needs the engine name; skip the base-URL secret read.
@@ -1727,6 +1761,7 @@ export function recordBuilderConnectionAudit(input: {
   ownerEmail: string;
   orgId: string | null | undefined;
   scope: "user" | "org";
+  attribution: AuditAttribution;
 }): Promise<void> {
   const org = input.scope === "org";
   return recordOrgAdminAuditEvent({
@@ -1744,6 +1779,7 @@ export function recordBuilderConnectionAudit(input: {
     orgId: input.orgId,
     personal: !org,
     args: { scope: input.scope },
+    attribution: input.attribution,
   });
 }
 
@@ -2577,6 +2613,7 @@ export async function activateBuilderAccount(
       ownerEmail,
       orgId: activationOrg?.orgId ?? null,
       scope: written.scope,
+      attribution: routeAuditAttribution(event),
     });
     return { ok: true, scope: written.scope };
   } catch (error) {
@@ -3665,6 +3702,7 @@ export function createCoreRoutesPlugin(
         "jira",
         "sentry",
         "notion",
+        "sigma",
       ] as const) {
         getH3App(nitroApp).use(
           `${P}/connections/oauth/${provider}/start`,
@@ -5009,6 +5047,7 @@ export function createCoreRoutesPlugin(
                   ownerEmail,
                   orgId: scope.orgId,
                   scope: written.scope,
+                  attribution: routeAuditAttribution(event),
                 });
               },
             },
@@ -5510,6 +5549,7 @@ export function createCoreRoutesPlugin(
             ownerEmail,
             orgId: typeof pending.orgId === "string" ? pending.orgId : null,
             scope: credentialScope,
+            attribution: routeAuditAttribution(event),
           });
           setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
           return createBuilderBrowserCallbackPage(
@@ -5586,6 +5626,7 @@ export function createCoreRoutesPlugin(
                 orgId,
                 role,
                 scope: requestedConnectionScope,
+                attribution: routeAuditAttribution(event),
               });
               if (result.status === 200) {
                 await trackBuilderLifecycle(
@@ -5667,6 +5708,7 @@ export function createCoreRoutesPlugin(
                 oauthScope,
                 legacyDeleteOptions,
               ),
+              attribution: routeAuditAttribution(event),
             });
             await trackBuilderLifecycle(
               event,
@@ -5900,13 +5942,29 @@ export function createCoreRoutesPlugin(
         defineEventHandler(async (event) => {
           try {
             const statusStartedAt = Date.now();
-            const { userEmail, orgId } =
+            const { userEmail, orgId, orgScope } =
               await resolveAgentEngineStatusIdentity(event);
+            const directLoopbackRequest = isDirectLoopbackRequest(event);
+            const requestOrigin = directLoopbackRequest
+              ? `http://${getHeader(event, "host")}`
+              : undefined;
             const status = await memoizeAgentEngineStatus(
-              { userEmail, orgId },
+              {
+                userEmail,
+                orgId,
+                orgScope,
+                isDirectLoopbackRequest: directLoopbackRequest,
+              },
               async () =>
                 await runWithRequestContext(
-                  { userEmail, orgId },
+                  {
+                    userEmail,
+                    orgId,
+                    ...(orgScope ? { orgScope } : {}),
+                    isLoopbackRequest: isLoopbackRequest(event),
+                    isDirectLoopbackRequest: directLoopbackRequest,
+                    ...(requestOrigin ? { requestOrigin } : {}),
+                  },
                   async (): Promise<AgentEngineStatusResponse> => {
                     const deps = requestAgentEngineStatusDeps();
                     const engineStatus = await resolveAgentEngineStatus(deps);

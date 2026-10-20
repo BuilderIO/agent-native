@@ -110,17 +110,41 @@ function isZoomHost(url: URL) {
   );
 }
 
+async function zoomRequest<T>(
+  step: string,
+  request: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const startedAt = performance.now();
+  const signal = AbortSignal.timeout(ZOOM_REQUEST_TIMEOUT_MS);
+  try {
+    return await request(signal);
+  } catch (error) {
+    if (
+      signal.aborted ||
+      (error instanceof Error && error.name === "TimeoutError")
+    ) {
+      const elapsedMs = Math.round(performance.now() - startedAt);
+      throw new Error(
+        `Zoom ${step} timed out after ${elapsedMs} ms (limit ${ZOOM_REQUEST_TIMEOUT_MS} ms).`,
+      );
+    }
+    throw error;
+  }
+}
+
 async function zoomApiJson<T>(
   token: string,
   url: string,
   step: string,
 ): Promise<T> {
-  const response = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
-    signal: AbortSignal.timeout(ZOOM_REQUEST_TIMEOUT_MS),
+  return zoomRequest(step, async (signal) => {
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal,
+    });
+    await assertOk(response, step);
+    return (await response.json()) as T;
   });
-  await assertOk(response, step);
-  return (await response.json()) as T;
 }
 
 export async function fetchZoomAccessToken(
@@ -129,16 +153,18 @@ export async function fetchZoomAccessToken(
   const basic = Buffer.from(
     `${credentials.clientId}:${credentials.clientSecret}`,
   ).toString("base64");
-  const response = await fetch(
-    `${ZOOM_OAUTH_URL}?grant_type=account_credentials&account_id=${encodeURIComponent(credentials.accountId)}`,
-    {
-      method: "POST",
-      headers: { Authorization: `Basic ${basic}` },
-      signal: AbortSignal.timeout(ZOOM_REQUEST_TIMEOUT_MS),
-    },
-  );
-  await assertOk(response, "token request");
-  const body = (await response.json()) as { access_token?: unknown };
+  const body = await zoomRequest("token request", async (signal) => {
+    const response = await fetch(
+      `${ZOOM_OAUTH_URL}?grant_type=account_credentials&account_id=${encodeURIComponent(credentials.accountId)}`,
+      {
+        method: "POST",
+        headers: { Authorization: `Basic ${basic}` },
+        signal,
+      },
+    );
+    await assertOk(response, "token request");
+    return (await response.json()) as { access_token?: unknown };
+  });
   if (typeof body.access_token !== "string" || !body.access_token) {
     throw new Error("Zoom OAuth token response did not include access_token.");
   }
@@ -242,14 +268,21 @@ export async function downloadZoomTranscript(
     );
   }
   for (let hop = 0; hop <= ZOOM_MAX_DOWNLOAD_REDIRECTS; hop += 1) {
-    const response = await fetch(url.toString(), {
-      headers: isZoomHost(url) ? { Authorization: `Bearer ${token}` } : {},
-      redirect: "manual",
-      signal: AbortSignal.timeout(ZOOM_REQUEST_TIMEOUT_MS),
+    const result = await zoomRequest("transcript download", async (signal) => {
+      const response = await fetch(url.toString(), {
+        headers: isZoomHost(url) ? { Authorization: `Bearer ${token}` } : {},
+        redirect: "manual",
+        signal,
+      });
+      const location = response.headers.get("location");
+      if (response.status >= 300 && response.status < 400 && location) {
+        return { kind: "redirect" as const, location };
+      }
+      await assertOk(response, "transcript download");
+      return { kind: "transcript" as const, content: await response.text() };
     });
-    const location = response.headers.get("location");
-    if (response.status >= 300 && response.status < 400 && location) {
-      url = new URL(location, url);
+    if (result.kind === "redirect") {
+      url = new URL(result.location, url);
       if (url.protocol !== "https:") {
         throw new Error(
           "Zoom transcript download redirected to a non-https URL.",
@@ -257,8 +290,7 @@ export async function downloadZoomTranscript(
       }
       continue;
     }
-    await assertOk(response, "transcript download");
-    return await response.text();
+    return result.content;
   }
   throw new Error("Zoom transcript download exceeded the redirect limit.");
 }
@@ -311,132 +343,6 @@ export function normalizeZoomRecording(meeting: ZoomMeeting, vtt: string) {
 
 export function zoomExternalId(meeting: Pick<ZoomMeeting, "uuid">): string {
   return `zoom:${meeting.uuid}`;
-}
-
-export interface ZoomMeetingSummaryListItem {
-  meeting_uuid: string;
-  meeting_id: number | string;
-  meeting_topic?: string;
-  meeting_start_time: string;
-  meeting_host_id?: string;
-  meeting_host_email?: string;
-}
-
-interface ZoomMeetingSummariesPage {
-  summaries?: ZoomMeetingSummaryListItem[];
-  next_page_token?: string;
-}
-
-export interface ZoomMeetingSummary extends ZoomMeetingSummaryListItem {
-  summary_title?: string;
-  summary_content?: string;
-  summary_doc_url?: string;
-  // Older summary responses carry these instead of summary_content.
-  summary_overview?: string;
-  summary_details?: Array<{ label?: string; summary?: string }>;
-  next_steps?: string[];
-}
-
-// The summaries list takes timestamps, unlike the date-only recordings list.
-export async function listZoomMeetingSummaries(
-  token: string,
-  from: string,
-  to: string,
-  onPage?: ZoomPageCallback,
-): Promise<ZoomMeetingSummaryListItem[]> {
-  const summaries: ZoomMeetingSummaryListItem[] = [];
-  let nextPageToken: string | undefined;
-  do {
-    const params = new URLSearchParams({
-      from: `${from}T00:00:00Z`,
-      to: `${to}T23:59:59Z`,
-      page_size: String(ZOOM_PAGE_SIZE),
-    });
-    if (nextPageToken) params.set("next_page_token", nextPageToken);
-    const page = await zoomApiJson<ZoomMeetingSummariesPage>(
-      token,
-      `${ZOOM_API_BASE}/meetings/meeting_summaries?${params.toString()}`,
-      "summary list",
-    );
-    summaries.push(...(page.summaries ?? []));
-    await onPage?.();
-    nextPageToken = page.next_page_token || undefined;
-  } while (nextPageToken);
-  return summaries;
-}
-
-export function getZoomMeetingSummary(
-  token: string,
-  meetingUuid: string,
-): Promise<ZoomMeetingSummary> {
-  return zoomApiJson<ZoomMeetingSummary>(
-    token,
-    `${ZOOM_API_BASE}/meetings/${zoomMeetingUuidPath(meetingUuid)}/meeting_summary`,
-    "meeting summary lookup",
-  );
-}
-
-function zoomSummaryBody(summary: ZoomMeetingSummary): string {
-  const content = summary.summary_content?.trim();
-  if (content) return content;
-  const sections: string[] = [];
-  const overview = summary.summary_overview?.trim();
-  if (overview) sections.push(overview);
-  for (const detail of summary.summary_details ?? []) {
-    const text = detail.summary?.trim();
-    if (!text) continue;
-    const label = detail.label?.trim();
-    sections.push(label ? `${label}\n${text}` : text);
-  }
-  const steps = (summary.next_steps ?? [])
-    .map((step) => step.trim())
-    .filter(Boolean);
-  if (steps.length) {
-    sections.push(`Next steps\n${steps.map((step) => `- ${step}`).join("\n")}`);
-  }
-  return sections.join("\n\n");
-}
-
-export function normalizeZoomMeetingSummary(summary: ZoomMeetingSummary) {
-  const body = zoomSummaryBody(summary);
-  if (!body) return null;
-  const title = summary.meeting_topic?.trim() || "Zoom meeting";
-  return {
-    externalId: zoomSummaryExternalId(summary),
-    title,
-    capturedAt: summary.meeting_start_time,
-    content: `${title}\nDate: ${summary.meeting_start_time}\n\nAI Companion summary\n${body}`,
-    metadata: {
-      provider: "zoom",
-      connector: "zoom",
-      zoomContent: "ai-companion-summary",
-      zoomMeetingId: String(summary.meeting_id),
-      zoomMeetingUuid: summary.meeting_uuid,
-      meetingTopic: sanitizeSensitiveText(title),
-      sourceUrl: summary.summary_doc_url ?? null,
-    },
-  };
-}
-
-export function zoomSummaryExternalId(
-  summary: Pick<ZoomMeetingSummaryListItem, "meeting_uuid">,
-): string {
-  return `zoom-summary:${summary.meeting_uuid}`;
-}
-
-// userIds holds Zoom user IDs or emails; the summaries list is account-wide.
-export function zoomSummaryMatchesUsers(
-  summary: Pick<
-    ZoomMeetingSummaryListItem,
-    "meeting_host_id" | "meeting_host_email"
-  >,
-  userIds: string[] | null,
-): boolean {
-  if (!userIds) return true;
-  const wanted = new Set(userIds.map((id) => id.toLowerCase()));
-  return [summary.meeting_host_id, summary.meeting_host_email].some(
-    (value) => typeof value === "string" && wanted.has(value.toLowerCase()),
-  );
 }
 
 export function hasProcessingTranscript(meeting: ZoomMeeting): boolean {

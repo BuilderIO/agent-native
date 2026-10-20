@@ -3,9 +3,16 @@ import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import {
+  frameSheetFfmpegArgs,
+  frameSheetFpsFromProbe,
+  type FrameSheetPlan,
+} from "./video-frame-sheet.js";
 import { resolveFfmpegCommand } from "./video-remux.js";
 
 const FRAME_EXTRACTION_TIMEOUT_MS = 20_000;
+// A sheet decodes up to a minute of video in one pass.
+const FRAME_SHEET_TIMEOUT_MS = 45_000;
 const COMPLETE_MEDIA_VALIDATION_TIMEOUT_MS = 45_000;
 const MAX_CONCURRENT_FRAME_EXTRACTIONS = 2;
 const MAX_CONCURRENT_MEDIA_VALIDATIONS = 1;
@@ -302,8 +309,11 @@ export async function extractJpegFrameFromFile({
         "error",
         "-nostdin",
         "-y",
+        // ffmpeg starts at the first frame at or after -ss. Comment times are
+        // a frame start rounded up to a whole millisecond, so begin 1 ms
+        // early to keep a sub-millisecond start (30 fps MP4) on that frame.
         "-ss",
-        String(Math.max(0, atMs) / 1000),
+        String(Math.max(0, atMs - 1) / 1000),
         "-i",
         mediaPath,
         "-frames:v",
@@ -333,6 +343,101 @@ export async function extractJpegFrameFromFile({
         throw new VideoFrameExtractionError(
           "NO_FRAME_AT_TIMESTAMP",
           "No frame was available at that timestamp.",
+        );
+      }
+
+      return new Uint8Array(await readFile(outputPath));
+    } catch (err) {
+      if (err instanceof VideoFrameExtractionError) throw err;
+      throw mapFfmpegError(err);
+    } finally {
+      await rm(dir, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+}
+
+/** The frame rate a frame sheet uses when its request leaves fps out. */
+export async function probeFrameSheetFpsFromFile(
+  mediaPath: string,
+): Promise<number> {
+  return withFrameExtractionSlot(async () => {
+    const stderr = await runFfmpeg([
+      "-hide_banner",
+      "-nostdin",
+      "-i",
+      mediaPath,
+      "-map",
+      "0:v:0?",
+      "-frames:v",
+      "1",
+      "-f",
+      "null",
+      "-",
+    ]).catch((err) => {
+      throw mapFfmpegError(err);
+    });
+    return frameSheetFpsFromProbe(stderr);
+  });
+}
+
+export async function extractJpegFrameSheetFromFile({
+  mediaPath,
+  plan,
+}: {
+  mediaPath: string;
+  plan: FrameSheetPlan;
+}): Promise<Uint8Array> {
+  const info = await stat(mediaPath);
+  if (!info.size) {
+    throw new VideoFrameExtractionError(
+      "EMPTY_MEDIA",
+      "Recording media is empty.",
+    );
+  }
+
+  const { inputArgs, filter } = frameSheetFfmpegArgs(plan);
+  return withFrameExtractionSlot(async () => {
+    const dir = await mkdtemp(join(tmpdir(), "clips-frame-sheet-output-"));
+    const outputPath = join(dir, "sheet.jpg");
+    try {
+      await runFfmpeg(
+        [
+          "-hide_banner",
+          "-loglevel",
+          "error",
+          "-nostdin",
+          "-y",
+          ...inputArgs,
+          "-i",
+          mediaPath,
+          "-an",
+          "-sn",
+          "-vf",
+          filter,
+          "-frames:v",
+          "1",
+          "-q:v",
+          "3",
+          outputPath,
+        ],
+        FRAME_SHEET_TIMEOUT_MS,
+      ).catch((err) => {
+        throw mapFfmpegError(err);
+      });
+
+      let output;
+      try {
+        output = await stat(outputPath);
+      } catch (err) {
+        const code =
+          err instanceof Error && "code" in err ? err.code : undefined;
+        if (code !== "ENOENT") throw err;
+        output = null;
+      }
+      if (!output?.size) {
+        throw new VideoFrameExtractionError(
+          "NO_FRAME_AT_TIMESTAMP",
+          "No frames were available in that range.",
         );
       }
 

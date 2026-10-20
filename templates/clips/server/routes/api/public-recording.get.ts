@@ -4,6 +4,7 @@ import {
   getForwardedRequestURL,
   signScopedAgentAccessToken,
   signShortLivedToken,
+  verifyShortLivedToken,
   verifyScopedAgentAccessToken,
 } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
@@ -27,6 +28,7 @@ import {
   isImageRecording,
   resolveRecordingKind,
 } from "../../../shared/recording-kind.js";
+import { parseStoredChapters } from "../../../shared/stored-chapters.js";
 import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
@@ -107,14 +109,20 @@ function setProtectedMediaAccessCookie(
   password: string | null | undefined,
   sharePasswordVersion: string | null | undefined,
 ): string {
-  const token = signShortLivedToken({
-    resourceId: getRecordingAccessTokenResourceId(
-      recordingId,
-      password,
-      sharePasswordVersion,
-    ),
-    ttlSeconds: PROTECTED_MEDIA_ACCESS_TTL_SECONDS,
-  });
+  const resourceId = getRecordingAccessTokenResourceId(
+    recordingId,
+    password,
+    sharePasswordVersion,
+  );
+  // This helper runs only after the share or agent-access gate above.
+  const existingToken = getHeader(event, "x-clips-media-token") ?? "";
+  const token =
+    existingToken && verifyShortLivedToken(existingToken, resourceId).ok
+      ? existingToken
+      : signShortLivedToken({
+          resourceId,
+          ttlSeconds: PROTECTED_MEDIA_ACCESS_TTL_SECONDS,
+        });
   const secure = isHttpsRequest(event);
   setCookie(event, protectedMediaCookieName(recordingId), token, {
     httpOnly: true,
@@ -268,6 +276,12 @@ export default defineEventHandler(async (event) => {
     return { error: "Not found" };
   }
 
+  if (rec.failureCode === "taken_down") {
+    setResponseHeader(event, "Cache-Control", "private, max-age=0, no-store");
+    setResponseStatus(event, 404);
+    return { error: "Not found" };
+  }
+
   const viewerCanComment = Boolean(
     session?.email &&
     (rec.visibility === "public" || viewerAccess || viewerIsOrgMember),
@@ -369,16 +383,7 @@ export default defineEventHandler(async (event) => {
     .where(eq(schema.recordingCtas.recordingId, recordingId))
     .orderBy(asc(schema.recordingCtas.createdAt));
 
-  let chapters: { startMs: number; title: string }[] = [];
-  try {
-    const parsed = JSON.parse(rec.chaptersJson ?? "[]");
-    if (Array.isArray(parsed)) {
-      chapters = parsed.filter(
-        (c: any) =>
-          typeof c?.startMs === "number" && typeof c?.title === "string",
-      );
-    }
-  } catch {}
+  const chapters = parseStoredChapters(rec.chaptersJson);
 
   const transcriptSegments = normalizeTranscriptSegments({
     segments: parseTranscriptSegments(transcript?.segmentsJson),
@@ -399,7 +404,8 @@ export default defineEventHandler(async (event) => {
   //      the URL leaks it into browser history, CDN logs, and Referer headers.
   //      The downstream `/api/video/:id` route accepts `?t=<token>`, the media
   //      cookie, or `?password=<pw>` as a legacy fallback. (audit 11 F-07)
-  //      Remote provider URLs (R2/S3/Builder) are kept behind the same-origin
+  //      Remote provider URLs (S3-compatible storage, including hosted GCS,
+  //      or Builder) are kept behind the same-origin
   //      proxy on public pages so CORS, Range support, and fragile signed URLs
   //      fail in one server-controlled place instead of as opaque <video>
   //      errors in the browser.
@@ -507,6 +513,7 @@ export default defineEventHandler(async (event) => {
         ? viewerScreenshotEditsJson(rec.editsJson)
         : rec.editsJson,
       videoUrl: playbackVideoUrl,
+      mediaAccessToken: protectedMediaToken,
       videoFormat: rec.videoFormat,
       videoSizeBytes: rec.videoSizeBytes ?? null,
       mediaUpdatedAt: rec.mediaUpdatedAt,

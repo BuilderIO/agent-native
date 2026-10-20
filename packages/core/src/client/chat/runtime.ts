@@ -11,6 +11,7 @@ import type {
   AgentChatStructuredMessage,
 } from "../../agent/types.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
+import { RUN_NOT_STARTED_METADATA_KEY } from "../../shared/agent-chat-run-not-started.js";
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
 import {
   agentEngineStatusUrlForChatApi,
@@ -140,6 +141,7 @@ export interface AgentChatRuntimeMessage<
   readonly role: AgentChatRuntimeRole;
   readonly content: readonly TContentPart[];
   readonly createdAt?: string;
+  readonly status?: "streaming" | "complete" | "error";
   readonly metadata?: AgentChatRuntimeMetadata;
 }
 
@@ -308,6 +310,7 @@ export interface AgentChatRuntimeSessionSnapshot extends AgentChatRuntimeSession
 export interface AgentChatRuntimeTurnInput {
   readonly prompt?: string;
   readonly messages?: readonly AgentChatRuntimeMessage[];
+  readonly submissionPayload?: unknown;
   readonly queuePromotion?: {
     readonly messageId: string;
     readonly claimId: string;
@@ -444,6 +447,8 @@ export interface AgentChatRuntimeApprovalRequestEvent extends AgentChatRuntimeEv
   readonly message: string;
   readonly input?: unknown;
   readonly allowPersistentApproval?: false;
+  /** The server's approval row, when the agent-native store created one. */
+  readonly askId?: string;
 }
 
 export interface AgentChatRuntimeApprovalResolvedEvent extends AgentChatRuntimeEventBase<"approval-resolved"> {
@@ -757,6 +762,8 @@ export interface AgentChatRuntimeTurn<
   readonly runId?: string;
   readonly metadata?: AgentChatRuntimeMetadata;
   readonly events: AsyncIterable<TEvent>;
+  /** Close the local event stream without cancelling the underlying run. */
+  closeEvents?(): Promise<void> | void;
   cancel?(
     input?: AgentChatRuntimeCancelInput,
   ): Promise<AgentChatRuntimeCancelResult>;
@@ -773,6 +780,11 @@ export interface AgentChatRuntimeSubscribeInput {
   readonly after?: number;
   readonly metadata?: AgentChatRuntimeMetadata;
   readonly abortSignal?: AbortSignal;
+}
+
+export interface AgentChatRuntimeReadRunStateInput extends AgentChatRuntimeSubscribeInput {
+  /** Include the durable request id when checking whether a restored request is pending. */
+  readonly includePendingConnectionRequest?: boolean;
 }
 
 export interface AgentChatRuntimeResumeInput extends AgentChatRuntimeSubscribeInput {
@@ -837,7 +849,9 @@ export interface AgentChatRuntime<
    * that provides it owns run outcome: a closed `subscribe` stream is then only
    * a connection fact. Rejects when the record cannot be read.
    */
-  readRunState?(input: AgentChatRuntimeSubscribeInput): Promise<ServerRunState>;
+  readRunState?(
+    input: AgentChatRuntimeReadRunStateInput,
+  ): Promise<ServerRunState>;
   cancel?(
     input: AgentChatRuntimeCancelInput,
   ): Promise<AgentChatRuntimeCancelResult>;
@@ -1246,6 +1260,7 @@ function defaultHttpRuntimeRequest(input: {
     prompt: input.turn.prompt,
     messages: input.turn.messages,
     attachments: input.turn.attachments,
+    submissionPayload: input.turn.submissionPayload,
     tools: input.turn.tools,
     model: input.turn.model,
     reasoningEffort: input.turn.reasoningEffort,
@@ -1327,6 +1342,12 @@ async function readHttpRuntimeError(response: Response): Promise<Error> {
       : payload && "activeRunId" in payload
         ? payload.activeRunId
         : nestedError?.activeRunId;
+  const submittedRunId =
+    data && "submittedRunId" in data
+      ? data.submittedRunId
+      : payload && "submittedRunId" in payload
+        ? payload.submittedRunId
+        : nestedError?.submittedRunId;
   const hasActiveRunId =
     (data !== null && "activeRunId" in data) ||
     (payload !== undefined && "activeRunId" in payload) ||
@@ -1337,7 +1358,12 @@ async function readHttpRuntimeError(response: Response): Promise<Error> {
   const runSlotBusy =
     status === 409 &&
     (explicitCode === "run_slot_busy" ||
-      (explicitCode === undefined && activeRunIdValue));
+      (explicitCode === "queued_message_already_submitted" &&
+        typeof submittedRunId === "string" &&
+        submittedRunId.length > 0) ||
+      (explicitCode === undefined &&
+        (activeRunIdValue ||
+          (typeof submittedRunId === "string" && submittedRunId.length > 0))));
   const errorCode =
     explicitCode ?? (runSlotBusy ? "run_slot_busy" : fallbackCode);
   const error = runSlotBusy
@@ -1345,11 +1371,17 @@ async function readHttpRuntimeError(response: Response): Promise<Error> {
         activeRunIdValue && typeof activeRunId === "string"
           ? activeRunId
           : undefined,
+        typeof submittedRunId === "string" && submittedRunId.length > 0
+          ? submittedRunId
+          : undefined,
       )
     : new Error(runtimeErrorMessage(text, response.status));
   Object.assign(error, {
     code: runSlotBusy ? "run_slot_busy" : errorCode,
     ...(hasActiveRunId ? { activeRunId } : {}),
+    ...(typeof submittedRunId === "string" && submittedRunId.length > 0
+      ? { submittedRunId }
+      : {}),
     ...(data?.details === undefined &&
     payload?.details === undefined &&
     nestedError?.details === undefined
@@ -1505,14 +1537,19 @@ export function createHttpAgentChatRuntime<
           cleanup();
         }
       })();
+      const closeEvents = () => {
+        controller.abort();
+        cleanup();
+      };
 
       return {
         id: turnId,
         sessionId,
         runId,
         events,
+        closeEvents,
         cancel: async (cancelInput) => {
-          controller.abort();
+          closeEvents();
           if (!options.cancelEndpoint) return { status: "cancelled" };
           const endpoint =
             typeof options.cancelEndpoint === "function"
@@ -1830,6 +1867,40 @@ function isSyntheticToolHistoryOmissionMessage(
   );
 }
 
+function isUnstartedNativeHistoryMessage(
+  message: AgentChatRuntimeMessage,
+): boolean {
+  if (message.role === "user" && message.status === "error") return true;
+  if (message.role !== "user" && message.role !== "assistant") return false;
+  const custom = asRecord(asRecord(message.metadata)?.custom);
+  return custom?.[RUN_NOT_STARTED_METADATA_KEY] === true;
+}
+
+function nativeHistorySourceMessages(
+  messages: readonly AgentChatRuntimeMessage[] | undefined,
+  currentPrompt: string,
+): AgentChatRuntimeMessage[] {
+  const source = messages ?? [];
+  let currentPromptMessageIndex: number | undefined;
+  for (let index = source.length - 1; index >= 0; index--) {
+    const message = source[index]!;
+    if (isSyntheticToolHistoryOmissionMessage(message)) continue;
+    if (message.role !== "user") continue;
+    if (!currentPrompt.trim()) {
+      currentPromptMessageIndex = index;
+    } else {
+      const match = runtimeMessageTextMatches(message, currentPrompt);
+      if (match.matches || !match.complete) currentPromptMessageIndex = index;
+    }
+    break;
+  }
+  return source.filter(
+    (message, index) =>
+      index === currentPromptMessageIndex ||
+      !isUnstartedNativeHistoryMessage(message),
+  );
+}
+
 function equivalentRuntimeContent(left: unknown, right: unknown): boolean {
   let remaining = 4096;
   const leftAncestors = new WeakSet<object>();
@@ -1882,7 +1953,7 @@ function priorNativeHistoryMessages(
   messages: readonly AgentChatRuntimeMessage[] | undefined,
   currentPrompt: string,
 ) {
-  const source = messages ?? [];
+  const source = nativeHistorySourceMessages(messages, currentPrompt);
   let currentPromptMessageIndex: number | undefined;
   for (let index = source.length - 1; index >= 0; index--) {
     const message = source[index]!;
@@ -3288,6 +3359,7 @@ function nativeStructuredHistoryFromMessages(
   approvedToolCallAskIds: readonly string[] = [],
 ): AgentChatStructuredMessage[] | undefined {
   const structuredHistory: AgentChatStructuredMessage[] = [];
+  const historyMessages = nativeHistorySourceMessages(messages, currentPrompt);
   const approvedToolCallSet = new Set(approvedToolCalls);
   const approvedToolCallAskIdSet = new Set(approvedToolCallAskIds);
   const callCandidates: StructuredToolHistoryCandidate[] = [];
@@ -3299,7 +3371,7 @@ function nativeStructuredHistoryFromMessages(
   let toolHistoryPosition = 0;
   let hasToolHistory = false;
   const sources = boundedStructuredHistorySources(
-    messages,
+    historyMessages,
     currentPrompt,
     supplementalMessages,
     currentAttachmentUrls,
@@ -3310,7 +3382,7 @@ function nativeStructuredHistoryFromMessages(
     approvedToolCallAskIds,
   );
   const boundaryResultsToOmit = boundaryToolResultPartsToOmit(
-    messages,
+    historyMessages,
     supplementalMessages,
     sources,
     supplementalToolHistoryOmitted,
@@ -3536,6 +3608,8 @@ interface AgentNativeMessageProjectionState {
     approvalPending: boolean;
     pendingApprovalToolCallId?: string;
     connectionPending: boolean;
+    /** Delegated calls that streamed an activity row, which reports their end. */
+    activityParticipants?: Set<string>;
   };
 }
 
@@ -3837,6 +3911,7 @@ function mapAgentNativeEvent(
       approvalPending: boolean;
       pendingApprovalToolCallId?: string;
       connectionPending: boolean;
+      activityParticipants?: Set<string>;
     };
   },
 ): AgentChatRuntimeKnownEvent[] {
@@ -4171,6 +4246,7 @@ function mapAgentNativeEvent(
         ...(ev.allowPersistentApproval === false
           ? { allowPersistentApproval: false }
           : {}),
+        ...(ev.askId ? { askId: ev.askId } : {}),
       },
     ];
   }
@@ -4218,6 +4294,11 @@ function mapAgentNativeEvent(
           : ev.status === "done"
             ? "completed"
             : "failed";
+    // A call that streamed an activity row already shows "Finished" there;
+    // a second "finished" row would repeat it.
+    const reportedByActivity =
+      interactionKind === "completed" &&
+      input.message.activityParticipants?.has(participantId) === true;
     const events: AgentChatRuntimeKnownEvent[] = [
       {
         type: "participant",
@@ -4225,7 +4306,9 @@ function mapAgentNativeEvent(
         operation: ev.status === "start" ? "register" : "update",
         participant,
       },
-      {
+    ];
+    if (!reportedByActivity) {
+      events.push({
         type: "interaction",
         ...base,
         interaction: {
@@ -4242,8 +4325,8 @@ function mapAgentNativeEvent(
                 : undefined,
           }),
         },
-      },
-    ];
+      });
+    }
     if (ev.taskId) {
       events.push({
         type: "task",
@@ -4323,6 +4406,7 @@ function mapAgentNativeEvent(
   if (ev.type === "agent_call_activity" && ev.snapshot) {
     const agent = ev.agent ?? "agent";
     const participantId = agentNativeParticipantId(ev);
+    (input.message.activityParticipants ??= new Set()).add(participantId);
     const status = agentNativeActivityStatus(ev.snapshot);
     return [
       {
@@ -4332,8 +4416,15 @@ function mapAgentNativeEvent(
         activity: {
           id: `${participantId}:activity`,
           kind: "agent",
-          label: AGENT_CALL_ACTIVITY_LABEL,
-          detail: ev.snapshot.activePhase,
+          // "processing" renders as "Working"; a finished run must not keep
+          // saying so.
+          label:
+            status === "running"
+              ? AGENT_CALL_ACTIVITY_LABEL
+              : status === "failed"
+                ? "failed"
+                : "finished",
+          detail: summarizeDelegatedActivity(ev.snapshot),
           status,
           participantId,
           scope: "external",
@@ -4912,6 +5003,9 @@ export function createAgentNativeChatRuntime(
         ...(loadedSkillSlugs.length ? { loadedSkillSlugs } : {}),
         turnId: continuationTurnId ?? turn.queuePromotion?.turnId ?? turnId,
         threadId: session.threadId ?? options.threadId,
+        ...(turn.submissionPayload !== undefined
+          ? { submissionPayload: turn.submissionPayload }
+          : {}),
         ...(turn.queuePromotion
           ? {
               queuedMessageId: turn.queuePromotion.messageId,
@@ -5126,7 +5220,7 @@ export function createAgentNativeChatRuntime(
   });
 
   const readRunState = async (
-    input: AgentChatRuntimeSubscribeInput,
+    input: AgentChatRuntimeReadRunStateInput,
   ): Promise<ServerRunState> => {
     // Asking again cannot change these answers, so they are not retryable.
     const unreadable = (message: string, status?: number) =>
@@ -5144,6 +5238,9 @@ export function createAgentNativeChatRuntime(
     const query = new URLSearchParams({ threadId });
     if (input.runId) query.set("runId", input.runId);
     if (input.turnId) query.set("turnId", input.turnId);
+    if (input.includePendingConnectionRequest) {
+      query.set("includePendingConnectionRequest", "true");
+    }
     const headers = await resolveHeaders(options.headers, input);
     headers.set("x-agent-native-surface", options.surface ?? "app");
     const response = await runtimeFetch(
@@ -5155,7 +5252,14 @@ export function createAgentNativeChatRuntime(
         signal: input.abortSignal,
       },
     );
-    if (response.status === 404) return { status: "missing" };
+    if (response.status === 404) {
+      return {
+        status: "missing",
+        ...(input.includePendingConnectionRequest
+          ? { pendingConnectionRequestId: null }
+          : {}),
+      };
+    }
     if (!response.ok) throw await readHttpRuntimeError(response);
     let body: unknown;
     try {
@@ -5181,6 +5285,27 @@ export function createAgentNativeChatRuntime(
         response.status,
       );
     }
+    const pendingConnectionRequestId = value?.pendingConnectionRequestId;
+    if (
+      input.includePendingConnectionRequest &&
+      (!value || !Object.hasOwn(value, "pendingConnectionRequestId"))
+    ) {
+      throw unreadable(
+        "Agent chat run state is unreadable (pending connection request was not returned).",
+        response.status,
+      );
+    }
+    if (
+      pendingConnectionRequestId !== undefined &&
+      pendingConnectionRequestId !== null &&
+      (typeof pendingConnectionRequestId !== "string" ||
+        !pendingConnectionRequestId.trim())
+    ) {
+      throw unreadable(
+        "Agent chat run state is unreadable (pending connection request ID is invalid).",
+        response.status,
+      );
+    }
     return {
       status,
       runId,
@@ -5196,6 +5321,9 @@ export function createAgentNativeChatRuntime(
         : {}),
       terminalReason:
         typeof value?.terminalReason === "string" ? value.terminalReason : null,
+      ...(pendingConnectionRequestId === undefined
+        ? {}
+        : { pendingConnectionRequestId }),
     };
   };
 
@@ -5267,4 +5395,52 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+/**
+ * One line for a delegated agent's live work: the tool it is running (and on
+ * what), or the tail of what it is saying, so a remote coding agent's progress
+ * reads as progress instead of a bare phase name.
+ */
+function summarizeDelegatedActivity(snapshot: {
+  activePhase?: string;
+  toolCalls?: Array<{ name?: string; status?: string; input?: string }>;
+  reasoning?: string[];
+  responseText?: string;
+}): string | undefined {
+  const tools = snapshot.toolCalls ?? [];
+  const lastTool = tools[tools.length - 1];
+  const doneCount = tools.filter((tool) => tool.status !== "running").length;
+  const toolTarget = (input?: string) => {
+    if (!input) return "";
+    try {
+      const parsed = JSON.parse(input) as Record<string, unknown>;
+      const target =
+        parsed.file ??
+        parsed.file_path ??
+        parsed.filePath ??
+        parsed.path ??
+        parsed.command;
+      return typeof target === "string" ? ` ${target}` : "";
+    } catch {
+      // coercion-ok: tool input is free text when it is not JSON.
+      return "";
+    }
+  };
+  if (snapshot.activePhase === "complete") {
+    return tools.length
+      ? `Done · ${tools.length} step${tools.length === 1 ? "" : "s"}`
+      : "Done";
+  }
+  if (snapshot.activePhase === "tool" && lastTool?.name) {
+    return `${lastTool.name}${toolTarget(lastTool.input)} · ${doneCount}/${tools.length}`;
+  }
+  const text =
+    snapshot.responseText ??
+    snapshot.reasoning?.[snapshot.reasoning.length - 1];
+  if (text) {
+    const oneLine = text.replace(/\s+/g, " ").trim();
+    return oneLine.length > 90 ? `${oneLine.slice(0, 89)}…` : oneLine;
+  }
+  return snapshot.activePhase;
 }

@@ -1,7 +1,10 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
-import { useActionMutation } from "@agent-native/core/client/hooks";
+import { useActionMutation, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useDraggable } from "@dnd-kit/core";
+import { dataNoteIsRecent, type DataNote } from "@shared/data-notes";
+import { isKeyDateChartType } from "@shared/key-dates";
+import { isValidPanelBreakdowns } from "@shared/row-breakdown";
 import {
   IconGripVertical,
   IconDotsVertical,
@@ -16,11 +19,30 @@ import {
   IconBrandGoogle,
   IconArrowUpRight,
   IconLink,
+  IconFlag,
+  IconEyeOff,
 } from "@tabler/icons-react";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { ChartFillHeight, SqlChart } from "@/components/dashboard/SqlChart";
+import { isPendingAnnotation } from "@/components/dashboard/annotation-mutations";
+import {
+  useDataNoteActions,
+  usePanelDataNotes,
+} from "@/components/dashboard/dashboard-annotations-context";
+import { DashboardPanelDescription } from "@/components/dashboard/DashboardPanelDescription";
+import {
+  DataNoteFlag,
+  DataNoteLines,
+  UnplacedDataNotesListener,
+} from "@/components/dashboard/data-note-bands";
+import type { PanelFreshness } from "@/components/dashboard/panel-freshness";
+import { PanelFreshnessClock } from "@/components/dashboard/PanelFreshnessClock";
+import {
+  ChartFillHeight,
+  SqlChart,
+  type ChartDatum,
+} from "@/components/dashboard/SqlChart";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -59,13 +81,47 @@ import {
 } from "@/components/ui/tooltip";
 import type { SelectDashboardPanelOptions } from "@/hooks/use-dashboard-chat-context";
 import { buildCustomBlockPromotionRequest } from "@/lib/custom-block-promotion";
+import { usePersonalColumnWidths } from "@/lib/personal-column-widths";
+import {
+  DASHBOARD_SESSION_LOADING_SCOPE,
+  dashboardCacheScope,
+} from "@/lib/prefetch-keys";
 import { cn } from "@/lib/utils";
 
+import { serializePanelSql } from "./panel-sql";
+import { PanelDrilldownDialog } from "./PanelDrilldownDialog";
 import { timeRangeDays } from "./pivot";
+import {
+  RowBreakdownSheet,
+  type RowBreakdownSelection,
+} from "./RowBreakdownSheet";
 import type { DashboardFilter, SqlPanel, TableColumnConfig } from "./types";
 import { ViewSqlPopover } from "./ViewSqlPopover";
 
 const INHERIT_TIME_RANGE = "__inherit__";
+
+function PanelTitle({ title }: { title: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <CardTitle className="min-w-0 text-sm font-medium">
+      <Tooltip open={open} onOpenChange={setOpen}>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.preventDefault();
+              setOpen(true);
+            }}
+            className="block max-w-full truncate rounded text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {title}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>{title}</TooltipContent>
+      </Tooltip>
+    </CardTitle>
+  );
+}
 
 export function dashboardTileElementId(panelId: string): string {
   return `dashboard-tile-${panelId}`;
@@ -157,6 +213,20 @@ export function SqlChartCard({
   onTimeRangeOverrideChange,
 }: SqlChartCardProps) {
   const t = useT();
+  const panelDataNotes = usePanelDataNotes(panel);
+  const dataNoteActions = useDataNoteActions();
+  const timeChart = isKeyDateChartType(panel.chartType);
+  // Other charts list the recent notes under the card. A time chart shades
+  // notes over its dates and lists, under its plot, the ones it can't place.
+  const listedDataNotes = useMemo(
+    () =>
+      timeChart ? [] : panelDataNotes.filter((note) => dataNoteIsRecent(note)),
+    [timeChart, panelDataNotes],
+  );
+  const [unplacedDataNotes, setUnplacedDataNotes] = useState<
+    readonly DataNote[]
+  >([]);
+  const flaggedDataNotes = timeChart ? unplacedDataNotes : listedDataNotes;
   const timeRange = timeRangeDays(filters?.timeRange);
   const timeRangeOverrideLabel = timeRangeFilter?.options?.find(
     (option) => option.value === timeRangeOverride,
@@ -164,6 +234,32 @@ export function SqlChartCard({
   const exportToGoogleSheets = useActionMutation(
     "export-dashboard-panel-to-google-sheet",
   );
+  // While viewing, dragging a column edge sizes it for this person only. A
+  // table offers rename, reorder, and format whenever it gets onSaveColumns,
+  // so only edit mode passes it on.
+  const personalColumnWidths = usePersonalColumnWidths(
+    dashboardId,
+    panel.id,
+    panel.config?.columns,
+  );
+  const tableColumnProps = editable
+    ? { onSaveColumns }
+    : dashboardId && panel.chartType === "table"
+      ? {
+          columnWidths: personalColumnWidths.widths,
+          onColumnWidthChange: personalColumnWidths.setWidth,
+        }
+      : {};
+  const breakdowns =
+    panel.chartType === "table" &&
+    !panel.config?.pivot &&
+    isValidPanelBreakdowns(panel.config?.breakdowns)
+      ? panel.config.breakdowns
+      : null;
+  const [openBreakdown, setOpenBreakdown] = useState<{
+    scope: string;
+    selection: RowBreakdownSelection;
+  } | null>(null);
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -175,12 +271,89 @@ export function SqlChartCard({
   const [copyTable, setCopyTable] = useState<(() => Promise<void>) | null>(
     null,
   );
-  const [shouldLoadData, setShouldLoadData] = useState(
+  const forcedVisible =
     eagerLoad ||
-      panel.chartType === "section" ||
-      panel.chartType === "extension",
-  );
+    panel.chartType === "section" ||
+    panel.chartType === "extension";
+  const visibilityKey = JSON.stringify([eagerLoad, panel.chartType, panel.id]);
+  const [visibility, setVisibility] = useState({
+    key: visibilityKey,
+    intersecting: false,
+  });
+  if (visibility.key !== visibilityKey) {
+    setVisibility({ key: visibilityKey, intersecting: false });
+  }
+  const visible =
+    forcedVisible ||
+    (visibility.key === visibilityKey && visibility.intersecting);
+  const { session, status } = useSession();
+  const accountScope =
+    status === "authenticated" && session !== null
+      ? dashboardCacheScope(session)
+      : DASHBOARD_SESSION_LOADING_SCOPE;
+  const queryKey = JSON.stringify([
+    accountScope,
+    visibilityKey,
+    dashboardId ?? null,
+    panel.id,
+    panel.source,
+    serializePanelSql(resolvedSql ?? panel.sql),
+  ]);
+  // Permission belongs to the uninterrupted current request, not a history
+  // of SQL strings. Reset before rendering the child so a returning key or a
+  // new account cannot start an offscreen scan with an old permission.
+  const [authorization, setAuthorization] = useState({
+    key: queryKey,
+    allowed: false,
+  });
+  if (authorization.key !== queryKey || (visible && !authorization.allowed)) {
+    setAuthorization({ key: queryKey, allowed: visible });
+  }
+  const shouldLoadData =
+    visible || (authorization.key === queryKey && authorization.allowed);
   const [refreshToken, setRefreshToken] = useState(0);
+  // New filters, a refresh, another account or organization, or a card reused
+  // for another panel or source change every number in the open row. A row opened under other ones is closed in the same
+  // render, before the sheet could start a breakdown query, and dropped so
+  // returning to the old filters does not reopen it. The filters count on
+  // their own, since a filter used only inside the breakdown block leaves the
+  // panel's SQL unchanged.
+  const breakdownScope = JSON.stringify([
+    accountScope,
+    dashboardId ?? null,
+    panel.id,
+    panel.source,
+    resolvedSql ?? null,
+    filters ?? {},
+    refreshToken,
+  ]);
+  if (openBreakdown && openBreakdown.scope !== breakdownScope) {
+    setOpenBreakdown(null);
+  }
+  const breakdownSelection =
+    openBreakdown?.scope === breakdownScope ? openBreakdown.selection : null;
+  const setBreakdownSelection = (selection: RowBreakdownSelection | null) =>
+    setOpenBreakdown(selection ? { scope: breakdownScope, selection } : null);
+  const breakdownRowProps = breakdowns
+    ? {
+        onTableRowClick: (
+          row: Record<string, unknown>,
+          rows: Record<string, unknown>[],
+          resultRows: Record<string, unknown>[],
+          resultTruncated: boolean,
+        ) =>
+          setBreakdownSelection({
+            row,
+            rows,
+            resultRows,
+            resultTruncated,
+            openedAt: Date.now(),
+          }),
+        isTableRowActive: (row: Record<string, unknown>) =>
+          row === breakdownSelection?.row,
+      }
+    : {};
+  const [drilldownDatum, setDrilldownDatum] = useState<ChartDatum | null>(null);
   const cardRef = useRef<HTMLDivElement | null>(null);
   const setCardNodeRef = useCallback((node: HTMLDivElement | null) => {
     cardRef.current = node;
@@ -189,6 +362,28 @@ export function SqlChartCard({
   const handleExportCsvChange = useCallback((handler: (() => void) | null) => {
     setExportCsv(handler ? () => handler : null);
   }, []);
+
+  // Keyed by the panel it was reported for, so a card reused for another
+  // panel or dashboard never shows the previous one's clock.
+  const panelScope = JSON.stringify([
+    accountScope,
+    dashboardId ?? null,
+    panel.id,
+  ]);
+  const [reportedFreshness, setReportedFreshness] = useState<{
+    scope: string;
+    freshness: PanelFreshness | null;
+  } | null>(null);
+  const handleFreshnessChange = useCallback(
+    (freshness: PanelFreshness | null) => {
+      setReportedFreshness({ scope: panelScope, freshness });
+    },
+    [panelScope],
+  );
+  const panelFreshness =
+    reportedFreshness?.scope === panelScope
+      ? reportedFreshness.freshness
+      : null;
 
   const handleCopyTableChange = useCallback(
     (handler: (() => Promise<void>) | null) => {
@@ -208,9 +403,9 @@ export function SqlChartCard({
   }, [copyTable, t]);
 
   const handleRefresh = useCallback(() => {
-    setShouldLoadData(true);
+    setAuthorization({ key: queryKey, allowed: true });
     setRefreshToken((token) => token + 1);
-  }, []);
+  }, [queryKey]);
 
   const handleExportToGoogleSheets = useCallback(async () => {
     if (!dashboardId || panel.chartType !== "table") return;
@@ -285,27 +480,23 @@ export function SqlChartCard({
   );
 
   useEffect(() => {
-    if (eagerLoad) {
-      setShouldLoadData(true);
-      return;
-    }
-    if (panel.chartType === "section" || panel.chartType === "extension") {
-      setShouldLoadData(true);
-      return;
-    }
+    if (forcedVisible) return;
 
-    setShouldLoadData(false);
     const node = cardRef.current;
     if (!node || typeof IntersectionObserver === "undefined") {
-      setShouldLoadData(true);
+      setVisibility({ key: visibilityKey, intersecting: true });
       return;
     }
 
+    let active = true;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          setShouldLoadData(true);
-          observer.disconnect();
+        const latest = entries[entries.length - 1];
+        if (active && latest) {
+          setVisibility({
+            key: visibilityKey,
+            intersecting: latest.isIntersecting,
+          });
         }
       },
       {
@@ -314,8 +505,11 @@ export function SqlChartCard({
       },
     );
     observer.observe(node);
-    return () => observer.disconnect();
-  }, [eagerLoad, panel.chartType, panel.id]);
+    return () => {
+      active = false;
+      observer.disconnect();
+    };
+  }, [forcedVisible, visibilityKey]);
 
   useEffect(() => {
     setExportCsv(null);
@@ -403,11 +597,10 @@ export function SqlChartCard({
             </div>
           ) : null}
         </div>
-        {panel.config?.description && (
-          <p className="text-sm text-muted-foreground mt-1">
-            {panel.config.description}
-          </p>
-        )}
+        <DashboardPanelDescription
+          description={panel.config?.description}
+          className="mt-1 text-sm text-muted-foreground"
+        />
         {editable ? (
           <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
             <AlertDialogContent>
@@ -623,6 +816,7 @@ export function SqlChartCard({
       data-chat-selected={selectedForChat ? "true" : undefined}
       data-dashboard-report-panel-id={panel.id}
       data-dashboard-report-panel-title={panel.title}
+      data-row-breakdown-panel={breakdowns ? panel.id : undefined}
       className="dashboard-chart-card group relative h-full hover:z-20 focus-within:z-20"
     >
       <Card
@@ -632,23 +826,33 @@ export function SqlChartCard({
           highlighted && "ring-2 ring-primary",
         )}
       >
-        <CardHeader className="pb-2 flex flex-row items-center gap-2 shrink-0">
-          <CardTitle className="text-sm font-medium flex-1 truncate">
-            {panel.title}
-          </CardTitle>
-          {timeRangeOverrideLabel ? (
-            <Badge
-              variant="secondary"
-              className="max-w-32 shrink-0 truncate px-1.5 py-0 text-[10px] font-normal"
-              title={timeRangeOverrideLabel}
-            >
-              <span className="sr-only">
-                {t("sqlDashboard.chartTimeRangeOverride")}{" "}
-              </span>
-              {timeRangeOverrideLabel}
-            </Badge>
-          ) : null}
-          <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+        <CardHeader className="dashboard-panel-header grid space-y-0 shrink-0 pb-2">
+          <div className="dashboard-panel-title flex min-w-0 items-center gap-1">
+            <PanelTitle title={panel.title} />
+            <DataNoteFlag notes={flaggedDataNotes} panelId={panel.id} />
+            {timeRangeOverrideLabel ? (
+              <Badge
+                variant="secondary"
+                className="max-w-20 min-w-0 shrink truncate px-1.5 py-0 text-[10px] font-normal"
+                title={timeRangeOverrideLabel}
+              >
+                <span className="sr-only">
+                  {t("sqlDashboard.chartTimeRangeOverride")}{" "}
+                </span>
+                {timeRangeOverrideLabel}
+              </Badge>
+            ) : null}
+          </div>
+          <div className="dashboard-panel-freshness min-w-0 overflow-hidden">
+            {panelFreshness ? (
+              <PanelFreshnessClock
+                freshness={panelFreshness}
+                showAge
+                className="h-6 w-full px-1"
+              />
+            ) : null}
+          </div>
+          <div className="dashboard-panel-actions flex items-center justify-end gap-1 opacity-0 transition-opacity motion-reduce:transition-none group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100">
             {!editable || onSaveSql ? (
               <ViewSqlPopover
                 panel={panel}
@@ -729,6 +933,33 @@ export function SqlChartCard({
                     <IconLink className="h-4 w-4 mr-2" />
                     {t("sidebar.copyLink")}
                   </DropdownMenuItem>
+                  {dataNoteActions?.add ? (
+                    <DropdownMenuItem
+                      onSelect={() => dataNoteActions.add?.(panel.id)}
+                    >
+                      <IconFlag className="h-4 w-4 mr-2" />
+                      {t("annotations.addDataNote")}
+                    </DropdownMenuItem>
+                  ) : null}
+                  {/* The note cards are hover-only, so keyboard users hide a note here. */}
+                  {dataNoteActions?.hide
+                    ? panelDataNotes.map((note) => (
+                        <DropdownMenuItem
+                          key={note.id}
+                          disabled={isPendingAnnotation(note.id)}
+                          onSelect={() =>
+                            dataNoteActions.hide?.(note.id, panel.id)
+                          }
+                        >
+                          <IconEyeOff className="h-4 w-4 mr-2 shrink-0" />
+                          <span className="min-w-0 truncate">
+                            {t("annotations.hideNoteHere", {
+                              title: note.title,
+                            })}
+                          </span>
+                        </DropdownMenuItem>
+                      ))
+                    : null}
                   {editable || panel.chartType === "table" ? (
                     <DropdownMenuSeparator />
                   ) : null}
@@ -800,22 +1031,40 @@ export function SqlChartCard({
           </div>
         </CardHeader>
         <CardContent className="dashboard-chart-content flex flex-1 flex-col overflow-visible pt-0">
-          <SqlChart
-            panel={panel}
-            resolvedSql={resolvedSql}
-            loadData={shouldLoadData}
-            timeRange={timeRange}
-            reportScreenshot={reportScreenshot}
-            refreshToken={refreshToken}
-            onRefreshRequested={handleRefresh}
-            dashboardId={dashboardId}
-            onExportCsvChange={handleExportCsvChange}
-            onCopyTableChange={handleCopyTableChange}
-            onSaveColumns={onSaveColumns}
-            extensionContext={extensionContext}
-          />
+          <UnplacedDataNotesListener value={setUnplacedDataNotes}>
+            <SqlChart
+              panel={panel}
+              resolvedSql={resolvedSql}
+              loadData={shouldLoadData}
+              retainWhileOffscreen
+              timeRange={timeRange}
+              reportScreenshot={reportScreenshot}
+              refreshToken={refreshToken}
+              onRefreshRequested={handleRefresh}
+              dashboardId={dashboardId}
+              onDatumClick={setDrilldownDatum}
+              onExportCsvChange={handleExportCsvChange}
+              onFreshnessChange={handleFreshnessChange}
+              onCopyTableChange={handleCopyTableChange}
+              {...tableColumnProps}
+              {...breakdownRowProps}
+              extensionContext={extensionContext}
+            />
+          </UnplacedDataNotesListener>
+          <DataNoteLines notes={listedDataNotes} panelId={panel.id} />
         </CardContent>
       </Card>
+
+      {breakdowns ? (
+        <RowBreakdownSheet
+          panel={panel}
+          breakdowns={breakdowns}
+          dashboardId={dashboardId}
+          filters={filters ?? {}}
+          selection={breakdownSelection}
+          onSelectionChange={setBreakdownSelection}
+        />
+      ) : null}
 
       <Dialog open={expanded} onOpenChange={setExpanded}>
         <DialogContent className="flex h-[90vh] w-[95vw] max-w-[1400px] flex-col gap-4">
@@ -832,14 +1081,26 @@ export function SqlChartCard({
                 reportScreenshot={reportScreenshot}
                 refreshToken={refreshToken}
                 onRefreshRequested={handleRefresh}
-                onSaveColumns={onSaveColumns}
+                {...tableColumnProps}
                 dashboardId={dashboardId}
+                onDatumClick={setDrilldownDatum}
                 extensionContext={extensionContext}
               />
             </ChartFillHeight>
           </div>
         </DialogContent>
       </Dialog>
+
+      {drilldownDatum ? (
+        <PanelDrilldownDialog
+          panel={panel}
+          datum={drilldownDatum}
+          resolvedSql={resolvedSql}
+          dashboardId={dashboardId}
+          filters={filters}
+          onClose={() => setDrilldownDatum(null)}
+        />
+      ) : null}
 
       {editable ? (
         <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>

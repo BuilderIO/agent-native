@@ -250,6 +250,126 @@ describe("get-motion-timeline inline source recovery", () => {
     expect(mocks.readLocal).not.toHaveBeenCalled();
   });
 
+  it("imports static authored HTML animation CSS into the selected timeline", async () => {
+    mocks.setLiveContents({
+      "file-1": `<!doctype html>
+<html>
+<head>
+  <style>
+.hero {
+  animation-name: hero-fade;
+  animation-duration: 900ms;
+  animation-timing-function: ease-in;
+  animation-fill-mode: both;
+}
+@keyframes hero-fade {
+  from { opacity: 0; }
+  50% { opacity: 0.5; }
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+  </style>
+</head>
+<body><h1 class="hero" data-agent-native-node-id="hero-css">Hello</h1></body>
+</html>`,
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      sourceRef: "file-1",
+    });
+
+    expect(result.timelines[0]).toMatchObject({
+      sourceRef: "file-1",
+      source: "recovered-css",
+      durationMs: 900,
+      tracks: [
+        {
+          targetNodeId: "hero-css",
+          property: "opacity",
+          durationMs: 900,
+          keyframes: [
+            { t: 0, value: "0", ease: "ease-in" },
+            { t: 0.5, value: "0.5", ease: "ease-in" },
+            { t: 1, value: "1", ease: "ease" },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("fails closed when authored HTML Motion cannot be represented", async () => {
+    mocks.setLiveContents({
+      "file-1": `<!doctype html><html><head><style>
+.hero { animation-name: hero-fade; animation-duration: 800ms; animation-fill-mode: both; }
+@keyframes hero-fade { from { opacity: 0; } to { opacity: 1; } }
+</style></head><body><main :class="{ hero: active }">Hello</main></body></html>`,
+    });
+
+    await expect(
+      action.run({ designId: "design-1", sourceRef: "file-1" }),
+    ).rejects.toMatchObject({
+      errorCode: "motion_html_source_unsupported_authored_motion",
+      statusCode: 422,
+    });
+  });
+
+  it("recovers legacy managed and separate authored HTML animation tracks together", async () => {
+    const legacyManagedCss = compileMotionCode({
+      ...timeline,
+      tracks: [
+        {
+          targetNodeId: "hero-legacy",
+          property: "opacity",
+          keyframes: [
+            { t: 0, value: "0", ease: "linear" },
+            { t: 1, value: "1", ease: "ease-out" },
+          ],
+        },
+      ],
+      durationMs: 500,
+      animationStyles: [],
+    }).css.replace(/\/\* agent-native-motion-source:[\s\S]*? \*\//, "");
+    mocks.setLiveContents({
+      "file-1": `<!doctype html><html><head>
+<style data-agent-native-motion>${legacyManagedCss}</style>
+<style>
+.authored { animation-name: authored-fade; animation-duration: 700ms; animation-fill-mode: both; }
+@keyframes authored-fade { from { transform: translateX(8px); } to { transform: translateX(0px); } }
+</style>
+</head><body>
+<h1 class="legacy" data-agent-native-node-id="hero-legacy">Legacy</h1>
+<p class="authored" data-agent-native-node-id="hero-authored">Authored</p>
+</body></html>`,
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      sourceRef: "file-1",
+    });
+
+    expect(result.timelines[0]).toMatchObject({
+      source: "recovered-css",
+      durationMs: 700,
+      tracks: [
+        expect.objectContaining({
+          targetNodeId: "hero-legacy",
+          property: "opacity",
+        }),
+        expect.objectContaining({
+          targetNodeId: "hero-authored",
+          property: "transform",
+        }),
+      ],
+    });
+  });
+
   it("recovers an unindexed source without duplicating indexed timelines", async () => {
     mocks.setTimelineRows([
       {
@@ -339,6 +459,79 @@ describe("get-motion-timeline inline source recovery", () => {
     ]);
     await expect(
       action.run({ designId: "design-1", sourceRef: "file-bad" }),
+    ).rejects.toMatchObject({
+      errorCode: "motion_css_source_unreadable",
+      statusCode: 422,
+    });
+  });
+
+  it("returns an explicit unsupported state only for passive source hydration", async () => {
+    const malformedPathCss = compileMotionCode({
+      ...timeline,
+      tracks: [
+        {
+          targetNodeId: "hero",
+          property: "translate",
+          keyframes: [
+            {
+              t: 0,
+              value: "0px 0px",
+              motionPath: {
+                version: 1,
+                type: "cubic",
+                control1: { x: 0, y: 100 },
+                control2: { x: 0, y: 100 },
+              },
+            },
+            { t: 1, value: "100px 0px" },
+          ],
+        },
+      ],
+    })
+      .css.replace(/\/\* agent-native-motion-source:[\s\S]*? \*\//, "")
+      .replace("offset-distance: 100%;", "offset-distance: 99%;");
+    const sourceRef = "file-unsupported";
+    const storedTimeline = {
+      ...timeline,
+      id: "stored-timeline",
+      sourceRef,
+      tracks: JSON.stringify(timeline.tracks),
+    };
+    mocks.setTimelineRows([storedTimeline]);
+    mocks.setFileRows([fileRow(sourceRef)]);
+    mocks.setLiveContents({
+      [sourceRef]: injectManagedMotionCss(
+        '<html><body><p data-agent-native-node-id="hero">Hello</p></body></html>',
+        malformedPathCss,
+      ),
+    });
+
+    const passiveResult = await action.run({
+      designId: "design-1",
+      sourceRef,
+      passiveRead: true,
+    });
+
+    expect(passiveResult).toMatchObject({
+      count: 1,
+      timelines: [
+        {
+          id: "stored-timeline",
+          sourceRef,
+          tracks: timeline.tracks,
+          source: "stored",
+        },
+      ],
+      sourceReadCapability: {
+        status: "unsupported",
+        sourceRef,
+        errorCode: "motion_css_source_unreadable",
+        reason: expect.stringMatching(/path animation that cannot be read/),
+      },
+    });
+
+    await expect(
+      action.run({ designId: "design-1", sourceRef }),
     ).rejects.toMatchObject({
       errorCode: "motion_css_source_unreadable",
       statusCode: 422,
@@ -475,7 +668,7 @@ describe("get-motion-timeline inline source recovery", () => {
     });
   });
 
-  it("recovers native Figma style instances losslessly from source metadata", async () => {
+  it("recovers imported motion style instances losslessly from source metadata", async () => {
     const nativeStyles = [
       {
         type: "FIGMA" as const,
@@ -550,6 +743,57 @@ describe("get-motion-timeline inline source recovery", () => {
     expect(mocks.fileChain.where).not.toHaveBeenCalled();
     expect(mocks.readLiveSourceFile).not.toHaveBeenCalled();
     expect(mocks.readLocal).not.toHaveBeenCalled();
+  });
+
+  it("validates inline timelines when a localhost timeline is first", async () => {
+    mocks.setDesignData(
+      JSON.stringify({
+        sourceType: "localhost",
+        connectionId: "connection-1",
+        screenMetadata: {
+          "screen-1": {
+            sourceType: "localhost",
+            connectionId: "connection-1",
+            sourceFile: "app/routes/home.tsx",
+          },
+          "file-1": { sourceType: "inline" },
+        },
+      }),
+    );
+    mocks.setTimelineRows([
+      {
+        id: "localhost-timeline",
+        designId: "design-1",
+        sourceRef: "screen-1",
+        filePath: null,
+        tracks: JSON.stringify([]),
+        durationMs: 100,
+        defaultEase: "ease",
+        compiledHash: null,
+        createdAt: null,
+        updatedAt: "2026-10-12T00:00:00.000Z",
+      },
+      {
+        id: "inline-timeline",
+        designId: "design-1",
+        sourceRef: "file-1",
+        filePath: null,
+        tracks: JSON.stringify([]),
+        durationMs: 100,
+        defaultEase: "ease",
+        compiledHash: null,
+        createdAt: null,
+        updatedAt: "2026-10-11T00:00:00.000Z",
+      },
+    ]);
+    mocks.setFileRows([fileRow("file-1")]);
+    mocks.setLiveContents({ "file-1": "" });
+
+    await expect(action.run({ designId: "design-1" })).rejects.toMatchObject({
+      errorCode: "motion_inline_source_missing",
+      statusCode: 422,
+    });
+    expect(mocks.readLiveSourceFile).toHaveBeenCalledWith(fileRow("file-1"));
   });
 
   it("revalidates a persisted React module path against its saved screen graph", async () => {

@@ -13,6 +13,7 @@ import {
   blankScreenHtml,
   canvasPrimitiveInsertionHostNodeId,
   extractCanvasPrimitiveHtml,
+  type LayerSize,
   uniqueLayerId,
 } from "@/pages/design-editor/canvas-primitive-insert";
 import { parsePenPathFromSerializedD } from "@/pages/design-editor/canvas-primitives";
@@ -79,10 +80,13 @@ export interface CreatePrimitiveArgs {
 }
 
 type PrimitiveCreationHostLayout =
-  | "flow"
-  | "freeform"
-  | "unavailable"
-  | "stale";
+  | { status: "unavailable" }
+  | { status: "stale" }
+  | {
+      status: "resolved";
+      layout: "flow" | "freeform";
+      document: Document;
+    };
 
 function resolvePrimitiveCreationHostLayout(args: {
   activeBreakpointWidthState?: number;
@@ -100,15 +104,17 @@ function resolvePrimitiveCreationHostLayout(args: {
     fileId: args.fileId,
     overviewScreens: args.overviewScreens,
   });
-  if (preview.status === "unavailable") return "unavailable";
-  if (preview.status === "stale" || !preview.document.body) return "stale";
+  if (preview.status === "unavailable") return { status: "unavailable" };
+  if (preview.status === "stale" || !preview.document.body) {
+    return { status: "stale" };
+  }
 
   const host = canvasPrimitiveInsertionHostNodeId(
     args.content,
     args.primitive,
     args.fileId === args.boardFileId,
   );
-  if (!host) return "stale";
+  if (!host) return { status: "stale" };
 
   let liveHost: Element | null = preview.document.body;
   if (host.kind === "frame") {
@@ -130,19 +136,63 @@ function resolvePrimitiveCreationHostLayout(args: {
       liveMatches.length !== 1 ||
       sourceMatches[0]?.localName !== liveMatches[0]?.localName
     ) {
-      return "stale";
+      return { status: "stale" };
     }
     liveHost = liveMatches[0] ?? null;
   }
   const view = preview.document.defaultView;
-  if (!liveHost || !view) return "stale";
+  if (!liveHost || !view) return { status: "stale" };
   try {
-    return isFlowDisplay(view.getComputedStyle(liveHost).display)
-      ? "flow"
-      : "freeform";
+    return {
+      status: "resolved",
+      layout: isFlowDisplay(view.getComputedStyle(liveHost).display)
+        ? "flow"
+        : "freeform",
+      document: preview.document,
+    };
   } catch {
-    return "stale";
+    return { status: "stale" };
   }
+}
+
+function readLiveHostChildSizes(args: {
+  activeBreakpointWidthState?: number;
+  activeFileId?: string;
+  boardFileId?: string;
+  content: string;
+  fileId: string;
+  overviewScreens?: readonly OverviewScreen[];
+  primitive: CanvasPrimitiveInsert;
+}): Map<string, LayerSize> {
+  const sizes = new Map<string, LayerSize>();
+  const preview = getLivePreviewDocument(args);
+  if (preview.status !== "resolved") return sizes;
+  const host = canvasPrimitiveInsertionHostNodeId(
+    args.content,
+    args.primitive,
+    args.fileId === args.boardFileId,
+  );
+  const liveHost =
+    host?.kind === "frame"
+      ? preview.document.querySelector(
+          `[data-agent-native-node-id="${CSS.escape(host.nodeId)}"]`,
+        )
+      : preview.document.body;
+  for (const child of Array.from(liveHost?.children ?? [])) {
+    const id = child.getAttribute("data-agent-native-node-id");
+    if (!id) continue;
+    if ("offsetWidth" in child) {
+      const element = child as HTMLElement;
+      sizes.set(id, {
+        width: element.offsetWidth,
+        height: element.offsetHeight,
+      });
+    } else {
+      const rect = child.getBoundingClientRect();
+      sizes.set(id, { width: rect.width, height: rect.height });
+    }
+  }
+  return sizes;
 }
 
 export function runCreatePrimitive(
@@ -211,9 +261,22 @@ export function runCreatePrimitive(
     const nodeId =
       primitive.nodeId ?? uniqueLayerId(primitive.kind || "primitive");
     const livePrimitive = { ...primitive, nodeId };
+    const livePreview = getLivePreviewDocument({
+      activeBreakpointWidthState,
+      activeFileId: activeFile?.id,
+      boardFileId,
+      fileId: targetFile.id,
+      overviewScreens,
+    });
     const temporaryDocument = appendCanvasPrimitiveToHtml(
       blankScreenHtml("Live insert"),
       livePrimitive,
+      {
+        isBoardTarget: targetFile.id === boardFileId,
+        boardBackground: canvasBackground,
+        liveDocument:
+          livePreview.status === "resolved" ? livePreview.document : undefined,
+      },
     );
     if (!temporaryDocument) {
       toast.error(t("designEditor.toasts.primitiveInsertFailed"));
@@ -260,7 +323,7 @@ export function runCreatePrimitive(
     overviewScreens,
     primitive: insertionPrimitive,
   });
-  if (hostLayout === "stale") {
+  if (hostLayout.status === "stale") {
     toast.error(t("designEditor.toasts.primitiveInsertFailed"));
     return false;
   }
@@ -271,7 +334,26 @@ export function runCreatePrimitive(
       preserveNegativePosition: targetFile.id === boardFileId,
       isBoardTarget: targetFile.id === boardFileId,
       boardBackground: canvasBackground,
-      positioning: hostLayout === "flow" ? "flow" : "absolute",
+      positioning:
+        hostLayout.status === "resolved" && hostLayout.layout === "flow"
+          ? "flow"
+          : "absolute",
+      liveLayerSizes:
+        insertionPrimitive.kind === "frame" &&
+        hostLayout.status === "resolved" &&
+        hostLayout.layout === "freeform"
+          ? readLiveHostChildSizes({
+              activeBreakpointWidthState,
+              activeFileId: activeFile?.id,
+              boardFileId,
+              content: insertionBaseContent,
+              fileId: targetFile.id,
+              overviewScreens,
+              primitive: insertionPrimitive,
+            })
+          : undefined,
+      liveDocument:
+        hostLayout.status === "resolved" ? hostLayout.document : undefined,
     },
   );
   if (!insertedContent) {

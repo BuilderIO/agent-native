@@ -18,42 +18,6 @@ const requestString = (value: unknown) =>
 const APPROVED_ZOOM_ID = 22222222222;
 const approvedZoom = { meetingIds: [String(APPROVED_ZOOM_ID)] };
 
-const zoomSummaryListItem = (uuid: string, id: number, topic: string) => ({
-  meeting_uuid: uuid,
-  meeting_id: id,
-  meeting_topic: topic,
-  meeting_start_time: "2026-10-06T15:00:00Z",
-  meeting_host_email: "host@example.test",
-});
-
-function zoomSummaryFetch(paths: string[]) {
-  return vi.fn(async (input: RequestInfo | URL) => {
-    const url = new URL(requestString(input));
-    paths.push(url.pathname);
-    if (url.pathname === "/oauth/token") {
-      return Response.json({ access_token: "zoom-token" });
-    }
-    if (url.pathname === "/v2/accounts/me/recordings") {
-      return Response.json({ meetings: [] });
-    }
-    if (url.pathname === "/v2/meetings/meeting_summaries") {
-      return Response.json({
-        summaries: [
-          zoomSummaryListItem("kept-uuid", APPROVED_ZOOM_ID, "Pricing sync"),
-          zoomSummaryListItem("other-uuid", 33333333333, "Pricing sync"),
-        ],
-      });
-    }
-    if (url.pathname === "/v2/meetings/kept-uuid/meeting_summary") {
-      return Response.json({
-        ...zoomSummaryListItem("kept-uuid", APPROVED_ZOOM_ID, "Pricing sync"),
-        summary_content: "Pricing ships Tuesday.",
-      });
-    }
-    return Response.json({ message: "unexpected" }, { status: 404 });
-  });
-}
-
 type Condition =
   | { op: "and"; conditions: Condition[] }
   | { op: "or"; conditions: Condition[] }
@@ -270,6 +234,7 @@ const mocks = vi.hoisted(() => {
     zoomAuditEvents: [] as Row[],
   };
   const orgRoles = new Map<string, string>();
+  const queryStats = { latestRunLateralJoins: 0 };
 
   const insertControls = {
     error: null as Error | null,
@@ -427,7 +392,8 @@ const mocks = vi.hoisted(() => {
     return row[condition.col.name] === condition.val;
   };
 
-  const select = vi.fn((selection?: Row) => {
+  const select = vi.fn((selection?: Row, distinctOnColumn?: Column) => {
+    let hasLatestRunLateralJoin = false;
     const isCountSelection = Object.values(selection ?? {}).some(
       (value) =>
         typeof value === "object" &&
@@ -436,8 +402,64 @@ const mocks = vi.hoisted(() => {
           String((value as { op?: unknown }).op),
         ),
     );
-    const selectedRows = (values: Row[]) =>
-      isCountSelection ? [{ value: values.length }] : values;
+    const selectedRows = (values: Row[]) => {
+      if (hasLatestRunLateralJoin) {
+        return values.map((source) => {
+          const latest = [...rows.syncRuns]
+            .filter((run) => run.sourceId === source.id)
+            .sort((a, b) =>
+              String(b.startedAt).localeCompare(String(a.startedAt)),
+            )[0];
+          return {
+            sourceId: source.id,
+            id: latest?.id ?? null,
+            status: latest?.status ?? null,
+            statsJson: latest?.statsJson ?? null,
+            error: latest?.error ?? null,
+            startedAt: latest?.startedAt ?? null,
+            completedAt: latest?.completedAt ?? null,
+          };
+        });
+      }
+      if (distinctOnColumn) {
+        const seen = new Set<unknown>();
+        values = [...values]
+          .sort((a, b) =>
+            String(b.startedAt).localeCompare(String(a.startedAt)),
+          )
+          .filter((row) => {
+            const value = row[distinctOnColumn.name];
+            if (seen.has(value)) return false;
+            seen.add(value);
+            return true;
+          });
+      }
+      const sourceIdColumn = selection?.sourceId as Column | undefined;
+      if (isCountSelection && sourceIdColumn?.table === "brainRawCaptures") {
+        const counts = new Map<string, Set<string>>();
+        for (const row of values) {
+          const sourceId = String(row.sourceId);
+          const captureIds = counts.get(sourceId) ?? new Set<string>();
+          captureIds.add(String(row.id));
+          counts.set(sourceId, captureIds);
+        }
+        return Array.from(counts, ([sourceId, captureIds]) => ({
+          sourceId,
+          value: captureIds.size,
+        }));
+      }
+      return isCountSelection ? [{ value: values.length }] : values;
+    };
+    const queryResult = (values: Row[]) => ({
+      then: (
+        onFulfilled: (rows: Row[]) => unknown,
+        onRejected?: (reason: unknown) => unknown,
+      ) => Promise.resolve(selectedRows(values)).then(onFulfilled, onRejected),
+      as: (alias: string) =>
+        Object.fromEntries(
+          Object.keys(selection ?? {}).map((name) => [name, col(alias, name)]),
+        ),
+    });
 
     return {
       from: vi.fn((tableRef: Row) => {
@@ -455,13 +477,19 @@ const mocks = vi.hoisted(() => {
               ),
             ),
             orderBy: vi.fn(() => ({
-              limit: vi.fn(async (limit: number) =>
-                selectedRows(
+              limit: vi.fn((limit: number) =>
+                queryResult(
                   tableRows(tableRef)
                     .filter((row) => matches(row, condition))
                     .slice(0, limit),
                 ),
               ),
+              then: (
+                onFulfilled: (rows: Row[]) => unknown,
+                onRejected?: (reason: unknown) => unknown,
+              ) => filteredRows().then(onFulfilled, onRejected),
+            })),
+            groupBy: vi.fn(() => ({
               then: (
                 onFulfilled: (rows: Row[]) => unknown,
                 onRejected?: (reason: unknown) => unknown,
@@ -489,11 +517,17 @@ const mocks = vi.hoisted(() => {
           selectedRows(tableRows(tableRef).slice(0, limit)),
         );
         const innerJoin = vi.fn();
+        const leftJoinLateral = vi.fn(() => {
+          hasLatestRunLateralJoin = true;
+          queryStats.latestRunLateralJoins += 1;
+          return joined;
+        });
         const joined = {
           where,
           orderBy,
           limit,
           innerJoin,
+          leftJoinLateral,
         };
         innerJoin.mockReturnValue(joined);
         return joined;
@@ -575,6 +609,8 @@ const mocks = vi.hoisted(() => {
   const dbBase = {
     select,
     selectDistinct: select,
+    selectDistinctOn: (columns: Column[], fields: Row) =>
+      select(fields, columns[0]),
     insert,
     update,
     delete: deleteRows,
@@ -589,6 +625,7 @@ const mocks = vi.hoisted(() => {
     schema,
     db,
     rows,
+    queryStats,
     insertControls,
     queueClaimRowsAffected,
     audienceHook,
@@ -660,6 +697,7 @@ vi.mock("@agent-native/core/db/schema", () => ({
 
 vi.mock("drizzle-orm", () => ({
   and: (...conditions: Condition[]) => ({ op: "and", conditions }),
+  groupBy: (col: Column) => ({ op: "groupBy", col }),
   asc: (column: Column) => ({ op: "asc", column }),
   count: () => ({ op: "count" }),
   countDistinct: () => ({ op: "countDistinct" }),
@@ -774,6 +812,15 @@ vi.mock("./audiences.js", () => ({
     kind: "org",
   })),
   listAccessibleAudienceIds: vi.fn(async () => ["aud_org"]),
+  listAccessibleAudienceIdsBySource: vi.fn(
+    async (sourceIds: string[]) =>
+      new Map(
+        sourceIds.map((sourceId) => [
+          sourceId,
+          [sourceId === "source-2" ? "aud_second" : "aud_org"],
+        ]),
+      ),
+  ),
 }));
 
 vi.mock("./ingest-queue.js", () => ({
@@ -856,7 +903,10 @@ import listSourcesAction from "../../actions/list-sources.js";
 import markCaptureDistilledAction from "../../actions/mark-capture-distilled.js";
 import { processBrainIngestQueueOnce } from "../../jobs/process-ingest-queue.js";
 import ingestHandler from "../routes/api/_agent-native/brain/ingest.post.js";
-import { ensureCaptureAudience } from "./audiences.js";
+import {
+  ensureCaptureAudience,
+  listAccessibleAudienceIdsBySource,
+} from "./audiences.js";
 import {
   BrainCaptureBlockedError,
   applyRedactions,
@@ -897,6 +947,7 @@ function resetMocks() {
   vi.unstubAllGlobals();
   for (const values of Object.values(mocks.rows)) values.length = 0;
   mocks.orgRoles.clear();
+  mocks.queryStats.latestRunLateralJoins = 0;
   mocks.orgRoles.set("org-1:owner@example.test", "owner");
   mocks.rows.audiences.push({
     id: "aud_org",
@@ -1154,6 +1205,69 @@ describe("Brain knowledge quality gates", () => {
     expect(result.sources).toEqual([
       expect.objectContaining({ id: "source-1", recordCount: 1 }),
     ]);
+  });
+
+  it("batches record counts and latest runs across listed sources", async () => {
+    seedSource();
+    seedSource({ id: "source-2", title: "Second source" });
+    seedCapture({ id: "capture-1", sourceId: "source-1" });
+    seedCapture({ id: "capture-2", sourceId: "source-2" });
+    mocks.rows.captureAudiences.find(
+      (row) => row.captureId === "capture-2",
+    )!.audienceId = "aud_second";
+    seedCapture({ id: "capture-3", sourceId: "source-2" });
+    mocks.rows.syncRuns.push(
+      {
+        id: "run-1-old",
+        sourceId: "source-1",
+        status: "error",
+        statsJson: "{}",
+        error: "older run",
+        startedAt: "2026-05-15T09:00:00.000Z",
+        completedAt: "2026-05-15T09:01:00.000Z",
+      },
+      {
+        id: "run-1",
+        sourceId: "source-1",
+        status: "success",
+        statsJson: '{"capturesCreated":1}',
+        error: null,
+        startedAt: "2026-05-15T10:00:00.000Z",
+        completedAt: "2026-05-15T10:01:00.000Z",
+      },
+      {
+        id: "run-2",
+        sourceId: "source-2",
+        status: "success",
+        statsJson: '{"capturesCreated":2}',
+        error: null,
+        startedAt: "2026-05-15T11:00:00.000Z",
+        completedAt: "2026-05-15T11:01:00.000Z",
+      },
+    );
+
+    const result = await listSourcesAction.run({ includeArchived: false });
+
+    expect(listAccessibleAudienceIdsBySource).toHaveBeenCalledTimes(1);
+    expect(listAccessibleAudienceIdsBySource).toHaveBeenCalledWith([
+      "source-1",
+      "source-2",
+    ]);
+    expect(mocks.queryStats.latestRunLateralJoins).toBe(1);
+    expect(result.sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "source-1",
+          recordCount: 1,
+          latestRun: expect.objectContaining({ id: "run-1" }),
+        }),
+        expect.objectContaining({
+          id: "source-2",
+          recordCount: 1,
+          latestRun: expect.objectContaining({ id: "run-2" }),
+        }),
+      ]),
+    );
   });
 
   it("includes canonical health for sources in the source listing", async () => {
@@ -4287,6 +4401,43 @@ describe("Brain connector smoke coverage", () => {
     expect(retryAt - before).toBeLessThan(11 * 60 * 1000);
   });
 
+  it.each(["token request", "recording list"])(
+    "persists the Zoom %s timeout in source health and run history",
+    async (step) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          const url = new URL(requestString(input));
+          if (step === "recording list" && url.pathname === "/oauth/token") {
+            return Response.json({ access_token: "private-token" });
+          }
+          throw new DOMException("private request details", "TimeoutError");
+        }),
+      );
+      const source = seedSource({
+        id: "zoom-timeout-source",
+        provider: "zoom",
+        configJson: JSON.stringify({ zoom: approvedZoom }),
+      });
+
+      const result = await runConnectorSync(source as never);
+
+      expect(result).toMatchObject({ status: "error", capturesCreated: 0 });
+      expect(result.message).toMatch(
+        new RegExp(
+          `^Zoom ${step} timed out after \\d+ ms \\(limit 30000 ms\\)\\.$`,
+        ),
+      );
+      expect(
+        mocks.rows.sources.find((row) => row.id === source.id)?.lastError,
+      ).toBe(result.message);
+      expect(mocks.rows.syncRuns[0]).toMatchObject({
+        status: "error",
+        error: result.message,
+      });
+    },
+  );
+
   it("imports Zoom transcripts from the account-wide recording list", async () => {
     const requestedPaths: string[] = [];
     vi.stubGlobal(
@@ -4464,26 +4615,24 @@ describe("Brain connector smoke coverage", () => {
     expect(matched.filesOmitted).toBe(2);
   });
 
-  it("skips Zoom summaries unless the source enables them", async () => {
+  it("never calls the Zoom summary API, even with a saved includeSummaries", async () => {
     const paths: string[] = [];
-    vi.stubGlobal("fetch", zoomSummaryFetch(paths));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(requestString(input));
+        paths.push(url.pathname);
+        if (url.pathname === "/oauth/token") {
+          return Response.json({ access_token: "zoom-token" });
+        }
+        if (url.pathname === "/v2/accounts/me/recordings") {
+          return Response.json({ meetings: [] });
+        }
+        return Response.json({ message: "unexpected" }, { status: 404 });
+      }),
+    );
     const source = seedSource({
       id: "zoom-no-summary-source",
-      provider: "zoom",
-      configJson: JSON.stringify({ zoom: approvedZoom }),
-    });
-
-    const result = await runConnectorSync(source as never);
-
-    expect(result.status).toBe("success");
-    expect(paths).not.toContain("/v2/meetings/meeting_summaries");
-  });
-
-  it("imports AI Companion summaries for unrecorded meetings when enabled", async () => {
-    const paths: string[] = [];
-    vi.stubGlobal("fetch", zoomSummaryFetch(paths));
-    const source = seedSource({
-      id: "zoom-summary-source",
       provider: "zoom",
       configJson: JSON.stringify({
         zoom: { ...approvedZoom, includeSummaries: true },
@@ -4492,24 +4641,8 @@ describe("Brain connector smoke coverage", () => {
 
     const result = await runConnectorSync(source as never);
 
-    expect(result).toMatchObject({
-      status: "success",
-      capturesCreated: 1,
-      stats: {
-        summariesListed: 2,
-        summariesSkippedByFilter: 1,
-        summariesFetched: 1,
-        summaryCapturesCreated: 1,
-      },
-    });
-    expect(result.captures[0]).toMatchObject({
-      externalId: "zoom-summary:kept-uuid",
-      kind: "note",
-    });
-    expect(paths).not.toContain("/v2/meetings/other-uuid/meeting_summary");
-    expect(JSON.parse(String(source.cursorJson))).toMatchObject({
-      includeSummaries: true,
-    });
+    expect(result.status).toBe("success");
+    expect(paths).not.toContain("/v2/meetings/meeting_summaries");
   });
 
   it("reads nothing from Zoom when no meeting series is approved", async () => {
@@ -4519,7 +4652,7 @@ describe("Brain connector smoke coverage", () => {
       id: "zoom-unapproved-source",
       provider: "zoom",
       configJson: JSON.stringify({
-        zoom: { meetingTopics: ["Marketing Standup"], includeSummaries: true },
+        zoom: { meetingTopics: ["Marketing Standup"] },
       }),
       cursorJson: JSON.stringify({ from: "2026-05-01" }),
     });
@@ -4587,50 +4720,6 @@ describe("Brain connector smoke coverage", () => {
 
     expect(result).toMatchObject({ status: "success", capturesCreated: 0 });
     expect(paths).not.toContain("/rec/download/t");
-  });
-
-  it("does not capture a summary whose detail names an unapproved meeting", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = new URL(requestString(input));
-        if (url.pathname === "/oauth/token") {
-          return Response.json({ access_token: "zoom-token" });
-        }
-        if (url.pathname === "/v2/accounts/me/recordings") {
-          return Response.json({ meetings: [] });
-        }
-        if (url.pathname === "/v2/meetings/meeting_summaries") {
-          return Response.json({
-            summaries: [
-              zoomSummaryListItem(
-                "kept-uuid",
-                APPROVED_ZOOM_ID,
-                "Pricing sync",
-              ),
-            ],
-          });
-        }
-        if (url.pathname === "/v2/meetings/kept-uuid/meeting_summary") {
-          return Response.json({
-            ...zoomSummaryListItem("kept-uuid", 99999999999, "Pricing sync"),
-            summary_content: "Pricing ships Tuesday.",
-          });
-        }
-        return Response.json({ message: "unexpected" }, { status: 404 });
-      }),
-    );
-    const source = seedSource({
-      id: "zoom-mismatched-summary-source",
-      provider: "zoom",
-      configJson: JSON.stringify({
-        zoom: { ...approvedZoom, includeSummaries: true },
-      }),
-    });
-
-    const result = await runConnectorSync(source as never);
-
-    expect(result).toMatchObject({ status: "success", capturesCreated: 0 });
   });
 
   it("downloads only approved Zoom meeting series, never title matches", async () => {
@@ -4864,221 +4953,6 @@ describe("Brain connector smoke coverage", () => {
 
     expect(savedCursor.lookbackDays).toBe(20);
     expect(listFromDates).toEqual([lookbackStart, yesterday]);
-  });
-
-  it("keeps a held-back transcript cursor when summaries are first enabled", async () => {
-    const listFromDates: string[] = [];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = new URL(requestString(input));
-        if (url.pathname === "/oauth/token") {
-          return Response.json({ access_token: "zoom-token" });
-        }
-        if (url.pathname === "/v2/accounts/me/recordings") {
-          listFromDates.push(url.searchParams.get("from") ?? "");
-          return Response.json({ meetings: [] });
-        }
-        if (url.pathname === "/v2/meetings/meeting_summaries") {
-          return Response.json({ summaries: [] });
-        }
-        return Response.json({ message: "unexpected" }, { status: 404 });
-      }),
-    );
-    const dayMs = 24 * 60 * 60 * 1000;
-    const heldBack = new Date(Date.now() - 12 * dayMs)
-      .toISOString()
-      .slice(0, 10);
-    const source = seedSource({
-      id: "zoom-summary-held-cursor-source",
-      provider: "zoom",
-      configJson: JSON.stringify({
-        zoom: { ...approvedZoom, lookbackDays: 7, includeSummaries: true },
-      }),
-      cursorJson: JSON.stringify({
-        from: heldBack,
-        filterKey: JSON.stringify(approvedZoom.meetingIds),
-        lookbackDays: 7,
-      }),
-    });
-
-    await runConnectorSync(source as never);
-
-    expect(listFromDates).toEqual([heldBack]);
-  });
-
-  it("imports the remaining summaries when Zoom refuses one", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = new URL(requestString(input));
-        if (url.pathname === "/oauth/token") {
-          return Response.json({ access_token: "zoom-token" });
-        }
-        if (url.pathname === "/v2/accounts/me/recordings") {
-          return Response.json({ meetings: [] });
-        }
-        if (url.pathname === "/v2/meetings/meeting_summaries") {
-          return Response.json({
-            summaries: [
-              zoomSummaryListItem("trashed-uuid", 11111111111, "Pricing sync"),
-              zoomSummaryListItem(
-                "kept-uuid",
-                APPROVED_ZOOM_ID,
-                "Pricing sync",
-              ),
-            ],
-          });
-        }
-        if (url.pathname === "/v2/meetings/trashed-uuid/meeting_summary") {
-          return Response.json(
-            { code: 3001, message: "Meeting summary does not exist." },
-            { status: 404 },
-          );
-        }
-        if (url.pathname === "/v2/meetings/kept-uuid/meeting_summary") {
-          return Response.json({
-            ...zoomSummaryListItem(
-              "kept-uuid",
-              APPROVED_ZOOM_ID,
-              "Pricing sync",
-            ),
-            summary_content: "Pricing ships Tuesday.",
-          });
-        }
-        return Response.json({ message: "unexpected" }, { status: 404 });
-      }),
-    );
-    const source = seedSource({
-      id: "zoom-summary-partial-source",
-      provider: "zoom",
-      configJson: JSON.stringify({
-        zoom: {
-          meetingIds: ["11111111111", String(APPROVED_ZOOM_ID)],
-          includeSummaries: true,
-        },
-      }),
-    });
-
-    const result = await runConnectorSync(source as never);
-
-    expect(result).toMatchObject({
-      status: "error",
-      capturesCreated: 1,
-      stats: {
-        summaryCapturesCreated: 1,
-        summaryFetchFailures: [
-          {
-            meetingId: "11111111111",
-            error: expect.stringContaining("code 3001"),
-          },
-        ],
-      },
-    });
-    expect(source.status).toBe("error");
-    expect(source.lastError).toContain("did not return 1 AI Companion summary");
-    expect(JSON.parse(String(source.cursorJson))).toMatchObject({
-      includeSummaries: true,
-    });
-  });
-
-  it("fails the run and keeps the cursor when the summary scope is missing", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = new URL(requestString(input));
-        if (url.pathname === "/oauth/token") {
-          return Response.json({ access_token: "zoom-token" });
-        }
-        if (url.pathname === "/v2/accounts/me/recordings") {
-          return Response.json({ meetings: [] });
-        }
-        if (url.pathname === "/v2/meetings/meeting_summaries") {
-          return Response.json({
-            summaries: [
-              zoomSummaryListItem(
-                "kept-uuid",
-                APPROVED_ZOOM_ID,
-                "Pricing sync",
-              ),
-            ],
-          });
-        }
-        return Response.json(
-          {
-            code: 4711,
-            message:
-              "Invalid access token, does not contain scopes:[meeting:read:summary:admin].",
-          },
-          { status: 400 },
-        );
-      }),
-    );
-    const source = seedSource({
-      id: "zoom-summary-scope-source",
-      provider: "zoom",
-      configJson: JSON.stringify({
-        zoom: { ...approvedZoom, includeSummaries: true },
-      }),
-      cursorJson: JSON.stringify({ from: "2026-05-01" }),
-    });
-
-    const result = await runConnectorSync(source as never);
-
-    expect(result.status).toBe("error");
-    expect(source.lastError).toContain("meeting:read:summary:admin");
-    expect(JSON.parse(String(source.cursorJson))).toMatchObject({
-      from: "2026-05-01",
-    });
-    expect(
-      JSON.parse(String(source.cursorJson)).includeSummaries,
-    ).toBeUndefined();
-  });
-
-  it("keeps the cursor so a summary Zoom fails with 503 is retried", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = new URL(requestString(input));
-        if (url.pathname === "/oauth/token") {
-          return Response.json({ access_token: "zoom-token" });
-        }
-        if (url.pathname === "/v2/accounts/me/recordings") {
-          return Response.json({ meetings: [] });
-        }
-        if (url.pathname === "/v2/meetings/meeting_summaries") {
-          return Response.json({
-            summaries: [
-              zoomSummaryListItem(
-                "kept-uuid",
-                APPROVED_ZOOM_ID,
-                "Pricing sync",
-              ),
-            ],
-          });
-        }
-        return Response.json(
-          { message: "Service unavailable" },
-          { status: 503 },
-        );
-      }),
-    );
-    const source = seedSource({
-      id: "zoom-summary-503-source",
-      provider: "zoom",
-      configJson: JSON.stringify({
-        zoom: { ...approvedZoom, includeSummaries: true },
-      }),
-      cursorJson: JSON.stringify({ from: "2026-05-01" }),
-    });
-
-    const result = await runConnectorSync(source as never);
-
-    expect(result.status).toBe("error");
-    expect(source.lastError).toContain("status 503");
-    expect(JSON.parse(String(source.cursorJson))).toMatchObject({
-      from: "2026-05-01",
-    });
   });
 
   it("dedupes account-wide Zoom recordings across query chunks", async () => {

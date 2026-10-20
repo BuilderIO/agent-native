@@ -56,6 +56,24 @@ test("scheduled Design E2E is in the complete Slack reporter inventory", () => {
   );
 });
 
+test("the deploy canary and reaper are in the complete Slack reporter inventory", () => {
+  const workflows = currentWorkflows();
+  for (const [workflowPath, artifact] of [
+    [".github/workflows/deploy-canary.yml", "deploy-canary-report-"],
+    [
+      ".github/workflows/deploy-paths-reaper.yml",
+      "deploy-paths-reaper-report-",
+    ],
+  ] as const) {
+    assert.ok(reporterWorkflows.includes(workflowPath), workflowPath);
+    const source = workflows[workflowPath]!;
+    assert.match(source, new RegExp(`name: ${artifact}`));
+    assert.match(source, /retention-days: 90/);
+    assert.match(source, /SLACK_CHANNEL: C0C4U4XRT6X/);
+    assert.equal(source.match(/method: chat\.postMessage/g)?.length, 1);
+  }
+});
+
 test("issue creation, edits, closes, and comments are forbidden in source files", () => {
   const operations = [
     [

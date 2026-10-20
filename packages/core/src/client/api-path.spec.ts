@@ -6,6 +6,7 @@ import {
   appApiPath,
   appBasePath,
   appPath,
+  appPathFromLocalRoute,
   frameworkRoutePrefix,
   isFrameworkRoutePath,
   isWorkspaceAppPath,
@@ -297,6 +298,29 @@ describe("appPath", () => {
     });
 
     expect(appPath("api/local-migration")).toBe("api/local-migration");
+  });
+});
+
+describe("appPathFromLocalRoute", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it("always prefixes a local route when its first segment matches the mount", () => {
+    vi.stubGlobal("window", {
+      location: { pathname: "/chat/_agent-native/auth/reset" },
+    });
+
+    expect(appPathFromLocalRoute("/chat/thread-123")).toBe(
+      "/chat/chat/thread-123",
+    );
+  });
+
+  it("leaves local routes unchanged outside a mounted app", () => {
+    vi.stubGlobal("window", { location: { pathname: "/settings" } });
+
+    expect(appPathFromLocalRoute("/chat/thread-123")).toBe("/chat/thread-123");
   });
 });
 

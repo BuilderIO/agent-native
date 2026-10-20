@@ -4,10 +4,10 @@ import type { TrackingSource } from "@agent-native/core/tracking";
 
 import {
   type DesignGenerationPath,
-  promptLengthBucket,
   trackDesign,
   trackingErrorType,
 } from "../server/lib/design-tracking.js";
+import { promptLengthBucket } from "../shared/prompt-length-bucket.js";
 
 export interface GenerationAttemptStart {
   designId: string;

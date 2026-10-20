@@ -1,4 +1,4 @@
-import { fail } from "@agent-native/core/action";
+import { fail, isActionContractError } from "@agent-native/core/action";
 
 import {
   buildDashboardPanelGroups,
@@ -38,6 +38,12 @@ type DashboardPatch = {
   variables?: Record<string, string>;
   /** Id of another dashboard to nest this one under in the sidebar. */
   parentId?: string;
+  /** What this dashboard hides. Each list given replaces that list; one left out is kept. */
+  annotations?: {
+    /** Key-date set ids from list-key-dates. */
+    hiddenKeyDateSets?: string[];
+    hiddenDataNotes?: { noteId: string; panelId: string }[];
+  };
 };
 
 type PanelTimeScope =
@@ -58,6 +64,8 @@ type PanelPatch = {
   source?: "bigquery" | "ga4" | "amplitude" | "first-party" | "demo" | "prometheus" | "program";
   chartType?: ${PANEL_CHART_TYPES.map((type) => `"${type}"`).join(" | ")};
   width?: number;
+  /** Fixed height in 180px units (1-6); omit for content height. */
+  height?: number;
   columns?: number;
   tab?: string;
   config?: PanelConfig;
@@ -103,12 +111,14 @@ type PanelSelection = {
   setTitle(title: string): void;
   setSql(sql: string): void;
   setWidth(width: number): void;
+  setHeight(height: number): void;
+  clearHeight(): void;
   setConfig(patch: Record<string, unknown>): void;
   setConfigPath(path: string, value: unknown): void; // path under config, e.g. "yFormatter" or "config.yFormatter"
   duplicate(newPanelId: string, patch?: PanelPatch): PanelPlacement;
 };
 
-type SectionSelection = PanelSelection & {
+type SectionSelection = Omit<PanelSelection, "setHeight" | "clearHeight"> & {
   append(panelIds: string[]): void;
 };
 
@@ -134,9 +144,11 @@ export const DASHBOARD_MUTATION_EXAMPLES = [
   'dashboard.panel("recurring-users-by-template").duplicate("recurring-users-by-template-bar", {"title":"Recurring Signed-In Users by Template (Bar)","chartType":"bar"}).nextTo("recurring-users-by-template");',
   'dashboard.setFilterDefault("emailFilter","exclude_builder");',
   'dashboard.panel("top-referrers").setTitle("Top Referrers by Domain");',
-  'dashboard.panel("retention").set({"width":2,"config":{"description":"Updated definition."}});',
+  'dashboard.panel("retention").set({"width":2,"height":2,"config":{"description":"Updated definition."}});',
   'dashboard.panelsMatching({"titleIncludes":"Signed-In"}).moveToTop();',
   'dashboard.panelsMatching({"source":"first-party"}).setWidth(2);',
+  'dashboard.panel("retention").setHeight(2);',
+  'dashboard.panel("retention").clearHeight();',
   'dashboard.panel("retention").setConfigPath("yFormatter","percent");',
   'dashboard.section("retention-activity-section").append(["repeat-users","retention-over-time"]);',
   `dashboard.insertPanel({"id":"new-kpi","title":"New KPI","source":"first-party","chartType":"metric","width":1,"config":{"timeScope":"dashboard"},"sql":"SELECT COUNT(*) AS value FROM analytics_events WHERE ${firstPartyDashboardTimeFilter}"}).atTop();`,
@@ -169,6 +181,10 @@ export type DashboardMutationOperation =
       op: "updatePanel";
       panelId: string;
       patch: Record<string, unknown>;
+    }
+  | {
+      op: "clearPanelHeight";
+      panelId: string;
     }
   | {
       op: "updatePanelPath";
@@ -270,6 +286,8 @@ const PANEL_METHODS = [
   "setTitle",
   "setSql",
   "setWidth",
+  "setHeight",
+  "clearHeight",
   "setConfig",
   "setConfigPath",
   "duplicate",
@@ -771,6 +789,20 @@ export function sameJsonValue(left: unknown, right: unknown): boolean {
   );
 }
 
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * A dashboard's `annotations` keeps one list per kind of thing it hides, and
+ * a patch names only the lists it changes, so hiding a key-date set can't show
+ * the hidden notes again.
+ */
+function patchedAnnotations(current: unknown, patch: unknown): unknown {
+  return isPlainObject(current) && isPlainObject(patch)
+    ? { ...current, ...patch }
+    : patch;
+}
+
 function hasSameJsonProperty(
   record: Record<string, unknown>,
   key: string,
@@ -977,7 +1009,16 @@ export function applyDashboardMutationOperations(
         case "removePanels": {
           const ids = uniqueStrings(op.panelIds);
           const panels = panelsFromConfig(config);
-          for (const id of ids) requirePanel(panels, id);
+          for (const id of ids) {
+            // A remove replayed after its first attempt committed finds the
+            // panel gone; say so, so the model checks instead of retrying.
+            if (findPanelIndex(panels, id) < 0) {
+              fail(
+                `${missingPanelHelp(panels, id)} If an earlier attempt already removed it, the dashboard is already in the requested state; confirm with get-sql-dashboard instead of retrying.`,
+                { errorCode: "dashboard_panel_not_found", statusCode: 404 },
+              );
+            }
+          }
           config.panels = panels.filter(
             (panel) => !ids.includes(panelId(panel)),
           );
@@ -994,6 +1035,27 @@ export function applyDashboardMutationOperations(
           if (changedFields.length > 0) changedPanelIds.add(op.panelId);
           commandLog.push(
             `updatePanel(${op.panelId}: ${changedFields.join(", ") || "no fields"})`,
+          );
+          break;
+        }
+        case "clearPanelHeight": {
+          const panel = requirePanel(panelsFromConfig(config), op.panelId);
+          if (panel.chartType === "section") {
+            fail("clearHeight is not supported on section panels", {
+              errorCode: "invalid_dashboard_mutation",
+              statusCode: 422,
+            });
+          }
+          const hadHeight = Object.prototype.hasOwnProperty.call(
+            panel,
+            "height",
+          );
+          if (hadHeight) {
+            delete panel.height;
+            changedPanelIds.add(op.panelId);
+          }
+          commandLog.push(
+            `clearPanelHeight(${op.panelId}${hadHeight ? "" : ": no height"})`,
           );
           break;
         }
@@ -1031,7 +1093,11 @@ export function applyDashboardMutationOperations(
         }
         case "setDashboard": {
           const changedFields: string[] = [];
-          for (const [key, value] of Object.entries(op.patch)) {
+          for (const [key, patch] of Object.entries(op.patch)) {
+            const value =
+              key === "annotations"
+                ? patchedAnnotations(config.annotations, patch)
+                : patch;
             if (hasSameJsonProperty(config, key, value)) continue;
             config[key] = value;
             dashboardFieldsChanged.add(key);
@@ -1344,9 +1410,23 @@ function targetFromChainCall(call: ParsedCall): MutationTarget {
 }
 
 function operationFromPanelCommand(
+  config: Record<string, unknown>,
   panelIds: string[],
   command: ParsedCall,
 ): DashboardMutationOperation[] {
+  if (
+    (command.name === "setHeight" || command.name === "clearHeight") &&
+    panelsFromConfig(config).some(
+      (panel) =>
+        panelIds.includes(panelId(panel)) && panel.chartType === "section",
+    )
+  ) {
+    fail(`${command.name} is not supported on section panels`, {
+      errorCode: "invalid_dashboard_mutation",
+      statusCode: 422,
+    });
+  }
+
   switch (command.name) {
     case "moveToTop":
     case "moveToBottom":
@@ -1401,6 +1481,23 @@ function operationFromPanelCommand(
         panelId,
         patch: { width },
       }));
+    }
+    case "setHeight": {
+      const height = assertNumber(command.args[0], "height");
+      return panelIds.map((panelId) => ({
+        op: "updatePanel",
+        panelId,
+        patch: { height },
+      }));
+    }
+    case "clearHeight": {
+      if (command.args.length !== 0) {
+        fail("clearHeight does not accept arguments", {
+          errorCode: "invalid_dashboard_mutation",
+          statusCode: 422,
+        });
+      }
+      return panelIds.map((panelId) => ({ op: "clearPanelHeight", panelId }));
     }
     case "setConfig": {
       const configPatch = assertObject(command.args[0], "config patch");
@@ -1531,7 +1628,7 @@ function operationsFromStatement(
         },
       ];
     }
-    return operationFromPanelCommand([sectionId], command);
+    return operationFromPanelCommand(config, [sectionId], command);
   }
 
   let panelIds: string[];
@@ -1561,7 +1658,7 @@ function operationsFromStatement(
   for (let index = 0; index < commands.length; index++) {
     const command = commands[index];
     if (command.name !== "duplicate") {
-      operations.push(...operationFromPanelCommand(panelIds, command));
+      operations.push(...operationFromPanelCommand(config, panelIds, command));
       continue;
     }
     if (panelIds.length !== 1) {
@@ -1607,9 +1704,18 @@ export function parseDashboardMutationScript(
     try {
       return operationsFromStatement(config, statement);
     } catch (err: any) {
-      throw new Error(
-        `statement ${index + 1} (${JSON.stringify(statement)}): ${err.message}`,
-      );
+      const message = `statement ${index + 1} (${JSON.stringify(statement)}): ${err.message}`;
+      if (isActionContractError(err)) {
+        fail(message, {
+          errorCode: err.errorCode,
+          statusCode: err.statusCode,
+          details: err.details,
+        });
+      }
+      fail(message, {
+        errorCode: "invalid_dashboard_mutation",
+        statusCode: 422,
+      });
     }
   });
 }
