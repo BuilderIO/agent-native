@@ -133,6 +133,10 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
     "the test makes the upload's save conflict with a concurrent edit",
   );
   app.allowFailure(
+    /^console\.error Failed to load resource: the server responded with a status of 409 \(\)$/,
+    "the versioned mirror-only save intentionally returns a conflict",
+  );
+  app.allowFailure(
     /^error toast This screen changed elsewhere\. Your last edit was not saved\.$/,
     "the conflict is reported to the user",
   );
@@ -699,6 +703,10 @@ test("active Screen upload conflict preserves SQL and live-collaboration source"
     "the test makes the upload's save conflict with a concurrent edit",
   );
   app.allowFailure(
+    /^console\.error Failed to load resource: the server responded with a status of 409 \(\)$/,
+    "the versioned mirror-only save intentionally returns a conflict",
+  );
+  app.allowFailure(
     /^error toast This screen changed elsewhere\. Your last edit was not saved\.$/,
     "the conflict is reported to the user",
   );
@@ -1033,12 +1041,8 @@ test("active Screen upload conflict preserves SQL and live-collaboration source"
       JSON.stringify(timeline),
     );
     expect(requestBody.syncCollab, JSON.stringify(timeline)).toBe(false);
-    if (fileUpdateResponse.status() === 409) {
-      expect(fileUpdateBody.skippedStaleMirror).not.toBe(true);
-    } else {
-      expect(fileUpdateResponse.status()).toBe(200);
-      expect(fileUpdateBody.skippedStaleMirror).toBe(true);
-    }
+    expect(fileUpdateResponse.status(), JSON.stringify(timeline)).toBe(409);
+    expect(fileUpdateBody.skippedStaleMirror).not.toBe(true);
     await expect(
       page.getByText(
         "This screen changed elsewhere. Your last edit was not saved.",
@@ -1121,12 +1125,7 @@ test("active Screen upload conflict preserves SQL and live-collaboration source"
     const persistedHtml = await readScreenHtml(page, designId, screenAId);
     expect(persistedHtml).toContain(marker);
     expect(persistedHtml).toContain("#2e4a62");
-    if (
-      fileUpdateResponse.status() === 409 ||
-      fileUpdateBody.skippedStaleMirror
-    ) {
-      expect(persistedHtml).not.toContain(uploadResult.url!);
-    }
+    expect(persistedHtml).not.toContain(uploadResult.url!);
     const reloadedFrame = page.frameLocator(
       `iframe[data-screen-iframe-id="${screenAId}"]`,
     );
