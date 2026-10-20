@@ -99,7 +99,7 @@ function ThreadSuggestionEdit({
   const pending = suggestion.status === "pending";
   return (
     <div
-      className="grid gap-2"
+      className="grid grid-cols-1 gap-2"
       data-thread-suggestion={suggestion.id}
       data-thread-suggestion-status={suggestion.status}
     >
@@ -139,7 +139,7 @@ function ThreadSuggestionEdit({
         </p>
       ) : null}
       {pending && canDecide ? (
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           <Button
             type="button"
             size="sm"
@@ -204,7 +204,7 @@ export function ThreadSuggestionBody({
       : null;
   return (
     <div
-      className="mt-0.5 grid gap-2"
+      className="mt-0.5 grid grid-cols-1 gap-2"
       data-thread-suggestion-group={first.proposalId ?? first.id}
     >
       <p className={cn(!pending.length && "text-muted-foreground")}>
@@ -225,7 +225,7 @@ export function ThreadSuggestionBody({
         <SuggestionStatus status={statusLabel(sharedStatus)} />
       ) : null}
       {canDecide && onDecideRemaining && pending.length > 1 ? (
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           <Button
             type="button"
             size="sm"
