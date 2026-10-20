@@ -1931,6 +1931,8 @@ const messages = {
     uploadFailedAtChunk:
       "Upload failed at chunk {{chunk}}/{{total}}: {{message}} (स्थानीयकृत)",
     couldNotStartRecording: "Could not start recording (स्थानीयकृत)",
+    intakeStorageUnavailable:
+      "इस लिंक से रिकॉर्ड करने से पहले इसके मालिक को वीडियो स्टोरेज कनेक्ट करना होगा। उनसे स्टोरेज कनेक्ट करने को कहें, फिर दोबारा कोशिश करें।",
     streamingStorageUnavailable:
       "मौजूदा स्टोरेज Clips के लिए ज़रूरी resumable upload का समर्थन नहीं करता। संगत प्रदाता सेट करें या workspace के owner या admin से ऐसा करने को कहें, फिर नई रिकॉर्डिंग शुरू करें।",
     couldNotStartRecorder: "Could not start recorder (स्थानीयकृत)",

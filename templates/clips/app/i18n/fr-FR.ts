@@ -2014,6 +2014,8 @@ const messages = {
     uploadFailedAtChunk:
       "Upload failed at chunk {{chunk}}/{{total}}: {{message}} (Localisé)",
     couldNotStartRecording: "Could not start recording (Localisé)",
+    intakeStorageUnavailable:
+      "Le propriétaire de ce lien doit connecter un stockage vidéo avant que vous puissiez enregistrer. Demandez-lui de le faire, puis réessayez.",
     streamingStorageUnavailable:
       "Le stockage actuel ne prend pas en charge l’envoi reprenable requis par Clips. Configurez un fournisseur compatible ou demandez au propriétaire ou à l’admin de l’espace de travail. Puis démarrez un nouvel enregistrement.",
     couldNotStartRecorder: "Could not start recorder (Localisé)",

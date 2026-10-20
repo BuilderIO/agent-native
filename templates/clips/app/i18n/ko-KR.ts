@@ -1955,6 +1955,8 @@ const messages = {
     uploadFailedAtChunk:
       "Upload failed at chunk {{chunk}}/{{total}}: {{message}} (현지화됨)",
     couldNotStartRecording: "Could not start recording (현지화됨)",
+    intakeStorageUnavailable:
+      "이 링크로 녹화하려면 링크 소유자가 먼저 동영상 저장소를 연결해야 합니다. 소유자에게 연결을 요청한 뒤 다시 시도하세요.",
     streamingStorageUnavailable:
       "현재 저장소는 Clips에 필요한 재개 가능한 업로드를 지원하지 않습니다. 호환되는 제공업체를 설정하거나 워크스페이스 소유자 또는 관리자에게 요청한 다음 새 녹화를 시작하세요.",
     couldNotStartRecorder: "Could not start recorder (현지화됨)",

@@ -1947,6 +1947,8 @@ const messages = {
     uploadFailedAtChunk:
       "Upload failed at chunk {{chunk}}/{{total}}: {{message}}",
     couldNotStartRecording: "Could not start recording",
+    intakeStorageUnavailable:
+      "This link needs its owner to connect video storage before you can record.",
     streamingStorageUnavailable:
       "The current storage setup does not support the resumable upload Clips needs. Configure a compatible provider, or ask a workspace owner or admin to do it, then start a new recording.",
     couldNotStartRecorder: "Could not start recorder",

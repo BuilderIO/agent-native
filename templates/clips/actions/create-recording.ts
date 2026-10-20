@@ -261,7 +261,16 @@ export default defineAction({
         startedAt: now,
       });
     } catch {
-      await releaseHostedReservation();
+      let cleanupConfirmed = true;
+      try {
+        await releaseHostedReservation();
+      } catch (releaseError) {
+        cleanupConfirmed = false;
+        console.error(
+          "[create-recording] hosted allowance could not be released after upload-state initialization failed",
+          releaseError,
+        );
+      }
       await db
         .update(schema.recordings)
         .set({
@@ -274,7 +283,7 @@ export default defineAction({
       fail("Recording upload state could not be initialized.", {
         errorCode: "upload_state_initialization_failed",
         statusCode: 503,
-        details: { recordingId: id, retryable: false },
+        details: { recordingId: id, retryable: false, cleanupConfirmed },
       });
     }
 
@@ -295,7 +304,7 @@ export default defineAction({
       failure: ReturnType<typeof classifyInitialUploadFailure> = {
         failureCode: "storage_setup_required",
       },
-      reservationCleanupConfirmed = true,
+      uploadCleanupConfirmed = true,
     ): Promise<never> => {
       const failedAt = new Date().toISOString();
       await db
@@ -307,8 +316,19 @@ export default defineAction({
           updatedAt: failedAt,
         })
         .where(eq(schema.recordings.id, id));
-      if (reservationCleanupConfirmed) {
-        await releaseHostedReservation();
+      // Intake retries may remove this row only when the provider session and
+      // its hosted reservation are both safe to discard.
+      let cleanupConfirmed = uploadCleanupConfirmed;
+      if (cleanupConfirmed) {
+        try {
+          await releaseHostedReservation();
+        } catch (releaseError) {
+          cleanupConfirmed = false;
+          console.error(
+            "[create-recording] hosted allowance could not be released after upload cleanup",
+            releaseError,
+          );
+        }
       } else if (storageMode === "hosted") {
         console.error(
           "[create-recording] hosted allowance remains reserved because upload cleanup was not confirmed",
@@ -330,10 +350,14 @@ export default defineAction({
         updatedAt: failedAt,
       });
       if (failure.failureCode === "storage_setup_required") {
-        failStorageSetupRequired({ recordingId: id, retryable: false });
+        failStorageSetupRequired({
+          recordingId: id,
+          retryable: false,
+          cleanupConfirmed,
+        });
       }
       const retryable =
-        reservationCleanupConfirmed &&
+        cleanupConfirmed &&
         (failure.failureCode === "hosted_storage_unavailable" ||
           failure.failureCode === "multipart_start_failed");
       fail(
@@ -348,6 +372,7 @@ export default defineAction({
           details: {
             recordingId: id,
             retryable,
+            cleanupConfirmed,
             ...(failure.httpStatus
               ? { providerStatus: failure.httpStatus }
               : {}),

@@ -2004,6 +2004,8 @@ const messages = {
     uploadFailedAtChunk:
       "Upload failed at chunk {{chunk}}/{{total}}: {{message}}",
     couldNotStartRecording: "Could not start recording",
+    intakeStorageUnavailable:
+      "El propietario debe conectar un almacenamiento de vídeo antes de que puedas grabar desde este enlace. Pídele que lo conecte y vuelve a intentarlo.",
     streamingStorageUnavailable:
       "El almacenamiento actual no admite las cargas reanudables de Clips. Configura un proveedor compatible o pide al propietario o administrador del espacio de trabajo que lo haga. Luego, inicia una grabación nueva.",
     couldNotStartRecorder: "Could not start recorder",

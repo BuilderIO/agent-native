@@ -93,6 +93,8 @@ describe("record route lifecycle shell", () => {
         {
           storageStatusUnavailable: "Storage status could not be checked.",
           hostedStorageUnavailable: "Hosted storage is unavailable.",
+          intakeStorageUnavailable:
+            "This link needs its owner to connect video storage before you can record.",
           accountMismatch:
             "The signed-in account changed. Switch back and retry.",
           streamingStorageUnavailable:
@@ -110,6 +112,8 @@ describe("record route lifecycle shell", () => {
         {
           storageStatusUnavailable: "Storage status could not be checked.",
           hostedStorageUnavailable: "Hosted storage is unavailable.",
+          intakeStorageUnavailable:
+            "This link needs its owner to connect video storage before you can record.",
           accountMismatch:
             "The signed-in account changed. Switch back and retry.",
           streamingStorageUnavailable:
@@ -127,6 +131,8 @@ describe("record route lifecycle shell", () => {
         {
           storageStatusUnavailable: "Storage status could not be checked.",
           hostedStorageUnavailable: "Hosted storage is unavailable.",
+          intakeStorageUnavailable:
+            "This link needs its owner to connect video storage before you can record.",
           accountMismatch:
             "The signed-in account changed. Switch back and retry.",
           streamingStorageUnavailable:
@@ -144,6 +150,8 @@ describe("record route lifecycle shell", () => {
         {
           storageStatusUnavailable: "Storage status could not be checked.",
           hostedStorageUnavailable: "Hosted storage is unavailable.",
+          intakeStorageUnavailable:
+            "This link needs its owner to connect video storage before you can record.",
           accountMismatch:
             "The signed-in account changed. Switch back and retry.",
           streamingStorageUnavailable:
@@ -153,6 +161,27 @@ describe("record route lifecycle shell", () => {
       ),
     ).toBe(
       "Configure storage that supports resumable uploads, then start a new recording.",
+    );
+  });
+
+  it("gives intake visitors owner-directed storage recovery guidance", () => {
+    expect(
+      recordingStartErrorMessage(
+        new UploadTargetError("intake_storage_unavailable"),
+        {
+          storageStatusUnavailable: "Storage status could not be checked.",
+          hostedStorageUnavailable: "Hosted storage is unavailable.",
+          intakeStorageUnavailable:
+            "This link needs its owner to connect video storage before you can record.",
+          accountMismatch:
+            "The signed-in account changed. Switch back and retry.",
+          streamingStorageUnavailable:
+            "Configure storage that supports resumable uploads, then start a new recording.",
+          couldNotStartRecording: "Could not start recording.",
+        },
+      ),
+    ).toBe(
+      "This link needs its owner to connect video storage before you can record.",
     );
   });
 

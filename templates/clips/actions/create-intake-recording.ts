@@ -159,8 +159,14 @@ export default defineAction({
       if (isActionContractError(error)) {
         const details = { ...error.details };
         const recordingId = details.recordingId;
+        const cleanupWasConfirmed = details.cleanupConfirmed;
         delete details.recordingId;
-        let cleanupConfirmed = error.details?.retryable !== true;
+        delete details.cleanupConfirmed;
+        let cleanupConfirmed =
+          typeof recordingId === "string"
+            ? cleanupWasConfirmed === true
+            : cleanupWasConfirmed !== false &&
+              error.details?.retryable !== true;
         if (
           error.details?.retryable === true &&
           typeof recordingId !== "string"
@@ -170,17 +176,21 @@ export default defineAction({
           details.retryable = false;
         }
         if (typeof recordingId === "string") {
-          try {
-            const cleanup = await trashRecordingRow(recordingId);
-            cleanupConfirmed = cleanup.skipped !== true;
-            if (!cleanupConfirmed) details.retryable = false;
-          } catch (cleanupError) {
-            console.warn(
-              "[clip-intake] failed recording cleanup after create failure:",
-              cleanupError,
-            );
+          if (cleanupConfirmed) {
+            try {
+              const cleanup = await trashRecordingRow(recordingId);
+              cleanupConfirmed = cleanup.skipped !== true;
+              if (!cleanupConfirmed) details.retryable = false;
+            } catch (cleanupError) {
+              console.warn(
+                "[clip-intake] failed recording cleanup after create failure:",
+                cleanupError,
+              );
+              details.retryable = false;
+              cleanupConfirmed = false;
+            }
+          } else {
             details.retryable = false;
-            cleanupConfirmed = false;
           }
         }
         if (cleanupConfirmed) await releaseClipIntakeCreation(intakeId);
@@ -190,7 +200,8 @@ export default defineAction({
           ...(Object.keys(details).length > 0 ? { details } : {}),
         });
       }
-      await releaseClipIntakeCreation(intakeId);
+      // A plain error cannot tell us whether the create action left a row or
+      // provider session behind. Keep the one-use claim rather than risk a duplicate.
       throw error;
     }
 

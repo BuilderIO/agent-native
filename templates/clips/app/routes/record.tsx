@@ -263,6 +263,7 @@ export function recordingStartErrorMessage(
   messages: {
     storageStatusUnavailable: string;
     hostedStorageUnavailable: string;
+    intakeStorageUnavailable: string;
     accountMismatch: string;
     streamingStorageUnavailable: string;
     couldNotStartRecording: string;
@@ -278,6 +279,8 @@ export function recordingStartErrorMessage(
         return messages.storageStatusUnavailable;
       case "hosted_storage_unavailable":
         return messages.hostedStorageUnavailable;
+      case "intake_storage_unavailable":
+        return messages.intakeStorageUnavailable;
       case "recording_owner_mismatch":
         return messages.accountMismatch;
       case "streaming_upload_unavailable":
@@ -1979,6 +1982,7 @@ export default function RecordRoute() {
         const message = recordingStartErrorMessage(err, {
           storageStatusUnavailable: t("storageSetup.statusUnavailable"),
           hostedStorageUnavailable: t("storageSetup.hostedStorageUnavailable"),
+          intakeStorageUnavailable: t("recordRoute.intakeStorageUnavailable"),
           accountMismatch: t("recordRoute.accountMismatch"),
           streamingStorageUnavailable: t(
             "recordRoute.streamingStorageUnavailable",

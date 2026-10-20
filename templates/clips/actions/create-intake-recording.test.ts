@@ -64,7 +64,11 @@ describe("create-intake-recording", () => {
       new ActionContractError("Storage is temporarily unavailable.", {
         errorCode: "hosted_storage_unavailable",
         statusCode: 503,
-        details: { recordingId: "rec-1", retryable: true },
+        details: {
+          recordingId: "rec-1",
+          retryable: true,
+          cleanupConfirmed: true,
+        },
       }),
     );
 
@@ -107,7 +111,11 @@ describe("create-intake-recording", () => {
       new ActionContractError("Storage is temporarily unavailable.", {
         errorCode: "hosted_storage_unavailable",
         statusCode: 503,
-        details: { recordingId: "rec-1", retryable: true },
+        details: {
+          recordingId: "rec-1",
+          retryable: true,
+          cleanupConfirmed: true,
+        },
       }),
     );
     mocks.trash.mockRejectedValue(new Error("cleanup failed"));
@@ -146,6 +154,46 @@ describe("create-intake-recording", () => {
       details: { retryable: false },
     });
     expect(mocks.trash).not.toHaveBeenCalled();
+    expect(mocks.release).not.toHaveBeenCalled();
+  });
+
+  it("keeps the intake claimed when upload cleanup was not confirmed", async () => {
+    mocks.create.mockRejectedValue(
+      new ActionContractError("Storage could not start an upload.", {
+        errorCode: "multipart_start_failed",
+        statusCode: 503,
+        details: {
+          recordingId: "rec-1",
+          retryable: false,
+          cleanupConfirmed: false,
+        },
+      }),
+    );
+
+    await expect(
+      action.run({
+        intakeId: "intake-id-long-enough",
+        intakeToken: "token",
+        recordingPlatform: "web",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "multipart_start_failed",
+      details: { retryable: false },
+    });
+    expect(mocks.trash).not.toHaveBeenCalled();
+    expect(mocks.release).not.toHaveBeenCalled();
+  });
+
+  it("keeps the intake claimed when create returns an untyped error", async () => {
+    mocks.create.mockRejectedValue(new Error("Unknown create failure"));
+
+    await expect(
+      action.run({
+        intakeId: "intake-id-long-enough",
+        intakeToken: "token",
+        recordingPlatform: "web",
+      }),
+    ).rejects.toThrow("Unknown create failure");
     expect(mocks.release).not.toHaveBeenCalled();
   });
 

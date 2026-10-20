@@ -292,7 +292,11 @@ describe("create-recording policy", () => {
       actionContractError: true,
       errorCode: "upload_state_initialization_failed",
       statusCode: 503,
-      details: { recordingId: "rec-1", retryable: false },
+      details: {
+        recordingId: "rec-1",
+        retryable: false,
+        cleanupConfirmed: true,
+      },
     });
     expect(calls.insert).toHaveBeenCalledOnce();
     expect(calls.updateSet).toHaveBeenLastCalledWith(
@@ -402,10 +406,64 @@ describe("create-recording policy", () => {
       actionContractError: true,
       errorCode: "multipart_start_failed",
       statusCode: 503,
-      details: { recordingId: "rec-1", retryable: false },
+      details: {
+        recordingId: "rec-1",
+        retryable: false,
+        cleanupConfirmed: false,
+      },
     });
 
     expect(calls.releaseReservation).not.toHaveBeenCalled();
+  });
+
+  it("marks upload cleanup unconfirmed when the hosted reservation cannot be released", async () => {
+    calls.bufferedFallbackAvailable = false;
+    calls.streamingEnabled = true;
+    calls.resolveStorage.mockResolvedValueOnce({
+      mode: "hosted",
+      provider: {
+        id: "clips-hosted",
+        resumable: {
+          startSession: vi
+            .fn()
+            .mockRejectedValue(new Error("credentials are not configured")),
+        },
+      },
+      hostedRemaining: 2,
+      hostedLimit: 3,
+      maxClipBytes: 250 * 1024 * 1024,
+      maxClipDurationMs: 10 * 60 * 1000,
+      reservationCreated: true,
+    });
+    calls.releaseReservation.mockRejectedValueOnce(
+      new Error("reservation release failed"),
+    );
+
+    const action = createRecording as unknown as {
+      run: (
+        args: Record<string, unknown>,
+        context: { userEmail: string },
+      ) => Promise<unknown>;
+    };
+
+    await expect(
+      action.run(
+        {
+          id: "rec-1",
+          recordingPlatform: "web",
+          requestStreaming: true,
+        },
+        { userEmail: "owner@example.com" },
+      ),
+    ).rejects.toMatchObject({
+      actionContractError: true,
+      errorCode: "storage_setup_required",
+      details: {
+        recordingId: "rec-1",
+        retryable: false,
+        cleanupConfirmed: false,
+      },
+    });
   });
 
   it("does not classify unavailable required streaming as missing storage", async () => {
@@ -438,7 +496,11 @@ describe("create-recording policy", () => {
       actionContractError: true,
       errorCode: "streaming_upload_unavailable",
       statusCode: 503,
-      details: { recordingId: "rec-1", retryable: false },
+      details: {
+        recordingId: "rec-1",
+        retryable: false,
+        cleanupConfirmed: true,
+      },
       message:
         "The current storage setup cannot start the resumable upload required by this recorder.",
     });
@@ -497,7 +559,7 @@ describe("create-recording policy", () => {
       actionContractError: true,
       errorCode: "hosted_storage_unavailable",
       statusCode: 503,
-      details: { retryable: true },
+      details: { retryable: true, cleanupConfirmed: true },
       message:
         "Clips hosted storage is temporarily unavailable. Try again later.",
     });

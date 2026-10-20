@@ -42,6 +42,7 @@ export type UploadTargetErrorCode =
   | "storage_setup_required"
   | "storage_status_unavailable"
   | "hosted_storage_unavailable"
+  | "intake_storage_unavailable"
   | "recording_owner_mismatch"
   | "streaming_upload_unavailable"
   | "upload_target_unavailable";
@@ -69,10 +70,12 @@ function typedUploadTargetError(
   options: { intake?: boolean } = {},
 ): UploadTargetError | null {
   if (options.intake && denialCode === "sign_in_required") {
-    return new UploadTargetError("storage_setup_required");
+    return new UploadTargetError("intake_storage_unavailable");
   }
   if (STORAGE_SETUP_DENIAL_CODES.has(denialCode ?? "")) {
-    return new UploadTargetError("storage_setup_required");
+    return new UploadTargetError(
+      options.intake ? "intake_storage_unavailable" : "storage_setup_required",
+    );
   }
   if (denialCode === "hosted_storage_unavailable") {
     return new UploadTargetError("hosted_storage_unavailable");

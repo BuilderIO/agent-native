@@ -1983,6 +1983,8 @@ const messages = {
     uploadFailedAtChunk:
       "Upload failed at chunk {{chunk}}/{{total}}: {{message}} (ローカライズ済み)",
     couldNotStartRecording: "Could not start recording (ローカライズ済み)",
+    intakeStorageUnavailable:
+      "このリンクで録画するには、リンクの所有者が動画ストレージを接続する必要があります。所有者に依頼してから、もう一度お試しください。",
     streamingStorageUnavailable:
       "現在のストレージは Clips に必要な再開可能なアップロードに対応していません。互換性のあるプロバイダーを設定するか、ワークスペースのオーナーまたは管理者に依頼してから、新しい録画を開始してください。",
     couldNotStartRecorder: "Could not start recorder (ローカライズ済み)",

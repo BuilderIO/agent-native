@@ -305,13 +305,13 @@ describe("openUploadTarget", () => {
     {
       status: 403,
       errorCode: "sign_in_required",
-      expected: "storage_setup_required",
+      expected: "intake_storage_unavailable",
     },
     {
       status: 403,
       errorCode: "forbidden",
       denyReason: "disabled",
-      expected: "storage_setup_required",
+      expected: "intake_storage_unavailable",
     },
     {
       status: 503,
