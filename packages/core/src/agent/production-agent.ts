@@ -433,6 +433,7 @@ import {
   matchToolCallResultsInHistory,
   toolCallIdentityKey,
   toolCallInputFingerprint,
+  unmatchedAmbiguousLegacyToolCallResultsInHistory,
   type JournalCallEffect,
 } from "./tool-call-journal.js";
 import {
@@ -4774,33 +4775,62 @@ function* historyToolResults(
   readOnlyCalls: ReadonlySet<unknown>,
   priorCallIdentities: ReadonlyMap<string, string>,
 ) {
-  for (const { call: part, result } of matchToolCallResultsInHistory(
-    turnMessages,
-  )) {
-    const identityKey = toolCallIdentityKey(part.id, part.executionStepId);
-    const argumentsHash = identityKey
-      ? priorCallIdentities.get(identityKey)
-      : undefined;
-    yield {
-      part: result,
-      call: {
-        name: part.name,
-        identityKey,
-        ...(part.executionStepId === undefined
-          ? {
-              fallbackEffectKey: ambiguousLegacyCallEffectKey(
-                part.id,
-                part.name,
-              ),
-            }
-          : {}),
-        ...(argumentsHash
-          ? { key: preparedToolCallKey(part.name, argumentsHash) }
-          : {}),
-        readOnly: readOnlyCalls.has(part),
-        dedupe: actions[part.name]?.dedupe !== false,
-      },
-    };
+  const matchedCallsByResult = new Map(
+    matchToolCallResultsInHistory(turnMessages).map(({ call, result }) => [
+      result,
+      call,
+    ]),
+  );
+  const ambiguousWriteResults = new Set(
+    unmatchedAmbiguousLegacyToolCallResultsInHistory(turnMessages)
+      .filter(({ candidateCalls }) =>
+        candidateCalls.some((call) => !readOnlyCalls.has(call)),
+      )
+      .map(({ result }) => result),
+  );
+
+  for (const message of turnMessages) {
+    if (message.role === "assistant") continue;
+    for (const result of message.content) {
+      if (result.type !== "tool-result") continue;
+      const part = result;
+      const callPart = matchedCallsByResult.get(result);
+      if (!callPart) {
+        if (ambiguousWriteResults.has(result)) {
+          yield { kind: "ambiguous-write" as const, part };
+        }
+        continue;
+      }
+
+      const identityKey = toolCallIdentityKey(
+        callPart.id,
+        callPart.executionStepId,
+      );
+      const argumentsHash = identityKey
+        ? priorCallIdentities.get(identityKey)
+        : undefined;
+      yield {
+        kind: "matched" as const,
+        part,
+        call: {
+          name: callPart.name,
+          identityKey,
+          ...(callPart.executionStepId === undefined
+            ? {
+                fallbackEffectKey: ambiguousLegacyCallEffectKey(
+                  callPart.id,
+                  callPart.name,
+                ),
+              }
+            : {}),
+          ...(argumentsHash
+            ? { key: preparedToolCallKey(callPart.name, argumentsHash) }
+            : {}),
+          readOnly: readOnlyCalls.has(callPart),
+          dedupe: actions[callPart.name]?.dedupe !== false,
+        },
+      };
+    }
   }
 }
 
@@ -4818,12 +4848,17 @@ function seedReadOnlyToolResultsFromHistory(
   const turnStart = findCurrentTurnStartForContinuation(messages);
   const turnMessages = messages.slice(turnStart);
 
-  for (const { part, call } of historyToolResults(
+  for (const historyResult of historyToolResults(
     turnMessages,
     actions,
     readOnlyCalls,
     priorCallIdentities,
   )) {
+    if (historyResult.kind === "ambiguous-write") {
+      cache.clear();
+      continue;
+    }
+    const { part, call } = historyResult;
     if (
       historyResultInvalidatesReads(
         part,
@@ -4883,12 +4918,18 @@ function seedDuplicateReadOnlyToolCallsFromHistory(
   );
   const reusableReadKeys = new Set<string>();
 
-  for (const { part, call } of historyToolResults(
+  for (const historyResult of historyToolResults(
     turnMessages,
     actions,
     readOnlyCalls,
     priorCallIdentities,
   )) {
+    if (historyResult.kind === "ambiguous-write") {
+      repeats.clear();
+      reusableReadKeys.clear();
+      continue;
+    }
+    const { part, call } = historyResult;
     if (
       historyResultInvalidatesReads(
         part,
@@ -5123,12 +5164,14 @@ function seedUnknownOutcomes(
 
   const fromHistory = noUnknownOutcomes();
   const matchedResults = new Set<EngineToolResultPart>();
-  for (const { part, call } of historyToolResults(
+  for (const historyResult of historyToolResults(
     turnMessages,
     actions,
     readOnlyCalls,
     priorCallIdentities,
   )) {
+    if (historyResult.kind !== "matched") continue;
+    const { part, call } = historyResult;
     matchedResults.add(part);
     // What the call's run recorded decides, however it prepares now. Only a
     // call that recorded none is judged by its result; writes alone hold back

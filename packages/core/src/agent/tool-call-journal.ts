@@ -138,6 +138,62 @@ export function matchToolCallResultsInHistory(
   return matched;
 }
 
+export function unmatchedAmbiguousLegacyToolCallResultsInHistory(
+  history: readonly EngineMessage[],
+): Array<{
+  result: EngineToolResultPart;
+  candidateCalls: EngineToolCallPart[];
+}> {
+  const matchedResults = new Set(
+    matchToolCallResultsInHistory(history).map(({ result }) => result),
+  );
+  const callsByIdentity = new Map<
+    string,
+    Array<{ part: EngineToolCallPart; order: number }>
+  >();
+  const results: Array<{ part: EngineToolResultPart; order: number }> = [];
+  let order = 0;
+
+  for (const message of history) {
+    for (const part of message.content) {
+      if (
+        message.role === "assistant" &&
+        part.type === "tool-call" &&
+        part.executionStepId === undefined
+      ) {
+        const key = JSON.stringify([part.id, part.name]);
+        const calls = callsByIdentity.get(key) ?? [];
+        calls.push({ part, order });
+        callsByIdentity.set(key, calls);
+      } else if (
+        message.role !== "assistant" &&
+        part.type === "tool-result" &&
+        part.executionStepId === undefined
+      ) {
+        results.push({ part, order });
+      }
+      order++;
+    }
+  }
+
+  const ambiguous: Array<{
+    result: EngineToolResultPart;
+    candidateCalls: EngineToolCallPart[];
+  }> = [];
+  for (const { part: result, order: resultOrder } of results) {
+    if (matchedResults.has(result)) continue;
+    const candidates = callsByIdentity.get(
+      JSON.stringify([result.toolCallId, result.toolName]),
+    );
+    const candidateCalls =
+      candidates
+        ?.filter((candidate) => candidate.order < resultOrder)
+        .map(({ part }) => part) ?? [];
+    if (candidateCalls.length > 0) ambiguous.push({ result, candidateCalls });
+  }
+  return ambiguous;
+}
+
 export function journalEntriesRepresentedInHistory(
   journal: ToolCallJournal,
   history: readonly EngineMessage[],

@@ -1296,6 +1296,173 @@ describe("durable execution step replay", () => {
     );
   });
 
+  it("invalidates cached reads for ambiguous duplicate-ID legacy results", async () => {
+    const input = { id: "deck-ambiguous-duplicate-cache" };
+    const reusedWriteId = "legacy-write-duplicate-cache";
+    durableStep.priorEvents = [
+      {
+        type: "tool_start",
+        id: "previous-read",
+        tool: "get-deck",
+        input,
+      },
+      {
+        type: "tool_done",
+        id: "previous-read",
+        tool: "get-deck",
+        input,
+        result: "Old deck state",
+        argumentsHash: actionArgumentsHash(input),
+      },
+      {
+        type: "tool_start",
+        id: reusedWriteId,
+        tool: "create-deck",
+        input,
+      },
+      {
+        type: "tool_done",
+        id: reusedWriteId,
+        tool: "create-deck",
+        input,
+        result: "The deck was saved.",
+        completedSideEffect: true,
+      },
+      {
+        type: "tool_start",
+        id: reusedWriteId,
+        tool: "create-deck",
+        input,
+      },
+      {
+        type: "tool_done",
+        id: reusedWriteId,
+        tool: "create-deck",
+        input,
+        result: "The deck was saved.",
+        completedSideEffect: true,
+      },
+    ];
+    const readAction = vi.fn(async () => "Fresh deck state");
+    const events: AgentChatEvent[] = [];
+    const writeCall = () => ({
+      type: "tool-call" as const,
+      id: reusedWriteId,
+      name: "create-deck",
+      input,
+    });
+    const writeResult = () => ({
+      type: "tool-result" as const,
+      toolCallId: reusedWriteId,
+      toolName: "create-deck",
+      toolInput: JSON.stringify(input),
+      content: "The deck was saved.",
+    });
+
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [
+            [
+              {
+                type: "tool-call",
+                id: "current-read",
+                name: "get-deck",
+                input,
+              },
+            ],
+            [text("The deck is current.")],
+          ],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Check the deck." }],
+          },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                id: "previous-read",
+                name: "get-deck",
+                input,
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "tool-result",
+                toolCallId: "previous-read",
+                toolName: "get-deck",
+                toolInput: JSON.stringify(input),
+                content: "Old deck state",
+              },
+            ],
+          },
+          {
+            role: "assistant",
+            content: [writeCall(), writeCall()],
+          },
+          {
+            role: "user",
+            content: [writeResult(), writeResult()],
+          },
+          {
+            role: "user",
+            content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+          },
+        ],
+        actions: {
+          "get-deck": {
+            tool: {
+              description: "Read a deck",
+              parameters: {
+                type: "object" as const,
+                properties: { id: { type: "string" } },
+                required: ["id"],
+              },
+            },
+            readOnly: true,
+            run: readAction,
+          },
+          "create-deck": {
+            tool: {
+              description: "Create a deck",
+              parameters: {
+                type: "object" as const,
+                properties: { id: { type: "string" } },
+                required: ["id"],
+              },
+            },
+            readOnly: false,
+            run: vi.fn(async () => "Unexpected fresh write"),
+          },
+        },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        internalContinuation: true,
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(readAction).toHaveBeenCalledOnce();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        id: "current-read",
+        result: "Fresh deck state",
+      }),
+    );
+  });
+
   it("holds writes when an ambiguous legacy history result is unknown", async () => {
     const firstInput = { id: "first-deck" };
     const secondInput = { id: "second-deck" };

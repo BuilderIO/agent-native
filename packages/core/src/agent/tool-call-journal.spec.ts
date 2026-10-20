@@ -18,6 +18,7 @@ import {
   matchToolCallResultsInHistory,
   toolCallIdentityKey,
   toolCallInputFingerprint,
+  unmatchedAmbiguousLegacyToolCallResultsInHistory,
 } from "./tool-call-journal.js";
 import type { AgentChatEvent, AgentToolInput } from "./types.js";
 
@@ -971,6 +972,12 @@ describe("recorded call effects", () => {
       name: "read",
       input: {},
     };
+    const secondLegacyCall = {
+      type: "tool-call" as const,
+      id: "legacy-id",
+      name: "read",
+      input: { second: true },
+    };
     const legacyResult = {
       type: "tool-result" as const,
       toolCallId: "legacy-id",
@@ -978,12 +985,19 @@ describe("recorded call effects", () => {
       toolInput: "{}",
       content: "legacy",
     };
+    const ambiguousHistory: EngineMessage[] = [
+      { role: "assistant", content: [legacyCall, secondLegacyCall] },
+      { role: "user", content: [legacyResult] },
+    ];
+    expect(matchToolCallResultsInHistory(ambiguousHistory)).toEqual([]);
     expect(
-      matchToolCallResultsInHistory([
-        { role: "assistant", content: [legacyCall, legacyCall] },
-        { role: "user", content: [legacyResult] },
-      ]),
-    ).toEqual([]);
+      unmatchedAmbiguousLegacyToolCallResultsInHistory(ambiguousHistory),
+    ).toEqual([
+      {
+        result: legacyResult,
+        candidateCalls: [legacyCall, secondLegacyCall],
+      },
+    ]);
   });
 
   it("replays only a committed call prepared to the same arguments, once", () => {
