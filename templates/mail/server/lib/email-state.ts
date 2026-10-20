@@ -25,6 +25,7 @@ import { syncInboxLabelDelta } from "./inbox-store-sync.js";
 import {
   findAccountForMessage,
   findAccountForThread,
+  findAccountsForTargets,
   findThreadIdsByMessageIds,
 } from "./inbox-store.js";
 import {
@@ -151,8 +152,9 @@ async function probeAccountsForTargets(
   const unreadable = new Map<string, number>();
   let open = [...targets];
   let budget = PROBE_UNIT_BUDGET;
-  let budgetExhausted = false;
-  const probedKeys = new Set<string>();
+  // Accounts that answered 404 for each target: "not found" is only true once
+  // every candidate account has.
+  const missing = new Map<string, Set<string>>();
   const targetName = (t: ProbeTarget) => t.threadId ?? t.messageId ?? t.key;
 
   for (const accountId of accountIds) {
@@ -177,9 +179,7 @@ async function probeAccountsForTargets(
       budget -= cost;
       probing.push(t);
     }
-    if (probing.length < open.length) budgetExhausted = true;
     if (probing.length === 0) break;
-    for (const t of probing) probedKeys.add(t.key);
 
     const found = new Set<string>();
     const failed = new Set<string>();
@@ -201,7 +201,11 @@ async function probeAccountsForTargets(
           const part = byId.get(idOf(t));
           if (part && !part.error && part.data?.id === idOf(t)) {
             found.add(t.key);
-          } else if (!part || !/HTTP 404/.test(part.error ?? "")) {
+          } else if (part && /HTTP 404/.test(part.error ?? "")) {
+            const accounts = missing.get(t.key) ?? new Set<string>();
+            accounts.add(accountId);
+            missing.set(t.key, accounts);
+          } else {
             failed.add(t.key);
           }
         }
@@ -237,10 +241,14 @@ async function probeAccountsForTargets(
     const count = unreadable.get(t.key) ?? 0;
     if (count > 0) {
       outcome.set(t.key, new MutationAccountLookupError(targetName(t), count));
-    } else if (budgetExhausted && !probedKeys.has(t.key)) {
-      outcome.set(t.key, new MutationAccountProbeLimitError(targetName(t)));
-    } else {
+    } else if (
+      (!t.threadId && !t.messageId) ||
+      (missing.get(t.key)?.size ?? 0) >= accountIds.length
+    ) {
       outcome.set(t.key, new MutationAccountNotFoundError(targetName(t)));
+    } else {
+      // Some candidate account was never asked (budget ran out first).
+      outcome.set(t.key, new MutationAccountProbeLimitError(targetName(t)));
     }
   }
   return outcome;
@@ -318,28 +326,41 @@ export async function resolveMutationAccounts<
   const slots: Array<{ accountEmail: string } | { error: string } | undefined> =
     targets.map(() => undefined);
   const misses: ProbeTarget[] = [];
+  const unmapped = targets.filter((target) => !target.accountEmail);
+  let cached: Awaited<ReturnType<typeof findAccountsForTargets>> | null = null;
+  let cacheError = "";
+  if (unmapped.length > 0) {
+    // One query covers every target's thread and message id.
+    try {
+      cached = await findAccountsForTargets(ownerEmail, {
+        threadIds: unmapped.flatMap((target) =>
+          target.threadId ? [target.threadId] : [],
+        ),
+        messageIds: unmapped.map((target) => target.id),
+      });
+    } catch (err: any) {
+      cacheError = err?.message ?? "Could not resolve connected account";
+    }
+  }
   for (const [index, target] of targets.entries()) {
     if (target.accountEmail) {
       slots[index] = { accountEmail: target.accountEmail };
       continue;
     }
-    try {
-      const found =
-        (target.threadId
-          ? await findAccountForThread(ownerEmail, target.threadId)
-          : null) ?? (await findAccountForMessage(ownerEmail, target.id));
-      if (found) slots[index] = { accountEmail: found };
-      else {
-        misses.push({
-          key: String(index),
-          threadId: target.threadId,
-          messageId: target.id,
-        });
-      }
-    } catch (err: any) {
-      slots[index] = {
-        error: err?.message ?? "Could not resolve connected account",
-      };
+    if (!cached) {
+      slots[index] = { error: cacheError };
+      continue;
+    }
+    const found =
+      (target.threadId ? cached.byThread.get(target.threadId) : undefined) ??
+      cached.byMessage.get(target.id);
+    if (found) slots[index] = { accountEmail: found };
+    else {
+      misses.push({
+        key: String(index),
+        threadId: target.threadId,
+        messageId: target.id,
+      });
     }
   }
   if (misses.length > 0) {

@@ -15,6 +15,7 @@ const inboxStoreMocks = vi.hoisted(() => ({
   findThreadIdsByMessageIds: vi.fn(),
   findAccountForThread: vi.fn(),
   findAccountForMessage: vi.fn(),
+  findAccountsForTargets: vi.fn(),
 }));
 
 import {
@@ -84,6 +85,7 @@ vi.mock("./inbox-store.js", () => ({
   findThreadIdsByMessageIds: inboxStoreMocks.findThreadIdsByMessageIds,
   findAccountForThread: inboxStoreMocks.findAccountForThread,
   findAccountForMessage: inboxStoreMocks.findAccountForMessage,
+  findAccountsForTargets: inboxStoreMocks.findAccountsForTargets,
 }));
 
 import {
@@ -253,6 +255,25 @@ beforeEach(() => {
   inboxStoreMocks.findThreadIdsByMessageIds.mockResolvedValue(new Map());
   inboxStoreMocks.findAccountForThread.mockResolvedValue(null);
   inboxStoreMocks.findAccountForMessage.mockResolvedValue(null);
+  // The bulk lookup is one store query; tests script it through the per-id mocks.
+  inboxStoreMocks.findAccountsForTargets.mockImplementation(
+    async (
+      owner: string,
+      targets: { threadIds: string[]; messageIds: string[] },
+    ) => {
+      const byThread = new Map<string, string>();
+      const byMessage = new Map<string, string>();
+      for (const id of targets.threadIds) {
+        const found = await inboxStoreMocks.findAccountForThread(owner, id);
+        if (found) byThread.set(id, found);
+      }
+      for (const id of targets.messageIds) {
+        const found = await inboxStoreMocks.findAccountForMessage(owner, id);
+        if (found) byMessage.set(id, found);
+      }
+      return { byThread, byMessage };
+    },
+  );
   // By default the connected list is the owner's OAuth grants; managed tests
   // override it.
   vi.mocked(getConnectedAccountsWithErrors).mockImplementation((async (
@@ -1422,6 +1443,67 @@ describe("resolveMutationAccounts", () => {
         unresolved.filter((entry) => /too many lookups/.test(entry.error))
           .length,
       ).toBeGreaterThanOrEqual(120 - 75);
+    });
+
+    it("reports a probe limit, not not-found, when the budget ran out before every account was asked", async () => {
+      tokensPerAccount();
+      // 75 reads fit the budget; the 76th..80th target only gets the first account.
+      const ids = Array.from({ length: 80 }, (_, index) => `t${index}`);
+      vi.mocked(gmailBatchGetThreads).mockImplementation((async (
+        _token: string,
+        requested: string[],
+      ) => requested.map(notFound)) as any);
+
+      const { unresolved } = await resolveMutationAccounts(
+        OWNER,
+        ids.map((id) => ({ id: `m-${id}`, threadId: id })),
+      );
+
+      const byId = new Map(unresolved.map((entry) => [entry.id, entry.error]));
+      // Asked on the first account (404) but never on the second: not "not found".
+      for (const id of ids.slice(0, 75)) {
+        expect(byId.get(`m-${id}`)).toMatch(/too many lookups/);
+      }
+      expect(
+        unresolved.filter((entry) => /too many lookups/.test(entry.error)),
+      ).toHaveLength(80);
+    });
+
+    it("reports not-found only after every account answered 404", async () => {
+      tokensPerAccount();
+      vi.mocked(gmailBatchGetThreads).mockImplementation((async (
+        _token: string,
+        requested: string[],
+      ) => requested.map(notFound)) as any);
+
+      const { unresolved } = await resolveMutationAccounts(OWNER, [
+        { id: "m1", threadId: THREAD_ID },
+      ]);
+
+      expect(unresolved[0].error).toMatch(/Cannot determine which connected/);
+      expect(unresolved[0].error).not.toMatch(/too many lookups/);
+    });
+
+    it("looks the whole batch up in the store with a single query", async () => {
+      tokensPerAccount();
+      inboxStoreMocks.findAccountsForTargets.mockResolvedValue({
+        byThread: new Map(),
+        byMessage: new Map(),
+      });
+      vi.mocked(gmailBatchGetThreads).mockImplementation((async (
+        _token: string,
+        requested: string[],
+      ) => requested.map(notFound)) as any);
+      const ids = Array.from({ length: 50 }, (_, index) => `t${index}`);
+
+      await resolveMutationAccounts(
+        OWNER,
+        ids.map((id) => ({ id: `m-${id}`, threadId: id })),
+      );
+
+      expect(inboxStoreMocks.findAccountsForTargets).toHaveBeenCalledTimes(1);
+      expect(inboxStoreMocks.findAccountForThread).not.toHaveBeenCalled();
+      expect(inboxStoreMocks.findAccountForMessage).not.toHaveBeenCalled();
     });
 
     it("throws a typed not-found error when no account has the thread", async () => {

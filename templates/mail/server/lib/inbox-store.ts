@@ -1,3 +1,4 @@
+import { getDbExec } from "@agent-native/core/db";
 import { decodeGmailSnippet } from "@shared/gmail-snippet.js";
 import type { InboxThreadItem } from "@shared/inbox-threads.js";
 import type { EmailMessage, Label } from "@shared/types.js";
@@ -561,6 +562,62 @@ export async function findAccountForThread(
     )
     .limit(1);
   return rows[0]?.accountEmail ?? null;
+}
+
+/**
+ * Maps many thread and message ids to their owning accounts in one query over
+ * the owner's rows, for bulk mutations. Ids the store has no row for are
+ * absent from the result; callers resolve those another way.
+ */
+export async function findAccountsForTargets(
+  ownerEmail: string,
+  targets: { threadIds: readonly string[]; messageIds: readonly string[] },
+): Promise<{
+  byThread: Map<string, string>;
+  byMessage: Map<string, string>;
+}> {
+  const byThread = new Map<string, string>();
+  const byMessage = new Map<string, string>();
+  const threadIds = [...new Set(targets.threadIds.filter(Boolean))];
+  const messageIds = [...new Set(targets.messageIds.filter(Boolean))];
+  if (threadIds.length === 0 && messageIds.length === 0) {
+    return { byThread, byMessage };
+  }
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT t.account_email, t.thread_id, t.message_ids_json
+      FROM mail_inbox_threads t
+      WHERE t.owner_email = $1
+        AND (
+          EXISTS (
+            SELECT 1 FROM jsonb_array_elements_text($2::jsonb) w
+            WHERE w = t.thread_id
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements_text(COALESCE(t.message_ids_json, '[]')::jsonb) m
+            JOIN jsonb_array_elements_text($3::jsonb) w ON w = m
+          )
+        )`,
+    args: [
+      ownerEmail.toLowerCase(),
+      JSON.stringify(threadIds),
+      JSON.stringify(messageIds),
+    ],
+  });
+  const wantedThreads = new Set(threadIds);
+  const wantedMessages = new Set(messageIds);
+  for (const row of rows as any[]) {
+    const account = String(row.account_email);
+    const threadId = String(row.thread_id);
+    if (wantedThreads.has(threadId) && !byThread.has(threadId)) {
+      byThread.set(threadId, account);
+    }
+    for (const id of parseJsonArray<string>(row.message_ids_json ?? null, [])) {
+      if (wantedMessages.has(id) && !byMessage.has(id))
+        byMessage.set(id, account);
+    }
+  }
+  return { byThread, byMessage };
 }
 
 export async function findAccountForMessage(
