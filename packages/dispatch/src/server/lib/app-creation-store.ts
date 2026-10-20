@@ -1721,7 +1721,7 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
           preferGlobalSecret: true,
           audience: canonicalA2AAudience(
             baseUrl.toString(),
-            getConfiguredAppBasePath(),
+            getConfiguredAppBasePath() || undefined,
           ),
         },
       );
